@@ -30,12 +30,19 @@ export function useSaveSlackConfig({
     }: {
       botToken: string;
       appToken: string;
-    }) =>
-      integrationsSlackChannelConfigPost({
+    }) => {
+      if (!appToken.trim()) {
+        throw new Error("App token is required. Go back to step 2 to enter it.");
+      }
+      if (!botToken.trim()) {
+        throw new Error("Bot token is required.");
+      }
+      return integrationsSlackChannelConfigPost({
         path: { assistant_id: assistantId },
-        body: { botToken, appToken },
+        body: { botToken: botToken.trim(), appToken: appToken.trim() },
         throwOnError: true,
-      }),
+      });
+    },
     onSuccess,
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: readinessQueryKey });

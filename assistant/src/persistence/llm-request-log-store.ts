@@ -26,6 +26,7 @@ import {
 } from "./conversation-crud.js";
 import { type DrizzleDb, getDb, getLogsDb } from "./db-connection.js";
 import { llmRequestLogs, messages } from "./schema/index.js";
+import { timeSyncSection } from "./slow-sync-log.js";
 
 /**
  * The logs connection (`assistant-logs.db`), where `llm_request_logs` lives.
@@ -167,27 +168,42 @@ export function recordRequestLog(
 ): string {
   const db = logsDb();
   const id = uuid();
-  db.insert(llmRequestLogs)
-    .values({
-      id,
+  // Synchronous insert of the full request/response payloads (an entire
+  // context window for main-agent calls) into the append-only logs DB, on the
+  // per-LLM-call critical path. Timed so an event-loop freeze the watchdog
+  // detects can be attributed to this write (see slow-sync-log).
+  timeSyncSection(
+    "llm-request-log:write",
+    () =>
+      db
+        .insert(llmRequestLogs)
+        .values({
+          id,
+          conversationId,
+          messageId: messageId ?? null,
+          provider: provider ?? null,
+          requestPayload,
+          responsePayload,
+          createdAt: Date.now(),
+          // Stamped later via setAgentLoopExitReasonOnLatestLog, once the
+          // agent loop body actually exits. Intermediate rows stay NULL.
+          agentLoopExitReason: null,
+          // Logical call site (`mainAgent`, `compactionAgent`, …). NULL when
+          // a caller hasn't been updated yet — preserves backward compat
+          // while we plumb call sites through one site at a time.
+          callSite: callSite ?? null,
+          // JSON first-token latency waterfall, supplied by `handleUsage` for
+          // main-agent calls. NULL for failed/non-instrumented call paths.
+          latencyBreakdown: latencyBreakdown ?? null,
+        })
+        .run(),
+    () => ({
       conversationId,
-      messageId: messageId ?? null,
-      provider: provider ?? null,
-      requestPayload,
-      responsePayload,
-      createdAt: Date.now(),
-      // Stamped later via setAgentLoopExitReasonOnLatestLog, once the
-      // agent loop body actually exits. Intermediate rows stay NULL.
-      agentLoopExitReason: null,
-      // Logical call site (`mainAgent`, `compactionAgent`, …). NULL when
-      // a caller hasn't been updated yet — preserves backward compat
-      // while we plumb call sites through one site at a time.
       callSite: callSite ?? null,
-      // JSON first-token latency waterfall, supplied by `handleUsage` for
-      // main-agent calls. NULL for failed/non-instrumented call paths.
-      latencyBreakdown: latencyBreakdown ?? null,
-    })
-    .run();
+      requestBytes: requestPayload.length,
+      responseBytes: responsePayload.length,
+    }),
+  );
   return id;
 }
 

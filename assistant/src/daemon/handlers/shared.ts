@@ -104,6 +104,8 @@ export interface SlackInboundMessageMetadata {
   displayName?: string;
   /** Canonical Slack external user id for the sender, when available. */
   actorExternalUserId?: string;
+  /** Slack team id the sender belongs to — the `recipient_team_id` for channel streaming. */
+  actorTeamId?: string;
   /** Raw Slack profile timezone for the sender, when supplied. */
   actorTimezone?: string;
   /** Compact Slack profile timezone label for the sender, when supplied. */

@@ -478,6 +478,7 @@ export async function postChatMessage(
   onboarding?: PreChatOnboardingContext,
   clientMessageId?: string,
   inferenceProfile?: string | null,
+  isHidden?: boolean,
 ): Promise<PostMessageResult> {
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
@@ -535,6 +536,12 @@ export async function postChatMessage(
   // otherwise so the conversation inherits the global default profile.
   if (inferenceProfile) {
     body.inferenceProfile = inferenceProfile;
+  }
+  // Persist the message but suppress it from the transcript (it still drives the
+  // turn LLM-side). Used by the research-onboarding "Let's chat" handoff to
+  // prime a proactive assistant greeting without showing the triggering message.
+  if (isHidden) {
+    body.hidden = true;
   }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)

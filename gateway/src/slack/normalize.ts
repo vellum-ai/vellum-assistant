@@ -354,6 +354,8 @@ export interface SlackAppMentionEvent {
   client_msg_id?: string;
   event_ts?: string;
   files?: SlackFile[];
+  /** Team ID of the mentioning user's workspace. */
+  team?: string;
 }
 
 /**
@@ -389,6 +391,8 @@ export interface SlackChannelMessageEvent {
   client_msg_id?: string;
   event_ts?: string;
   files?: SlackFile[];
+  /** Team ID of the sending user's workspace. */
+  team?: string;
 }
 
 /**
@@ -656,6 +660,7 @@ export function normalizeSlackChannelMessage(
       actor: {
         actorExternalId: event.user,
         ...(userInfo ? slackUserActorFields(userInfo) : {}),
+        ...(event.team ? { teamId: event.team } : {}),
       },
       source: {
         updateId: eventId,
@@ -717,6 +722,7 @@ export function normalizeSlackAppMention(
       actor: {
         actorExternalId: event.user,
         ...(userInfo ? slackUserActorFields(userInfo) : {}),
+        ...(event.team ? { teamId: event.team } : {}),
       },
       source: {
         updateId: eventId,

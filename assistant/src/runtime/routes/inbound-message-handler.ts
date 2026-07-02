@@ -1251,6 +1251,12 @@ export async function handleChannelInbound({
         sourceChannel === "slack"
           ? resolveSlackTranscriptTimestampTimezone(inboundClientTimezone)
           : undefined;
+      const slackActorTeamId =
+        sourceChannel === "slack" &&
+        typeof sourceMetadata?.actorTeamId === "string" &&
+        sourceMetadata.actorTeamId.length > 0
+          ? sourceMetadata.actorTeamId
+          : undefined;
       const slackInbound =
         sourceChannel === "slack"
           ? {
@@ -1266,6 +1272,7 @@ export async function handleChannelInbound({
               ...(trustCtx.requesterExternalUserId
                 ? { actorExternalUserId: trustCtx.requesterExternalUserId }
                 : {}),
+              ...(slackActorTeamId ? { actorTeamId: slackActorTeamId } : {}),
               ...buildSlackTimezoneMetadata({
                 actorTimezone: slackActorTimezone?.timezone,
                 actorTimezoneLabel: slackActorTimezone?.timezoneLabel,

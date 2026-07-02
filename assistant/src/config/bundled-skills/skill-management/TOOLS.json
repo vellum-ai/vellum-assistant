@@ -42,6 +42,16 @@
             "items": { "type": "string" },
             "description": "Optional list of child skill IDs that this skill includes (metadata only, no auto-activation)."
           },
+          "activation_hints": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional trigger phrases describing the situations where this skill should activate, phrased as the observed intent (e.g. \"user asks to deploy staging\"). Surfaced in memory as a \"Use when: …\" clause so the skill is retrievable by intent, not just by name."
+          },
+          "avoid_when": {
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional situations where this skill should NOT be used. Surfaced in memory as an \"Avoid when: …\" clause to steer retrieval away from the wrong contexts."
+          },
           "files": {
             "type": "array",
             "items": {

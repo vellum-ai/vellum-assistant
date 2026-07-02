@@ -195,6 +195,43 @@ export function appendEventToMessages(
 }
 
 /**
+ * Advance the snapshot's authoritative `processing` flag from a folded event.
+ *
+ * `undefined` is the version sentinel — a daemon that omits `processing` on
+ * `/messages` (pre-0.8.8) never gets a synthesized value, so `undefined` stays
+ * "no authoritative signal, fall back to the turn phase." Only seq-carrying
+ * events move a defined flag, so a replayed or out-of-order tail converges the
+ * same way `seq`-idempotency converges the message fold — a bare scalar can't
+ * rely on the structural upsert that keeps message rows convergent.
+ *
+ * Mirrors the turn lifecycle the daemon's `processing_started_at` tracks:
+ * turn-start / assistant content marks a turn in flight; the terminal
+ * `assistant_activity_state(idle)` and `message_complete` mark it done. Cancel
+ * / error terminals aren't folded here — the turn phase already idles on those,
+ * and the next `/messages` reseed carries the authoritative `false`.
+ */
+function nextProcessingState(
+  current: boolean | undefined,
+  event: AssistantEvent,
+  seq: number | null | undefined,
+): boolean | undefined {
+  if (current === undefined) return undefined;
+  if (typeof seq !== "number") return current;
+  switch (event.type) {
+    case "assistant_turn_start":
+    case "assistant_text_delta":
+    case "assistant_thinking_delta":
+      return true;
+    case "assistant_activity_state":
+      return event.phase === "idle" ? false : true;
+    case "message_complete":
+      return false;
+    default:
+      return current;
+  }
+}
+
+/**
  * Fold one event envelope into the history. Drops an event whose `seq` is at or
  * below the history's `seq` — it is already folded — which is what makes replay
  * after reconnect and overlap with a resync safe. `seq` advances to the highest
@@ -217,8 +254,9 @@ export function applyEvent(
   const messages = appendEventToMessages(history.messages, envelope.message, at);
   const nextSeq =
     typeof seq === "number" ? Math.max(history.seq ?? -1, seq) : history.seq ?? null;
+  const processing = nextProcessingState(history.processing, envelope.message, seq);
 
-  return { ...history, messages, seq: nextSeq };
+  return { ...history, messages, seq: nextSeq, processing };
 }
 
 /** Rebuild the history from a snapshot and a run of events — the full

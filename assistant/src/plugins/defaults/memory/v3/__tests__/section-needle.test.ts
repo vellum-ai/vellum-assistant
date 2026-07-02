@@ -133,3 +133,67 @@ describe("buildSectionNeedle", () => {
     expect(results.map((r) => r.article)).toEqual(["page-a", "page-b"]);
   });
 });
+
+describe("queryScored", () => {
+  /** Drop the score, leaving the shape `query` returns. */
+  const strip = ({ article, section }: { article: Slug; section: number }) => ({
+    article,
+    section,
+  });
+
+  test("scores are non-increasing in rank order", async () => {
+    const idx = await index({
+      "page-a": "## S\nshared keyword apple here",
+      "page-b": "## S\nshared keyword apple here too with extra apple apple",
+      "page-c": "## S\nshared keyword apple again",
+    });
+
+    const needle = buildSectionNeedle(idx);
+    const hits = needle.queryScored("apple", 5);
+
+    expect(hits.length).toBeGreaterThan(1);
+    for (let i = 1; i < hits.length; i++) {
+      expect(hits[i]!.score).toBeLessThanOrEqual(hits[i - 1]!.score);
+    }
+  });
+
+  test("parity with query (scores stripped)", async () => {
+    const idx = await index({
+      "page-a": "## S\nshared keyword apple here",
+      "page-b": "## S\nshared keyword apple here too",
+      "page-c": "## S\nshared keyword apple again",
+    });
+
+    const needle = buildSectionNeedle(idx);
+    for (const k of [1, 2, 5]) {
+      expect(needle.queryScored("apple", k).map(strip)).toEqual(
+        needle.query("apple", k),
+      );
+    }
+  });
+
+  test("top score is positive and discriminates between hits", async () => {
+    const idx = await index({
+      "page-a":
+        "## Intro\ngeneral background prose\n\n## Details\nthe elephant appears only here",
+      "topic-x": "## Notes\nunrelated material about gardens",
+    });
+
+    const needle = buildSectionNeedle(idx);
+    const hits = needle.queryScored("elephant", 5);
+
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits[0]!.score).toBeGreaterThan(0);
+    if (hits.length >= 2) {
+      expect(hits[0]!.score).toBeGreaterThan(hits[1]!.score);
+    }
+  });
+
+  test("empty for no match and for k <= 0", async () => {
+    const idx = await index({ "page-a": "## S\nshared keyword apple here" });
+    const needle = buildSectionNeedle(idx);
+
+    expect(needle.queryScored("zzzznomatch", 5)).toEqual([]);
+    expect(needle.queryScored("apple", 0)).toEqual([]);
+  });
+});

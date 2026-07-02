@@ -454,9 +454,10 @@ interface SourceParityPins {
  * stored on the conversation row — the slugs are omitted so the wake keeps
  * today's persona derivation for them.
  *
- * `hasNoClient` — pinned on BOTH the persona override (the prompt's
- * `05-access-preference` section renders different text under the flag) and
- * the tool-context pin, using the live-turn derivation: interactive
+ * `hasNoClient` — pinned on BOTH the persona override (kept for prompt-build
+ * parity; no system-prompt section branches on the flag, so this pin does not
+ * affect prompt output) and the tool-context pin (the live consumer, gating
+ * tool availability), using the live-turn derivation: interactive
  * interfaces run `updateClient(_, false)` (`hasNoClient = false`), while
  * channel-routed and chrome-extension turns stay clientless (`true`) — the
  * exact `isInteractiveInterface` predicate `conversation-routes.ts` /
@@ -951,7 +952,9 @@ When you do capture a procedure:
 
 2. Capture procedure-scoped knowledge alongside the body. Failure modes, gotchas, and cached values you observed in the trace (error signatures and how you recovered, preconditions, IDs/paths/endpoints that held steady) belong in companion files passed via \`scaffold_managed_skill\`'s \`files\` input (for example \`references/failure-modes.md\`), and the SKILL.md body should reference them so a future load surfaces them.
 
-3. Set \`category\` to the single closest-fitting value from this published set (a value outside it gets no Skills-UI bucket, so always pick from the list, never invent one): browsing, calendar, commerce, content, development, email, health, integrations, messaging, productivity, system, voice.
+3. Set \`activation_hints\` to the concrete situations that should trigger this skill later — phrased as the intent you observed in the trace ("user asks to …", "needs to …", "when the goal is …"), NOT the mechanical steps. These become the skill's "Use when" retrieval signal, so a future turn with a matching intent surfaces the skill even when its name doesn't match the request. Give 1–4 short, distinct triggers. Optionally set \`avoid_when\` for situations where the skill should NOT be used.
+
+4. Set \`category\` to the single closest-fitting value from this published set (a value outside it gets no Skills-UI bucket, so always pick from the list, never invent one): browsing, calendar, commerce, content, development, email, health, integrations, messaging, productivity, system, voice.
 
 Ordinary facts still go through \`remember\` (unlinked) exactly as above — skills are for executed, reusable procedures, not for facts.
 `;

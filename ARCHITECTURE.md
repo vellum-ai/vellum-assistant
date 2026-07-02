@@ -315,6 +315,7 @@ subgraph "Text Q&A Session"
         HTTP_RT["RuntimeHttpServer<br/>HTTP + SSE"]
         HANDLERS["Route Handlers<br/>conversation routing"]
         SESSION_MGR["Conversation Manager<br/>in-memory pool<br/>stale eviction"]
+        CHANNEL_TX["Channel Transport<br/>messaging/providers<br/>direct Web API delivery"]
 
         subgraph "Onboarding Control Plane"
             PLAYBOOK_MGR["OnboardingPlaybookManager<br/>resolve + reconcile channel playbooks"]
@@ -404,22 +405,23 @@ subgraph "Text Q&A Session"
         GW_NORMALIZE["Normalize Message<br/>DM text only (v1)"]
         GW_ROUTE["Route Resolver<br/>conversation_id → actor_id → default"]
         GW_FORWARD["Runtime Client<br/>POST /channels/inbound"]
-        GW_REPLY["Send Reply<br/>Telegram sendMessage"]
-        GW_ATTACH["Send Attachments<br/>sendPhoto / sendDocument"]
-        GW_TG_DELIVER["Telegram Deliver<br/>/deliver/telegram<br/>(internal, from runtime)"]
         GW_TWILIO_VOICE["Twilio Voice Webhook<br/>/webhooks/twilio/voice"]
         GW_TWILIO_STATUS["Twilio Status Webhook<br/>/webhooks/twilio/status"]
         GW_TWILIO_CONNECT["Twilio Connect-Action<br/>/webhooks/twilio/connect-action"]
         GW_TWILIO_RELAY["Twilio Relay WS<br/>/webhooks/twilio/relay<br/>(bidirectional proxy)"]
         GW_WA_WEBHOOK["WhatsApp Webhook<br/>/webhooks/whatsapp<br/>(HMAC-SHA256 validated)"]
-        GW_WA_DELIVER["WhatsApp Deliver<br/>/deliver/whatsapp<br/>(internal, from runtime)"]
         GW_SLACK_SOCKET["Slack Socket Mode<br/>WebSocket via<br/>apps.connections.open"]
         GW_SLACK_NORMALIZE["Slack Normalize<br/>app_mention events<br/>+ bot-mention stripping"]
-        GW_SLACK_DELIVER["Slack Deliver<br/>/deliver/slack<br/>(internal, from runtime)"]
         GW_OAUTH["OAuth Callback<br/>/webhooks/oauth/callback"]
         GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
         GW_FEATURE_FLAGS["Feature Flags API<br/>GET /v1/feature-flags<br/>PATCH /v1/feature-flags/:key"]
         GW_PROBES["/healthz + /readyz<br/>k8s liveness/readiness"]
+    end
+
+    subgraph "External Channel APIs"
+        EXT_TELEGRAM["Telegram Bot API"]
+        EXT_WHATSAPP["WhatsApp Cloud API<br/>(Meta)"]
+        EXT_SLACK["Slack Web API"]
     end
 
     subgraph "Web Server (Next.js + React)"
@@ -516,14 +518,13 @@ subgraph "Text Q&A Session"
     GW_ROUTE --> GW_FORWARD
     GW_FORWARD -->|"HTTP + replyCallbackUrl"| HTTP_RT
     HTTP_RT -->|"channels/inbound transport<br/>channelId + hints + uxBrief"| PLAYBOOK_MGR
-    GW_REPLY -->|"Telegram API"| GW_WEBHOOK
-    GW_ATTACH -->|"download from runtime<br/>+ upload to Telegram"| GW_WEBHOOK
 
-    %% Gateway flow — Telegram deliver (runtime → gateway → Telegram)
-    %% replyCallbackUrl is built from gatewayInternalBaseUrl (derived from GATEWAY_PORT)
-    HTTP_RT -->|"POST /deliver/telegram<br/>(via gatewayInternalBaseUrl)"| GW_TG_DELIVER
-    GW_TG_DELIVER --> GW_REPLY
-    GW_TG_DELIVER --> GW_ATTACH
+    %% Channel outbound — direct Web API delivery (per-assistant lane)
+    %% The gateway builds replyCallbackUrl as <gatewayInternalBaseUrl>/deliver/<channel>,
+    %% but isDirectDelivery() short-circuits it: the daemon calls each provider's Web API
+    %% itself via messaging/providers and never POSTs the reply back to the gateway.
+    HTTP_RT --> CHANNEL_TX
+    CHANNEL_TX -->|"sendMessage / sendRichMessage<br/>+ attachments"| EXT_TELEGRAM
 
     %% Gateway flow — Twilio voice webhooks
     GW_TWILIO_VOICE -->|"HTTP"| HTTP_RT
@@ -533,14 +534,12 @@ subgraph "Text Q&A Session"
 
     %% Gateway flow — WhatsApp channel (Meta Cloud API)
     GW_WA_WEBHOOK -->|"HMAC-SHA256 verify<br/>+ normalize + dedup<br/>+ route resolver"| GW_FORWARD
-    HTTP_RT -->|"POST /deliver/whatsapp<br/>(via gatewayInternalBaseUrl)"| GW_WA_DELIVER
-    GW_WA_DELIVER -->|"Meta Cloud API<br/>/{phoneNumberId}/messages"| GW_WA_WEBHOOK
+    CHANNEL_TX -->|"Meta Cloud API<br/>/{phoneNumberId}/messages"| EXT_WHATSAPP
 
     %% Gateway flow — Slack channel (Socket Mode WebSocket)
     GW_SLACK_SOCKET -->|"app_mention events<br/>ACK + dedup"| GW_SLACK_NORMALIZE
     GW_SLACK_NORMALIZE -->|"normalize + route resolver"| GW_FORWARD
-    HTTP_RT -->|"POST /deliver/slack<br/>(via gatewayInternalBaseUrl)"| GW_SLACK_DELIVER
-    GW_SLACK_DELIVER -->|"Slack API<br/>chat.postMessage"| GW_SLACK_SOCKET
+    CHANNEL_TX -->|"startStream / appendStream / stopStream<br/>postMessage / update"| EXT_SLACK
 
     %% Gateway flow — OAuth callback
     GW_OAUTH -->|"forward code + state"| HTTP_RT

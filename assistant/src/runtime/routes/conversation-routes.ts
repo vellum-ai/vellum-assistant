@@ -1275,6 +1275,11 @@ export async function handleSendMessage(
     interface?: string;
     conversationType?: string;
     automated?: boolean;
+    // Persist the user message but suppress it from the UI transcript (kept in
+    // LLM history). Used by flows like research-onboarding's "Let's chat"
+    // handoff to prime a proactive assistant greeting without showing the
+    // triggering user message. Honored on the standard send path only.
+    hidden?: boolean;
     bypassSecretCheck?: boolean;
     hostHomeDir?: string;
     hostUsername?: string;
@@ -2356,7 +2361,13 @@ export async function handleSendMessage(
     content: resolvedContent,
     attachments,
     requestId,
-    metadata: body.automated === true ? { automated: true } : undefined,
+    metadata:
+      body.automated === true || body.hidden === true
+        ? {
+            ...(body.automated === true ? { automated: true } : {}),
+            ...(body.hidden === true ? { hidden: true } : {}),
+          }
+        : undefined,
     clientMessageId,
   });
 
@@ -2370,14 +2381,20 @@ export async function handleSendMessage(
     };
   }
 
-  broadcastMessage({
-    type: "user_message_echo",
-    text: resolvedContent,
-    conversationId: mapping.conversationId,
-    messageId,
-    requestId,
-    clientMessageId,
-  });
+  // A hidden message is suppressed from the UI transcript: don't echo it back
+  // to clients (the echo would render a user bubble the list-messages filter
+  // otherwise hides). The turn still runs below, and the assistant's reply
+  // streams normally — so the chat reads as a proactive greeting.
+  if (body.hidden !== true) {
+    broadcastMessage({
+      type: "user_message_echo",
+      text: resolvedContent,
+      conversationId: mapping.conversationId,
+      messageId,
+      requestId,
+      clientMessageId,
+    });
+  }
   publishConversationMessagesChanged(mapping.conversationId, originClientId);
 
   // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
@@ -2890,6 +2907,12 @@ export const ROUTES: RouteDefinition[] = [
         .optional(),
       inferenceProfile: z.string().nullable().optional(),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
+      hidden: z
+        .boolean()
+        .optional()
+        .describe(
+          "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history and still drives the turn). Used to prime a proactive assistant greeting without showing the triggering user message. Honored on the standard send path only.",
+        ),
       onboarding: z
         .object({
           tools: z.array(z.string()),

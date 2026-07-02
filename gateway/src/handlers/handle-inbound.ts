@@ -213,6 +213,7 @@ export async function handleInbound(
           timezoneOffsetSeconds: event.actor.timezoneOffsetSeconds,
           isStranger: event.actor.isStranger,
           isRestricted: event.actor.isRestricted,
+          ...(event.actor.teamId ? { actorTeamId: event.actor.teamId } : {}),
           ...(transportHints.length > 0 ? { hints: transportHints } : {}),
           ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
           // Floor for the runtime admission stage. Exempt channels send no

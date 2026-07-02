@@ -719,6 +719,7 @@ export class SlackSocketModeClient {
       payload?: {
         event_id?: string;
         event_time?: number;
+        team_id?: string;
         event?:
           | SlackAppMentionEvent
           | SlackDirectMessageEvent
@@ -785,6 +786,16 @@ export class SlackSocketModeClient {
     const eventPayload = envelope.payload;
     if (!eventPayload?.event) return;
     if (!eventPayload.event_id) return;
+
+    // Slack carries the workspace ID as `team_id` on the events_api payload;
+    // inner events don't reliably carry `team` (app_mention and channel
+    // messages commonly omit it). Stamp the payload-level team onto the
+    // event so normalization can capture the actor's team. An event-level
+    // `team` (e.g. a Slack Connect sender's home workspace) takes precedence.
+    const innerEvent = eventPayload.event as { team?: string };
+    if (eventPayload.team_id && !innerEvent.team) {
+      innerEvent.team = eventPayload.team_id;
+    }
 
     this.processEventPayload({
       event_id: eventPayload.event_id,

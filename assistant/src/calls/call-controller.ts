@@ -395,11 +395,6 @@ export class CallController {
     const wasSpeaking = this.state === "speaking";
     this.abortCurrentTurn();
     this.llmRunVersion++;
-    // Cancel in-flight synthesized TTS on barge-in
-    if (this.activeSynthesisAbort) {
-      this.activeSynthesisAbort.abort();
-      this.activeSynthesisAbort = null;
-    }
     // Explicitly terminate the in-progress TTS turn so the relay can
     // immediately hand control back to the caller after barge-in.
     if (wasSpeaking) {
@@ -483,6 +478,12 @@ export class CallController {
     }
     this.abortController.abort();
     this.abortController = new AbortController();
+    // Abort any in-flight synthesized-TTS playback too, so a superseded or
+    // torn-down turn's audio isn't streamed to the caller after they move on.
+    if (this.activeSynthesisAbort) {
+      this.activeSynthesisAbort.abort();
+      this.activeSynthesisAbort = null;
+    }
   }
 
   private formatCallerUtterance(
@@ -523,7 +524,10 @@ export class CallController {
     }
 
     try {
-      this.state = "speaking";
+      // Stay in `processing` through the lock-wait and LLM generation; flip to
+      // `speaking` only when real outbound audio/tokens start (see
+      // beginSpeaking). This keeps barge-in from aborting a silent turn.
+      this.state = "processing";
 
       const fullResponseText = await this.streamTtsTokens(
         content,
@@ -559,6 +563,21 @@ export class CallController {
           },
           "Ignoring stale voice turn error from superseded turn",
         );
+        return;
+      }
+      if (this.isLockContentionError(err) && this.isCurrentRun(runVersion)) {
+        log.debug(
+          { callSessionId: this.callSessionId },
+          "Prior voice turn wedged past lock-hold budget; re-prompting caller",
+        );
+        // Reaching here means the prior turn is genuinely wedged past the full
+        // lock-hold wait budget, so surface a brief natural re-prompt (never a
+        // technical-error message) and re-arm listening. last=true doubles as
+        // the end-of-turn marker.
+        this.transport.sendTextToken("Sorry, could you say that again?", true);
+        this.state = "idle";
+        this.resetSilenceTimer();
+        this.flushPendingInstructions();
         return;
       }
       log.error({ err, callSessionId: this.callSessionId }, "Voice turn error");
@@ -613,6 +632,7 @@ export class CallController {
       if (useSynthesizedPath) {
         synthesizedTextBuffer += cleaned;
       } else {
+        this.beginSpeaking(runVersion);
         this.transport.sendTextToken(cleaned, false);
       }
     };
@@ -732,6 +752,10 @@ export class CallController {
     const sanitizedSynthText = sanitizeForTts(synthesizedTextBuffer.trim());
     if (useSynthesizedPath && provider && sanitizedSynthText.length > 0) {
       if (!this.isCurrentRun(runVersion)) return fullResponseText;
+      // Do NOT flip to `speaking` here — provider synthesis latency (or the
+      // no-audio fallback window) would still be silent. The transition happens
+      // inside synthesizeAndStreamAudio when the play URL / first audio chunk
+      // (or native fallback token) is actually emitted.
       await this.synthesizeAndStreamAudio(
         provider,
         sanitizedSynthText,
@@ -739,6 +763,12 @@ export class CallController {
         audioFormat,
       );
     }
+
+    // Synthesized playback (and its native fallback) can await provider
+    // latency; re-check the run wasn't superseded meanwhile so a stale turn
+    // doesn't inject its end-of-turn marker (or fallback text) into the next
+    // turn's relay stream.
+    if (!this.isCurrentRun(runVersion)) return fullResponseText;
 
     // Signal end of this turn's speech.  An empty token with `last: true`
     // tells ConversationRelay to start listening — it does NOT trigger TTS
@@ -764,7 +794,7 @@ export class CallController {
   private async synthesizeAndStreamAudio(
     provider: TtsProvider,
     text: string,
-    _runVersion: number,
+    runVersion: number,
     format: "mp3" | "wav" | "opus" = "mp3",
   ): Promise<void> {
     let handle: ReturnType<typeof createStreamingEntry> | null = null;
@@ -788,6 +818,12 @@ export class CallController {
       const url = `${baseUrl}/v1/audio/${handle.audioId}`;
       const sendPlayUrlOnce = (): void => {
         if (playUrlSent) return;
+        // Superseded/aborted while synthesis was pending — don't start playing
+        // a stale response after the caller has already moved on.
+        if (!this.isCurrentRun(runVersion)) return;
+        // Audio is now actually reaching the caller — flip to `speaking` so
+        // barge-in can interrupt (it stays `processing` until this point).
+        this.beginSpeaking(runVersion);
         this.transport.sendPlayUrl(url);
         playUrlSent = true;
       };
@@ -874,7 +910,14 @@ export class CallController {
         // token-based speech on ConversationRelay so the caller still
         // hears a response instead of silence. This fallback is only
         // used for providers whose catalog entry allows native fallback.
-        if (!playUrlSent && !this.transport.requiresWavAudio) {
+        // Skip it entirely for a superseded run so a stale response can't
+        // leak into the next caller turn.
+        if (
+          !playUrlSent &&
+          !this.transport.requiresWavAudio &&
+          this.isCurrentRun(runVersion)
+        ) {
+          this.beginSpeaking(runVersion);
           this.transport.sendTextToken(text, false);
         }
       }
@@ -1219,6 +1262,30 @@ export class CallController {
   private isExpectedAbortError(err: unknown): boolean {
     if (!(err instanceof Error)) return false;
     return err.name === "AbortError" || err.name === "APIUserAbortError";
+  }
+
+  /**
+   * Transient teardown race: a new voice turn reached the session bridge
+   * before the previous turn released the conversation processing lock.
+   * This is not a real error and must never be spoken to the caller.
+   */
+  private isLockContentionError(err: unknown): boolean {
+    return (
+      err instanceof Error &&
+      err.message.includes("already processing a message")
+    );
+  }
+
+  /**
+   * Flip from the pre-speech `processing` phase to `speaking` at the moment the
+   * first real outbound audio/token is emitted. Guarded so a superseded or
+   * aborted (idle) turn never (re)enters `speaking`, and so barge-in
+   * (handleBargeIn, gated on `speaking`) can't abort a turn that is still
+   * waiting for the processing lock or generating with no audio yet.
+   */
+  private beginSpeaking(runVersion: number): void {
+    if (!this.isCurrentRun(runVersion)) return;
+    if (this.state === "processing") this.state = "speaking";
   }
 
   private isCurrentRun(runVersion: number): boolean {

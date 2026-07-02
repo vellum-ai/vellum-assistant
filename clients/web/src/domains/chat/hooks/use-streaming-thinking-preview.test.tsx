@@ -9,12 +9,12 @@ import {
 import { act, cleanup, renderHook } from "@testing-library/react";
 
 import {
-  STREAMING_THINKING_PREVIEW_UPDATE_INTERVAL_MS,
   firstSentenceOfLatestThinkingParagraph,
   useStreamingThinkingPreview,
 } from "@/domains/chat/hooks/use-streaming-thinking-preview";
 
 const START = 1_700_000_000_000;
+const EXPECTED_PREVIEW_UPDATE_INTERVAL_MS = 2_000;
 
 interface TimeoutHandle {
   id: number;
@@ -121,7 +121,7 @@ describe("firstSentenceOfLatestThinkingParagraph", () => {
 });
 
 describe("useStreamingThinkingPreview", () => {
-  test("throttles preview changes to at most once every five seconds", () => {
+  test("throttles preview changes to at most once every two seconds", () => {
     const { result, rerender } = renderHook(
       ({ content }) => useStreamingThinkingPreview(content, true),
       {
@@ -139,10 +139,10 @@ describe("useStreamingThinkingPreview", () => {
     expect(result.current).toBe("First visible thought.");
     expect(pendingTimeouts()).toHaveLength(1);
     expect(pendingTimeouts()[0]!.ms).toBe(
-      STREAMING_THINKING_PREVIEW_UPDATE_INTERVAL_MS - 1_000,
+      EXPECTED_PREVIEW_UPDATE_INTERVAL_MS - 1_000,
     );
 
-    setSystemTime(new Date(START + STREAMING_THINKING_PREVIEW_UPDATE_INTERVAL_MS));
+    setSystemTime(new Date(START + EXPECTED_PREVIEW_UPDATE_INTERVAL_MS));
     firePendingTimers();
 
     expect(result.current).toBe("Second visible thought.");
@@ -158,9 +158,9 @@ describe("useStreamingThinkingPreview", () => {
       },
     );
 
-    setSystemTime(new Date(START + 1_000));
+    setSystemTime(new Date(START + 500));
     rerender({ content: "Second visible thought." });
-    setSystemTime(new Date(START + 2_000));
+    setSystemTime(new Date(START + 1_000));
     rerender({
       content:
         "Second visible thought.\n\nNewest paragraph should win. Later sentence.",
@@ -168,8 +168,11 @@ describe("useStreamingThinkingPreview", () => {
 
     expect(result.current).toBe("First visible thought.");
     expect(pendingTimeouts()).toHaveLength(1);
+    expect(pendingTimeouts()[0]!.ms).toBe(
+      EXPECTED_PREVIEW_UPDATE_INTERVAL_MS - 1_000,
+    );
 
-    setSystemTime(new Date(START + STREAMING_THINKING_PREVIEW_UPDATE_INTERVAL_MS));
+    setSystemTime(new Date(START + EXPECTED_PREVIEW_UPDATE_INTERVAL_MS));
     firePendingTimers();
 
     expect(result.current).toBe("Newest paragraph should win.");
@@ -193,7 +196,7 @@ describe("useStreamingThinkingPreview", () => {
     expect(result.current).toBe("First visible thought.");
     expect(pendingTimeouts()).toHaveLength(0);
 
-    setSystemTime(new Date(START + 2_000));
+    setSystemTime(new Date(START + 1_500));
     rerender({
       content: "First visible thought.\n\nNext paragraph is ready. More detail.",
     });
@@ -201,10 +204,10 @@ describe("useStreamingThinkingPreview", () => {
     expect(result.current).toBe("First visible thought.");
     expect(pendingTimeouts()).toHaveLength(1);
     expect(pendingTimeouts()[0]!.ms).toBe(
-      STREAMING_THINKING_PREVIEW_UPDATE_INTERVAL_MS - 2_000,
+      EXPECTED_PREVIEW_UPDATE_INTERVAL_MS - 1_500,
     );
 
-    setSystemTime(new Date(START + STREAMING_THINKING_PREVIEW_UPDATE_INTERVAL_MS));
+    setSystemTime(new Date(START + EXPECTED_PREVIEW_UPDATE_INTERVAL_MS));
     firePendingTimers();
 
     expect(result.current).toBe("Next paragraph is ready.");

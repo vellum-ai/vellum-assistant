@@ -17,22 +17,22 @@ const createHandler = (() => {
   return route.handler;
 })();
 
-interface ListResult {
-  schedules: Array<{
+interface CreateResult {
+  schedule: {
     name: string;
     mode: string;
     script: string | null;
     timeoutMs: number | null;
-  }>;
+  };
 }
 
-async function create(body: Record<string, unknown>): Promise<ListResult> {
-  return (await createHandler({ body })) as ListResult;
+async function create(body: Record<string, unknown>): Promise<CreateResult> {
+  return (await createHandler({ body })) as CreateResult;
 }
 
 describe("createSchedule route — script mode", () => {
-  test("creates a script-mode schedule with its command + timeout", async () => {
-    const res = await create({
+  test("returns the created script schedule with its command + timeout", async () => {
+    const { schedule } = await create({
       name: "wt-script-create",
       mode: "script",
       script: 'cd "$VELLUM_WORKSPACE_DIR/schedules/$__SCHEDULE_ID" && bun poll.ts',
@@ -40,23 +40,21 @@ describe("createSchedule route — script mode", () => {
       description: "polls github",
       timeoutMs: 120000,
     });
-    const job = res.schedules.find((s) => s.name === "wt-script-create");
-    expect(job?.mode).toBe("script");
-    expect(job?.script).toContain("bun poll.ts");
-    expect(job?.timeoutMs).toBe(120000);
+    expect(schedule.name).toBe("wt-script-create");
+    expect(schedule.mode).toBe("script");
+    expect(schedule.script).toContain("bun poll.ts");
+    expect(schedule.timeoutMs).toBe(120000);
   });
 
   test("script mode does not require a message", async () => {
-    const res = await create({
+    const { schedule } = await create({
       name: "wt-script-nomsg",
       mode: "script",
       script: "echo hi",
       expression: "0 * * * *",
       description: "d",
     });
-    expect(
-      res.schedules.find((s) => s.name === "wt-script-nomsg")?.mode,
-    ).toBe("script");
+    expect(schedule.mode).toBe("script");
   });
 
   test("rejects script mode without a script", async () => {

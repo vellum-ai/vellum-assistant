@@ -73,12 +73,21 @@ import {
   LookingYouUpStep,
   ResearchResultsStep,
   SuggestionsStep,
+  LetsChatReadyStep,
 } from "@/domains/onboarding/screens/research-result-steps";
 import { OnboardingTonedBackdrop } from "@/domains/onboarding/components/onboarding-toned-backdrop";
 import {
   OnboardingStageSizeProvider,
   useElementSize,
 } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
+
+/**
+ * Hidden kickoff sent on the user's behalf when they hit "Let's chat" at the
+ * end of the personality-onboarding flow. It drives the assistant's first reply
+ * but renders no user bubble, so the chat opens with the assistant proactively
+ * greeting the user in the persona they just configured.
+ */
+const LETS_CHAT_KICKOFF_MESSAGE = "hey, what's up";
 
 /** Build the research subject from the collected form values. */
 function researchSubjectFrom(values: ResearchOnboardingValues): ResearchSubject {
@@ -234,6 +243,16 @@ export function ResearchOnboardingRoute() {
   // minted — otherwise the rejected facts could still be pulled into its context.
   // Resolves immediately when nothing was corrected (never rejects).
   const researchCorrectionRef = useRef<Promise<void>>(Promise.resolve());
+  // In-flight personality rewrite (if any), fired from the personality step. The
+  // chat handoff awaits it (alongside the plugin installs + removal correction)
+  // so the assistant's persona is fully rewritten BEFORE the first real chat is
+  // minted — otherwise the greeting could land in the old, unshaped voice.
+  // Resolves immediately when personality was never applied (never rejects).
+  const personalityAppliedRef = useRef<Promise<void>>(Promise.resolve());
+  // Mirrors the ref as render state so the looking-you-up loading stage can hold
+  // its "ready" reveal until the personality rewrite settles too — the carousel
+  // keeps cycling while this is true, same as an unsettled research turn.
+  const [personalityPending, setPersonalityPending] = useState(false);
   const researchLoading =
     research.status === "idle" || research.status === "running";
   // The research turn settled with nothing to show — skip the "this is what I
@@ -277,7 +296,14 @@ export function ResearchOnboardingRoute() {
       setResearchConversationId(snapshot.researchConversationId ?? null);
       // Re-enqueue the named plugin installs against the re-hatched assistant so
       // a suggestion click awaits real (idempotent) installs, not an empty map.
-      if (snapshot.research) hydrateResearch(snapshot.research, awaitHatchReady);
+      if (snapshot.research)
+        hydrateResearch(
+          {
+            ...snapshot.research,
+            pluginCatalog: snapshot.research.pluginCatalog ?? {},
+          },
+          awaitHatchReady,
+        );
       setStep(resolveResumeStep(snapshot));
       setForwardStack([]);
     }
@@ -304,6 +330,7 @@ export function ResearchOnboardingRoute() {
               claims: research.claims,
               suggestions: research.suggestions,
               installedPlugins: research.installedPlugins,
+              pluginCatalog: research.pluginCatalog,
             }
           : null,
       ...(researchConversationId
@@ -323,6 +350,7 @@ export function ResearchOnboardingRoute() {
     research.claims,
     research.suggestions,
     research.installedPlugins,
+    research.pluginCatalog,
   ]);
 
   // Mid-flow resume: we restored a journey whose research turn hadn't settled.
@@ -346,6 +374,7 @@ export function ResearchOnboardingRoute() {
         ? { resumeConversationId: researchConversationId }
         : {}),
       onConversationCreated: setResearchConversationId,
+      includeSuggestions: !personalityEnabled,
     });
   }, [
     restored,
@@ -356,6 +385,7 @@ export function ResearchOnboardingRoute() {
     research.status,
     startResearch,
     awaitHatchReady,
+    personalityEnabled,
   ]);
 
   // If we're sitting on the results step when the research turn resolves empty
@@ -375,7 +405,7 @@ export function ResearchOnboardingRoute() {
     values: ResearchOnboardingValues,
     face: GiveMeAFaceValues | null,
     entryPrompt?: string,
-    { skip = false }: { skip?: boolean } = {},
+    { skip = false, hidden = false }: { skip?: boolean; hidden?: boolean } = {},
   ) {
     // Handing off to the chat ends the research-onboarding journey — drop the
     // resume snapshot so a later visit starts clean instead of resuming this one.
@@ -413,6 +443,10 @@ export function ResearchOnboardingRoute() {
                 occupation: role,
                 hobby: hobbies.join(", "),
               }),
+            // A hidden kickoff (the "Let's chat" handoff) drives the first reply
+            // without rendering a user bubble, so the chat opens as a proactive
+            // greeting in the configured persona.
+            ...(hidden ? { initialMessageHidden: true } : {}),
           }),
       // Friendly title for the behind-the-scenes research conversation.
       ...(isResearch
@@ -459,6 +493,9 @@ export function ResearchOnboardingRoute() {
       subject: researchSubjectFrom(values),
       conversationTitle: researchTitleFor(values),
       onConversationCreated: setResearchConversationId,
+      // The "Let's chat" final step replaces suggestions when personality
+      // onboarding is on, so don't ask the model to generate any.
+      includeSuggestions: !personalityEnabled,
     });
     goForwardTo("face");
   }
@@ -577,16 +614,19 @@ export function ResearchOnboardingRoute() {
               // First continue applies the sliders to the assistant's persona on
               // a throwaway side thread (awaits hatch readiness internally, then
               // archives) and locks them — the prompt has been sent, so a later
-              // step-back can't silently diverge. Fire-and-forget: the rewrite
-              // turn finishes during the later steps, well before the chat
-              // handoff. Best-effort; never blocks the flow. A continue while
+              // step-back can't silently diverge. The rewrite turn runs during
+              // the later steps; we track its promise (and pending flag) so the
+              // looking-you-up loader holds until it settles and the chat handoff
+              // awaits it, guaranteeing the persona is reshaped before the first
+              // real chat. Best-effort; it never rejects. A continue while
               // already locked just advances.
               if (!personalityLocked) {
-                void applyPersonality({
+                setPersonalityPending(true);
+                personalityAppliedRef.current = applyPersonality({
                   awaitAssistantId: awaitHatchReady,
                   values: personalityValues,
                   userName: formValues?.firstName?.trim() || undefined,
-                });
+                }).finally(() => setPersonalityPending(false));
                 setPersonalityLocked(true);
               }
               goForwardTo("integration");
@@ -635,7 +675,10 @@ export function ResearchOnboardingRoute() {
             onBack={() => goBackTo("letschat")}
             onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
             onForward={onForward}
-            ready={!researchLoading}
+            // Hold the loader until BOTH the research turn and the personality
+            // rewrite have settled, so the results/chat never open on a persona
+            // that's still being written.
+            ready={!researchLoading && !personalityPending}
           />
         )}
         {step === "results" && (
@@ -674,7 +717,38 @@ export function ResearchOnboardingRoute() {
             onForward={onForward}
           />
         )}
-        {step === "suggestions" && (
+        {step === "suggestions" && personalityEnabled && (
+          <LetsChatReadyStep
+            installedPlugins={research.installedPlugins}
+            pluginCatalog={research.pluginCatalog}
+            onStart={async () => {
+              // Terminal step: the handoff leaves via enterAssistant, not
+              // goForwardTo, so emit the completion here (mirrors SuggestionsStep).
+              emitResearchOnboardingStepCompleted(
+                RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
+                { userId, outcome: "completed" },
+              );
+              // Wait out any background capability installs so the primed chat
+              // can discover their skills, any removal correction so rejected
+              // claims can't leak into it, and the personality rewrite so the
+              // greeting lands in the persona the user just configured — same
+              // gating as the suggestion click, plus the persona.
+              await Promise.all([
+                research.awaitPluginInstalls(),
+                researchCorrectionRef.current,
+                personalityAppliedRef.current,
+              ]);
+              // Drop into a fresh chat with the hidden kickoff so the assistant
+              // opens by greeting the user in the persona they configured.
+              enterAssistant(formValues, faceValues, LETS_CHAT_KICKOFF_MESSAGE, {
+                hidden: true,
+              });
+            }}
+            onBack={() => goBackTo(noClaims ? "looking" : "results")}
+            onForward={onForward}
+          />
+        )}
+        {step === "suggestions" && !personalityEnabled && (
           <SuggestionsStep
             suggestions={research.suggestions}
             loading={researchLoading}

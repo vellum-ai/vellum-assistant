@@ -4068,6 +4068,8 @@ paths:
                       type: boolean
                     account:
                       type: string
+                    actorTeamId:
+                      type: string
                     admissionPolicy:
                       type: string
                       enum:
@@ -12836,6 +12838,68 @@ paths:
           description: Feed item or action not found
         "500":
           description: Failed to create conversation
+  /v1/home/feed/mark-all:
+    post:
+      operationId: home_feed_markall_post
+      summary: Bulk update home feed item statuses
+      description:
+        Flip every home feed item currently at one of the `from` statuses to the single `to` status. Returns the
+        count of items whose status actually changed (items already at `to`, or outside `from`, are left untouched).
+        Used to implement 'Mark all as read' (from=['new'], to='seen') and 'Clear all' (from=['new','seen','acted_on'],
+        to='dismissed').
+      tags:
+        - home
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - new
+                      - seen
+                      - acted_on
+                      - dismissed
+                to:
+                  type: string
+                  enum:
+                    - new
+                    - seen
+                    - acted_on
+                    - dismissed
+                ids:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - from
+                - to
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updatedCount:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  updatedAt:
+                    type: string
+                required:
+                  - updatedCount
+                  - updatedAt
+                additionalProperties: false
+        "500":
+          description: Failed to persist bulk status update
   /v1/home/feed/query:
     post:
       operationId: home_feed_query_post
@@ -18139,6 +18203,12 @@ paths:
                     - low
                     - medium
                     - high
+                hidden:
+                  description:
+                    When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history
+                    and still drives the turn). Used to prime a proactive assistant greeting without showing the
+                    triggering user message. Honored on the standard send path only.
+                  type: boolean
                 onboarding:
                   type: object
                   properties:
@@ -22792,145 +22862,143 @@ paths:
               schema:
                 type: object
                 properties:
-                  schedules:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        name:
-                          type: string
-                        enabled:
-                          type: boolean
-                        syntax:
-                          type: string
-                          enum:
-                            - cron
-                            - rrule
-                        expression:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        cronExpression:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        timezone:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        message:
-                          type: string
-                        script:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        nextRunAt:
-                          type: number
-                        lastRunAt:
-                          anyOf:
-                            - type: number
-                            - type: "null"
-                        lastStatus:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        retryCount:
-                          type: number
-                        maxRetries:
-                          type: number
-                        retryBackoffMs:
-                          type: number
-                        timeoutMs:
-                          anyOf:
-                            - type: number
-                            - type: "null"
-                        inferenceProfile:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        createdFromConversationId:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        createdFromConversationExists:
-                          type: boolean
-                        createdFromConversationArchivedAt:
-                          anyOf:
-                            - type: number
-                            - type: "null"
-                        description:
-                          type: string
-                        cadenceDescription:
-                          type: string
-                        mode:
-                          type: string
-                          enum:
-                            - notify
-                            - execute
-                            - script
-                            - wake
-                            - workflow
-                        status:
-                          type: string
-                          enum:
-                            - active
-                            - firing
-                            - fired
-                            - cancelled
-                        routingIntent:
-                          type: string
-                          enum:
-                            - single_channel
-                            - multi_channel
-                            - all_channels
-                        reuseConversation:
-                          type: boolean
-                        wakeConversationId:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        workflowName:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        isOneShot:
-                          type: boolean
-                      required:
-                        - id
-                        - name
-                        - enabled
-                        - syntax
-                        - expression
-                        - cronExpression
-                        - timezone
-                        - message
-                        - script
-                        - nextRunAt
-                        - lastRunAt
-                        - lastStatus
-                        - retryCount
-                        - maxRetries
-                        - retryBackoffMs
-                        - timeoutMs
-                        - inferenceProfile
-                        - createdFromConversationId
-                        - createdFromConversationExists
-                        - createdFromConversationArchivedAt
-                        - description
-                        - cadenceDescription
-                        - mode
-                        - status
-                        - routingIntent
-                        - reuseConversation
-                        - wakeConversationId
-                        - workflowName
-                        - isOneShot
-                      additionalProperties: false
-                    description: Updated schedule list
+                  schedule:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      name:
+                        type: string
+                      enabled:
+                        type: boolean
+                      syntax:
+                        type: string
+                        enum:
+                          - cron
+                          - rrule
+                      expression:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      cronExpression:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      timezone:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      message:
+                        type: string
+                      script:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      nextRunAt:
+                        type: number
+                      lastRunAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      lastStatus:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      retryCount:
+                        type: number
+                      maxRetries:
+                        type: number
+                      retryBackoffMs:
+                        type: number
+                      timeoutMs:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      inferenceProfile:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      createdFromConversationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      createdFromConversationExists:
+                        type: boolean
+                      createdFromConversationArchivedAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      description:
+                        type: string
+                      cadenceDescription:
+                        type: string
+                      mode:
+                        type: string
+                        enum:
+                          - notify
+                          - execute
+                          - script
+                          - wake
+                          - workflow
+                      status:
+                        type: string
+                        enum:
+                          - active
+                          - firing
+                          - fired
+                          - cancelled
+                      routingIntent:
+                        type: string
+                        enum:
+                          - single_channel
+                          - multi_channel
+                          - all_channels
+                      reuseConversation:
+                        type: boolean
+                      wakeConversationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      workflowName:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      isOneShot:
+                        type: boolean
+                    required:
+                      - id
+                      - name
+                      - enabled
+                      - syntax
+                      - expression
+                      - cronExpression
+                      - timezone
+                      - message
+                      - script
+                      - nextRunAt
+                      - lastRunAt
+                      - lastStatus
+                      - retryCount
+                      - maxRetries
+                      - retryBackoffMs
+                      - timeoutMs
+                      - inferenceProfile
+                      - createdFromConversationId
+                      - createdFromConversationExists
+                      - createdFromConversationArchivedAt
+                      - description
+                      - cadenceDescription
+                      - mode
+                      - status
+                      - routingIntent
+                      - reuseConversation
+                      - wakeConversationId
+                      - workflowName
+                      - isOneShot
+                    additionalProperties: false
+                    description: The created schedule
                 required:
-                  - schedules
+                  - schedule
                 additionalProperties: false
   /v1/schedules/{id}:
     delete:

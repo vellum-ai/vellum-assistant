@@ -105,8 +105,12 @@ Examples:
             `${"NAME".padEnd(nameW)}  ${"SOURCE".padEnd(sourceW)}  ${"RISK".padEnd(riskW)}  DESCRIPTION`,
           );
           for (const t of tools) {
+            const description =
+              t.description.length > 50
+                ? `${t.description.slice(0, 50)}…`
+                : t.description;
             console.log(
-              `${t.name.padEnd(nameW)}  ${t.source.padEnd(sourceW)}  ${t.riskLevel.padEnd(riskW)}  ${t.description}`,
+              `${t.name.padEnd(nameW)}  ${t.source.padEnd(sourceW)}  ${t.riskLevel.padEnd(riskW)}  ${description}`,
             );
           }
           console.log(`\n${tools.length} tool(s)`);

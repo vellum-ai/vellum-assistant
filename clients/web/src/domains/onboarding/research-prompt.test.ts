@@ -66,3 +66,39 @@ describe("buildResearchPrompt — capabilities", () => {
     expect(prompt).toContain("keep claims and suggestions aligned with my stated role");
   });
 });
+
+describe("buildResearchPrompt — suggestions toggle", () => {
+  const caps: AvailableCapability[] = [
+    { name: "marketing-expert", description: "Full-stack marketing." },
+  ];
+
+  test("includes suggestions by default (legacy flow unchanged)", () => {
+    const prompt = buildResearchPrompt(SUBJECT, caps);
+
+    expect(prompt).toContain('"suggestions"');
+    expect(prompt).toContain('Rules for "suggestions":');
+    expect(prompt).toContain("Generate EXACTLY 4 suggestions");
+    // Claims + plugins still requested.
+    expect(prompt).toContain('"claims"');
+    expect(prompt).toContain('"plugins"');
+  });
+
+  test("omits all suggestion guidance when includeSuggestions is false", () => {
+    const prompt = buildResearchPrompt(SUBJECT, caps, {
+      includeSuggestions: false,
+    });
+
+    expect(prompt).not.toContain('"suggestions"');
+    expect(prompt).not.toContain('Rules for "suggestions":');
+    expect(prompt).not.toContain("Generate EXACTLY 4 suggestions");
+    // The role-alignment line drops the "and suggestions" clause.
+    expect(prompt).toContain("keep claims aligned with my stated role");
+    expect(prompt).not.toContain("keep claims and suggestions aligned");
+    // Plugins + claims are still requested, plugins still first in the shape.
+    expect(prompt).toContain('"plugins"');
+    expect(prompt).toContain('"claims"');
+    expect(prompt.indexOf('"plugins"')).toBeLessThan(prompt.indexOf('"claims"'));
+    // The closing fallback no longer references suggestions.
+    expect(prompt).not.toContain("broadly useful suggestions");
+  });
+});

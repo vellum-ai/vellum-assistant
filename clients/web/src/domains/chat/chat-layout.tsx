@@ -293,10 +293,18 @@ export function ChatLayout() {
 
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
+  const startNewConversation = useCallback(
+    (opts?: { silent?: boolean }) => {
+      navigateToNewConversation(navigate, opts);
+    },
+    [navigate],
+  );
+
   useChatLayoutShortcuts({
     toggleSidebar,
     onGoBack: handleGoBack,
     onGoForward: handleGoForward,
+    onNewConversation: startNewConversation,
   });
 
   const drawerRef = useChatLayoutDrawer({
@@ -325,13 +333,6 @@ export function ChatLayout() {
   // (home, library, contacts, identity) — not only inside a conversation
   // where ChatPage is mounted.
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
-
-  const startNewConversation = useCallback(
-    (opts?: { silent?: boolean }) => {
-      navigateToNewConversation(navigate, opts);
-    },
-    [navigate],
-  );
 
   const {
     handleArchiveConversation,

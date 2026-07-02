@@ -7,16 +7,22 @@
  */
 
 import type { Button, KnownBlock } from "@slack/types";
-import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
+import type {
+  ApprovalUIMetadata,
+  SlackStreamOp,
+} from "@vellumai/gateway-client";
 
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
 import { getLogger } from "../../../util/logger.js";
 import {
+  appendSlackStream,
   callSlackApi,
   callSlackApiForm,
   completeSlackUpload,
   SlackApiError,
+  startSlackStream,
+  stopSlackStream,
   uploadToSlackUrl,
 } from "./api.js";
 import { renderSlackBlocks } from "./render.js";
@@ -242,22 +248,52 @@ export async function sendSlackReply(
 }
 
 /**
- * Send a typing indicator placeholder message to Slack.
- * Returns the placeholder message ts for later update.
+ * Execute one Slack streaming operation against a channel, returning the
+ * stream `ts` so the caller can carry it across `append`/`stop` calls. `start`
+ * mints a new `ts`; `append` and `stop` echo the one they were given.
+ *
+ * Throwing on failure is intentional: the streaming session decides whether to
+ * abandon the stream and let durable delivery post the full reply.
  */
-export async function sendSlackTypingIndicator(
-  chatId: string,
-  threadTs?: string,
-): Promise<string | undefined> {
-  const body: Record<string, string> = { channel: chatId, text: "\u2026" };
-  if (threadTs) body.thread_ts = threadTs;
-
-  const result = await callSlackApi("chat.postMessage", body);
-  log.debug(
-    { chatId, placeholderTs: result.ts, hasThreadTs: !!threadTs },
-    "Slack typing placeholder sent",
-  );
-  return result.ts;
+export async function sendSlackStreamOp(
+  channel: string,
+  op: SlackStreamOp,
+): Promise<SlackSendResult> {
+  switch (op.action) {
+    case "start": {
+      const ts = await startSlackStream({
+        channel,
+        threadTs: op.threadTs,
+        markdownText: op.markdownText,
+        taskDisplayMode: op.taskDisplayMode,
+        tasks: op.tasks,
+        recipientUserId: op.recipientUserId,
+        recipientTeamId: op.recipientTeamId,
+      });
+      log.info({ channel, ts }, "Slack stream started");
+      return { ok: ts !== undefined, ts };
+    }
+    case "append": {
+      await appendSlackStream({
+        channel,
+        streamTs: op.streamTs,
+        markdownText: op.markdownText,
+        tasks: op.tasks,
+      });
+      return { ok: true, ts: op.streamTs };
+    }
+    case "stop": {
+      await stopSlackStream({
+        channel,
+        streamTs: op.streamTs,
+        markdownText: op.markdownText,
+        blocks: op.blocks,
+        tasks: op.tasks,
+      });
+      log.info({ channel, ts: op.streamTs }, "Slack stream stopped");
+      return { ok: true, ts: op.streamTs };
+    }
+  }
 }
 
 /**

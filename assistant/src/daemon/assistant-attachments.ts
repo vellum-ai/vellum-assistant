@@ -361,6 +361,48 @@ export function stripVellumLinks(text: string): string {
   return text.replace(VELLUM_LINK_RE, "$1");
 }
 
+/** Regex fragment matching any prefix of `literal`, including empty and full. */
+function anyPrefixOf(literal: string): string {
+  let pattern = "";
+  for (let i = literal.length - 1; i >= 0; i--) {
+    pattern = `(?:${literal[i]}${pattern})?`;
+  }
+  return pattern;
+}
+
+/**
+ * A `[label](vellum://…)` link still being assembled at the end of the text: an
+ * opening `[` whose remainder is a prefix of the full link grammar and has not
+ * reached its closing `)`. Matched only when it runs to the end of the string.
+ */
+const INCOMPLETE_VELLUM_LINK_TAIL_RE = new RegExp(
+  "\\[[^\\]]*" +
+    "(?:\\]" +
+    "(?:\\(" +
+    anyPrefixOf("vellum://") +
+    "(?:" +
+    `(?:${anyPrefixOf("workspace")}|${anyPrefixOf("host")})` +
+    "(?:/[^)]*)?" +
+    ")?" +
+    ")?" +
+    ")?$",
+);
+
+/**
+ * Length of the trailing run of `text` that is a `[label](vellum://…)` link
+ * still being assembled (see {@link INCOMPLETE_VELLUM_LINK_TAIL_RE}), or 0 when
+ * the text does not end mid-link.
+ *
+ * Callers that emit text to an append-only sink (e.g. Slack streaming) withhold
+ * this suffix until the link closes: {@link stripVellumLinks} only removes
+ * complete links, so a partially-emitted `vellum://` path would leak an internal
+ * workspace/host path that cannot be retracted once sent.
+ */
+export function incompleteVellumLinkSuffixLength(text: string): number {
+  const match = text.match(INCOMPLETE_VELLUM_LINK_TAIL_RE);
+  return match ? match[0].length : 0;
+}
+
 /**
  * Drain streamed assistant text while stripping only valid, complete
  * self-closing `<vellum-attachment ... />` directives.

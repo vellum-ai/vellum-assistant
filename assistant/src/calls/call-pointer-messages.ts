@@ -9,6 +9,7 @@
  * written directly to the conversation store.
  */
 
+import { runPointerMessageTurn } from "../daemon/pointer-turn-runner.js";
 import {
   addMessage,
   getConversationOriginChannel,
@@ -31,44 +32,6 @@ type PointerEvent =
   | "verification_failed";
 
 type PointerAudienceMode = "auto" | "trusted" | "untrusted";
-
-/**
- * Daemon-injected function that sends a message through the daemon conversation
- * pipeline (persistAndProcessMessage), letting the assistant generate the
- * pointer text as a natural conversation turn.
- *
- * @param requiredFacts - facts that must appear verbatim in the generated
- *   text (phone number, duration, outcome keyword, etc.). The processor
- *   should validate the output and throw if any are missing so the
- *   deterministic fallback fires.
- */
-type PointerMessageProcessor = (
-  conversationId: string,
-  instruction: string,
-  requiredFacts?: string[],
-) => Promise<void>;
-
-// ---------------------------------------------------------------------------
-// Module-level processor injection (set by daemon lifecycle at startup)
-// ---------------------------------------------------------------------------
-
-let pointerMessageProcessor: PointerMessageProcessor | undefined;
-
-/**
- * Inject the daemon-provided pointer message processor.
- * Called from daemon/lifecycle.ts at startup, following the same pattern
- * as setRelayBroadcast.
- */
-export function setPointerMessageProcessor(
-  processor: PointerMessageProcessor,
-): void {
-  pointerMessageProcessor = processor;
-}
-
-/** @internal Reset for tests. */
-export function resetPointerMessageProcessor(): void {
-  pointerMessageProcessor = undefined;
-}
 
 // ---------------------------------------------------------------------------
 // Trust resolution
@@ -157,13 +120,13 @@ export async function addPointerMessage(
     audienceMode === "trusted" ||
     (audienceMode === "auto" && resolvePointerAudienceTrust(conversationId));
 
-  if (trustedAudience && pointerMessageProcessor) {
+  if (trustedAudience) {
     // Route through the daemon conversation — the assistant generates the
     // pointer text as a natural conversation turn, shaped by context,
     // identity, and preferences.
     const instruction = buildPointerInstruction(context);
     try {
-      await pointerMessageProcessor(conversationId, instruction, requiredFacts);
+      await runPointerMessageTurn(conversationId, instruction, requiredFacts);
       return;
     } catch (err) {
       log.warn(
@@ -171,7 +134,7 @@ export async function addPointerMessage(
         "Daemon pointer processing failed, falling back to deterministic",
       );
     }
-  } else if (!trustedAudience && pointerMessageProcessor) {
+  } else {
     log.debug(
       { event, conversationId },
       "Untrusted audience — using deterministic pointer copy",
