@@ -78,6 +78,7 @@ function makeCtx(messages: Message[]): UserPromptSubmitContext {
     originalMessages: messages,
     latestMessages: messages,
     logger: noopLogger,
+    broadcast: () => {},
   };
 }
 

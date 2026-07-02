@@ -51,6 +51,7 @@ export * from "./message-types/workspace.js";
 
 // Import domain-level union aliases for composition
 import type { DiskPressureStatusChangedEvent } from "../api/events/disk-pressure-status-changed.js";
+import type { HookEvent } from "../api/events/hook-event.js";
 import type { _AcpServerMessages } from "./message-types/acp.js";
 import type {
   _AppsClientMessages,
@@ -212,6 +213,7 @@ export type ServerMessage =
   | _BookmarksServerMessages
   | _WorkflowsServerMessages
   | DiskPressureStatusChangedEvent
+  | HookEvent
   | SubagentEvent;
 
 // === Contract schema ===

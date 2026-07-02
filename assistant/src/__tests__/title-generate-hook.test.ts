@@ -115,6 +115,7 @@ function makeCtx(
     originalMessages: messages,
     latestMessages: messages,
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }
