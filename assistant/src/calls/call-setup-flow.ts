@@ -972,6 +972,11 @@ export class CallSetupFlow implements SetupFlowInput {
       assistantId,
       fromNumber,
     );
+    // Same teardown race as the activation handoff: don't resurrect a
+    // session whose transport closed during trust re-resolution.
+    if (this.state === "completed") {
+      return;
+    }
     this.deps.updateCallSession(this.callSessionId, { status: "in_progress" });
     this.complete({
       kind: "proceed-post-verification-greeting",
@@ -986,7 +991,8 @@ export class CallSetupFlow implements SetupFlowInput {
    * (invite redemption, access-request approval, verification code).
    * Upgrades trust, delivers deterministic transition copy, and completes
    * with `proceed-handoff-spoken` so the controller marks the next caller
-   * turn as an opening ack.
+   * turn as an opening ack. Returns false when the flow reached a terminal
+   * state during trust re-resolution and no handoff was delivered.
    */
   private async continueAfterTrustedContactActivation(
     adeps: ActivationDeps,
@@ -1006,7 +1012,7 @@ export class CallSetupFlow implements SetupFlowInput {
        */
       inviteeName?: string | null;
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     const { assistantId, fromNumber } = params;
 
     this.deps.updateCallSession(this.callSessionId, { status: "in_progress" });
@@ -1016,6 +1022,12 @@ export class CallSetupFlow implements SetupFlowInput {
       assistantId,
       fromNumber,
     );
+
+    // A transport close during trust re-resolution tears the flow down;
+    // never speak or record a synthetic handoff on a dead call.
+    if (this.state === "completed") {
+      return false;
+    }
 
     const guardianLabel = adeps.resolveGuardianLabel();
     let handoffText: string;
@@ -1057,6 +1069,7 @@ export class CallSetupFlow implements SetupFlowInput {
       trustContext,
       deferredTranscripts: this.drainDeferredTranscripts(),
     });
+    return true;
   }
 
   /**
@@ -1555,11 +1568,17 @@ export class CallSetupFlow implements SetupFlowInput {
       "Access request approved — caller activated and continuing call",
     );
 
-    await this.continueAfterTrustedContactActivation(ndeps, {
-      assistantId: ctx.assistantId,
-      fromNumber: ctx.fromNumber,
-      activationReason: "access_approved",
-    });
+    const handoffSpoken = await this.continueAfterTrustedContactActivation(
+      ndeps,
+      {
+        assistantId: ctx.assistantId,
+        fromNumber: ctx.fromNumber,
+        activationReason: "access_approved",
+      },
+    );
+    if (!handoffSpoken) {
+      return;
+    }
 
     this.deps.recordCallEvent(
       this.callSessionId,

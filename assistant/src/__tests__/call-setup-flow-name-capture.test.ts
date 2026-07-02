@@ -642,6 +642,43 @@ describe("CallSetupFlow name capture", () => {
       expect(f.results).toHaveLength(0);
     });
 
+    test("dispose during post-approval trust re-resolution suppresses the handoff", async () => {
+      let releaseTrust!: (ctx: TrustContext) => void;
+      const gated = new Promise<TrustContext>((resolve) => {
+        releaseTrust = resolve;
+      });
+      const f = createFlow({
+        deps: { resolveMidCallTrustContext: () => gated },
+      });
+      const wait = await startWait(f);
+
+      const approval = wait.deps.onApproved({
+        requestId: REQUEST_ID,
+        assistantId: "self",
+        fromNumber: PHONE_NUMBER,
+        callerName: CALLER_NAME,
+        callbackOptIn: false,
+      });
+      await sleep();
+
+      // Caller hangs up while trust re-resolution is still in flight.
+      f.flow.dispose("transport_closed");
+      releaseTrust(UPGRADED_TRUST);
+      await approval;
+
+      // No synthetic handoff on the dead call: no speech, transcript
+      // event, notifier delivery, or terminal result.
+      expect(f.spoken).not.toContain(
+        "Great! Alex said I can speak with you. How can I help?",
+      );
+      expect(eventTypes(f.events)).not.toContain("assistant_spoke");
+      expect(eventTypes(f.events)).not.toContain(
+        "inbound_acl_post_approval_handoff_spoken",
+      );
+      expect(f.notified).toEqual([]);
+      expect(f.results).toHaveLength(0);
+    });
+
     test("hasFinalized reports flow-side finalization so the close handler can skip", async () => {
       // Drive a sub-flow that finalizes inside the flow (invite failure).
       const f = createFlow({
