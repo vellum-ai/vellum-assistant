@@ -173,6 +173,8 @@ export class GuardianWaitController {
       this.scheduleHeartbeat();
     }, this.deps.firstHeartbeatDelayMs ?? getTtsPlaybackDelayMs());
 
+    // The config getters return schema-validated bounded integers
+    // (config/schemas/calls.ts), so no runtime finite/NaN guard is needed.
     const pollIntervalMs =
       this.deps.pollIntervalMs ?? getAccessRequestPollIntervalMs();
     this.pollTimer = setInterval(() => {

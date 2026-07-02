@@ -12,8 +12,7 @@
  *   `sendTextToken()`, which the media-stream transport re-synthesizes
  *   through daemon TTS. The profile carries a real `ttsProvider` name
  *   (e.g. `"ElevenLabs"`) and a provider-specific voice spec string built
- *   by a registered {@link NativeTwilioVoiceSpecBuilder}. (Collapsing this
- *   mode is a documented deferred follow-up.)
+ *   by a registered {@link NativeTwilioVoiceSpecBuilder}.
  *
  * - **synthesized-play** -- The assistant synthesises audio via the
  *   provider API and streams it through the audio store / `sendPlayUrl()`
