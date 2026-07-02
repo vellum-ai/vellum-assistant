@@ -29,6 +29,7 @@ import * as m0007 from "./m0007-backfill-ingress-invites.js";
 import * as m0008 from "./m0008-upsert-acl-columns-from-assistant.js";
 import * as m0009 from "./m0009-invite-fields-backfill.js";
 import * as m0010 from "./m0010-drop-assistant-ingress-invites.js";
+import * as m0011 from "./m0011-migrate-slack-channel-permissions.js";
 
 const log = getLogger("data-migrations");
 
@@ -52,6 +53,7 @@ export const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
   { key: "m0009-invite-fields-backfill", mod: m0009 },
   // m0010 must stay after m0009: it drops the assistant table m0009 reads.
   { key: "m0010-drop-assistant-ingress-invites", mod: m0010 },
+  { key: "m0011-migrate-slack-channel-permissions", mod: m0011 },
 ];
 
 /**
