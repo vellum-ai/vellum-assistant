@@ -140,3 +140,22 @@ describe("serializeConversationSummary · surfaced groupId normalization", () =>
     );
   });
 });
+
+describe("serializeConversationSummary · enabledPlugins", () => {
+  test("serializes a non-empty plugin scope", () => {
+    const summary = serialize(
+      makeConversationRow({ enabledPlugins: ["plugin-a", "plugin-b"] }),
+    );
+    expect(summary.enabledPlugins).toEqual(["plugin-a", "plugin-b"]);
+  });
+
+  test("preserves an explicit empty scope (user cleared all optional plugins)", () => {
+    const summary = serialize(makeConversationRow({ enabledPlugins: [] }));
+    expect(summary.enabledPlugins).toEqual([]);
+  });
+
+  test("omits the field when there is no per-chat restriction (null)", () => {
+    const summary = serialize(makeConversationRow({ enabledPlugins: null }));
+    expect("enabledPlugins" in summary).toBe(false);
+  });
+});

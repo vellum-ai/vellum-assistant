@@ -118,6 +118,12 @@ export const conversationSummarySchema = z.object({
   surfacedAt: z.number().optional(),
   inferenceProfile: z.string().optional(),
   /**
+   * Plugin-id list scoping this chat to a subset of installed plugins.
+   * Absent when there is no per-chat restriction (default: all enabled
+   * plugins); an explicit `[]` means the user cleared all optional plugins.
+   */
+  enabledPlugins: z.array(z.string()).nullable().optional(),
+  /**
    * True when the agent loop is currently mid-turn for this conversation.
    * Mirrors the in-memory `Conversation.isProcessing()` flag on the daemon
    * — `false` for rows that are cold (not currently resident in memory).
