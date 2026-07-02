@@ -98,6 +98,19 @@ describe("mergePlugins", () => {
     // Catalog rows carry no icon (the search endpoint has none).
     expect(catalogRow.icon).toBeUndefined();
   });
+
+  test("carries hasIcon/iconVersion onto installed rows (not the catalog)", () => {
+    const [installedRow, catalogRow] = mergePlugins(
+      [installed({ name: "alpha", hasIcon: true, iconVersion: "abc123" })],
+      [catalog({ name: "beta" })],
+    );
+
+    expect(installedRow.hasIcon).toBe(true);
+    expect(installedRow.iconVersion).toBe("abc123");
+    // Catalog rows have no bundled icon (the search endpoint carries none).
+    expect(catalogRow.hasIcon).toBeUndefined();
+    expect(catalogRow.iconVersion).toBeUndefined();
+  });
 });
 
 describe("matchesQuery", () => {

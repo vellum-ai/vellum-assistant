@@ -12,9 +12,9 @@
  * exercised.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 import {
   pluginsByNameGetQueryKey,
@@ -29,6 +29,8 @@ import type {
 } from "@/generated/daemon/types.gen";
 
 import { PluginDetail } from "@/domains/intelligence/components/plugins/plugin-detail";
+import { MIN_VERSION } from "@/lib/backwards-compat/use-supports-plugin-icons";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const ASSISTANT_ID = "asst-1";
 const LOCAL_COMMIT = "60a392b0000000000000000000000000000000aa";
@@ -39,9 +41,18 @@ const PUZZLE = "\u{1F9E9}"; // 🧩 — local glyph
 
 const realFetch = globalThis.fetch;
 
+beforeEach(() => {
+  // happy-dom doesn't implement object URLs; the icon hook turns the fetched
+  // blob into one.
+  globalThis.URL.createObjectURL = () => "blob:detail-icon";
+  globalThis.URL.revokeObjectURL = () => undefined;
+});
+
 afterEach(() => {
   cleanup();
   globalThis.fetch = realFetch;
+  // Reset the version gate PluginDetail reads for the bundled icon.
+  useAssistantIdentityStore.setState({ version: null });
 });
 
 /**
@@ -130,6 +141,7 @@ function renderDetail(
   name: string,
   detail: PluginsByNameGetResponse,
   inspect: PluginsByNameInspectGetResponse,
+  opts: { seedIconBlob?: Blob } = {},
 ) {
   const client = new QueryClient({
     // Infinite stale time keeps the seeded queries from refetching on mount
@@ -151,6 +163,14 @@ function renderDetail(
     } as Options<PluginsByNameInspectGetData>),
     inspect,
   );
+  if (opts.seedIconBlob) {
+    // Mirror `usePluginIconSrc`'s query key so the icon fetch resolves from
+    // cache (staleTime infinity) without a network call.
+    client.setQueryData(
+      ["pluginIcon", ASSISTANT_ID, name, detail.iconVersion],
+      opts.seedIconBlob,
+    );
+  }
   const onBack = mock(() => {});
   const result = render(
     <QueryClientProvider client={client}>
@@ -354,6 +374,71 @@ describe("PluginDetail", () => {
     expect(container.textContent).toContain(AUTHOR_EMOJI);
     expect(container.textContent).not.toContain(PACKAGE);
     expect(container.textContent).not.toContain(PUZZLE);
+  });
+
+  test("supporting daemon + hasIcon renders the bundled-icon <img> from the fetched blob", async () => {
+    useAssistantIdentityStore.setState({ version: MIN_VERSION });
+
+    const { container } = renderDetail(
+      "simple-memory",
+      {
+        name: "simple-memory",
+        installed: true,
+        description: null,
+        homepage: null,
+        license: null,
+        version: "0.1.0",
+        source: null,
+        readme: null,
+        ref: "main",
+        artifact: null,
+        icon: null,
+        hasIcon: true,
+        iconVersion: "v9",
+      },
+      upToDateInspect("simple-memory", true),
+      { seedIconBlob: new Blob(["icon"]) },
+    );
+
+    // The image renders once the fetched blob's object URL is created.
+    const img = await waitFor(() => {
+      const el = container.querySelector("img");
+      if (!el) {
+        throw new Error("icon <img> not rendered yet");
+      }
+      return el;
+    });
+    expect(img.getAttribute("src")).toBe("blob:detail-icon");
+    // With the image showing, neither origin glyph is rendered.
+    expect(container.textContent).not.toContain(PUZZLE);
+    expect(container.textContent).not.toContain(PACKAGE);
+  });
+
+  test("gate off (older daemon) renders no <img> even with hasIcon", () => {
+    // Version stays null (default) — the daemon doesn't serve the icon endpoint.
+    const { container } = renderDetail(
+      "simple-memory",
+      {
+        name: "simple-memory",
+        installed: true,
+        description: null,
+        homepage: null,
+        license: null,
+        version: "0.1.0",
+        source: null,
+        readme: null,
+        ref: "main",
+        artifact: null,
+        icon: null,
+        hasIcon: true,
+        iconVersion: "v9",
+      },
+      upToDateInspect("simple-memory", true),
+    );
+
+    expect(container.querySelector("img")).toBeNull();
+    // Falls back to the local origin glyph.
+    expect(container.textContent).toContain(PUZZLE);
   });
 
   test("invokes onBack when the back button is clicked", () => {

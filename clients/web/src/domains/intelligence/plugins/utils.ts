@@ -30,6 +30,9 @@ export function mergePlugins(
     // Installed rows carry enablement; older daemons omit it (undefined).
     enabled: p.enabled,
     icon: p.icon,
+    // Bundled-icon signals; absent on the catalog and on pre-icon daemons.
+    hasIcon: p.hasIcon,
+    iconVersion: p.iconVersion,
   }));
 
   const installedNames = new Set(installedItems.map((i) => i.name));
