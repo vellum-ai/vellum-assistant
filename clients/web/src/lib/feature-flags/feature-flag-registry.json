@@ -374,9 +374,9 @@
       "id": "research-onboarding",
       "scope": "client",
       "key": "research-onboarding",
-      "label": "Research onboarding (spike)",
-      "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. Off by default; enable locally via the feature-flags panel.",
-      "defaultEnabled": false
+      "label": "Research onboarding",
+      "description": "Replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including the \"Create my personality\" step and a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. On by default (GA); after consent, new web users (non-native, non-local-mode) are routed into this flow instead of the standard hatching path.",
+      "defaultEnabled": true
     },
     {
       "id": "personality-onboarding",
