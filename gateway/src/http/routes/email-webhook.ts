@@ -3,6 +3,10 @@ import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
+import {
+  resolveCredentialWithRefresh,
+  verifySecretWithRefresh,
+} from "../../credential-refresh.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import { normalizeEmailWebhook } from "../../email/normalize.js";
 import { verifyEmailWebhookSignature } from "../../email/verify.js";
@@ -50,30 +54,13 @@ export function createEmailWebhookHandler(
     }
     const rawBody = bodyResult.text;
 
-    // Resolve webhook secret from credential cache
-    const webhookSecret = caches?.credentials
-      ? await caches.credentials.get(credentialKey("vellum", "webhook_secret"))
-      : undefined;
-
-    // If the initial cache read returned undefined but a credential cache is available,
-    // attempt one forced refresh before fail-closing — the credential may have been
-    // written after the TTL cache was last populated.
-    let effectiveSecret = webhookSecret;
-    if (!effectiveSecret && caches?.credentials) {
-      effectiveSecret = await caches.credentials.get(
-        credentialKey("vellum", "webhook_secret"),
-        { force: true },
-      );
-      if (effectiveSecret) {
-        tlog.info(
-          "Email webhook secret resolved after forced credential refresh",
-        );
-      }
-    }
-
     // Signature validation is required — reject when no secret is configured
     // rather than silently accepting unauthenticated payloads (fail-closed).
-    if (!effectiveSecret) {
+    const webhookSecret = await resolveCredentialWithRefresh(
+      caches?.credentials,
+      credentialKey("vellum", "webhook_secret"),
+    );
+    if (!webhookSecret) {
       tlog.warn("Email webhook secret is not configured — rejecting request");
       return Response.json(
         { error: "Webhook secret not configured" },
@@ -81,32 +68,14 @@ export function createEmailWebhookHandler(
       );
     }
 
-    let signatureValid = verifyEmailWebhookSignature(
-      req.headers,
-      rawBody,
-      effectiveSecret,
-    );
-
-    // One-shot force retry: if verification failed and caches are available,
-    // force-refresh the webhook secret and retry once.
-    if (!signatureValid && caches?.credentials) {
-      const freshSecret = await caches.credentials.get(
-        credentialKey("vellum", "webhook_secret"),
-        { force: true },
-      );
-      if (freshSecret) {
-        signatureValid = verifyEmailWebhookSignature(
-          req.headers,
-          rawBody,
-          freshSecret,
-        );
-        if (signatureValid) {
-          tlog.info(
-            "Email webhook signature verified after forced credential refresh",
-          );
-        }
-      }
-    }
+    const signatureValid = await verifySecretWithRefresh({
+      credentials: caches?.credentials,
+      key: credentialKey("vellum", "webhook_secret"),
+      verify: (secret) =>
+        verifyEmailWebhookSignature(req.headers, rawBody, secret),
+      log: tlog,
+      label: "Email webhook signature",
+    });
 
     if (!signatureValid) {
       tlog.warn("Email webhook signature verification failed");

@@ -4,6 +4,10 @@ import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
+import {
+  resolveCredentialWithRefresh,
+  verifySecretWithRefresh,
+} from "../../credential-refresh.js";
 import { recordDenialReplyIfAllowed } from "../../db/denial-reply-rate-limiter.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import type { VellumEmailPayload } from "../../email/normalize.js";
@@ -222,18 +226,8 @@ export function createMailgunWebhookHandler(
 
     // ── Credential resolution ───────────────────────────────────────
 
-    const resolveCredential = async (
-      key: string,
-    ): Promise<string | undefined> => {
-      if (!caches?.credentials) return undefined;
-      let value = await caches.credentials.get(key);
-      if (!value) {
-        value = await caches.credentials.get(key, { force: true });
-      }
-      return value;
-    };
-
-    const signingKey = await resolveCredential(
+    const signingKey = await resolveCredentialWithRefresh(
+      caches?.credentials,
       credentialKey("mailgun", "webhook_signing_key"),
     );
 
@@ -253,33 +247,13 @@ export function createMailgunWebhookHandler(
     const token = fields["token"] ?? "";
     const signature = fields["signature"] ?? "";
 
-    let signatureValid = verifyMailgunSignature(
-      signingKey,
-      timestamp,
-      token,
-      signature,
-    );
-
-    // One-shot force retry on verification failure
-    if (!signatureValid && caches?.credentials) {
-      const freshKey = await caches.credentials.get(
-        credentialKey("mailgun", "webhook_signing_key"),
-        { force: true },
-      );
-      if (freshKey) {
-        signatureValid = verifyMailgunSignature(
-          freshKey,
-          timestamp,
-          token,
-          signature,
-        );
-        if (signatureValid) {
-          tlog.info(
-            "Mailgun webhook signature verified after forced credential refresh",
-          );
-        }
-      }
-    }
+    const signatureValid = await verifySecretWithRefresh({
+      credentials: caches?.credentials,
+      key: credentialKey("mailgun", "webhook_signing_key"),
+      verify: (key) => verifyMailgunSignature(key, timestamp, token, signature),
+      log: tlog,
+      label: "Mailgun webhook signature",
+    });
 
     if (!signatureValid) {
       tlog.warn("Mailgun webhook signature verification failed");
@@ -395,7 +369,8 @@ export function createMailgunWebhookHandler(
       // confirmations must always be delivered regardless of prior denial
       // replies to this sender.
       if (result.verificationIntercepted && result.verificationReplyText) {
-        const mailgunApiKeyForVerify = await resolveCredential(
+        const mailgunApiKeyForVerify = await resolveCredentialWithRefresh(
+          caches?.credentials,
           credentialKey("mailgun", "api_key"),
         );
         if (mailgunApiKeyForVerify) {
@@ -468,7 +443,8 @@ export function createMailgunWebhookHandler(
       // (no replyCallbackUrl for email), so the gateway handles it.
       const runtimeBody = result.runtimeResponse ?? {};
       if (result.runtimeResponse?.denied && result.runtimeResponse.replyText) {
-        const mailgunApiKey = await resolveCredential(
+        const mailgunApiKey = await resolveCredentialWithRefresh(
+          caches?.credentials,
           credentialKey("mailgun", "api_key"),
         );
         if (mailgunApiKey) {
