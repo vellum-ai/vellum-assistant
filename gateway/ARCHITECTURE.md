@@ -174,7 +174,7 @@ Runtime health is exposed directly by the gateway at `GET /v1/health` and forwar
 
 ### Telegram + Contacts Control-Plane Proxies
 
-Telegram integration setup/config endpoints and contacts/invites endpoints are also exposed directly by the gateway and forwarded to runtime handlers for dedicated auth handling.
+Telegram integration setup/config endpoints and contacts/invites endpoints are also exposed directly by the gateway for dedicated auth handling. Contact endpoints forward to runtime handlers; invite endpoints are gateway-native — they run against the gateway DB's `ingress_invites` table with no runtime round-trip (the outbound-call relay is the one exception: the gateway validates its invite row, then delegates the provider call to the assistant).
 
 **Forwarded Telegram endpoints:**
 
@@ -184,7 +184,7 @@ Telegram integration setup/config endpoints and contacts/invites endpoints are a
 | POST            | `/v1/integrations/telegram/commands` |
 | POST            | `/v1/integrations/telegram/setup`    |
 
-**Forwarded contact & invite endpoints:**
+**Forwarded contact endpoints:**
 
 | Method   | Path                                     |
 | -------- | ---------------------------------------- |
@@ -192,14 +192,20 @@ Telegram integration setup/config endpoints and contacts/invites endpoints are a
 | GET      | `/v1/contacts/:contactId`                |
 | POST     | `/v1/contacts/merge`                     |
 | PATCH    | `/v1/contact-channels/:contactChannelId` |
-| GET/POST | `/v1/contacts/invites`                   |
-| DELETE   | `/v1/contacts/invites/:inviteId`         |
-| POST     | `/v1/contacts/invites/redeem`            |
+
+**Gateway-native invite endpoints:**
+
+| Method   | Path                                  |
+| -------- | ------------------------------------- |
+| GET/POST | `/v1/contacts/invites`                |
+| DELETE   | `/v1/contacts/invites/:inviteId`      |
+| POST     | `/v1/contacts/invites/:inviteId/call` |
+| POST     | `/v1/contacts/invites/redeem`         |
 
 **Authentication boundary:**
 
 - Gateway validates the caller's JWT bearer token.
-- Gateway forwards requests to runtime with a minted JWT (`gateway_ingress_v1` or `gateway_service_v1` scope profile).
+- Forwarded requests reach runtime with a minted JWT (`gateway_ingress_v1` or `gateway_service_v1` scope profile); invite endpoints are served from the gateway DB after the same bearer-auth check.
 - Upstream 4xx/5xx responses are passed through, while connection errors return `502` and timeouts return `504`.
 
 **Key source files:**
@@ -207,7 +213,7 @@ Telegram integration setup/config endpoints and contacts/invites endpoints are a
 | File                                                      | Purpose                                                                                                       |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | `gateway/src/http/routes/telegram-control-plane-proxy.ts` | Telegram control-plane proxy handlers and upstream forwarding                                                 |
-| `gateway/src/http/routes/contacts-control-plane-proxy.ts` | Contacts control-plane proxy handlers and upstream forwarding                                                 |
+| `gateway/src/http/routes/contacts-control-plane-proxy.ts` | Contact proxy handlers plus gateway-native invite handlers (mint, list, revoke, redeem, call relay)           |
 | `gateway/src/index.ts`                                    | Route registration and bearer-auth enforcement for `/v1/integrations/telegram/*` and `/v1/contacts/invites/*` |
 
 ### Twilio Control-Plane Proxy
@@ -584,7 +590,7 @@ The channel inbound handler (`inbound-message-handler.ts`) enforces an access co
 3. If a member exists but is not `active` (e.g., `revoked`, `blocked`), the message is denied.
 4. If the member's `policy` is `deny`, the message is rejected. If `allow`, the message proceeds to normal processing. If `escalate`, the message is held for guardian approval.
 
-**Invite-based onboarding:** Invite tokens are created via the invite HTTP API. Each token is SHA-256 hashed before storage -- the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which atomically creates a member record with `active` status and `allow` policy.
+**Invite-based onboarding:** Invite tokens are minted by the gateway via the invite HTTP API and stored SHA-256 hashed on the gateway DB's `ingress_invites` row -- the raw token is returned exactly once at creation time. External users redeem invites by sending the token as a channel message, which atomically creates a member record with `active` status and `allow` policy.
 
 **Relationship to guardian verification:** Guardian verification and ingress contact management are independent systems. Guardian verification establishes who controls the assistant on a channel (the trust anchor for approvals and escalations). Ingress contacts control who can interact with the assistant. Escalation (`policy=escalate`) depends on a guardian binding existing for the channel -- without one, escalated messages are denied (fail-closed).
 
@@ -629,34 +635,38 @@ If no guardian binding exists for the channel, escalation fails closed -- the me
 
 #### SQLite Tables
 
-**Assistant DB** (`assistant.db` — current owner, migrating to gateway):
-
-| Table                       | Purpose                                                               |
-| --------------------------- | --------------------------------------------------------------------- |
-| `assistant_ingress_invites` | Invite tokens with SHA-256 hashes, expiry, use counts                 |
-| `contacts`                  | Contact records with role, relationship, and per-contact metadata     |
-| `contact_channels`          | Channel bindings per contact with access policy (allow/deny/escalate) |
-
-**Gateway DB** (`gateway.sqlite` — future owner of auth/authz):
+**Assistant DB** (`assistant.db` — current owner of contact info, migrating to gateway):
 
 | Table              | Purpose                                                                |
 | ------------------ | ---------------------------------------------------------------------- |
-| `contacts`         | Contact auth/authz: id, display_name, role, principal_id               |
-| `contact_channels` | Channel bindings with policy, status, external IDs, verification state |
+| `contacts`         | Contact records with role, relationship, and per-contact metadata      |
+| `contact_channels` | Channel bindings per contact with access policy (allow/deny/escalate)  |
 
-The gateway declares `contacts` and `contact_channels` tables and exposes them via IPC (`list_contacts`, `get_contact`, `get_contact_by_channel`, `get_channels_for_contact`). Endpoint cutover and data migration are in progress — the gateway will become the canonical owner once dual-writing is enabled.
+**Gateway DB** (`gateway.sqlite` — canonical owner of invites, future owner of auth/authz):
+
+| Table              | Purpose                                                                 |
+| ------------------ | ----------------------------------------------------------------------- |
+| `contacts`         | Contact auth/authz: id, display_name, role, principal_id                |
+| `contact_channels` | Channel bindings with policy, status, external IDs, verification state  |
+| `ingress_invites`  | Canonical invite store — token/code hashes, expiry, use counts, voice/display fields |
+
+The gateway's `ingress_invites` table is the sole invite store: mint, list, revoke, and redemption all run gateway-natively, and the daemon relays its invite surfaces here over IPC. The gateway data migrations `m0007`/`m0009` reference `assistant_ingress_invites` — a legacy assistant table absent from the current assistant schema — only as a one-time backfill source.
+
+The gateway declares `contacts` and `contact_channels` tables and exposes them via IPC (`list_contacts`, `get_contact`, `get_contact_by_channel`, `get_channels_for_contact`). Contact endpoint cutover and data migration are in progress — the gateway will become the canonical owner once dual-writing is enabled.
 
 #### Key Modules
 
-| Module                                           | Purpose                                                                   |
-| ------------------------------------------------ | ------------------------------------------------------------------------- |
-| `assistant/src/memory/invite-store.ts`           | CRUD for invite tokens with SHA-256 hashing and expiry                    |
-| `assistant/src/contacts/contact-store.ts`        | Contact and channel lookups (findContactChannel, guardian bindings)       |
-| `assistant/src/contacts/contacts-write.ts`       | Contact and channel writes (upsert, policy changes, invite redemption)    |
-| `assistant/src/daemon/handlers/config-inbox.ts`  | Handlers for invite and member contracts                                  |
-| `assistant/src/runtime/routes/channel-routes.ts` | ACL enforcement point -- member lookup, policy check, escalation creation |
-| `gateway/src/db/contact-store.ts`                | Gateway-side read-only ContactStore (prepared-statement queries)          |
-| `gateway/src/ipc/contact-handlers.ts`            | IPC route handlers for contact reads                                      |
+| Module                                                    | Purpose                                                                    |
+| --------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `gateway/src/http/routes/contacts-control-plane-proxy.ts` | Gateway-native invite lifecycle (mint, list, revoke, redeem) shared by HTTP and IPC |
+| `gateway/src/ipc/invite-handlers.ts`                      | IPC routes relaying the daemon's invite surfaces to the native functions   |
+| `gateway/src/verification/invite-redemption.ts`           | Redemption engine — validation, atomic claim, ACL activation               |
+| `assistant/src/contacts/contact-store.ts`                 | Contact and channel lookups (findContactChannel, guardian bindings)        |
+| `assistant/src/contacts/contacts-write.ts`                | Contact and channel writes (upsert, policy changes, redemption info mirror) |
+| `assistant/src/ipc/routes/invite-ipc-routes.ts`           | `invite_redeemed` info mirror — local contact/channel identity upsert      |
+| `assistant/src/runtime/routes/inbound-message-handler.ts` | ACL enforcement point -- member lookup, policy check, escalation creation  |
+| `gateway/src/db/contact-store.ts`                         | Gateway-side ContactStore — contact/channel reads and invite CRUD          |
+| `gateway/src/ipc/contact-handlers.ts`                     | IPC route handlers for contact reads                                       |
 
 ### Telegram Credential Flow
 

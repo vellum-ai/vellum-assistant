@@ -1,11 +1,10 @@
 /**
- * Shared business logic for invite management.
+ * Daemon-owned invite presentation and provider-call helpers.
  *
- * Extracted from the handlers in daemon/handlers/config-inbox.ts so that
- * both the HTTP routes and the message handlers call the same logic.
- *
- * Member/contact operations have been migrated to the /v1/contacts and
- * /v1/contacts/channels endpoints.
+ * The gateway owns the canonical invite lifecycle (its `ingress_invites`
+ * table; mint/list/revoke/redeem run gateway-natively). These helpers layer
+ * display-only fields — share link, guardian instruction, channel handle —
+ * onto gateway-minted payloads and place outbound invite calls.
  */
 
 import { startInviteCall } from "../calls/call-domain.js";

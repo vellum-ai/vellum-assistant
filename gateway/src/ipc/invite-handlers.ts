@@ -12,8 +12,8 @@
  *
  *   invites_list
  *     params : { sourceChannel?: string; status?: string }
- *     returns: { invites: Array<Record<string, unknown>> }   (sanitized — no
- *              inviteCodeHash; gateway rows + voice join + assistant-only merge)
+ *     returns: { invites: Array<Record<string, unknown>> }   (gateway rows,
+ *              sanitized — no code/token hashes)
  *
  *   invites_create
  *     params : { contactId: string; sourceChannel: string; note?: string;
@@ -141,9 +141,8 @@ export const inviteRoutes: IpcRoute[] = [
     },
   },
   {
-    // Gateway rows (lifecycle truth) + best-effort voice-field join +
-    // assistant-only merge, sanitized (no inviteCodeHash). Shares the HTTP
-    // list native implementation.
+    // Single gateway-DB read, sanitized (no code/token hashes). Shares the
+    // HTTP list native implementation.
     method: "invites_list",
     schema: ListInvitesParamsSchema,
     handler: async (params?: Record<string, unknown>) => {
@@ -162,8 +161,8 @@ export const inviteRoutes: IpcRoute[] = [
     },
   },
   {
-    // Flip the gateway row (then mirror to assistant DB), or fall back to the
-    // assistant-only row. Returns the sanitized invite.
+    // Single gateway-DB UPDATE, idempotent for already-terminal invites.
+    // Returns the sanitized invite.
     method: "invites_revoke",
     schema: InviteIdParamsSchema,
     handler: async (params?: Record<string, unknown>) => {

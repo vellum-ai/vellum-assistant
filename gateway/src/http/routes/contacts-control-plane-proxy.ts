@@ -1,8 +1,10 @@
 /**
- * Gateway proxy endpoints for ingress contacts/invites control-plane routes.
+ * Gateway endpoints for ingress contacts/invites control-plane routes.
  *
  * These routes are registered as explicit gateway routes for dedicated
  * auth handling rather than falling through to the catch-all proxy.
+ * Contact routes proxy to the assistant runtime; invite routes are
+ * gateway-native against the gateway DB's ingress_invites table.
  */
 
 import { randomUUID } from "node:crypto";
@@ -1564,10 +1566,9 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     /**
      * GET /v1/contacts/invites — gateway-native invite list.
      *
-     * Reads invite rows from the gateway DB (source of truth) and best-effort
-     * joins voice UX fields (voiceCode digits, friendName, etc.) from the
-     * assistant DB keyed on invite id. If the assistant join throws, returns
-     * the gateway rows without voice fields (stale over lost).
+     * A single gateway-DB read: the ingress_invites row carries the voice UX
+     * fields (voiceCodeDigits, friendName, etc.) alongside lifecycle state.
+     * Rows are sanitized (no code/token hashes) before returning.
      */
     async handleListInvites(req: Request): Promise<Response> {
       const url = new URL(req.url);
@@ -1683,8 +1684,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     /**
      * DELETE /v1/contacts/invites/:id — gateway-native invite revoke.
      *
-     * Revokes the invite in the gateway DB (source of truth). 404 if the id
-     * is unknown. Best-effort mirror of the revoke into the assistant DB.
+     * A single gateway-DB UPDATE (source of truth). 404 if the id is unknown.
      */
     async handleRevokeInvite(
       _req: Request,
