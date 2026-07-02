@@ -27,8 +27,50 @@ export {
 // Approval actions (daemon-internal)
 // ---------------------------------------------------------------------------
 
-/** The set of actions a user can take on an approval prompt. */
-export type ApprovalAction = "approve_once" | "reject";
+/**
+ * The set of actions a user can take on an approval prompt.
+ *
+ * `approve_once` / `reject` are the generic decision pair used by every
+ * request kind. `trust` / `verify_code` / `leave_unverified` / `block` are the
+ * introduction-card actions, valid only for `access_request` requests — the
+ * canonical decision primitive rejects them for any other kind.
+ */
+export const APPROVAL_ACTION_IDS = [
+  "approve_once",
+  "reject",
+  "trust",
+  "verify_code",
+  "leave_unverified",
+  "block",
+] as const;
+
+export type ApprovalAction = (typeof APPROVAL_ACTION_IDS)[number];
+
+/** All valid approval action ids, for wire-input validation. */
+export const APPROVAL_ACTION_SET: ReadonlySet<string> = new Set(
+  APPROVAL_ACTION_IDS,
+);
+
+/**
+ * Introduction-card actions (LUM-2670). Only meaningful for `access_request`
+ * requests: the guardian sets the contact's trust level directly on the card.
+ */
+export const INTRODUCTION_ACTION_SET: ReadonlySet<string> = new Set([
+  "trust",
+  "verify_code",
+  "leave_unverified",
+  "block",
+]);
+
+/**
+ * Actions that resolve a request to the `denied` terminal status. Everything
+ * else resolves to `approved`.
+ */
+export const DENYING_ACTION_SET: ReadonlySet<string> = new Set([
+  "reject",
+  "leave_unverified",
+  "block",
+]);
 
 /**
  * Map `GuardianDecisionAction[]` to `ApprovalActionOption[]` so channel

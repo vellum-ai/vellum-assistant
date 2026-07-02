@@ -43,7 +43,10 @@ import {
 } from "../notifications/guardian-question-mode.js";
 import { getLogger } from "../util/logger.js";
 import { runApprovalConversationTurn } from "./approval-conversation-turn.js";
-import type { ApprovalAction } from "./channel-approval-types.js";
+import {
+  APPROVAL_ACTION_SET,
+  type ApprovalAction,
+} from "./channel-approval-types.js";
 import type {
   ApprovalConversationContext,
   ApprovalConversationGenerator,
@@ -143,7 +146,7 @@ export interface GuardianReplyResult {
 // Callback data parser — format: "apr:<requestId>:<action>"
 // ---------------------------------------------------------------------------
 
-const VALID_ACTIONS: ReadonlySet<string> = new Set(["approve_once", "reject"]);
+const VALID_ACTIONS: ReadonlySet<string> = APPROVAL_ACTION_SET;
 
 const LEGACY_CALLBACK_MAP: Record<string, string> = {
   approve_10m: "approve_once",
@@ -158,11 +161,15 @@ interface ParsedCallback {
 
 function parseCallbackAction(data: string): ParsedCallback | null {
   const parts = data.split(":");
-  if (parts.length < 3 || parts[0] !== "apr") return null;
+  if (parts.length < 3 || parts[0] !== "apr") {
+    return null;
+  }
   const requestId = parts[1];
   const rawAction = parts.slice(2).join(":");
   const action = LEGACY_CALLBACK_MAP[rawAction] ?? rawAction;
-  if (!requestId || !VALID_ACTIONS.has(action)) return null;
+  if (!requestId || !VALID_ACTIONS.has(action)) {
+    return null;
+  }
   return { requestId, action: action as ApprovalAction };
 }
 
@@ -198,11 +205,15 @@ function parseRequestCode(
   // Request codes are 6 hex chars (A-F, 0-9), uppercase
   const upper = cleaned.toUpperCase();
   const match = upper.match(/^([A-F0-9]{6})(?:\s|$)/);
-  if (!match) return null;
+  if (!match) {
+    return null;
+  }
 
   const code = match[1];
   const request = getCanonicalGuardianRequestByCode(code);
-  if (!request) return null;
+  if (!request) {
+    return null;
+  }
 
   // Scope to the current conversation when requested, so a code belonging
   // to a different conversation is not consumed here. Requests with
@@ -501,9 +512,12 @@ export async function routeGuardianReply(
         };
       }
 
-      // Remaining text present — infer the decision action from it.
-      // If the text indicates rejection, use reject; otherwise approve_once.
-      const action = inferActionFromText(codeResult.remainingText);
+      // Remaining text present — infer the decision action from it, using
+      // the introduction-card verb set for access requests.
+      const action = inferActionFromText(
+        codeResult.remainingText,
+        request.kind,
+      );
 
       return applyDecision(
         request.id,
@@ -845,22 +859,61 @@ function normalizeDecisionPhrase(text: string): string {
  */
 function inferDecisionActionFromFreeText(text: string): ApprovalAction | null {
   const normalized = normalizeDecisionPhrase(text);
-  if (!normalized) return null;
-  if (EXPLICIT_REJECT_PHRASES.has(normalized)) return "reject";
-  if (EXPLICIT_APPROVE_PHRASES.has(normalized)) return "approve_once";
+  if (!normalized) {
+    return null;
+  }
+  if (EXPLICIT_REJECT_PHRASES.has(normalized)) {
+    return "reject";
+  }
+  if (EXPLICIT_APPROVE_PHRASES.has(normalized)) {
+    return "approve_once";
+  }
   return null;
 }
 
 /**
+ * Introduction-card verbs for `access_request` requests. `trust` / `verify` /
+ * `block` map to their card actions; the generic reject vocabulary maps to
+ * leave-unverified (its historical deny semantics).
+ */
+const CODE_TRUST_PATTERNS = /^(trust|trusted)\b/i;
+const CODE_VERIFY_PATTERNS = /^(verify|verification|code|handshake)\b/i;
+const CODE_BLOCK_PATTERNS = /^(block|ban)\b/i;
+
+/**
  * Infer a guardian decision action from free-text after a request code.
  * Defaults to approve_once unless clear rejection language is detected.
+ *
+ * For `access_request` requests, the introduction-card verbs (trust / verify
+ * / block) are recognized first, and rejection vocabulary maps to
+ * `leave_unverified`.
  */
-function inferActionFromText(text: string): ApprovalAction {
+function inferActionFromText(
+  text: string,
+  requestKind?: string,
+): ApprovalAction {
   if (!text || text.trim().length === 0) {
     return "approve_once";
   }
+  const trimmed = text.trim();
 
-  if (CODE_REJECT_PATTERNS.test(text.trim())) {
+  if (requestKind === "access_request") {
+    if (CODE_BLOCK_PATTERNS.test(trimmed)) {
+      return "block";
+    }
+    if (CODE_TRUST_PATTERNS.test(trimmed)) {
+      return "trust";
+    }
+    if (CODE_VERIFY_PATTERNS.test(trimmed)) {
+      return "verify_code";
+    }
+    if (CODE_REJECT_PATTERNS.test(trimmed)) {
+      return "leave_unverified";
+    }
+    return "approve_once";
+  }
+
+  if (CODE_REJECT_PATTERNS.test(trimmed)) {
     return "reject";
   }
 

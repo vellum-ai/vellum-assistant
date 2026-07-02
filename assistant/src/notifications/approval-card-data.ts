@@ -16,9 +16,11 @@
 import {
   buildAccessRequestCardView,
   buildAccessRequestContractText,
+  buildIntroductionActionsForPayload,
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
 import {
+  type ApprovalCardActionOption,
   type ApprovalCardBlock,
   type ApprovalCardParams,
   buildApprovalCardBlocks,
@@ -97,7 +99,22 @@ export type ApprovalCardData = AccessRequestCardData | ToolApprovalCardData;
 function resolveAccessRequestCard(
   payload: Record<string, unknown>,
 ): ApprovalCardParams {
-  const view = buildAccessRequestCardView(parseAccessRequestPayload(payload));
+  const parsed = parseAccessRequestPayload(payload);
+  const view = buildAccessRequestCardView(parsed);
+
+  // Signal-driven introduction actions: the first action is the emphasized
+  // default; Block is destructive; the rest stay secondary.
+  const actions: ApprovalCardActionOption[] =
+    buildIntroductionActionsForPayload(parsed).map((action, index) => ({
+      id: action.id,
+      label: action.label,
+      style:
+        action.id === "block"
+          ? ("destructive" as const)
+          : index === 0
+            ? ("primary" as const)
+            : ("secondary" as const),
+    }));
 
   const metadata: Array<{ label: string; value: string }> = [];
 
@@ -144,6 +161,7 @@ function resolveAccessRequestCard(
     body,
     metadata,
     requestId: view.requestId,
+    actions,
     fallbackText: buildAccessRequestContractText(payload),
   };
 }
@@ -170,7 +188,9 @@ function isLenientToolApproval(payload: LenientToolApprovalPayload): boolean {
     payload.requestKind,
     payload.toolName,
   );
-  if (!modeResolution) return false;
+  if (!modeResolution) {
+    return false;
+  }
   return (
     modeResolution.mode === "approval" &&
     payload.requestKind !== "access_request"
@@ -246,13 +266,19 @@ function resolveToolApprovalCard(
 ): ApprovalCardParams | null {
   const strict = parseGuardianQuestionPayload(payload);
   if (strict) {
-    if (!isToolApprovalPayload(strict)) return null;
+    if (!isToolApprovalPayload(strict)) {
+      return null;
+    }
     return extractToolApprovalCard(strict);
   }
 
   const lenient = LenientToolApprovalPayloadSchema.safeParse(payload);
-  if (!lenient.success) return null;
-  if (!isLenientToolApproval(lenient.data)) return null;
+  if (!lenient.success) {
+    return null;
+  }
+  if (!isLenientToolApproval(lenient.data)) {
+    return null;
+  }
   return extractToolApprovalCard(lenient.data);
 }
 
@@ -268,7 +294,9 @@ export function resolveApprovalCardData(
   sourceEventName: string,
   contextPayload: Record<string, unknown> | undefined,
 ): ApprovalCardData | null {
-  if (!contextPayload) return null;
+  if (!contextPayload) {
+    return null;
+  }
 
   if (sourceEventName === "ingress.access_request") {
     return {

@@ -278,8 +278,8 @@ describe("notification decision strategy", () => {
       const copy = composeFallbackCopy(signal, channels);
       expect(copy.vellum).toBeDefined();
       expect(copy.vellum!.body).toContain("D4E5F6");
-      expect(copy.vellum!.body).toContain("approve");
-      expect(copy.vellum!.body).toContain("reject");
+      expect(copy.vellum!.body).toContain("trust");
+      expect(copy.vellum!.body).toContain("block");
     });
 
     test("ingress.access_request template includes invite flow instruction", () => {
@@ -709,8 +709,19 @@ describe("notification decision strategy", () => {
   describe("access-request instruction detection", () => {
     test("detects complete access-request instructions with full directive patterns", () => {
       const text =
-        'Alice wants access.\nReply "A1B2C3 approve" to grant access or "A1B2C3 reject" to deny.\nReply "open invite flow" to start.';
+        'Alice wants access.\nReply "A1B2C3 verify" to send them a verification code, "A1B2C3 trust" to trust them without one, "A1B2C3 reject" to leave them unverified, or "A1B2C3 block" to block them.\nReply "open invite flow" to start.';
       expect(hasAccessRequestInstructions(text, "A1B2C3")).toBe(true);
+    });
+
+    test("does not require the verify directive when the handshake is not offered", () => {
+      const text =
+        'Alice wants access.\nReply "A1B2C3 trust" to trust them, "A1B2C3 reject" to leave them unverified, or "A1B2C3 block" to block them.\nReply "open invite flow" to start.';
+      expect(hasAccessRequestInstructions(text, "A1B2C3")).toBe(false);
+      expect(
+        hasAccessRequestInstructions(text, "A1B2C3", {
+          handshakeOffered: false,
+        }),
+      ).toBe(true);
     });
 
     test("fails when request code is missing", () => {
@@ -732,7 +743,7 @@ describe("notification decision strategy", () => {
 
     test("is case-insensitive for request code matching", () => {
       const text =
-        'Reply "a1b2c3 approve" to grant access or "a1b2c3 reject" to deny.\nReply "open invite flow" to start.';
+        'Reply "a1b2c3 verify" to send a code, "a1b2c3 trust" to trust them, "a1b2c3 reject" to leave them unverified, or "a1b2c3 block" to block them.\nReply "open invite flow" to start.';
       expect(hasAccessRequestInstructions(text, "A1B2C3")).toBe(true);
     });
 
@@ -788,7 +799,7 @@ describe("notification decision strategy", () => {
 
     test("accepts directives at the start of text (no preceding newline needed)", () => {
       const text =
-        'Reply "A1B2C3 approve" to grant or "A1B2C3 reject" to deny. Reply "open invite flow" to start.';
+        'Reply "A1B2C3 verify" to send a code, "A1B2C3 trust" to trust, "A1B2C3 reject" to leave unverified, or "A1B2C3 block" to block. Reply "open invite flow" to start.';
       expect(hasAccessRequestInstructions(text, "A1B2C3")).toBe(true);
     });
 
@@ -857,8 +868,11 @@ describe("notification decision strategy", () => {
         previousMemberStatus: "revoked",
       });
       expect(text).toContain("Alice");
-      expect(text).toContain("D4E5F6 approve");
+      // Telegram carries no workspace identity — the handshake leads.
+      expect(text).toContain("D4E5F6 verify");
+      expect(text).toContain("D4E5F6 trust");
       expect(text).toContain("D4E5F6 reject");
+      expect(text).toContain("D4E5F6 block");
       expect(text).toContain("open invite flow");
       expect(text).toContain("previously revoked");
     });
@@ -869,8 +883,32 @@ describe("notification decision strategy", () => {
         requestCode: "A1B2C3",
       });
       expect(text).not.toContain("revoked");
-      expect(text).toContain("A1B2C3 approve");
+      expect(text).toContain("A1B2C3 trust");
       expect(text).toContain("open invite flow");
+    });
+
+    test("workspace-member contract omits the verify directive", () => {
+      const text = buildAccessRequestContractText({
+        senderIdentifier: "Alice",
+        requestCode: "A1B2C3",
+        sourceChannel: "slack",
+      });
+      expect(text).not.toContain("A1B2C3 verify");
+      expect(text).toContain("A1B2C3 trust");
+      expect(text).toContain("A1B2C3 block");
+    });
+
+    test("bot contract never offers the code option", () => {
+      const text = buildAccessRequestContractText({
+        senderIdentifier: "Shard",
+        requestCode: "A1B2C3",
+        sourceChannel: "slack",
+        isBot: true,
+        isStranger: true,
+      });
+      expect(text).not.toContain("A1B2C3 verify");
+      expect(text).toContain("A1B2C3 trust");
+      expect(text).toContain("code verification isn't possible");
     });
 
     test("builds contract without decision directive when no request code", () => {
@@ -891,7 +929,7 @@ describe("notification decision strategy", () => {
       });
       expect(text).not.toContain("\n\n\n"); // no triple newlines from injected newlines
       expect(text).not.toContain("\x00");
-      expect(text).toContain("A1B2C3 approve");
+      expect(text).toContain("A1B2C3 verify");
       expect(text).toContain("open invite flow");
     });
   });

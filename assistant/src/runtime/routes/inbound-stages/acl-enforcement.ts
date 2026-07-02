@@ -195,7 +195,9 @@ export async function enforceIngressAcl(
 
   let isValidatedBootstrap = false;
 
-  // Trust signals from Slack users.info, forwarded via sourceMetadata.
+  // Identity signals forwarded via sourceMetadata: bot flag (Slack users.info
+  // / Telegram is_bot) plus Slack workspace trust signals.
+  const isBot = sourceMetadata?.isBot ?? undefined;
   const isStranger = sourceMetadata?.isStranger ?? undefined;
   const isRestricted = sourceMetadata?.isRestricted ?? undefined;
 
@@ -475,6 +477,7 @@ export async function enforceIngressAcl(
                   trimmedContent,
                   MESSAGE_PREVIEW_MAX_LENGTH,
                 ),
+                isBot,
                 isStranger,
                 isRestricted,
                 messageTs,
@@ -555,6 +558,7 @@ export async function enforceIngressAcl(
                   trimmedContent,
                   MESSAGE_PREVIEW_MAX_LENGTH,
                 ),
+                isBot,
                 isStranger,
                 isRestricted,
                 messageTs,
@@ -605,6 +609,7 @@ export async function enforceIngressAcl(
                 trimmedContent,
                 MESSAGE_PREVIEW_MAX_LENGTH,
               ),
+              isBot,
               isStranger,
               isRestricted,
               messageTs,
@@ -842,6 +847,7 @@ export async function enforceIngressAcl(
                     trimmedContent,
                     MESSAGE_PREVIEW_MAX_LENGTH,
                   ),
+                  isBot,
                   isStranger,
                   isRestricted,
                   messageTs,
@@ -920,6 +926,7 @@ export async function enforceIngressAcl(
                     trimmedContent,
                     MESSAGE_PREVIEW_MAX_LENGTH,
                   ),
+                  isBot,
                   isStranger,
                   isRestricted,
                   messageTs,

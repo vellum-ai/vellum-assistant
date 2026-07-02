@@ -32,6 +32,8 @@ import {
   buildAccessRequestInviteDirective,
   hasAccessRequestInstructions,
   hasInviteFlowDirective,
+  isHandshakeOfferedForPayload,
+  parseAccessRequestPayload,
 } from "./access-request-copy.js";
 import {
   buildAccessRequestSeedContentBlocks,
@@ -382,11 +384,19 @@ function validateDecisionOutput(
   availableChannels: NotificationChannel[],
   candidateSet?: ConversationCandidateSet,
 ): NotificationDecision | null {
-  if (typeof input.shouldNotify !== "boolean") return null;
-  if (typeof input.reasoningSummary !== "string") return null;
-  if (typeof input.dedupeKey !== "string") return null;
+  if (typeof input.shouldNotify !== "boolean") {
+    return null;
+  }
+  if (typeof input.reasoningSummary !== "string") {
+    return null;
+  }
+  if (typeof input.dedupeKey !== "string") {
+    return null;
+  }
 
-  if (!Array.isArray(input.selectedChannels)) return null;
+  if (!Array.isArray(input.selectedChannels)) {
+    return null;
+  }
   const validatedChannels = (input.selectedChannels as unknown[]).filter(
     (ch): ch is NotificationChannel =>
       typeof ch === "string" &&
@@ -482,7 +492,9 @@ export function validateConversationActions(
 ): Partial<Record<NotificationChannel, ConversationAction>> {
   const result: Partial<Record<NotificationChannel, ConversationAction>> = {};
 
-  if (!raw || typeof raw !== "object") return result;
+  if (!raw || typeof raw !== "object") {
+    return result;
+  }
 
   const actionsObj = raw as Record<string, unknown>;
   const channelSet = new Set(validChannels);
@@ -502,8 +514,12 @@ export function validateConversationActions(
   }
 
   for (const [ch, actionRaw] of Object.entries(actionsObj)) {
-    if (!channelSet.has(ch as NotificationChannel)) continue;
-    if (!actionRaw || typeof actionRaw !== "object") continue;
+    if (!channelSet.has(ch as NotificationChannel)) {
+      continue;
+    }
+    if (!actionRaw || typeof actionRaw !== "object") {
+      continue;
+    }
 
     const channel = ch as NotificationChannel;
     const action = actionRaw as Record<string, unknown>;
@@ -558,8 +574,9 @@ function ensureGuardianRequestCodeInCopy(
       requestCode,
       mode,
     );
-    if (hasGuardianRequestCodeInstruction(sanitized, requestCode, mode))
+    if (hasGuardianRequestCodeInstruction(sanitized, requestCode, mode)) {
       return sanitized;
+    }
     return sanitized.length > 0
       ? `${sanitized}\n\n${instruction}`
       : instruction;
@@ -586,10 +603,13 @@ function enforceGuardianRequestCode(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
-  if (signal.sourceEventName !== "guardian.question") return decision;
-  const rawCode = signal.contextPayload.requestCode;
-  if (typeof rawCode !== "string" || rawCode.trim().length === 0)
+  if (signal.sourceEventName !== "guardian.question") {
     return decision;
+  }
+  const rawCode = signal.contextPayload.requestCode;
+  if (typeof rawCode !== "string" || rawCode.trim().length === 0) {
+    return decision;
+  }
 
   const requestCode = rawCode.trim().toUpperCase();
   const modeResolution = resolveGuardianQuestionInstructionMode(
@@ -601,7 +621,9 @@ function enforceGuardianRequestCode(
 
   for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
     const copy = nextCopy[channel];
-    if (!copy) continue;
+    if (!copy) {
+      continue;
+    }
     nextCopy[channel] = ensureGuardianRequestCodeInCopy(
       copy,
       requestCode,
@@ -624,14 +646,18 @@ function ensureSeedContentBlocks(
   decision: NotificationDecision,
   blocks: unknown[] | null | undefined,
 ): NotificationDecision {
-  if (!blocks) return decision;
+  if (!blocks) {
+    return decision;
+  }
 
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
     ...decision.renderedCopy,
   };
   for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
     const copy = nextCopy[channel];
-    if (!copy) continue;
+    if (!copy) {
+      continue;
+    }
     if (!copy.seedContentBlocks) {
       nextCopy[channel] = { ...copy, seedContentBlocks: blocks };
     }
@@ -651,7 +677,9 @@ function enforceToolApprovalSeedBlocks(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
-  if (signal.sourceEventName !== "guardian.question") return decision;
+  if (signal.sourceEventName !== "guardian.question") {
+    return decision;
+  }
   return ensureSeedContentBlocks(
     decision,
     buildToolApprovalSeedContentBlocks(signal.contextPayload),
@@ -675,7 +703,9 @@ function enforceAccessRequestInstructions(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
-  if (signal.sourceEventName !== "ingress.access_request") return decision;
+  if (signal.sourceEventName !== "ingress.access_request") {
+    return decision;
+  }
 
   const rawCode = signal.contextPayload.requestCode;
   const hasRequestCode =
@@ -688,14 +718,20 @@ function enforceAccessRequestInstructions(
   if (hasRequestCode) {
     const requestCode = rawCode.trim().toUpperCase();
     const contractText = buildAccessRequestContractText(signal.contextPayload);
+    const handshakeOffered = isHandshakeOfferedForPayload(
+      parseAccessRequestPayload(signal.contextPayload),
+    );
 
     for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
       const copy = nextCopy[channel];
-      if (!copy) continue;
+      if (!copy) {
+        continue;
+      }
       nextCopy[channel] = ensureAccessRequestInstructionsInCopy(
         copy,
         requestCode,
         contractText,
+        handshakeOffered,
       );
     }
   } else {
@@ -704,7 +740,9 @@ function enforceAccessRequestInstructions(
 
     for (const channel of Object.keys(nextCopy) as NotificationChannel[]) {
       const copy = nextCopy[channel];
-      if (!copy) continue;
+      if (!copy) {
+        continue;
+      }
       nextCopy[channel] = ensureInviteFlowDirectiveInCopy(
         copy,
         inviteDirective,
@@ -730,10 +768,13 @@ function ensureAccessRequestInstructionsInCopy(
   copy: RenderedChannelCopy,
   requestCode: string,
   contractText: string,
+  handshakeOffered: boolean,
 ): RenderedChannelCopy {
   const ensureText = (text: string | undefined): string => {
     const base = typeof text === "string" ? text.trim() : "";
-    if (hasAccessRequestInstructions(base, requestCode)) return base;
+    if (hasAccessRequestInstructions(base, requestCode, { handshakeOffered })) {
+      return base;
+    }
     return base.length > 0 ? `${base}\n\n${contractText}` : contractText;
   };
 
@@ -755,7 +796,9 @@ function ensureInviteFlowDirectiveInCopy(
 ): RenderedChannelCopy {
   const ensureText = (text: string | undefined): string => {
     const base = typeof text === "string" ? text.trim() : "";
-    if (hasInviteFlowDirective(base)) return base;
+    if (hasInviteFlowDirective(base)) {
+      return base;
+    }
     return base.length > 0 ? `${base}\n\n${inviteDirective}` : inviteDirective;
   };
 
@@ -1138,15 +1181,21 @@ export function enforceRoutingIntent(
       // Preserve the decision's selected channels first, then add connected
       // channels until we reach two channels total.
       for (const ch of selectedConnected) {
-        if (seen.has(ch)) continue;
+        if (seen.has(ch)) {
+          continue;
+        }
         expanded.push(ch);
         seen.add(ch);
       }
       for (const ch of connectedChannels) {
-        if (seen.has(ch)) continue;
+        if (seen.has(ch)) {
+          continue;
+        }
         expanded.push(ch);
         seen.add(ch);
-        if (expanded.length >= 2) break;
+        if (expanded.length >= 2) {
+          break;
+        }
       }
 
       const enforced = { ...decision };
@@ -1184,15 +1233,20 @@ export function enforceGuardianCallConversationAffinity(
   decision: NotificationDecision,
   signal: NotificationSignal,
 ): NotificationDecision {
-  if (signal.sourceEventName !== "guardian.question") return decision;
+  if (signal.sourceEventName !== "guardian.question") {
+    return decision;
+  }
 
   const callSessionId = signal.contextPayload?.callSessionId;
-  if (typeof callSessionId !== "string" || callSessionId.trim().length === 0)
+  if (typeof callSessionId !== "string" || callSessionId.trim().length === 0) {
     return decision;
+  }
 
   // If an affinity hint already exists for vellum, the second+ dispatch
   // will be handled by enforceConversationAffinity — nothing to do here.
-  if (signal.conversationAffinityHint?.vellum) return decision;
+  if (signal.conversationAffinityHint?.vellum) {
+    return decision;
+  }
 
   const enforced = { ...decision };
   const conversationActions: Partial<
@@ -1226,13 +1280,17 @@ function enforceConversationAffinity(
   decision: NotificationDecision,
   affinityHint: Partial<Record<string, string>> | undefined,
 ): NotificationDecision {
-  if (!affinityHint) return decision;
+  if (!affinityHint) {
+    return decision;
+  }
 
   const entries = Object.entries(affinityHint).filter(
     ([, conversationId]) =>
       typeof conversationId === "string" && conversationId.length > 0,
   );
-  if (entries.length === 0) return decision;
+  if (entries.length === 0) {
+    return decision;
+  }
 
   const enforced = { ...decision };
   const conversationActions: Partial<

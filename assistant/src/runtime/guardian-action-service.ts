@@ -11,17 +11,18 @@ import {
   getCanonicalGuardianRequest,
   isRequestInConversationScope,
 } from "../contacts/canonical-guardian-store.js";
-import type { ApprovalAction } from "./channel-approval-types.js";
+import {
+  APPROVAL_ACTION_IDS,
+  APPROVAL_ACTION_SET,
+  type ApprovalAction,
+} from "./channel-approval-types.js";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 /** Canonical set of valid guardian actions, shared across all entrypoints. */
-const VALID_GUARDIAN_ACTIONS: ReadonlySet<string> = new Set<string>([
-  "approve_once",
-  "reject",
-]);
+const VALID_GUARDIAN_ACTIONS: ReadonlySet<string> = APPROVAL_ACTION_SET;
 
 /**
  * Legacy actions that map to canonical ones during client rollout.
@@ -71,7 +72,9 @@ export type ProcessGuardianDecisionResult =
  * canonical decision, and maps the result to a caller-agnostic shape that
  * both HTTP and message handlers can interpret.
  *
- * Only `approve_once` and `reject` are valid actions.
+ * Valid actions are the `ApprovalAction` union; the canonical primitive
+ * additionally scopes the introduction-card actions to `access_request`
+ * requests.
  */
 export async function processGuardianDecision(
   params: ProcessGuardianDecisionParams,
@@ -84,7 +87,7 @@ export async function processGuardianDecision(
     return {
       ok: false,
       error: "invalid_action",
-      message: `Invalid action: ${params.action}. Must be one of: approve_once, reject`,
+      message: `Invalid action: ${params.action}. Must be one of: ${APPROVAL_ACTION_IDS.join(", ")}`,
     };
   }
 

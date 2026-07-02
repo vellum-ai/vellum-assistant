@@ -16,6 +16,7 @@ interface SlackUserInfo {
   timezone?: string;
   timezoneLabel?: string;
   timezoneOffsetSeconds?: number;
+  isBot?: boolean;
   isStranger?: boolean;
   isRestricted?: boolean;
 }
@@ -27,6 +28,7 @@ export type SlackUserActorFields = Pick<
   | "timezone"
   | "timezoneLabel"
   | "timezoneOffsetSeconds"
+  | "isBot"
   | "isStranger"
   | "isRestricted"
 >;
@@ -161,6 +163,7 @@ export async function resolveSlackUser(
           tz?: string;
           tz_label?: string;
           tz_offset?: number;
+          is_bot?: boolean;
           is_stranger?: boolean;
           is_restricted?: boolean;
           is_ultra_restricted?: boolean;
@@ -185,6 +188,7 @@ export async function resolveSlackUser(
           ? data.user.tz_offset
           : undefined;
 
+      const isBot = data.user.is_bot === true ? true : undefined;
       const isStranger = data.user.is_stranger === true ? true : undefined;
       const isRestricted =
         data.user.is_restricted === true ||
@@ -200,6 +204,7 @@ export async function resolveSlackUser(
         ...(timezoneOffsetSeconds !== undefined
           ? { timezoneOffsetSeconds }
           : {}),
+        ...(isBot !== undefined ? { isBot } : {}),
         ...(isStranger !== undefined ? { isStranger } : {}),
         ...(isRestricted !== undefined ? { isRestricted } : {}),
       };
@@ -474,6 +479,7 @@ export function slackUserActorFields(
     ...(userInfo.timezoneOffsetSeconds !== undefined
       ? { timezoneOffsetSeconds: userInfo.timezoneOffsetSeconds }
       : {}),
+    ...(userInfo.isBot !== undefined ? { isBot: userInfo.isBot } : {}),
     ...(userInfo.isStranger !== undefined
       ? { isStranger: userInfo.isStranger }
       : {}),
