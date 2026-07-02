@@ -85,6 +85,7 @@ import {
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspacePluginsDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
+import { registerConversationPluginScope } from "./conversation-plugin-scope.js";
 
 const log = getLogger("plugins-bootstrap");
 
@@ -156,6 +157,9 @@ function ensurePluginStorageDir(pluginName: string): string {
  * the daemon comes up with degraded plugin functionality instead.
  */
 export async function initializePlugins(): Promise<void> {
+  // Wire the per-conversation plugin-scope resolver into the hook pipeline
+  // before any turn runs, so lifecycle hooks honor the per-chat selection.
+  registerConversationPluginScope();
   registerDefaultPlugins();
   await loadUserPlugins();
   try {
