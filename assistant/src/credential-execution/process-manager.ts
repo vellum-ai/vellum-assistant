@@ -32,9 +32,11 @@ import {
   discoverCesWithRetry,
   discoverLocalCes,
   type DiscoveryResult,
+  isCesSiblingOptIn,
   type LocalDiscoverySuccess,
   type LocalSourceDiscoverySuccess,
   type ManagedDiscoverySuccess,
+  type SiblingDiscoverySuccess,
 } from "./executable-discovery.js";
 
 const log = getLogger("ces-process-manager");
@@ -123,11 +125,15 @@ export function createCesProcessManager(
       // reconnecting assistant can briefly race the re-bind; a single probe
       // would otherwise fall back to local discovery and fail in managed mode.
       discoveryResult = await discoverCesWithRetry();
-      if (discoveryResult.mode === "unavailable") {
+      if (discoveryResult.mode === "unavailable" && !isCesSiblingOptIn()) {
         // The managed sidecar bootstrap socket is not present — this happens
         // when the instance pre-dates the socket volume mount (e.g. existing
         // Docker configs without the ces-bootstrap volume). Warn and fall
         // back to local discovery so these deployments don't fail on upgrade.
+        //
+        // NOT for the sibling opt-in: there we must connect to the
+        // CLI-launched sibling, never spawn our own CES (that would run a
+        // second CES against the same on-disk stores).
         log.warn(
           { reason: discoveryResult.reason },
           "CES managed sidecar bootstrap socket unavailable — falling back to local CES discovery",
@@ -151,7 +157,7 @@ export function createCesProcessManager(
         return transport;
       }
 
-      // managed mode
+      // managed sidecar or CLI-launched sibling — both connect to a socket.
       const transport = await connectManagedSocket(discoveryResult);
       running = true;
       return transport;
@@ -257,15 +263,15 @@ export function createCesProcessManager(
   }
 
   // -------------------------------------------------------------------------
-  // Managed mode — Unix socket connection
+  // Socket connection — managed sidecar or CLI-launched local sibling
   // -------------------------------------------------------------------------
 
   async function connectManagedSocket(
-    discovery: ManagedDiscoverySuccess,
+    discovery: ManagedDiscoverySuccess | SiblingDiscoverySuccess,
   ): Promise<CesTransport> {
     log.info(
-      { socketPath: discovery.socketPath },
-      "Connecting to managed CES sidecar",
+      { socketPath: discovery.socketPath, mode: discovery.mode },
+      "Connecting to CES over socket",
     );
 
     const socket = await connectWithTimeout(
@@ -274,7 +280,7 @@ export function createCesProcessManager(
     );
     managedSocket = socket;
 
-    log.info("Connected to managed CES sidecar");
+    log.info("Connected to CES over socket");
 
     return createSocketTransport(socket);
   }
