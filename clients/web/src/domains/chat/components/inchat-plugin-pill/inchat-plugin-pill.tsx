@@ -1,0 +1,138 @@
+import { Cog, Plug } from "lucide-react";
+import { useCallback, useState } from "react";
+import { useNavigate } from "react-router";
+
+import {
+  BottomSheet,
+  Button,
+  PanelItem,
+  Popover,
+  Typography,
+} from "@vellumai/design-library";
+
+import { useIsMobile } from "@/hooks/use-is-mobile";
+import { routes } from "@/utils/routes";
+
+import { useEffectiveChatPlugins } from "./use-effective-chat-plugins";
+
+export interface InChatPluginPillProps {
+  assistantId: string;
+  conversationId: string;
+}
+
+/** Warns that per-chat plugin changes (made on the plugins page) can be costly. */
+const COST_CAPTION = "Changing plugin settings can incur high costs.";
+
+/**
+ * Top-right chat pill summarizing the conversation's active plugins. Clicking it
+ * opens a read-only list of those plugins plus a "Manage" shortcut to the
+ * plugins page — editing the set happens there, not in this menu. Mirrors
+ * `ConversationAssetsPill`'s top-right placement and desktop-popover /
+ * mobile-bottom-sheet split.
+ */
+export function InChatPluginPill({
+  assistantId,
+  conversationId,
+}: InChatPluginPillProps) {
+  const { plugins, selectedCount, total } = useEffectiveChatPlugins(
+    assistantId,
+    conversationId,
+  );
+  const [open, setOpen] = useState(false);
+  const isMobile = useIsMobile();
+  const navigate = useNavigate();
+
+  const handleManage = useCallback(() => {
+    setOpen(false);
+    navigate(routes.plugins);
+  }, [navigate]);
+
+  // No plugins installed for this assistant — nothing to summarize.
+  if (total === 0) {
+    return null;
+  }
+
+  const active = plugins.filter((plugin) => plugin.selected);
+  const label = selectedCount === 1 ? "1 plugin" : `${selectedCount} plugins`;
+  const ariaLabel = `Chat plugins, ${selectedCount} active`;
+
+  // Read-only rows — the chat's active plugins, no toggle affordance.
+  const pluginRows = active.map((plugin) => (
+    <PanelItem key={plugin.name} icon={Plug} label={plugin.label} />
+  ));
+
+  const manageFooter = (
+    <div className="flex flex-col gap-2 px-3 pb-3 pt-1">
+      <Button variant="primary" leftIcon={<Cog />} onClick={handleManage}>
+        Manage
+      </Button>
+      <Typography
+        variant="label-small-default"
+        className="text-[var(--content-tertiary)]"
+      >
+        {COST_CAPTION}
+      </Typography>
+    </div>
+  );
+
+  if (isMobile) {
+    return (
+      <BottomSheet.Root open={open} onOpenChange={setOpen}>
+        <BottomSheet.Trigger asChild>
+          <Button
+            variant="ghost"
+            active
+            iconOnly={<Plug />}
+            tintColor="var(--content-default)"
+            aria-label={ariaLabel}
+          />
+        </BottomSheet.Trigger>
+        <BottomSheet.Content>
+          <BottomSheet.Header>
+            <BottomSheet.Title>Plugins</BottomSheet.Title>
+          </BottomSheet.Header>
+          <BottomSheet.Body className="pt-0">
+            {pluginRows}
+            {manageFooter}
+          </BottomSheet.Body>
+        </BottomSheet.Content>
+      </BottomSheet.Root>
+    );
+  }
+
+  return (
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger asChild>
+        <Button
+          variant="ghost"
+          active
+          leftIcon={<Plug />}
+          className="rounded-full"
+          tintColor="var(--content-default)"
+          aria-label={ariaLabel}
+        >
+          {label}
+        </Button>
+      </Popover.Trigger>
+      <Popover.Content
+        side="bottom"
+        align="end"
+        sideOffset={8}
+        className="w-60 p-0"
+      >
+        <div className="px-3 pb-1 pt-3">
+          <Typography
+            variant="body-small-default"
+            className="text-[var(--content-tertiary)]"
+          >
+            Plugins
+          </Typography>
+        </div>
+        {pluginRows.length > 0 ? (
+          <div className="max-h-[240px] overflow-y-auto px-2">{pluginRows}</div>
+        ) : null}
+        {manageFooter}
+      </Popover.Content>
+    </Popover.Root>
+  );
+}
