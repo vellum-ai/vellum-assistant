@@ -79,6 +79,7 @@ export type { AdmissionPolicy } from "./admission-policy-contract.js";
 export {
   isTrustClass,
   makeResolutionFailedVerdict,
+  makeUnauthenticatedSenderVerdict,
   ResolveInboundTrustRequestSchema,
   TRUST_CLASS_VALUES,
   TrustClassSchema,

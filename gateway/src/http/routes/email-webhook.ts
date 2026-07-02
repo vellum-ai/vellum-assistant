@@ -137,7 +137,8 @@ export function createEmailWebhookHandler(
       return Response.json({ ok: true });
     }
 
-    const { event, eventId, recipientAddress } = normalized;
+    const { event, eventId, recipientAddress, senderAuthenticated } =
+      normalized;
 
     // Dedup by event ID
     if (!dedupCache.reserve(eventId)) {
@@ -196,6 +197,7 @@ export function createEmailWebhookHandler(
         replyCallbackUrl: undefined, // Email replies use `assistant email send` tool (no /deliver/email)
         traceId,
         routingOverride: routing,
+        senderAuthenticated,
         sourceMetadata: {
           emailSubject: (payload.subject as string | undefined) ?? undefined,
           emailRecipient: recipientAddress,
