@@ -246,16 +246,20 @@ export async function validateAndConsumeSession(
     return CONSUME_FAILURE;
   }
 
-  // Status-guarded atomic consume: a false return means a concurrent
+  // Status-guarded atomic consume: a non-consumed return means a concurrent
   // consumer already won, so this attempt fails (one-time-code semantics).
-  if (!consumeSession(session.id, actorExternalUserId, actorChatId)) {
+  const consumeResult = consumeSession(
+    session.id,
+    actorExternalUserId,
+    actorChatId,
+  );
+  if (!consumeResult.consumed) {
     log.warn(
       { sessionId: session.id },
       "Session already consumed by concurrent request",
     );
     return CONSUME_FAILURE;
   }
-  const consumedAt = Date.now();
 
   await resetRateLimit(channel, actorExternalUserId, actorChatId);
 
@@ -293,11 +297,12 @@ export async function validateAndConsumeSession(
 
     // Guardian purpose on the outbound voice shape (an expected phone number
     // is only ever set by startOutboundVoice) — exactly the filter the
-    // retired poller used. Bind synchronously at consume time.
+    // retired poller used. Bind synchronously at consume time, anchored on
+    // the persisted consume timestamp (never a fresh clock sample).
     await createPhoneGuardianBinding(
       actorExternalUserId,
       actorChatId,
-      consumedAt,
+      consumeResult.consumedAt,
     );
   }
 
@@ -310,8 +315,9 @@ export async function validateAndConsumeSession(
  * poller is deleted, by outbound-voice-verification-sync replays — both are
  * idempotent here).
  *
- * `sessionUpdatedAt` is the session's consume timestamp; it anchors the
- * recency check below.
+ * `sessionUpdatedAt` is the session's persisted consume timestamp (the
+ * `updated_at` written by the consume UPDATE); it anchors the recency check
+ * below.
  */
 export async function createPhoneGuardianBinding(
   phoneNumber: string,

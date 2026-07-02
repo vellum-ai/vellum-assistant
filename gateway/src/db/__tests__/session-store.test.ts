@@ -386,15 +386,18 @@ describe("findSessionByIdentity", () => {
 // ---------------------------------------------------------------------------
 
 describe("consumeSession", () => {
-  test("consumes an interceptable session and stamps the actor", () => {
+  test("consumes an interceptable session, stamps the actor, and returns the persisted timestamp", () => {
     insertRaw({ id: "s1", status: "awaiting_response" });
 
-    expect(consumeSession("s1", "user-1", "chat-1")).toBe(true);
+    const result = consumeSession("s1", "user-1", "chat-1");
+    if (!result.consumed) throw new Error("expected consume to succeed");
 
     const row = getRow("s1");
     expect(row?.status).toBe("consumed");
     expect(row?.consumedByExternalUserId).toBe("user-1");
     expect(row?.consumedByChatId).toBe("chat-1");
+    // consumedAt is the exact updated_at written by the consume UPDATE.
+    expect(result.consumedAt).toBe(row!.updatedAt);
   });
 
   test("exactly one of two racing consumers wins", () => {
@@ -403,8 +406,8 @@ describe("consumeSession", () => {
     const first = consumeSession("s1", "user-1", "chat-1");
     const second = consumeSession("s1", "user-2", "chat-2");
 
-    expect(first).toBe(true);
-    expect(second).toBe(false);
+    expect(first.consumed).toBe(true);
+    expect(second).toEqual({ consumed: false });
 
     // The loser must not overwrite the winner's actor stamp.
     const row = getRow("s1");
@@ -412,7 +415,7 @@ describe("consumeSession", () => {
     expect(row?.consumedByChatId).toBe("chat-1");
   });
 
-  test("returns false for consumed/revoked/expired/verified/locked rows", () => {
+  test("does not consume consumed/revoked/expired/verified/locked rows", () => {
     for (const status of [
       "consumed",
       "revoked",
@@ -421,13 +424,17 @@ describe("consumeSession", () => {
       "locked",
     ] as SessionStatus[]) {
       insertRaw({ id: `s-${status}`, status });
-      expect(consumeSession(`s-${status}`, "user-1", "chat-1")).toBe(false);
+      expect(consumeSession(`s-${status}`, "user-1", "chat-1")).toEqual({
+        consumed: false,
+      });
       expect(getRow(`s-${status}`)?.status).toBe(status);
     }
   });
 
-  test("returns false for a nonexistent session", () => {
-    expect(consumeSession("missing", "user-1", "chat-1")).toBe(false);
+  test("does not consume a nonexistent session", () => {
+    expect(consumeSession("missing", "user-1", "chat-1")).toEqual({
+      consumed: false,
+    });
   });
 });
 

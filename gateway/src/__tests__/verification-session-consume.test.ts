@@ -95,6 +95,9 @@ const {
   createPhoneGuardianBinding,
   validateAndConsumeSession,
 } = await import("../verification/session-service.js");
+const { consumeSession: storeConsumeSession } = await import(
+  "../db/session-store.js"
+);
 const { getRateLimit } = await import("../verification/rate-limit-helpers.js");
 
 // ---------------------------------------------------------------------------
@@ -370,6 +373,30 @@ describe("guardian consume — synchronous phone binding", () => {
     expect(guardianPhoneBindings()).toEqual([
       { address: PHONE, status: "revoked" },
     ]);
+  });
+
+  test("ATL-514 anchor: the recency guard uses the persisted consume timestamp", async () => {
+    const { sessionId } = createPhoneGuardianSession(PHONE);
+
+    const result = storeConsumeSession(sessionId, PHONE, PHONE);
+    if (!result.consumed) throw new Error("expected consume to succeed");
+
+    // The returned timestamp is exactly the row's persisted updated_at.
+    expect(result.consumedAt).toBe(sessionRow(sessionId)!.updatedAt);
+
+    // A guardian revoke lands after the consume was persisted but before the
+    // binding side effect runs (IPC retry / replay shape). Anchored on the
+    // persisted timestamp the stale binding is rejected; a re-sampled clock
+    // would have looked newer than the revoke and rebound.
+    seedGuardianPhoneBinding({
+      contactId: "c-newer-revoke",
+      address: PHONE,
+      status: "revoked",
+      updatedAt: result.consumedAt + 1,
+    });
+    await createPhoneGuardianBinding(PHONE, PHONE, result.consumedAt);
+
+    expect(activeGuardianPhoneBindings()).toEqual([]);
   });
 
   test("blocked actor: correct code fails closed, existing guardian is not revoked", async () => {
