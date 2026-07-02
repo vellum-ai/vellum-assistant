@@ -56,7 +56,45 @@ export class TurnLatencyTracker {
 
   /** Stamp a point-in-time mark. Cheap (`Date.now()`); safe to over-call. */
   mark(name: LatencyMark): void {
+    // A retried provider call re-issues `request_sent`; drop the failed
+    // attempt's stale marks first so the retry's segment measures only itself.
+    if (name === "request_sent") this.supersedeFailedAttempt();
     this.marks.push({ name, at: Date.now() });
+  }
+
+  /**
+   * Discard the per-call marks of a prior provider attempt that never
+   * completed. A call retried within the same turn (context-overflow recovery,
+   * post-model-call repair on a rejection) leaves a `request_sent` with no
+   * `call_complete` and no `usage` event to serialize it and advance the
+   * cursor; the next successful segment would otherwise measure ttft /
+   * provider-duration / phases from the failed attempt's marks.
+   *
+   * Detection is cursor-free: a completed call always stamps `call_complete`
+   * before its `usage` event, so a `request_sent` with none after it belongs
+   * to a call that never returned. A retry re-stamps its setup `tools_resolved`
+   * before this `request_sent`, so that trailing mark is preserved as the
+   * successful segment's setup mark.
+   */
+  private supersedeFailedAttempt(): void {
+    let failedRequestSent = -1;
+    for (let i = this.marks.length - 1; i >= 0; i--) {
+      const name = this.marks[i]!.name;
+      if (name === "call_complete") return; // prior attempt finished — nothing stale
+      if (name === "request_sent") {
+        failedRequestSent = i;
+        break;
+      }
+    }
+    if (failedRequestSent === -1) return; // no prior attempt this turn
+    // Drop from the failed attempt's paired setup mark (its `tools_resolved`,
+    // if any) through its trailing marks, keeping a retry `tools_resolved`
+    // already stamped as the last mark.
+    let start = failedRequestSent;
+    if (this.marks[start - 1]?.name === "tools_resolved") start -= 1;
+    let end = this.marks.length;
+    if (this.marks[end - 1]!.name === "tools_resolved") end -= 1;
+    this.marks.splice(start, end - start);
   }
 
   /**
