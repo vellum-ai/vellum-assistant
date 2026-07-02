@@ -23,7 +23,6 @@ import {
   getTtsPlaybackDelayMs,
   getUserConsultationTimeoutMs,
 } from "./call-constants.js";
-import type { SetupFlowTransport } from "./call-setup-flow-types.js";
 import type {
   recordCallEvent as recordCallEventFn,
   updateCallSession as updateCallSessionFn,
@@ -38,12 +37,6 @@ const log = getLogger("guardian-wait-controller");
 
 /** Minimum gap between spoken replies to non-callback wait utterances. */
 export const IN_WAIT_REPLY_COOLDOWN_MS = 3000;
-
-// Schema defaults from config/schemas/calls.ts, used when config values
-// are missing or NaN.
-const DEFAULT_CONSULT_TIMEOUT_MS = 120_000;
-const DEFAULT_POLL_INTERVAL_MS = 500;
-const DEFAULT_FIRST_HEARTBEAT_DELAY_MS = 3000;
 
 // ── Public types ─────────────────────────────────────────────────────
 
@@ -80,8 +73,8 @@ export interface GuardianWaitStartParams {
 }
 
 export interface GuardianWaitControllerDeps {
-  /** Speak a deterministic system prompt through the transport. */
-  speakSystemPrompt(transport: SetupFlowTransport, text: string): Promise<void>;
+  /** Speak a deterministic system prompt through the call transport. */
+  speakSystemPrompt(text: string): Promise<void>;
   updateCallSession(
     id: string,
     updates: Parameters<typeof updateCallSessionFn>[1],
@@ -134,7 +127,6 @@ export class GuardianWaitController {
 
   constructor(
     private readonly callSessionId: string,
-    private readonly transport: SetupFlowTransport,
     private readonly deps: GuardianWaitControllerDeps,
   ) {}
 
@@ -179,14 +171,16 @@ export class GuardianWaitController {
     this.heartbeatTimer = setTimeout(() => {
       this.waitStartedAt = this.now();
       this.scheduleHeartbeat();
-    }, this.resolveFirstHeartbeatDelayMs());
+    }, this.deps.firstHeartbeatDelayMs ?? getTtsPlaybackDelayMs());
 
-    const pollIntervalMs = this.resolvePollIntervalMs();
+    const pollIntervalMs =
+      this.deps.pollIntervalMs ?? getAccessRequestPollIntervalMs();
     this.pollTimer = setInterval(() => {
       this.pollCanonicalRequest();
     }, pollIntervalMs);
 
-    const timeoutMs = this.resolveConsultTimeoutMs();
+    const timeoutMs =
+      this.deps.consultTimeoutMs ?? getUserConsultationTimeoutMs();
     this.timeoutTimer = setTimeout(() => {
       if (this.state !== "awaiting_guardian_decision") {
         return;
@@ -272,7 +266,9 @@ export class GuardianWaitController {
     }
 
     // Enforce cooldown on non-callback utterances to prevent spam.
-    if (now - this.lastInWaitReplyAt < this.resolveInWaitReplyCooldownMs()) {
+    const cooldownMs =
+      this.deps.inWaitReplyCooldownMs ?? IN_WAIT_REPLY_COOLDOWN_MS;
+    if (now - this.lastInWaitReplyAt < cooldownMs) {
       log.debug(
         { callSessionId: this.callSessionId },
         "In-wait reply suppressed by cooldown",
@@ -439,7 +435,7 @@ export class GuardianWaitController {
   }
 
   private speak(text: string): Promise<void> {
-    return this.deps.speakSystemPrompt(this.transport, text).catch((err) => {
+    return this.deps.speakSystemPrompt(text).catch((err) => {
       log.error(
         { err, callSessionId: this.callSessionId },
         "Guardian wait speech failed",
@@ -450,56 +446,4 @@ export class GuardianWaitController {
   private now(): number {
     return this.deps.now?.() ?? Date.now();
   }
-
-  private resolveConsultTimeoutMs(): number {
-    return finiteAtLeast(
-      this.deps.consultTimeoutMs ?? safeCall(getUserConsultationTimeoutMs),
-      1,
-      DEFAULT_CONSULT_TIMEOUT_MS,
-    );
-  }
-
-  private resolvePollIntervalMs(): number {
-    return finiteAtLeast(
-      this.deps.pollIntervalMs ?? safeCall(getAccessRequestPollIntervalMs),
-      1,
-      DEFAULT_POLL_INTERVAL_MS,
-    );
-  }
-
-  private resolveFirstHeartbeatDelayMs(): number {
-    return finiteAtLeast(
-      this.deps.firstHeartbeatDelayMs ?? safeCall(getTtsPlaybackDelayMs),
-      0,
-      DEFAULT_FIRST_HEARTBEAT_DELAY_MS,
-    );
-  }
-
-  private resolveInWaitReplyCooldownMs(): number {
-    return finiteAtLeast(
-      this.deps.inWaitReplyCooldownMs,
-      0,
-      IN_WAIT_REPLY_COOLDOWN_MS,
-    );
-  }
-}
-
-// ── Config guards ────────────────────────────────────────────────────
-
-function safeCall(getter: () => number): number | undefined {
-  try {
-    return getter();
-  } catch {
-    return undefined;
-  }
-}
-
-function finiteAtLeast(
-  value: number | undefined,
-  min: number,
-  fallback: number,
-): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= min
-    ? value
-    : fallback;
 }

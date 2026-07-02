@@ -34,9 +34,8 @@ import {
 } from "../runtime/verification-templates.js";
 import { getLogger } from "../util/logger.js";
 import { getTtsPlaybackDelayMs } from "./call-constants.js";
-import type { addPointerMessage as addPointerMessageFn } from "./call-pointer-messages.js";
+import type { postPointerMessageSafe as postPointerMessageSafeFn } from "./call-pointer-messages.js";
 import type {
-  SetupFlowInput,
   SetupFlowResult,
   SetupFlowState,
   SetupFlowTransport,
@@ -53,7 +52,7 @@ import {
   type GuardianWaitDisposeReason,
   type GuardianWaitResolutionContext,
 } from "./guardian-wait-controller.js";
-import { getInboundTrustVerdict } from "./inbound-trust-reader.js";
+import { getPhoneCallerVerdict } from "./inbound-trust-reader.js";
 import type { SetupOutcome, SetupResolved } from "./relay-setup-router.js";
 import {
   attemptInviteCodeRedemption as attemptInviteCodeRedemptionImpl,
@@ -94,8 +93,8 @@ export interface SetupFlowCallSession {
  * constructor.
  */
 export interface CallSetupFlowDeps {
-  /** Speak a deterministic system prompt through the transport. */
-  speakSystemPrompt(transport: SetupFlowTransport, text: string): Promise<void>;
+  /** Speak a deterministic system prompt through the call transport. */
+  speakSystemPrompt(text: string): Promise<void>;
   updateCallSession(
     id: string,
     updates: Parameters<typeof updateCallSessionFn>[1],
@@ -116,13 +115,14 @@ export interface CallSetupFlowDeps {
   // ── Verification / invite sub-flow deps ────────────────────────────
   // Optional so callers exercising only normal_call/deny need not supply
   // them. Each sub-flow resolves the deps it needs up front at start()
-  // and throws on a missing side-effect dep (see requireVerificationDeps
-  // and requireInviteDeps).
+  // via requireDeps, which applies defaults for the pure logic and throws
+  // on a missing side-effect dep.
   /** Look up the call session (used for its conversation/routing fields). */
   getCallSession?(id: string): SetupFlowCallSession | null;
   finalizeCall?: typeof finalizeCallFn;
   addMessage?: typeof addMessageFn;
-  addPointerMessage?: typeof addPointerMessageFn;
+  /** Fire-and-forget pointer write tolerating an evicted conversation. */
+  postPointerMessage?: typeof postPointerMessageSafeFn;
   fireCallTranscriptNotifier?: typeof fireCallTranscriptNotifierFn;
   /** Human-readable guardian label for prompts and handoff copy. */
   resolveGuardianLabel?(): string;
@@ -155,7 +155,6 @@ export interface CallSetupFlowDeps {
    */
   createGuardianWaitController?(
     callSessionId: string,
-    transport: SetupFlowTransport,
     deps: GuardianWaitControllerDeps,
   ): GuardianWaitHandle;
   /** Overrides the 30s name-capture response timeout. */
@@ -165,7 +164,7 @@ export interface CallSetupFlowDeps {
 /** Structural subset of {@link GuardianWaitController} the flow drives. */
 export type GuardianWaitHandle = Pick<
   GuardianWaitController,
-  "start" | "handleTranscript" | "getState" | "dispose"
+  "start" | "handleTranscript" | "dispose"
 >;
 
 /** Verification deps with defaults applied and optionality removed. */
@@ -175,7 +174,7 @@ type VerificationDeps = Required<
     | "getCallSession"
     | "finalizeCall"
     | "addMessage"
-    | "addPointerMessage"
+    | "postPointerMessage"
     | "fireCallTranscriptNotifier"
     | "resolveGuardianLabel"
     | "resolveAssistantLabel"
@@ -228,6 +227,50 @@ type ActivationDeps = Pick<
 // ── Module helpers ───────────────────────────────────────────────────
 
 /**
+ * Real-implementation defaults for the optional pure-logic deps. Built per
+ * call so the module live bindings are read at resolution time.
+ */
+function setupFlowDepDefaults(): Partial<CallSetupFlowDeps> {
+  return {
+    attemptVerificationCode: attemptVerificationCodeImpl,
+    attemptInviteCodeRedemption: attemptInviteCodeRedemptionImpl,
+    notifyGuardianOfAccessRequest: notifyGuardianOfAccessRequestImpl,
+    resolveMidCallTrustContext,
+    createGuardianWaitController: (callSessionId, deps) =>
+      new GuardianWaitController(callSessionId, deps),
+  };
+}
+
+/**
+ * Resolve a sub-flow's dep subset, applying {@link setupFlowDepDefaults}
+ * for omitted pure-logic deps and throwing a descriptive error naming any
+ * missing side-effect dep.
+ */
+function requireDeps<K extends keyof CallSetupFlowDeps>(
+  kind: string,
+  deps: CallSetupFlowDeps,
+  names: readonly K[],
+): Required<Pick<CallSetupFlowDeps, K>> {
+  const defaults = setupFlowDepDefaults();
+  const resolved: Partial<Record<keyof CallSetupFlowDeps, unknown>> = {};
+  const missing: string[] = [];
+  for (const name of names) {
+    const value = deps[name] ?? defaults[name];
+    if (value == null) {
+      missing.push(name);
+    } else {
+      resolved[name] = value;
+    }
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `CallSetupFlow ${kind} deps missing: ${missing.join(", ")}`,
+    );
+  }
+  return resolved as Required<Pick<CallSetupFlowDeps, K>>;
+}
+
+/**
  * Re-resolve caller trust after a mid-setup verification/activation. Prefers
  * the gateway verdict (authoritative right after the gateway updated the
  * binding); falls back to local resolution on a missing/failed/unusable
@@ -238,10 +281,7 @@ export async function resolveMidCallTrustContext(
   assistantId: string,
   fromNumber: string,
 ): Promise<TrustContext> {
-  const verdict = await getInboundTrustVerdict({
-    channelType: "phone",
-    actorExternalId: fromNumber,
-  });
+  const verdict = await getPhoneCallerVerdict(fromNumber);
 
   // Only a MEMBERLESS unknown verdict is treated as a stale gateway view and
   // falls back to local: the caller was just activated, and invite redemption
@@ -321,14 +361,25 @@ interface AccessRequestState {
   requestId: string | null;
 }
 
-export class CallSetupFlow implements SetupFlowInput {
+export class CallSetupFlow {
   private state: SetupFlowState = "idle";
+  /** Set before dispatch so `start()` runs at most once per instance. */
+  private started = false;
 
   // ── Code-collection state (shared by verification + invite) ────────
   private codeMode: CodeCollectionMode | null = null;
   /** Shared digit buffer for code collection (DTMF + spoken digits). */
   private digitBuffer = "";
   private codeLength = 6;
+  /**
+   * In-flight guard shared by every code-collection sub-flow: async
+   * validation reads and advances the attempt counter, so digits and
+   * spoken codes arriving while one submission is pending are dropped
+   * rather than launching a parallel attempt against the same counter.
+   * Set synchronously before dispatch and cleared when the attempt
+   * settles.
+   */
+  private codeSubmissionInFlight = false;
   /** Setup-time trust, kept as the fallback when re-resolution fails. */
   private initialTrustContext: TrustContext | null = null;
   private trustReResolving = false;
@@ -346,14 +397,6 @@ export class CallSetupFlow implements SetupFlowInput {
   // ── Invite-redemption sub-flow state ────────────────────────────────
   private ideps: InviteDeps | null = null;
   private invite: InviteRedemptionState | null = null;
-  /**
-   * In-flight dedupe guard: the gateway claim is async, and a repeated
-   * code (re-spoken / re-entered) arriving while it is pending must not
-   * fire a second redemption that would see the invite already consumed
-   * and wrongly fail the call. Set synchronously before awaiting and
-   * cleared in a finally.
-   */
-  private inviteRedemptionInFlight = false;
 
   // ── Name-capture / guardian-wait sub-flow state ─────────────────────
   private ndeps: NameCaptureDeps | null = null;
@@ -421,9 +464,13 @@ export class CallSetupFlow implements SetupFlowInput {
    * terminal continuation is delivered via `deps.onComplete`.
    */
   async start(outcome: SetupOutcome, resolved: SetupResolved): Promise<void> {
-    if (this.state !== "idle") {
+    // Mark started before dispatching: async paths (e.g. deny awaits TTS)
+    // stay in `idle` state until their terminal continuation, so the state
+    // check alone would admit a concurrent second start().
+    if (this.started || this.state !== "idle") {
       throw new Error("CallSetupFlow.start() may only be called once");
     }
+    this.started = true;
 
     switch (outcome.action) {
       case "normal_call":
@@ -482,7 +529,7 @@ export class CallSetupFlow implements SetupFlowInput {
     }
   }
 
-  // ── SetupFlowInput ──────────────────────────────────────────────────
+  // ── Caller input ────────────────────────────────────────────────────
 
   /** Feed a DTMF digit to the active sub-flow. No-op while idle/completed. */
   pushDtmfDigit(digit: string): void {
@@ -492,6 +539,11 @@ export class CallSetupFlow implements SetupFlowInput {
     // codeMode is null during name capture and the guardian wait, so DTMF
     // is ignored in those states.
     if (this.codeMode == null) {
+      return;
+    }
+    // Digits arriving while a submitted code is still validating are
+    // dropped — buffering them would launch a parallel attempt.
+    if (this.codeSubmissionInFlight) {
       return;
     }
     this.digitBuffer += digit;
@@ -550,6 +602,11 @@ export class CallSetupFlow implements SetupFlowInput {
     if (this.codeMode == null) {
       return;
     }
+    // Spoken codes arriving while a submitted code is still validating
+    // are dropped — they would launch a parallel attempt.
+    if (this.codeSubmissionInFlight) {
+      return;
+    }
     // Callee verification is DTMF-only — the callee should be entering
     // digits on their keypad, not speaking.
     if (this.codeMode === "callee_verification") {
@@ -560,7 +617,6 @@ export class CallSetupFlow implements SetupFlowInput {
       this.submitCode(spokenDigits.slice(0, this.codeLength));
     } else if (spokenDigits.length > 0) {
       void this.deps.speakSystemPrompt(
-        this.transport,
         `I heard ${spokenDigits.length} digits. Please enter all ${this.codeLength} digits of your code.`,
       );
     }
@@ -584,7 +640,7 @@ export class CallSetupFlow implements SetupFlowInput {
       endedAt: Date.now(),
       lastError: outcome.logReason,
     });
-    await this.deps.speakSystemPrompt(this.transport, outcome.message);
+    await this.deps.speakSystemPrompt(outcome.message);
     this.endSessionAfterPlayback(outcome.logReason);
     this.complete({ kind: "ended", reason: outcome.logReason });
   }
@@ -617,7 +673,6 @@ export class CallSetupFlow implements SetupFlowInput {
     );
 
     void this.deps.speakSystemPrompt(
-      this.transport,
       "Welcome. Please enter your six-digit verification code using your keypad, or speak the digits now.",
     );
   }
@@ -652,7 +707,6 @@ export class CallSetupFlow implements SetupFlowInput {
     );
 
     void this.deps.speakSystemPrompt(
-      this.transport,
       composeVerificationVoice(GUARDIAN_VERIFY_TEMPLATE_KEYS.VOICE_CALL_INTRO, {
         codeDigits: this.codeLength,
       }),
@@ -692,7 +746,6 @@ export class CallSetupFlow implements SetupFlowInput {
 
     const spokenCode = code.split("").join(". ");
     void this.deps.speakSystemPrompt(
-      this.transport,
       `Please enter the verification code: ${spokenCode}.`,
     );
 
@@ -740,18 +793,23 @@ export class CallSetupFlow implements SetupFlowInput {
 
   /** Route a fully collected code to the active code-collection sub-flow. */
   private submitCode(enteredCode: string): void {
+    this.codeSubmissionInFlight = true;
     const handler =
       this.codeMode === "invite_redemption"
         ? this.handleInviteCodeEntry(enteredCode)
         : this.codeMode === "callee_verification"
           ? this.handleCalleeCode(enteredCode)
           : this.handleVerificationCode(enteredCode);
-    handler.catch((err) =>
-      log.error(
-        { err, callSessionId: this.callSessionId },
-        "Setup code handling failed",
-      ),
-    );
+    handler
+      .catch((err) =>
+        log.error(
+          { err, callSessionId: this.callSessionId },
+          "Setup code handling failed",
+        ),
+      )
+      .finally(() => {
+        this.codeSubmissionInFlight = false;
+      });
   }
 
   /**
@@ -839,17 +897,16 @@ export class CallSetupFlow implements SetupFlowInput {
         this.finalizeOnce(vdeps.finalizeCall, session.conversationId);
 
         if (isOutbound && session.initiatedFromConversationId) {
-          this.postPointerMessage(
-            vdeps,
+          vdeps.postPointerMessage(
             session.initiatedFromConversationId,
             "verification_failed",
-            session.toNumber,
+            session.toNumber ?? "",
             { channel: "phone", reason: "Max verification attempts exceeded" },
           );
         }
       }
 
-      await this.deps.speakSystemPrompt(this.transport, result.ttsMessage);
+      await this.deps.speakSystemPrompt(result.ttsMessage);
       this.endSessionAfterPlayback("Verification failed — challenge rejected");
       this.complete({
         kind: "ended",
@@ -860,7 +917,7 @@ export class CallSetupFlow implements SetupFlowInput {
 
     // Retry — re-prompt and keep collecting.
     this.verificationAttempts = result.attempt;
-    void this.deps.speakSystemPrompt(this.transport, result.ttsMessage);
+    void this.deps.speakSystemPrompt(result.ttsMessage);
   }
 
   /** Compare an entered code against the generated callee verification code. */
@@ -912,11 +969,10 @@ export class CallSetupFlow implements SetupFlowInput {
       if (session) {
         this.finalizeOnce(vdeps.finalizeCall, session.conversationId);
         if (session.initiatedFromConversationId) {
-          this.postPointerMessage(
-            vdeps,
+          vdeps.postPointerMessage(
             session.initiatedFromConversationId,
             "failed",
-            session.toNumber,
+            session.toNumber ?? "",
             { reason: "Callee verification failed" },
           );
         }
@@ -925,10 +981,7 @@ export class CallSetupFlow implements SetupFlowInput {
       // Wait for synthesis to complete before starting the teardown timer
       // so the caller hears the goodbye message.
       try {
-        await this.deps.speakSystemPrompt(
-          this.transport,
-          "Verification failed. Goodbye.",
-        );
+        await this.deps.speakSystemPrompt("Verification failed. Goodbye.");
       } catch (err) {
         log.error(
           { err, callSessionId: this.callSessionId },
@@ -941,7 +994,6 @@ export class CallSetupFlow implements SetupFlowInput {
     }
 
     void this.deps.speakSystemPrompt(
-      this.transport,
       "That code was incorrect. Please try again.",
     );
   }
@@ -958,11 +1010,10 @@ export class CallSetupFlow implements SetupFlowInput {
   ): Promise<void> {
     const session = vdeps.getCallSession(this.callSessionId);
     if (session?.initiatedFromConversationId) {
-      this.postPointerMessage(
-        vdeps,
+      vdeps.postPointerMessage(
         session.initiatedFromConversationId,
         "verification_succeeded",
-        session.toNumber,
+        session.toNumber ?? "",
         { channel: "phone" },
       );
     }
@@ -1048,7 +1099,7 @@ export class CallSetupFlow implements SetupFlowInput {
       handoffText = `Great! ${guardianLabel} said I can speak with you. How can I help?`;
     }
 
-    void this.deps.speakSystemPrompt(this.transport, handoffText);
+    void this.deps.speakSystemPrompt(handoffText);
 
     this.deps.recordCallEvent(this.callSessionId, "assistant_spoke", {
       text: handoffText,
@@ -1096,24 +1147,6 @@ export class CallSetupFlow implements SetupFlowInput {
     }
   }
 
-  /** Post a call pointer message, tolerating an evicted origin conversation. */
-  private postPointerMessage(
-    vdeps: VerificationDeps,
-    conversationId: string,
-    event: Parameters<VerificationDeps["addPointerMessage"]>[1],
-    phoneNumber: string | undefined,
-    extra?: Parameters<VerificationDeps["addPointerMessage"]>[3],
-  ): void {
-    vdeps
-      .addPointerMessage(conversationId, event, phoneNumber ?? "", extra)
-      .catch((err) => {
-        log.warn(
-          { conversationId, err },
-          "Skipping pointer write — origin conversation may no longer exist",
-        );
-      });
-  }
-
   /** Hand off transcripts buffered during trust re-resolution, in order. */
   private drainDeferredTranscripts(): string[] | undefined {
     if (this.deferredTranscripts.length === 0) {
@@ -1126,70 +1159,30 @@ export class CallSetupFlow implements SetupFlowInput {
 
   /** Resolve the verification deps, applying defaults for the pure logic. */
   private requireVerificationDeps(): VerificationDeps {
-    const d = this.deps;
-    const missing = (
-      [
-        ["getCallSession", d.getCallSession],
-        ["finalizeCall", d.finalizeCall],
-        ["addMessage", d.addMessage],
-        ["addPointerMessage", d.addPointerMessage],
-        ["fireCallTranscriptNotifier", d.fireCallTranscriptNotifier],
-        ["resolveGuardianLabel", d.resolveGuardianLabel],
-        ["resolveAssistantLabel", d.resolveAssistantLabel],
-      ] as const
-    )
-      .filter(([, dep]) => dep == null)
-      .map(([name]) => name);
-    if (missing.length > 0) {
-      throw new Error(
-        `CallSetupFlow verification deps missing: ${missing.join(", ")}`,
-      );
-    }
-    return {
-      getCallSession: d.getCallSession!,
-      finalizeCall: d.finalizeCall!,
-      addMessage: d.addMessage!,
-      addPointerMessage: d.addPointerMessage!,
-      fireCallTranscriptNotifier: d.fireCallTranscriptNotifier!,
-      resolveGuardianLabel: d.resolveGuardianLabel!,
-      resolveAssistantLabel: d.resolveAssistantLabel!,
-      attemptVerificationCode:
-        d.attemptVerificationCode ?? attemptVerificationCodeImpl,
-      resolveMidCallTrustContext:
-        d.resolveMidCallTrustContext ?? resolveMidCallTrustContext,
-    };
+    return requireDeps("verification", this.deps, [
+      "getCallSession",
+      "finalizeCall",
+      "addMessage",
+      "postPointerMessage",
+      "fireCallTranscriptNotifier",
+      "resolveGuardianLabel",
+      "resolveAssistantLabel",
+      "attemptVerificationCode",
+      "resolveMidCallTrustContext",
+    ]);
   }
 
   /** Resolve the invite-redemption deps, applying defaults for the pure logic. */
   private requireInviteDeps(): InviteDeps {
-    const d = this.deps;
-    const missing = (
-      [
-        ["getCallSession", d.getCallSession],
-        ["finalizeCall", d.finalizeCall],
-        ["fireCallTranscriptNotifier", d.fireCallTranscriptNotifier],
-        ["resolveGuardianLabel", d.resolveGuardianLabel],
-        ["resolveAssistantLabel", d.resolveAssistantLabel],
-      ] as const
-    )
-      .filter(([, dep]) => dep == null)
-      .map(([name]) => name);
-    if (missing.length > 0) {
-      throw new Error(
-        `CallSetupFlow invite deps missing: ${missing.join(", ")}`,
-      );
-    }
-    return {
-      getCallSession: d.getCallSession!,
-      finalizeCall: d.finalizeCall!,
-      fireCallTranscriptNotifier: d.fireCallTranscriptNotifier!,
-      resolveGuardianLabel: d.resolveGuardianLabel!,
-      resolveAssistantLabel: d.resolveAssistantLabel!,
-      attemptInviteCodeRedemption:
-        d.attemptInviteCodeRedemption ?? attemptInviteCodeRedemptionImpl,
-      resolveMidCallTrustContext:
-        d.resolveMidCallTrustContext ?? resolveMidCallTrustContext,
-    };
+    return requireDeps("invite", this.deps, [
+      "getCallSession",
+      "finalizeCall",
+      "fireCallTranscriptNotifier",
+      "resolveGuardianLabel",
+      "resolveAssistantLabel",
+      "attemptInviteCodeRedemption",
+      "resolveMidCallTrustContext",
+    ]);
   }
 
   /** Tear the session down once the terminal copy has had time to play. */
@@ -1231,7 +1224,6 @@ export class CallSetupFlow implements SetupFlowInput {
     this.codeMode = "invite_redemption";
     this.codeLength = INVITE_CODE_LENGTH;
     this.digitBuffer = "";
-    this.inviteRedemptionInFlight = false;
     this.invite = {
       assistantId: outcome.assistantId,
       fromNumber: outcome.fromNumber,
@@ -1261,7 +1253,7 @@ export class CallSetupFlow implements SetupFlowInput {
     } else {
       promptText = `Welcome ${displayFriend}. Please enter the 6-digit code that ${displayGuardian} provided you to verify your identity.`;
     }
-    void this.deps.speakSystemPrompt(this.transport, promptText);
+    void this.deps.speakSystemPrompt(promptText);
 
     log.info(
       { callSessionId: this.callSessionId, assistantId: outcome.assistantId },
@@ -1270,9 +1262,9 @@ export class CallSetupFlow implements SetupFlowInput {
   }
 
   /**
-   * Validate a fully-entered invite code, deduping concurrent attempts:
-   * a repeated code arriving while the async gateway redemption is still
-   * in flight is ignored.
+   * Validate a fully-entered invite code against the gateway claim.
+   * Concurrent attempts are deduped upstream by the shared
+   * code-submission in-flight guard.
    */
   private async handleInviteCodeEntry(enteredCode: string): Promise<void> {
     const invite = this.invite;
@@ -1280,27 +1272,7 @@ export class CallSetupFlow implements SetupFlowInput {
     if (!invite || !ideps) {
       return;
     }
-    if (this.inviteRedemptionInFlight) {
-      log.info(
-        { callSessionId: this.callSessionId },
-        "Ignoring repeated invite code — redemption already in flight",
-      );
-      return;
-    }
-    this.inviteRedemptionInFlight = true;
 
-    try {
-      await this.runInviteCodeRedemption(ideps, invite, enteredCode);
-    } finally {
-      this.inviteRedemptionInFlight = false;
-    }
-  }
-
-  private async runInviteCodeRedemption(
-    ideps: InviteDeps,
-    invite: InviteRedemptionState,
-    enteredCode: string,
-  ): Promise<void> {
     const result = await ideps.attemptInviteCodeRedemption({
       inviteRedemptionFromNumber: invite.fromNumber,
       enteredCode,
@@ -1360,7 +1332,7 @@ export class CallSetupFlow implements SetupFlowInput {
         this.finalizeOnce(ideps.finalizeCall, failSession.conversationId);
       }
 
-      await this.deps.speakSystemPrompt(this.transport, result.ttsMessage);
+      await this.deps.speakSystemPrompt(result.ttsMessage);
       this.endSessionAfterPlayback("Invite redemption failed");
       this.complete({ kind: "ended", reason: "Invite redemption failed" });
     }
@@ -1405,7 +1377,7 @@ export class CallSetupFlow implements SetupFlowInput {
     const greeting = assistantName
       ? `Hi, this is ${assistantName}, ${guardianLabel}'s assistant. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`
       : `Hi, this is ${guardianLabel}'s assistant. Sorry, I don't recognize this number. I'll let ${guardianLabel} know you called and see if I have permission to speak with you. Can I get your name?`;
-    void this.deps.speakSystemPrompt(this.transport, greeting);
+    void this.deps.speakSystemPrompt(greeting);
 
     const timeoutMs = this.deps.nameCaptureTimeoutMs ?? NAME_CAPTURE_TIMEOUT_MS;
     this.nameCaptureTimer = setTimeout(() => {
@@ -1523,20 +1495,16 @@ export class CallSetupFlow implements SetupFlowInput {
   ): void {
     this.state = "awaiting_guardian_decision";
 
-    this.guardianWait = ndeps.createGuardianWaitController(
-      this.callSessionId,
-      this.transport,
-      {
-        speakSystemPrompt: this.deps.speakSystemPrompt,
-        updateCallSession: this.deps.updateCallSession,
-        recordCallEvent: this.deps.recordCallEvent,
-        resolveGuardianLabel: ndeps.resolveGuardianLabel,
-        firstHeartbeatDelayMs: this.deps.ttsPlaybackDelayMs,
-        onApproved: (ctx) => this.handleAccessRequestApproved(ndeps, ctx),
-        onDenied: (ctx) => this.handleAccessRequestDenied(ndeps, ctx.requestId),
-        onTimeout: (ctx) => this.handleAccessRequestTimeout(ndeps, ctx),
-      },
-    );
+    this.guardianWait = ndeps.createGuardianWaitController(this.callSessionId, {
+      speakSystemPrompt: this.deps.speakSystemPrompt,
+      updateCallSession: this.deps.updateCallSession,
+      recordCallEvent: this.deps.recordCallEvent,
+      resolveGuardianLabel: ndeps.resolveGuardianLabel,
+      firstHeartbeatDelayMs: this.deps.ttsPlaybackDelayMs,
+      onApproved: (ctx) => this.handleAccessRequestApproved(ndeps, ctx),
+      onDenied: (ctx) => this.handleAccessRequestDenied(ndeps, ctx.requestId),
+      onTimeout: (ctx) => this.handleAccessRequestTimeout(ndeps, ctx),
+    });
     this.guardianWait.start({
       requestId,
       assistantId: accessRequest.assistantId,
@@ -1611,7 +1579,6 @@ export class CallSetupFlow implements SetupFlowInput {
     );
 
     await this.deps.speakSystemPrompt(
-      this.transport,
       `Sorry, ${guardianLabel} says I'm not allowed to speak with you. Goodbye.`,
     );
     this.endSessionAfterPlayback("Access request denied");
@@ -1659,7 +1626,6 @@ export class CallSetupFlow implements SetupFlowInput {
     );
 
     await this.deps.speakSystemPrompt(
-      this.transport,
       `Sorry, I can't get ahold of ${guardianLabel} right now. I'll let them know you called.${callbackNote}`,
     );
     this.endSessionAfterPlayback("Access request timed out");
@@ -1693,7 +1659,6 @@ export class CallSetupFlow implements SetupFlowInput {
     );
 
     await this.deps.speakSystemPrompt(
-      this.transport,
       "Sorry, I didn't catch your name. Please try calling back. Goodbye.",
     );
     this.endSessionAfterPlayback("Name capture timed out");
@@ -1709,36 +1674,15 @@ export class CallSetupFlow implements SetupFlowInput {
 
   /** Resolve the name-capture deps, applying defaults for the pure logic. */
   private requireNameCaptureDeps(): NameCaptureDeps {
-    const d = this.deps;
-    const missing = (
-      [
-        ["getCallSession", d.getCallSession],
-        ["fireCallTranscriptNotifier", d.fireCallTranscriptNotifier],
-        ["resolveGuardianLabel", d.resolveGuardianLabel],
-        ["resolveAssistantLabel", d.resolveAssistantLabel],
-      ] as const
-    )
-      .filter(([, dep]) => dep == null)
-      .map(([name]) => name);
-    if (missing.length > 0) {
-      throw new Error(
-        `CallSetupFlow name-capture deps missing: ${missing.join(", ")}`,
-      );
-    }
-    return {
-      getCallSession: d.getCallSession!,
-      fireCallTranscriptNotifier: d.fireCallTranscriptNotifier!,
-      resolveGuardianLabel: d.resolveGuardianLabel!,
-      resolveAssistantLabel: d.resolveAssistantLabel!,
-      notifyGuardianOfAccessRequest:
-        d.notifyGuardianOfAccessRequest ?? notifyGuardianOfAccessRequestImpl,
-      createGuardianWaitController:
-        d.createGuardianWaitController ??
-        ((callSessionId, transport, deps) =>
-          new GuardianWaitController(callSessionId, transport, deps)),
-      resolveMidCallTrustContext:
-        d.resolveMidCallTrustContext ?? resolveMidCallTrustContext,
-    };
+    return requireDeps("name-capture", this.deps, [
+      "getCallSession",
+      "fireCallTranscriptNotifier",
+      "resolveGuardianLabel",
+      "resolveAssistantLabel",
+      "notifyGuardianOfAccessRequest",
+      "createGuardianWaitController",
+      "resolveMidCallTrustContext",
+    ]);
   }
 
   // ── Unverified caller ───────────────────────────────────────────────
@@ -1768,7 +1712,7 @@ export class CallSetupFlow implements SetupFlowInput {
     const message =
       `This number is registered as ${outcome.displayName}'s phone but has not been verified yet. ` +
       action;
-    await this.deps.speakSystemPrompt(this.transport, message);
+    await this.deps.speakSystemPrompt(message);
     this.endSessionAfterPlayback(
       "Inbound voice ACL: caller channel unverified",
     );

@@ -50,22 +50,17 @@ function makeResolved(trustClass: TrustClass = "guardian"): SetupResolved {
 
 function createFakeTransport() {
   const spokenTokens: Array<{ token: string; last: boolean }> = [];
-  const playUrls: string[] = [];
   const endReasons: Array<string | undefined> = [];
   const transport: SetupFlowTransport = {
     sendTextToken: (token, last) => {
       spokenTokens.push({ token, last });
     },
-    sendPlayUrl: (url) => {
-      playUrls.push(url);
-    },
     endSession: (reason) => {
       endReasons.push(reason);
     },
-    getConnectionState: () => "connected",
     requiresWavAudio: true,
   };
-  return { transport, spokenTokens, playUrls, endReasons };
+  return { transport, spokenTokens, endReasons };
 }
 
 function createFlow(overrides?: Partial<CallSetupFlowDeps>) {
@@ -79,7 +74,7 @@ function createFlow(overrides?: Partial<CallSetupFlowDeps>) {
   const results: SetupFlowResult[] = [];
 
   const deps: CallSetupFlowDeps = {
-    speakSystemPrompt: async (_transport, text) => {
+    speakSystemPrompt: async (text) => {
       spoken.push(text);
     },
     updateCallSession: (_id, updates) => {
@@ -112,8 +107,7 @@ function createFlow(overrides?: Partial<CallSetupFlowDeps>) {
   return { flow, ...fake, spoken, sessionUpdates, events, results };
 }
 
-const sleep = (ms: number) =>
-  new Promise((resolve) => setTimeout(resolve, ms));
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // ---------------------------------------------------------------------------
 // Tests
@@ -223,6 +217,29 @@ describe("CallSetupFlow", () => {
       await expect(
         flow.start({ action: "normal_call", isInbound: true }, resolved),
       ).rejects.toThrow("may only be called once");
+    });
+
+    test("start() during an in-flight deny path throws", async () => {
+      // The deny path awaits TTS before completing, so the flow is still
+      // in `idle` state while the first start() is in flight.
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const { flow } = createFlow({ speakSystemPrompt: () => gate });
+      const denyOutcome: SetupOutcome = {
+        action: "deny",
+        message: "Denied.",
+        logReason: "test deny",
+      };
+
+      const first = flow.start(denyOutcome, makeResolved("unknown"));
+      await expect(
+        flow.start(denyOutcome, makeResolved("unknown")),
+      ).rejects.toThrow("may only be called once");
+
+      release();
+      await first;
     });
 
     test("input methods are no-ops while idle and completed", async () => {

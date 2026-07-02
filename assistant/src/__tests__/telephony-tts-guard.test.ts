@@ -46,7 +46,9 @@ const realProviderCatalogModule = {
   ...(await import("../tts/provider-catalog.js")),
 };
 const realConfigLoaderModule = { ...(await import("../config/loader.js")) };
-const realSecureKeysModule = { ...(await import("../security/secure-keys.js")) };
+const realSecureKeysModule = {
+  ...(await import("../security/secure-keys.js")),
+};
 const realProviderRegistryModule = {
   ...(await import("../tts/provider-registry.js")),
 };
@@ -146,9 +148,7 @@ mock.module("../config/loader.js", () => ({
   getConfig: () =>
     guardMocksActive ? testConfig : realConfigLoaderModule.getConfig(),
   getConfigReadOnly: () =>
-    guardMocksActive
-      ? testConfig
-      : realConfigLoaderModule.getConfigReadOnly(),
+    guardMocksActive ? testConfig : realConfigLoaderModule.getConfigReadOnly(),
 }));
 
 // -- Mutable credential store --------------------------------------------------
@@ -258,7 +258,6 @@ function createRelay(requiresWavAudio: boolean) {
       sentPlayUrls.push(url);
     },
     endSession: () => {},
-    getConnectionState: () => "connected",
   } as CallTransport;
   return { relay, sentTokens, sentPlayUrls };
 }

@@ -31,7 +31,10 @@ import {
   getSilenceTimeoutMs,
   getUserConsultationTimeoutMs,
 } from "./call-constants.js";
-import { addPointerMessage, formatDuration } from "./call-pointer-messages.js";
+import {
+  formatDuration,
+  postPointerMessageSafe,
+} from "./call-pointer-messages.js";
 import {
   fireCallQuestionNotifier,
   fireCallTranscriptNotifier,
@@ -1240,22 +1243,14 @@ export class CallController {
       const durationMs = currentSession.startedAt
         ? Date.now() - currentSession.startedAt
         : 0;
-      addPointerMessage(
+      postPointerMessageSafe(
         currentSession.initiatedFromConversationId,
         "completed",
         currentSession.toNumber,
         {
           duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
         },
-      ).catch((err) => {
-        log.warn(
-          {
-            conversationId: currentSession.initiatedFromConversationId,
-            err,
-          },
-          "Skipping pointer write — origin conversation may no longer exist",
-        );
-      });
+      );
     }
     this.state = "idle";
   }
@@ -1524,22 +1519,14 @@ export class CallController {
           const durationMs = currentSession.startedAt
             ? Date.now() - currentSession.startedAt
             : 0;
-          addPointerMessage(
+          postPointerMessageSafe(
             currentSession.initiatedFromConversationId,
             "completed",
             currentSession.toNumber,
             {
               duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
             },
-          ).catch((err) => {
-            log.warn(
-              {
-                conversationId: currentSession.initiatedFromConversationId,
-                err,
-              },
-              "Skipping pointer write — origin conversation may no longer exist",
-            );
-          });
+          );
         }
       }, 3000);
     }, maxDurationMs);

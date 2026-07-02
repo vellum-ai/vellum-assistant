@@ -101,7 +101,7 @@ mock.module("../calls/finalize-call.js", () => ({
 
 // Mock the call pointer messages
 mock.module("../calls/call-pointer-messages.js", () => ({
-  addPointerMessage: jest.fn(async () => {}),
+  postPointerMessageSafe: jest.fn(),
   formatDuration: jest.fn((ms: number) => `${Math.round(ms / 1000)}s`),
 }));
 
@@ -380,7 +380,7 @@ mock.module("../calls/relay-access-wait.js", () => ({
 
 import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
 import { CallController } from "../calls/call-controller.js";
-import { addPointerMessage } from "../calls/call-pointer-messages.js";
+import { postPointerMessageSafe } from "../calls/call-pointer-messages.js";
 import { speakSystemPrompt } from "../calls/call-speech-output.js";
 import {
   fireCallTranscriptNotifier,
@@ -528,7 +528,7 @@ beforeEach(() => {
   (finalizeCall as jest.Mock).mockClear();
   (revokeScopedApprovalGrantsForContext as jest.Mock).mockClear();
   (speakSystemPrompt as jest.Mock).mockClear();
-  (addPointerMessage as jest.Mock).mockClear();
+  (postPointerMessageSafe as jest.Mock).mockClear();
   (routeSetup as jest.Mock).mockClear();
   mockGetChannelAdmissionPolicy.mockClear();
   mockAdmissionPolicy = null;
@@ -588,7 +588,6 @@ describe("MediaStreamCallSession", () => {
     const session = new MediaStreamCallSession(ws, "call-1");
     expect(session.callSessionId).toBe("call-1");
     expect(session.getOutput()).toBeDefined();
-    expect(session.getOutput().getConnectionState()).toBe("connected");
   });
 
   describe("start event handling", () => {
@@ -675,7 +674,7 @@ describe("MediaStreamCallSession", () => {
         expect.objectContaining({ status: "completed" }),
       );
       expect(finalizeCall).toHaveBeenCalledWith("call-1", "conv-1");
-      expect(addPointerMessage).toHaveBeenCalledWith(
+      expect(postPointerMessageSafe).toHaveBeenCalledWith(
         "conv-origin",
         "completed",
         "+15551234567",
@@ -705,7 +704,7 @@ describe("MediaStreamCallSession", () => {
         }),
       );
       expect(finalizeCall).toHaveBeenCalledWith("call-1", "conv-1");
-      expect(addPointerMessage).toHaveBeenCalledWith(
+      expect(postPointerMessageSafe).toHaveBeenCalledWith(
         "conv-origin",
         "failed",
         "+15551234567",
@@ -750,7 +749,6 @@ describe("MediaStreamCallSession", () => {
 
       session.destroy();
       expect(mockDestroy).toHaveBeenCalled();
-      expect(session.getOutput().getConnectionState()).toBe("closed");
     });
 
     test("destroy is idempotent", () => {
@@ -1914,7 +1912,7 @@ describe("setup flows over the media-stream transport", () => {
       expect(mockAttemptVerificationCode).toHaveBeenCalledWith(
         expect.objectContaining({ enteredCode: "654321", isOutbound: true }),
       );
-      expect(addPointerMessage).toHaveBeenCalledWith(
+      expect(postPointerMessageSafe).toHaveBeenCalledWith(
         "conv-origin-1",
         "verification_succeeded",
         TO,

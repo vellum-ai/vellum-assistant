@@ -323,9 +323,6 @@ function createMockTransport(): MockTransport {
       state._endCalled = true;
       state._endReason = reason;
     },
-    getConnectionState() {
-      return "connected";
-    },
   } as MockTransport;
 }
 

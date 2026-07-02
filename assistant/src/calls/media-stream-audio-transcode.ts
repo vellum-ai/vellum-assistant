@@ -142,7 +142,7 @@ export function chunkMulawToBase64Frames(mulawBuffer: Buffer): string[] {
  * bitwise-inverted on the wire (Twilio's encoding), mirroring
  * {@link linearToMulaw}.
  */
-function mulawToLinear(mulawByte: number): number {
+export function mulawToLinear(mulawByte: number): number {
   const b = ~mulawByte & 0xff;
   const sign = b & 0x80;
   const exponent = (b >> 4) & 0x07;

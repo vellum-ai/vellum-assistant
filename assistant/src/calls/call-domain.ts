@@ -25,7 +25,7 @@ import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { upsertActiveCallLease } from "./active-call-lease.js";
 import { isDeniedNumber } from "./call-constants.js";
-import { addPointerMessage } from "./call-pointer-messages.js";
+import { postPointerMessageSafe } from "./call-pointer-messages.js";
 import { getCallController, unregisterCallController } from "./call-state.js";
 import { isTerminalState } from "./call-state-machine.js";
 import {
@@ -47,21 +47,6 @@ import { preflightVoiceIngress } from "./voice-ingress-preflight.js";
 const log = getLogger("call-domain");
 
 const E164_REGEX = /^\+\d+$/;
-
-function postFailedCallPointer(
-  conversationId: string,
-  phoneNumber: string,
-  reason: string,
-): void {
-  addPointerMessage(conversationId, "failed", phoneNumber, {
-    reason,
-  }).catch((pointerErr) => {
-    log.warn(
-      { conversationId, err: pointerErr },
-      "Failed to post call-failed pointer message",
-    );
-  });
-}
 
 // ── Result types ─────────────────────────────────────────────────────
 
@@ -427,7 +412,9 @@ export async function startCall(
 
     const preflightResult = await preflightVoiceIngress();
     if (!preflightResult.ok) {
-      postFailedCallPointer(conversationId, phoneNumber, preflightResult.error);
+      postPointerMessageSafe(conversationId, "failed", phoneNumber, {
+        reason: preflightResult.error,
+      });
       return preflightResult;
     }
 
@@ -530,12 +517,7 @@ export async function startCall(
     );
 
     // Post a concise pointer message in the initiating conversation
-    addPointerMessage(conversationId, "started", phoneNumber).catch((err) => {
-      log.warn(
-        { conversationId, err },
-        "Failed to post call-started pointer message",
-      );
-    });
+    postPointerMessageSafe(conversationId, "started", phoneNumber);
 
     return {
       ok: true,
@@ -568,7 +550,9 @@ export async function startCall(
       });
     }
 
-    postFailedCallPointer(conversationId, phoneNumber, msg);
+    postPointerMessageSafe(conversationId, "failed", phoneNumber, {
+      reason: msg,
+    });
 
     return { ok: false, error: `Error initiating call: ${msg}`, status: 500 };
   }

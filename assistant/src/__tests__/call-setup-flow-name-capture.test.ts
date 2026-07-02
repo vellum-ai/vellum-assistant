@@ -120,12 +120,6 @@ class FakeGuardianWait implements GuardianWaitHandle {
     this.transcripts.push(text);
   }
 
-  getState() {
-    return this.startParams
-      ? ("awaiting_guardian_decision" as const)
-      : ("idle" as const);
-  }
-
   dispose(reason: GuardianWaitDisposeReason = "teardown"): void {
     this.disposeReasons.push(reason);
   }
@@ -145,11 +139,9 @@ function createFlow(opts?: {
   const endReasons: Array<string | undefined> = [];
   const transport: SetupFlowTransport = {
     sendTextToken: () => {},
-    sendPlayUrl: () => {},
     endSession: (reason) => {
       endReasons.push(reason);
     },
-    getConnectionState: () => "connected",
   };
 
   const spoken: string[] = [];
@@ -180,7 +172,7 @@ function createFlow(opts?: {
   };
 
   const deps: CallSetupFlowDeps = {
-    speakSystemPrompt: async (_transport, text) => {
+    speakSystemPrompt: async (text) => {
       spoken.push(text);
     },
     updateCallSession: (_id, updates) => {
@@ -214,7 +206,7 @@ function createFlow(opts?: {
       }
       return notifyResult;
     },
-    createGuardianWaitController: (_callSessionId, _transport, waitDeps) => {
+    createGuardianWaitController: (_callSessionId, waitDeps) => {
       const wait = new FakeGuardianWait(waitDeps);
       waits.push(wait);
       return wait;

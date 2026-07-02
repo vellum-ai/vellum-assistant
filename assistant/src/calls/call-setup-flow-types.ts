@@ -13,35 +13,20 @@ import type { TrustContext } from "../daemon/trust-context.js";
 
 /**
  * Structural subset of `CallTransport` (call-transport.ts) that the setup
- * flow needs. `MediaStreamOutput` satisfies this interface (asserted at
- * compile time in call-setup-flow.test.ts).
+ * flow needs: speak and end the session. `MediaStreamOutput` satisfies
+ * this interface (asserted at compile time in call-setup-flow.test.ts).
  */
 export interface SetupFlowTransport {
   sendTextToken(token: string, last: boolean): void;
-  sendPlayUrl(url: string): void;
   endSession(reason?: string): void;
-  getConnectionState(): string;
   readonly requiresWavAudio?: boolean;
-}
-
-// ── Input surface ────────────────────────────────────────────────────
-
-/**
- * Caller input routed into the active setup sub-flow by the owning
- * transport server. Both methods are no-ops while the flow is `idle` or
- * `completed`.
- */
-export interface SetupFlowInput {
-  pushDtmfDigit(digit: string): void;
-  pushTranscriptFinal(text: string): void;
 }
 
 // ── Flow state ───────────────────────────────────────────────────────
 
 /**
  * Explicit setup-flow state. The flow is the sole source of truth for its
- * state — it is never inferred from `transport.getConnectionState()`
- * (which on `MediaStreamOutput` is only `"connected" | "closed"`).
+ * state — it is never inferred from the transport.
  */
 export type SetupFlowState =
   | "idle"
