@@ -1,4 +1,3 @@
-import type { RefObject } from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 // ---------------------------------------------------------------------------
@@ -17,6 +16,11 @@ const PINNED_THRESHOLD_PX = 64;
 const SHOW_SCROLL_BUTTON_THRESHOLD_PX = 240;
 
 export interface UseDoctorAutoScrollReturn {
+  /** Attach this to the scrollable transcript container. The hook owns
+   *  the element via state so its effects re-run when the container
+   *  mounts (the messages div is only rendered once a session is
+   *  active — it is absent in the idle/loading branches). */
+  scrollContainerRef: (el: HTMLDivElement | null) => void;
   /** Whether the "Go to Newest" affordance should be visible. */
   showScrollToLatest: boolean;
   /** Pin the viewport back to the latest message (user clicked the
@@ -39,12 +43,20 @@ export interface UseDoctorAutoScrollReturn {
  * disorienting — the viewport snapped back to the bottom mid-drag with
  * no way to read earlier content until the response finished.
  *
+ * The hook owns the scroll element via a callback ref + state rather
+ * than a plain ref object. The messages div is only rendered once a
+ * session is active (it is absent in the idle/loading branches), so a
+ * plain ref is `null` on first render and the listener-setup effect
+ * would never re-run when the div mounts — leaving the scroll listener
+ * unattached and the pinned flag stuck in the normal start-from-idle
+ * flow. State drives the effect dependency so listeners attach as soon
+ * as the element appears.
+ *
  * Unlike the chat transcript coordinator, this hook does not own
  * older-page pagination or conversation-switch resets — the Doctor
  * panel renders a single streaming session, so the logic stays minimal.
  */
 export function useDoctorAutoScroll(
-  scrollRef: RefObject<HTMLDivElement | null>,
   /** The rendered transcript entries. A new array identity (produced by
    *  the panel's `useMemo` whenever the store appends/updates an entry)
    *  re-fires the growth effect so streaming deltas auto-scroll when
@@ -52,11 +64,19 @@ export function useDoctorAutoScroll(
    *  intentionally permissive. */
   entries: ReadonlyArray<unknown>,
 ): UseDoctorAutoScrollReturn {
+  const [scrollEl, setScrollEl] = useState<HTMLDivElement | null>(null);
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const isPinnedRef = useRef(true);
 
+  const scrollContainerRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      setScrollEl(el);
+    },
+    [],
+  );
+
   const classify = useCallback(() => {
-    const el = scrollRef.current;
+    const el = scrollEl;
     if (!el) {
       return;
     }
@@ -66,7 +86,7 @@ export function useDoctorAutoScroll(
     const distanceFromBottom = Math.max(0, maxScrollTop - el.scrollTop);
     isPinnedRef.current = distanceFromBottom <= PINNED_THRESHOLD_PX;
     setShowScrollToLatest(distanceFromBottom > SHOW_SCROLL_BUTTON_THRESHOLD_PX);
-  }, [scrollRef]);
+  }, [scrollEl]);
 
   // Auto-follow streaming growth only while pinned to the latest.
   // Instant (`behavior: "auto"`) rather than smooth: a smooth scroll on
@@ -76,26 +96,26 @@ export function useDoctorAutoScroll(
     if (!isPinnedRef.current) {
       return;
     }
-    const el = scrollRef.current;
-    if (!el) {
+    if (!scrollEl) {
       return;
     }
-    el.scrollTo({ top: el.scrollHeight, behavior: "auto" });
-  }, [entries, scrollRef]);
+    scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: "auto" });
+  }, [entries, scrollEl]);
 
   // Classify on scroll so dragging up un-pins (stops auto-follow) and
   // surfaces the "Go to Newest" affordance once the user is far enough
-  // from the bottom.
+  // from the bottom. Depends on `scrollEl` so the listener attaches the
+  // moment the messages div mounts (it is absent in the idle/loading
+  // branches) and detaches when it unmounts.
   useEffect(() => {
-    const el = scrollRef.current;
-    if (!el) {
+    if (!scrollEl) {
       return;
     }
-    el.addEventListener("scroll", classify, { passive: true });
+    scrollEl.addEventListener("scroll", classify, { passive: true });
     return () => {
-      el.removeEventListener("scroll", classify);
+      scrollEl.removeEventListener("scroll", classify);
     };
-  }, [scrollRef, classify]);
+  }, [scrollEl, classify]);
 
   // Re-classify after entries change. scrollHeight grows under a
   // stationary scrollTop during streaming WITHOUT firing a scroll event,
@@ -107,14 +127,13 @@ export function useDoctorAutoScroll(
   }, [entries, classify]);
 
   const scrollToLatest = useCallback(() => {
-    const el = scrollRef.current;
-    if (!el) {
+    if (!scrollEl) {
       return;
     }
     isPinnedRef.current = true;
-    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    scrollEl.scrollTo({ top: scrollEl.scrollHeight, behavior: "smooth" });
     setShowScrollToLatest(false);
-  }, [scrollRef]);
+  }, [scrollEl]);
 
-  return { showScrollToLatest, scrollToLatest };
+  return { scrollContainerRef, showScrollToLatest, scrollToLatest };
 }

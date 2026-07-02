@@ -11,11 +11,13 @@
  *   2. Once the user scrolls away from the bottom, growth stops
  *      auto-scrolling and the "Go to Newest" affordance surfaces.
  *   3. `scrollToLatest()` re-pins and re-engages auto-follow.
+ *   4. The listener attaches lazily when the element appears (the
+ *      messages div is absent in the idle/loading branches), so dragging
+ *      away still un-pins in the normal start-from-idle flow.
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { createRef } from "react";
 
 import { useDoctorAutoScroll } from "./use-doctor-auto-scroll";
 
@@ -92,16 +94,20 @@ describe("useDoctorAutoScroll", () => {
     });
     document.body.appendChild(el);
 
-    const scrollRef = createRef<HTMLDivElement | null>();
-    (scrollRef as any).current = el;
-
-    const { rerender } = renderHook(
-      (entries: ReadonlyArray<unknown>) => useDoctorAutoScroll(scrollRef, entries),
+    const { result, rerender } = renderHook(
+      (entries: ReadonlyArray<unknown>) => useDoctorAutoScroll(entries),
       { initialProps: [{}] as ReadonlyArray<unknown> },
     );
 
-    // Simulate streaming growth: scrollHeight increases as content arrives,
-    // viewport stays at the old bottom so it is now above the new bottom.
+    // Attach the element (simulates the messages div mounting once a
+    // session starts).
+    act(() => {
+      result.current.scrollContainerRef(el);
+    });
+
+    // Simulate streaming growth: scrollHeight increases as content
+    // arrives, viewport stays at the old bottom so it is now above the
+    // new bottom.
     act(() => {
       (el as any).scrollHeight = 6000;
       rerender([{}, {}] as ReadonlyArray<unknown>);
@@ -122,16 +128,17 @@ describe("useDoctorAutoScroll", () => {
     });
     document.body.appendChild(el);
 
-    const scrollRef = createRef<HTMLDivElement | null>();
-    (scrollRef as any).current = el;
-
-    const { rerender } = renderHook(
-      (entries: ReadonlyArray<unknown>) => useDoctorAutoScroll(scrollRef, entries),
+    const { result, rerender } = renderHook(
+      (entries: ReadonlyArray<unknown>) => useDoctorAutoScroll(entries),
       { initialProps: [{}] as ReadonlyArray<unknown> },
     );
 
-    // User drags up — well past the SHOW_SCROLL_BUTTON threshold (distance
-    // from bottom = 5000 - 800 - 500 = 3700).
+    act(() => {
+      result.current.scrollContainerRef(el);
+    });
+
+    // User drags up — well past the SHOW_SCROLL_BUTTON threshold
+    // (distance from bottom = 5000 - 800 - 500 = 3700).
     act(() => {
       el.scrollTop = 500;
       el.dispatchEvent(new Event("scroll"));
@@ -147,10 +154,6 @@ describe("useDoctorAutoScroll", () => {
 
     // No auto-scroll should have fired for the growth.
     expect(scrollToCalls.length).toBe(callsBefore);
-
-    // Re-render result exposes showScrollToLatest via the hook return.
-    // (We assert behavior indirectly through scrollTo; the pill visibility
-    // is React state that we verify in the next test.)
   });
 
   test("surfaces the Go to Newest affordance after scrolling away", () => {
@@ -161,13 +164,15 @@ describe("useDoctorAutoScroll", () => {
     });
     document.body.appendChild(el);
 
-    const scrollRef = createRef<HTMLDivElement | null>();
-    (scrollRef as any).current = el;
-
-    const { result } = renderHook(
-      (entries: ReadonlyArray<unknown>) => useDoctorAutoScroll(scrollRef, entries),
+    const { result, rerender } = renderHook(
+      (entries: ReadonlyArray<unknown>) => useDoctorAutoScroll(entries),
       { initialProps: [{}] as ReadonlyArray<unknown> },
     );
+
+    act(() => {
+      result.current.scrollContainerRef(el);
+    });
+    rerender([{}] as ReadonlyArray<unknown>);
 
     expect(result.current.showScrollToLatest).toBe(false);
 
@@ -189,17 +194,21 @@ describe("useDoctorAutoScroll", () => {
     });
     document.body.appendChild(el);
 
-    const scrollRef = createRef<HTMLDivElement | null>();
-    (scrollRef as any).current = el;
-
     const { result, rerender } = renderHook(
-      (entries: ReadonlyArray<unknown>) => useDoctorAutoScroll(scrollRef, entries),
+      (entries: ReadonlyArray<unknown>) => useDoctorAutoScroll(entries),
       { initialProps: [{}] as ReadonlyArray<unknown> },
     );
 
-    // Confirm we're un-pinned (pill visible). Set scrollTop AFTER mount —
-    // the growth effect scrolls to the bottom on the initial render (the
-    // pinned default is true), so we simulate the user dragging up here.
+    // Attach while at scrollTop=1000. The growth effect scrolls to the
+    // bottom (pinned default is true), so we then simulate the user
+    // dragging back up.
+    act(() => {
+      result.current.scrollContainerRef(el);
+    });
+
+    // Confirm we're un-pinned (pill visible). Set scrollTop AFTER attach —
+    // the growth effect scrolls to the bottom on attach (pinned default
+    // is true), so we simulate the user dragging up here.
     act(() => {
       el.scrollTop = 1000; // distance from bottom = 3200
       el.dispatchEvent(new Event("scroll"));
@@ -223,5 +232,42 @@ describe("useDoctorAutoScroll", () => {
     const last = scrollToCalls.at(-1);
     expect(scrollToCalls.length).toBeGreaterThan(callsBefore);
     expect(last!.top).toBe(6000);
+  });
+
+  test("listener attaches lazily when the element appears after mount", () => {
+    // Element created but NOT attached on first render (idle state).
+    const { el } = createScrollElement({
+      scrollTop: 4200,
+      scrollHeight: 5000,
+      clientHeight: 800,
+    });
+    document.body.appendChild(el);
+
+    const { result, rerender } = renderHook(
+      (entries: ReadonlyArray<unknown>) => useDoctorAutoScroll(entries),
+      { initialProps: [{}] as ReadonlyArray<unknown> },
+    );
+
+    // Before the element attaches, scrolling it should NOT flip the pill
+    // (no listener bound). Drive a scroll event and confirm nothing
+    // changes.
+    act(() => {
+      el.scrollTop = 3000; // far from bottom
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(result.current.showScrollToLatest).toBe(false);
+
+    // Now the session starts and the messages div mounts.
+    act(() => {
+      result.current.scrollContainerRef(el);
+    });
+    rerender([{}] as ReadonlyArray<unknown>);
+
+    // Listener is now bound — dragging up flips the pill.
+    act(() => {
+      el.scrollTop = 3000; // distance from bottom = 1200
+      el.dispatchEvent(new Event("scroll"));
+    });
+    expect(result.current.showScrollToLatest).toBe(true);
   });
 });

@@ -121,7 +121,6 @@ export function DoctorPanel() {
   const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const platformGate = usePlatformGate();
-  const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   // ---------------------------------------------------------------------------
@@ -334,10 +333,8 @@ export function DoctorPanel() {
   // mobile, wheel on desktop) un-pins and surfaces a "Go to Newest"
   // affordance so the user can catch up on their own instead of being
   // fought by the stream. See `use-doctor-auto-scroll.ts`.
-  const { showScrollToLatest, scrollToLatest } = useDoctorAutoScroll(
-    scrollRef,
-    entries,
-  );
+  const { scrollContainerRef, showScrollToLatest, scrollToLatest } =
+    useDoctorAutoScroll(entries);
 
   // Recover from stale state on same-assistant remount.
   // The module-level store survives unmount, but useDoctorSSE's AbortController
@@ -492,7 +489,7 @@ export function DoctorPanel() {
         <>
           {/* Messages area */}
           <div className="relative min-h-0 flex-1">
-          <div ref={scrollRef} className="h-full overflow-y-auto">
+          <div ref={scrollContainerRef} className="h-full overflow-y-auto">
             <div className="mx-auto max-w-2xl space-y-3">
               {entries.map((entry) => {
                 switch (entry.kind) {
