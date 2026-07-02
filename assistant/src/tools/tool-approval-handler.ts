@@ -190,10 +190,9 @@ export function isSensitiveTool(
 }
 
 /**
- * Threshold for the approval cell governing an invocation. The channel ×
- * contact-type matrix supplies per-cell values through this parameter when
- * it lands; until then the cell concept maps to the conversation-level
- * auto-approve threshold.
+ * Threshold for the approval cell governing an invocation — the matrix axis
+ * of the sensitive-tool composition. Shares the auto-approve threshold
+ * vocabulary defined in `permissions/approval-policy.ts`.
  */
 export type ApprovalCellThreshold = AutoApproveThreshold;
 
@@ -216,16 +215,16 @@ export type SensitiveToolDecision = "proceed" | "escalate-and-wait" | "deny";
  * already-resolved `sensitiveToolApproval` capability. That floor is
  * deterministic and cannot be lifted by the other axes: when the capability
  * is not `"self"`, a sensitive invocation without a grant always escalates
- * or denies. `cellThreshold` and `riskLevel` are the axes the approval
- * matrix composes within the floor once per-cell thresholds exist; today
- * they do not alter the outcome.
+ * or denies. `cellThreshold` and `riskLevel` are composition axes the
+ * decision does not consult — no threshold/risk combination may lift the
+ * outcome above the floor.
  */
 export function resolveSensitiveToolDecision(input: {
   sensitive: boolean;
   /**
-   * Reserved axis for the approval-matrix cell. Callers pass `undefined`
-   * until the matrix logic consults it — the floor alone resolves the
-   * decision, so no caller should pay a threshold lookup to populate this.
+   * Approval-matrix cell axis. The decision does not consult it — the floor
+   * alone resolves the outcome — so callers pass `undefined` rather than
+   * paying a threshold lookup to populate it.
    */
   cellThreshold: ApprovalCellThreshold | undefined;
   /**
@@ -394,7 +393,7 @@ export class ToolApprovalHandler {
 
     const sensitive = isSensitiveTool(name, executionTarget);
     const { sensitiveToolApproval } = resolveCapabilities(context.trustClass);
-    // cellThreshold stays unresolved: the decision cannot consult it yet
+    // cellThreshold stays unresolved: the decision does not consult it
     // (the floor is deterministic), and resolving a live threshold here
     // would block grant consumption — including already-approved calls and
     // voice abort handling — on a gateway IPC read.
