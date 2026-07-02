@@ -1,6 +1,11 @@
 import { join } from "node:path";
 
 import { getConfig } from "../../../config/loader.js";
+import {
+  clearMessagesLexicalIndex,
+  enqueueDeleteMessageLexical,
+  enqueuePurgeConversationLexical,
+} from "../../../persistence/job-handlers/message-lexical.js";
 import type {
   ConversationForkedEvent,
   MemoryPersistenceHooks,
@@ -10,12 +15,6 @@ import { getWorkspaceDir } from "../../../util/platform.js";
 import { getMemoryConfig } from "./config.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
-import {
-  clearMessagesLexicalIndex,
-  enqueueDeleteMessageLexical,
-  enqueueLexicalIndexForMessage,
-  enqueuePurgeConversationLexical,
-} from "./job-handlers/index-message-lexical.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
@@ -42,21 +41,7 @@ import {
  */
 export const memoryPersistenceHooks: MemoryPersistenceHooks = {
   async onMessagePersisted(event: MessagePersistedEvent): Promise<void> {
-    try {
-      await indexMessageNow(
-        { ...event, scopeId: "default" },
-        getMemoryConfig(),
-      );
-    } finally {
-      // Dual-write into the lexical (Qdrant) index off the write path. The
-      // sparse lexical job is independent of the dense embedding path, so it
-      // must be scheduled even when segment indexing above throws (a transient
-      // embedding/Qdrant/config failure) — otherwise the message would be
-      // permanently missing from the lexical index. Self-gates on the memory
-      // plugin's active state; the upsert is idempotent so a redundant enqueue
-      // is harmless.
-      enqueueLexicalIndexForMessage(event.messageId);
-    }
+    await indexMessageNow({ ...event, scopeId: "default" }, getMemoryConfig());
   },
 
   onConversationForked(event: ConversationForkedEvent): void {

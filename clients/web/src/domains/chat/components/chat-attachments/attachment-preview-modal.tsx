@@ -4,7 +4,7 @@ import type { FC, KeyboardEvent, MouseEvent } from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
+import { fetchAttachmentContentBlob } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
@@ -106,12 +106,8 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     // the same attachment reuses the fetched blob instead of refetching.
     queryKey: ["attachmentContent", assistantId, attachment.id],
     queryFn: async () => {
-      const { data, error } = await attachmentsByIdContentGet({
-        path: { assistant_id: assistantId!, id: attachment.id },
-        parseAs: "blob",
-        throwOnError: false,
-      });
-      if (error || !(data instanceof Blob)) {
+      const data = await fetchAttachmentContentBlob(assistantId!, attachment.id);
+      if (!data) {
         throw new Error("Failed to load file");
       }
       return data;
@@ -138,6 +134,11 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   }, [blob]);
 
   const effectiveUrl = attachment.previewUrl ?? objectUrl;
+
+  // A full-size image whose bytes the browser can't decode (e.g. HEIC on
+  // Chromium, even after fetching the stored original) falls through to the
+  // non-image fallback card instead of rendering the broken-image glyph.
+  const [decodeFailedUrl, setDecodeFailedUrl] = useState<string | null>(null);
 
   // Loading until there's a usable URL: covers the fetch and the one-render gap
   // between the blob arriving and its object URL being created.
@@ -247,11 +248,12 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       return <PdfPreview url={effectiveUrl} />;
     }
 
-    if (isImage && effectiveUrl) {
+    if (isImage && effectiveUrl && decodeFailedUrl !== effectiveUrl) {
       return (
         <img
           src={effectiveUrl}
           alt={attachment.filename}
+          onError={() => setDecodeFailedUrl(effectiveUrl)}
           className="max-h-[80vh] max-w-[90vw] rounded object-contain"
         />
       );

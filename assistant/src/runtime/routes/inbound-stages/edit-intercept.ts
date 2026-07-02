@@ -28,7 +28,7 @@ import {
   findMessageBySourceId,
   recordInbound,
 } from "../../../persistence/delivery-crud.js";
-import { enqueueLexicalIndexForMessage } from "../../../plugins/defaults/memory/job-handlers/index-message-lexical.js";
+import { enqueueLexicalIndexForMessage } from "../../../persistence/job-handlers/message-lexical.js";
 import { safeParseRecord } from "../../../util/json.js";
 import { getLogger } from "../../../util/logger.js";
 
@@ -101,7 +101,9 @@ export async function handleEditIntercept(
       conversationExternalId,
       sourceMessageId,
     );
-    if (original) break;
+    if (original) {
+      break;
+    }
     if (attempt < EDIT_LOOKUP_RETRIES) {
       log.info(
         {

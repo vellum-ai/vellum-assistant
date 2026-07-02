@@ -63,7 +63,8 @@ mock.module("../contacts-write.js", () => ({
   upsertContactChannel: upsertContactChannelMock,
 }));
 
-const { activateMemberChannel } = await import("../member-write-relay.js");
+const { activateMemberChannel, seedUnverifiedMemberChannel } =
+  await import("../member-write-relay.js");
 
 describe("activateMemberChannel gateway-first relay", () => {
   beforeEach(() => {
@@ -222,5 +223,60 @@ describe("activateMemberChannel gateway-first relay", () => {
       address: "+15551234567",
       externalChatId: "+15551234567",
     });
+  });
+});
+
+describe("seedUnverifiedMemberChannel gateway-first relay", () => {
+  beforeEach(() => {
+    ipcCalls = [];
+    ipcThrows = false;
+    ipcCallPersistentMock.mockClear();
+  });
+
+  test("relays to the gateway create_contact IPC with channelType + address + displayName", async () => {
+    await seedUnverifiedMemberChannel({
+      sourceChannel: "telegram",
+      externalUserId: "user-1",
+      displayName: "Alice",
+    });
+
+    expect(ipcCalls).toEqual([
+      {
+        method: "create_contact",
+        params: {
+          channelType: "telegram",
+          address: "user-1",
+          displayName: "Alice",
+        },
+      },
+    ]);
+  });
+
+  test("omits displayName when not supplied", async () => {
+    await seedUnverifiedMemberChannel({
+      sourceChannel: "slack",
+      externalUserId: "U123",
+    });
+
+    expect(ipcCalls).toHaveLength(1);
+    expect(ipcCalls[0]!.method).toBe("create_contact");
+    expect(ipcCalls[0]!.params).toEqual({
+      channelType: "slack",
+      address: "U123",
+    });
+    expect("displayName" in (ipcCalls[0]!.params ?? {})).toBe(false);
+  });
+
+  test("swallows gateway errors (best-effort) so a deny is never blocked", async () => {
+    ipcThrows = true;
+
+    // Must not throw — the gateway owns the ACL verdict and a failed seed must
+    // not fail the guardian's deny decision.
+    await seedUnverifiedMemberChannel({
+      sourceChannel: "telegram",
+      externalUserId: "user-1",
+    });
+
+    expect(ipcCalls).toHaveLength(1);
   });
 });

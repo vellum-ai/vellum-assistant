@@ -15,7 +15,10 @@ import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags
 import { getConfig } from "../config/loader.js";
 import { skillFlagKey } from "../config/skill-state.js";
 import type { SkillSummary, SkillToolManifest } from "../config/skills.js";
-import { loadSkillCatalog } from "../config/skills.js";
+import {
+  filterSkillsByEnabledPlugins,
+  loadSkillCatalog,
+} from "../config/skills.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import type { ActiveSkillEntry } from "../skills/active-skill-tools.js";
 import { deriveActiveSkills } from "../skills/active-skill-tools.js";
@@ -114,6 +117,14 @@ export interface ProjectSkillToolsOptions {
    * reads across agent turns.
    */
   cache?: SkillProjectionCache;
+  /**
+   * The conversation's effective per-chat plugin scope from
+   * `getEffectiveEnabledPluginSet`. `null`/absent means no per-chat restriction
+   * (all globally-enabled plugins apply). When a set is given, plugin-owned
+   * skills whose owning plugin id is outside it are dropped from this
+   * conversation's resolution; non-plugin skills are unaffected.
+   */
+  effectiveEnabledPluginSet?: Set<string> | null;
   /** Telemetry context for skill_loaded events; absent disables recording. */
   telemetry?: {
     conversationId: string;
@@ -339,8 +350,13 @@ export function projectSkillTools(
   const contextIds = contextEntries.map((e) => e.id);
   const allCandidateIds = new Set<string>([...contextIds, ...preactivated]);
 
-  // Load the catalog (cached for conversation lifetime) and index by ID
-  const catalog = getCachedCatalog(options?.cache);
+  // Load the catalog (cached for conversation lifetime), then scope it to the
+  // conversation's per-chat plugin selection so plugin-contributed skills from
+  // unselected plugins are not resolvable for this run (null = no restriction).
+  const catalog = filterSkillsByEnabledPlugins(
+    getCachedCatalog(options?.cache),
+    options?.effectiveEnabledPluginSet ?? null,
+  );
   const catalogById = new Map<string, SkillSummary>();
   for (const skill of catalog) {
     catalogById.set(skill.id, skill);

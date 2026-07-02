@@ -361,6 +361,21 @@ export function HatchingScreen() {
           }
           if (cancelled) return;
 
+          // Apply the model-provider key collected on the API-key step to
+          // the freshly hatched assistant. Runs BEFORE connectLocalAssistant
+          // because that call flips sessionStatus and remounts the component
+          // tree (see the module-level comment). The gateway token acquired by
+          // primeLocalGatewayConnection() above is sufficient for the daemon
+          // SDK calls; running them here avoids a race where the remounted
+          // instance navigates away before the provider setup completes.
+          if (result.assistantId) {
+            try {
+              await applyPendingProviderKey(result.assistantId);
+            } catch (err) {
+              captureError(err, { context: "onboarding_apply_provider_key" });
+            }
+          }
+
           // Assert an authenticated local session via the same canonical
           // connect primitive the returning-user picker and re-pair flow use,
           // so `sessionStatus` is "authenticated" at hand-off to chat. This
@@ -371,15 +386,7 @@ export function HatchingScreen() {
               .connectLocalAssistant(result.assistantId);
           }
 
-          // Apply the model-provider key collected on the API-key step to the
-          // freshly hatched assistant. Non-blocking on failure — onboarding
-          // proceeds and the user can fix it in Settings.
           if (result.assistantId) {
-            try {
-              await applyPendingProviderKey(result.assistantId);
-            } catch (err) {
-              captureError(err, { context: "onboarding_apply_provider_key" });
-            }
             useResolvedAssistantsStore.getState().upsertFromApi({
               id: result.assistantId,
               name: result.assistantId,

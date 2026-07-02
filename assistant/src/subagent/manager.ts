@@ -512,6 +512,17 @@ export class SubagentManager {
     if (parentConversation?.assistantId) {
       conversation.setAssistantId(parentConversation.assistantId);
     }
+    // Inherit the parent chat's per-conversation plugin scope so a subagent
+    // spawned from a scoped chat can't see or execute plugins the user
+    // deselected. `null` (no per-chat restriction) is the default and
+    // propagates unchanged; a materialized scope is copied by value.
+    if (parentConversation) {
+      conversation.setEnabledPlugins(
+        parentConversation.enabledPlugins
+          ? [...parentConversation.enabledPlugins]
+          : null,
+      );
+    }
 
     if (isFork && !config.systemPromptOverride) {
       // A verbatim-prompt fork pins the parent's system prompt as-is, skipping

@@ -36,7 +36,7 @@ import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
-import { createRowMapper } from "../util/row-mapper.js";
+import { createRowMapper, parseJsonNullable } from "../util/row-mapper.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
   deleteOrphanAttachments,
@@ -72,6 +72,7 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
+import { enqueueLexicalIndexForMessage } from "./job-handlers/message-lexical.js";
 import { getMemoryPersistenceHooks } from "./memory-lifecycle-hooks.js";
 import {
   rawExec,
@@ -326,6 +327,8 @@ export interface ConversationRow {
   archivedAt: number | null;
   surfacedAt: number | null;
   inferenceProfile: string | null;
+  /** Parsed plugin-id list scoping this chat; null = default (all globally-enabled). */
+  enabledPlugins: string[] | null;
   inferenceProfileSessionId: string | null;
   inferenceProfileExpiresAt: number | null;
   lastNotifiedInferenceProfile: string | null;
@@ -362,6 +365,10 @@ export const parseConversation = createRowMapper<
   archivedAt: "archivedAt",
   surfacedAt: "surfacedAt",
   inferenceProfile: "inferenceProfile",
+  enabledPlugins: {
+    from: "enabledPlugins",
+    transform: parseJsonNullable<string[]>(),
+  },
   inferenceProfileSessionId: "inferenceProfileSessionId",
   inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
   lastNotifiedInferenceProfile: "lastNotifiedInferenceProfile",
@@ -935,6 +942,7 @@ export function forkConversation(params: {
           ? sourceHistoryStrippedAt
           : null,
         inferenceProfile: sourceConversation.inferenceProfile,
+        enabledPlugins: encodeEnabledPlugins(sourceConversation.enabledPlugins),
       })
       .where(eq(conversations.id, fc.id))
       .run();
@@ -1327,6 +1335,9 @@ export async function forkConversationForRetrospective(params: {
               ? sourceHistoryStrippedAt
               : null,
             inferenceProfile: sourceConversation.inferenceProfile,
+            enabledPlugins: encodeEnabledPlugins(
+              sourceConversation.enabledPlugins,
+            ),
           })
           .where(eq(conversations.id, fc.id))
           .run();
@@ -1684,6 +1695,12 @@ export async function addMessage(
   const message = inserted;
 
   if (!skipIndexing) {
+    // Message-content lexical indexing is host infrastructure, invoked
+    // directly (not through the memory hook seam, whose active side effects go
+    // inert while the memory plugin is disabled — search indexing must not).
+    // The direct write seams (streaming finalize, import, edit) enqueue for
+    // themselves; this covers the plain addMessage path.
+    enqueueLexicalIndexForMessage(message.id);
     try {
       const parsed = metadata
         ? messageMetadataSchema.safeParse(metadata)
@@ -2404,6 +2421,51 @@ export function setConversationInferenceProfile(
 }
 
 /**
+ * Encode a plugin-id list for the `enabled_plugins` text column. Keeps a true
+ * SQL NULL for `null` (rather than the JSON literal `"null"`) so it reads back
+ * as "no per-chat restriction".
+ */
+function encodeEnabledPlugins(plugins: string[] | null): string | null {
+  return plugins === null ? null : JSON.stringify(plugins);
+}
+
+/**
+ * Read the per-conversation plugin scope. Returns the parsed `string[]` of
+ * plugin ids, or `null` when the column is unset/empty (= no per-chat
+ * restriction). Defensively returns `null` on a JSON parse failure.
+ */
+export function getConversationEnabledPlugins(
+  conversationId: string,
+): string[] | null {
+  const db = getDb();
+  const row = db
+    .select({ enabledPlugins: conversations.enabledPlugins })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  return parseJsonNullable<string[]>()(row?.enabledPlugins);
+}
+
+/**
+ * Set or clear the per-conversation plugin scope. Pass a `string[]` to scope
+ * the chat to those plugin ids, or `null` to clear the restriction and fall
+ * back to all globally-enabled plugins.
+ */
+export function setConversationEnabledPlugins(
+  conversationId: string,
+  plugins: string[] | null,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      enabledPlugins: encodeEnabledPlugins(plugins),
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, conversationId))
+    .run();
+}
+
+/**
  * Atomically set the inference profile, session id, and expiry timestamp for
  * a conversation. Pass `null` for all three to clear the session-backed
  * override and fall back to the workspace `llm.activeProfile` resolution.
@@ -2620,12 +2682,6 @@ export async function clearAll(): Promise<{
   // Delete in dependency order. Cascades handle memory_segments and
   // tool_invocations, but we explicitly clear non-cascading memory
   // tables too.
-  //
-  // FTS virtual tables are cleared before their base tables. If an FTS
-  // table is corrupted, the DELETE will fail — we drop the associated
-  // triggers so that the subsequent base-table DELETEs don't also fail
-  // (SQLite triggers are atomic with the triggering statement, so a
-  // corrupted FTS table would roll back every base-table DELETE).
   await runOrThrow("DELETE FROM memory_segments");
   await runOrThrow("DELETE FROM memory_summaries");
   await runOrThrow("DELETE FROM memory_embeddings");
@@ -2640,21 +2696,6 @@ export async function clearAll(): Promise<{
   await runOrThrow("DELETE FROM attachments");
   await runOrThrow("DELETE FROM tool_invocations");
   await runOrThrow("DELETE FROM skill_loaded_events");
-  let messagesFtsCorrupted = false;
-  const ftsResult = await runAsyncSqlite(
-    "DELETE FROM messages_fts",
-    "clearAll:messages-fts",
-  );
-  if (!ftsResult.ok) {
-    log.warn(
-      { error: ftsResult.error, backend: ftsResult.backend },
-      "clearAll: failed to clear messages_fts — dropping triggers so base-table cleanup can proceed",
-    );
-    rawExec("DROP TRIGGER IF EXISTS messages_fts_ai");
-    rawExec("DROP TRIGGER IF EXISTS messages_fts_ad");
-    rawExec("DROP TRIGGER IF EXISTS messages_fts_au");
-    messagesFtsCorrupted = true;
-  }
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
 
@@ -2666,26 +2707,6 @@ export async function clearAll(): Promise<{
     "conversations_clear_all",
     Date.now(),
   );
-
-  // Rebuild corrupted FTS tables and restore triggers after all base-table
-  // DELETEs have completed. Dropping the virtual table clears the corruption,
-  // and recreating it + triggers means subsequent writes maintain FTS
-  // consistency without requiring a daemon restart.
-  if (messagesFtsCorrupted) {
-    rawExec("DROP TABLE IF EXISTS messages_fts");
-    rawExec(
-      `CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, content)`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; END`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`,
-    );
-  }
 
   // Let the memory feature drop its bulk per-message index (e.g. the whole
   // lexical Qdrant collection) — a "delete all" leaves no ids to key

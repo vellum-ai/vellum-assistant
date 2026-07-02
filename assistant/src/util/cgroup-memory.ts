@@ -1,0 +1,142 @@
+/**
+ * Container memory accounting read from cgroup files (and the platform
+ * `VELLUM_MEMORY_LIMIT` override).
+ *
+ * Shared by the `/v1/health` identity handler (which reports current + max) and
+ * the resource monitor (which additionally samples the peak and the
+ * memory.events pressure counters). Keeping the cgroup v2→v1 fallbacks in one
+ * place means a single source of truth for how the assistant reads its own
+ * memory footprint.
+ */
+
+import { readFileSync } from "node:fs";
+import { totalmem } from "node:os";
+
+import { parseK8sMemoryBytes } from "./disk-usage.js";
+
+function readCgroupInt(path: string): number | null {
+  try {
+    const raw = readFileSync(path, "utf-8").trim();
+    if (raw === "max") return null;
+    const bytes = parseInt(raw, 10);
+    return Number.isFinite(bytes) && bytes > 0 ? bytes : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the memory limit from the VELLUM_MEMORY_LIMIT env var (K8s resource
+ * format), then fall back to cgroups, then to os.totalmem() at the call site.
+ *
+ * In platform mode the container runs under gVisor where cgroup files may report
+ * the node's memory rather than the container limit. VELLUM_MEMORY_LIMIT is set
+ * by the StatefulSet template to the exact K8s memory limit (e.g. "3Gi").
+ */
+export function getContainerMemoryLimitBytes(): number | null {
+  // 1. Prefer the explicit env var set by the platform StatefulSet template.
+  try {
+    const envLimit = process.env.VELLUM_MEMORY_LIMIT;
+    if (envLimit) {
+      const parsed = parseK8sMemoryBytes(envLimit);
+      if (parsed !== null) return parsed;
+    }
+  } catch {
+    /* env var parsing failed – fall through to cgroups */
+  }
+
+  // 2. Try cgroups v2.
+  const v2 = readCgroupInt("/sys/fs/cgroup/memory.max");
+  if (v2 !== null) return v2;
+
+  // 3. Try cgroups v1.
+  try {
+    const raw = readFileSync(
+      "/sys/fs/cgroup/memory/memory.limit_in_bytes",
+      "utf-8",
+    ).trim();
+    const bytes = parseInt(raw, 10);
+    // cgroups v1 uses a near-INT64_MAX sentinel when no limit is set.
+    if (!isNaN(bytes) && bytes > 0 && bytes < totalmem() * 1.5) return bytes;
+  } catch {
+    /* not available */
+  }
+  return null;
+}
+
+/**
+ * Read the container's current memory usage from cgroup files.
+ *
+ * Tries cgroups v2 (`memory.current`) first, then cgroups v1
+ * (`memory/memory.usage_in_bytes`), mirroring the v2-then-v1 fallback used by
+ * {@link getContainerMemoryLimitBytes}. Returns null if neither file is
+ * available or readable.
+ *
+ * Unlike the limit lookup, no env-var override is needed: the gVisor issue that
+ * motivates VELLUM_MEMORY_LIMIT is specifically about the *limit* files exposing
+ * the host node's memory instead of the sandbox limit. The *usage* files
+ * (memory.current / memory.usage_in_bytes) reflect the sandbox's own accounting
+ * and are accurate under gVisor.
+ */
+export function getContainerMemoryUsageBytes(): number | null {
+  return (
+    readCgroupInt("/sys/fs/cgroup/memory.current") ??
+    readCgroupInt("/sys/fs/cgroup/memory/memory.usage_in_bytes")
+  );
+}
+
+/**
+ * Read the high-water mark of the container's memory usage.
+ *
+ * cgroups v2 (`memory.peak`) first, then cgroups v1
+ * (`memory/memory.max_usage_in_bytes`). Returns null when neither is available
+ * — `memory.peak` in particular only exists on newer kernels, so callers must
+ * tolerate its absence.
+ */
+export function getContainerMemoryPeakBytes(): number | null {
+  return (
+    readCgroupInt("/sys/fs/cgroup/memory.peak") ??
+    readCgroupInt("/sys/fs/cgroup/memory/memory.max_usage_in_bytes")
+  );
+}
+
+/**
+ * Pressure counters from the cgroup v2 `memory.events` file. Each field counts
+ * how many times the cgroup crossed the corresponding boundary since boot; a
+ * rising `max` (usage hit the hard limit and allocation was throttled) or
+ * `oom_kill` (a process was reaped) is the clearest in-VM signal that the
+ * container is being squeezed toward an OOM kill. Returns null on cgroups v1 or
+ * when the file is unreadable.
+ */
+export interface ContainerMemoryEvents {
+  low: number;
+  high: number;
+  max: number;
+  oom: number;
+  oomKill: number;
+}
+
+export function getContainerMemoryEvents(): ContainerMemoryEvents | null {
+  let raw: string;
+  try {
+    raw = readFileSync("/sys/fs/cgroup/memory.events", "utf-8");
+  } catch {
+    return null;
+  }
+
+  const counts: Record<string, number> = {};
+  for (const line of raw.split("\n")) {
+    const [key, value] = line.trim().split(/\s+/);
+    if (!key) continue;
+    const parsed = parseInt(value, 10);
+    if (Number.isFinite(parsed)) counts[key] = parsed;
+  }
+
+  return {
+    low: counts.low ?? 0,
+    high: counts.high ?? 0,
+    max: counts.max ?? 0,
+    oom: counts.oom ?? 0,
+    oomKill: counts.oom_kill ?? 0,
+  };
+}

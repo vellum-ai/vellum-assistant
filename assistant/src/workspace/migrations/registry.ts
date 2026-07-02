@@ -118,6 +118,9 @@ import { normalizeStaleLeanMemoryV3DefaultsMigration } from "./117-normalize-sta
 import { seedNowMdMigration } from "./118-seed-now-md.js";
 import { stripPersistedMemoryV3TuningDefaultsMigration } from "./119-strip-persisted-memory-v3-tuning-defaults.js";
 import { reviseOnboardingThreadsMigration } from "./120-revise-onboarding-threads.js";
+import { seedDefaultUserGuardrailsMigration } from "./121-seed-default-user-guardrails.js";
+import { relocateDefaultUserBoundaryMigration } from "./122-relocate-default-user-boundary.js";
+import { swapQualityProfileToFableMigration } from "./123-swap-quality-profile-to-fable.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -247,4 +250,7 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   seedNowMdMigration,
   stripPersistedMemoryV3TuningDefaultsMigration,
   reviseOnboardingThreadsMigration,
+  seedDefaultUserGuardrailsMigration,
+  relocateDefaultUserBoundaryMigration,
+  swapQualityProfileToFableMigration,
 ];

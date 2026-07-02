@@ -2,27 +2,24 @@
  * Messages lexical-index route — enqueues the resumable backfill that indexes
  * existing messages into the Qdrant lexical collection.
  *
- * Deliberately NOT gated on `memory.v2.enabled`: the lexical index is a
- * BM25-style full-text replacement for message search that is independent of
- * the v2 concept-page machinery. The backfill runs off the event loop as a
- * cursor-checkpointed memory job. This route enqueues it on demand (operator or
- * client); the one-time, checkpoint-guarded startup auto-enqueue in
- * `runMemoryStartup` (see `maybeEnqueueLexicalBackfillOnUpgrade`) enqueues the
- * same job once per instance on upgrade.
+ * Deliberately NOT gated on `memory.v2.enabled`: the lexical index powers
+ * regular message-content search and is independent of the v2 concept-page
+ * machinery. The backfill runs off the event loop as a cursor-checkpointed
+ * background job. This route enqueues it on demand (operator or client); the
+ * one-time, checkpoint-guarded startup auto-enqueue
+ * (`maybeEnqueueLexicalBackfillOnUpgrade`) enqueues the same job once per
+ * instance on upgrade.
  */
 
 import { z } from "zod";
 
-import { clearLexicalBackfillComplete } from "../../../../persistence/checkpoints.js";
+import { clearLexicalBackfillComplete } from "../../persistence/checkpoints.js";
 import {
   enqueueMemoryJob,
   type MemoryJobType,
-} from "../../../../persistence/jobs-store.js";
-import { ACTOR_PRINCIPALS } from "../../../../runtime/auth/route-policy.js";
-import type {
-  RouteDefinition,
-  RouteHandlerArgs,
-} from "../../../../runtime/routes/types.js";
+} from "../../persistence/jobs-store.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const BACKFILL_LEXICAL_INDEX_JOB: MemoryJobType = "backfill_lexical_index";
 

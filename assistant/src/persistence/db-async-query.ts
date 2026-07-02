@@ -26,6 +26,7 @@
  * ms) should keep using the in-process drizzle / `bun:sqlite` handle
  * directly — the subprocess overhead would dominate.
  */
+import { spawn } from "node:child_process";
 import { Database } from "bun:sqlite";
 
 import { getLogger } from "../util/logger.js";
@@ -325,5 +326,46 @@ async function runInProcessBlocking(
     };
   } finally {
     transient?.close();
+  }
+}
+
+/**
+ * Fire-and-forget `PRAGMA wal_checkpoint(TRUNCATE)` against the main
+ * assistant DB in a detached `sqlite3` subprocess.
+ *
+ * For exit paths that cannot wait for a fold to finish (the force-exit
+ * timeout in `shutdown-handlers.ts`): the child runs in its own process
+ * group with no inherited stdio, so it survives the daemon's `process.exit`
+ * — and any group-directed follow-up signal from a supervisor — and
+ * finishes the fold in the background. A concurrent checkpointer just makes
+ * this one give up after its busy timeout; the fold is best-effort either
+ * way, with the pre-open checkpoint in `db-init.ts` as the backstop.
+ *
+ * Returns false when no `sqlite3` binary is on the host or the spawn fails —
+ * there is no in-process fallback because the caller is exiting.
+ */
+export function spawnDetachedWalCheckpoint(): boolean {
+  const sqlite3Path = findSqlite3();
+  if (!sqlite3Path) {
+    return false;
+  }
+  try {
+    const child = spawn(
+      sqlite3Path,
+      [
+        getDbPath(),
+        `PRAGMA busy_timeout=${SQLITE_BUSY_TIMEOUT_MS}; PRAGMA wal_checkpoint(TRUNCATE);`,
+      ],
+      { detached: true, stdio: "ignore" },
+    );
+    // A post-spawn failure can't be acted on — the daemon is exiting — but an
+    // unlistened ChildProcess "error" event would throw as an uncaught
+    // exception.
+    child.on("error", () => {});
+    child.unref();
+    log.info({ pid: child.pid }, "Spawned detached WAL checkpoint subprocess");
+    return true;
+  } catch {
+    return false;
   }
 }

@@ -28,7 +28,6 @@ import {
   recordCompactionEndBestEffort,
   recordCompactionStartBestEffort,
 } from "../persistence/compaction-log-store-clickhouse.js";
-import { projectAssistantMessage } from "../persistence/conversation-attention-store.js";
 import {
   deleteMessageById,
   getConversation,
@@ -42,15 +41,16 @@ import {
   updateMessageContent,
 } from "../persistence/conversation-crud.js";
 import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
+import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import {
   backfillMessageIdOnLogs,
   buildProviderErrorResponsePayload,
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
 } from "../persistence/llm-request-log-store.js";
+import { endSection, markSection } from "../persistence/slow-sync-log.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
-import { enqueueLexicalIndexForMessage } from "../plugins/defaults/memory/job-handlers/index-message-lexical.js";
 import { backfillMemoryRecallLogMessageId } from "../plugins/defaults/memory/memory-recall-log-store.js";
 import { backfillMemoryV2ActivationMessageId } from "../plugins/defaults/memory/memory-v2-activation-log-store.js";
 import { backfillMemoryV3SelectionMessageId } from "../plugins/defaults/memory/v3/shadow-plugin.js";
@@ -60,7 +60,6 @@ import type {
   Message,
 } from "../providers/types.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
-import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { extractDomain } from "../tools/network/domain-normalize.js";
 import {
@@ -88,6 +87,7 @@ import {
   classifyConversationError,
   maxTokensReachedClassification,
 } from "./conversation-error.js";
+import { buildDeferredFinalizeEffect } from "./conversation-turn-finalize.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
 import type {
   CardSurfaceData,
@@ -95,7 +95,6 @@ import type {
   SurfaceAction,
   UiSurfaceShow,
 } from "./message-protocol.js";
-import { conversationMetadataSyncTag } from "./message-types/sync.js";
 import type {
   ToolActivityMetadata,
   WebSearchMetadata,
@@ -319,6 +318,18 @@ export interface EventHandlerState {
    * latency segment. Advances on every `handleUsage`.
    */
   latencyCursor: number;
+  /**
+   * Non-critical finalize side-effects deferred off the turn's critical path —
+   * one closure per assistant message that completes (memory segment indexing,
+   * lexical indexing, attention projection). `handleMessageComplete` persists
+   * the message content synchronously (so a snapshot/refetch on the terminal
+   * `message_complete` SSE still sees the full reply) and pushes these
+   * follow-ups here; the orchestrator drains them after the terminal SSE has
+   * re-enabled the composer but before the next turn can start. Each closure is
+   * individually best-effort. Accumulates across retries/multi-call turns so
+   * every produced assistant row is indexed.
+   */
+  readonly deferredFinalizeEffects: Array<() => Promise<void>>;
 }
 
 /** Immutable context shared across event handlers within a single agent loop run. */
@@ -407,6 +418,7 @@ export function createEventHandlerState(): EventHandlerState {
     lastPersistedContentSeq: undefined,
     compactionStartMessages: new Map(),
     latencyCursor: 0,
+    deferredFinalizeEffects: [],
   };
 }
 
@@ -472,12 +484,18 @@ export function stampThinkingTiming(
   content: ContentBlock[],
   timings: ReadonlyArray<{ startedAt: number; completedAt: number }>,
 ): ContentBlock[] {
-  if (timings.length === 0) return content;
+  if (timings.length === 0) {
+    return content;
+  }
   let thinkingIdx = 0;
   return content.map((block) => {
-    if (block.type !== "thinking") return block;
+    if (block.type !== "thinking") {
+      return block;
+    }
     const timing = timings[thinkingIdx++];
-    if (!timing) return block;
+    if (!timing) {
+      return block;
+    }
     return {
       ...block,
       _startedAt: timing.startedAt,
@@ -491,7 +509,9 @@ function appendTextToCurrentMessage(
   state: EventHandlerState,
   text: string,
 ): void {
-  if (text.length === 0) return;
+  if (text.length === 0) {
+    return;
+  }
   const tail = state.currentMessageContent.at(-1);
   if (tail && tail.type === "text") {
     tail.text = tail.text + text;
@@ -511,13 +531,17 @@ function appendThinkingToCurrentMessage(
   state: EventHandlerState,
   thinking: string,
 ): void {
-  if (thinking.length === 0) return;
+  if (thinking.length === 0) {
+    return;
+  }
   const now = Date.now();
   const tail = state.currentMessageContent.at(-1);
   if (tail && tail.type === "thinking") {
     tail.thinking = tail.thinking + thinking;
     const timing = state.currentThinkingTimestamps.at(-1);
-    if (timing) timing.completedAt = now;
+    if (timing) {
+      timing.completedAt = now;
+    }
   } else {
     state.currentMessageContent.push({
       type: "thinking",
@@ -579,8 +603,12 @@ async function flushAccumulatedContent(
   deps: EventHandlerDeps,
 ): Promise<void> {
   const messageId = state.lastAssistantMessageId;
-  if (messageId === undefined) return;
-  if (state.currentMessageContent.length === 0) return;
+  if (messageId === undefined) {
+    return;
+  }
+  if (state.currentMessageContent.length === 0) {
+    return;
+  }
 
   const built = buildPersistedAssistantContent(
     state.currentMessageContent,
@@ -611,7 +639,9 @@ function schedulePartialFlush(
   state: EventHandlerState,
   deps: EventHandlerDeps,
 ): void {
-  if (state.pendingPartialFlushTimer !== undefined) return;
+  if (state.pendingPartialFlushTimer !== undefined) {
+    return;
+  }
   state.pendingPartialFlushTimer = setTimeout(() => {
     state.pendingPartialFlushTimer = undefined;
     const flushPromise = flushAccumulatedContent(state, deps);
@@ -640,7 +670,9 @@ function emitLlmCallStartedIfNeeded(
   deps: EventHandlerDeps,
   providerNameOverride?: string,
 ): void {
-  if (state.llmCallStartedEmitted) return;
+  if (state.llmCallStartedEmitted) {
+    return;
+  }
   state.llmCallStartedEmitted = true;
   const providerName = providerNameOverride ?? deps.ctx.provider.name;
   deps.ctx.traceEmitter.emit(
@@ -695,9 +727,13 @@ export function formatSearchStatusText(
   toolName: string,
   query: string,
 ): string {
-  if (toolName !== "web_search") return `Running ${toolName}`;
+  if (toolName !== "web_search") {
+    return `Running ${toolName}`;
+  }
   const trimmed = query.trim();
-  if (!trimmed) return "Searching the web";
+  if (!trimmed) {
+    return "Searching the web";
+  }
   const truncated =
     trimmed.length > 60 ? trimmed.slice(0, 57) + "..." : trimmed;
   return `Searching "${truncated}"`;
@@ -708,9 +744,13 @@ export function formatSearchStatusText(
  * Surfaces the domain so users can tell what page is being read.
  */
 export function formatFetchStatusText(url: unknown): string {
-  if (typeof url !== "string") return "Reading a page";
+  if (typeof url !== "string") {
+    return "Reading a page";
+  }
   const domain = extractDomain(url);
-  if (!domain) return "Reading a page";
+  if (!domain) {
+    return "Reading a page";
+  }
   return `Reading ${domain}`;
 }
 
@@ -891,7 +931,9 @@ function handleTextDelta(
       conversationId: deps.ctx.conversationId,
       messageId: state.lastAssistantMessageId,
     });
-    if (deps.shouldGenerateTitle) state.firstAssistantText += drained.emitText;
+    if (deps.shouldGenerateTitle) {
+      state.firstAssistantText += drained.emitText;
+    }
     // Mirror the drained delta into state.currentMessageContent so partial
     // flushes mid-turn see the same content the user is watching live.
     appendTextToCurrentMessage(state, drained.emitText);
@@ -927,7 +969,9 @@ function handleThinkingDelta(
       });
     }
   }
-  if (!deps.ctx.streamThinking) return;
+  if (!deps.ctx.streamThinking) {
+    return;
+  }
   emitLlmCallStartedIfNeeded(state, deps);
   deps.onEvent({
     type: "assistant_thinking_delta",
@@ -1114,7 +1158,9 @@ export function handleInputJsonDelta(
   // Only forward input deltas for app tools — the client only uses this
   // stream for app_create code previews. Non-app tools would send large
   // cumulative JSON on every delta with no benefit.
-  if (!APP_TOOL_NAMES.has(event.toolName)) return;
+  if (!APP_TOOL_NAMES.has(event.toolName)) {
+    return;
+  }
   deps.onEvent({
     type: "tool_input_delta",
     toolName: event.toolName,
@@ -1213,7 +1259,9 @@ async function persistPendingToolResultRow(
   deps: EventHandlerDeps,
   seq: number,
 ): Promise<void> {
-  if (state.pendingToolResults.size === 0) return;
+  if (state.pendingToolResults.size === 0) {
+    return;
+  }
   const rowId = await ensureToolResultRowReserved(
     state,
     deps.ctx.conversationId,
@@ -1250,7 +1298,9 @@ export async function finalizePendingToolResultRow(
   metadata: Record<string, unknown>,
   rlog: pino.Logger,
 ): Promise<void> {
-  if (state.pendingToolResults.size === 0) return;
+  if (state.pendingToolResults.size === 0) {
+    return;
+  }
   const rowId = await ensureToolResultRowReserved(
     state,
     conversationId,
@@ -1396,7 +1446,9 @@ export async function handleToolResult(
   // Record tool completion timestamp
   const completedAt = Date.now();
   const ts = state.toolCallTimestamps.get(event.toolUseId);
-  if (ts) ts.completedAt = completedAt;
+  if (ts) {
+    ts.completedAt = completedAt;
+  }
   state.currentToolUseId = undefined;
 
   // Capture risk metadata when present. autoApproved is true when the tool
@@ -1548,10 +1600,14 @@ function recordToolStartOnPersistedMessage(
   startedAt: number,
 ): void {
   const messageId = state.lastAssistantMessageId;
-  if (!messageId) return;
+  if (!messageId) {
+    return;
+  }
 
   const row = getMessageById(messageId);
-  if (!row) return;
+  if (!row) {
+    return;
+  }
 
   let content: ContentBlock[];
   try {
@@ -1561,10 +1617,16 @@ function recordToolStartOnPersistedMessage(
   }
 
   for (const block of content) {
-    if (block.type !== "tool_use") continue;
+    if (block.type !== "tool_use") {
+      continue;
+    }
     const rec = block as unknown as Record<string, unknown>;
-    if (rec.id !== toolUseId) continue;
-    if (rec._startedAt === startedAt) return;
+    if (rec.id !== toolUseId) {
+      continue;
+    }
+    if (rec._startedAt === startedAt) {
+      return;
+    }
     rec._startedAt = startedAt;
     // Best-effort early stamp: `annotatePersistedAssistantMessage` re-stamps
     // once every tool in the turn completes, so a transient `SQLITE_BUSY` here
@@ -1597,10 +1659,14 @@ function recordToolPreviewStartOnPersistedMessage(
   previewStartedAt: number,
 ): void {
   const messageId = state.lastAssistantMessageId;
-  if (!messageId) return;
+  if (!messageId) {
+    return;
+  }
 
   const row = getMessageById(messageId);
-  if (!row) return;
+  if (!row) {
+    return;
+  }
 
   let content: ContentBlock[];
   try {
@@ -1610,10 +1676,16 @@ function recordToolPreviewStartOnPersistedMessage(
   }
 
   for (const block of content) {
-    if (block.type !== "tool_use") continue;
+    if (block.type !== "tool_use") {
+      continue;
+    }
     const rec = block as unknown as Record<string, unknown>;
-    if (rec.id !== toolUseId) continue;
-    if (rec._previewStartedAt === previewStartedAt) return;
+    if (rec.id !== toolUseId) {
+      continue;
+    }
+    if (rec._previewStartedAt === previewStartedAt) {
+      return;
+    }
     rec._previewStartedAt = previewStartedAt;
     // Best-effort early stamp, mirroring `recordToolStartOnPersistedMessage`:
     // `annotatePersistedAssistantMessage` re-stamps at end of turn, so a
@@ -1641,10 +1713,14 @@ function annotatePersistedAssistantMessage(
   deps: EventHandlerDeps,
 ): void {
   const messageId = state.lastAssistantMessageId;
-  if (!messageId) return;
+  if (!messageId) {
+    return;
+  }
 
   const row = getMessageById(messageId);
-  if (!row) return;
+  if (!row) {
+    return;
+  }
 
   let content: ContentBlock[];
   try {
@@ -1658,7 +1734,9 @@ function annotatePersistedAssistantMessage(
     if (block.type === "tool_use") {
       const rec = block as unknown as Record<string, unknown>;
       const id = rec.id as string | undefined;
-      if (!id) continue;
+      if (!id) {
+        continue;
+      }
 
       const ts = state.toolCallTimestamps.get(id);
       if (ts) {
@@ -1682,26 +1760,38 @@ function annotatePersistedAssistantMessage(
       const risk = state.toolRiskOutcomes.get(id);
       if (risk) {
         rec._riskLevel = risk.riskLevel;
-        if (risk.riskReason) rec._riskReason = risk.riskReason;
+        if (risk.riskReason) {
+          rec._riskReason = risk.riskReason;
+        }
         rec._autoApproved = risk.autoApproved;
-        if (risk.matchedTrustRuleId)
+        if (risk.matchedTrustRuleId) {
           rec._matchedTrustRuleId = risk.matchedTrustRuleId;
-        if (risk.approvalMode) rec._approvalMode = risk.approvalMode;
-        if (risk.approvalReason) rec._approvalReason = risk.approvalReason;
-        if (risk.riskThreshold) rec._riskThreshold = risk.riskThreshold;
+        }
+        if (risk.approvalMode) {
+          rec._approvalMode = risk.approvalMode;
+        }
+        if (risk.approvalReason) {
+          rec._approvalReason = risk.approvalReason;
+        }
+        if (risk.riskThreshold) {
+          rec._riskThreshold = risk.riskThreshold;
+        }
         // Persist the 3 risk-option arrays so the rule editor's chip ladder
         // survives chat-history reload. These mirror the same-named fields
         // on the live `tool_result` event; clients should read them back via
         // `shared.ts` and treat them identically to the live values.
-        if (risk.riskScopeOptions && risk.riskScopeOptions.length > 0)
+        if (risk.riskScopeOptions && risk.riskScopeOptions.length > 0) {
           rec._riskScopeOptions = risk.riskScopeOptions;
-        if (risk.riskAllowlistOptions && risk.riskAllowlistOptions.length > 0)
+        }
+        if (risk.riskAllowlistOptions && risk.riskAllowlistOptions.length > 0) {
           rec._riskAllowlistOptions = risk.riskAllowlistOptions;
+        }
         if (
           risk.riskDirectoryScopeOptions &&
           risk.riskDirectoryScopeOptions.length > 0
-        )
+        ) {
           rec._riskDirectoryScopeOptions = risk.riskDirectoryScopeOptions;
+        }
         modified = true;
       }
       // External provider tools (brave/perplexity/tavily) + web_fetch produce
@@ -1915,8 +2005,9 @@ export async function handleMessageComplete(
       conversationId: deps.ctx.conversationId,
       messageId: state.lastAssistantMessageId,
     });
-    if (deps.shouldGenerateTitle)
+    if (deps.shouldGenerateTitle) {
       state.firstAssistantText += state.pendingDirectiveDisplayBuffer;
+    }
     state.pendingDirectiveDisplayBuffer = "";
   }
 
@@ -2016,93 +2107,24 @@ export async function handleMessageComplete(
   state.currentThinkingTimestamps = [];
   state.lastPersistedContentSeq = undefined;
 
-  // ── Indexing + attention projection ──
-  // `reserveMessage` + `updateMessageContent` are CRUD-only: they don't run
-  // the memory indexer or the attention-cursor projector (unlike `addMessage`,
-  // which runs both as side-effects of the insert). Because the assistant row
-  // is reserved empty and finalized via `updateMessageContent`, both must be
-  // invoked explicitly here to keep the assistant row's external state
-  // (Qdrant segments, conversation attention cursor) in lockstep with the
-  // finalized content. Both are non-fatal — a memory hiccup must not
-  // escalate a successful generation into a turn-level throw. Indexing
-  // intentionally fires AFTER `updateContent` succeeds so we never index
-  // the empty reserved placeholder.
-  const finalizedRow = getMessageById(
-    assistantMessageId,
-    deps.ctx.conversationId,
+  // ── Indexing + attention projection (deferred off the critical path) ──
+  // `reserveMessage` + `updateMessageContent` are CRUD-only — unlike
+  // `addMessage`, they don't run the memory indexer or the attention-cursor
+  // projector as insert side-effects — so the assistant row's external state
+  // must be brought into lockstep explicitly. Neither gates delivery of the
+  // reply or the composer re-enabling, so the work is queued here and drained
+  // by the orchestrator after the terminal `message_complete` SSE fires (but
+  // before the next turn). See `conversation-turn-finalize.ts`. The content
+  // persisted synchronously above, so a snapshot/refetch on `message_complete`
+  // still sees the full reply.
+  state.deferredFinalizeEffects.push(
+    buildDeferredFinalizeEffect({
+      conversationId: deps.ctx.conversationId,
+      assistantMessageId,
+      contentJson,
+      rlog: deps.rlog,
+    }),
   );
-  if (finalizedRow) {
-    let provenanceTrustClass:
-      | "guardian"
-      | "trusted_contact"
-      | "unverified_contact"
-      | "unknown"
-      | undefined;
-    let automated: boolean | undefined;
-    if (finalizedRow.metadata) {
-      try {
-        const parsedMeta = messageMetadataSchema.safeParse(
-          JSON.parse(finalizedRow.metadata),
-        );
-        if (parsedMeta.success) {
-          provenanceTrustClass = parsedMeta.data.provenanceTrustClass;
-          automated = parsedMeta.data.automated;
-        }
-      } catch {
-        // Malformed metadata JSON — fall through with undefined fields,
-        // matching the legacy behavior in `addMessage`.
-      }
-    }
-    try {
-      await indexMessageNow(
-        {
-          messageId: assistantMessageId,
-          conversationId: deps.ctx.conversationId,
-          role: "assistant",
-          content: contentJson,
-          createdAt: finalizedRow.createdAt,
-          scopeId: "default",
-          provenanceTrustClass,
-          automated,
-        },
-        getConfig().memory,
-      );
-    } catch (err) {
-      deps.rlog.warn(
-        {
-          err,
-          conversationId: deps.ctx.conversationId,
-          messageId: assistantMessageId,
-        },
-        "Failed to index assistant message for memory (non-fatal)",
-      );
-    }
-    // Dual-write the finalized assistant content into the lexical index. The
-    // reserve+finalize path bypasses `onMessagePersisted`, so enqueue here to
-    // keep the lexical index in lockstep with the segment index.
-    enqueueLexicalIndexForMessage(assistantMessageId);
-    try {
-      const attentionStateChanged = projectAssistantMessage({
-        conversationId: deps.ctx.conversationId,
-        messageId: assistantMessageId,
-        messageAt: finalizedRow.createdAt,
-      });
-      if (attentionStateChanged) {
-        void publishSyncInvalidation([
-          conversationMetadataSyncTag(deps.ctx.conversationId),
-        ]);
-      }
-    } catch (err) {
-      deps.rlog.warn(
-        {
-          err,
-          conversationId: deps.ctx.conversationId,
-          messageId: assistantMessageId,
-        },
-        "Failed to project assistant message for attention tracking (non-fatal)",
-      );
-    }
-  }
 
   // Backfill message_id on all LLM request logs from this turn.
   // The agent loop is single-threaded per conversation, so all rows with
@@ -2378,6 +2400,11 @@ export async function dispatchAgentEvent(
   deps: EventHandlerDeps,
   event: AgentEvent,
 ): Promise<void> {
+  // Section-trail breadcrumb for event-loop freeze attribution: the dispatch
+  // is the single choke point for per-turn persistence work (message writes,
+  // usage/request-log rows, SSE fan-out), so a watchdog report during a
+  // handler names the event type that was being processed.
+  const sectionMark = markSection(`agent-event:${event.type}`);
   try {
     switch (event.type) {
       case "llm_call_started":
@@ -2685,5 +2712,7 @@ export async function dispatchAgentEvent(
     ) {
       throw err;
     }
+  } finally {
+    endSection(sectionMark);
   }
 }

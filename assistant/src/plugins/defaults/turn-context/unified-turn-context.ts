@@ -186,6 +186,14 @@ export function buildUnifiedTurnContextBlock(
 
     // Behavioral guidance - only for non-guardian actors where social
     // engineering defense matters. Guardian case needs no instruction.
+    //
+    // Scope: this is identity/verification hygiene (don't infer guardian status
+    // from tone, don't self-approve, don't explain the verification system).
+    // Its complement — the data-disclosure boundary (never reveal the guardian's
+    // private data: schedule, contacts, files, memories) — lives in the
+    // `users/default.md` persona guardrail, gated by
+    // `derivePersonaTrustFlags()` in `runtime/trust-class.ts`. Keep the two
+    // distinct.
     switch (resolveCapabilities(ctx.trustClass).promptTrustGuidance) {
       case "social-engineering-defense": {
         lines.push("");

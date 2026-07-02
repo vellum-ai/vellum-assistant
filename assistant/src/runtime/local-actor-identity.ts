@@ -68,6 +68,20 @@ export async function findLocalGuardianPrincipalId(): Promise<
 }
 
 /**
+ * Resolve a decidable guardian principal for canonical guardian-request
+ * creation: the channel binding's principal when present, else the vellum
+ * anchor principal (the adopt/repair path for guardian rows that carry no
+ * principal). A falsy binding principal (`null` or `""`) is unresolved by
+ * contract — decisionable requests must never be created with an empty
+ * principal, so callers fail closed on `undefined`.
+ */
+export async function resolveDecidableGuardianPrincipalId(
+  bindingPrincipalId: string | null,
+): Promise<string | undefined> {
+  return bindingPrincipalId || (await findLocalGuardianPrincipalId());
+}
+
+/**
  * Eagerly warm the gateway guardian-delivery cache for the vellum channel.
  *
  * The SSE eager-subscribe path resolves the actor principal synchronously via

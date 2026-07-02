@@ -1,15 +1,19 @@
 /**
- * Focused tests for the presentational `PluginDetailMetadata` building block.
- * The panel/page tests cover the install/remove/upgrade flow end-to-end; this
- * pins the metadata table's net-new branch — the contributed-surface counts
+ * Focused tests for the presentational plugin-detail building blocks. The
+ * panel/page tests cover the install/remove/upgrade flow end-to-end; this pins
+ * `PluginDetailMetadata`'s net-new branch — the contributed-surface counts
  * (Skills / Hooks / Tools) that only render when an installed copy's drift
- * inspection supplies them. Presentational, so no QueryClient is needed.
+ * inspection supplies them — plus the `PluginDetailActions` Active/Off toggle.
+ * Both are presentational, so no QueryClient is needed.
  */
 
-import { afterEach, describe, expect, test } from "bun:test";
-import { cleanup, render } from "@testing-library/react";
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import { PluginDetailMetadata } from "@/domains/intelligence/components/plugins/plugin-detail-shared";
+import {
+    PluginDetailActions,
+    PluginDetailMetadata,
+} from "@/domains/intelligence/components/plugins/plugin-detail-shared";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
 
@@ -72,5 +76,117 @@ describe("PluginDetailMetadata", () => {
 
     expect(html).toContain("Local");
     expect(html).not.toContain("href=\"https://github.com");
+  });
+});
+
+const updateAvailableDrift: PluginDrift = {
+  name: "level-up",
+  installed: true,
+  status: "update-available",
+  local: null,
+  remote: null,
+  remoteError: null,
+  surfaces: null,
+};
+
+const noop = () => {};
+
+const baseActionsProps = {
+  plugin: githubPlugin,
+  drift: undefined,
+  onInstall: noop,
+  onRemove: noop,
+  onUpgrade: noop,
+  isInstalling: false,
+  isRemoving: false,
+  isUpgrading: false,
+  hasLocalEdits: false,
+};
+
+describe("PluginDetailActions auto-include toggle", () => {
+  test("renders a checked toggle labelled Auto-include for an enabled plugin", () => {
+    render(
+      <PluginDetailActions
+        {...baseActionsProps}
+        enabled
+        onToggle={noop}
+        isToggling={false}
+      />,
+    );
+
+    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByText("Auto-include in chat")).toBeTruthy();
+  });
+
+  test("renders an unchecked toggle for a disabled plugin", () => {
+    render(
+      <PluginDetailActions
+        {...baseActionsProps}
+        enabled={false}
+        onToggle={noop}
+        isToggling={false}
+      />,
+    );
+
+    expect(screen.getByRole("switch").getAttribute("aria-checked")).toBe(
+      "false",
+    );
+  });
+
+  test("calls onToggle when the switch is clicked (no confirm)", () => {
+    const onToggle = mock(noop);
+    render(
+      <PluginDetailActions
+        {...baseActionsProps}
+        enabled
+        onToggle={onToggle}
+        isToggling={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("switch"));
+
+    expect(onToggle).toHaveBeenCalledTimes(1);
+    // Optimistic: the state flips without opening any dialog.
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  test("keeps Upgrade available and enabled when the plugin is disabled and drifted", () => {
+    render(
+      <PluginDetailActions
+        {...baseActionsProps}
+        drift={updateAvailableDrift}
+        enabled={false}
+        onToggle={noop}
+        isToggling={false}
+      />,
+    );
+
+    const upgrade = screen.getByRole("button", { name: /Upgrade/ });
+    expect(upgrade.hasAttribute("disabled")).toBe(false);
+  });
+
+  test("Remove still opens its confirm dialog", async () => {
+    render(
+      <PluginDetailActions
+        {...baseActionsProps}
+        enabled
+        onToggle={noop}
+        isToggling={false}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+
+    expect(
+      await screen.findByText(/Remove "level-up" from this assistant\?/),
+    ).toBeTruthy();
+  });
+
+  test("hides the toggle when enablement is unknown", () => {
+    render(<PluginDetailActions {...baseActionsProps} />);
+
+    expect(screen.queryByRole("switch")).toBeNull();
+    expect(screen.queryByText("Auto-include in chat")).toBeNull();
   });
 });

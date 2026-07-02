@@ -2409,6 +2409,44 @@ describe("session-agent-loop", () => {
       expect(metadataPublishes).toHaveLength(1);
     });
 
+    test("terminal message_complete is emitted before the deferred indexer runs (LUM-2654)", async () => {
+      // Regression guard for LUM-2654 ("long delay between last streaming token
+      // and send-button becoming available"). The terminal `message_complete`
+      // SSE — which the client uses to flip stop→send — is emitted before the
+      // non-critical finalize side-effects (memory segment indexing, lexical
+      // indexing, attention projection), which the orchestrator drains from its
+      // end-of-turn tail. The tail runs within the turn, so the indexer still
+      // fires exactly once; this test pins the ordering by asserting
+      // `message_complete` is already in the client stream when it does.
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const events: ServerMessage[] = [];
+      let messageCompleteSeenWhenIndexed: boolean | undefined;
+      indexMessageNowMock.mockImplementationOnce(async () => {
+        messageCompleteSeenWhenIndexed = events.some(
+          (event) => event.type === "message_complete",
+        );
+        return { indexedSegments: 0, enqueuedJobs: 0 };
+      });
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("indexed reply")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
+
+      // The deferred indexer runs exactly once, within the turn…
+      expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
+      // …and only after the terminal SSE that re-enables the composer.
+      expect(messageCompleteSeenWhenIndexed).toBe(true);
+    });
+
     test("handleMessageComplete skips sync invalidation when attention state unchanged", async () => {
       // Mirror of the previous test but with the default projector return
       // (`false`). The projection still runs every turn, but the sync

@@ -90,6 +90,11 @@ mock.module("@/domains/intelligence/plugins/use-plugin-detail", () => ({
   // `plugins/utils`, so the real helper runs.
 }));
 
+// Stub the toggle hook so the mobile detail doesn't require a QueryClient here.
+mock.module("@/domains/intelligence/plugins/use-plugin-toggle", () => ({
+  usePluginToggle: () => ({ toggle: () => {}, togglingName: null }),
+}));
+
 const { PluginDetailMobile } = await import(
   "@/domains/intelligence/components/plugins/plugin-detail-mobile.js"
 );
@@ -181,6 +186,33 @@ describe("PluginDetailMobile", () => {
     );
 
     expect(getActionButton("Remove")).toBeTruthy();
+  });
+
+  test("installed plugin: auto-include toggle appears when enabled is provided", () => {
+    hookState.plugin = makePlugin({ installed: true });
+
+    render(
+      <PluginDetailMobile
+        assistantId="asst-1"
+        name="test-plugin"
+        onBack={() => {}}
+        enabled={true}
+      />,
+    );
+
+    // The Auto-include Toggle renders a role="switch"; mobile detail must wire
+    // it so phone users can enable/disable, matching desktop detail.
+    expect(screen.getByRole("switch")).toBeTruthy();
+  });
+
+  test("installed plugin: no toggle when enabled is undefined", () => {
+    hookState.plugin = makePlugin({ installed: true });
+
+    render(
+      <PluginDetailMobile assistantId="asst-1" name="test-plugin" onBack={() => {}} />,
+    );
+
+    expect(screen.queryByRole("switch")).toBeNull();
   });
 
   test("while loading with no externalHint, the header shows a glyph-less placeholder (no 🧩, no 📦)", () => {

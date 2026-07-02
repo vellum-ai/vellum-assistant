@@ -62,6 +62,7 @@ function cleanGitEnv(workspaceDir: string): Record<string, string> {
 const WORKSPACE_GITIGNORE_RULES = [
   "data/db/",
   "data/qdrant/",
+  "data/monitoring/",
   "plugins/*/node_modules/",
   "logs/",
   "*.log",

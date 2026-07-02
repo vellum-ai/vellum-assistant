@@ -8,6 +8,7 @@ import { describe, expect, test } from "bun:test";
 import { SourceMetadataSchema } from "../inbound-contract.js";
 import {
   makeResolutionFailedVerdict,
+  makeUnauthenticatedSenderVerdict,
   TrustVerdictSchema,
   type TrustVerdict,
 } from "../trust-verdict-contract.js";
@@ -71,6 +72,23 @@ describe("TrustVerdictSchema", () => {
       trustClass: "unknown",
       canonicalSenderId: null,
       resolutionFailed: true,
+    });
+  });
+
+  test("makeUnauthenticatedSenderVerdict builds a plain stranger (not resolutionFailed)", () => {
+    // Distinct from makeResolutionFailedVerdict: an unauthenticated sender is
+    // a real stranger and must flow through the normal admission/verification
+    // lane, so it carries no resolutionFailed flag and no guardian/member keys.
+    const verdict = makeUnauthenticatedSenderVerdict("+15555550100");
+    expect(verdict).toEqual({
+      trustClass: "unknown",
+      canonicalSenderId: "+15555550100",
+    });
+    expect(verdict.resolutionFailed).toBeUndefined();
+    expect(TrustVerdictSchema.parse(verdict)).toEqual(verdict);
+    expect(makeUnauthenticatedSenderVerdict(null)).toEqual({
+      trustClass: "unknown",
+      canonicalSenderId: null,
     });
   });
 

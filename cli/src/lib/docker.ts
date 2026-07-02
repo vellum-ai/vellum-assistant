@@ -35,8 +35,9 @@ import {
   loadImageViaHost,
 } from "./host-image-loader.js";
 import {
-  fetchLatestStableVersion,
+  fetchLatestVersion,
   resolveImageRefs,
+  type ReleaseChannel,
 } from "./platform-releases.js";
 import {
   configureHatchProviderApiKey,
@@ -321,6 +322,15 @@ export interface HatchDockerParams {
    * connection.
    */
   assistantCaCertPath?: string;
+  /**
+   * Release channel to resolve published images from when hatching without a
+   * local source tree (the image-pull fallback). `stable` (default) keeps the
+   * latest-stable behavior; `preview` pulls the latest preview release. Only
+   * affects the pull path — a local source build ignores it. Falls back to
+   * the `VELLUM_HATCH_CHANNEL` env var when unset, so callers that hatch via
+   * env (e.g. evals) can opt in without changing the invocation.
+   */
+  channel?: ReleaseChannel;
 }
 
 export type DockerProviderCredentialSetupAction =
@@ -1093,6 +1103,14 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
     flagEnvVars = {},
   } = params;
   let watch = params.watch ?? false;
+  // Resolve the release channel for the image-pull fallback: explicit param
+  // wins, then the VELLUM_HATCH_CHANNEL env var, else stable. Any value other
+  // than "preview" (case-insensitive) is treated as stable.
+  const channel: ReleaseChannel =
+    params.channel ??
+    (process.env.VELLUM_HATCH_CHANNEL?.trim().toLowerCase() === "preview"
+      ? "preview"
+      : "stable");
 
   resetLogFile("hatch.log");
   const provider =
@@ -1250,8 +1268,8 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
         // Resolve image refs from a remote source that may have dev/local
         // builds. If resolution is unavailable, fall back to the CLI's own
         // version so a default tag can still be resolved.
-        log("🔍 Fetching latest stable release...");
-        const latestVersion = await fetchLatestStableVersion();
+        log(`🔍 Fetching latest ${channel} release...`);
+        const latestVersion = await fetchLatestVersion(channel);
         let versionTag: string;
         if (latestVersion) {
           versionTag = latestVersion.startsWith("v")
@@ -1265,7 +1283,7 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
           );
         }
         log("🔍 Resolving image references...");
-        const resolved = await resolveImageRefs(versionTag, log);
+        const resolved = await resolveImageRefs(versionTag, log, channel);
         imageTags.assistant = resolved.imageTags.assistant;
         imageTags.gateway = resolved.imageTags.gateway;
         imageTags["credential-executor"] =

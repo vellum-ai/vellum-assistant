@@ -483,6 +483,18 @@ export interface ToolContext {
    * @legacy
    */
   sourceActorPrincipalId?: string;
+  /**
+   * The conversation's effective per-chat plugin scope, as produced by
+   * `getEffectiveEnabledPluginSet`: `null` means no per-chat restriction;
+   * otherwise a Set of allowed plugin ids (the user's selection unioned with
+   * the always-on first-party defaults). Skill-surface tools that resolve
+   * skills by id outside the per-turn projection — `skill_load` (body load)
+   * and `find_similar_skills` (discovery) — read this to drop skills owned by
+   * plugins outside the conversation's scope. Populated per tool call from the
+   * live conversation state.
+   * @legacy
+   */
+  enabledPluginSet?: Set<string> | null;
 }
 
 /**

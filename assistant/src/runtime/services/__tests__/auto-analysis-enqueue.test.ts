@@ -1,4 +1,12 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
@@ -42,11 +50,6 @@ mock.module("../../../config/assistant-feature-flags.js", () => ({
     flagEnabled,
 }));
 
-mock.module("../auto-analysis-guard.js", () => ({
-  AUTO_ANALYSIS_SOURCE: "auto-analysis",
-  isAutoAnalysisConversation: (_conversationId: string) => isAuto,
-}));
-
 mock.module(
   "../../../plugins/defaults/memory/memory-retrospective-enqueue.js",
   () => ({
@@ -78,6 +81,27 @@ mock.module("../../../persistence/jobs-store.js", () => ({
     });
   },
 }));
+
+// Scope the sibling `auto-analysis-guard` stub to this suite so it does not
+// leak into auto-analysis-guard.test.ts, which exercises the real
+// `isAutoAnalysisConversation` in the same Bun process. Bun's `mock.module` is
+// process-global and not undone by `mock.restore()`; the capture spreads into a
+// plain object to freeze the real export by value (a namespace reference is a
+// live view that `mock.module` mutates in place).
+const actualAutoAnalysisGuard = {
+  ...(await import("../auto-analysis-guard.js")),
+};
+
+beforeAll(() => {
+  mock.module("../auto-analysis-guard.js", () => ({
+    AUTO_ANALYSIS_SOURCE: "auto-analysis",
+    isAutoAnalysisConversation: (_conversationId: string) => isAuto,
+  }));
+});
+
+afterAll(() => {
+  mock.module("../auto-analysis-guard.js", () => actualAutoAnalysisGuard);
+});
 
 import {
   enqueueAutoAnalysisIfEnabled,

@@ -110,4 +110,64 @@ describe("pending provider key", () => {
     });
     expect(peekPendingProviderKey()).toBeNull();
   });
+
+  test("applies an OpenRouter API key, connection, and profile with model metadata", async () => {
+    // GIVEN an OpenRouter provider key with a selected model
+    setPendingProviderKey({
+      provider: "openrouter",
+      key: "sk-or-v1-test",
+      model: "anthropic/claude-sonnet-4.6",
+    });
+
+    // WHEN the pending key is applied
+    await applyPendingProviderKey("local-2");
+
+    // THEN the API key is stored
+    expect(secretsPostMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-2" },
+      body: {
+        type: "api_key",
+        name: "openrouter",
+        value: "sk-or-v1-test",
+      },
+      throwOnError: false,
+    });
+    // AND the provider connection is created with API-key auth
+    expect(inferenceProviderconnectionsPostMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-2" },
+      body: {
+        name: "openrouter",
+        provider: "openrouter",
+        auth: {
+          type: "api_key",
+          credential: "credential/openrouter/api_key",
+        },
+      },
+      throwOnError: false,
+    });
+    // AND the profile uses model metadata from the onboarding catalog
+    expect(configLlmProfilesByNamePutMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-2", name: "custom-balanced" },
+      body: {
+        provider: "openrouter",
+        model: "anthropic/claude-sonnet-4.6",
+        provider_connection: "openrouter",
+        source: "user",
+        label: "Balanced",
+        description: "Good balance of quality, cost, and speed",
+        maxTokens: 64_000,
+        contextWindow: { maxInputTokens: 200_000 },
+        effort: "high",
+        thinking: { enabled: true, streamThinking: true },
+      },
+      throwOnError: false,
+    });
+    // AND the profile is activated
+    expect(configPatchMock).toHaveBeenCalledWith({
+      path: { assistant_id: "local-2" },
+      body: { llm: { activeProfile: "custom-balanced" } },
+      throwOnError: false,
+    });
+    expect(peekPendingProviderKey()).toBeNull();
+  });
 });
