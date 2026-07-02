@@ -59,6 +59,9 @@ interface CompactionRunResult {
 let runCalls: Array<{
   messages: unknown;
   previousEstimatedInputTokens: number;
+  force: boolean | undefined;
+  targetTokens: number | undefined;
+  fixedTailStartIndex: number | undefined;
 }> = [];
 let runResults: CompactionRunResult[] = [];
 const estimateReturns: number[] = [];
@@ -90,10 +93,16 @@ mock.module("../context/compactor.js", () => ({
   runAssistantDrivenCompaction: async (args: {
     messages: unknown;
     previousEstimatedInputTokens: number;
+    force: boolean | undefined;
+    targetTokens: number | undefined;
+    fixedTailStartIndex: number | undefined;
   }): Promise<CompactionRunResult> => {
     runCalls.push({
       messages: args.messages,
       previousEstimatedInputTokens: args.previousEstimatedInputTokens,
+      force: args.force,
+      targetTokens: args.targetTokens,
+      fixedTailStartIndex: args.fixedTailStartIndex,
     });
     const idx = runCalls.length - 1;
     const result = runResults[idx];
@@ -374,6 +383,114 @@ describe("ContextWindowManager.maybeCompact retry budget", () => {
     expect(result.exhausted).toBe(true);
     expect(result.estimatedInputTokens).toBe(150_000);
     expect(result.compactedMessages).toBe(5);
+  });
+});
+
+describe("ContextWindowManager.maybeCompact fixed boundary", () => {
+  beforeEach(() => {
+    runCalls = [];
+    runResults = [];
+    estimateReturns.length = 0;
+  });
+
+  test("skips threshold gating and omits the target budget", async () => {
+    /**
+     * A fixed boundary is a user request, not a fullness response: the run
+     * fires even when the estimate is far below the auto threshold and no
+     * `force` option is passed, and the compactor receives no `targetTokens`
+     * (the boundary is not a budget outcome) but does receive `force` so its
+     * own threshold gate never trips.
+     */
+    // GIVEN an estimate far below the 140k threshold, then a post-compaction
+    // recompute of 50k
+    estimateReturns.push(10_000, 50_000);
+    runResults = [
+      compactResult({
+        estimatedInputTokens: 50_000,
+        summaryText: "fixed summary",
+        compactedPersistedMessages: 5,
+      }),
+    ];
+
+    // WHEN maybeCompact runs with only a fixed boundary
+    const manager = buildManager();
+    const result = await manager.maybeCompact(makeMessages(10), undefined, {
+      fixedTailStartIndex: 4,
+    });
+
+    // THEN exactly one compactor call fired with the boundary forwarded
+    expect(runCalls.length).toBe(1);
+    expect(runCalls[0]!.fixedTailStartIndex).toBe(4);
+    expect(runCalls[0]!.targetTokens).toBeUndefined();
+    expect(runCalls[0]!.force).toBe(true);
+    expect(runCalls[0]!.previousEstimatedInputTokens).toBe(10_000);
+
+    // AND the result maps the compactor output with a recomputed estimate
+    expect(result.compacted).toBe(true);
+    expect(result.summaryText).toBe("fixed summary");
+    expect(result.compactedPersistedMessages).toBe(5);
+    expect(result.estimatedInputTokens).toBe(50_000);
+    expect(result.exhausted).toBeUndefined();
+  });
+
+  test("single attempt even when the result stays above threshold", async () => {
+    /**
+     * The retry ladder never runs on the fixed path — a retry would
+     * re-summarize past the boundary the user picked.
+     */
+    // GIVEN a pass that stays above the 140k threshold
+    estimateReturns.push(180_000, 165_000);
+    runResults = [
+      compactResult({ estimatedInputTokens: 165_000 }),
+      // Never consumed — proves no retry fired:
+      compactResult({ estimatedInputTokens: 50_000 }),
+    ];
+
+    // WHEN maybeCompact runs with a fixed boundary and retries available
+    const manager = buildManager(3);
+    const result = await manager.maybeCompact(makeMessages(10), undefined, {
+      force: true,
+      fixedTailStartIndex: 6,
+    });
+
+    // THEN exactly one attempt ran and the result is not marked exhausted
+    expect(runCalls.length).toBe(1);
+    expect(result.compacted).toBe(true);
+    expect(result.estimatedInputTokens).toBe(165_000);
+    expect(result.exhausted).toBeUndefined();
+  });
+
+  test("failed pass returns as-is with no retry", async () => {
+    /**
+     * A `summaryFailed` early return passes straight through so the caller
+     * can surface the failure — the manager never burns a second summary
+     * call against the same user-chosen boundary.
+     */
+    // GIVEN a compactor pass that failed its summary call
+    estimateReturns.push(180_000);
+    runResults = [
+      compactResult({
+        compacted: false,
+        summaryFailed: true,
+        estimatedInputTokens: 180_000,
+        compactedMessages: 0,
+        summaryCalls: 1,
+      }),
+      // Never consumed:
+      compactResult({ estimatedInputTokens: 50_000 }),
+    ];
+
+    // WHEN maybeCompact runs with a fixed boundary
+    const manager = buildManager(3);
+    const result = await manager.maybeCompact(makeMessages(10), undefined, {
+      force: true,
+      fixedTailStartIndex: 4,
+    });
+
+    // THEN the failed result passes through after a single attempt
+    expect(runCalls.length).toBe(1);
+    expect(result.compacted).toBe(false);
+    expect(result.summaryFailed).toBe(true);
   });
 });
 

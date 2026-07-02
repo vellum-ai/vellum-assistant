@@ -157,6 +157,15 @@ export interface ContextWindowCompactOptions {
    * for untrusted actors.
    */
   actorTrustClass?: TrustClass;
+  /**
+   * Summarize everything before this in-memory history index ("summarize up
+   * to here"). Single-attempt: bypasses the auto-threshold gate, the retry
+   * ladder, and the token-budget forward-cut — the boundary is the user's
+   * choice, not a budget outcome. Forwarded to the compactor's
+   * `fixedTailStartIndex` (see {@link CompactionRunArgs.fixedTailStartIndex}
+   * for range validation).
+   */
+  fixedTailStartIndex?: number;
 }
 
 export interface EmergencyCompactOptions {
@@ -657,7 +666,6 @@ export class ContextWindowManager {
     const thresholdTokens = Math.floor(
       this.config.maxInputTokens * compaction.autoThreshold,
     );
-    const targetTokens = this.resolveCompactionTargetTokens(thresholdTokens);
 
     if (!compaction.enabled) {
       return noopResult(messages, previousEstimatedInputTokens, {
@@ -681,6 +689,37 @@ export class ContextWindowManager {
       });
     }
 
+    // Caller-fixed boundary ("summarize up to here"): one compactor pass at
+    // the user's chosen cut. No threshold gate (the user asked, regardless of
+    // fullness), no target budget (the boundary is not a budget outcome), and
+    // no retry ladder (a retry would re-summarize the already-summarized
+    // history past the boundary the user picked).
+    if (options?.fixedTailStartIndex != null) {
+      const result = await runAssistantDrivenCompaction({
+        conversationId: this.conversationId,
+        messages,
+        provider: this.provider,
+        systemPrompt: this.systemPrompt,
+        tools: this.resolveTools?.(),
+        compaction,
+        maxInputTokens: this.config.maxInputTokens,
+        previousEstimatedInputTokens,
+        force: true,
+        signal,
+        overrideProfile: options.overrideProfile ?? null,
+        actorTrustClass: options.actorTrustClass,
+        nonPersistedPrefixCount: this._nonPersistedPrefixCount,
+        fixedTailStartIndex: options.fixedTailStartIndex,
+      });
+      if (!result.compacted) return result;
+      const estimatedInputTokens = this.recomputePostCompactionEstimate(
+        result.messages,
+        result.estimatedInputTokens,
+      );
+      this.consumeCompactionState(result.compactedMessages);
+      return { ...result, estimatedInputTokens };
+    }
+
     if (!options?.force && previousEstimatedInputTokens < thresholdTokens) {
       return noopResult(messages, previousEstimatedInputTokens, {
         maxInputTokens: this.config.maxInputTokens,
@@ -688,6 +727,8 @@ export class ContextWindowManager {
         reason: "below auto threshold",
       });
     }
+
+    const targetTokens = this.resolveCompactionTargetTokens(thresholdTokens);
 
     const baseArgs: CompactionRunArgs = {
       conversationId: this.conversationId,
