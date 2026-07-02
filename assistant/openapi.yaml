@@ -5748,6 +5748,12 @@ paths:
                 sourceChannel:
                   type: string
                   description: Source channel (token-based)
+                displayName:
+                  type: string
+                  description: Sender display name (token-based)
+                username:
+                  type: string
+                  description: Sender username (token-based)
                 assistantId:
                   type: string
                   description: Assistant ID (voice-code)
@@ -5758,6 +5764,8 @@ paths:
                 - externalUserId
                 - externalChatId
                 - sourceChannel
+                - displayName
+                - username
                 - assistantId
       responses:
         "200":

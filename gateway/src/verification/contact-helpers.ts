@@ -285,12 +285,17 @@ export function getGatewayChannelByKey(
  * Read the authoritative gateway channel row by `(type, externalChatId)`.
  * Fallback member resolution for callers that only carry a delivery chat id
  * (no actor external id).
+ *
+ * `(type, externalChatId)` is non-unique, so among multiple matches the row
+ * bound to `preferredContactId` wins, then an `active` row — a stale
+ * revoked/foreign row must not shadow the membership-relevant one.
  */
 export function getGatewayChannelByExternalChatId(
   type: string,
   externalChatId: string,
+  preferredContactId?: string,
 ): VerifiedChannelRow | null {
-  const row = getGatewayDb()
+  const rows = getGatewayDb()
     .select(VERIFIED_CHANNEL_PROJECTION)
     .from(gwContactChannels)
     .where(
@@ -299,8 +304,14 @@ export function getGatewayChannelByExternalChatId(
         eq(gwContactChannels.externalChatId, externalChatId),
       ),
     )
-    .get();
-  return row ?? null;
+    .all();
+  if (rows.length === 0) {
+    return null;
+  }
+  const score = (row: VerifiedChannelRow) =>
+    (row.contactId === preferredContactId ? 2 : 0) +
+    (row.status === "active" ? 1 : 0);
+  return rows.reduce((best, row) => (score(row) > score(best) ? row : best));
 }
 
 // ---------------------------------------------------------------------------

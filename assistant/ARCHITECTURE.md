@@ -516,14 +516,13 @@ Voice invites use a short numeric code (6 digits) instead of a URL token. The gu
 
 | File                                                | Purpose                                                                                                            |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `gateway/src/verification/invite-redemption.ts` (gateway) | Core redemption engine — token/code validation, atomic claim, ACL activation, discriminated-union outcomes  |
+| `gateway/src/verification/invite-redemption.ts` (gateway) | Core redemption engine + gateway-ingress token/code intercept — validation, atomic claim, ACL activation, discriminated-union outcomes  |
 | `src/runtime/channel-invite-transport.ts`           | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface                           |
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                        |
 | `src/runtime/channel-invite-transports/voice.ts`    | Voice transport adapter — code-based redemption metadata                                                           |
 | `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes create/list/revoke requests into the contacts skill                                      |
 | `src/runtime/invite-service.ts`                     | Daemon-owned invite presentation (share link, guardian instruction, channel handle) over gateway-minted invites    |
 | `src/runtime/routes/contact-routes.ts`              | HTTP/IPC invite handlers — relay mint/list/revoke/redeem to the gateway's invite IPC routes                        |
-| `src/runtime/routes/inbound-message-handler.ts`     | Invite token intercept in the inbound flow (unknown-contact and inactive-contact branches)                         |
 | `src/calls/relay-server.ts`                         | Voice relay state machine — `invite_redemption_pending` subflow (always-on canonical behavior)                     |
 | `src/calls/gateway-invite-reader.ts`                | Gateway IPC read of the active voice invite for a caller identity                                                  |
 

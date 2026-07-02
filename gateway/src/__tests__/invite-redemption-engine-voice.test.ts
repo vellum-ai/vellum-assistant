@@ -24,21 +24,28 @@ import { hashInviteCode } from "@vellumai/gateway-client";
 
 // The engine's ACL side effect (upsertVerifiedContactChannel) dual-writes an
 // assistant-DB info mirror over IPC; stub it so tests never touch a socket.
+// Spread the actual module so untouched exports (assistantDbExec,
+// assistantDbTransaction) stay importable by later-loaded files when suites
+// share a bun process.
+const actualAssistantDbProxy = await import("../db/assistant-db-proxy.js");
 mock.module("../db/assistant-db-proxy.js", () => ({
+  ...actualAssistantDbProxy,
   assistantDbQuery: async () => [],
   assistantDbRun: async () => {},
 }));
 
 // Capture the best-effort invite_redeemed daemon event (fired by the engine
-// on every real redeem) instead of dialing the assistant socket.
+// on every real redeem) instead of dialing the assistant socket. Spread the
+// actual module so the real IpcHandlerError/IpcTransportError classes (and
+// untouched exports) stay importable by later-loaded files.
 let ipcCallAssistantCalls: Array<{ method: string; body: unknown }> = [];
+const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
+  ...actualAssistantClient,
   ipcCallAssistant: async (method: string, opts?: { body?: unknown }) => {
     ipcCallAssistantCalls.push({ method, body: opts?.body });
     return {};
   },
-  IpcHandlerError: class IpcHandlerError extends Error {},
-  IpcTransportError: class IpcTransportError extends Error {},
 }));
 
 await import("./test-preload.js");

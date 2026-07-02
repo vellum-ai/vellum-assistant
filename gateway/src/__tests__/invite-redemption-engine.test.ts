@@ -15,24 +15,30 @@ import { hashInviteCode, hashInviteToken } from "@vellumai/gateway-client";
 
 // The engine's ACL side effect (upsertVerifiedContactChannel) dual-writes an
 // assistant-DB info mirror over IPC; stub it so tests never touch a socket.
-// The impls are mutable so tests can simulate a down/failing mirror.
+// The impls are mutable so tests can simulate a down/failing mirror. Spread
+// the actual module so untouched exports (assistantDbExec, assistantDbTransaction)
+// stay importable by later-loaded files when suites share a bun process.
 let assistantDbQueryImpl: () => Promise<unknown[]> = async () => [];
 let assistantDbRunImpl: () => Promise<void> = async () => {};
+const actualAssistantDbProxy = await import("../db/assistant-db-proxy.js");
 mock.module("../db/assistant-db-proxy.js", () => ({
+  ...actualAssistantDbProxy,
   assistantDbQuery: () => assistantDbQueryImpl(),
   assistantDbRun: () => assistantDbRunImpl(),
 }));
 
 // Capture the best-effort invite_redeemed daemon event (fired by the engine
-// on every real redeem) instead of dialing the assistant socket.
+// on every real redeem) instead of dialing the assistant socket. Spread the
+// actual module so the real IpcHandlerError/IpcTransportError classes (and
+// untouched exports) stay importable by later-loaded files.
 let ipcCallAssistantCalls: Array<{ method: string; body: unknown }> = [];
+const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
+  ...actualAssistantClient,
   ipcCallAssistant: async (method: string, opts?: { body?: unknown }) => {
     ipcCallAssistantCalls.push({ method, body: opts?.body });
     return {};
   },
-  IpcHandlerError: class IpcHandlerError extends Error {},
-  IpcTransportError: class IpcTransportError extends Error {},
 }));
 
 await import("./test-preload.js");
@@ -300,6 +306,43 @@ describe("redeemInviteByCode", () => {
 
     expect(result.status).toBe("already_member");
     if (result.status !== "already_member") throw new Error("unreachable");
+    expect(result.outcome.memberExternalUserId).toBe("U_SENDER");
+    expect(inviteRow(inviteId).useCount).toBe(0);
+    expect(inviteRow(inviteId).status).toBe("active");
+  });
+
+  test("chatId-only lookup with two rows sharing the chatId: the active invite-contact row wins over a stale foreign row → already_member, NO use consumed", async () => {
+    // (type, externalChatId) is non-unique. A stale revoked row under another
+    // contact shares the chat id with the sender's active membership row; the
+    // membership precheck must resolve the invite-contact active row, not
+    // whichever row the DB returns first.
+    seedContact("c1");
+    seedContact("c2");
+    seedChannel({
+      id: "ch-stale",
+      contactId: "c2",
+      address: "U_STALE",
+      status: "revoked",
+    });
+    seedChannel({
+      id: "ch-member",
+      contactId: "c1",
+      address: "U_SENDER",
+      status: "active",
+    });
+    const inviteId = seedInvite(); // targets c1
+
+    // Both seeded rows carry externalChatId "chat-1"; the sender is
+    // chatId-only (no actor external id).
+    const result = await redeemInviteByCode({
+      code: CODE,
+      sourceChannel: CHANNEL,
+      externalChatId: "chat-1",
+    });
+
+    expect(result.status).toBe("already_member");
+    if (result.status !== "already_member") throw new Error("unreachable");
+    expect(result.outcome.contactId).toBe("c1");
     expect(result.outcome.memberExternalUserId).toBe("U_SENDER");
     expect(inviteRow(inviteId).useCount).toBe(0);
     expect(inviteRow(inviteId).status).toBe("active");

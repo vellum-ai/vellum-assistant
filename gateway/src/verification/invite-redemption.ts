@@ -188,7 +188,11 @@ async function finishRedemption(
   const existing = canonicalUserId
     ? getGatewayChannelByKey(sourceChannel, canonicalUserId)
     : externalChatId
-      ? getGatewayChannelByExternalChatId(sourceChannel, externalChatId)
+      ? getGatewayChannelByExternalChatId(
+          sourceChannel,
+          externalChatId,
+          invite.contactId,
+        )
       : null;
   // An existing channel under a different contact is not "already a member"
   // for this invite: the invite binds the sender to its target contact.

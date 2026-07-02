@@ -9,6 +9,10 @@
  */
 
 import {
+  RedeemInviteByTokenRequestSchema,
+  RedeemVoiceInviteRequestSchema,
+} from "@vellumai/gateway-client";
+import {
   GetContactIpcResponseSchema,
   ListContactsIpcResponseSchema,
   UpdateContactChannelIpcResponseSchema,
@@ -371,23 +375,22 @@ export async function handleRevokeInvite({
 /**
  * Redeem a voice invite code.
  *
- * Backs the HTTP `invites_redeem` route (voice path). Relays to the gateway's
+ * Backs the HTTP `invites_redeem` route (voice path). Parses the body with
+ * the shared `RedeemVoiceInviteRequestSchema` wire contract (plus the
+ * daemon-specific `assistantId` passthrough) and relays to the gateway's
  * `invites_redeem` IPC — the gateway redemption engine owns validation, the
  * atomic claim, and the ACL write. Fail-closed: a gateway relay failure
  * surfaces as an error; there is no local redemption fallback.
  */
-export async function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
-  const callerExternalUserId = body.callerExternalUserId as string | undefined;
-  const code = body.code as string | undefined;
-
-  if (!callerExternalUserId || !code) {
+async function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
+  const parsed = RedeemVoiceInviteRequestSchema.safeParse(body);
+  if (!parsed.success) {
     throw new BadRequestError("callerExternalUserId and code are required");
   }
 
   try {
     return (await ipcCallPersistent("invites_redeem", {
-      code,
-      callerExternalUserId,
+      ...parsed.data,
       ...(typeof body.assistantId === "string"
         ? { assistantId: body.assistantId }
         : {}),
@@ -397,30 +400,41 @@ export async function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
   }
 }
 
+/** Map a token-branch schema failure to the stable redeem error messages. */
+function redeemTokenIssueMessage(error: z.ZodError): string {
+  for (const field of ["token", "sourceChannel"] as const) {
+    if (error.issues.some((issue) => issue.path[0] === field)) {
+      return `${field} is required`;
+    }
+  }
+  return error.issues[0]?.message ?? "Invalid redemption request";
+}
+
 /**
  * Redeem a token invite.
  *
- * Backs the HTTP `invites_redeem` route (token path). Relays to the gateway's
- * `invites_redeem` IPC — the gateway redemption engine owns validation, the
- * atomic claim, and the ACL write. Fail-closed: a gateway relay failure
- * surfaces as an error; there is no local redemption fallback.
+ * Backs the HTTP `invites_redeem` route (token path). Parses the body with
+ * the shared `RedeemInviteByTokenRequestSchema` wire contract and relays the
+ * parsed request verbatim — including the sender identity fields
+ * (`displayName` / `username`) the gateway engine stamps onto the new member —
+ * to the gateway's `invites_redeem` IPC. The gateway redemption engine owns
+ * validation, the atomic claim, and the ACL write. Fail-closed: a gateway
+ * relay failure surfaces as an error; there is no local redemption fallback.
  */
-export async function handleRedeemTokenInvite({ body = {} }: RouteHandlerArgs) {
+async function handleRedeemTokenInvite({ body = {} }: RouteHandlerArgs) {
+  const parsed = RedeemInviteByTokenRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(redeemTokenIssueMessage(parsed.error));
+  }
+
   try {
     // The `type` is surfaced so callers can tell a real redeem apart from an
     // `already_member` no-op (which consumes no invite use).
-    return (await ipcCallPersistent("invites_redeem", {
-      ...(typeof body.token === "string" ? { token: body.token } : {}),
-      ...(typeof body.sourceChannel === "string"
-        ? { sourceChannel: body.sourceChannel }
-        : {}),
-      ...(typeof body.externalUserId === "string"
-        ? { externalUserId: body.externalUserId }
-        : {}),
-      ...(typeof body.externalChatId === "string"
-        ? { externalChatId: body.externalChatId }
-        : {}),
-    })) as { ok: true; invite: Record<string, unknown>; type: string };
+    return (await ipcCallPersistent("invites_redeem", parsed.data)) as {
+      ok: true;
+      invite: Record<string, unknown>;
+      type: string;
+    };
   } catch (err) {
     rethrowGatewayError(err);
   }
@@ -613,6 +627,8 @@ export const ROUTES: RouteDefinition[] = [
       externalUserId: z.string().describe("External user ID (token-based)"),
       externalChatId: z.string().describe("External chat ID (token-based)"),
       sourceChannel: z.string().describe("Source channel (token-based)"),
+      displayName: z.string().describe("Sender display name (token-based)"),
+      username: z.string().describe("Sender username (token-based)"),
       assistantId: z.string().describe("Assistant ID (voice-code)"),
     }),
     responseBody: z.object({
