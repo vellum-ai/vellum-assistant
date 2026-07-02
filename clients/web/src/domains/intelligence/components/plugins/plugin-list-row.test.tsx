@@ -12,13 +12,19 @@
  * The Upgrade affordance is gated on `update-available` drift, so it only
  * appears when that signal is passed in.
  *
+ * The bundled icon is fetched through the authenticated daemon client (see
+ * `usePluginIconSrc`), so the rows are wrapped in a `QueryClientProvider` and
+ * the icon test seeds the fetched blob into the cache; object URLs are stubbed
+ * (happy-dom has none).
+ *
  * Mounted via `@testing-library/react` (happy-dom — see
  * `clients/web/test-setup.ts`).
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
-
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import type { ReactElement, ReactNode } from "react";
 
 import { PluginListRow } from "@/domains/intelligence/components/plugins/plugin-list-row.js";
 import type { PluginListItem } from "@/domains/intelligence/plugins/types.js";
@@ -27,6 +33,31 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store.js"
 import { MIN_VERSION } from "@/lib/backwards-compat/use-supports-plugin-icons.js";
 
 const ASSISTANT_ID = "asst-1";
+
+let queryClient: QueryClient;
+
+function Wrapper({ children }: { children: ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+}
+
+// Wrap every row so `usePluginIconSrc`'s `useQuery` has a client. The wrapper
+// is re-applied on `rerender`, so the same client is reused across re-renders.
+function renderRow(ui: ReactElement) {
+  return render(ui, { wrapper: Wrapper });
+}
+
+beforeEach(() => {
+  queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false, staleTime: Number.POSITIVE_INFINITY },
+    },
+  });
+  // happy-dom doesn't implement object URLs.
+  globalThis.URL.createObjectURL = () => "blob:row-icon";
+  globalThis.URL.revokeObjectURL = () => undefined;
+});
 
 afterEach(() => {
   cleanup();
@@ -67,7 +98,7 @@ describe("PluginListRow", () => {
   test("clicking the row fires onSelect", () => {
     const onSelect = mock(() => {});
 
-    const { getByText } = render(
+    const { getByText } = renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem()}
@@ -84,7 +115,7 @@ describe("PluginListRow", () => {
     const onSelect = mock(() => {});
     const onRemove = mock(() => {});
 
-    render(
+    renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({ status: "installed" })}
@@ -103,7 +134,7 @@ describe("PluginListRow", () => {
     const onSelect = mock(() => {});
     const onInstall = mock(() => {});
 
-    render(
+    renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({ status: "available" })}
@@ -122,7 +153,7 @@ describe("PluginListRow", () => {
     const onSelect = mock(() => {});
     const onRemove = mock(() => {});
 
-    render(
+    renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({ status: "installed" })}
@@ -142,7 +173,7 @@ describe("PluginListRow", () => {
     const onSelect = mock(() => {});
     const onUpgrade = mock(() => {});
 
-    render(
+    renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({ status: "installed" })}
@@ -159,7 +190,7 @@ describe("PluginListRow", () => {
   });
 
   test("Remove is disabled while an upgrade is in flight (no concurrent delete)", () => {
-    render(
+    renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({ status: "installed" })}
@@ -177,7 +208,7 @@ describe("PluginListRow", () => {
   test("does not render an origin badge (origin is unknowable from the list)", () => {
     const onSelect = mock(() => {});
 
-    const { container } = render(
+    const { container } = renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({ status: "installed", external: false })}
@@ -198,7 +229,7 @@ describe("PluginListRow", () => {
     const onUpgrade = mock(() => {});
 
     // Up-to-date installed plugin shows Remove, not Upgrade.
-    const { rerender } = render(
+    const { rerender } = renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({ status: "installed" })}
@@ -232,7 +263,7 @@ describe("PluginListRow", () => {
   });
 
   test("Enabled installed row shows an Enabled tag beside Remove (no toggle)", () => {
-    const { getByText } = render(
+    const { getByText } = renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({ status: "installed", enabled: true })}
@@ -250,7 +281,7 @@ describe("PluginListRow", () => {
   });
 
   test("Disabled row is dimmed and shows a Disabled tag", () => {
-    const { getByText } = render(
+    const { getByText } = renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({ status: "installed", enabled: false })}
@@ -264,7 +295,7 @@ describe("PluginListRow", () => {
   });
 
   test("drift renders the Update chip (Remove stays), even when Disabled", () => {
-    const { getByText } = render(
+    const { getByText } = renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({ status: "installed", enabled: false })}
@@ -287,7 +318,7 @@ describe("PluginListRow", () => {
   });
 
   test("available row shows only Install (no tag, no Remove)", () => {
-    const { queryByText } = render(
+    const { queryByText } = renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({ status: "available" })}
@@ -306,10 +337,16 @@ describe("PluginListRow", () => {
     ).toBeNull();
   });
 
-  test("supporting daemon + hasIcon renders the bundled-icon <img>", () => {
+  test("supporting daemon + hasIcon renders the bundled-icon <img> from the fetched blob", async () => {
     useAssistantIdentityStore.setState({ version: MIN_VERSION });
+    // Seed the icon fetch so the hook resolves it to an object URL without a
+    // network call (key mirrors `usePluginIconSrc`'s query key).
+    queryClient.setQueryData(
+      ["pluginIcon", ASSISTANT_ID, "cool plugin", "abc123"],
+      new Blob(["icon"]),
+    );
 
-    const { container } = render(
+    const { container } = renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({
@@ -323,16 +360,20 @@ describe("PluginListRow", () => {
       />,
     );
 
-    const img = container.querySelector("img");
-    expect(img).not.toBeNull();
-    expect(img?.getAttribute("src")).toBe(
-      `/v1/assistants/${ASSISTANT_ID}/plugins/cool%20plugin/icon?v=abc123`,
-    );
+    // The image renders once the fetched blob's object URL is created.
+    const img = await waitFor(() => {
+      const el = container.querySelector("img");
+      if (!el) {
+        throw new Error("icon <img> not rendered yet");
+      }
+      return el;
+    });
+    expect(img.getAttribute("src")).toBe("blob:row-icon");
   });
 
   test("gate off (older daemon) renders no <img> even with hasIcon", () => {
     // Version stays null (default) — the daemon doesn't serve the icon endpoint.
-    const { container } = render(
+    const { container } = renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({
@@ -351,7 +392,7 @@ describe("PluginListRow", () => {
   test("supporting daemon but no hasIcon renders no <img>", () => {
     useAssistantIdentityStore.setState({ version: MIN_VERSION });
 
-    const { container } = render(
+    const { container } = renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({ status: "installed", hasIcon: false })}
@@ -364,7 +405,7 @@ describe("PluginListRow", () => {
   });
 
   test("installed row without `enabled` (older daemon) renders no tag", () => {
-    const { queryByText } = render(
+    const { queryByText } = renderRow(
       <PluginListRow
         assistantId={ASSISTANT_ID}
         item={makeItem({ status: "installed" })}

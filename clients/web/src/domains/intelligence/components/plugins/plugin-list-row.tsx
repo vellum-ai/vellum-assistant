@@ -9,7 +9,7 @@ import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import { Button, Card, Tag } from "@vellumai/design-library";
 
 interface PluginListRowProps {
-  /** Owning assistant — used to build the bundled-icon endpoint URL. */
+  /** Owning assistant — used to fetch the bundled icon through the daemon client. */
   assistantId: string;
   item: PluginListItem;
   /** Inspect result for the installed copy; owned by the tab, passed in so
@@ -122,7 +122,9 @@ export function PluginListRow({
           {item.issues && item.issues.length > 0 ? (
             <p
               className="mt-1 truncate text-body-small-default"
-              style={{ color: "var(--content-warning, var(--content-tertiary))" }}
+              style={{
+                color: "var(--content-warning, var(--content-tertiary))",
+              }}
               title={item.issues.join("; ")}
             >
               {item.issues[0]}

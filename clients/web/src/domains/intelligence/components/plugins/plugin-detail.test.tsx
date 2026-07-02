@@ -12,9 +12,9 @@
  * exercised.
  */
 
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 
 import {
   pluginsByNameGetQueryKey,
@@ -40,6 +40,13 @@ const PACKAGE = "\u{1F4E6}"; // 📦 — external (catalog) glyph
 const PUZZLE = "\u{1F9E9}"; // 🧩 — local glyph
 
 const realFetch = globalThis.fetch;
+
+beforeEach(() => {
+  // happy-dom doesn't implement object URLs; the icon hook turns the fetched
+  // blob into one.
+  globalThis.URL.createObjectURL = () => "blob:detail-icon";
+  globalThis.URL.revokeObjectURL = () => undefined;
+});
 
 afterEach(() => {
   cleanup();
@@ -134,6 +141,7 @@ function renderDetail(
   name: string,
   detail: PluginsByNameGetResponse,
   inspect: PluginsByNameInspectGetResponse,
+  opts: { seedIconBlob?: Blob } = {},
 ) {
   const client = new QueryClient({
     // Infinite stale time keeps the seeded queries from refetching on mount
@@ -155,6 +163,14 @@ function renderDetail(
     } as Options<PluginsByNameInspectGetData>),
     inspect,
   );
+  if (opts.seedIconBlob) {
+    // Mirror `usePluginIconSrc`'s query key so the icon fetch resolves from
+    // cache (staleTime infinity) without a network call.
+    client.setQueryData(
+      ["pluginIcon", ASSISTANT_ID, name, detail.iconVersion],
+      opts.seedIconBlob,
+    );
+  }
   const onBack = mock(() => {});
   const result = render(
     <QueryClientProvider client={client}>
@@ -360,7 +376,7 @@ describe("PluginDetail", () => {
     expect(container.textContent).not.toContain(PUZZLE);
   });
 
-  test("supporting daemon + hasIcon renders the bundled-icon <img>", () => {
+  test("supporting daemon + hasIcon renders the bundled-icon <img> from the fetched blob", async () => {
     useAssistantIdentityStore.setState({ version: MIN_VERSION });
 
     const { container } = renderDetail(
@@ -381,13 +397,18 @@ describe("PluginDetail", () => {
         iconVersion: "v9",
       },
       upToDateInspect("simple-memory", true),
+      { seedIconBlob: new Blob(["icon"]) },
     );
 
-    const img = container.querySelector("img");
-    expect(img).not.toBeNull();
-    expect(img?.getAttribute("src")).toBe(
-      `/v1/assistants/${ASSISTANT_ID}/plugins/simple-memory/icon?v=v9`,
-    );
+    // The image renders once the fetched blob's object URL is created.
+    const img = await waitFor(() => {
+      const el = container.querySelector("img");
+      if (!el) {
+        throw new Error("icon <img> not rendered yet");
+      }
+      return el;
+    });
+    expect(img.getAttribute("src")).toBe("blob:detail-icon");
     // With the image showing, neither origin glyph is rendered.
     expect(container.textContent).not.toContain(PUZZLE);
     expect(container.textContent).not.toContain(PACKAGE);
