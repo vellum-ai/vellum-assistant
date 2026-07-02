@@ -1,8 +1,7 @@
 /**
  * ATL-463: the daemon's access_request phone resolver relay is the authoritative
- * grant for voice approvals — the redundant gateway voice-approval-sync poll was
- * removed. These tests pin that relay's contract so no approved-but-ungranted
- * state is ever *silently* lost now that there is no server-side retry backstop:
+ * grant for voice approvals. These tests pin that relay's contract so no
+ * approved-but-ungranted state is ever *silently* lost:
  *
  *   - happy path: activation lands  → applied, no resolverFailed, status approved
  *   - relay throws (voice_activation_failed)   → resolverFailed surfaced upstream
