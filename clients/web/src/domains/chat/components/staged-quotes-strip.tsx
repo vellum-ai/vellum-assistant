@@ -8,12 +8,18 @@
  */
 
 import { MessageSquareQuote, X } from "lucide-react";
+import {
+  Button,
+  Card,
+  cn,
+  Typography,
+  quoteBlockquoteClassName,
+} from "@vellumai/design-library";
 
 import {
   type StagedQuote,
   useQuoteReplyStore,
 } from "@/domains/chat/quote-reply-store";
-import { Button, Card, Typography } from "@vellumai/design-library";
 
 function truncate(text: string, maxLen: number): string {
   if (text.length <= maxLen) {
@@ -37,9 +43,9 @@ function StagedQuoteChip({ quote }: { quote: StagedQuote }) {
           <Typography
             as="div"
             variant="body-small-default"
-            className="text-[var(--content-tertiary)]"
+            className={cn(quoteBlockquoteClassName, "mb-0")}
           >
-            &ldquo;{truncate(quote.quotedText, 80)}&rdquo;
+            {truncate(quote.quotedText, 80)}
           </Typography>
           <Typography
             as="div"

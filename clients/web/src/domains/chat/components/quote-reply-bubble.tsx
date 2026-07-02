@@ -15,15 +15,17 @@ import {
   useRef,
   useState,
 } from "react";
-
-import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import {
   Button,
   Card,
+  cn,
   Popover,
   Textarea,
   Typography,
+  quoteBlockquoteClassName,
 } from "@vellumai/design-library";
+
+import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 
 interface QuoteReplyBubbleProps {
   onAddToChat?: () => void;
@@ -136,7 +138,7 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
             <Typography
               as="div"
               variant="body-small-default"
-              className="rounded-md border-l-2 border-[var(--content-tertiary)] bg-[var(--surface-sunken)] px-3 py-1.5 text-[var(--content-secondary)] [&_p]:mb-0"
+              className={cn(quoteBlockquoteClassName, "mb-0")}
             >
               {truncatedQuote}
             </Typography>

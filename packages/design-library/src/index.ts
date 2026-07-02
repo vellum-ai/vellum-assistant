@@ -172,6 +172,7 @@ export {
 } from "./components/panel-item/marquee-text";
 export {
   MarkdownMessage,
+  quoteBlockquoteClassName,
   type MarkdownMessageProps,
   type MarkdownLinkComponent,
 } from "./components/markdown-message";

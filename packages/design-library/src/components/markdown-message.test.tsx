@@ -35,30 +35,22 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("text-body-medium-default");
   });
 
-  test("blockquotes render with default markdown quote styling", () => {
+  test("blockquotes render as universal inset quote blocks", () => {
     const html = renderToStaticMarkup(
       createElement(MarkdownMessage, {
         content: "> This is quoted.\n\nReply text.",
-      }),
-    );
-
-    expect(html).toContain("italic");
-    expect(html).toContain("text-stone-600");
-    expect(html).not.toContain("rounded-md");
-    expect(html).not.toContain("bg-[var(--surface-sunken)]");
-  });
-
-  test("quotePreview blockquotes render as compact quote previews", () => {
-    const html = renderToStaticMarkup(
-      createElement(MarkdownMessage, {
-        content: "> This is quoted.\n\nReply text.",
-        blockquoteVariant: "quotePreview",
       }),
     );
 
     expect(html).toContain("rounded-md");
     expect(html).toContain("bg-[var(--surface-sunken)]");
-    expect(html).not.toContain(" italic ");
+    expect(html).toContain("mx-0");
+    expect(html).toContain("pl-10");
+    expect(html).toContain("before:left-5");
+    expect(html).toContain("before:w-[3px]");
+    expect(html).toContain("text-[var(--content-secondary)]");
+    expect(html).not.toContain("text-stone-600");
+    expect(html).not.toContain("italic");
   });
 
   test("ordered list beginning at a non-1 number preserves its start", () => {

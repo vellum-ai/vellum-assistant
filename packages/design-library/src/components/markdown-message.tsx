@@ -23,7 +23,12 @@ import "katex/dist/katex.min.css";
 import { cn } from "../utils/cn";
 
 const MAX_CODE_BLOCK_HEIGHT = 400;
-type BlockquoteVariant = "default" | "quotePreview";
+
+export const quoteBlockquoteClassName = cn(
+  "relative mx-0 mt-0 mb-3 w-full rounded-md bg-[var(--surface-sunken)] py-2.5 pl-10 pr-3 text-body-small-default text-[var(--content-secondary)] last:mb-0",
+  "before:absolute before:left-5 before:top-2.5 before:bottom-2.5 before:w-[3px] before:rounded-full before:bg-[var(--content-tertiary)]",
+  "[&_p]:mb-0",
+);
 
 function CopyButton({ visible, onClick, copied }: {
   visible: boolean;
@@ -244,7 +249,6 @@ function renderUprightEmoji(children: ReactNode): ReactNode {
 
 function buildMarkdownComponents(
   LinkComponent: MarkdownLinkComponent,
-  blockquoteVariant: BlockquoteVariant,
 ): Components {
   return {
     // mb-6 (24px) equals one --text-chat-line-height, so a `\n\n` paragraph
@@ -326,14 +330,7 @@ function buildMarkdownComponents(
     // emphasis render upright instead of skewed (see splitEmojiRuns).
     em: ({ children }) => <em>{renderUprightEmoji(children)}</em>,
     blockquote: ({ children }) => (
-      <blockquote
-        className={cn(
-          "mb-3 border-l-2 last:mb-0",
-          blockquoteVariant === "quotePreview"
-            ? "rounded-md border-[var(--content-tertiary)] bg-[var(--surface-sunken)] px-3 py-1.5 text-body-small-default text-[var(--content-secondary)] [&_p]:mb-0"
-            : "border-stone-300 pl-3 italic text-stone-600 dark:border-moss-500 dark:text-stone-400",
-        )}
-      >
+      <blockquote className={quoteBlockquoteClassName}>
         {children}
       </blockquote>
     ),
@@ -566,11 +563,6 @@ export interface MarkdownMessageProps {
   /** When true, single newlines render as hard line breaks. */
   hardLineBreaks?: boolean;
   /**
-   * Controls blockquote chrome. The default preserves ordinary markdown
-   * quote styling; quotePreview is for compact quoted-message previews.
-   */
-  blockquoteVariant?: BlockquoteVariant;
-  /**
    * Custom link component for rendering `<a>` elements inside markdown.
    * Receives `href` and `children` props. Defaults to a plain
    * `<a target="_blank" rel="noopener noreferrer">`.
@@ -594,7 +586,6 @@ export function MarkdownMessage({
   content,
   className,
   hardLineBreaks,
-  blockquoteVariant = "default",
   linkComponent,
   urlTransform,
 }: MarkdownMessageProps) {
@@ -603,10 +594,7 @@ export function MarkdownMessage({
     return hardLineBreaks ? hardBreakNewlines(escaped) : escaped;
   }, [content, hardLineBreaks]);
   const Link = linkComponent ?? DefaultLink;
-  const components = useMemo(
-    () => buildMarkdownComponents(Link, blockquoteVariant),
-    [Link, blockquoteVariant],
-  );
+  const components = useMemo(() => buildMarkdownComponents(Link), [Link]);
   return (
     <div data-slot="markdown-message" className={cn("text-chat text-[var(--content-default)]", className)}>
       <ReactMarkdown remarkPlugins={[remarkGfm, remarkMath, remarkPreserveOrderedListNumbers]} rehypePlugins={[rehypeKatex]} components={components} urlTransform={urlTransform}>

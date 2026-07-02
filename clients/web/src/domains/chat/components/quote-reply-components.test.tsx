@@ -261,6 +261,11 @@ describe("QuoteReplyBubble", () => {
     });
     expect(document.body.querySelector('[data-slot="card"]')).toBeTruthy();
     expect(document.body.querySelector('[data-slot="textarea"]')).toBeTruthy();
+    const quoteBlock = screen.getByText(
+      "here's the anthropic competitive research brief from last night",
+    );
+    expect(quoteBlock.className).toContain("mx-0");
+    expect(quoteBlock.className).toContain("before:left-5");
     expect(
       screen.getByRole("button", { name: "Close reply" }).getAttribute("data-slot"),
     ).toBe("button");
@@ -321,6 +326,9 @@ describe("StagedQuotesStrip", () => {
     render(<StagedQuotesStrip />);
 
     expect(document.body.querySelector('[data-slot="card"]')).toBeTruthy();
+    expect(screen.getByText("competitive research").className).toContain(
+      "before:left-5",
+    );
     expect(
       screen.getByRole("button", { name: "Remove quote" }).getAttribute("data-slot"),
     ).toBe("button");
