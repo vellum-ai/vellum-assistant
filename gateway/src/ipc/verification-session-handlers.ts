@@ -8,9 +8,10 @@
  * Raw secrets transit back in the create responses because message
  * composition and channel delivery stay daemon-owned.
  *
- * These are the 10 lifecycle methods. `verification_sessions_validate_consume`
- * (gateway-native validation, rate limiting, and in-engine role side effects)
- * ships separately.
+ * All 11 methods live here: the 10 lifecycle methods plus
+ * `verification_sessions_validate_consume` (gateway-native validation, rate
+ * limiting, and in-engine role side effects — the guardian binding / contact
+ * upsert happen at consume time, in the engine, never in the daemon).
  *
  * Request/response shapes are pinned by the shared contract in
  * `@vellumai/gateway-client` (verification-session-contract.ts); the daemon
@@ -30,6 +31,7 @@ import {
   UpdateSessionDeliveryIpcParamsSchema,
   UpdateSessionStatusIpcParamsSchema,
   VERIFICATION_SESSIONS_IPC_METHODS,
+  ValidateConsumeSessionIpcParamsSchema,
   hashVerificationSecret,
 } from "@vellumai/gateway-client";
 
@@ -46,6 +48,7 @@ import {
 import {
   createInboundVerificationSession,
   createOutboundSession,
+  validateAndConsumeSession,
 } from "../verification/session-service.js";
 import type { IpcRoute } from "./server.js";
 
@@ -163,6 +166,24 @@ export const verificationSessionRoutes: IpcRoute[] = [
       const { channel } = RevokePendingSessionsIpcParamsSchema.parse(params);
       revokePendingSessions(channel);
       return { ok: true };
+    },
+  },
+  {
+    // Gateway-native validate+consume: rate limiting, identity binding,
+    // status-guarded atomic consume, and in-engine role side effects. On
+    // failure `reason` is a machine-readable code (one code for all failure
+    // classes — anti-oracle); the daemon composes the user-facing copy.
+    method: VERIFICATION_SESSIONS_IPC_METHODS.validateConsume,
+    schema: ValidateConsumeSessionIpcParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const { channel, secret, actorExternalUserId, actorChatId } =
+        ValidateConsumeSessionIpcParamsSchema.parse(params);
+      return validateAndConsumeSession(
+        channel,
+        secret,
+        actorExternalUserId,
+        actorChatId,
+      );
     },
   },
 ];
