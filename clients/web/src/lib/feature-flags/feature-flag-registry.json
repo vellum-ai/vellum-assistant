@@ -359,8 +359,8 @@
       "scope": "assistant",
       "key": "memory-v3-injection-gate",
       "label": "Memory v3 injection gate",
-      "description": "Per-turn injection gate for memory v3: after the BM25F needle + dense cosine finder lanes run, skip the selectPool LLM call (inject nothing) when finder-lane scores fall below the configured thresholds (memory.v3.gate). Default off.",
-      "defaultEnabled": false
+      "description": "Per-turn injection gate for memory v3: after the BM25F needle + dense cosine finder lanes run, skip the selectPool LLM call (inject nothing) when finder-lane scores fall below the configured thresholds (memory.v3.gate). Default on (flipped remotely July 2026); this registry value is the fallback when no platform snapshot is available.",
+      "defaultEnabled": true
     },
     {
       "id": "self-intro-greeting",
