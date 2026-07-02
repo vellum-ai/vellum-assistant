@@ -218,7 +218,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     protocol: "http",
     auth: "JWT Bearer (service token)",
     description:
-      "Gateway proxies contacts and invites CRUD (/v1/contacts, /v1/contact-channels, /v1/contacts/invites) to the assistant's ingress contacts control-plane.",
+      "Gateway proxies contacts CRUD (/v1/contacts, /v1/contact-channels) to the assistant's ingress contacts control-plane. Invite endpoints (/v1/contacts/invites*) are gateway-native against the gateway DB's ingress_invites table; only the outbound invite-call relay reaches the assistant.",
     callerGlobs: ["gateway/src/http/routes/contacts-control-plane-proxy.ts"],
     calleeGlobs: ["assistant/src/runtime/http-server.ts"],
   },

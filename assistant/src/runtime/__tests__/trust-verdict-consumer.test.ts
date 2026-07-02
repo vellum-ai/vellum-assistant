@@ -436,7 +436,6 @@ describe("toTrustContext member grounding", () => {
       address: "+15550100",
       isPrimary: true,
       externalChatId: null,
-      inviteId: null,
       lastSeenAt: null,
       interactionCount: 0,
       lastInteraction: null,

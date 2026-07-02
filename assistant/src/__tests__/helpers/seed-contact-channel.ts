@@ -37,7 +37,6 @@ export function seedContactChannel(params: {
   policy?: string;
   verifiedAt?: number | null;
   verifiedVia?: string | null;
-  inviteId?: string | null;
   revokedReason?: string | null;
   blockedReason?: string | null;
   principalId?: string | null;
@@ -53,7 +52,6 @@ export function seedContactChannel(params: {
         type: params.sourceChannel,
         address,
         externalChatId: params.externalChatId ?? null,
-        inviteId: params.inviteId ?? null,
       },
     ],
     reassignConflictingChannels: !!params.contactId,

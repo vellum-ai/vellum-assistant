@@ -12,11 +12,11 @@ import {
   getGuardianBinding,
   validateAndConsumeVerification,
 } from "../runtime/channel-verification-service.js";
-import { redeemVoiceInviteCode } from "../runtime/invite-service.js";
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/verification-templates.js";
+import { redeemVoiceInviteViaGateway } from "./gateway-invite-reader.js";
 import type { CallEventType } from "./types.js";
 
 // ── parseDigitsFromSpeech ──────────────────────────────────────────────
@@ -221,7 +221,6 @@ export async function attemptVerificationCode(
 // ── Invite code redemption ─────────────────────────────────────────────
 
 interface InviteRedemptionParams {
-  inviteRedemptionAssistantId: string;
   inviteRedemptionFromNumber: string;
   enteredCode: string;
   /** Resolved guardian label used in the failure TTS message. */
@@ -233,7 +232,7 @@ type InviteRedemptionResult =
       outcome: "success";
       memberId: string;
       type: "redeemed" | "already_member";
-      inviteId?: string;
+      inviteId: string;
     }
   | {
       outcome: "failure";
@@ -241,33 +240,27 @@ type InviteRedemptionResult =
     };
 
 /**
- * Validate an entered invite code against active voice invites for the
- * caller. Returns a structured result so the caller can handle state
- * mutations and session updates.
+ * Redeem an entered invite code for the caller at the gateway — the single
+ * lifecycle authority for voice invites. Fails CLOSED: any gateway failure is
+ * the generic failure outcome with no local fallback. Returns a structured
+ * result so the caller can handle state mutations and session updates.
  */
 export async function attemptInviteCodeRedemption(
   params: InviteRedemptionParams,
 ): Promise<InviteRedemptionResult> {
-  const {
-    inviteRedemptionAssistantId,
+  const { inviteRedemptionFromNumber, enteredCode, guardianLabel } = params;
+
+  const result = await redeemVoiceInviteViaGateway(
     inviteRedemptionFromNumber,
     enteredCode,
-    guardianLabel,
-  } = params;
-
-  const result = await redeemVoiceInviteCode({
-    assistantId: inviteRedemptionAssistantId,
-    callerExternalUserId: inviteRedemptionFromNumber,
-    sourceChannel: "phone",
-    code: enteredCode,
-  });
+  );
 
   if (result.ok) {
     return {
       outcome: "success",
-      memberId: result.memberId,
-      type: result.type,
-      ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
+      memberId: result.outcome.contactId,
+      type: result.outcome.result,
+      inviteId: result.outcome.inviteId,
     };
   }
 

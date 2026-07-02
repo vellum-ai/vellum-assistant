@@ -140,6 +140,41 @@ describe("runEmailInboundPipeline", () => {
     expect(recordDenialReplyIfAllowedMock).not.toHaveBeenCalled();
   });
 
+  it("sends an invite redemption reply and short-circuits", async () => {
+    handleInboundMock.mockImplementation(() =>
+      Promise.resolve({
+        forwarded: false,
+        rejected: false,
+        inviteIntercepted: true,
+        inviteReplyText: "Welcome! You've been granted access.",
+      }),
+    );
+    const sent: Array<Record<string, unknown>> = [];
+    const response = await runEmailInboundPipeline(
+      pipelineOpts({
+        sendReply: async (args) => {
+          sent.push(args);
+        },
+      }),
+    );
+    expect(await response.json()).toEqual({
+      ok: true,
+      inviteIntercepted: true,
+    });
+    expect(sent).toEqual([
+      {
+        kind: "invite",
+        from: "assistant@example.org",
+        to: "alice@example.com",
+        subject: "Re: Hello",
+        text: "Welcome! You've been granted access.",
+        inReplyTo: "<msg-1@example.com>",
+      },
+    ]);
+    // Invite replies are never gated by the denial rate limiter
+    expect(recordDenialReplyIfAllowedMock).not.toHaveBeenCalled();
+  });
+
   it("sends a rate-limited denial reply when the runtime denies", async () => {
     handleInboundMock.mockImplementation(() =>
       Promise.resolve({
