@@ -72,6 +72,22 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbExec: mock(async () => undefined),
 }));
 
+// The identity-mirror writes now flow over typed `contacts_mirror_*` IPC.
+// Stub the assistant client so the mirror upsert never dials a real socket;
+// it resolves benignly and the gateway ACL outcome (asserted below) stands.
+const mirrorIpcCalls: { method: string; body: unknown }[] = [];
+mock.module("../ipc/assistant-client.js", () => ({
+  IpcHandlerError: class extends Error {},
+  IpcTransportError: class extends Error {},
+  ipcCallAssistant: async (
+    method: string,
+    params?: { body?: unknown },
+  ) => {
+    mirrorIpcCalls.push({ method, body: params?.body });
+    return { ok: true };
+  },
+}));
+
 import { eq } from "drizzle-orm";
 
 import { contactRoutes } from "../ipc/contact-handlers.js";
