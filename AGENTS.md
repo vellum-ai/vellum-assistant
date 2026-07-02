@@ -98,7 +98,7 @@ When a Vellum [Linear](https://linear.app/) ticket exists for the work, link it 
 
 ## Keep Docs Up to Date
 
-- **Internal reference**: When modifying slash commands in `.claude/commands/`, update the "Claude Code Workflow" section in `docs/internal-reference.md` to match.
+- **Internal reference**: When modifying slash commands in `.claude/skills/`, update the "Claude Code Workflow" section in `docs/internal-reference.md` to match.
 - **Architecture**: When introducing, removing, or significantly modifying a service/module/data flow, update `ARCHITECTURE.md` and impacted domain docs. Mermaid diagrams must reflect current architecture.
 - **AGENTS.md**: When a PR establishes a new mandatory pattern or architectural constraint, update `AGENTS.md`. Only for project-wide rules — use code comments for module-scoped patterns.
 
@@ -157,11 +157,11 @@ We have real users — maintain backwards compatibility for all interfaces, pers
 | What changed | Migration type | Location |
 |---|---|---|
 | Workspace files (renames, moves, format changes under `$VELLUM_WORKSPACE_DIR/`) | Workspace migration | `assistant/src/workspace/migrations/` — append to `WORKSPACE_MIGRATIONS` in `registry.ts` |
-| Database schema or data (columns, indexes, backfills) | DB migration | `assistant/src/memory/migrations/` — add function and register in `db-init.ts` |
+| Database schema or data (columns, indexes, backfills) | DB migration | `assistant/src/persistence/migrations/` — add function and register in the `migrationSteps` array in `assistant/src/persistence/steps.ts` |
 
 Migrations must be **idempotent** (safe to re-run if interrupted) and **append-only** (never reorder or remove existing entries). Test migrations — see `assistant/src/__tests__/workspace-migration-*.test.ts` and `assistant/src/__tests__/db-*.test.ts` for patterns. Flag breaking changes in PR descriptions. If a migration is infeasible, call it out explicitly for human review.
 
-DB migration steps registered in `db-init.ts` are checkpointed by function name in the shared `memory_checkpoints` ledger (under the `step:` namespace) and run at most once per database, so each step needs a stable, non-empty name. Add a new migration as its own entry in the list — every step is imported directly and listed individually so it is checkpointed on its own. Never hide a growing set of migrations behind a single stably-named wrapper function (or spread a shared array of them into the list under one import): once that name is checkpointed the whole group is skipped, so anything added to it later never runs. Crash recovery runs unconditionally inside `runMigrationSteps` before the step loop. Rolling a migration back (`rollbackMemoryMigration`) discards all `step:` checkpoints, so a later upgrade re-runs every step and restores any schema a `down()` reversed.
+DB migration steps registered in `steps.ts` are checkpointed by function name in the shared `memory_checkpoints` ledger (under the `step:` namespace) and run at most once per database, so each step needs a stable, non-empty name. Add a new migration as its own entry in the list — every step is imported directly and listed individually so it is checkpointed on its own. Never hide a growing set of migrations behind a single stably-named wrapper function (or spread a shared array of them into the list under one import): once that name is checkpointed the whole group is skipped, so anything added to it later never runs. Crash recovery runs unconditionally inside `runMigrationSteps` before the step loop. Rolling a migration back (`rollbackMemoryMigration`) discards all `step:` checkpoints, so a later upgrade re-runs every step and restores any schema a `down()` reversed.
 
 ## Multi-Client Assistant State Sync
 
