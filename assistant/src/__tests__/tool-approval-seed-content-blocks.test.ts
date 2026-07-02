@@ -9,7 +9,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     requestKind: "tool_approval",
     toolName: "bash",
     questionText:
-      '"bash" is a sensitive action and needs your approval (requested by Bob): mkdir -p scratch && assistant credentials reveal --service slack',
+      "Approve tool: bash — mkdir -p scratch && assistant credentials reveal --service slack (requested by Bob)",
     sourceChannel: "slack",
     requesterIdentifier: "Bob",
   };
@@ -20,7 +20,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     requestKind: "tool_grant_request",
     toolName: "web_search",
     questionText:
-      '"web_search" is a sensitive action and needs your approval (requested by Alice): search for latest news',
+      "Approve tool: web_search — search for latest news (requested by Alice)",
     sourceChannel: "telegram",
     requesterIdentifier: "Alice",
   };
@@ -30,8 +30,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     requestCode: "VOICE1",
     requestKind: "pending_question",
     toolName: "bash",
-    questionText:
-      '"bash" is a sensitive action and needs your approval (requested by Bob): echo hello',
+    questionText: "Approve tool: bash — echo hello (requested by Bob)",
     sourceChannel: "phone",
     requesterIdentifier: "Bob",
   };
@@ -56,7 +55,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     expect(surface.surfaceType).toBe("card");
     expect(surface.surfaceId).toBe("tool-approval-req-voice-101");
     const data = surface.data as Record<string, unknown>;
-    expect(data.subtitle).toBe("Sensitive action — needs your approval to run");
+    expect(data.subtitle).toBe("Requires your approval to run");
     const metadata = data.metadata as Array<{ label: string; value: string }>;
     expect(metadata).toContainEqual({ label: "Requested by", value: "Bob" });
     expect(metadata).toContainEqual({ label: "Source", value: "phone" });
@@ -137,12 +136,8 @@ describe("buildToolApprovalSeedContentBlocks", () => {
       .data as Record<string, unknown>;
     const grantData = (grantBlocks[0] as Record<string, unknown>)
       .data as Record<string, unknown>;
-    expect(approvalData.subtitle).toBe(
-      "Sensitive action — needs your approval to run",
-    );
-    expect(grantData.subtitle).toBe(
-      "Sensitive action — needs your approval to run",
-    );
+    expect(approvalData.subtitle).toBe("Requires your approval to run");
+    expect(grantData.subtitle).toBe("Requires your approval to run");
   });
 
   test("includes requester and source channel in metadata", () => {
@@ -162,7 +157,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
       string,
       unknown
     >;
-    expect(data.body).toContain('"bash" is a sensitive action');
+    expect(data.body).toContain("Approve tool: bash");
     expect(data.body).toContain("requested by Bob");
   });
 
@@ -208,7 +203,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     const blocks = buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
     const textBlock = blocks[1] as Record<string, unknown>;
     expect(textBlock.type).toBe("text");
-    expect(textBlock.text).toContain('"bash" is a sensitive action');
+    expect(textBlock.text).toContain("Approve tool: bash");
     expect(textBlock.text).toContain("XYZ789");
     expect(textBlock.text).toContain("approve");
   });
@@ -217,7 +212,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     const payload = { ...toolApprovalPayload, requestCode: undefined };
     const blocks = buildToolApprovalSeedContentBlocks(payload)!;
     const textBlock = blocks[1] as Record<string, unknown>;
-    expect(textBlock.text).toContain('"bash" is a sensitive action');
+    expect(textBlock.text).toContain("Approve tool: bash");
     expect(textBlock.text).not.toContain("XYZ789");
   });
 
@@ -225,8 +220,6 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     const payload = { ...toolApprovalPayload, questionText: undefined };
     const blocks = buildToolApprovalSeedContentBlocks(payload)!;
     const textBlock = blocks[1] as Record<string, unknown>;
-    expect(textBlock.text).toContain(
-      '"bash" is a sensitive action and needs guardian approval (requested by Bob)',
-    );
+    expect(textBlock.text).toContain("Approve tool: bash (requested by Bob)");
   });
 });

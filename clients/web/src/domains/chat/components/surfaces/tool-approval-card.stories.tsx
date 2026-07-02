@@ -37,7 +37,11 @@ function toolApprovalSurface(
     title: cardTitle,
     data,
     actions: [
-      { id: `apr:${requestId}:approve_once`, label: "Approve", style: "primary" },
+      {
+        id: `apr:${requestId}:approve_once`,
+        label: "Approve",
+        style: "primary",
+      },
       { id: `apr:${requestId}:reject`, label: "Reject", style: "destructive" },
     ],
   };
@@ -49,8 +53,8 @@ export const BasicToolApproval: Story = {
     <SurfaceRouter
       surface={toolApprovalSurface("req-ta-001", "Tool Approval", {
         title: "bash",
-        subtitle: "Sensitive action — needs your approval to run",
-        body: '> "bash" is a sensitive action and needs your approval (requested by Alex): npm install express',
+        subtitle: "Requires your approval to run",
+        body: "> Approve tool: bash — npm install express (requested by Alex)",
         metadata: [
           { label: "Requested by", value: "Alex" },
           { label: "Source", value: "slack" },
@@ -67,8 +71,8 @@ export const ToolGrantRequest: Story = {
     <SurfaceRouter
       surface={toolApprovalSurface("req-tg-001", "Tool Grant Request", {
         title: "web_search",
-        subtitle: "Sensitive action — needs your approval to run",
-        body: '> "web_search" is a sensitive action and needs your approval (requested by Jordan): search for latest news',
+        subtitle: "Requires your approval to run",
+        body: "> Approve tool: web_search — search for latest news (requested by Jordan)",
         metadata: [
           { label: "Requested by", value: "Jordan" },
           { label: "Source", value: "telegram" },
@@ -85,8 +89,8 @@ export const DangerousTool: Story = {
     <SurfaceRouter
       surface={toolApprovalSurface("req-ta-002", "Tool Approval", {
         title: "file_write",
-        subtitle: "Sensitive action — needs your approval to run",
-        body: '> "file_write" is a sensitive action and needs your approval (requested by Casey): write to /etc/hosts',
+        subtitle: "Requires your approval to run",
+        body: "> Approve tool: file_write — write to /etc/hosts (requested by Casey)",
         metadata: [{ label: "Requested by", value: "Casey" }],
       })}
       onAction={() => {}}
@@ -100,8 +104,8 @@ export const LongToolContext: Story = {
     <SurfaceRouter
       surface={toolApprovalSurface("req-ta-003", "Tool Approval", {
         title: "bash",
-        subtitle: "Sensitive action — needs your approval to run",
-        body: "> \"bash\" is a sensitive action and needs your approval (requested by Sam): curl -X POST https://api.example.com/v1/deployments -H 'Authorization: Bearer ...' -d '{\"environment\": \"production\", \"version\": \"2.1.0\", \"rollback_on_failure\": true}'",
+        subtitle: "Requires your approval to run",
+        body: '> Approve tool: bash — curl -X POST https://api.example.com/v1/deployments -H \'Authorization: Bearer ...\' -d \'{"environment": "production", "version": "2.1.0", "rollback_on_failure": true}\' (requested by Sam)',
         metadata: [
           { label: "Requested by", value: "Sam" },
           { label: "Source", value: "slack" },
@@ -118,7 +122,7 @@ export const MinimalToolApproval: Story = {
     <SurfaceRouter
       surface={toolApprovalSurface("req-ta-004", "Tool Approval", {
         title: "unknown tool",
-        subtitle: "Sensitive action — needs your approval to run",
+        subtitle: "Requires your approval to run",
         body: "No additional context available.",
       })}
       onAction={() => {}}
@@ -132,8 +136,8 @@ export const MultipleMetadataFields: Story = {
     <SurfaceRouter
       surface={toolApprovalSurface("req-ta-005", "Tool Approval", {
         title: "database_query",
-        subtitle: "Sensitive action — needs your approval to run",
-        body: "> \"database_query\" is a sensitive action and needs your approval (requested by Alex): SELECT * FROM users WHERE role = 'admin'",
+        subtitle: "Requires your approval to run",
+        body: "> Approve tool: database_query — SELECT * FROM users WHERE role = 'admin' (requested by Alex)",
         metadata: [
           { label: "Requested by", value: "Alex" },
           { label: "Source", value: "slack" },
@@ -154,8 +158,8 @@ export const ResolvedApproved: Story = {
       surface={{
         ...toolApprovalSurface("req-ta-006", "Tool Approval", {
           title: "bash",
-          subtitle: "Sensitive action — needs your approval to run",
-          body: '> "bash" is a sensitive action and needs your approval (requested by Alex): npm install express',
+          subtitle: "Requires your approval to run",
+          body: "> Approve tool: bash — npm install express (requested by Alex)",
           metadata: [
             { label: "Requested by", value: "Alex" },
             { label: "Source", value: "slack" },
@@ -176,8 +180,8 @@ export const ResolvedDenied: Story = {
       surface={{
         ...toolApprovalSurface("req-ta-007", "Tool Approval", {
           title: "file_write",
-          subtitle: "Sensitive action — needs your approval to run",
-          body: '> "file_write" is a sensitive action and needs your approval (requested by Casey): write to /etc/hosts',
+          subtitle: "Requires your approval to run",
+          body: "> Approve tool: file_write — write to /etc/hosts (requested by Casey)",
           metadata: [{ label: "Requested by", value: "Casey" }],
         }),
         completed: true,

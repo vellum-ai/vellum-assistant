@@ -36,7 +36,8 @@ const log = getLogger("tool-approval-handler");
 
 /**
  * Compose the guardian-facing approval question. The question is about the
- * tool — a sensitive action awaiting approval; the requester appears only as
+ * tool — phrased with the same `Approve tool:` pattern the
+ * confirmation-request bridge uses — and the requester appears only as
  * parenthetical context, never as the subject of the decision.
  */
 function buildToolGrantQuestionText(
@@ -52,8 +53,8 @@ function buildToolGrantQuestionText(
     ? ` (requested by ${requesterLabel})`
     : "";
   const inputSummary = redactSecrets(summarizeToolInput(toolName, input));
-  const lead = `"${toolName}" is a sensitive action and needs your approval${requesterNote}`;
-  return inputSummary ? `${lead}: ${inputSummary}` : lead;
+  const summaryPart = inputSummary ? ` — ${inputSummary}` : "";
+  return `Approve tool: ${toolName}${summaryPart}${requesterNote}`;
 }
 
 /** Default polling interval for inline grant wait (ms). */
@@ -240,17 +241,17 @@ export function resolveSensitiveToolDecision(input: {
 }
 
 /**
- * Denial copy is about the tool (a sensitive action needing guardian
- * approval), never about who the requester is.
+ * Denial copy is about the tool (an action requiring guardian approval),
+ * never about who the requester is.
  */
 function sensitiveToolDeniedMessage(
   decision: SensitiveToolDecision,
   toolName: string,
 ): string {
   if (decision === "deny") {
-    return `Permission denied for "${toolName}": this is a sensitive action that requires guardian approval from a verified channel identity.`;
+    return `Permission denied for "${toolName}": this action requires guardian approval from a verified channel identity.`;
   }
-  return `Permission denied for "${toolName}": this is a sensitive action that requires guardian approval before it can run.`;
+  return `Permission denied for "${toolName}": this action requires guardian approval before it can run.`;
 }
 
 export type PreExecutionGateResult =

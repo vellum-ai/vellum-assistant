@@ -180,9 +180,9 @@ function isLenientToolApproval(payload: LenientToolApprovalPayload): boolean {
 /**
  * Shape a tool-approval/grant payload (strict or lenient) into card params.
  *
- * The card is about the tool: the primary line and subtitle name the
- * sensitive action awaiting approval. The requester appears only as metadata
- * context, never as the subject of the decision.
+ * The card is about the tool: the primary line names the tool awaiting
+ * approval. The requester appears only as metadata context, never as the
+ * subject of the decision.
  */
 function extractToolApprovalCard(
   p: GuardianQuestionPayload | LenientToolApprovalPayload,
@@ -212,8 +212,7 @@ function extractToolApprovalCard(
   // Fallback text with request-code instructions for older clients.
   const requesterNote = requester ? ` (requested by ${requester})` : "";
   const baseFallback =
-    p.questionText ??
-    `"${toolName}" is a sensitive action and needs guardian approval${requesterNote}`;
+    p.questionText ?? `Approve tool: ${toolName}${requesterNote}`;
   let fallbackText = baseFallback;
   const requestCode = nonEmpty(p.requestCode);
   if (requestCode) {
@@ -233,7 +232,7 @@ function extractToolApprovalCard(
     surfaceIdPrefix: TOOL_APPROVAL_SURFACE_PREFIX,
     cardTitle: isGrant ? "Tool Grant Request" : "Tool Approval",
     primaryLine: toolName,
-    subtitle: "Sensitive action — needs your approval to run",
+    subtitle: "Requires your approval to run",
     body,
     metadata,
     requestId: nonEmpty(p.requestId),

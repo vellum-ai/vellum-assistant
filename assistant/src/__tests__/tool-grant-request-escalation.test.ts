@@ -221,7 +221,7 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     expect(emittedSignals.length).toBe(1);
     const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
     const questionText = payload.questionText as string;
-    expect(questionText.startsWith('"bash" is a sensitive action')).toBe(true);
+    expect(questionText.startsWith("Approve tool: bash")).toBe(true);
     // Requester identity is context, not the subject of the question.
     expect(questionText).toContain("(requested by Bob)");
     expect(questionText).not.toMatch(/wants to use/i);
