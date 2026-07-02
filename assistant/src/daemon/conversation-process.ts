@@ -80,9 +80,11 @@ function isHiddenRunNotificationMessage(
   );
 }
 
+/** Locale-formatted count for the user-facing context stats cards. */
+const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
+
 /** Format the result of a forced compaction into a user-facing message. */
 export function formatCompactResult(result: ContextWindowResult): string {
-  const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
   if (!result.compacted) {
     return [
       `Context compaction skipped — ${result.reason ?? "nothing to compact"}.`,
@@ -104,9 +106,29 @@ export function formatCompactResult(result: ContextWindowResult): string {
   ].join("\n");
 }
 
+/**
+ * Format the result of a "summarize up to here" compaction into a user-facing
+ * card.
+ */
+export function formatSummarizeUpToResult(result: ContextWindowResult): string {
+  if (!result.compacted) {
+    return `Summarization skipped — ${result.reason ?? "nothing to summarize"}.`;
+  }
+  const saved =
+    result.previousEstimatedInputTokens - result.estimatedInputTokens;
+  return [
+    "**Conversation summarized**",
+    `Summarized ${fmt(result.compactedMessages)} earlier messages. ${fmt(
+      result.preservedTailMessages,
+    )} recent messages kept in full.`,
+    `Context: ${fmt(result.previousEstimatedInputTokens)} → ${fmt(
+      result.estimatedInputTokens,
+    )} tokens (${fmt(saved)} saved)`,
+  ].join("\n");
+}
+
 /** Format the result of a forced clean into a user-facing message. */
 export function formatCleanResult(result: CleanResult): string {
-  const fmt = (n: number | undefined) => (n ?? 0).toLocaleString("en-US");
   const reclaimed =
     result.previousEstimatedInputTokens - result.estimatedInputTokens;
   return [
