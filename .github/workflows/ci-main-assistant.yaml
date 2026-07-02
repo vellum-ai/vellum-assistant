@@ -35,7 +35,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-
 
@@ -68,7 +68,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-
 
@@ -101,7 +101,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-
 
@@ -153,7 +153,7 @@ jobs:
         uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
         with:
           path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-${{ hashFiles('assistant/bun.lock') }}
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
           restore-keys: |
             bun-${{ runner.os }}-
 
