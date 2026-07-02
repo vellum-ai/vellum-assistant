@@ -54,6 +54,7 @@ import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { isRetryableNetworkError } from "../util/retry.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
+import { createStreamGapMonitor } from "./stream-gap-monitor.js";
 
 const log = getLogger("agent-loop");
 
@@ -1581,6 +1582,17 @@ export class AgentLoop {
         // own time-to-first-token. Reset per provider call.
         let firstTokenMarked = false;
 
+        // Gap instrumentation: report stalls between consecutive streamed
+        // deltas of THIS call, with the section trail for attribution. Fresh
+        // per provider call so tool execution between calls never counts as
+        // a gap.
+        const streamGapMonitor = createStreamGapMonitor({
+          context: {
+            conversationId: this.conversationId,
+            callSite: callSite ?? undefined,
+          },
+        });
+
         // The `onEvent` wrapping below applies sensitive-output placeholder
         // substitution to streamed text while forwarding every other event
         // type through unchanged.
@@ -1590,13 +1602,16 @@ export class AgentLoop {
           config: providerConfig,
           onEvent: (event) => {
             if (
-              !firstTokenMarked &&
-              (event.type === "thinking_delta" || event.type === "text_delta")
+              event.type === "thinking_delta" ||
+              event.type === "text_delta"
             ) {
-              firstTokenMarked = true;
-              latencyTracker?.markFirstToken(
-                event.type === "thinking_delta" ? "thinking" : "text",
-              );
+              const kind =
+                event.type === "thinking_delta" ? "thinking" : "text";
+              if (!firstTokenMarked) {
+                firstTokenMarked = true;
+                latencyTracker?.markFirstToken(kind);
+              }
+              streamGapMonitor.onDelta(kind);
             }
             if (event.type === "text_delta") {
               // Held when the turn's output is deferred — the final text is

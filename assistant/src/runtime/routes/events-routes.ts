@@ -620,6 +620,11 @@ export const ROUTES: RouteDefinition[] = [
       "Content-Type": "text/event-stream",
       "Cache-Control": "no-cache",
       Connection: "keep-alive",
+      // Managed deployments relay this stream through reverse proxies the
+      // daemon does not control. X-Accel-Buffering disables response
+      // buffering on nginx-compatible edges so each SSE frame is flushed to
+      // the client as it is enqueued instead of being batched.
+      "X-Accel-Buffering": "no",
     },
     handler: (args) => handleSubscribeAssistantEvents(args),
   },
