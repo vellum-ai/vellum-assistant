@@ -14,13 +14,17 @@ import {
 import { captureError } from "@/lib/sentry/capture-error";
 import { extractErrorMessage } from "@/utils/api-errors";
 
-// Mirrors the poll/backoff constants in
-// `@/domains/onboarding/pages/hatching-screen.tsx`. The research-onboarding
-// flow kicks this hatch off in the background the moment the user lands on the
-// onboarding page, so by the time they finish the intro/pitch steps and submit
-// their details the assistant is (usually) already healthy and the flow can
-// immediately fire its research turn.
-const POLL_INTERVAL_MS = 3000;
+// The research-onboarding flow kicks this hatch off in the background the moment
+// the user lands on the onboarding page, so by the time they finish the
+// intro/pitch steps and submit their details the assistant is (usually) already
+// healthy and the flow can immediately fire its research turn.
+//
+// We poll faster than the hatching-screen (which uses 3s): this flow races the
+// user through the steps, and a 3s gap between the assistant going healthy and
+// `ready` flipping is enough to leave the calendar step stuck on its "Almost
+// ready / Starting assistant…" state. 1s tightens that window without meaningful
+// extra load (the polls are cheap and stop the moment the hatch settles).
+const POLL_INTERVAL_MS = 1000;
 const MAX_HATCH_WAIT_MS = 300_000;
 
 const GENERIC_HATCH_ERROR =
