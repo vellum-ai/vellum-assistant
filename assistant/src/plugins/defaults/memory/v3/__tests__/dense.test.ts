@@ -28,12 +28,18 @@ const embedState = {
   calls: [] as string[][],
   throws: null as Error | null,
   dimensionAvailable: true,
+  dimensionThrows: null as Error | null,
 };
 mock.module(
   "../../../../../persistence/embeddings/embedding-backend.js",
   () => ({
     ...realEmbeddingBackend,
-    isEmbeddingDimensionAvailable: async () => embedState.dimensionAvailable,
+    isEmbeddingDimensionAvailable: async () => {
+      // Models the availability probe rejecting — e.g. a transient
+      // credential-store error surfacing through getProviderKeyAsync.
+      if (embedState.dimensionThrows) throw embedState.dimensionThrows;
+      return embedState.dimensionAvailable;
+    },
     embedWithBackend: async (_config: unknown, inputs: string[]) => {
       embedState.calls.push(inputs);
       if (embedState.throws) throw embedState.throws;
@@ -97,6 +103,7 @@ function resetState(): void {
   embedState.calls.length = 0;
   embedState.throws = null;
   embedState.dimensionAvailable = true;
+  embedState.dimensionThrows = null;
   state.points = [];
   state.queryThrows = null;
   state.queryCalls.length = 0;
@@ -191,6 +198,19 @@ describe("memory v3 dense lane", () => {
     expect(state.queryCalls).toHaveLength(0);
   });
 
+  test("a rejected availability probe degrades to [] without embedding", async () => {
+    // A transient credential-store error can reject the dimension preflight;
+    // the lane must still honor its `[]` contract so the orchestrator's
+    // unguarded Promise.all does not discard the sibling needle/reply lanes.
+    embedState.dimensionThrows = new Error("credential store unreachable");
+
+    const hits = await denseLane(CONFIG, "query", 5);
+
+    expect(hits).toEqual([]);
+    expect(embedState.calls).toEqual([]);
+    expect(state.queryCalls).toHaveLength(0);
+  });
+
   test("a failed embedding degrades to []", async () => {
     embedState.throws = new Error("embed backend down");
 
@@ -253,6 +273,16 @@ describe("denseLaneScored", () => {
 
   test("a committed-dimension/reachable-backend mismatch degrades to []", async () => {
     embedState.dimensionAvailable = false;
+
+    const hits = await denseLaneScored(CONFIG, "query", 5);
+
+    expect(hits).toEqual([]);
+    expect(embedState.calls).toEqual([]);
+    expect(state.queryCalls).toHaveLength(0);
+  });
+
+  test("a rejected availability probe degrades to []", async () => {
+    embedState.dimensionThrows = new Error("credential store unreachable");
 
     const hits = await denseLaneScored(CONFIG, "query", 5);
 
