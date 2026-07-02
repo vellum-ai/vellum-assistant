@@ -3,7 +3,7 @@
  *
  * GET /v1/plugins (list):
  *   - Projection from `InstalledPluginInfo` → response shape (id, name,
- *     description, version, path; issues omitted when empty)
+ *     description, version, path; issues + icon omitted when absent)
  *   - `?q=` substring filter (case-insensitive across id/name/description)
  *   - Trimming + empty-string fallthrough on `?q=`
  *   - Empty install dir → `{ plugins: [], categoryCounts: {}, totalCount: 0 }`
@@ -510,6 +510,24 @@ describe("GET /v1/plugins", () => {
 
     const [entry] = (await invoke()).plugins;
     expect(entry?.issues).toEqual(["missing package.json"]);
+  });
+
+  test("serializes `icon` from vellum.icon, omitting it when absent", async () => {
+    installedFixture = [
+      pluginEntry({
+        name: "with-icon",
+        packageJson: { name: "with-icon", version: "1.0.0", icon: "🎨" },
+      }),
+      pluginEntry({
+        name: "no-icon",
+        packageJson: { name: "no-icon", version: "1.0.0" },
+      }),
+    ];
+
+    const byId = new Map((await invoke()).plugins.map((p) => [p.id, p]));
+    expect(byId.get("with-icon")?.icon).toBe("🎨");
+    // Absent icon is omitted from the wire object, not set to undefined/null.
+    expect("icon" in byId.get("no-icon")!).toBe(false);
   });
 
   test("reports enabled: false for a plugin with a `.disabled` sentinel, true otherwise", async () => {

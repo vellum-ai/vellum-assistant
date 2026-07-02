@@ -21266,6 +21266,9 @@ paths:
                           anyOf:
                             - type: string
                             - type: "null"
+                        icon:
+                          description: Author-declared emoji icon from the plugin's package.json vellum.icon; absent when none.
+                          type: string
                       required:
                         - id
                         - name

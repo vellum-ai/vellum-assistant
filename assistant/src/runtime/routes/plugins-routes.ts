@@ -138,6 +138,12 @@ const pluginInfoSchema = z.object({
     .describe(
       "Marketplace category slug (Skills taxonomy); null when origin/category is unknown, e.g. non-marketplace installs.",
     ),
+  icon: z
+    .string()
+    .optional()
+    .describe(
+      "Author-declared emoji icon from the plugin's package.json vellum.icon; absent when none.",
+    ),
 });
 
 const pluginsListResponseSchema = z.object({
@@ -658,6 +664,7 @@ interface PluginView {
   path: string;
   issues?: string[];
   category?: string | null;
+  icon?: string;
 }
 
 function projectPlugin(entry: InstalledPluginInfo): PluginView {
@@ -675,6 +682,9 @@ function projectPlugin(entry: InstalledPluginInfo): PluginView {
   };
   if (entry.issues.length > 0) {
     view.issues = [...entry.issues];
+  }
+  if (entry.packageJson?.icon !== undefined) {
+    view.icon = entry.packageJson.icon;
   }
   return view;
 }
