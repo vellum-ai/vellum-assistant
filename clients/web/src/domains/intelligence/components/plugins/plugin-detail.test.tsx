@@ -175,6 +175,9 @@ describe("PluginDetail", () => {
         readme: "# Caveman\n\nMakes the agent speak in grunts.",
         ref: "v1.8.2",
         artifact: null,
+        icon: null,
+        hasIcon: false,
+        iconVersion: null,
       },
       upToDateInspect("caveman", false),
     );
@@ -207,6 +210,9 @@ describe("PluginDetail", () => {
         readme: null,
         ref: "main",
         artifact: null,
+        icon: null,
+        hasIcon: false,
+        iconVersion: null,
       },
       upToDateInspect("simple-memory", true),
     );
@@ -235,6 +241,9 @@ describe("PluginDetail", () => {
         readme: "# Level Up",
         ref: "main",
         artifact: null,
+        icon: null,
+        hasIcon: false,
+        iconVersion: null,
       },
       updateAvailableInspect("level-up"),
     );
@@ -266,6 +275,9 @@ describe("PluginDetail", () => {
         readme: "# Dynamic Notch",
         ref: "v1.0.0",
         artifact: { url, sha256: "a".repeat(64), label: "Download for macOS" },
+        icon: null,
+        hasIcon: false,
+        iconVersion: null,
       },
       upToDateInspect("dynamic-notch", true),
     );
@@ -306,11 +318,41 @@ describe("PluginDetail", () => {
         readme: "# Caveman",
         ref: "v1.8.2",
         artifact: null,
+        icon: null,
+        hasIcon: false,
+        iconVersion: null,
       },
       upToDateInspect("caveman", false),
     );
 
     expect(container.textContent).toContain(PACKAGE);
+    expect(container.textContent).not.toContain(PUZZLE);
+  });
+
+  test("renders the author emoji when the plugin declares one, overriding the origin glyph", () => {
+    const AUTHOR_EMOJI = "\u{1F3A8}"; // 🎨
+    const { container } = renderDetail(
+      "caveman",
+      {
+        name: "caveman",
+        installed: false,
+        description: "Talk like a caveman.",
+        homepage: null,
+        license: null,
+        version: "1.8.2",
+        source: { kind: "github", repo: "example-org/caveman", ref: "v1.8.2" },
+        readme: "# Caveman",
+        ref: "v1.8.2",
+        artifact: null,
+        icon: AUTHOR_EMOJI,
+        hasIcon: false,
+        iconVersion: null,
+      },
+      upToDateInspect("caveman", false),
+    );
+
+    expect(container.textContent).toContain(AUTHOR_EMOJI);
+    expect(container.textContent).not.toContain(PACKAGE);
     expect(container.textContent).not.toContain(PUZZLE);
   });
 
@@ -328,6 +370,9 @@ describe("PluginDetail", () => {
         readme: "# Caveman",
         ref: "v1.8.2",
         artifact: null,
+        icon: null,
+        hasIcon: false,
+        iconVersion: null,
       },
       upToDateInspect("caveman", false),
     );

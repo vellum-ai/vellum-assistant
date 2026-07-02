@@ -135,7 +135,11 @@ export function PluginDetailMobile({
             {resolvedExternal === undefined ? (
               <span aria-hidden className="h-8 w-8 shrink-0" />
             ) : (
-              <PluginIcon external={resolvedExternal} size="md" />
+              <PluginIcon
+                external={resolvedExternal}
+                icon={plugin?.icon ?? undefined}
+                size="md"
+              />
             )}
             <h2
               className="min-w-0 truncate text-title-medium"
