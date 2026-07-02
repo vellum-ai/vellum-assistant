@@ -238,10 +238,10 @@ describe("ManageProfilesModal — profile-create success toast (Settings surface
 });
 
 // ---------------------------------------------------------------------------
-// Invariant (default) profiles — server-stamped `invariant: true`
+// Invariant (managed) profiles — server-stamped `invariant: true`
 // ---------------------------------------------------------------------------
 
-describe("ManageProfilesModal — invariant default profiles in the list", () => {
+describe("ManageProfilesModal — invariant managed profiles in the list", () => {
   // The list-item status toggle carries an "Enable <label>"/"Disable <label>"
   // aria-label — the accessible handle these tests query by.
   function findStatusToggle(action: "Enable" | "Disable", label: string) {
@@ -259,13 +259,12 @@ describe("ManageProfilesModal — invariant default profiles in the list", () =>
         provider: "anthropic",
         model: "claude-opus-4-8",
       },
-      // Invariant but NOT managed — the daemon freezes invariant names
-      // regardless of `source`, so the UI must lock this one exactly like a
-      // managed default.
-      "default-user": {
-        label: "Default User",
+      // A user-owned profile sharing a managed name. The daemon stamps
+      // `invariant` only on managed-source entries, so this one carries no
+      // flag and must render as a normal, fully editable custom profile.
+      "os-beta": {
+        label: "My OS Beta",
         source: "user",
-        invariant: true,
         provider: "anthropic",
         model: "claude-opus-4-8",
       },
@@ -274,12 +273,6 @@ describe("ManageProfilesModal — invariant default profiles in the list", () =>
         source: "managed",
         invariant: true,
         status: "disabled",
-        provider: "anthropic",
-        model: "claude-opus-4-8",
-      },
-      "custom-managed": {
-        label: "Custom Managed",
-        source: "managed",
         provider: "anthropic",
         model: "claude-opus-4-8",
       },
@@ -301,8 +294,8 @@ describe("ManageProfilesModal — invariant default profiles in the list", () =>
     // Disabled invariant profile: the enable affordance remains.
     expect(findStatusToggle("Enable", "Default B")).not.toBeNull();
 
-    // Managed profile without the flag: behaves as before.
-    expect(findStatusToggle("Disable", "Custom Managed")).not.toBeNull();
+    // User-owned profile without the flag: two-way toggle as usual.
+    expect(findStatusToggle("Disable", "My OS Beta")).not.toBeNull();
   });
 
   test("re-enabling a disabled invariant profile PATCHes status:'active' and nothing else", async () => {
@@ -323,7 +316,7 @@ describe("ManageProfilesModal — invariant default profiles in the list", () =>
     ]);
   });
 
-  test("an invariant profile with source 'user' has a disabled delete button and a View action", () => {
+  test("a user-owned profile sharing a managed name gets an Edit action and an enabled delete button", () => {
     seedInvariantProfiles();
     render(
       <Wrapper>
@@ -331,23 +324,24 @@ describe("ManageProfilesModal — invariant default profiles in the list", () =>
       </Wrapper>,
     );
 
-    // Delete is locked exactly like a managed profile — the daemon rejects
-    // deleting invariant names regardless of source.
+    // Delete stays available — the daemon gates invariance on managed
+    // ownership, so a user-owned entry named like a managed profile is
+    // fully deletable.
     const deleteBtn = document.querySelector<HTMLButtonElement>(
-      '[aria-label="Delete Default User"]',
+      '[aria-label="Delete My OS Beta"]',
     );
     expect(deleteBtn).not.toBeNull();
-    expect(deleteBtn!.disabled).toBe(true);
+    expect(deleteBtn!.disabled).toBe(false);
 
-    // The row action reads "View", not "Edit" — the editor opens read-only.
+    // The row action reads "Edit", not "View" — the editor opens editable.
     const row = deleteBtn!.closest("div.relative")!;
     const actionBtn = Array.from(
       row.querySelectorAll<HTMLButtonElement>("button"),
     ).find((b) => b.textContent?.trim() === "View" || b.textContent?.trim() === "Edit");
-    expect(actionBtn?.textContent?.trim()).toBe("View");
+    expect(actionBtn?.textContent?.trim()).toBe("Edit");
   });
 
-  test("opening an invariant source-'user' profile lands in view mode with locked controls", async () => {
+  test("opening a user-owned profile sharing a managed name lands in edit mode with editable controls", async () => {
     seedInvariantProfiles();
     render(
       <Wrapper>
@@ -356,21 +350,22 @@ describe("ManageProfilesModal — invariant default profiles in the list", () =>
     );
 
     const deleteBtn = document.querySelector<HTMLButtonElement>(
-      '[aria-label="Delete Default User"]',
+      '[aria-label="Delete My OS Beta"]',
     )!;
     const row = deleteBtn.closest("div.relative")!;
-    const viewBtn = Array.from(
+    const editBtn = Array.from(
       row.querySelectorAll<HTMLButtonElement>("button"),
-    ).find((b) => b.textContent?.trim() === "View")!;
-    fireEvent.click(viewBtn);
+    ).find((b) => b.textContent?.trim() === "Edit")!;
+    fireEvent.click(editBtn);
 
-    // The editor opened in view mode: the read-only footer offers Save As
-    // New, and the invariant lock disables the Display Name field.
+    // The editor opened in edit mode: the Display Name field is editable and
+    // the read-only footer's Save As New affordance is absent.
     await waitFor(() => {
-      expect(getButton("Save As New")).not.toBeNull();
+      expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(false);
     });
-    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(true);
-    // Save opens disarmed — nothing view mode permits editing has changed.
-    expect(getSaveBtn().disabled).toBe(true);
+    const saveAsNew = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((b) => b.textContent?.trim() === "Save As New");
+    expect(saveAsNew).toBeUndefined();
   });
 });

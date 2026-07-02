@@ -145,15 +145,6 @@ const INFERENCE_PROFILE_UI_KEYS = new Set([
   "thinking",
 ]);
 
-// Fields a NON-INVARIANT managed profile (os-beta) may edit: `label`
-// (display name), `status` (enabled/disabled), and `topP` — the seed
-// contract owns provider/model/connection, but top_p is a per-profile
-// sampling knob the UI exposes on the managed Balanced profile. Invariant
-// default profiles (`INVARIANT_PROFILE_NAMES`) are frozen at the
-// `commitConfigWrite` guard (`assertInvariantProfilesPreserved`); their
-// only permitted edit is the disabled→active re-enable.
-const MANAGED_PROFILE_EDITABLE_KEYS = new Set(["label", "status", "topP"]);
-
 function asMutablePlainObject(value: unknown): Record<string, unknown> | null {
   if (value == null || typeof value !== "object" || Array.isArray(value)) {
     return null;
@@ -835,8 +826,11 @@ function stripWireOnlyProfileKeys(patch: unknown): void {
  * - `supportsVision`: resolved from the model catalog. Unknown (provider,
  *   model) pairs default to `true` (fail-open) so image upload remains
  *   available for custom / unlisted models.
- * - `invariant`: `true` for the three default managed profiles
- *   (`INVARIANT_PROFILE_NAMES`); absent otherwise.
+ * - `invariant`: `true` for managed-source entries of the managed profile
+ *   names (`INVARIANT_PROFILE_NAMES`); absent otherwise. Source-gated to
+ *   match `assertInvariantProfilesPreserved` — a user-owned profile sharing
+ *   a managed name is fully editable, so it must render as a normal custom
+ *   profile.
  */
 function enrichProfilesForWire(config: unknown): void {
   const root = readPlainObject(config);
@@ -849,7 +843,7 @@ function enrichProfilesForWire(config: unknown): void {
   for (const [name, profile] of Object.entries(profiles)) {
     const entry = readPlainObject(profile);
     if (!entry) continue;
-    if (INVARIANT_PROFILE_NAMES.has(name)) {
+    if (INVARIANT_PROFILE_NAMES.has(name) && entry.source === "managed") {
       entry.invariant = true;
     }
     const provider = entry.provider;
@@ -918,24 +912,31 @@ function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
 }
 
 /**
- * Enforce the default-profile invariants at the config-write choke point.
+ * Enforce the managed-profile invariants at the config-write choke point.
  *
- * Protects the *seeded* default profiles (`INVARIANT_PROFILE_NAMES`) that
- * live in workspace config. The guard only has an effect while defaults are
- * seeded there: it checks entries present in the OLD config, so if defaults
- * stop being stored in workspace config it has nothing to protect and can be
- * deleted along with the seeding.
+ * Protects the *seeded* managed profiles (`INVARIANT_PROFILE_NAMES`) that
+ * live in workspace config. The guard only has an effect while managed
+ * profiles are seeded there: it checks entries present in the OLD config, so
+ * if they stop being stored in workspace config it has nothing to protect
+ * and can be deleted along with the seeding.
  *
- * For each invariant name where the OLD raw config carries a plain-object
- * entry at `llm.profiles[name]`:
+ * Invariance is gated on managed ownership: a name is enforced only when the
+ * OLD entry's `source` is `"managed"`. A user-owned profile sharing a
+ * managed name stays fully editable and deletable — for os-beta that state
+ * is real and supported, because the flag-gated reconcile refuses to
+ * overwrite a same-named user profile.
+ *
+ * For each invariant name where the OLD raw config carries a managed-source
+ * plain-object entry at `llm.profiles[name]`:
  *
  * - The NEW raw config must still carry a plain-object entry at the same
  *   path — deletion, non-object overwrite, and subtree replacement are all
  *   rejected by this single check, regardless of route.
  * - `status` is one-directional: effective status is
- *   `entry.status !== "disabled"` (absence/null = active). An active default
- *   can never be disabled; a changed `status` must be `"active"`, `null`, or
- *   absent — re-enabling a disabled default. Any other value is rejected.
+ *   `entry.status !== "disabled"` (absence/null = active). An active managed
+ *   profile can never be disabled; a changed `status` must be `"active"`,
+ *   `null`, or absent — re-enabling a disabled profile. Any other value is
+ *   rejected.
  * - Every other field is frozen: any changed, added, or removed key across
  *   the union of both entries' keys (except `status`) is rejected. A
  *   pre-existing on-disk override (e.g. `topP`) is preserved but frozen —
@@ -960,23 +961,26 @@ function assertInvariantProfilesPreserved(
     if (!oldEntry) {
       continue;
     }
+    if (oldEntry.source !== "managed") {
+      continue;
+    }
 
     const newEntry = newProfiles
       ? asMutablePlainObject(newProfiles[name])
       : null;
     if (!newEntry) {
       throw new BadRequestError(
-        `Cannot delete or replace default profile "${name}". Default profiles are read-only.`,
+        `Cannot delete or replace managed profile "${name}". Managed profiles are read-only.`,
       );
     }
 
     if (!isDeepStrictEqual(oldEntry.status, newEntry.status)) {
       if (newEntry.status === "disabled") {
-        throw new BadRequestError(`Cannot disable default profile "${name}".`);
+        throw new BadRequestError(`Cannot disable managed profile "${name}".`);
       }
       if (newEntry.status !== "active" && newEntry.status != null) {
         throw new BadRequestError(
-          `Cannot set status ${JSON.stringify(newEntry.status)} on default profile "${name}". ` +
+          `Cannot set status ${JSON.stringify(newEntry.status)} on managed profile "${name}". ` +
             `Only re-enabling (status "active") is allowed.`,
         );
       }
@@ -990,8 +994,8 @@ function assertInvariantProfilesPreserved(
     );
     if (changedKeys.length > 0) {
       throw new BadRequestError(
-        `Cannot edit default profile "${name}" fields [${changedKeys.join(", ")}]. ` +
-          `Default profiles are read-only; duplicate to a custom profile to customize.`,
+        `Cannot edit managed profile "${name}" fields [${changedKeys.join(", ")}]. ` +
+          `Managed profiles are read-only; duplicate to a custom profile to customize.`,
       );
     }
   }
@@ -1208,27 +1212,26 @@ async function handleReplaceInferenceProfile({
     );
   }
   if (isManaged) {
-    // Managed profiles are daemon-seeded — provider, model, and the
-    // connection binding all belong to the seed contract and can't be
-    // reshaped by the user. The fields that ARE user policy (display label,
-    // enabled status, and the topP sampling knob) pass this allowlist so
-    // non-invariant managed profiles (os-beta) can be renamed, temporarily
-    // disabled, or tuned. Invariant default profiles are further locked by
-    // `assertInvariantProfilesPreserved` at commit time — for them the only
-    // writable transition is re-enabling a disabled profile.
+    // Managed profiles are daemon-seeded and read-only — the commit guard
+    // (`assertInvariantProfilesPreserved`) rejects every write to them
+    // except re-enabling a disabled profile. Enforce the same contract up
+    // front: the only body a managed PUT accepts is a pure status re-enable
+    // (`{status: "active"}`, or `{status: null}` to clear back to
+    // active-by-absence). Rejecting here keeps the error message ahead of
+    // any side effects and mirrors the guard's wording.
     const requestedKeys = Object.keys(parsed.data);
-    const disallowed = requestedKeys.filter(
-      (k) => !MANAGED_PROFILE_EDITABLE_KEYS.has(k),
-    );
-    if (disallowed.length > 0) {
-      // Invariant (default) profiles are locked down further by
-      // `assertInvariantProfilesPreserved` at commit time — don't tell users
-      // label/status/topP are editable when they aren't.
-      const guidance = INVARIANT_PROFILE_NAMES.has(name)
-        ? "Default profiles are read-only (a disabled default can be re-enabled); duplicate to a custom profile to customize."
-        : "Only label, status, and topP may be edited; duplicate to a custom profile to change other fields.";
+    const isStatusReenable =
+      requestedKeys.length === 1 &&
+      requestedKeys[0] === "status" &&
+      (parsed.data.status === "active" || parsed.data.status === null);
+    if (!isStatusReenable) {
+      const disallowed = requestedKeys.filter((k) => k !== "status");
+      const detail =
+        disallowed.length > 0 ? ` fields [${disallowed.join(", ")}]` : "";
       throw new BadRequestError(
-        `Cannot edit managed profile "${name}" fields [${disallowed.join(", ")}]. ${guidance}`,
+        `Cannot edit managed profile "${name}"${detail}. ` +
+          `Managed profiles are read-only (a disabled profile can be re-enabled); ` +
+          `duplicate to a custom profile to customize.`,
       );
     }
   }
@@ -1277,17 +1280,13 @@ async function handleReplaceInferenceProfile({
 
   // When the UI sends provider but no provider_connection, derive the connection
   // now so the config deep-merge doesn't inherit a stale connection from the
-  // default layer. Invariant names are excluded: commitConfigWrite rejects
-  // every write to them except a pure status re-enable (which derives no
-  // connection), so creating a connection here would leave an orphaned DB
-  // row behind a guaranteed 400.
+  // default layer. Managed entries are excluded: the managed gate above
+  // already rejected any provider-carrying fragment, so their only surviving
+  // body is a status re-enable, which derives no connection. A user-owned
+  // profile sharing a managed name is fully editable, so it takes the
+  // derivation like any other custom profile.
   const fragment = parsed.data as Record<string, unknown>;
-  if (
-    !isManaged &&
-    !INVARIANT_PROFILE_NAMES.has(name) &&
-    fragment.provider &&
-    !fragment.provider_connection
-  ) {
+  if (!isManaged && fragment.provider && !fragment.provider_connection) {
     const provider = fragment.provider as string;
     const db = getDb();
     const [active] = listConnections(db, { provider });
@@ -1314,12 +1313,12 @@ async function handleReplaceInferenceProfile({
 
   const raw = loadRawConfig();
   if (isManaged) {
-    // Partial overlay: keep every existing key intact, only update label
-    // and/or status from the fragment. Using `replaceInferenceProfileConfig`
-    // here would wipe the UI-owned seed fields (provider, model, advanced
-    // params) because that function assumes the body carries the full UI
-    // surface.
-    patchManagedProfileFields(raw, name, fragment);
+    // Partial overlay: keep every existing key intact, only apply the status
+    // re-enable (the sole body the managed gate above admits). Using
+    // `replaceInferenceProfileConfig` here would wipe the seed-owned fields
+    // (provider, model, advanced params) because that function assumes the
+    // body carries the full UI surface.
+    applyManagedProfileReenable(raw, name, fragment.status as "active" | null);
   } else {
     replaceInferenceProfileConfig(raw, name, fragment);
   }
@@ -1337,37 +1336,34 @@ async function handleReplaceInferenceProfile({
 }
 
 /**
- * Apply a `{label?, status?, topP?}` patch to a managed profile entry, preserving
+ * Apply the disabled→active re-enable to a managed profile entry, preserving
  * every other field already on disk (provider, model, advanced params, etc).
- * Caller is responsible for having already restricted the fragment to the
- * managed-allowed keys.
+ * `status: "active"` sets the key; `null` clears it (active-by-absence).
  */
-function patchManagedProfileFields(
+function applyManagedProfileReenable(
   raw: Record<string, unknown>,
   name: string,
-  fragment: Record<string, unknown>,
+  status: "active" | null,
 ): void {
   const existingLlm = asMutablePlainObject(raw.llm);
   const llm = existingLlm ?? {};
-  if (!existingLlm) raw.llm = llm;
+  if (!existingLlm) {
+    raw.llm = llm;
+  }
 
   const existingProfiles = asMutablePlainObject(llm.profiles);
   const profiles = existingProfiles ?? {};
-  if (!existingProfiles) llm.profiles = profiles;
+  if (!existingProfiles) {
+    llm.profiles = profiles;
+  }
 
-  const existingProfile = asMutablePlainObject(profiles[name]) ?? {};
-  const nextProfile: Record<string, unknown> = { ...existingProfile };
-  // For each managed-editable key: send `null` to clear, a value to set,
-  // omit to leave untouched. Iterating the allowlist keeps persistence in
-  // lock-step with the guard above — a key can't slip through the gate
-  // without also being written.
-  for (const key of MANAGED_PROFILE_EDITABLE_KEYS) {
-    if (!(key in fragment)) continue;
-    if (fragment[key] === null) {
-      delete nextProfile[key];
-    } else {
-      nextProfile[key] = fragment[key];
-    }
+  const nextProfile: Record<string, unknown> = {
+    ...(asMutablePlainObject(profiles[name]) ?? {}),
+  };
+  if (status === null) {
+    delete nextProfile.status;
+  } else {
+    nextProfile.status = status;
   }
   profiles[name] = nextProfile;
 }

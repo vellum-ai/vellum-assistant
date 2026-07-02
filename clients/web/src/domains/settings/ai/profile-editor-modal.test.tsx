@@ -830,81 +830,14 @@ describe("ProfileEditorModal — Top P wiring", () => {
     expect(saveCalls[0].entry.topP).toBeNull();
   });
 
-  describe("managed profile in view mode", () => {
-    // A managed (platform-seeded) Balanced profile. Anthropic opus →
-    // visibility.topP is true, so the Top P control renders even in view mode.
-    const managedProfile = {
-      name: "balanced",
-      label: "Balanced",
-      provider: "anthropic",
-      model: "claude-opus-4-8",
-      source: "managed",
-    };
-
-    test("the Top P control is editable even though the modal is read-only", () => {
-      renderView(managedProfile);
-
-      // The Top P toggle stays interactive while the rest of the editor is
-      // locked (provider/model dropdowns are disabled in view mode).
-      expect((topPSwitch() as HTMLButtonElement).disabled).toBe(false);
-    });
-
-    test("enabling Top P arms the otherwise close-only Save button", () => {
-      renderView(managedProfile);
-
-      // View mode opens with Save disabled (no policy fields touched yet).
-      expect(getSaveBtn().disabled).toBe(true);
-
-      // Turning Top P on is a tracked view-mode change → Save unlocks.
-      fireEvent.click(topPSwitch());
-      expect(getSaveBtn().disabled).toBe(false);
-    });
-
-    test("saving sends topP in a merge entry without seed-owned fields", async () => {
-      const saveCalls: {
-        name: string;
-        entry: Record<string, unknown>;
-        options?: { mode?: "merge" | "replace" };
-      }[] = [];
-      const onSave = (
-        name: string,
-        entry: unknown,
-        options?: { mode?: "merge" | "replace" },
-      ) => {
-        saveCalls.push({
-          name,
-          entry: entry as Record<string, unknown>,
-          options,
-        });
-        return Promise.resolve();
-      };
-
-      renderView(managedProfile, onSave);
-
-      // Enable Top P, then save.
-      fireEvent.click(topPSwitch());
-      fireEvent.click(getSaveBtn());
-
-      await waitFor(() => {
-        expect(saveCalls.length).toBe(1);
-      });
-      // The merge entry carries the new topP number...
-      expect(saveCalls[0].entry.topP).toBe(0.95);
-      expect(typeof saveCalls[0].entry.topP).toBe("number");
-      // ...as a deep-merge so seed-owned fields are never sent.
-      expect(saveCalls[0].options?.mode).toBe("merge");
-      expect(saveCalls[0].entry.provider).toBeUndefined();
-      expect(saveCalls[0].entry.model).toBeUndefined();
-    });
-  });
 });
 
 // ---------------------------------------------------------------------------
-// Invariant (default) profiles — server-stamped `invariant: true`
+// Invariant (managed) profiles — server-stamped `invariant: true`
 // ---------------------------------------------------------------------------
 
-describe("ProfileEditorModal — invariant default profiles in view mode", () => {
-  // A server-stamped default profile. Anthropic opus → visibility.topP is
+describe("ProfileEditorModal — invariant managed profiles in view mode", () => {
+  // A server-stamped managed profile. Anthropic opus → visibility.topP is
   // true, so the Top P control renders and we can assert it is locked.
   const invariantProfile = {
     name: "default-a",
@@ -970,20 +903,11 @@ describe("ProfileEditorModal — invariant default profiles in view mode", () =>
     expect(saveCalls[0].options?.mode).toBe("merge");
   });
 
-  test("a managed profile without the invariant flag keeps the toggle, editable label, and editable Top P", () => {
-    const { invariant: _invariant, ...nonInvariant } = invariantProfile;
-    renderView(nonInvariant);
-
-    expect(findSwitchByLabel("Active")).not.toBeNull();
-    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(false);
-    expect(topPSwitch().disabled).toBe(false);
-  });
-
   test("an invariant profile opened in edit mode keeps the lock (defense-in-depth)", () => {
-    // The daemon freezes invariant names regardless of `source`, so even if
-    // a parent opens a non-managed invariant profile in edit mode the lock
-    // must hold: locked label and Top P, no delete/recreate save path.
-    renderEdit({ ...invariantProfile, source: "user" });
+    // The lock keys off the server-stamped wire flag alone, so even if a
+    // parent opens an invariant profile in edit mode the lock must hold:
+    // locked label and Top P, no delete/recreate save path.
+    renderEdit(invariantProfile);
 
     expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(true);
     expect(topPSwitch().disabled).toBe(true);
@@ -1009,10 +933,7 @@ describe("ProfileEditorModal — invariant default profiles in view mode", () =>
       return Promise.resolve();
     };
 
-    renderEdit(
-      { ...invariantProfile, source: "user", status: "disabled" },
-      onSave,
-    );
+    renderEdit({ ...invariantProfile, status: "disabled" }, onSave);
 
     const activeSwitch = findSwitchByLabel("Active");
     expect(activeSwitch).not.toBeNull();

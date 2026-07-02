@@ -133,11 +133,7 @@ export function ProfileListItem({
             {isManaged && (
               <Tag
                 tone="positive"
-                title={
-                  isInvariant
-                    ? "Managed by Platform — this default profile cannot be disabled, deleted, or renamed."
-                    : "Managed by Platform — auth is locked, but you can rename or disable this profile."
-                }
+                title="Managed by Platform — this profile cannot be disabled, deleted, or renamed."
               >
                 Platform
               </Tag>
@@ -156,7 +152,7 @@ export function ProfileListItem({
 
         {/* Actions */}
         <div className="flex shrink-0 items-center gap-2">
-          {/* Invariant (default) profiles cannot be disabled, so an active one
+          {/* Invariant (managed) profiles cannot be disabled, so an active one
               gets no toggle. A disabled one keeps it so it can be re-enabled —
               the daemon accepts the enable direction. */}
           {(!isInvariant || !isActive) && (
@@ -177,9 +173,10 @@ export function ProfileListItem({
             </div>
           )}
           <div className="flex w-[92px] items-center justify-end gap-2">
-            {/* Invariant (default) profiles open in view mode and cannot be
-                deleted regardless of `source` — the daemon freezes invariant
-                names, so a managed-style lock applies here too. */}
+            {/* Invariant profiles open in view mode and cannot be deleted.
+                The daemon stamps the wire flag only on managed-source
+                entries, so a user-owned profile sharing a managed name
+                renders as a normal editable profile. */}
             <Button variant="ghost" size="compact" onClick={onEditClick}>
               {isManaged || isInvariant ? "View" : "Edit"}
             </Button>
@@ -190,11 +187,9 @@ export function ProfileListItem({
               aria-label={`Delete ${profile.label ?? profile.name}`}
               disabled={isManaged || isInvariant || isDeleting}
               title={
-                isManaged
+                isManaged || isInvariant
                   ? "Managed profiles cannot be deleted"
-                  : isInvariant
-                    ? "Default profiles cannot be deleted"
-                    : undefined
+                  : undefined
               }
               onClick={onDeleteClick}
               tintColor="var(--system-negative-strong)"

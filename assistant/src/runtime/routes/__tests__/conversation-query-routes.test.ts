@@ -940,10 +940,10 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
   describe("managed profile guard", () => {
     beforeEach(() => {
-      // Seed an invariant default profile and the non-invariant managed
-      // os-beta profile alongside the existing custom one. Default profiles
-      // are fully read-only (only disabled → active status transitions
-      // pass); os-beta keeps the label/status/topP allowlist.
+      // Seed two managed-source profiles alongside the existing custom one.
+      // Every managed profile name (including the flag-gated os-beta) is
+      // invariant while its entry is managed-source: fully read-only except
+      // the disabled → active status transition.
       const profiles = (
         rawConfigFixture.llm as { profiles: Record<string, unknown> }
       ).profiles;
@@ -963,10 +963,40 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       };
     });
 
-    test("allows label edit on managed os-beta profile, preserving seed fields", async () => {
+    test("rejects label edit on managed os-beta profile (invariant)", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "os-beta" },
+          body: { label: "My OS Beta" },
+        }),
+      ).rejects.toThrow(
+        /Cannot edit managed profile "os-beta" fields \[label\]/,
+      );
+      expect(savedRawConfig).toBeNull();
+    });
+
+    test("rejects disable on managed os-beta profile (invariant)", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "os-beta" },
+          body: { status: "disabled" },
+        }),
+      ).rejects.toThrow(
+        'Cannot edit managed profile "os-beta". Managed profiles are read-only',
+      );
+      expect(savedRawConfig).toBeNull();
+    });
+
+    test("re-enables a disabled managed os-beta profile, preserving seed fields", async () => {
+      (
+        rawConfigFixture.llm as {
+          profiles: Record<string, Record<string, unknown>>;
+        }
+      ).profiles["os-beta"]!.status = "disabled";
+
       const result = await replaceProfileRoute.handler({
         pathParams: { name: "os-beta" },
-        body: { label: "My OS Beta" },
+        body: { status: "active" },
       });
 
       expect(result).toEqual({ ok: true });
@@ -976,49 +1006,15 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
         }
       ).profiles["os-beta"]!;
 
-      expect(savedProfile.label).toBe("My OS Beta");
+      expect(savedProfile.status).toBe("active");
       // Seed fields preserved.
       expect(savedProfile.provider).toBe("together");
       expect(savedProfile.model).toBe("zai-org/GLM-5.2");
       expect(savedProfile.source).toBe("managed");
     });
 
-    test("allows status edit on managed os-beta profile", async () => {
-      const result = await replaceProfileRoute.handler({
-        pathParams: { name: "os-beta" },
-        body: { status: "disabled" },
-      });
-
-      expect(result).toEqual({ ok: true });
-      const savedProfile = (
-        savedRawConfig?.llm as {
-          profiles: Record<string, Record<string, unknown>>;
-        }
-      ).profiles["os-beta"]!;
-
-      expect(savedProfile.status).toBe("disabled");
-      expect(savedProfile.provider).toBe("together");
-    });
-
-    test("allows label+status edit together on managed os-beta profile", async () => {
-      const result = await replaceProfileRoute.handler({
-        pathParams: { name: "os-beta" },
-        body: { label: "Renamed", status: "disabled" },
-      });
-
-      expect(result).toEqual({ ok: true });
-      const savedProfile = (
-        savedRawConfig?.llm as {
-          profiles: Record<string, Record<string, unknown>>;
-        }
-      ).profiles["os-beta"]!;
-
-      expect(savedProfile.label).toBe("Renamed");
-      expect(savedProfile.status).toBe("disabled");
-    });
-
-    // Commit-time rejection coverage for invariant default profiles lives in
-    // src/__tests__/managed-profile-guard.test.ts.
+    // The full commit-time rejection matrix for invariant managed profiles
+    // lives in src/__tests__/managed-profile-guard.test.ts.
 
     test("rejects provider edit on managed profile with disallowed-keys error", async () => {
       // The handler is `async`, so synchronous BadRequest throws still
@@ -1033,16 +1029,16 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       );
     });
 
-    test("rejects mixed allowed+disallowed fields", async () => {
-      // label is allowed but maxTokens is not — must reject without partially
-      // applying label, so saver should never be invoked.
+    test("rejects mixed-field bodies without partially applying anything", async () => {
+      // Neither label nor maxTokens is writable on a managed profile — the
+      // reject must fire before any write, so the saver is never invoked.
       await expect(
         replaceProfileRoute.handler({
           pathParams: { name: "balanced" },
           body: { label: "Try", maxTokens: 999 },
         }),
       ).rejects.toThrow(
-        /Cannot edit managed profile "balanced" fields \[maxTokens\]/,
+        /Cannot edit managed profile "balanced" fields \[maxTokens, label\]/,
       );
       expect(savedRawConfig).toBeNull();
       // Reject path skips commitConfigWrite entirely — no provider reinit
@@ -1132,6 +1128,13 @@ describe("config invariant flag enrichment", () => {
             label: "OS Beta",
             status: "active",
           },
+          // A user-owned profile sharing a managed name: no invariant flag —
+          // the stamp is gated on `source: "managed"` to match the guard.
+          "cost-optimized": {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-haiku-4-5",
+          },
           custom: {
             provider: "anthropic",
             model: "claude-sonnet-4-6",
@@ -1141,12 +1144,13 @@ describe("config invariant flag enrichment", () => {
     };
   });
 
-  test("GET /v1/config marks default managed profiles invariant, not os-beta or custom", async () => {
+  test("GET /v1/config marks managed-source profiles invariant (incl. os-beta), not user-owned ones", async () => {
     const body = await configGetRoute.handler({});
     const profiles = wireProfiles(body);
 
     expect(profiles.balanced!.invariant).toBe(true);
-    expect(profiles["os-beta"]!).not.toHaveProperty("invariant");
+    expect(profiles["os-beta"]!.invariant).toBe(true);
+    expect(profiles["cost-optimized"]!).not.toHaveProperty("invariant");
     expect(profiles.custom!).not.toHaveProperty("invariant");
   });
 

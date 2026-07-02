@@ -165,18 +165,21 @@ export const OS_BETA_PROFILE_TEMPLATE: ManagedProfileTemplate = {
   topP: 0.95,
 };
 
-// The three default managed profiles are invariant: read-only to user-facing
-// writes except re-enabling a hatch-disabled one (enforced at
-// commitConfigWrite). os-beta is managed but NOT invariant.
-export const INVARIANT_PROFILE_NAMES = new Set(
-  Object.keys(MANAGED_PROFILE_TEMPLATES),
-);
+// All managed profiles, including the flag-gated os-beta, are invariant:
+// their MANAGED-SOURCE entries are read-only to user-facing writes except
+// re-enabling a disabled one (enforced at commitConfigWrite). A user-owned
+// profile sharing one of these names is NOT locked — invariance is gated on
+// the on-disk entry's `source` being `managed`.
+export const INVARIANT_PROFILE_NAMES = new Set([
+  ...Object.keys(MANAGED_PROFILE_TEMPLATES),
+  OS_BETA_PROFILE_KEY,
+]);
 
 // Membership here marks a name as managed. The route layer applies managed
 // restrictions (blocking model/provider edits and deletion) only to entries
-// whose on-disk `source` is `managed`; `INVARIANT_PROFILE_NAMES` entries are
-// additionally frozen by name at the `commitConfigWrite` choke point,
-// regardless of `source`. `OS_BETA_PROFILE_KEY` is flag-gated: it is
+// whose on-disk `source` is `managed`; `INVARIANT_PROFILE_NAMES` marks the
+// names whose managed-source entries are additionally frozen at the
+// `commitConfigWrite` choke point. `OS_BETA_PROFILE_KEY` is flag-gated: it is
 // materialized by the flag-gated profile reconcile, which refuses to touch a
 // same-named user profile.
 export const MANAGED_PROFILE_NAMES = new Set([
@@ -208,9 +211,9 @@ export type SeedInferenceProfilesOptions = {
  *    `cost-optimized`): reconciled from the code templates on every boot —
  *    on-platform and off-platform alike — so Vellum can push model/config
  *    updates to customers in a release without a workspace migration. The
- *    templates own all profile content; `label`, `status`, and `topP` are user
- *    overrides that survive reseeds and are editable through the managed PUT
- *    route allowlist.
+ *    templates own all profile content; on-disk `label`, `status`, and `topP`
+ *    overrides survive reseeds (the BYOK label suffix and hatch-time disable
+ *    rely on this).
  *    Platform overlays (`preserveProfileNames`) take precedence for the boot
  *    they are supplied.
  *
@@ -267,12 +270,11 @@ export function seedInferenceProfiles(
   //    A whitelist of fields survives the reconcile: `label`, `status`, and
   //    `topP` are preserved from disk across reseeds so the BYOK hatch-time
   //    disable and any pre-existing overrides don't silently revert on every
-  //    boot. User edits of these fields (via the managed PUT route
-  //    `/v1/config/llm/profiles/:name`) are allowed only on non-invariant
-  //    managed profiles (os-beta); invariant default profiles reject all
-  //    edits except the disabled→active re-enable at the route layer's
-  //    commit guard. Carry by key-presence rather than truthiness so an
-  //    explicit `null` (cleared field) survives too.
+  //    boot. Managed-source profiles reject all user-facing edits except the
+  //    disabled→active re-enable (enforced at the route layer's commit
+  //    guard), so these preserved fields are frozen, not editable. Carry by
+  //    key-presence rather than truthiness so an explicit `null` (cleared
+  //    field) survives too.
   //
   //    BYOK seed defaults (off-platform only):
   //      • label: " (Managed)" suffix disambiguates managed profile labels
@@ -327,12 +329,11 @@ export function seedInferenceProfiles(
             : previous.label;
       }
       if ("status" in previous) next.status = previous.status;
-      // `topP` is user-editable on non-invariant managed profiles (see the
-      // managed-profile editable allowlist on the PUT route; invariant
-      // defaults reject the edit at the commit guard) — preserve any on-disk
-      // override across reseeds, including an explicit `null` clear, or it
-      // would silently revert to the template value on every boot. Carry by
-      // key-presence (not truthiness) so `null` survives too.
+      // A pre-existing on-disk `topP` override is frozen by the invariant
+      // guard but must still survive reseeds, including an explicit `null`
+      // clear — otherwise it would silently revert to the template value on
+      // every boot. Carry by key-presence (not truthiness) so `null`
+      // survives too.
       if ("topP" in previous) next.topP = previous.topP;
     }
     profiles[name] = next as ProfileEntry;
