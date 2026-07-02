@@ -50,7 +50,9 @@
  * here we mock them to isolate the route's wiring logic.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
   type DiffPluginDeps,
@@ -71,6 +73,7 @@ import {
   PluginAlreadyInstalledError,
   PluginNotFoundError,
   PluginSourceUnavailableError,
+  sanitizePluginName,
 } from "../../../cli/lib/install-from-github.js";
 import type { InstalledPluginInfo } from "../../../cli/lib/list-installed-plugins.js";
 import {
@@ -174,6 +177,10 @@ mock.module("../../../cli/lib/install-from-github.js", () => ({
   PluginAlreadyInstalledError,
   PluginNotFoundError,
   PluginSourceUnavailableError,
+  // The icon route calls the real name guard directly (it builds a filesystem
+  // path from `:name` rather than delegating to a lib that sanitizes), so pass
+  // the real `sanitizePluginName` through — a traversal name must still 400.
+  sanitizePluginName,
   installPlugin: installSpy,
 }));
 
@@ -323,11 +330,13 @@ import {
   NotFoundError,
   ServiceUnavailableError,
 } from "../errors.js";
+import { getWorkspacePluginsDir } from "../../../util/platform.js";
 import {
   loadCategoryMapBounded,
   normalizeMarketplaceCategory,
   ROUTES as PLUGINS_ROUTES,
 } from "../plugins-routes.js";
+import { RouteResponse } from "../types.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
@@ -347,6 +356,7 @@ const upgradeHandler = findHandler("plugins_upgrade");
 const diffHandler = findHandler("plugins_diff");
 const enableHandler = findHandler("plugins_enable");
 const disableHandler = findHandler("plugins_disable");
+const iconHandler = findHandler("plugins_icon");
 
 async function invoke(args: RouteHandlerArgs = {}): Promise<{
   plugins: Array<Record<string, unknown>>;
@@ -2399,6 +2409,87 @@ describe("POST /v1/plugins/:name/disable", () => {
     });
 
     expect(() => invokeDisable({ pathParams: { name: "../escape" } })).toThrow(
+      BadRequestError,
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /v1/plugins/:name/icon
+// ---------------------------------------------------------------------------
+
+const ICON_PNG_SIGNATURE = Buffer.from([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+
+/** Minimal valid PNG: signature + IHDR width/height, within the 128×128 cap. */
+function makeIconPng(width = 64, height = 64): Buffer {
+  const buf = Buffer.alloc(24);
+  ICON_PNG_SIGNATURE.copy(buf, 0);
+  buf.writeUInt32BE(13, 8); // IHDR chunk length
+  buf.write("IHDR", 12, "ascii"); // IHDR chunk type
+  buf.writeUInt32BE(width, 16);
+  buf.writeUInt32BE(height, 20);
+  return buf;
+}
+
+/**
+ * Create `<workspacePlugins>/<name>/`, optionally writing `icon.png` into it.
+ * Returns the plugin directory so the caller can clean it up. Uses the real
+ * `getWorkspacePluginsDir()` (rooted at the per-test temp workspace), so the
+ * route's real `readValidatedPluginIcon` + `readFileSync` path is exercised.
+ */
+function makePluginDir(name: string, icon?: Buffer): string {
+  const dir = join(getWorkspacePluginsDir(), name);
+  mkdirSync(dir, { recursive: true });
+  if (icon) writeFileSync(join(dir, "icon.png"), icon);
+  return dir;
+}
+
+describe("GET /v1/plugins/:name/icon", () => {
+  const created: string[] = [];
+
+  afterEach(() => {
+    for (const dir of created.splice(0)) {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("serves the validated icon.png as image/png with caching headers", () => {
+    const bytes = makeIconPng(64, 64);
+    created.push(makePluginDir("with-icon", bytes));
+
+    const result = iconHandler({
+      pathParams: { name: "with-icon" },
+    }) as RouteResponse;
+
+    // Exact bytes flow through unmodified as an image/png body.
+    expect(result).toBeInstanceOf(RouteResponse);
+    expect(Buffer.from(result.body as Uint8Array)).toEqual(bytes);
+    expect(result.headers["Content-Type"]).toBe("image/png");
+    expect(result.headers["Content-Length"]).toBe(String(bytes.length));
+    // Immutable cache + nosniff: the bytes are content-addressed by the ETag.
+    expect(result.headers["Cache-Control"]).toBe(
+      "public, max-age=31536000, immutable",
+    );
+    expect(result.headers["X-Content-Type-Options"]).toBe("nosniff");
+    // ETag is the quoted content-hash iconVersion (16 hex chars).
+    expect(result.headers.ETag).toMatch(/^"[0-9a-f]{16}"$/);
+  });
+
+  test("404 (NotFoundError) when the installed plugin ships no valid icon", () => {
+    // Directory exists but carries no icon.png → validator returns hasIcon:false.
+    created.push(makePluginDir("no-icon"));
+
+    expect(() => iconHandler({ pathParams: { name: "no-icon" } })).toThrow(
+      NotFoundError,
+    );
+  });
+
+  test("400 (BadRequestError) on a traversal / malformed name", () => {
+    // The name guard rejects `../escape` before it can become a filesystem
+    // path, so no icon is ever read for an out-of-tree name.
+    expect(() => iconHandler({ pathParams: { name: "../escape" } })).toThrow(
       BadRequestError,
     );
   });

@@ -21660,6 +21660,35 @@ paths:
           description: No plugin directory exists with the given name.
         "409":
           description: The plugin is already enabled.
+  /v1/plugins/{name}/icon:
+    get:
+      operationId: plugins_by_name_icon_get
+      summary: Serve a plugin's bundled icon
+      description:
+        Serve the installed plugin's validated author-bundled `icon.png` as `image/png`. The PNG is re-validated on
+        read (magic bytes + IHDR dimensions + size) and served with an immutable `Cache-Control` plus a content-hash
+        `ETag` — the `iconVersion` reported by `GET /v1/plugins` and `GET /v1/plugins/:name` — so clients cache
+        aggressively and only refetch when the hash changes. A plugin with no valid bundled icon returns 404; a
+        malformed name returns 400. Pair with the `hasIcon` / `iconVersion` fields on the list and detail responses to
+        decide whether to fetch.
+      tags:
+        - plugins
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+        "404":
+          description: No installed plugin with the given name has an icon.
   /v1/plugins/{name}/inspect:
     get:
       operationId: plugins_by_name_inspect_get
