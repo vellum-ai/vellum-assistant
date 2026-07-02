@@ -128,6 +128,43 @@ describe("trustContextFromVerdict", () => {
     expect(result.memberPolicy).toBe("escalate");
   });
 
+  test("carries the verdict's gateway-owned interaction count onto the context", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-1",
+      contactId: "contact-1",
+      channelId: "channel-1",
+      status: "active",
+      policy: "allow",
+      interactionCount: 9,
+    } satisfies TrustVerdict;
+
+    const result = trustContextFromVerdict(verdict, {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+    });
+
+    expect(result.requesterInteractionCount).toBe(9);
+  });
+
+  test("leaves interaction count undefined when the verdict carries none", () => {
+    const verdict = {
+      trustClass: "trusted_contact",
+      canonicalSenderId: "u-1",
+      contactId: "contact-1",
+      channelId: "channel-1",
+      status: "active",
+      policy: "allow",
+    } satisfies TrustVerdict;
+
+    const result = trustContextFromVerdict(verdict, {
+      sourceChannel: "slack",
+      conversationExternalId: CONV,
+    });
+
+    expect(result.requesterInteractionCount).toBeUndefined();
+  });
+
   test("memberless verdict leaves ACL member fields undefined", () => {
     const verdict = {
       trustClass: "unknown",

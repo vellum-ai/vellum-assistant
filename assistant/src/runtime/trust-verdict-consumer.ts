@@ -105,6 +105,13 @@ export function trustContextFromVerdict(
     context.memberPolicy = member.policy;
   }
 
+  // Interaction telemetry is gateway-owned: carry the verdict's count straight
+  // through so turn assembly reads it from the verdict rather than the local
+  // assistant DB.
+  if (verdict.interactionCount !== undefined) {
+    context.requesterInteractionCount = verdict.interactionCount;
+  }
+
   return context;
 }
 

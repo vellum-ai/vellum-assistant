@@ -174,21 +174,20 @@ export const getContactInternal = getContact;
 /** INFO-only contact fields, joined locally by contact ID. */
 export interface ContactInfo {
   notes: string | null;
-  interactionCount: number;
 }
 
 /**
- * Look up a contact's INFO fields (notes, interaction count) by ID.
+ * Look up a contact's INFO `notes` field by ID.
  *
- * Carries no ACL state (status/policy/verification) — those are owned by the
- * gateway-stamped trust verdict. Returns null when the contact does not exist.
+ * Carries no ACL state (status/policy/verification) or interaction telemetry —
+ * those are owned by the gateway (ACL via the stamped trust verdict, telemetry
+ * via the verdict/rich reads). Returns null when the contact does not exist.
  */
 export function findContactInfoById(contactId: string): ContactInfo | null {
   const contact = getContact(contactId);
   if (!contact) return null;
   return {
     notes: contact.notes,
-    interactionCount: contact.interactionCount,
   };
 }
 

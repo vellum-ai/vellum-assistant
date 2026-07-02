@@ -102,7 +102,7 @@ describe("contact interaction INFO aggregation", () => {
     expect(phone?.lastSeenAt).toBe(1850);
   });
 
-  test("findContactInfoById surfaces the real interaction count", () => {
+  test("findContactInfoById returns the notes-only INFO shape (telemetry is gateway-owned)", () => {
     insertContact("ct_2", "Bob");
     insertChannel({
       id: "ch_c",
@@ -114,7 +114,11 @@ describe("contact interaction INFO aggregation", () => {
     });
 
     const info = findContactInfoById("ct_2");
-    expect(info?.interactionCount).toBe(5);
+    // Interaction telemetry is no longer surfaced here — it is gateway-owned
+    // (carried on the trust verdict / gateway rich reads).
+    expect(info).not.toBeNull();
+    expect(Object.keys(info!)).toEqual(["notes"]);
+    expect(info!.notes).toBeNull();
   });
 
   test("lastInteraction is null when no channel has interacted", () => {

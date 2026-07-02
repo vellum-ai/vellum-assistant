@@ -44,6 +44,13 @@ export interface TrustContext {
   memberStatus?: string;
   /** Channel policy of the requester's channel (ACL). */
   memberPolicy?: string;
+  /**
+   * Prior-interaction count for the requester's member channel, sourced from
+   * the gateway trust verdict (gateway owns interaction telemetry). Undefined
+   * when the verdict carries no member telemetry (unknown sender) or when trust
+   * was resolved locally without a gateway verdict.
+   */
+  requesterInteractionCount?: number;
 }
 
 /**

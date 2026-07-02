@@ -315,6 +315,50 @@ describe("ContactStore.listContactsRich", () => {
     expect(result).toEqual([]);
   });
 
+  test("ids filter restricts to the given contact ids, bypassing role/limit", async () => {
+    for (const id of ["a", "b", "c"]) {
+      seedGatewayContact({ id, role: "contact" });
+      seedGatewayChannel({
+        id: `ch-${id}`,
+        contactId: id,
+        interactionCount: id === "b" ? 5 : 1,
+        lastInteraction: id === "b" ? 42 : null,
+      });
+      seedAssistantInfo({ id, contactType: "human" });
+    }
+
+    const result = await new ContactStore().listContactsRich({
+      ids: ["b", "c"],
+      // role/limit are ignored when ids is present.
+      role: "guardian",
+      limit: 1,
+    });
+
+    expect(result.map((c) => c.id).sort()).toEqual(["b", "c"]);
+    const b = result.find((c) => c.id === "b")!;
+    expect(b.interactionCount).toBe(5);
+    expect(b.lastInteraction).toBe(42);
+  });
+
+  test("ids filter returns empty for an empty id set", async () => {
+    seedGatewayContact({ id: "a" });
+    seedAssistantInfo({ id: "a", contactType: "human" });
+    const result = await new ContactStore().listContactsRich({ ids: [] });
+    expect(result).toEqual([]);
+  });
+
+  test("ids filter dedupes and ignores unknown ids", async () => {
+    seedGatewayContact({ id: "a" });
+    seedGatewayChannel({ id: "ch-a", contactId: "a", interactionCount: 2 });
+    seedAssistantInfo({ id: "a", contactType: "human" });
+
+    const result = await new ContactStore().listContactsRich({
+      ids: ["a", "a", "ghost"],
+    });
+    expect(result.map((c) => c.id)).toEqual(["a"]);
+    expect(result[0].interactionCount).toBe(2);
+  });
+
   test("primary channel appears first regardless of creation order", async () => {
     seedGatewayContact({ id: "c1" });
     seedGatewayChannel({ id: "ch-old", contactId: "c1", createdAt: 100 });
