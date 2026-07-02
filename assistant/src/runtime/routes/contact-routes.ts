@@ -242,6 +242,15 @@ type ContactWithGatewayTelemetry = Omit<ContactWithChannels, "channels"> & {
 };
 
 /**
+ * Key channels by (type, lower(address)) for the id-miss telemetry fallback.
+ * Matches the gateway's UNIQUE(type, address) NOCASE collation; the NUL
+ * delimiter cannot appear in either field, so keys never collide.
+ */
+function channelKey(type: string, address: string): string {
+  return `${type}\u0000${address.toLowerCase()}`;
+}
+
+/**
  * Overlay gateway-owned interaction telemetry onto daemon-native contact reads
  * (search / contactType-filtered), which bypass the gateway list relay. The
  * daemon still owns the FILTERING (gateway-native search/contactType is
@@ -277,12 +286,21 @@ async function hydrateTelemetryFromGateway(
     const gwChannelById = new Map(
       (gw?.channels ?? []).map((ch) => [ch.id, ch]),
     );
+    // Local channel UUIDs can diverge from the gateway's for the same
+    // (type, address) (legacy pre-alignment channels), so an id-miss falls back
+    // to a (type, lower(address)) match — mirroring the gateway's
+    // overlayAclOntoContacts. UNIQUE(type, address) collates NOCASE gateway-side.
+    const gwChannelByTypeAddress = new Map(
+      (gw?.channels ?? []).map((ch) => [channelKey(ch.type, ch.address), ch]),
+    );
     return {
       ...c,
       interactionCount: gw?.interactionCount ?? null,
       lastInteraction: gw?.lastInteraction ?? null,
       channels: c.channels.map((ch) => {
-        const gwCh = gwChannelById.get(ch.id);
+        const gwCh =
+          gwChannelById.get(ch.id) ??
+          gwChannelByTypeAddress.get(channelKey(ch.type, ch.address));
         return {
           ...ch,
           lastSeenAt: gwCh?.lastSeenAt ?? null,

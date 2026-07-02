@@ -32,7 +32,7 @@ interface ContactWithChannels {
   principalId?: string;
   createdAt: string | number;
   updatedAt: string | number;
-  interactionCount: number;
+  interactionCount: number | null;
   channels: ContactChannel[];
 }
 
@@ -133,7 +133,7 @@ function formatContactDetail(
   if (c.principalId) lines.push(`Principal:    ${c.principalId}`);
   lines.push(`Created:      ${new Date(c.createdAt).toISOString()}`);
   lines.push(`Updated:      ${new Date(c.updatedAt).toISOString()}`);
-  lines.push(`Interactions: ${c.interactionCount}`);
+  lines.push(`Interactions: ${c.interactionCount ?? 0}`);
   if (c.channels.length > 0) {
     lines.push("");
     lines.push("Channels:");
