@@ -68,10 +68,6 @@ function resolveApprovalContext(
     if (!requestId) {
       return undefined;
     }
-    // Introduction card: the action set is signal-driven (workspace member /
-    // bot / external), never the generic Approve/Reject pair. The first
-    // action is the emphasized default; no code option is ever offered for a
-    // bot.
     return {
       requestId,
       actions: buildIntroductionActionsForPayload(

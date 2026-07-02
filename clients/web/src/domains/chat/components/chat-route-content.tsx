@@ -533,19 +533,11 @@ export function ChatMainPanel({
 
   const sendDisabled = isSendDisabledFromTurn || typingDisabled;
 
-  const handleQuoteReplyNow = useCallback(
-    (quotedText: string, replyText: string) => {
-      if (sendDisabled) {
-        return;
-      }
-      const blockquote = quotedText
-        .split("\n")
-        .map((line) => `> ${line}`)
-        .join("\n");
-      void sendMessage(`${blockquote}\n\n${replyText}`);
-    },
-    [sendMessage, sendDisabled],
-  );
+  const handleQuoteAddedToChat = useCallback(() => {
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  }, [inputRef]);
 
   const isEmptyConversation =
     !!activeConversationId &&
@@ -1098,7 +1090,7 @@ export function ChatMainPanel({
       {sendErrorModalNode}
       {ruleEditorModalNode}
       <TextSelectionPopover containerRef={transcriptContainerRef} />
-      <QuoteReplyBubble onSendNow={handleQuoteReplyNow} />
+      <QuoteReplyBubble onAddToChat={handleQuoteAddedToChat} />
     </>
   );
 }
