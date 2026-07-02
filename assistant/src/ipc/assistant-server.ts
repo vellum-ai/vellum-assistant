@@ -51,12 +51,12 @@ import {
   writeStreamChunk,
   writeStreamEnd,
 } from "./ipc-framing.js";
+import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
 import {
   type DbProxyTransactionParams,
   handleDbProxyTransaction,
 } from "./routes/db-proxy-transaction.js";
-import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { INVITE_IPC_METHODS } from "./routes/invite-ipc-routes.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
@@ -224,7 +224,7 @@ export class AssistantIpcServer {
 
     this.methods.set("$cancel", (params) => {
       const targetId = (params as { targetId?: string }).targetId;
-      if (targetId) this.abortControllers.get(targetId)?.abort();
+      if (targetId) {this.abortControllers.get(targetId)?.abort();}
       return null;
     });
 
@@ -266,11 +266,11 @@ export class AssistantIpcServer {
   stop(): void {
     this.watchdog.stop();
 
-    for (const ctrl of this.abortControllers.values()) ctrl.abort();
+    for (const ctrl of this.abortControllers.values()) {ctrl.abort();}
     this.abortControllers.clear();
 
     for (const client of this.clients) {
-      if (!client.destroyed) client.destroy();
+      if (!client.destroyed) {client.destroy();}
     }
     this.clients.clear();
 
@@ -606,7 +606,7 @@ export class AssistantIpcServer {
     response: IpcResponse,
     binary?: Uint8Array,
   ): void {
-    if (socket.destroyed) return;
+    if (socket.destroyed) {return;}
     if (reader.isLegacy) {
       writeLegacyMessage(socket, response);
     } else {
@@ -654,7 +654,7 @@ export function injectLocalActorHeader(
   if (!headers["x-vellum-actor-principal-id"]) {
     try {
       const localActor = findLocalGuardianPrincipalIdFromStore();
-      if (localActor) headers["x-vellum-actor-principal-id"] = localActor;
+      if (localActor) {headers["x-vellum-actor-principal-id"] = localActor;}
     } catch (err) {
       log.debug(
         { err },
