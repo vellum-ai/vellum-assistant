@@ -10,8 +10,8 @@
  * any locally-installed version. Emoji/text icons degrade naturally via
  * the optional field, so this gate only guards the `<img>` path.
  *
- * MIN_VERSION is a placeholder for the release that ships the icon
- * endpoint; bump it to that release when it is cut.
+ * MIN_VERSION is the minimum assistant version that serves the
+ * plugin-icon endpoint.
  */
 import { useAssistantSupports } from "./utils";
 
