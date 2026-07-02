@@ -119,6 +119,62 @@ export type {
   RedeemVoiceInviteRequest,
 } from "./invite-contract.js";
 
+// Verification-session contract (shared gateway ↔ daemon) — hash helper,
+// status enums, wire DTO + verification_sessions_* IPC schemas
+export {
+  BindSessionIdentityIpcParamsSchema,
+  CountRecentSendsIpcParamsSchema,
+  CountRecentSendsIpcResponseSchema,
+  CreateInboundSessionIpcParamsSchema,
+  CreateInboundSessionIpcResponseSchema,
+  CreateOutboundSessionIpcParamsSchema,
+  CreateOutboundSessionIpcResponseSchema,
+  FindActiveSessionIpcParamsSchema,
+  GetPendingSessionIpcParamsSchema,
+  hashVerificationSecret,
+  IDENTITY_BINDING_STATUS_VALUES,
+  IdentityBindingStatusSchema,
+  ResolveBootstrapSessionIpcParamsSchema,
+  RevokePendingSessionsIpcParamsSchema,
+  SESSION_STATUS_VALUES,
+  SessionLookupIpcResponseSchema,
+  SessionMutationIpcResponseSchema,
+  SessionStatusSchema,
+  UpdateSessionDeliveryIpcParamsSchema,
+  UpdateSessionStatusIpcParamsSchema,
+  ValidateConsumeSessionIpcParamsSchema,
+  ValidateConsumeSessionIpcResponseSchema,
+  VERIFICATION_PURPOSE_VALUES,
+  VERIFICATION_SESSIONS_IPC_METHODS,
+  VerificationPurposeSchema,
+  VerificationSessionSchema,
+} from "./verification-session-contract.js";
+
+export type {
+  BindSessionIdentityIpcParams,
+  CountRecentSendsIpcParams,
+  CountRecentSendsIpcResponse,
+  CreateInboundSessionIpcParams,
+  CreateInboundSessionIpcResponse,
+  CreateOutboundSessionIpcParams,
+  CreateOutboundSessionIpcResponse,
+  FindActiveSessionIpcParams,
+  GetPendingSessionIpcParams,
+  IdentityBindingStatus,
+  ResolveBootstrapSessionIpcParams,
+  RevokePendingSessionsIpcParams,
+  SessionLookupIpcResponse,
+  SessionMutationIpcResponse,
+  SessionStatus,
+  UpdateSessionDeliveryIpcParams,
+  UpdateSessionStatusIpcParams,
+  ValidateConsumeSessionIpcParams,
+  ValidateConsumeSessionIpcResponse,
+  VerificationPurpose,
+  VerificationSessionsIpcMethod,
+  VerificationSessionWire,
+} from "./verification-session-contract.js";
+
 // Guardian delivery contract (daemon → gateway pull) — Zod schemas + derived types
 export {
   GuardianDeliverySchema,
