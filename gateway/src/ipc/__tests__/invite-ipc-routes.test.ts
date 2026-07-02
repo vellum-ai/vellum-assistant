@@ -273,22 +273,30 @@ describe("GatewayIpcServer — protocol/validation errors carry status codes", (
 });
 
 describe("invite CRUD IPC routes registration", () => {
-  test("registers the three CRUD methods alongside record_invite_redemption", () => {
+  test("registers the CRUD and voice-invite methods alongside record_invite_redemption", () => {
     const methods = inviteRoutes.map((r) => r.method);
     expect(methods).toContain("record_invite_redemption");
     expect(methods).toContain("invites_list");
     expect(methods).toContain("invites_create");
     expect(methods).toContain("invites_revoke");
-    // No redeem IPC method — redemption stays on record_invite_redemption.
+    expect(methods).toContain("get_active_voice_invite");
+    expect(methods).toContain("redeem_voice_invite");
+    // No generic redeem IPC method — text redemption happens at ingress.
     expect(methods).not.toContain("invites_redeem");
     // invites_trigger_call stays daemon-local on the assistant; relaying it
     // here would loop gateway→assistant→gateway.
     expect(methods).not.toContain("invites_trigger_call");
-    expect(inviteRoutes).toHaveLength(4);
+    expect(inviteRoutes).toHaveLength(6);
   });
 
-  test("every CRUD route carries a Zod param schema", () => {
-    for (const m of ["invites_list", "invites_create", "invites_revoke"]) {
+  test("every route carries a Zod param schema", () => {
+    for (const m of [
+      "invites_list",
+      "invites_create",
+      "invites_revoke",
+      "get_active_voice_invite",
+      "redeem_voice_invite",
+    ]) {
       expect(route(m).schema).toBeDefined();
     }
   });

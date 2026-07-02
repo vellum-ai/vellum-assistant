@@ -1,9 +1,9 @@
 /**
  * Gateway-native invite redemption engine + inbound text intercept.
  *
- * Resolves a 6-digit invite code or invite link token against the
- * gateway-canonical `ingress_invites` table, validates lifecycle
- * (status / expiry / use count / channel), gates on existing gateway
+ * Resolves a 6-digit invite code, invite link token, or caller-bound voice
+ * code against the gateway-canonical `ingress_invites` table, validates
+ * lifecycle (status / expiry / use count / channel), gates on existing gateway
  * membership, claims the row atomically, and applies the verified-channel
  * ACL side effect — entirely inside the gateway. After a successful
  * redemption the daemon is notified best-effort (`invite_redeemed`) so it
@@ -17,6 +17,7 @@ import {
   hashInviteCode,
   hashInviteToken,
   isInviteCodeRedemptionEnabled,
+  type ActiveVoiceInvite,
   type CommandIntent,
   type InviteRedemptionOutcome,
   type TrustVerdict,
@@ -297,6 +298,113 @@ async function finishRedemption(
     },
     replyText: INVITE_REPLY_TEMPLATES.redeemed,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Voice invites (phone channel)
+// ---------------------------------------------------------------------------
+
+const DEFAULT_VOICE_CODE_DIGITS = 6;
+
+/** Lazily flip expired-but-still-active candidates to status "expired". */
+function sweepExpiredVoiceInvites(
+  store: ContactStore,
+  candidates: IngressInviteRow[],
+  now: number,
+): void {
+  for (const candidate of candidates) {
+    if (candidate.expiresAt <= now) {
+      store.markInviteExpired(candidate.id);
+    }
+  }
+}
+
+/**
+ * Resolve the active voice invite awaiting a caller, projected to display
+ * metadata for the personalized voice prompt (never the code or its hash).
+ * The invitee name prefers the target contact's curated displayName over the
+ * invite's free-text friendName. Expired stragglers are lazily swept.
+ */
+export function getActiveVoiceInviteForCaller(
+  callerExternalUserId: string,
+  store: ContactStore = new ContactStore(),
+): ActiveVoiceInvite | null {
+  const candidates = store.findActiveVoiceInvites(callerExternalUserId);
+  const now = Date.now();
+  sweepExpiredVoiceInvites(store, candidates, now);
+
+  const invite = candidates.find((candidate) => candidate.expiresAt > now);
+  if (!invite) return null;
+
+  const inviteeName =
+    store.getContact(invite.contactId)?.displayName?.trim() ||
+    invite.friendName?.trim() ||
+    null;
+  return {
+    inviteId: invite.id,
+    inviteeName,
+    guardianName: invite.guardianName?.trim() || null,
+    codeDigits: invite.voiceCodeDigits ?? DEFAULT_VOICE_CODE_DIGITS,
+  };
+}
+
+export type VoiceInviteRedemptionResult =
+  | { status: "redeemed" | "already_member"; outcome: InviteRedemptionOutcome }
+  | { status: "failed"; reason: "invalid_or_expired" };
+
+const VOICE_FAILURE: VoiceInviteRedemptionResult = {
+  status: "failed",
+  reason: "invalid_or_expired",
+};
+
+/**
+ * Redeem a spoken voice invite code for a caller identified by phone number.
+ *
+ * Candidates are scoped to active phone invites bound to the caller
+ * (`expectedExternalUserId`), then matched by code hash with expiry/use-count
+ * pre-checks (expired candidates are lazily swept). Validation, the membership
+ * gate (`already_member` no-consume; blocked never reactivated), the atomic
+ * claim, and the phone ACL upsert are shared with the code/token paths via
+ * {@link finishRedemption} — the invite's friendName seeds the displayName,
+ * with the target contact's curated name taking precedence inside the helper.
+ *
+ * Every failure collapses to the single generic `invalid_or_expired` so a
+ * caller probing codes can't learn which invites exist, which numbers are
+ * bound, or which check refused them.
+ */
+export async function redeemVoiceInvite(params: {
+  callerExternalUserId: string;
+  code: string;
+  store?: ContactStore;
+}): Promise<VoiceInviteRedemptionResult> {
+  const store = params.store ?? new ContactStore();
+  const { callerExternalUserId, code } = params;
+  if (!callerExternalUserId) return VOICE_FAILURE;
+
+  const candidates = store.findActiveVoiceInvites(callerExternalUserId);
+  const codeHash = hashInviteCode(code);
+  const now = Date.now();
+  const invite = candidates.find(
+    (candidate) =>
+      candidate.voiceCodeHash === codeHash &&
+      candidate.expiresAt > now &&
+      candidate.useCount < candidate.maxUses,
+  );
+  if (!invite) {
+    sweepExpiredVoiceInvites(store, candidates, now);
+    return VOICE_FAILURE;
+  }
+
+  const result = await finishRedemption(store, invite, {
+    sourceChannel: "phone",
+    externalUserId: callerExternalUserId,
+    externalChatId: callerExternalUserId,
+    displayName: invite.friendName ?? undefined,
+  });
+  if (result.status !== "redeemed" && result.status !== "already_member") {
+    return VOICE_FAILURE;
+  }
+  return { status: result.status, outcome: result.outcome };
 }
 
 // ---------------------------------------------------------------------------
