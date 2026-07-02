@@ -883,6 +883,23 @@ export function buildInstructionMessage(
 // Summary message construction
 // ---------------------------------------------------------------------------
 
+export const CONTEXT_SUMMARY_MARKER = "<context_summary>";
+export const CONTEXT_SUMMARY_CLOSE = "</context_summary>";
+
+/**
+ * Wrap durable summary text in the `<context_summary>` tags that identify a
+ * synthetic summary head. Every summary head in a live history carries this
+ * wrapper — the reload/fork rehydration path (`createContextSummaryMessage`
+ * in the compaction plugin) and the compactor-minted heads below — so
+ * persisted-count accounting can recognize a head structurally even after
+ * history repair rebuilds message wrappers and WeakSet identity is lost.
+ * The durable `summaryText` result field stays unwrapped; rehydration adds
+ * the wrapper back when it rebuilds the head from the DB column.
+ */
+export function wrapContextSummaryText(summary: string): string {
+  return `${CONTEXT_SUMMARY_MARKER}\n${summary}\n${CONTEXT_SUMMARY_CLOSE}`;
+}
+
 /**
  * Synthetic messages a compaction pass prepends to the rebuilt history —
  * the summary head and the retained-images message. They have no DB row,
@@ -1224,7 +1241,7 @@ export async function runAssistantDrivenCompaction(
   let finalSummaryText = summaryText;
   let summaryMessage: Message = {
     role: "assistant",
-    content: [{ type: "text", text: finalSummaryText }],
+    content: [{ type: "text", text: wrapContextSummaryText(finalSummaryText) }],
   };
 
   const {
@@ -1325,7 +1342,9 @@ export async function runAssistantDrivenCompaction(
       finalSummaryText = summaryText + truncationNote;
       summaryMessage = {
         role: "assistant",
-        content: [{ type: "text", text: finalSummaryText }],
+        content: [
+          { type: "text", text: wrapContextSummaryText(finalSummaryText) },
+        ],
       };
       log.info(
         {
@@ -1607,7 +1626,7 @@ export async function runEmergencyCompaction(
   const summaryText = buildSummaryMemoryText(parsed.summary, parsed.keyState);
   const summaryMessage: Message = {
     role: "assistant",
-    content: [{ type: "text", text: summaryText }],
+    content: [{ type: "text", text: wrapContextSummaryText(summaryText) }],
   };
 
   const compactedMessages: Message[] = [summaryMessage, ...keptTail];

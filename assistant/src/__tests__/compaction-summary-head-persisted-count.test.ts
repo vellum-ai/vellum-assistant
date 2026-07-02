@@ -66,6 +66,7 @@ import {
   ContextWindowManager,
   createContextSummaryMessage,
 } from "../plugins/defaults/compaction/window-manager.js";
+import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
 import type { Message, Provider } from "../providers/types.js";
 
 function turnTimestamp(turn: number): string {
@@ -242,6 +243,54 @@ describe("compactedPersistedMessages excludes the synthetic summary head", () =>
     expect(second.compactedPersistedMessages).toBe(2);
   });
 
+  test("repaired history — the structural marker catches a rebuilt rehydrated head", async () => {
+    // GIVEN the same rehydrated history after the per-turn history-repair
+    // pass, which copies content into fresh message wrappers — WeakSet
+    // identity is lost and only the `<context_summary>` marker remains
+    const { messages } = repairHistory(historyWithSummaryHead());
+    expect(messages.length).toBe(8);
+    const manager = buildManager(makeProvider([FIXED_RESPONSE]));
+
+    // WHEN a fixed-boundary pass runs over the repaired array
+    const result = await manager.maybeCompact(messages, undefined, {
+      fixedTailStartIndex: 5,
+    });
+
+    // THEN the head is still excluded from the persisted count
+    expect(result.compacted).toBe(true);
+    expect(result.compactedMessages).toBe(5);
+    expect(result.compactedPersistedMessages).toBe(4);
+  });
+
+  test("repaired history — a compactor-minted head is excluded on the next pass", async () => {
+    // GIVEN a history compacted once in this process, then run through
+    // history repair (the per-turn default) before the next compaction —
+    // the compactor-minted head must carry the structural marker or this
+    // pass counts it as a persisted row
+    const manager = buildManager(
+      makeProvider([FIXED_RESPONSE, FIXED_RESPONSE]),
+    );
+    const first = await manager.maybeCompact(
+      historyWithSummaryHead(),
+      undefined,
+      { fixedTailStartIndex: 5 },
+    );
+    expect(first.compacted).toBe(true);
+    const { messages: repaired } = repairHistory(first.messages);
+    // [minted summary, row 7, row 8, row 9] — alternating roles, no merges
+    expect(repaired.length).toBe(4);
+
+    // WHEN a second fixed-boundary pass cuts at row 9 (history index 3)
+    const second = await manager.maybeCompact(repaired, undefined, {
+      fixedTailStartIndex: 3,
+    });
+
+    // THEN only rows 7-8 count as compacted-persisted
+    expect(second.compacted).toBe(true);
+    expect(second.compactedMessages).toBe(3);
+    expect(second.compactedPersistedMessages).toBe(2);
+  });
+
   test("fork-inherited prefix is not double-counted with the summary head", async () => {
     // GIVEN a forked conversation whose seeded non-persisted prefix (2)
     // already includes its inherited summary head
@@ -261,11 +310,52 @@ describe("compactedPersistedMessages excludes the synthetic summary head", () =>
       fixedTailStartIndex: 4,
     });
 
-    // THEN the prefix is subtracted once (max, not summed with the head):
+    // THEN the prefix is subtracted once (the seed subsumes its own head):
     // compactable = [summary, inherited, row, row] → 2 persisted rows
     expect(result.compacted).toBe(true);
     expect(result.compactedMessages).toBe(4);
     expect(result.compactedPersistedMessages).toBe(2);
+  });
+
+  test("partially consumed fork prefix — a later pass counts minted head plus remaining seed", async () => {
+    // GIVEN a fork whose seeded 2-message prefix was only partially consumed:
+    // the first pass folds just the inherited summary head, leaving one
+    // seeded message behind a freshly minted head
+    const messages: Message[] = [
+      createContextSummaryMessage("Inherited summary from the parent."),
+      userTurn(0, "inherited user context with no DB row"),
+      userTurn(1, "Alice's first persisted message"),
+      assistantTurn(2, "assistant replies"),
+      userTurn(3, "Alice follows up"),
+      assistantTurn(4, "assistant replies again"),
+    ];
+    const manager = buildManager(
+      makeProvider([FIXED_RESPONSE, FIXED_RESPONSE]),
+    );
+    manager.seedNonPersistedPrefix(2);
+    // Cut at the inherited user message (index 1) — a user boundary the
+    // tool-pairing back-walk leaves in place
+    const first = await manager.maybeCompact(messages, undefined, {
+      fixedTailStartIndex: 1,
+    });
+    expect(first.compacted).toBe(true);
+    expect(first.compactedMessages).toBe(1);
+    expect(first.compactedPersistedMessages).toBe(0);
+    // [minted summary, inherited user message, rows 1-4]
+    expect(first.messages.length).toBe(6);
+
+    // WHEN a second pass compacts past both the minted head and the
+    // remaining seeded message (cut at row 3 — history index 4)
+    const second = await manager.maybeCompact(first.messages, undefined, {
+      fixedTailStartIndex: 4,
+    });
+
+    // THEN the non-persisted lead is minted head + remaining seed = 2, so
+    // exactly rows 1-2 count as persisted — a max() of the two spans would
+    // under-count the lead and drop a kept row on reload
+    expect(second.compacted).toBe(true);
+    expect(second.compactedMessages).toBe(4);
+    expect(second.compactedPersistedMessages).toBe(2);
   });
 
   test("emergency compaction over a rehydrated summary head", async () => {
