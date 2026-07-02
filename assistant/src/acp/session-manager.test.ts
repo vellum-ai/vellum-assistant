@@ -138,10 +138,11 @@ describe("AcpSessionManager parent notification", () => {
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
 
-    const persistArg = persistUserMessage.mock.calls[0][0] as {
-      content: string;
-      metadata: unknown;
-    };
+    const persistArg = (
+      persistUserMessage.mock.calls as unknown as Array<
+        [{ content: string; metadata: unknown }]
+      >
+    )[0][0];
     expect(persistArg.content).toBe('[ACP agent "claude" failed]\n\nboom');
     expect(persistArg.metadata).toEqual({
       acpNotification: { acpSessionId: "proto-1", agent: "claude" },
@@ -174,10 +175,11 @@ describe("AcpSessionManager parent notification", () => {
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
 
-    const persistArg = persistUserMessage.mock.calls[0][0] as {
-      content: string;
-      metadata: unknown;
-    };
+    const persistArg = (
+      persistUserMessage.mock.calls as unknown as Array<
+        [{ content: string; metadata: unknown }]
+      >
+    )[0][0];
     expect(
       persistArg.content.startsWith('[ACP agent "claude" completed]'),
     ).toBe(true);
