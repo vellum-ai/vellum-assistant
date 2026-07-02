@@ -270,4 +270,52 @@ describe("useDoctorAutoScroll", () => {
     });
     expect(result.current.showScrollToLatest).toBe(true);
   });
+
+  test("resets pinned state when a new scroll element attaches", () => {
+    // First transcript — user scrolls away (un-pinned).
+    const { el: el1 } = createScrollElement({
+      scrollTop: 4200,
+      scrollHeight: 5000,
+      clientHeight: 800,
+    });
+    document.body.appendChild(el1);
+
+    const { result, rerender } = renderHook(
+      (entries: ReadonlyArray<unknown>) => useDoctorAutoScroll(entries),
+      { initialProps: [{}] as ReadonlyArray<unknown> },
+    );
+
+    act(() => {
+      result.current.scrollContainerRef(el1);
+    });
+    // Drag up → un-pinned, pill visible.
+    act(() => {
+      el1.scrollTop = 1000;
+      el1.dispatchEvent(new Event("scroll"));
+    });
+    expect(result.current.showScrollToLatest).toBe(true);
+
+    // Unmount the old element (New Session / assistant switch renders the
+    // idle branch).
+    act(() => {
+      result.current.scrollContainerRef(null);
+    });
+
+    // A fresh transcript mounts — new element, scrolled to the bottom.
+    const { el: el2 } = createScrollElement({
+      scrollTop: 4200,
+      scrollHeight: 5000,
+      clientHeight: 800,
+    });
+    document.body.appendChild(el2);
+    act(() => {
+      result.current.scrollContainerRef(el2);
+    });
+    rerender([{}, {}] as ReadonlyArray<unknown>);
+
+    // Pinned state should have reset — pill hidden. The growth effect
+    // also fires on el2 (auto-follow), but we assert the user-visible
+    // contract: the pill is hidden on the fresh transcript.
+    expect(result.current.showScrollToLatest).toBe(false);
+  });
 });

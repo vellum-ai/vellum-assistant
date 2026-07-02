@@ -70,7 +70,19 @@ export function useDoctorAutoScroll(
 
   const scrollContainerRef = useCallback(
     (el: HTMLDivElement | null) => {
-      setScrollEl(el);
+      setScrollEl((prev) => {
+        // Reset pinned state for each fresh transcript element. When the
+        // messages div unmounts after the user scrolled away (New Session
+        // or assistant switch clears entries and renders the idle branch),
+        // isPinnedRef would otherwise stay false, so the next overflowing
+        // transcript mounts unpinned and the user lands at scrollTop=0
+        // with the newest content hidden. Each new element starts pinned.
+        if (el !== prev) {
+          isPinnedRef.current = true;
+          setShowScrollToLatest(false);
+        }
+        return el;
+      });
     },
     [],
   );
