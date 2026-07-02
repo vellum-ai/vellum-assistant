@@ -53,6 +53,15 @@ describe("TTS provider catalog", () => {
     }
   });
 
+  test("every entry declares a valid mediaStreamPlayback output format", () => {
+    const validFormats = new Set(["pcm", "wav", "none"]);
+    for (const entry of entries) {
+      expect(validFormats.has(entry.mediaStreamPlayback.outputFormat)).toBe(
+        true,
+      );
+    }
+  });
+
   test("every entry has at least one secret requirement", () => {
     for (const entry of entries) {
       expect(entry.secretRequirements.length).toBeGreaterThan(0);
@@ -120,6 +129,10 @@ describe("ElevenLabs catalog entry", () => {
     expect(entry.capabilities.supportedFormats).toContain("mp3");
   });
 
+  test("plays over media-stream via PCM output", () => {
+    expect(entry.mediaStreamPlayback.outputFormat).toBe("pcm");
+  });
+
   test("requires a credential stored under 'credential/elevenlabs/api_key'", () => {
     const apiKeySecret = entry.secretRequirements.find(
       (s) => s.credentialStoreKey === "credential/elevenlabs/api_key",
@@ -146,6 +159,10 @@ describe("Fish Audio catalog entry", () => {
     expect(entry.capabilities.supportedFormats).toContain("opus");
   });
 
+  test("plays over media-stream via WAV output", () => {
+    expect(entry.mediaStreamPlayback.outputFormat).toBe("wav");
+  });
+
   test("requires an API key stored under 'credential/fish-audio/api_key'", () => {
     const apiKeySecret = entry.secretRequirements.find(
       (s) => s.credentialStoreKey === "credential/fish-audio/api_key",
@@ -170,6 +187,10 @@ describe("Deepgram catalog entry", () => {
     expect(entry.capabilities.supportedFormats).toContain("mp3");
     expect(entry.capabilities.supportedFormats).toContain("wav");
     expect(entry.capabilities.supportedFormats).toContain("opus");
+  });
+
+  test("plays over media-stream via PCM output", () => {
+    expect(entry.mediaStreamPlayback.outputFormat).toBe("pcm");
   });
 
   test("requires an API key stored under 'credential/deepgram/api_key'", () => {

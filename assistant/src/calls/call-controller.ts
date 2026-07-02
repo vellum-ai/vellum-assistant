@@ -611,7 +611,7 @@ export class CallController {
     // the audio store entry and any downstream fetch/transcode receives
     // PCM that audioBufferToFrames can convert to mu-law.
     const { provider, useSynthesizedPath, audioFormat } =
-      resolveCallTtsProvider({
+      await resolveCallTtsProvider({
         preferWav: this.transport.requiresWavAudio,
       });
 

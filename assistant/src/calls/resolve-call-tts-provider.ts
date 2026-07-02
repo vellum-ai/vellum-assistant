@@ -8,10 +8,15 @@
  */
 
 import { loadConfig } from "../config/loader.js";
+import {
+  getCatalogProvider,
+  listCatalogProviderIds,
+} from "../tts/provider-catalog.js";
 import { getTtsProvider } from "../tts/provider-registry.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
-import type { TtsProvider } from "../tts/types.js";
+import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
+import { evaluateTelephonyTtsPlayability } from "./telephony-tts-capability.js";
 import { resolveCallStrategy } from "./tts-call-strategy.js";
 
 const log = getLogger("resolve-call-tts-provider");
@@ -47,6 +52,11 @@ export interface ResolveCallTtsOptions {
    * because its {@link audioBufferToFrames} can only correctly
    * transcode WAV (PCM) to mu-law -- compressed formats (mp3, opus)
    * are sent as raw bytes and produce garbled audio.
+   *
+   * Also gates the media-stream playability guard: a configured provider
+   * that cannot produce playable PCM/WAV audio (or lacks credentials) is
+   * swapped for a playable fallback provider instead of resolving into a
+   * provider whose only possible media-stream outcome is silence.
    */
   preferWav?: boolean;
 }
@@ -66,45 +76,73 @@ export interface ResolveCallTtsOptions {
  * `callMode: "native-twilio"` stream text tokens directly to the relay
  * for Twilio's built-in TTS.
  *
+ * For WAV-requiring transports (`preferWav`, i.e. media-stream), the
+ * resolved provider is validated against the media-stream playability
+ * capability (format + credentials); a not-playable provider is replaced
+ * by {@link findPlayableTelephonyTtsFallback}.
+ *
  * Falls back to the native path with `mp3` format when the config is
  * missing a `services.tts` block or the provider is not registered
  * (e.g. unit tests or early startup).
  */
-export function resolveCallTtsProvider(
+export async function resolveCallTtsProvider(
   options?: ResolveCallTtsOptions,
-): ResolvedCallTts {
+): Promise<ResolvedCallTts> {
   try {
     const config = loadConfig();
     const resolved = resolveTtsConfig(config);
-    const provider = getTtsProvider(resolved.provider);
 
     // Use the catalog's callMode to decide the call path -- the same
     // decision path used by voice-quality.ts via resolveCallStrategy().
     const strategy = resolveCallStrategy(config);
-    const useSynthesizedPath = strategy.callMode === "synthesized-play";
 
-    // For synthesized providers, preflight provider-specific config
-    // invariants that would otherwise fail only at first synthesis call.
-    // If required config is missing, degrade to the native token path
-    // (Twilio TTS) rather than letting the call stay silent.
-    //
-    // Fish Audio requires a reference ID when no per-request voiceId is
-    // supplied (which is the telephony default).
-    if (useSynthesizedPath && resolved.provider === "fish-audio") {
-      const referenceId = (resolved.providerConfig as { referenceId?: string })
-        .referenceId;
-      if (!referenceId?.trim()) {
-        log.warn(
-          { provider: resolved.provider },
-          "Synthesized call TTS disabled: fish-audio.referenceId is not configured; falling back to native token path",
-        );
-        return {
-          provider: null,
-          useSynthesizedPath: false,
-          audioFormat: "mp3",
-        };
+    let providerId = resolved.provider;
+    let useSynthesizedPath = strategy.callMode === "synthesized-play";
+
+    // Preflight provider-specific config invariants that would otherwise
+    // fail only at first synthesis call. Fish Audio requires a reference
+    // ID when no per-request voiceId is supplied (the telephony default).
+    const fishAudioUnusable =
+      providerId === "fish-audio" && !hasReferenceId(resolved.providerConfig);
+
+    if (options?.preferWav) {
+      // Media-stream transport: every spoken turn is synthesized, so the
+      // provider must produce playable PCM/WAV with resolvable credentials.
+      // Swap in a playable fallback rather than resolving into a provider
+      // that can only be silent.
+      const capability = await evaluateTelephonyTtsPlayability(providerId);
+      if (capability.status === "not-playable" || fishAudioUnusable) {
+        const reason =
+          capability.status === "not-playable"
+            ? capability.reason
+            : "missing-fish-audio-reference-id";
+        const fallbackId = await findPlayableTelephonyTtsFallback(providerId);
+        if (fallbackId) {
+          log.warn(
+            { providerId, reason, fallbackProviderId: fallbackId },
+            "Configured TTS provider is not playable on the media-stream transport; falling back",
+          );
+          providerId = fallbackId;
+          useSynthesizedPath =
+            getCatalogProvider(fallbackId).callMode === "synthesized-play";
+        } else {
+          log.warn(
+            { providerId, reason },
+            "Configured TTS provider is not playable on the media-stream transport and no playable fallback provider is available",
+          );
+        }
       }
+    } else if (useSynthesizedPath && fishAudioUnusable) {
+      // ConversationRelay transport: degrade to the native token path
+      // (Twilio TTS) rather than letting the call stay silent.
+      log.warn(
+        { provider: providerId },
+        "Synthesized call TTS disabled: fish-audio.referenceId is not configured; falling back to native token path",
+      );
+      return { provider: null, useSynthesizedPath: false, audioFormat: "mp3" };
     }
+
+    const provider = getTtsProvider(providerId);
 
     // Read the user-configured audio format from the resolved provider
     // config so the streaming store entry's content-type matches the
@@ -132,5 +170,57 @@ export function resolveCallTtsProvider(
     // (e.g. unit tests or early startup) -- fall back to the native
     // path where the provider object is not used.
     return { provider: null, useSynthesizedPath: false, audioFormat: "mp3" };
+  }
+}
+
+/**
+ * Find a catalog provider that can produce playable media-stream audio
+ * with resolvable credentials.
+ *
+ * Preference order: the ElevenLabs default first (when its key resolves),
+ * then the remaining catalog providers in display order. Fish Audio is
+ * skipped when its required `referenceId` is not configured. Returns
+ * `null` when no provider qualifies.
+ */
+export async function findPlayableTelephonyTtsFallback(
+  excludeProviderId?: TtsProviderId,
+): Promise<TtsProviderId | null> {
+  const candidates = [
+    ...new Set<TtsProviderId>(["elevenlabs", ...listCatalogProviderIds()]),
+  ].filter((id) => id !== excludeProviderId);
+
+  for (const candidateId of candidates) {
+    const capability = await evaluateTelephonyTtsPlayability(candidateId);
+    if (capability.status !== "playable") {
+      continue;
+    }
+    if (candidateId === "fish-audio" && !fishAudioReferenceIdConfigured()) {
+      continue;
+    }
+    return candidateId;
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+/** Whether a provider config block carries a non-empty `referenceId`. */
+function hasReferenceId(providerConfig: unknown): boolean {
+  return Boolean(
+    (providerConfig as { referenceId?: string } | undefined)?.referenceId?.trim(),
+  );
+}
+
+/** Whether `services.tts.providers.fish-audio.referenceId` is configured. */
+function fishAudioReferenceIdConfigured(): boolean {
+  try {
+    const providers = loadConfig().services?.tts?.providers as
+      | Record<string, unknown>
+      | undefined;
+    return hasReferenceId(providers?.["fish-audio"]);
+  } catch {
+    return false;
   }
 }

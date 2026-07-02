@@ -17,11 +17,15 @@
 import { loadConfig } from "../config/loader.js";
 import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
 import { getCatalogProvider } from "../tts/provider-catalog.js";
+import { getTtsProvider } from "../tts/provider-registry.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";
 import type { CallTransport } from "./call-transport.js";
-import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
+import {
+  findPlayableTelephonyTtsFallback,
+  resolveCallTtsProvider,
+} from "./resolve-call-tts-provider.js";
 
 const log = getLogger("call-speech-output");
 
@@ -42,7 +46,7 @@ const log = getLogger("call-speech-output");
  * Twilio before the session ends. Interactive mid-call callers can
  * fire-and-forget with `void speakSystemPrompt(...)`.
  */
-export function speakSystemPrompt(
+export async function speakSystemPrompt(
   relay: CallTransport,
   text: string,
 ): Promise<void> {
@@ -50,14 +54,15 @@ export function speakSystemPrompt(
   // the audio store entry contains PCM that audioBufferToFrames can
   // transcode to mu-law. Without this, compressed formats (mp3, opus)
   // are fetched by processFetchUrlItem and produce garbled audio.
-  const { provider, useSynthesizedPath, audioFormat } = resolveCallTtsProvider({
-    preferWav: relay.requiresWavAudio,
-  });
+  const { provider, useSynthesizedPath, audioFormat } =
+    await resolveCallTtsProvider({
+      preferWav: relay.requiresWavAudio,
+    });
 
   if (!useSynthesizedPath || !provider) {
     // Native path — send text for Twilio's built-in TTS.
     relay.sendTextToken(text, true);
-    return Promise.resolve();
+    return;
   }
 
   // Synthesized path — synthesize audio and send play URL.
@@ -72,18 +77,24 @@ export function speakSystemPrompt(
  * Synthesize text via a streaming TTS provider and send the play URL
  * to the relay.
  *
- * On synthesis failure the behavior depends on the provider:
- * - Providers with a native Twilio TTS fallback (e.g. Fish Audio) fall
- *   back to `sendTextToken(text)` so the caller still hears the message.
- * - Providers without a native fallback (e.g. Deepgram) log the error
- *   and send only an empty end-of-turn signal — the caller hears nothing
- *   but the relay transitions back to listening state.
+ * On synthesis failure the behavior depends on the transport:
+ * - WAV-requiring transports (media-stream) retry once with a playable
+ *   fallback provider — native token TTS cannot rescue the prompt there
+ *   because text tokens are themselves synthesized via the same provider
+ *   path. When no fallback exists (or the retry also fails), only an
+ *   empty end-of-turn signal is sent so the transport transitions back
+ *   to listening state.
+ * - On the ConversationRelay transport, providers with a native Twilio
+ *   TTS fallback (e.g. Fish Audio) fall back to `sendTextToken(text)` so
+ *   the caller still hears the message; providers without one (e.g.
+ *   Deepgram) log the error and send only the end-of-turn signal.
  */
 async function synthesizeAndPlay(
   relay: CallTransport,
   provider: TtsProvider,
   text: string,
   format: "mp3" | "wav" | "opus",
+  isFallbackRetry = false,
 ): Promise<void> {
   let handle: ReturnType<typeof createStreamingEntry> | null = null;
   let playUrlSent = false;
@@ -154,6 +165,49 @@ async function synthesizeAndPlay(
         ? (err as Error & { code?: string }).code
         : undefined;
 
+    if (relay.requiresWavAudio) {
+      // WAV-requiring transport (media-stream): native token TTS routes
+      // back through the same synthesis path, so retry once with a
+      // playable fallback provider before degrading to end-of-turn only.
+      if (!isFallbackRetry) {
+        const fallbackId = await findPlayableTelephonyTtsFallback(
+          provider.id as TtsProviderId,
+        );
+        const fallbackProvider = fallbackId
+          ? lookupRegisteredProvider(fallbackId)
+          : null;
+        if (fallbackProvider) {
+          log.warn(
+            {
+              err,
+              provider: provider.id,
+              fallbackProvider: fallbackProvider.id,
+              errName,
+              errCode,
+            },
+            "System prompt TTS synthesis failed — retrying with fallback provider",
+          );
+          handle?.finalize();
+          handle = null;
+          return await synthesizeAndPlay(
+            relay,
+            fallbackProvider,
+            text,
+            format,
+            true,
+          );
+        }
+      }
+      log.error(
+        { err, provider: provider.id, errName, errCode },
+        "System prompt TTS synthesis failed on WAV-requiring transport — sending end-of-turn only",
+      );
+      // Send the end-of-turn signal so the transport transitions from
+      // "assistant speaking" to "caller speaking" state.
+      relay.sendTextToken("", true);
+      return;
+    }
+
     // `allowNativeFallback` controls whether the system prompt text
     // should be sent via native Twilio token-based TTS when synthesis
     // fails. When false (e.g. Deepgram), the design choice is to
@@ -186,5 +240,14 @@ async function synthesizeAndPlay(
     relay.sendTextToken(text, true);
   } finally {
     handle?.finalize();
+  }
+}
+
+/** Look up a registered provider, returning null instead of throwing. */
+function lookupRegisteredProvider(id: TtsProviderId): TtsProvider | null {
+  try {
+    return getTtsProvider(id);
+  } catch {
+    return null;
   }
 }
