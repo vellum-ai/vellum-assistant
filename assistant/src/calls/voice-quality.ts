@@ -24,8 +24,6 @@ export interface VoiceQualityProfile {
  * We default to bare voiceId unless a model is explicitly configured.
  * This avoids forcing model/tuning suffixes that may be rejected for some
  * voice + model combinations.
- *
- * See: https://www.twilio.com/docs/voice/conversationrelay/voice-configuration
  */
 export function buildElevenLabsVoiceSpec(config: {
   voiceId: string;

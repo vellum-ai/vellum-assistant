@@ -134,8 +134,8 @@ export async function resolveCallTtsProvider(
         }
       }
     } else if (useSynthesizedPath && fishAudioUnusable) {
-      // ConversationRelay transport: degrade to the native token path
-      // (Twilio TTS) rather than letting the call stay silent.
+      // Non-WAV transport: degrade to the native token path (Twilio TTS)
+      // rather than letting the call stay silent.
       log.warn(
         { provider: providerId },
         "Synthesized call TTS disabled: fish-audio.referenceId is not configured; falling back to native token path",

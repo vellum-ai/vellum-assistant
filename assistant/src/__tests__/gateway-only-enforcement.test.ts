@@ -91,8 +91,6 @@ class MockTwilioVoiceProvider {
 }
 mock.module("../calls/twilio-provider.js", () => ({
   TwilioVoiceProvider: MockTwilioVoiceProvider,
-  // The twilio-validation middleware imports the deprecated alias.
-  TwilioConversationRelayProvider: MockTwilioVoiceProvider,
 }));
 
 mock.module("../security/secure-keys.js", () => ({

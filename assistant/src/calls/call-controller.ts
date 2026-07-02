@@ -239,7 +239,7 @@ export class CallController {
   }
 
   /**
-   * Handle a final caller utterance from the ConversationRelay.
+   * Handle a final caller utterance from the call transport.
    * Caller utterances always trigger normal turns, even when a guardian
    * consultation is pending — the consultation is tracked separately.
    */
@@ -767,15 +767,15 @@ export class CallController {
     // Synthesized playback (and its native fallback) can await provider
     // latency; re-check the run wasn't superseded meanwhile so a stale turn
     // doesn't inject its end-of-turn marker (or fallback text) into the next
-    // turn's relay stream.
+    // turn's output stream.
     if (!this.isCurrentRun(runVersion)) return fullResponseText;
 
     // Signal end of this turn's speech.  An empty token with `last: true`
-    // tells ConversationRelay to start listening — it does NOT trigger TTS
+    // tells the transport to start listening — it does NOT trigger TTS
     // synthesis.  This is required even when a synthesized provider handled
-    // all audio playback, because ConversationRelay still needs the
-    // end-of-turn signal to transition from "assistant speaking" to
-    // "caller speaking" state.
+    // all audio playback, because the transport still needs the end-of-turn
+    // signal to transition from "assistant speaking" to "caller speaking"
+    // state.
     this.transport.sendTextToken("", true);
 
     // Mark the greeting's first response as awaiting ack
@@ -906,8 +906,8 @@ export class CallController {
           { err, provider: provider.id, errName, errCode },
           "TTS synthesis failed — falling back to native token TTS",
         );
-        // If synthesis fails before any audio has started, degrade to
-        // token-based speech on ConversationRelay so the caller still
+        // If synthesis fails before any audio has started on a non-WAV
+        // transport, degrade to token-based speech so the caller still
         // hears a response instead of silence. This fallback is only
         // used for providers whose catalog entry allows native fallback.
         // Skip it entirely for a superseded run so a stale response can't

@@ -183,8 +183,8 @@ mock.module("../calls/channel-admission-reader.js", () => ({
 }));
 
 // Mock the inbound trust reader. handleStart awaits this and threads the
-// verdict into routeSetup so the media-stream transport enforces the same
-// gateway ACL as ConversationRelay. Tests override mockInboundVerdict.
+// verdict into routeSetup so the media-stream transport enforces the
+// gateway ACL. Tests override mockInboundVerdict.
 // The optional gate lets a test hold mid-setup trust re-resolution open
 // (the setup flow's default resolver reads the verdict first) so it can
 // deliver transcripts during the deferral window.
@@ -1602,9 +1602,9 @@ describe("media-stream setup outcome scenarios", () => {
 
   // ── Gateway trust verdict ──────────────────────────────────────────
   // handleStart fetches getInboundTrustVerdict for the inbound caller and
-  // threads it into routeSetup, so the media-stream transport enforces the
-  // same gateway ACL as ConversationRelay. routeSetup itself decides
-  // verdict-vs-local; these tests assert the verdict is fetched and passed.
+  // threads it into routeSetup, so the media-stream transport enforces
+  // the gateway ACL. routeSetup itself decides verdict-vs-local; these
+  // tests assert the verdict is fetched and passed.
 
   describe("gateway trust verdict", () => {
     test("fetches the inbound caller's verdict and threads it into routeSetup", async () => {

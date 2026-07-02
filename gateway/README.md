@@ -80,7 +80,7 @@ When the voice webhook is called without a `callSessionId` query parameter, the 
 1. **`resolveAssistantByPhoneNumber(config, To)`** — Reverse lookup of the inbound `To` number against `assistantPhoneNumbers`. If the dialed number matches an assistant's configured phone number, that assistant handles the call.
 2. **Fallback to `resolveAssistant(From, From)`** — If no phone number match is found, the standard routing chain is used: `conversation_id` match, `actor_id` match, then the unmapped policy.
 3. **TwiML Reject for unmapped** — When the unmapped policy is `reject` (and no route matches), the gateway returns `<Reject reason="rejected"/>` TwiML directly to Twilio. Twilio plays a busy signal and hangs up. The call is never forwarded to the runtime.
-4. **Forward with assistantId** — When routing succeeds, the gateway forwards the voice webhook to the runtime at `POST /v1/internal/twilio/voice-webhook` with a JSON body containing `{ params, originalUrl, assistantId }`. The runtime calls `createInboundVoiceSession()` to bootstrap a session keyed by CallSid, then returns TwiML pointing Twilio to the ConversationRelay WebSocket.
+4. **Forward with assistantId** — When routing succeeds, the gateway forwards the voice webhook to the runtime at `POST /v1/internal/twilio/voice-webhook` with a JSON body containing `{ params, originalUrl, assistantId }`. The runtime calls `createInboundVoiceSession()` to bootstrap a session keyed by CallSid, then returns `<Connect><Stream>` TwiML pointing Twilio to the gateway's media-stream WebSocket proxy (after a daemon-side STT/TTS credential preflight; calls that fail it get `<Say>` setup-required copy plus `<Hangup/>`).
 
 ### Inbound call lifecycle (gateway perspective)
 
@@ -88,9 +88,9 @@ When the voice webhook is called without a `callSessionId` query parameter, the 
 Caller → Twilio → Gateway /webhooks/twilio/voice (no callSessionId)
   → resolveAssistantByPhoneNumber(To) || resolveAssistant(From) || TwiML Reject
   → forward to runtime /v1/internal/twilio/voice-webhook (JSON: { params, originalUrl, assistantId })
-  → runtime returns TwiML (ConversationRelay connect)
-  → Twilio opens WebSocket → Gateway /webhooks/twilio/relay → Runtime /v1/calls/relay
-  → RelayConnection detects inbound (`initiatedFromConversationId == null`), optional guardian verification gate, then receptionist-style LLM greeting
+  → runtime returns TwiML (<Connect><Stream> media-stream connect)
+  → Twilio opens WebSocket → Gateway /webhooks/twilio/media-stream/<callSessionId>/<token> → Runtime /v1/calls/media-stream
+  → media-stream server detects inbound (`initiatedFromConversationId == null`), runs the call setup flow (verification / invite / name-capture sub-flows as routed), then receptionist-style LLM greeting
 ```
 
 ## Callback Query Handling
@@ -151,8 +151,7 @@ The gateway serves as the single public ingress point for all external callbacks
 | `/deliver/telegram`                        | POST            | Internal endpoint for the assistant runtime to deliver outbound messages/attachments to Telegram chats                                        |
 | `/webhooks/twilio/voice`                   | POST            | Twilio voice webhook (validated via HMAC-SHA1 signature)                                                                                      |
 | `/webhooks/twilio/status`                  | POST            | Twilio status callback (validated via HMAC-SHA1 signature)                                                                                    |
-| `/webhooks/twilio/connect-action`          | POST            | Twilio connect-action callback (validated via HMAC-SHA1 signature)                                                                            |
-| `/webhooks/twilio/relay`                   | WS              | Twilio ConversationRelay WebSocket (bidirectional proxy to runtime, requires `callSessionId` query param)                                     |
+| `/webhooks/twilio/media-stream/:callSessionId/:token` | WS   | Twilio Media Streams WebSocket (bidirectional proxy to runtime; handshake metadata in URL path segments)                                      |
 | `/webhooks/oauth/callback`                 | GET             | OAuth2 callback endpoint — receives authorization codes from OAuth providers (Google, Slack, etc.) and forwards them to the assistant runtime |
 | `/v1/channel-verification-sessions`        | POST            | Authenticated control-plane proxy for creating verification sessions (inbound challenge or outbound verification)                             |
 | `/v1/channel-verification-sessions`        | DELETE          | Authenticated control-plane proxy for cancelling active verification sessions                                                                 |
@@ -213,7 +212,7 @@ The assistant runtime uses this URL to construct all webhook and OAuth callback 
 
 ### Velay for Twilio Testing
 
-Velay is a managed ingress transport for assistant-hosted HTTP and WebSocket traffic. The gateway starts the Velay tunnel only after Twilio setup has been started in the workspace, or when existing Twilio config shows it was set up before. When Velay registration succeeds, the gateway writes the registered public assistant URL to `ingress.publicBaseUrl` and marks it with `ingress.publicBaseUrlManagedBy: "velay"`. Twilio URL builders use that public base URL for voice, status, relay, and media-stream endpoints.
+Velay is a managed ingress transport for assistant-hosted HTTP and WebSocket traffic. The gateway starts the Velay tunnel only after Twilio setup has been started in the workspace, or when existing Twilio config shows it was set up before. When Velay registration succeeds, the gateway writes the registered public assistant URL to `ingress.publicBaseUrl` and marks it with `ingress.publicBaseUrlManagedBy: "velay"`. Twilio URL builders use that public base URL for voice, status, and media-stream endpoints.
 
 Use Velay when testing Twilio voice webhooks or Twilio WebSocket upgrades through the platform-managed tunnel:
 
@@ -248,10 +247,10 @@ For a synthetic Twilio WebSocket smoke test, connect a local WebSocket client to
 
 ```bash
 bun -e 'const ws = new WebSocket(process.argv[1]); ws.onopen = () => { console.log("open"); ws.close(); }; ws.onerror = (event) => console.error(event);' \
-  "wss://<velay-host>/<assistant-id>/webhooks/twilio/relay?callSessionId=session-123&token=<edge-token>"
+  "wss://<velay-host>/<assistant-id>/webhooks/twilio/media-stream/session-123/<edge-token>"
 ```
 
-For a real Twilio call, expose local Velay with a public HTTPS/WSS tunnel and configure the platform Velay service with that origin as `VELAY_PUBLIC_BASE_URL`. After the assistant re-registers, Twilio should fetch `/webhooks/twilio/voice` and open `/webhooks/twilio/relay` or `/webhooks/twilio/media-stream/...` through the Velay URL. Use ngrok or another custom tunnel in `ingress.publicBaseUrl` only for local/self-hosted workflows that are not routed through Velay.
+For a real Twilio call, expose local Velay with a public HTTPS/WSS tunnel and configure the platform Velay service with that origin as `VELAY_PUBLIC_BASE_URL`. After the assistant re-registers, Twilio should fetch `/webhooks/twilio/voice` and open `/webhooks/twilio/media-stream/...` through the Velay URL. Use ngrok or another custom tunnel in `ingress.publicBaseUrl` only for local/self-hosted workflows that are not routed through Velay.
 
 ## Ingress Boundary Guarantees
 

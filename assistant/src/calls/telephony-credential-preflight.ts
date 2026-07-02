@@ -1,13 +1,11 @@
 /**
  * Telephony credential-readiness preflight.
  *
- * Transport contract: on ConversationRelay, Twilio performs Deepgram/Google
- * STT and TTS with Twilio-held keys, so calls work without the user holding
- * any provider credentials. On the media-stream transport the daemon performs
- * both legs itself — Twilio only carries mu-law audio frames — so a call can
- * only work when the user holds credentials for a telephony-capable STT
- * provider AND a media-stream-playable TTS provider (the configured one, or
- * a credentialed playable fallback from the catalog).
+ * Transport contract: the daemon performs both telephony legs itself —
+ * Twilio only carries mu-law audio frames — so a call can only work when
+ * the user holds credentials for a telephony-capable STT provider AND a
+ * media-stream-playable TTS provider (the configured one, or a
+ * credentialed playable fallback from the catalog).
  *
  * This resolver combines the two capability resolvers into a single
  * ready / not-ready verdict with a user-facing message suitable for both a

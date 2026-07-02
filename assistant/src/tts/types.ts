@@ -30,10 +30,9 @@ export type TtsProviderId =
 /**
  * Describes how a TTS provider integrates with the telephony call path.
  *
- * - `native-twilio`    — Twilio handles TTS natively via ConversationRelay;
- *                         text tokens are forwarded to the relay and Twilio
- *                         synthesises audio using the provider's built-in
- *                         integration.
+ * - `native-twilio`    — Twilio handles TTS natively; text tokens are
+ *                         forwarded to Twilio, which synthesises audio
+ *                         using the provider's built-in integration.
  * - `synthesized-play` — The assistant synthesises audio via the provider's
  *                         HTTP API and streams chunks to Twilio via `play`
  *                         messages. Used when the provider is not natively

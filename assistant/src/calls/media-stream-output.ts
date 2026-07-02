@@ -5,9 +5,7 @@
  * can send synthesized audio and lifecycle signals through a Twilio Media
  * Stream WebSocket connection.
  *
- * Unlike the ConversationRelay transport which sends text tokens for
- * Twilio's built-in TTS, the media-stream transport operates on raw
- * audio frames:
+ * The media-stream transport operates on raw audio frames:
  *
  * - `sendTextToken()` — Accumulates text tokens and, on `last: true`,
  *   synthesizes the accumulated text via the configured TTS provider,
@@ -110,10 +108,9 @@ export class MediaStreamOutput implements CallTransport {
    * Accumulate text tokens for TTS synthesis. When `last` is true, the
    * accumulated text is queued for synthesis and delivery as media frames.
    *
-   * An empty token with `last: true` signals end-of-turn without TTS.
-   * This mirrors ConversationRelay semantics where an empty last token
-   * transitions the relay from "assistant speaking" to "caller speaking".
-   * On the media-stream transport we send a mark instead.
+   * An empty token with `last: true` signals end-of-turn without TTS:
+   * a mark is sent so the session transitions from "assistant speaking"
+   * to "caller speaking".
    */
   sendTextToken(token: string, last: boolean): void {
     if (this.state === "closed") return;
@@ -130,8 +127,7 @@ export class MediaStreamOutput implements CallTransport {
       }
 
       // Always send an end-of-turn mark so the media-stream server
-      // can detect turn boundaries (analogous to ConversationRelay's
-      // empty last token).
+      // can detect turn boundaries.
       this.enqueuePlayback({ type: "mark", name: "end-of-turn" });
     }
   }

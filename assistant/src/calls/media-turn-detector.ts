@@ -2,12 +2,10 @@
  * Speech-aware turn detector for segmenting inbound audio from a
  * Twilio Media Stream into discrete utterance "turns".
  *
- * The Twilio ConversationRelay protocol performs VAD (voice activity
- * detection) on Twilio's side and delivers fully segmented transcripts
- * via `prompt` messages. The raw media-stream path, however, delivers a
- * continuous stream of audio chunks with no built-in turn boundaries.
- * This module bridges that gap by detecting turns based on speech
- * activity signals derived from the audio content:
+ * A Twilio Media Stream delivers a continuous stream of audio chunks
+ * with no built-in turn boundaries. This module supplies those
+ * boundaries by detecting turns based on speech activity signals
+ * derived from the audio content:
  *
  * 1. **Speech-to-silence transition** — when a period of speech is
  *    followed by silence frames exceeding `silenceThresholdMs`, the
