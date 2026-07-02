@@ -13,7 +13,7 @@
     "sourceMap": true,
     "outDir": "./dist",
     "jsx": "react-jsx",
-    "types": ["bun-types"],
+    "types": ["bun"],
     "paths": {
       "@vellumai/plugin-api": ["./src/plugin-api/index.ts"]
     }

@@ -1675,22 +1675,14 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-      - name: Install design-library dependencies
-        working-directory: packages/design-library
-        run: bun install --frozen-lockfile
-      - name: Install web dependencies
-        working-directory: clients/web
+      - name: Install dependencies
         run: |
-          if ! bun install --frozen-lockfile; then
-            rm -f bun.lock && rm -rf node_modules && bun install
+          if ! bun install --frozen-lockfile --filter=@vellumai/web; then
+            rm -f bun.lock && rm -rf node_modules && bun install --filter=@vellumai/web
           fi
       - name: Generate API clients
         working-directory: clients/web
         run: bun run openapi-ts
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
       - name: Build
         working-directory: clients/web
         env:
@@ -1853,28 +1845,18 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: Install design-library dependencies
-        working-directory: packages/design-library
-        run: bun install --frozen-lockfile
-
-      - name: Install web dependencies
-        working-directory: clients/web
+      - name: Install dependencies
         run: |
-          if ! bun install --frozen-lockfile; then
+          if ! bun install --frozen-lockfile --filter=@vellumai/web; then
             echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
             rm -f bun.lock
             rm -rf node_modules
-            bun install
+            bun install --filter=@vellumai/web
           fi
 
       - name: Generate API clients
         working-directory: clients/web
         run: bun run openapi-ts
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
 
       - name: Build
         working-directory: clients/web
@@ -2095,7 +2077,7 @@ jobs:
 
       - name: Install design-library dependencies
         working-directory: packages/design-library
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/design-library
 
       - name: Install web dependencies
         working-directory: clients/web
