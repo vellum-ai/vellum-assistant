@@ -2,10 +2,10 @@
  * Tests for the verification-revoke route relay.
  *
  * The revoke route downgrades the channel's ACL status through the gateway
- * (source of truth) via `ipcCallPersistent("mark_channel_revoked", ...)` while
- * keeping session teardown (`cancelOutbound`, `revokePendingSessions`)
- * assistant-side. The gateway enforces the guardian guard; a rejected guardian
- * downgrade surfaces here as a relayed IpcCallError.
+ * (source of truth) via `ipcCallPersistent("mark_channel_revoked", ...)`;
+ * session teardown (`cancelOutbound`, `revokePendingSessions`) relays through
+ * the gateway session client. The gateway enforces the guardian guard; a
+ * rejected guardian downgrade surfaces here as a relayed IpcCallError.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -43,8 +43,8 @@ mock.module("../../../ipc/gateway-client.js", () => ({
   ipcCallPersistent: ipcCallPersistentMock,
 }));
 
-// Session teardown — assert these still run locally on every revoke.
-const cancelOutboundMock = mock((_args: { channel: string }) => {});
+// Session teardown — assert these still run on every revoke.
+const cancelOutboundMock = mock(async (_args: { channel: string }) => {});
 const actualOutboundActions =
   await import("../../verification-outbound-actions.js");
 mock.module("../../verification-outbound-actions.js", () => ({
@@ -52,7 +52,14 @@ mock.module("../../verification-outbound-actions.js", () => ({
   cancelOutbound: cancelOutboundMock,
 }));
 
-const revokePendingSessionsMock = mock((_channel: string) => {});
+const revokePendingSessionsMock = mock(async (_channel: string) => {});
+const actualGatewaySessions =
+  await import("../../../channels/gateway-verification-sessions.js");
+mock.module("../../../channels/gateway-verification-sessions.js", () => ({
+  ...actualGatewaySessions,
+  revokePendingSessions: revokePendingSessionsMock,
+}));
+
 let guardianBinding: {
   guardianExternalUserId: string;
   guardianDeliveryChatId?: string;
@@ -61,7 +68,6 @@ const actualVerificationService =
   await import("../../channel-verification-service.js");
 mock.module("../../channel-verification-service.js", () => ({
   ...actualVerificationService,
-  revokePendingSessions: revokePendingSessionsMock,
   getGuardianBinding: mock(() => guardianBinding),
 }));
 

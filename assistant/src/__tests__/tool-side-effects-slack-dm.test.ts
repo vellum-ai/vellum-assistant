@@ -10,9 +10,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 // Mocks — must be set up before importing the module under test
 // ---------------------------------------------------------------------------
 
-const mockFindActiveSession = mock(() => null as unknown);
-mock.module("../runtime/channel-verification-service.js", () => ({
-  findActiveSession: mockFindActiveSession,
+const mockFindActiveSession = mock((): unknown => null);
+mock.module("../channels/gateway-verification-sessions.js", () => ({
+  findActiveSession: async () => mockFindActiveSession(),
 }));
 
 const mockDeliverVerificationSlack = mock(() => {});
@@ -99,12 +99,12 @@ const dummySideEffectCtx = {
   ctx: {} as SideEffectContext["ctx"],
 } satisfies SideEffectContext;
 
-function callWithBashHook(
+async function callWithBashHook(
   command: string,
   content: string,
   isError = false,
-): void {
-  runPostExecutionSideEffects(
+): Promise<void> {
+  await runPostExecutionSideEffects(
     "bash",
     { command },
     { content, isError },
@@ -125,7 +125,7 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
     mockLogError.mockReset();
   });
 
-  test("legitimate verification dispatches DM", () => {
+  test("legitimate verification dispatches DM", async () => {
     mockFindActiveSession.mockReturnValue({
       destinationAddress: "U123",
       status: "awaiting_response",
@@ -139,7 +139,7 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
       },
     });
 
-    callWithBashHook(
+    await callWithBashHook(
       "assistant channel-verification-sessions create ...",
       output,
     );
@@ -152,7 +152,7 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
     );
   });
 
-  test("no active session — DM not dispatched", () => {
+  test("no active session — DM not dispatched", async () => {
     mockFindActiveSession.mockReturnValue(null);
 
     const output = JSON.stringify({
@@ -163,7 +163,7 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
       },
     });
 
-    callWithBashHook(
+    await callWithBashHook(
       "assistant channel-verification-sessions create ...",
       output,
     );
@@ -175,7 +175,7 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
     );
   });
 
-  test("userId mismatch — DM not dispatched", () => {
+  test("userId mismatch — DM not dispatched", async () => {
     mockFindActiveSession.mockReturnValue({
       destinationAddress: "U999",
       status: "awaiting_response",
@@ -189,7 +189,7 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
       },
     });
 
-    callWithBashHook(
+    await callWithBashHook(
       "assistant channel-verification-sessions create ...",
       output,
     );
@@ -201,7 +201,32 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
     );
   });
 
-  test("command without verification substring — hook is no-op", () => {
+  test("gateway session lookup failure — DM not dispatched (fail closed)", async () => {
+    mockFindActiveSession.mockImplementation(() => {
+      throw new Error("gateway unreachable");
+    });
+
+    const output = JSON.stringify({
+      _pendingSlackDm: {
+        userId: "U123",
+        text: "code",
+        assistantId: "aid",
+      },
+    });
+
+    await callWithBashHook(
+      "assistant channel-verification-sessions create ...",
+      output,
+    );
+
+    expect(mockDeliverVerificationSlack).not.toHaveBeenCalled();
+    expect(mockLogWarn).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: "U123" }),
+      expect.stringContaining("gateway session lookup failed"),
+    );
+  });
+
+  test("command without verification substring — hook is no-op", async () => {
     mockFindActiveSession.mockReturnValue({
       destinationAddress: "U123",
       status: "awaiting_response",
@@ -215,18 +240,18 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
       },
     });
 
-    callWithBashHook("echo hello", output);
+    await callWithBashHook("echo hello", output);
 
     expect(mockDeliverVerificationSlack).not.toHaveBeenCalled();
   });
 
-  test("output without _pendingSlackDm — hook is no-op", () => {
+  test("output without _pendingSlackDm — hook is no-op", async () => {
     mockFindActiveSession.mockReturnValue({
       destinationAddress: "U123",
       status: "awaiting_response",
     });
 
-    callWithBashHook(
+    await callWithBashHook(
       "assistant channel-verification-sessions create ...",
       JSON.stringify({ success: true, sessionId: "s1" }),
     );
@@ -234,7 +259,7 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
     expect(mockDeliverVerificationSlack).not.toHaveBeenCalled();
   });
 
-  test("multi-line JSON output — dispatches from correct line", () => {
+  test("multi-line JSON output — dispatches from correct line", async () => {
     mockFindActiveSession.mockReturnValue({
       destinationAddress: "U123",
       status: "awaiting_response",
@@ -250,7 +275,7 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
     });
     const multiLineOutput = `${cancelResult}\n${createResult}`;
 
-    callWithBashHook(
+    await callWithBashHook(
       "assistant channel-verification-sessions create ...",
       multiLineOutput,
     );
@@ -263,7 +288,7 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
     );
   });
 
-  test("multi-line — rejected first line does not block valid second line", () => {
+  test("multi-line — rejected first line does not block valid second line", async () => {
     mockFindActiveSession.mockReturnValue({
       destinationAddress: "U200",
       status: "awaiting_response",
@@ -285,7 +310,7 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
     });
     const multiLineOutput = `${staleResult}\n${validResult}`;
 
-    callWithBashHook(
+    await callWithBashHook(
       "assistant channel-verification-sessions create ...",
       multiLineOutput,
     );

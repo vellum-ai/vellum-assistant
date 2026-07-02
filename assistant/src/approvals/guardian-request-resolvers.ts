@@ -12,6 +12,7 @@
  */
 
 import { answerCall } from "../calls/call-domain.js";
+import { createOutboundSession } from "../channels/gateway-verification-sessions.js";
 import {
   type CanonicalGuardianRequest,
   type CanonicalRequestStatus,
@@ -40,7 +41,6 @@ import {
   type ApprovalAction,
   DENYING_ACTION_SET,
 } from "../runtime/channel-approval-types.js";
-import { createOutboundSession } from "../runtime/channel-verification-service.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import {
   parseRequesterSignals,
@@ -988,7 +988,7 @@ const accessRequestResolver: GuardianRequestResolver = {
 
     // Non-voice approvals: mint an identity-bound verification session so the
     // requester can verify their identity.
-    const session = createOutboundSession({
+    const session = await createOutboundSession({
       channel,
       expectedExternalUserId: requesterExternalUserId,
       expectedChatId: requesterChatId,

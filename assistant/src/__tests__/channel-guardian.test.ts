@@ -73,6 +73,14 @@ mock.module("../ipc/gateway-client.js", () => ({
     method: string,
     params?: Record<string, unknown>,
   ) => {
+    // Session lifecycle goes through the gateway session client now;
+    // delegate to the local-service sim so these tests keep seeding and
+    // asserting against the local test DB.
+    const { handleVerificationSessionsIpc, isVerificationSessionsIpcMethod } =
+      await import("./helpers/verification-sessions-ipc-sim.js");
+    if (isVerificationSessionsIpcMethod(method)) {
+      return handleVerificationSessionsIpc(method, params);
+    }
     if (method === "mark_channel_revoked") {
       const { revokeChannelById } =
         await import("./helpers/seed-contact-channel.js");
