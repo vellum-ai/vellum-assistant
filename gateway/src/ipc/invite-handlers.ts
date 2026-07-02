@@ -31,6 +31,19 @@
  *     params : { id: string }
  *     returns: { invite: Record<string, unknown> }            (sanitized)
  *
+ *   get_active_voice_invite
+ *     params : { callerExternalUserId: string }
+ *     returns: { invite: ActiveVoiceInvite | null }           (display metadata
+ *              only — inviteId/inviteeName/guardianName/codeDigits; never the
+ *              code or its hash)
+ *
+ *   redeem_voice_invite
+ *     params : { callerExternalUserId: string; code: string }
+ *     returns: { ok: true; outcome: InviteRedemptionOutcome } on
+ *              redeemed/already_member, or
+ *              { ok: false; reason: "invalid_or_expired" }    (single generic
+ *              failure — never leaks which check refused)
+ *
  * (Note: invites_trigger_call is NOT relayed here — it stays daemon-local on the
  * assistant. The gateway HTTP call path validates its row then delegates the
  * provider call to the assistant via triggerInviteCallNative; relaying it back
@@ -43,6 +56,10 @@
  * ───────────────────────────────────────────────────────────────────────────
  */
 
+import {
+  GetActiveVoiceInviteRequestSchema,
+  RedeemVoiceInviteRequestSchema,
+} from "@vellumai/gateway-client";
 import { z } from "zod";
 
 import { ContactStore } from "../db/contact-store.js";
@@ -55,6 +72,11 @@ import {
   createInviteSchema,
   listInviteQueryShape,
 } from "../http/routes/invite-validation.js";
+import {
+  getActiveVoiceInviteForCaller,
+  notifyDaemonInviteRedeemed,
+  redeemVoiceInvite,
+} from "../verification/invite-redemption.js";
 import type { IpcRoute } from "./server.js";
 
 let store: ContactStore | null = null;
@@ -144,6 +166,37 @@ export const inviteRoutes: IpcRoute[] = [
     handler: async (params?: Record<string, unknown>) => {
       const { id } = InviteIdParamsSchema.parse(params);
       return await revokeInviteNative(id);
+    },
+  },
+  {
+    // Voice-invite detection for an inbound caller: the active phone invite
+    // bound to the caller's number, projected to display metadata only.
+    method: "get_active_voice_invite",
+    schema: GetActiveVoiceInviteRequestSchema,
+    handler: (params?: Record<string, unknown>) => {
+      const { callerExternalUserId } =
+        GetActiveVoiceInviteRequestSchema.parse(params);
+      return {
+        invite: getActiveVoiceInviteForCaller(callerExternalUserId, getStore()),
+      };
+    },
+  },
+  {
+    // Voice-code redemption through the gateway engine. Success fires the
+    // best-effort `invite_redeemed` daemon info-mirror event (already_member
+    // consumed nothing, so there is nothing to mirror).
+    method: "redeem_voice_invite",
+    schema: RedeemVoiceInviteRequestSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const parsed = RedeemVoiceInviteRequestSchema.parse(params);
+      const result = await redeemVoiceInvite({ ...parsed, store: getStore() });
+      if (result.status === "failed") {
+        return { ok: false, reason: result.reason };
+      }
+      if (result.status === "redeemed") {
+        notifyDaemonInviteRedeemed(result.outcome);
+      }
+      return { ok: true, outcome: result.outcome };
     },
   },
 ];
