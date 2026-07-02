@@ -10,12 +10,12 @@
 import { isAbsolute, resolve, sep } from "node:path";
 
 import { addAppConversationId } from "../apps/app-store.js";
+import { findActiveSession } from "../channels/gateway-verification-sessions.js";
 import { generateAppIcon } from "../media/app-icon-generator.js";
 import { invalidateEdgeIndex } from "../plugins/defaults/memory/v2/edge-index.js";
 import { invalidatePageIndex } from "../plugins/defaults/memory/v2/page-index.js";
 import { getConceptsDir } from "../plugins/defaults/memory/v2/page-store.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
-import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { publishAppsChanged } from "../runtime/sync/resource-sync-events.js";
 import { deliverVerificationSlack } from "../runtime/verification-outbound-actions.js";
 import { updatePublishedAppDeployment } from "../services/published-app-updater.js";
@@ -41,7 +41,7 @@ export type PostExecutionHook = (
   input: Record<string, unknown>,
   result: ToolExecutionResult,
   sideEffectCtx: SideEffectContext,
-) => void;
+) => void | Promise<void>;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -208,7 +208,7 @@ registerHook("voice_config_update", (_name, input) => {
 // completes.  The CLI subprocess is sandboxed and cannot reach the
 // gateway, so it includes a `_pendingSlackDm` field in its JSON output.
 // This hook runs in the unsandboxed daemon process and delivers the DM.
-registerHook("bash", (_name, input, result) => {
+registerHook("bash", async (_name, input, result) => {
   const command = (input.command ?? "") as string;
   if (!command.includes("channel-verification-sessions")) return;
   if (!result.content.includes("_pendingSlackDm")) return;
@@ -218,13 +218,25 @@ registerHook("bash", (_name, input, result) => {
 
   // Returns "delivered" when DM was sent, "rejected" when _pendingSlackDm
   // was found but failed validation, or null when the field was absent.
-  const dispatch = (parsed: Parsed): "delivered" | "rejected" | null => {
+  const dispatch = async (
+    parsed: Parsed,
+  ): Promise<"delivered" | "rejected" | null> => {
     if (parsed._pendingSlackDm) {
       const { userId, text, assistantId } = parsed._pendingSlackDm;
 
       // Validate that an active Slack verification session exists and
       // that the destination matches the userId in the parsed payload.
-      const session = findActiveSession("slack");
+      // Fail closed: an unverifiable DM (gateway unreachable) is not sent.
+      let session;
+      try {
+        session = await findActiveSession("slack");
+      } catch (err) {
+        log.warn(
+          { err, userId, assistantId },
+          "Bash hook: gateway session lookup failed — ignoring _pendingSlackDm",
+        );
+        return "rejected";
+      }
       if (!session) {
         log.warn(
           { userId, assistantId },
@@ -247,20 +259,26 @@ registerHook("bash", (_name, input, result) => {
   };
 
   // Try full content first (handles pretty-printed single-object JSON)
+  let singleObject: Parsed | undefined;
   try {
-    if (dispatch(JSON.parse(result.content.trim()) as Parsed) !== null) return;
+    singleObject = JSON.parse(result.content.trim()) as Parsed;
   } catch {
     // Not a single JSON object — fall back to line-by-line for
     // multi-object output (e.g. cancel + create chained with &&).
   }
+  if (singleObject !== undefined) {
+    if ((await dispatch(singleObject)) !== null) return;
+  }
   for (const line of result.content.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed.startsWith("{")) continue;
+    let parsed: Parsed;
     try {
-      if (dispatch(JSON.parse(trimmed) as Parsed) === "delivered") return;
+      parsed = JSON.parse(trimmed) as Parsed;
     } catch {
       continue;
     }
+    if ((await dispatch(parsed)) === "delivered") return;
   }
 });
 
@@ -299,18 +317,25 @@ registerHook("file_edit", (_name, input) =>
  * Run all applicable post-execution side effects for a completed tool call.
  * Handles both registry-based hooks and the DoorDash step tracker (which
  * uses its own name-matching logic).
+ *
+ * Fire-and-forget for production callers; the returned promise lets tests
+ * await async hooks. Hook failures are logged, never propagated.
  */
-export function runPostExecutionSideEffects(
+export async function runPostExecutionSideEffects(
   name: string,
   input: Record<string, unknown>,
   result: ToolExecutionResult,
   sideEffectCtx: SideEffectContext,
-): void {
+): Promise<void> {
   // Registry-based hooks only fire on success
   if (!result.isError) {
     const hook = postExecutionHooks.get(name);
     if (hook) {
-      hook(name, input, result, sideEffectCtx);
+      try {
+        await hook(name, input, result, sideEffectCtx);
+      } catch (err) {
+        log.error({ err, toolName: name }, "Post-execution hook failed");
+      }
     }
   }
 

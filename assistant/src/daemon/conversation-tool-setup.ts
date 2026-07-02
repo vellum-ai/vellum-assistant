@@ -405,7 +405,7 @@ export function createToolExecutor(
         ctx.approvedViaPromptThisTurn = true;
       }
 
-      runPostExecutionSideEffects(toolName, toolInput, result, { ctx });
+      void runPostExecutionSideEffects(toolName, toolInput, result, { ctx });
 
       return result;
     }
@@ -419,7 +419,9 @@ export function createToolExecutor(
       ctx.approvedViaPromptThisTurn = true;
     }
 
-    runPostExecutionSideEffects(executionName, executionInput, result, { ctx });
+    void runPostExecutionSideEffects(executionName, executionInput, result, {
+      ctx,
+    });
 
     return result;
   };
