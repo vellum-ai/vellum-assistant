@@ -29,6 +29,7 @@ export function mergePlugins(
     issues: p.issues,
     // Installed rows carry enablement; older daemons omit it (undefined).
     enabled: p.enabled,
+    icon: p.icon,
   }));
 
   const installedNames = new Set(installedItems.map((i) => i.name));
