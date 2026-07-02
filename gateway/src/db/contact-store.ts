@@ -884,7 +884,7 @@ export class ContactStore {
     inviteId: string;
     redeemedByExternalUserId?: string | null;
     redeemedByExternalChatId?: string | null;
-  }): { updated: boolean; row: IngressInviteRow | null } {
+  }): { updated: boolean } {
     const now = Date.now();
     // RETURNING lets us tell a gated-out update (no active row matched) from a
     // successful one without depending on the driver's `changes` count.
@@ -904,13 +904,10 @@ export class ContactStore {
           eq(ingressInvites.status, "active"),
         ),
       )
-      .returning()
+      .returning({ id: ingressInvites.id })
       .all();
 
-    return {
-      updated: updated.length > 0,
-      row: updated[0] ?? this.getInviteById(params.inviteId),
-    };
+    return { updated: updated.length > 0 };
   }
 
   getInviteById(inviteId: string): IngressInviteRow | null {

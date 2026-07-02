@@ -23,6 +23,18 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbRun: () => assistantDbRunImpl(),
 }));
 
+// Capture the best-effort invite_redeemed daemon event (fired by the engine
+// on every real redeem) instead of dialing the assistant socket.
+let ipcCallAssistantCalls: Array<{ method: string; body: unknown }> = [];
+mock.module("../ipc/assistant-client.js", () => ({
+  ipcCallAssistant: async (method: string, opts?: { body?: unknown }) => {
+    ipcCallAssistantCalls.push({ method, body: opts?.body });
+    return {};
+  },
+  IpcHandlerError: class IpcHandlerError extends Error {},
+  IpcTransportError: class IpcTransportError extends Error {},
+}));
+
 await import("./test-preload.js");
 
 const { initGatewayDb, getGatewayDb, resetGatewayDb } = await import(
@@ -51,7 +63,12 @@ beforeEach(() => {
   db.delete(contacts).run();
   assistantDbQueryImpl = async () => [];
   assistantDbRunImpl = async () => {};
+  ipcCallAssistantCalls = [];
 });
+
+function inviteRedeemedEvents() {
+  return ipcCallAssistantCalls.filter((c) => c.method === "invite_redeemed");
+}
 
 afterAll(() => {
   resetGatewayDb();
@@ -160,6 +177,10 @@ describe("redeemInviteByCode", () => {
     expect(channel?.status).toBe("active");
     expect(channel?.verifiedVia).toBe("invite");
     expect(channel?.contactId).toBe("c1");
+
+    // The engine fires the daemon info-mirror event with the outcome verbatim.
+    expect(inviteRedeemedEvents()).toHaveLength(1);
+    expect(inviteRedeemedEvents()[0].body).toEqual(result.outcome);
   });
 
   test("preserves the target contact's curated displayName in the outcome", async () => {
@@ -253,6 +274,33 @@ describe("redeemInviteByCode", () => {
     if (result.status !== "already_member") throw new Error("unreachable");
     expect(result.replyText).toBe("You already have access.");
     expect(result.outcome.result).toBe("already_member");
+    expect(inviteRow(inviteId).useCount).toBe(0);
+    expect(inviteRow(inviteId).status).toBe("active");
+    // Nothing consumed → no daemon info-mirror event.
+    expect(inviteRedeemedEvents()).toHaveLength(0);
+  });
+
+  test("already_member for a chatId-only caller: NO use consumed", async () => {
+    seedContact("c1");
+    seedChannel({
+      id: "ch-1",
+      contactId: "c1",
+      address: "U_SENDER",
+      status: "active",
+    });
+    const inviteId = seedInvite();
+
+    // The seeded channel's externalChatId is "chat-1"; the sender carries only
+    // the delivery chat id (no actor external id).
+    const result = await redeemInviteByCode({
+      code: CODE,
+      sourceChannel: CHANNEL,
+      externalChatId: "chat-1",
+    });
+
+    expect(result.status).toBe("already_member");
+    if (result.status !== "already_member") throw new Error("unreachable");
+    expect(result.outcome.memberExternalUserId).toBe("U_SENDER");
     expect(inviteRow(inviteId).useCount).toBe(0);
     expect(inviteRow(inviteId).status).toBe("active");
   });
@@ -437,7 +485,7 @@ describe("redeemInviteByToken", () => {
     seedContact("c1");
     const inviteId = seedInvite();
 
-    const result = await redeemInviteByToken({ rawToken: TOKEN, ...IDENTITY });
+    const result = await redeemInviteByToken({ token: TOKEN, ...IDENTITY });
 
     expect(result.status).toBe("redeemed");
     expect(inviteRow(inviteId).useCount).toBe(1);
@@ -449,7 +497,7 @@ describe("redeemInviteByToken", () => {
     seedInvite();
 
     const result = await redeemInviteByToken({
-      rawToken: "not-a-token",
+      token: "not-a-token",
       ...IDENTITY,
     });
 
@@ -464,7 +512,7 @@ describe("redeemInviteByToken", () => {
     const inviteId = seedInvite();
     new ContactStore().revokeInvite(inviteId);
 
-    const result = await redeemInviteByToken({ rawToken: TOKEN, ...IDENTITY });
+    const result = await redeemInviteByToken({ token: TOKEN, ...IDENTITY });
 
     expect(result.status).toBe("failed");
     if (result.status !== "failed") throw new Error("unreachable");
@@ -476,7 +524,7 @@ describe("redeemInviteByToken", () => {
     seedContact("c1");
     const inviteId = seedInvite({ sourceChannel: "whatsapp" });
 
-    const result = await redeemInviteByToken({ rawToken: TOKEN, ...IDENTITY });
+    const result = await redeemInviteByToken({ token: TOKEN, ...IDENTITY });
 
     expect(result.status).toBe("failed");
     if (result.status !== "failed") throw new Error("unreachable");

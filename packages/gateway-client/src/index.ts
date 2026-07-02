@@ -100,9 +100,6 @@ export {
   GetActiveVoiceInviteRequestSchema,
   hashInviteCode,
   hashInviteToken,
-  INVITE_CODE_REDEMPTION_CHANNELS,
-  INVITE_REDEMPTION_RESULT_VALUES,
-  InviteRedeemedNotificationSchema,
   InviteRedemptionOutcomeSchema,
   isInviteCodeRedemptionEnabled,
   isValidE164,
@@ -114,7 +111,6 @@ export {
 export type {
   ActiveVoiceInvite,
   GetActiveVoiceInviteRequest,
-  InviteRedeemedNotification,
   InviteRedemptionOutcome,
   InviteRedemptionResult,
   RedeemInviteByCodeRequest,

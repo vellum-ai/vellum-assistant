@@ -20,6 +20,8 @@ import {
   type ActiveVoiceInvite,
   type CommandIntent,
   type InviteRedemptionOutcome,
+  type RedeemInviteByCodeRequest,
+  type RedeemInviteByTokenRequest,
   type TrustVerdict,
 } from "@vellumai/gateway-client";
 
@@ -29,9 +31,11 @@ import { getLogger } from "../logger.js";
 import { extractEmailReplyBody } from "./code-parsing.js";
 import {
   upsertVerifiedContactChannel,
+  getGatewayChannelByExternalChatId,
   getGatewayChannelByKey,
 } from "./contact-helpers.js";
 import { canonicalizeInboundIdentity } from "./identity.js";
+import { ensureInviteLive } from "./invite-liveness.js";
 import { deliverVerificationReply } from "./reply-delivery.js";
 
 const log = getLogger("invite-redemption");
@@ -81,7 +85,8 @@ function failed(
   return { status: "failed", reason, replyText: INVITE_REPLY_TEMPLATES[reason] };
 }
 
-export interface RedeemIdentityParams {
+/** Sender identity fields shared by every redemption path. */
+interface RedeemIdentityParams {
   sourceChannel: string;
   externalUserId?: string;
   externalChatId?: string;
@@ -100,7 +105,7 @@ export interface RedeemIdentityParams {
  * `no_match` so a bare 6-digit message can fall through as normal content.
  */
 export async function redeemInviteByCode(
-  params: RedeemIdentityParams & { code: string; store?: ContactStore },
+  params: RedeemInviteByCodeRequest & { store?: ContactStore },
 ): Promise<InviteRedemptionEngineResult> {
   const store = params.store ?? new ContactStore();
   if (!params.externalUserId && !params.externalChatId) {
@@ -125,14 +130,14 @@ export async function redeemInviteByCode(
  * invalid invite — never a fall-through.
  */
 export async function redeemInviteByToken(
-  params: RedeemIdentityParams & { rawToken: string; store?: ContactStore },
+  params: RedeemInviteByTokenRequest & { store?: ContactStore },
 ): Promise<InviteRedemptionEngineResult> {
   const store = params.store ?? new ContactStore();
   if (!params.externalUserId && !params.externalChatId) {
     return failed("missing_identity");
   }
 
-  const invite = store.findInviteByTokenHash(hashInviteToken(params.rawToken));
+  const invite = store.findInviteByTokenHash(hashInviteToken(params.token));
   if (!invite) {
     return failed("invalid_token");
   }
@@ -158,12 +163,9 @@ async function finishRedemption(
 ): Promise<InviteRedemptionEngineResult> {
   const { sourceChannel, externalUserId, externalChatId, username } = params;
 
-  if (invite.status !== "active") {
-    return failed(reasonForStatus(invite.status));
-  }
-  if (invite.expiresAt <= Date.now()) {
-    store.markInviteExpired(invite.id);
-    return failed("expired");
+  const liveness = ensureInviteLive(store, invite);
+  if (!liveness.live) {
+    return failed(reasonForStatus(liveness.status));
   }
   if (invite.useCount >= invite.maxUses) {
     return failed("max_uses_reached");
@@ -174,16 +176,20 @@ async function finishRedemption(
 
   // ── Membership gate — gateway ACL rows only ──
   // Same (type, address) COLLATE NOCASE resolution the trust-verdict resolver
-  // uses. `already_member` never consumes a use, and a blocked gateway channel
-  // is NEVER reactivated by a code match (generic failure so membership
-  // status doesn't leak to callers holding a valid code).
+  // uses; a chatId-only caller falls back to the (type, externalChatId) key so
+  // an existing member never consumes a use for lack of an actor external id.
+  // `already_member` never consumes a use, and a blocked gateway channel is
+  // NEVER reactivated by a code match (generic failure so membership status
+  // doesn't leak to callers holding a valid code).
   const canonicalUserId = externalUserId
     ? (canonicalizeInboundIdentity(sourceChannel, externalUserId) ??
       externalUserId)
     : undefined;
   const existing = canonicalUserId
     ? getGatewayChannelByKey(sourceChannel, canonicalUserId)
-    : null;
+    : externalChatId
+      ? getGatewayChannelByExternalChatId(sourceChannel, externalChatId)
+      : null;
   // An existing channel under a different contact is not "already a member"
   // for this invite: the invite binds the sender to its target contact.
   const targetMismatch = !!existing && existing.contactId !== invite.contactId;
@@ -195,7 +201,7 @@ async function finishRedemption(
         inviteId: invite.id,
         contactId: existing.contactId,
         sourceChannel,
-        memberExternalUserId: canonicalUserId!,
+        memberExternalUserId: canonicalUserId ?? existing.address,
         ...(externalChatId ? { memberExternalChatId: externalChatId } : {}),
         result: "already_member",
       },
@@ -231,14 +237,12 @@ async function finishRedemption(
   // throws post-claim is logged and the redemption still succeeds — the
   // daemon `invite_redeemed` event and self-heal cover the mirror.
 
-  // Preserve the target contact's curated displayName over the raw
-  // transport-provided name (mirrors the daemon redemption service).
+  // The target contact's curated displayName wins over the raw
+  // transport-provided name.
   let displayName = params.displayName;
   try {
-    const targetContact = store.getContact(invite.contactId);
-    if (targetContact?.displayName?.trim().length) {
-      displayName = targetContact.displayName;
-    }
+    displayName =
+      resolveInviteeName(store, invite, params.displayName) ?? undefined;
   } catch (err) {
     log.warn(
       { err, inviteId: invite.id },
@@ -263,7 +267,7 @@ async function finishRedemption(
       verifiedVia: "invite",
       contactId: invite.contactId,
       allowRevokedReactivation: true,
-      mirrorFailureMode: "soft",
+      softMirrorFailures: true,
     }));
   } catch (err) {
     log.error(
@@ -281,21 +285,23 @@ async function finishRedemption(
     return failed("invalid_token");
   }
 
+  const outcome: InviteRedemptionOutcome = {
+    inviteId: invite.id,
+    contactId: invite.contactId,
+    sourceChannel,
+    memberExternalUserId: canonicalUserId ?? address,
+    ...(externalChatId ? { memberExternalChatId: externalChatId } : {}),
+    ...(displayName ? { displayName } : {}),
+    ...(username ? { username } : {}),
+    ...(invite.sourceConversationId
+      ? { sourceConversationId: invite.sourceConversationId }
+      : {}),
+    result: "redeemed",
+  };
+  notifyDaemonInviteRedeemed(outcome);
   return {
     status: "redeemed",
-    outcome: {
-      inviteId: invite.id,
-      contactId: invite.contactId,
-      sourceChannel,
-      memberExternalUserId: canonicalUserId ?? address,
-      ...(externalChatId ? { memberExternalChatId: externalChatId } : {}),
-      ...(displayName ? { displayName } : {}),
-      ...(username ? { username } : {}),
-      ...(invite.sourceConversationId
-        ? { sourceConversationId: invite.sourceConversationId }
-        : {}),
-      result: "redeemed",
-    },
+    outcome,
     replyText: INVITE_REPLY_TEMPLATES.redeemed,
   };
 }
@@ -313,23 +319,25 @@ function sweepExpiredVoiceInvites(
   now: number,
 ): void {
   for (const candidate of candidates) {
-    if (candidate.expiresAt <= now) {
-      store.markInviteExpired(candidate.id);
-    }
+    ensureInviteLive(store, candidate, now);
   }
 }
 
 /**
- * Resolve a voice invite's invitee display name: the target contact's curated
- * displayName preferred, the invite's free-text friendName as fallback.
+ * Resolve an invite's invitee display name: the target contact's curated
+ * displayName preferred, the invite's free-text friendName (voice invites)
+ * next, then the caller-supplied fallback (e.g. the transport-provided
+ * sender name).
  */
 export function resolveInviteeName(
   store: ContactStore,
   invite: IngressInviteRow,
+  fallback?: string,
 ): string | null {
   return (
     store.getContact(invite.contactId)?.displayName?.trim() ||
     invite.friendName?.trim() ||
+    fallback?.trim() ||
     null
   );
 }
@@ -375,8 +383,8 @@ const VOICE_FAILURE: VoiceInviteRedemptionResult = {
  * pre-checks (expired candidates are lazily swept). Validation, the membership
  * gate (`already_member` no-consume; blocked never reactivated), the atomic
  * claim, and the phone ACL upsert are shared with the code/token paths via
- * {@link finishRedemption} — the invite's friendName seeds the displayName,
- * with the target contact's curated name taking precedence inside the helper.
+ * {@link finishRedemption} — the invitee display name resolves inside the
+ * helper (curated contact name first, invite friendName next).
  *
  * Every failure collapses to the single generic `invalid_or_expired` so a
  * caller probing codes can't learn which invites exist, which numbers are
@@ -409,7 +417,6 @@ export async function redeemVoiceInvite(params: {
     sourceChannel: "phone",
     externalUserId: callerExternalUserId,
     externalChatId: callerExternalUserId,
-    displayName: invite.friendName ?? undefined,
   });
   if (result.status !== "redeemed" && result.status !== "already_member") {
     return VOICE_FAILURE;
@@ -423,12 +430,11 @@ export async function redeemVoiceInvite(params: {
 
 /**
  * Notify the daemon of a successful redemption so it mirrors the contact
- * info row locally. Fire-and-forget: the info mirror must never block or
- * fail the ACL path.
+ * info row locally. Fired by {@link finishRedemption} on every `redeemed`
+ * outcome (transports only map results to response envelopes).
+ * Fire-and-forget: the info mirror must never block or fail the ACL path.
  */
-export function notifyDaemonInviteRedeemed(
-  outcome: InviteRedemptionOutcome,
-): void {
+function notifyDaemonInviteRedeemed(outcome: InviteRedemptionOutcome): void {
   void ipcCallAssistant("invite_redeemed", { body: outcome }).catch((err) => {
     log.warn(
       { err, inviteId: outcome.inviteId },
@@ -550,7 +556,7 @@ export async function tryInviteRedemptionIntercept(
   try {
     result = token
       ? await redeemInviteByToken({
-          rawToken: token,
+          token,
           sourceChannel,
           externalUserId: actorExternalUserId,
           externalChatId: actorChatId,
@@ -577,10 +583,6 @@ export async function tryInviteRedemptionIntercept(
 
   if (result.status === "no_match") {
     return { intercepted: false };
-  }
-
-  if (result.status === "redeemed") {
-    notifyDaemonInviteRedeemed(result.outcome);
   }
 
   log.info(

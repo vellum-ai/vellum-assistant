@@ -252,13 +252,10 @@ type RevokeInviteFn = (inviteId: string) => InviteRow | null;
 let contactStoreRevokeInviteMock: ReturnType<typeof mock<RevokeInviteFn>> =
   mock(() => DEFAULT_INVITE);
 
-type RecordRedemptionFn = (params: unknown) => {
-  updated: boolean;
-  row: InviteRow | null;
-};
+type RecordRedemptionFn = (params: unknown) => { updated: boolean };
 let contactStoreRecordRedemptionMock: ReturnType<
   typeof mock<RecordRedemptionFn>
-> = mock(() => ({ updated: true, row: DEFAULT_INVITE }));
+> = mock(() => ({ updated: true }));
 
 type GetInviteByIdFn = (inviteId: string) => InviteRow | null;
 let contactStoreGetInviteByIdMock: ReturnType<typeof mock<GetInviteByIdFn>> =
@@ -374,25 +371,21 @@ let redeemInviteByTokenMock: ReturnType<typeof mock<RedeemTokenEngineFn>> =
     reason: "invalid_token",
     replyText: "This invite is no longer valid.",
   }));
-let notifyDaemonInviteRedeemedMock: ReturnType<
-  typeof mock<(outcome: EngineOutcome) => void>
-> = mock(() => {});
-
 mock.module("../verification/invite-redemption.js", () => ({
   redeemVoiceInvite: (...args: Parameters<RedeemVoiceEngineFn>) =>
     redeemVoiceInviteMock(...args),
   redeemInviteByToken: (...args: Parameters<RedeemTokenEngineFn>) =>
     redeemInviteByTokenMock(...args),
-  notifyDaemonInviteRedeemed: (outcome: EngineOutcome) =>
-    notifyDaemonInviteRedeemedMock(outcome),
   // Faithful stand-in for the real helper (curated contact displayName wins,
   // invite friendName falls back) — the trigger-call tests rely on it.
   resolveInviteeName: (
     store: { getContact: (id: string) => { displayName?: string } | undefined },
     invite: { contactId: string; friendName?: string | null },
+    fallback?: string,
   ) =>
     store.getContact(invite.contactId)?.displayName?.trim() ||
     invite.friendName?.trim() ||
+    fallback?.trim() ||
     null,
 }));
 
@@ -460,10 +453,7 @@ afterEach(() => {
   contactStoreListInvitesMock = mock(() => []);
   contactStoreCreateInviteMock = mock(() => DEFAULT_INVITE);
   contactStoreRevokeInviteMock = mock(() => DEFAULT_INVITE);
-  contactStoreRecordRedemptionMock = mock(() => ({
-    updated: true,
-    row: DEFAULT_INVITE,
-  }));
+  contactStoreRecordRedemptionMock = mock(() => ({ updated: true }));
   contactStoreGetInviteByIdMock = mock(() => DEFAULT_INVITE);
   contactStoreMarkInviteExpiredMock = mock(() => true);
   redeemVoiceInviteMock = mock(async () => ({
@@ -475,7 +465,6 @@ afterEach(() => {
     reason: "invalid_token",
     replyText: "This invite is no longer valid.",
   }));
-  notifyDaemonInviteRedeemedMock = mock(() => {});
 });
 
 describe("contacts control-plane proxy", () => {
@@ -2571,13 +2560,13 @@ describe("handleRedeemInvite (gateway-native)", () => {
       code: "123456",
       callerExternalUserId: "+15551234567",
     });
-    // The daemon info-mirror event fired; no assistant redeem relay ran.
-    expect(notifyDaemonInviteRedeemedMock).toHaveBeenCalledWith(VOICE_OUTCOME);
+    // No assistant redeem relay ran (the daemon info-mirror event is fired
+    // inside the engine, covered by the engine tests).
     expect(ipcCallAssistantMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("voice already_member returns no inviteId and fires no daemon event (nothing consumed)", async () => {
+  test("voice already_member returns no inviteId (nothing consumed)", async () => {
     redeemVoiceInviteMock = mock(async () => ({
       status: "already_member" as const,
       outcome: { ...VOICE_OUTCOME, result: "already_member" as const },
@@ -2595,7 +2584,6 @@ describe("handleRedeemInvite (gateway-native)", () => {
       type: "already_member",
       memberId: "ct_1",
     });
-    expect(notifyDaemonInviteRedeemedMock).not.toHaveBeenCalled();
   });
 
   test("voice failure maps to 400 BAD_REQUEST with the generic reason", async () => {
@@ -2609,7 +2597,6 @@ describe("handleRedeemInvite (gateway-native)", () => {
     const body = await res.json();
     expect(body.error.code).toBe("BAD_REQUEST");
     expect(body.error.message).toBe("invalid_or_expired");
-    expect(notifyDaemonInviteRedeemedMock).not.toHaveBeenCalled();
   });
 
   test("token path dispatches to the token engine and returns the sanitized invite + type", async () => {
@@ -2645,16 +2632,15 @@ describe("handleRedeemInvite (gateway-native)", () => {
     expect(body.invite.tokenHash).toBeUndefined();
     expect(body.invite.voiceCodeHash).toBeUndefined();
     expect(redeemInviteByTokenMock.mock.calls[0][0]).toMatchObject({
-      rawToken: "raw-token",
+      token: "raw-token",
       sourceChannel: "telegram",
       externalUserId: "u_1",
     });
     expect(contactStoreGetInviteByIdMock.mock.calls[0][0]).toBe("inv_1");
-    expect(notifyDaemonInviteRedeemedMock).toHaveBeenCalledTimes(1);
     expect(ipcCallAssistantMock).not.toHaveBeenCalled();
   });
 
-  test("token already_member relays the type unchanged and fires no daemon event", async () => {
+  test("token already_member relays the type unchanged", async () => {
     redeemInviteByTokenMock = mock(async () => ({
       status: "already_member" as const,
       outcome: {
@@ -2676,7 +2662,6 @@ describe("handleRedeemInvite (gateway-native)", () => {
     expect(body.ok).toBe(true);
     expect(body.type).toBe("already_member");
     expect(body.invite.id).toBe("inv_1");
-    expect(notifyDaemonInviteRedeemedMock).not.toHaveBeenCalled();
   });
 
   test("token engine failure maps the reason to 400 BAD_REQUEST", async () => {

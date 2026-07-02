@@ -29,6 +29,18 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbRun: async () => {},
 }));
 
+// Capture the best-effort invite_redeemed daemon event (fired by the engine
+// on every real redeem) instead of dialing the assistant socket.
+let ipcCallAssistantCalls: Array<{ method: string; body: unknown }> = [];
+mock.module("../ipc/assistant-client.js", () => ({
+  ipcCallAssistant: async (method: string, opts?: { body?: unknown }) => {
+    ipcCallAssistantCalls.push({ method, body: opts?.body });
+    return {};
+  },
+  IpcHandlerError: class IpcHandlerError extends Error {},
+  IpcTransportError: class IpcTransportError extends Error {},
+}));
+
 await import("./test-preload.js");
 
 const { initGatewayDb, getGatewayDb, resetGatewayDb } =
@@ -52,6 +64,7 @@ beforeEach(() => {
   db.delete(ingressInvites).run();
   db.delete(contactChannels).run();
   db.delete(contacts).run();
+  ipcCallAssistantCalls = [];
 });
 
 afterAll(() => {
@@ -209,6 +222,13 @@ describe("redeemVoiceInvite", () => {
     expect(channel?.status).toBe("active");
     expect(channel?.verifiedVia).toBe("invite");
     expect(channel?.contactId).toBe("c1");
+
+    // The engine fires the daemon info-mirror event with the outcome verbatim.
+    const mirrored = ipcCallAssistantCalls.filter(
+      (c) => c.method === "invite_redeemed",
+    );
+    expect(mirrored).toHaveLength(1);
+    expect(mirrored[0].body).toEqual(result.outcome);
   });
 
   test("falls back to friendName when the target contact has no curated displayName", async () => {
@@ -286,6 +306,10 @@ describe("redeemVoiceInvite", () => {
     expect(result.outcome.result).toBe("already_member");
     expect(inviteRow(inviteId).useCount).toBe(0);
     expect(inviteRow(inviteId).status).toBe("active");
+    // Nothing consumed → no daemon info-mirror event.
+    expect(
+      ipcCallAssistantCalls.filter((c) => c.method === "invite_redeemed"),
+    ).toHaveLength(0);
   });
 
   test("blocked phone channel is NEVER reactivated: generic failure, no use consumed", async () => {

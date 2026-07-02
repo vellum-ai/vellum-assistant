@@ -201,11 +201,12 @@ describe("ContactStore ingress_invites", () => {
       redeemedByExternalChatId: "chat-ext",
     });
     expect(redeem.updated).toBe(true);
-    expect(redeem.row!.useCount).toBe(1);
-    expect(redeem.row!.status).toBe("redeemed");
-    expect(redeem.row!.redeemedByExternalUserId).toBe("u-ext");
-    expect(redeem.row!.redeemedByExternalChatId).toBe("chat-ext");
-    expect(redeem.row!.redeemedAt).not.toBeNull();
+    const row = store.getInviteById("inv1")!;
+    expect(row.useCount).toBe(1);
+    expect(row.status).toBe("redeemed");
+    expect(row.redeemedByExternalUserId).toBe("u-ext");
+    expect(row.redeemedByExternalChatId).toBe("chat-ext");
+    expect(row.redeemedAt).not.toBeNull();
 
     // Revoking a redeemed (non-active) invite is a no-op but returns the row.
     const revoked = store.revokeInvite("inv1");
@@ -227,19 +228,19 @@ describe("ContactStore ingress_invites", () => {
 
     const r1 = store.recordInviteRedemption({ inviteId: "inv1" });
     expect(r1.updated).toBe(true);
-    expect(r1.row!.useCount).toBe(1);
-    expect(r1.row!.status).toBe("active");
+    expect(store.getInviteById("inv1")!.useCount).toBe(1);
+    expect(store.getInviteById("inv1")!.status).toBe("active");
 
     const r2 = store.recordInviteRedemption({ inviteId: "inv1" });
     expect(r2.updated).toBe(true);
-    expect(r2.row!.useCount).toBe(2);
-    expect(r2.row!.status).toBe("redeemed");
+    expect(store.getInviteById("inv1")!.useCount).toBe(2);
+    expect(store.getInviteById("inv1")!.status).toBe("redeemed");
 
     // Exhausted (non-active) → further redemptions are gated out.
     const r3 = store.recordInviteRedemption({ inviteId: "inv1" });
     expect(r3.updated).toBe(false);
-    expect(r3.row!.useCount).toBe(2);
-    expect(r3.row!.status).toBe("redeemed");
+    expect(store.getInviteById("inv1")!.useCount).toBe(2);
+    expect(store.getInviteById("inv1")!.status).toBe("redeemed");
   });
 
   test("revokeInvite flips active → revoked, is idempotent, and returns null for unknown id", () => {
@@ -280,16 +281,15 @@ describe("ContactStore ingress_invites", () => {
 
     const redeem = store.recordInviteRedemption({ inviteId: "inv1" });
     expect(redeem.updated).toBe(false);
-    expect(redeem.row!.status).toBe("revoked");
-    expect(redeem.row!.useCount).toBe(0);
+    expect(store.getInviteById("inv1")!.status).toBe("revoked");
+    expect(store.getInviteById("inv1")!.useCount).toBe(0);
   });
 
-  test("recordInviteRedemption returns updated=false and null row for unknown id", () => {
+  test("recordInviteRedemption returns updated=false for unknown id", () => {
     const redeem = new ContactStore().recordInviteRedemption({
       inviteId: "nope",
     });
     expect(redeem.updated).toBe(false);
-    expect(redeem.row).toBeNull();
   });
 
   test("createInvite round-trips the widened secret + display columns", () => {
@@ -507,8 +507,8 @@ describe("ContactStore ingress_invites", () => {
     // recordInviteRedemption still gates on status='active'.
     const redeem = store.recordInviteRedemption({ inviteId: "inv1" });
     expect(redeem.updated).toBe(false);
-    expect(redeem.row!.status).toBe("expired");
-    expect(redeem.row!.useCount).toBe(0);
+    expect(store.getInviteById("inv1")!.status).toBe("expired");
+    expect(store.getInviteById("inv1")!.useCount).toBe(0);
   });
 
   test("markInviteExpired does not flip a revoked invite", () => {
