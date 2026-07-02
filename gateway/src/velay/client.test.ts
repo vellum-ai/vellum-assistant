@@ -961,7 +961,7 @@ describe("VelayTunnelClient", () => {
     sendFrame(sockets[0], {
       type: VELAY_FRAME_TYPES.websocketOpen,
       connection_id: "conn-123",
-      path: "/webhooks/twilio/relay",
+      path: "/webhooks/twilio/media-stream",
       headers: {},
     });
     sendFrame(sockets[0], {

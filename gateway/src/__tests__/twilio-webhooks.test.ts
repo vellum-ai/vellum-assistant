@@ -832,7 +832,7 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
       async () =>
         new Response(
           '<?xml version="1.0" encoding="UTF-8"?><Response><Connect>' +
-            '<ConversationRelay url="wss://__VELLUM_PUBLIC_BASE_URL__/webhooks/twilio/relay?token=__VELLUM_RELAY_TOKEN__"/>' +
+            '<Stream url="wss://__VELLUM_PUBLIC_BASE_URL__/webhooks/twilio/media-stream/sess-1/__VELLUM_RELAY_TOKEN__"/>' +
             "</Connect></Response>",
           {
             status: 200,
@@ -867,7 +867,7 @@ describe("Twilio webhook signature with canonical ingress base URL", () => {
     expect(res.status).toBe(200);
     const body = await res.text();
     expect(body).toContain(
-      `url="wss://velay-staging.vellum.ai/${assistantId}/webhooks/twilio/relay?`,
+      `url="wss://velay-staging.vellum.ai/${assistantId}/webhooks/twilio/media-stream/sess-1/`,
     );
     expect(body).not.toContain("__VELLUM_PUBLIC_BASE_URL__");
     expect(body).not.toContain("staging-platform.vellum.ai");
