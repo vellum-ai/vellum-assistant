@@ -5,6 +5,7 @@ import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
 } from "../contacts/canonical-guardian-store.js";
+import type { AutoApproveThreshold } from "../permissions/approval-policy.js";
 import { getAutoApproveThreshold } from "../permissions/gateway-threshold-reader.js";
 import {
   isUnparseableToolArgs,
@@ -194,7 +195,7 @@ export function isSensitiveTool(
  * channel × contact-type matrix supplies per-cell values through this same
  * parameter when it lands.
  */
-export type ApprovalCellThreshold = "none" | "low" | "medium" | "high";
+export type ApprovalCellThreshold = AutoApproveThreshold;
 
 /**
  * Outcome of the sensitive-tool composition:
@@ -223,6 +224,12 @@ export function resolveSensitiveToolDecision(input: {
   sensitive: boolean;
   /** Unconsulted (`undefined`) when the floor alone resolves the decision. */
   cellThreshold: ApprovalCellThreshold | undefined;
+  /**
+   * Risk level as known at gate time. The full risk classification runs
+   * after this gate (in the permission checker), so callers may only have
+   * the pre-classification level here — composing decisions on this axis
+   * requires moving classification ahead of the gate first.
+   */
   riskLevel: string;
   sensitiveToolApproval: SensitiveToolApproval;
 }): SensitiveToolDecision {

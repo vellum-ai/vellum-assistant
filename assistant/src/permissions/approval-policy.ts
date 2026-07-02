@@ -7,6 +7,13 @@ import { RiskLevel } from "./types.js";
 /** Execution context for per-context threshold resolution. */
 export type ExecutionContext = "conversation" | "background" | "headless";
 
+/**
+ * Auto-approve threshold: the highest risk level that is approved without
+ * prompting. Single source of truth for the threshold vocabulary — the
+ * gateway threshold reader and the sensitive-tool gate reuse this type.
+ */
+export type AutoApproveThreshold = "none" | "low" | "medium" | "high";
+
 /** Contextual information that an approval policy uses to reach a decision. */
 export interface ApprovalContext {
   riskLevel: RiskLevel;
@@ -34,7 +41,7 @@ export interface ApprovalContext {
    * - "medium": auto-approve Low and Medium risk
    * - "high": auto-approve everything unconditionally
    */
-  autoApproveUpTo?: "none" | "low" | "medium" | "high";
+  autoApproveUpTo?: AutoApproveThreshold;
 }
 
 // ── Ordinal maps for threshold comparison ─────────────────────────────────────
