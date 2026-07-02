@@ -63,7 +63,7 @@ mock.module("../../../persistence/invite-store.js", () => ({
 // `triggerInviteCall` provider logic directly (never `ipcCallPersistent`).
 let triggerInviteCallResult: unknown = { ok: true, data: { callSid: "CA000" } };
 const triggerInviteCallMock = mock(
-  async (_id: string) => triggerInviteCallResult,
+  async (_params: Record<string, unknown>) => triggerInviteCallResult,
 );
 
 const actualInviteService = await import("../../invite-service.js");
@@ -220,14 +220,23 @@ describe("invite relay routes", () => {
   });
 
   describe("handleTriggerInviteCall (daemon-local carve-out)", () => {
-    test("invokes the local triggerInviteCall and does NOT relay to the gateway", async () => {
+    test("invokes the local triggerInviteCall with the gateway-supplied body fields and does NOT relay to the gateway", async () => {
       triggerInviteCallResult = { ok: true, data: { callSid: "CA123" } };
       const result = await handleTriggerInviteCall({
         pathParams: { id: "i7" },
+        body: {
+          phoneNumber: "+15551234567",
+          friendName: "Alice",
+          guardianName: "Guardian Label",
+        },
       });
 
       expect(triggerInviteCallMock).toHaveBeenCalledTimes(1);
-      expect(triggerInviteCallMock).toHaveBeenCalledWith("i7");
+      expect(triggerInviteCallMock).toHaveBeenCalledWith({
+        phoneNumber: "+15551234567",
+        friendName: "Alice",
+        guardianName: "Guardian Label",
+      });
       // Must NOT relay: relaying invites_trigger_call would loop
       // gateway→assistant→gateway (the gateway calls THIS to place the call).
       expect(ipcCalls).toEqual([]);
@@ -238,7 +247,10 @@ describe("invite relay routes", () => {
       triggerInviteCallResult = { ok: false, error: "Invite not eligible" };
 
       try {
-        await handleTriggerInviteCall({ pathParams: { id: "i7" } });
+        await handleTriggerInviteCall({
+          pathParams: { id: "i7" },
+          body: { phoneNumber: "+15551234567" },
+        });
         throw new Error("expected handler to throw");
       } catch (err) {
         const e = err as { statusCode?: number; message: string };

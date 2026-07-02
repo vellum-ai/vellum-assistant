@@ -24,14 +24,20 @@ mock.module("../telegram/bot-username.js", () => ({
 }));
 
 // Mock startInviteCall from call-domain — test env lacks Twilio credentials.
+// Captures the last input so trigger-call tests can assert the gateway-supplied
+// fields flow through to the provider call.
 let mockStartInviteCallResult:
   | { ok: true; callSid: string }
   | { ok: false; error: string; status?: number } = {
   ok: true,
   callSid: "CA_test_sid_123",
 };
+let lastStartInviteCallInput: Record<string, unknown> | null = null;
 mock.module("../calls/call-domain.js", () => ({
-  startInviteCall: async () => mockStartInviteCallResult,
+  startInviteCall: async (input: Record<string, unknown>) => {
+    lastStartInviteCallInput = input;
+    return mockStartInviteCallResult;
+  },
 }));
 
 // Model the gateway: the redemption claim (record_invite_redemption) and the
@@ -109,8 +115,12 @@ async function handleRedeemInvite(req: Request) {
   }
 }
 
-async function handleTriggerInviteCall(inviteId: string) {
-  const result = await triggerInviteCall(inviteId);
+async function handleTriggerInviteCall(params: {
+  phoneNumber?: string;
+  friendName?: string | null;
+  guardianName?: string | null;
+}) {
+  const result = await triggerInviteCall(params);
   if (!result.ok) {
     return fakeResponse({ ok: false, error: result.error }, 400);
   }
@@ -374,57 +384,82 @@ describe("composeInvitePresentation", () => {
 // Trigger invite call endpoint
 // ---------------------------------------------------------------------------
 
+// Invite lifecycle validation (existence/active/expiry/phone) lives in the
+// gateway's triggerInviteCallNative — see the gateway proxy tests. The daemon
+// only performs the provider call from the gateway-supplied fields.
 describe("POST /v1/contacts/invites/:id/call", () => {
   beforeEach(() => {
     resetTables();
     mockStartInviteCallResult = { ok: true, callSid: "CA_test_sid_123" };
+    lastStartInviteCallInput = null;
   });
 
-  test("triggers a call for an active phone invite", async () => {
-    const { invite } = seedVoiceInvite("+15551234567");
-
-    const res = await handleTriggerInviteCall(invite.id);
+  test("places the call from the gateway-supplied fields", async () => {
+    const res = await handleTriggerInviteCall({
+      phoneNumber: "+15551234567",
+      friendName: "Alice",
+      guardianName: "Guardian Label",
+    });
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(res.status).toBe(200);
     expect(body.ok).toBe(true);
     expect(body.callSid).toBe("CA_test_sid_123");
+    expect(lastStartInviteCallInput).toEqual({
+      phoneNumber: "+15551234567",
+      friendName: "Alice",
+      guardianName: "Guardian Label",
+    });
   });
 
-  test("returns 400 for non-existent invite", async () => {
-    const res = await handleTriggerInviteCall("nonexistent-id");
+  test("returns 400 when phoneNumber is missing (no local invite fallback)", async () => {
+    // A live local invite row exists, but the daemon never re-reads it — the
+    // gateway row is the lifecycle authority and supplies the call fields.
+    seedVoiceInvite("+15551234567");
+
+    const res = await handleTriggerInviteCall({});
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
-    expect(body.error).toBe("Invite not found");
+    expect(body.error).toBe("phoneNumber is required");
+    expect(lastStartInviteCallInput).toBeNull();
   });
 
-  test("returns 400 for a revoked (non-active) invite", async () => {
-    const { invite } = seedVoiceInvite("+15551234567");
-
-    // Revoke the invite
-    revokeInvite(invite.id);
-
-    const res = await handleTriggerInviteCall(invite.id);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(400);
-    expect(body.ok).toBe(false);
-    expect(body.error).toBe("Invite is not active");
-  });
-
-  test("returns 400 for a non-phone invite", async () => {
-    const { invite } = createInvite({
-      sourceChannel: "telegram",
-      contactId: createTargetContact(),
+  test("empty friendName falls through to the neutral-greeting contract", async () => {
+    const res = await handleTriggerInviteCall({
+      phoneNumber: "+15551234567",
+      friendName: "   ",
+      guardianName: "Guardian Label",
     });
 
-    const res = await handleTriggerInviteCall(invite.id);
+    expect(res.status).toBe(200);
+    expect(lastStartInviteCallInput).toMatchObject({ friendName: "" });
+  });
+
+  test("null guardianName falls back to the resolved guardian name", async () => {
+    const res = await handleTriggerInviteCall({
+      phoneNumber: "+15551234567",
+      friendName: "Alice",
+      guardianName: null,
+    });
+
+    expect(res.status).toBe(200);
+    // resolveGuardianName() has no persona in this env, so the fallback
+    // resolves to the empty-string default rather than the null passthrough.
+    expect(typeof lastStartInviteCallInput?.guardianName).toBe("string");
+  });
+
+  test("surfaces a failed provider call as 400", async () => {
+    mockStartInviteCallResult = {
+      ok: false,
+      error: "phone_number must be in E.164 format",
+    };
+
+    const res = await handleTriggerInviteCall({ phoneNumber: "+15551234567" });
     const body = (await res.json()) as Record<string, unknown>;
 
     expect(res.status).toBe(400);
-    expect(body.ok).toBe(false);
-    expect(body.error).toBe("Only phone invites support call triggering");
+    expect(body.error).toBe("phone_number must be in E.164 format");
   });
 });

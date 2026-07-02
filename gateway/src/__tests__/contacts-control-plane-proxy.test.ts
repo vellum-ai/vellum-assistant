@@ -264,6 +264,11 @@ type GetInviteByIdFn = (inviteId: string) => InviteRow | null;
 let contactStoreGetInviteByIdMock: ReturnType<typeof mock<GetInviteByIdFn>> =
   mock(() => DEFAULT_INVITE);
 
+type MarkInviteExpiredFn = (inviteId: string) => boolean;
+let contactStoreMarkInviteExpiredMock: ReturnType<
+  typeof mock<MarkInviteExpiredFn>
+> = mock(() => true);
+
 mock.module("../db/contact-store.js", () => ({
   NO_INVITE_CODE_HASH: "",
   ContactStore: class MockContactStore {
@@ -287,6 +292,9 @@ mock.module("../db/contact-store.js", () => ({
     }
     getInviteById(inviteId: string) {
       return contactStoreGetInviteByIdMock(inviteId);
+    }
+    markInviteExpired(inviteId: string) {
+      return contactStoreMarkInviteExpiredMock(inviteId);
     }
     async listContactsWithInfo(opts?: {
       limit?: number;
@@ -402,6 +410,7 @@ afterEach(() => {
     row: DEFAULT_INVITE,
   }));
   contactStoreGetInviteByIdMock = mock(() => DEFAULT_INVITE);
+  contactStoreMarkInviteExpiredMock = mock(() => true);
 });
 
 describe("contacts control-plane proxy", () => {
@@ -2590,11 +2599,28 @@ describe("handleRedeemInvite (gateway-native, thin relay)", () => {
 });
 
 describe("handleCallInvite (gateway-native)", () => {
-  test("relays the call for an active invite", async () => {
-    contactStoreGetInviteByIdMock = mock(() => ({
-      ...DEFAULT_INVITE,
-      status: "active",
-    }));
+  // An active, unexpired phone invite bound to a caller number — the callable
+  // fixture the gateway relays to the daemon.
+  const PHONE_INVITE: InviteRow = {
+    ...DEFAULT_INVITE,
+    sourceChannel: "phone",
+    expectedExternalUserId: "+15550100001",
+    friendName: "Friend Label",
+    guardianName: "Guardian Label",
+  };
+
+  function callInvite() {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    return handler.handleCallInvite(
+      new Request("http://localhost:7830/v1/contacts/invites/inv_1/call", {
+        method: "POST",
+      }),
+      "inv_1",
+    );
+  }
+
+  test("relays the call for an active phone invite with the resolved call fields", async () => {
+    contactStoreGetInviteByIdMock = mock(() => PHONE_INVITE);
     ipcCallAssistantMock = mock(async (method: string) => {
       if (method === "invites_trigger_call") {
         return { callSid: "CA123" };
@@ -2602,92 +2628,114 @@ describe("handleCallInvite (gateway-native)", () => {
       return {};
     });
 
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleCallInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/inv_1/call", {
-        method: "POST",
-      }),
-      "inv_1",
-    );
+    const res = await callInvite();
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
     expect(body.callSid).toBe("CA123");
-    // The id must land at pathParams.id on the assistant route handler
-    // (handleTriggerInviteCall reads pathParams.id, not body).
+    // The id lands at pathParams.id; the resolved call fields land in body.
+    // The mock contact has no displayName, so friendName falls back to the
+    // invite's friendName.
     expect(ipcCallAssistantMock.mock.calls[0]).toEqual([
       "invites_trigger_call",
-      { pathParams: { id: "inv_1" } },
+      {
+        pathParams: { id: "inv_1" },
+        body: {
+          phoneNumber: "+15550100001",
+          friendName: "Friend Label",
+          guardianName: "Guardian Label",
+        },
+      },
     ]);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("relays to the assistant when no gateway row exists (assistant-only invite)", async () => {
-    // Legacy assistant-only invite: no gateway row, but a live daemon-local
-    // row — don't 404; relay and let the daemon-local trigger validate it.
-    contactStoreGetInviteByIdMock = mock(() => null);
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_trigger_call") {
-        return { callSid: "CA456" };
-      }
-      return {};
-    });
+  test("prefers the bound contact's displayName over the invite friendName", async () => {
+    contactStoreGetInviteByIdMock = mock(() => PHONE_INVITE);
+    contactStoreGetContactMock = mock(() => ({
+      id: "ct_1",
+      displayName: "Curated Name",
+    }));
+    ipcCallAssistantMock = mock(async () => ({ callSid: "CA124" }));
 
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleCallInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/inv_1/call", {
-        method: "POST",
-      }),
-      "inv_1",
-    );
+    const res = await callInvite();
 
     expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.callSid).toBe("CA456");
-    expect(ipcCallAssistantMock.mock.calls[0]).toEqual([
-      "invites_trigger_call",
-      { pathParams: { id: "inv_1" } },
-    ]);
+    const relayed = ipcCallAssistantMock.mock.calls[0][1] as {
+      body: Record<string, unknown>;
+    };
+    expect(relayed.body.friendName).toBe("Curated Name");
+  });
+
+  test("returns 404 when no gateway row exists (row is the lifecycle authority — no daemon fall-through)", async () => {
+    contactStoreGetInviteByIdMock = mock(() => null);
+
+    const res = await callInvite();
+
+    expect(res.status).toBe(404);
+    expect((await res.json()).error.message).toMatch(/not found/);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   test("returns 400 when the invite is not active", async () => {
     contactStoreGetInviteByIdMock = mock(() => ({
-      ...DEFAULT_INVITE,
+      ...PHONE_INVITE,
       status: "revoked",
     }));
 
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleCallInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/inv_1/call", {
-        method: "POST",
-      }),
-      "inv_1",
-    );
+    const res = await callInvite();
 
     expect(res.status).toBe(400);
     expect((await res.json()).error.message).toMatch(/not active/);
     expect(ipcCallAssistantMock).not.toHaveBeenCalled();
   });
 
-  test("returns 500 when the call relay throws unexpectedly", async () => {
+  test("returns 400 and sweeps the row when the invite has expired", async () => {
     contactStoreGetInviteByIdMock = mock(() => ({
-      ...DEFAULT_INVITE,
-      status: "active",
+      ...PHONE_INVITE,
+      expiresAt: Date.now() - 1,
     }));
+
+    const res = await callInvite();
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toMatch(/expired/);
+    expect(contactStoreMarkInviteExpiredMock).toHaveBeenCalledWith("inv_1");
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 for a non-phone invite", async () => {
+    contactStoreGetInviteByIdMock = mock(() => DEFAULT_INVITE); // telegram
+
+    const res = await callInvite();
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toMatch(/phone invites/);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 for a phone invite missing the bound caller number", async () => {
+    contactStoreGetInviteByIdMock = mock(() => ({
+      ...PHONE_INVITE,
+      expectedExternalUserId: null,
+    }));
+
+    const res = await callInvite();
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toMatch(/voice metadata/);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 500 when the call relay throws unexpectedly", async () => {
+    contactStoreGetInviteByIdMock = mock(() => PHONE_INVITE);
     ipcCallAssistantMock = mock(async () => {
       throw new Error("ipc transport failure");
     });
 
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleCallInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/inv_1/call", {
-        method: "POST",
-      }),
-      "inv_1",
-    );
+    const res = await callInvite();
 
     expect(res.status).toBe(500);
     expect(fetchMock).not.toHaveBeenCalled();

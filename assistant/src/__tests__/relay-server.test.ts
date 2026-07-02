@@ -38,18 +38,71 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// The voice redemption path now claims the gateway-canonical row over IPC
-// before mutating. Stub it so tests don't attempt a real socket connect; the
-// claim returns consumed (updated:true) so redemption proceeds.
+// Voice-invite detection and redemption go through the gateway over IPC
+// (`get_active_voice_invite` / `redeem_voice_invite`), and the redemption
+// engine claims the canonical row before mutating. Model the gateway against
+// the locally seeded invite rows so tests don't attempt a real socket connect.
 //
 // `inviteClaimCalls` counts gateway claims so concurrency tests can assert that
 // a repeated code does NOT launch a second claim. `inviteClaimGate`, when set,
 // holds the claim open mid-flight so a test can drive the race window where a
 // second code arrives while the first redemption is still awaiting the gateway.
+// `voiceInviteIpcError`, when set, makes the voice-invite IPC methods throw so
+// tests can pin fail-soft detection and fail-closed redemption.
 let inviteClaimCalls = 0;
 let inviteClaimGate: Promise<void> | null = null;
+let voiceInviteIpcError = false;
 mock.module("../ipc/gateway-client.js", () => ({
-  ipcCall: async () => undefined,
+  ipcCall: async (method: string, params?: Record<string, unknown>) => {
+    if (method === "get_active_voice_invite") {
+      if (voiceInviteIpcError) throw new Error("gateway unreachable");
+      // Model the gateway read from the seeded local rows: bound-contact
+      // displayName preferred, invite friendName fallback.
+      const { findActiveVoiceInvites } =
+        await import("../persistence/invite-store.js");
+      const { getContact } = await import("../contacts/contact-store.js");
+      const now = Date.now();
+      const invite = findActiveVoiceInvites({
+        expectedExternalUserId: params?.callerExternalUserId as string,
+      }).find((i) => !i.expiresAt || i.expiresAt > now);
+      if (!invite) return { invite: null };
+      return {
+        invite: {
+          inviteId: invite.id,
+          inviteeName:
+            getContact(invite.contactId)?.displayName?.trim() ||
+            invite.friendName?.trim() ||
+            null,
+          guardianName: invite.guardianName?.trim() || null,
+          codeDigits: invite.voiceCodeDigits ?? 6,
+        },
+      };
+    }
+    if (method === "redeem_voice_invite") {
+      if (voiceInviteIpcError) throw new Error("gateway unreachable");
+      // Model the gateway redemption engine with the local service (identical
+      // semantics: identity-bound candidates, code hash, expiry, atomic claim).
+      const { redeemVoiceInviteCode } =
+        await import("../runtime/invite-redemption-service.js");
+      const result = await redeemVoiceInviteCode({
+        callerExternalUserId: params?.callerExternalUserId as string,
+        sourceChannel: "phone",
+        code: params?.code as string,
+      });
+      if (!result.ok) return { ok: false, reason: "invalid_or_expired" };
+      return {
+        ok: true,
+        outcome: {
+          inviteId: result.type === "redeemed" ? result.inviteId : "inv-member",
+          contactId: result.memberId,
+          sourceChannel: "phone",
+          memberExternalUserId: params?.callerExternalUserId as string,
+          result: result.type,
+        },
+      };
+    }
+    return undefined;
+  },
   ipcCallPersistent: async (
     method: string,
     params?: Record<string, unknown>,
@@ -624,6 +677,7 @@ describe("relay-server", () => {
     activeRelayConnections.clear();
     inviteClaimCalls = 0;
     inviteClaimGate = null;
+    voiceInviteIpcError = false;
     mockUserReference = "my human";
     mockAssistantName = "Vellum";
     mockGuardianDeliveryList = null;
@@ -2829,6 +2883,119 @@ describe("relay-server", () => {
     relay.destroy();
   });
 
+  test("inbound voice: gateway IPC error during invite detection fails SOFT to name capture (not invite_redemption)", async () => {
+    ensureConversation("conv-invite-detect-err");
+    const session = createCallSession({
+      conversationId: "conv-invite-detect-err",
+      provider: "twilio",
+      fromNumber: "+15558884444",
+      toNumber: "+15551111111",
+    });
+
+    // A live invite row exists for this caller, but the gateway read throws —
+    // detection must fall to the unverified-caller flow, never block setup.
+    const code = generateVoiceCode(6);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact("Frank"),
+      maxUses: 1,
+      expectedExternalUserId: "+15558884444",
+      voiceCodeHash: hashVoiceCode(code),
+      voiceCodeDigits: 6,
+    });
+    voiceInviteIpcError = true;
+
+    const { relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_detect_err",
+        from: "+15558884444",
+        to: "+15551111111",
+      }),
+    );
+
+    // Fail-soft: routed to name capture, not invite redemption.
+    expect(relay.getConnectionState()).toBe("awaiting_name");
+    const events = getCallEvents(session.id);
+    expect(
+      events.some((e) => e.eventType === "invite_redemption_started"),
+    ).toBe(false);
+    expect(
+      events.some((e) => e.eventType === "inbound_acl_name_capture_started"),
+    ).toBe(true);
+
+    relay.destroy();
+  });
+
+  test("inbound voice invite redemption: gateway IPC error during code entry fails CLOSED (no local fallback)", async () => {
+    ensureConversation("conv-invite-redeem-err");
+    const session = createCallSession({
+      conversationId: "conv-invite-redeem-err",
+      provider: "twilio",
+      fromNumber: "+15558881111",
+      toNumber: "+15551111111",
+    });
+
+    const code = generateVoiceCode(6);
+    createInvite({
+      sourceChannel: "phone",
+      contactId: createTargetContact("Gina"),
+      maxUses: 1,
+      expectedExternalUserId: "+15558881111",
+      voiceCodeHash: hashVoiceCode(code),
+      voiceCodeDigits: 6,
+    });
+
+    const { ws, relay } = createMockWs(session.id);
+
+    await relay.handleMessage(
+      JSON.stringify({
+        type: "setup",
+        callSid: "CA_invite_redeem_err",
+        from: "+15558881111",
+        to: "+15551111111",
+      }),
+    );
+    expect(relay.getConnectionState()).toBe("verification_pending");
+
+    // Gateway goes down between detection and code entry. Even though the
+    // CORRECT code for a live local invite row is entered, redemption must
+    // fail closed — no local fallback redemption.
+    voiceInviteIpcError = true;
+    for (const digit of code) {
+      await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const updated = getCallSession(session.id);
+    expect(updated).not.toBeNull();
+    expect(updated!.status).toBe("failed");
+
+    const events = getCallEvents(session.id);
+    expect(events.some((e) => e.eventType === "invite_redemption_failed")).toBe(
+      true,
+    );
+    expect(
+      events.some((e) => e.eventType === "invite_redemption_succeeded"),
+    ).toBe(false);
+    // No local claim ran — the redemption never bypassed the gateway.
+    expect(inviteClaimCalls).toBe(0);
+    // The generic failure copy was spoken.
+    const textMessages = ws.sentMessages
+      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+      .filter((m) => m.type === "text");
+    expect(
+      textMessages.some((m) =>
+        (m.token ?? "").includes("incorrect or has since expired"),
+      ),
+    ).toBe(true);
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    relay.destroy();
+  });
+
   test("inbound voice: guardian's unverified channel gets self-verify guidance", async () => {
     ensureConversation("conv-unverified-guardian");
     const session = createCallSession({
@@ -5026,12 +5193,12 @@ describe("relay-server", () => {
     relay.destroy();
   });
 
-  test("invite redemption success: empty contact displayName with stale friendName column still greets 'Hi there'", async () => {
-    // Guards the Codex P2 on #35581 (discussion_r3453033493): when a bound
-    // contact's displayName is blank and the invite row carries a stale
-    // free-text friend_name, the greeting must NOT fall back to that stale
-    // label. contact_id is NOT NULL, so every invite is bound — empty
-    // displayName falls through to the neutral "Hi there" copy.
+  test("invite redemption success: empty contact displayName falls back to the invite friendName (gateway precedence)", async () => {
+    // The gateway's active-voice-invite read resolves inviteeName as bound
+    // contact displayName first, invite friendName second. A blank contact
+    // displayName therefore greets with the invite's friendName; only when
+    // BOTH are absent does the neutral "Hi there" copy apply (pinned by the
+    // fail-soft router tests).
     ensureConversation("conv-invite-stale-friend");
     mockUserReference = "my human";
     mockAssistantName = "";
@@ -5051,7 +5218,7 @@ describe("relay-server", () => {
       expectedExternalUserId: "+15557774444",
       voiceCodeHash: codeHash,
       voiceCodeDigits: 6,
-      friendName: "Stale Legacy Name",
+      friendName: "Fallback Friend",
     });
 
     mockSendMessage.mockImplementation(
@@ -5080,10 +5247,9 @@ describe("relay-server", () => {
       .map((raw) => JSON.parse(raw) as { type: string; token?: string })
       .filter((m) => m.type === "text");
     expect(
-      textMessages.some((m) => (m.token ?? "").startsWith("Hi there!")),
-    ).toBe(true);
-    expect(
-      textMessages.every((m) => !(m.token ?? "").includes("Stale Legacy Name")),
+      textMessages.some((m) =>
+        (m.token ?? "").includes("verified that you are Fallback"),
+      ),
     ).toBe(true);
 
     relay.destroy();

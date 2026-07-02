@@ -228,8 +228,8 @@ export class RelayConnection {
   // Inbound voice invite redemption state
   private inviteRedemptionActive = false;
   // In-flight guard: true while an async redemption attempt is awaiting the
-  // gateway-backed claim, so a rapidly-repeated code is deduped rather than
-  // launching a second concurrent redeemVoiceInviteCode.
+  // gateway redemption, so a rapidly-repeated code is deduped rather than
+  // launching a second concurrent gateway redemption.
   private inviteRedemptionInFlight = false;
   private inviteRedemptionAssistantId: string | null = null;
   private inviteRedemptionFromNumber: string | null = null;
@@ -651,7 +651,7 @@ export class RelayConnection {
     admissionPolicy: AdmissionPolicy | null,
     verdict: TrustVerdict | null,
   ): Promise<void> {
-    const { outcome, resolved } = routeSetup({
+    const { outcome, resolved } = await routeSetup({
       callSessionId: this.callSessionId,
       session,
       from: msg.from,
@@ -1763,10 +1763,10 @@ export class RelayConnection {
     }
 
     // Dedup concurrent attempts: a repeated code (re-spoken / re-entered)
-    // arriving while the async gateway-backed claim is still in flight is
-    // ignored, so we never run a second redeemVoiceInviteCode that would see
-    // the invite already consumed and wrongly mark the call failed. The flag
-    // is set synchronously before awaiting and cleared in finally.
+    // arriving while the async gateway redemption is still in flight is
+    // ignored, so we never run a second redemption that would see the invite
+    // already consumed and wrongly mark the call failed. The flag is set
+    // synchronously before awaiting and cleared in finally.
     if (this.inviteRedemptionInFlight) {
       log.info(
         { callSessionId: this.callSessionId },
@@ -1789,7 +1789,6 @@ export class RelayConnection {
     }
 
     const result = await attemptInviteCodeRedemption({
-      inviteRedemptionAssistantId: this.inviteRedemptionAssistantId,
       inviteRedemptionFromNumber: this.inviteRedemptionFromNumber,
       enteredCode,
       guardianLabel: this.resolveGuardianLabel(),
@@ -1802,7 +1801,7 @@ export class RelayConnection {
 
       recordCallEvent(this.callSessionId, "invite_redemption_succeeded", {
         memberId: result.memberId,
-        ...(result.inviteId ? { inviteId: result.inviteId } : {}),
+        inviteId: result.inviteId,
       });
       log.info(
         {

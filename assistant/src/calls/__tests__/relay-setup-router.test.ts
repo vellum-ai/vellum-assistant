@@ -2,9 +2,9 @@
  * Tests for the inbound admission-floor enforcement in `routeSetup`.
  *
  * `routeSetup` reads several module-level singletons (config, trust resolver,
- * pending verification session, invite store, contact store). Those I/O
+ * pending verification session, gateway voice-invite reader). Those I/O
  * collaborators are mocked so the tables below can drive trust class, member
- * status, pending challenge, active invites, and the bound invite contact
+ * status, pending challenge, and the gateway's active-voice-invite view
  * directly — no database is touched.
  *
  * The admission floor is exercised through the REAL, pure `enforceAdmissionPolicy`:
@@ -60,21 +60,17 @@ mock.module("../../runtime/channel-verification-service.js", () => ({
   getPendingSession: () => pendingChallenge,
 }));
 
-// Controllable active voice invites.
-let activeInvites: Array<{
-  contactId: string;
-  friendName: string | null;
+// Controllable gateway active-voice-invite view. The real reader fails soft
+// to `null` on ANY gateway failure by contract, so `null` covers both "no
+// invite" and "gateway unreachable / IPC error".
+let activeVoiceInvite: {
+  inviteId: string;
+  inviteeName: string | null;
   guardianName: string | null;
-  expiresAt?: number;
-}> = [];
-mock.module("../../persistence/invite-store.js", () => ({
-  findActiveVoiceInvites: () => activeInvites,
-}));
-
-// Controllable bound contact for invite-redemption name resolution.
-let boundContact: { displayName?: string | null } | null = null;
-mock.module("../../contacts/contact-store.js", () => ({
-  getContact: () => boundContact,
+  codeDigits: number;
+} | null = null;
+mock.module("../gateway-invite-reader.js", () => ({
+  getActiveVoiceInvite: async () => activeVoiceInvite,
 }));
 
 const { routeSetup } = await import("../relay-setup-router.js");
@@ -170,8 +166,7 @@ function route(
 
 beforeEach(() => {
   pendingChallenge = null;
-  activeInvites = [];
-  boundContact = null;
+  activeVoiceInvite = null;
   resolveActorTrustMock.mockClear();
 });
 
@@ -231,9 +226,9 @@ describe("routeSetup — admission floor table", () => {
 
   for (const { policy, admits, denies } of cases) {
     for (const trustClass of denies) {
-      test(`${policy} denies ${trustClass}`, () => {
+      test(`${policy} denies ${trustClass}`, async () => {
         setTrust(trustClass);
-        const { outcome } = route(policy);
+        const { outcome } = await route(policy);
         expect(outcome.action).toBe("deny");
         if (outcome.action === "deny") {
           expect(outcome.logReason).toBe(
@@ -243,9 +238,9 @@ describe("routeSetup — admission floor table", () => {
       });
     }
     for (const trustClass of admits) {
-      test(`${policy} admits ${trustClass}`, () => {
+      test(`${policy} admits ${trustClass}`, async () => {
         setTrust(trustClass);
-        const { outcome } = route(policy);
+        const { outcome } = await route(policy);
         expect(outcome.action).not.toBe("deny");
       });
     }
@@ -257,17 +252,17 @@ describe("routeSetup — admission floor table", () => {
 // ---------------------------------------------------------------------------
 
 describe("routeSetup — blocked / revoked", () => {
-  test("blocked caller is denied (pre-floor ACL check)", () => {
+  test("blocked caller is denied (pre-floor ACL check)", async () => {
     nextTrust = makeTrust("unknown", { status: "blocked" });
-    const { outcome } = route("strangers");
+    const { outcome } = await route("strangers");
     expect(outcome.action).toBe("deny");
   });
 
-  test("revoked member is denied under permissive floor", () => {
+  test("revoked member is denied under permissive floor", async () => {
     // Revoked → resolver classifies as unknown; the floor mock denies on
     // memberStatus regardless of the permissive policy.
     nextTrust = makeTrust("unknown", { status: "revoked" });
-    const { outcome } = route("strangers");
+    const { outcome } = await route("strangers");
     expect(outcome.action).toBe("deny");
   });
 });
@@ -277,33 +272,33 @@ describe("routeSetup — blocked / revoked", () => {
 // ---------------------------------------------------------------------------
 
 describe("routeSetup — no policy preserves current behavior", () => {
-  test("unknown caller → name_capture", () => {
+  test("unknown caller → name_capture", async () => {
     nextTrust = makeTrust("unknown");
-    expect(route(null).outcome.action).toBe("name_capture");
-    expect(route(undefined).outcome.action).toBe("name_capture");
+    expect((await route(null)).outcome.action).toBe("name_capture");
+    expect((await route(undefined)).outcome.action).toBe("name_capture");
   });
 
-  test("unverified known caller → unverified_caller", () => {
+  test("unverified known caller → unverified_caller", async () => {
     nextTrust = makeTrust("unverified_contact", { status: "unverified" });
-    expect(route(null).outcome.action).toBe("unverified_caller");
+    expect((await route(null)).outcome.action).toBe("unverified_caller");
   });
 
-  test("trusted contact → normal_call", () => {
+  test("trusted contact → normal_call", async () => {
     nextTrust = makeTrust("trusted_contact", { status: "active" });
-    expect(route(null).outcome.action).toBe("normal_call");
+    expect((await route(null)).outcome.action).toBe("normal_call");
   });
 
-  test("guardian → normal_call", () => {
+  test("guardian → normal_call", async () => {
     nextTrust = makeTrust("guardian", { status: "active", role: "guardian" });
-    expect(route(null).outcome.action).toBe("normal_call");
+    expect((await route(null)).outcome.action).toBe("normal_call");
   });
 
-  test("member policy deny still denies", () => {
+  test("member policy deny still denies", async () => {
     nextTrust = makeTrust("trusted_contact", {
       status: "active",
       policy: "deny",
     });
-    expect(route(null).outcome.action).toBe("deny");
+    expect((await route(null)).outcome.action).toBe("deny");
   });
 });
 
@@ -315,39 +310,39 @@ describe("routeSetup — no policy preserves current behavior", () => {
 // and connect directly. With a null policy the legacy identity flows persist.
 
 describe("routeSetup — permissive floor admits to normal_call", () => {
-  test("any_contact admits an unverified_contact to normal_call (not unverified_caller)", () => {
+  test("any_contact admits an unverified_contact to normal_call (not unverified_caller)", async () => {
     nextTrust = makeTrust("unverified_contact", { status: "unverified" });
-    const { outcome } = route("any_contact");
+    const { outcome } = await route("any_contact");
     expect(outcome.action).toBe("normal_call");
   });
 
-  test("strangers admits an unknown caller to normal_call (not name_capture)", () => {
+  test("strangers admits an unknown caller to normal_call (not name_capture)", async () => {
     nextTrust = makeTrust("unknown");
-    const { outcome } = route("strangers");
+    const { outcome } = await route("strangers");
     expect(outcome.action).toBe("normal_call");
   });
 
-  test("strangers admits an unverified_contact to normal_call", () => {
+  test("strangers admits an unverified_contact to normal_call", async () => {
     nextTrust = makeTrust("unverified_contact", { status: "unverified" });
-    const { outcome } = route("strangers");
+    const { outcome } = await route("strangers");
     expect(outcome.action).toBe("normal_call");
   });
 
-  test("null policy preserves legacy name_capture for unknown caller", () => {
+  test("null policy preserves legacy name_capture for unknown caller", async () => {
     nextTrust = makeTrust("unknown");
-    expect(route(null).outcome.action).toBe("name_capture");
+    expect((await route(null)).outcome.action).toBe("name_capture");
   });
 
-  test("null policy preserves legacy unverified_caller for unverified caller", () => {
+  test("null policy preserves legacy unverified_caller for unverified caller", async () => {
     nextTrust = makeTrust("unverified_contact", { status: "unverified" });
-    expect(route(null).outcome.action).toBe("unverified_caller");
+    expect((await route(null)).outcome.action).toBe("unverified_caller");
   });
 
-  test("trusted_contacts (default) still denies unknown and unverified", () => {
+  test("trusted_contacts (default) still denies unknown and unverified", async () => {
     nextTrust = makeTrust("unknown");
-    expect(route("trusted_contacts").outcome.action).toBe("deny");
+    expect((await route("trusted_contacts")).outcome.action).toBe("deny");
     nextTrust = makeTrust("unverified_contact", { status: "unverified" });
-    expect(route("trusted_contacts").outcome.action).toBe("deny");
+    expect((await route("trusted_contacts")).outcome.action).toBe("deny");
   });
 });
 
@@ -356,30 +351,65 @@ describe("routeSetup — permissive floor admits to normal_call", () => {
 // ---------------------------------------------------------------------------
 
 describe("routeSetup — floor bypasses", () => {
-  test("active voice invite bypasses the floor (no_one policy)", () => {
+  test("active voice invite bypasses the floor (no_one policy)", async () => {
     nextTrust = makeTrust("unknown");
-    activeInvites = [
-      {
-        contactId: "contact-123",
-        friendName: "Friend",
-        guardianName: "Guardian",
-      },
-    ];
-    boundContact = { displayName: "Friend Name" };
-    const { outcome } = route("no_one");
+    activeVoiceInvite = {
+      inviteId: "inv-123",
+      inviteeName: "Friend Name",
+      guardianName: "Guardian",
+      codeDigits: 6,
+    };
+    const { outcome } = await route("no_one");
     expect(outcome.action).toBe("invite_redemption");
     if (outcome.action === "invite_redemption") {
       expect(outcome.inviteeName).toBe("Friend Name");
     }
   });
 
-  test("pending verification challenge bypasses the floor (no_one policy)", () => {
+  test("pending verification challenge bypasses the floor (no_one policy)", async () => {
     // A pending challenge for a known member routes to verification regardless
     // of the floor.
     nextTrust = makeTrust("trusted_contact", { status: "active" });
     pendingChallenge = { id: "vs_1" };
-    const { outcome } = route("no_one");
+    const { outcome } = await route("no_one");
     expect(outcome.action).toBe("verification");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fail-soft detection: the gateway reader resolves `null` on any gateway
+// failure, so an unknown caller falls to the legacy identity flows instead of
+// invite_redemption — detection never blocks setup on a gateway blip.
+// ---------------------------------------------------------------------------
+
+describe("routeSetup — fail-soft voice-invite detection", () => {
+  test("null gateway invite view (no invite / gateway error) → name_capture, not invite_redemption", async () => {
+    nextTrust = makeTrust("unknown");
+    activeVoiceInvite = null;
+    const { outcome } = await route(null);
+    expect(outcome.action).toBe("name_capture");
+  });
+
+  test("null gateway invite view for an unverified member → unverified_caller, not invite_redemption", async () => {
+    nextTrust = makeTrust("unverified_contact", { status: "unverified" });
+    activeVoiceInvite = null;
+    const { outcome } = await route(null);
+    expect(outcome.action).toBe("unverified_caller");
+  });
+
+  test("null inviteeName from the gateway keeps the neutral-greeting contract", async () => {
+    nextTrust = makeTrust("unknown");
+    activeVoiceInvite = {
+      inviteId: "inv-124",
+      inviteeName: null,
+      guardianName: null,
+      codeDigits: 6,
+    };
+    const { outcome } = await route(null);
+    expect(outcome.action).toBe("invite_redemption");
+    if (outcome.action === "invite_redemption") {
+      expect(outcome.inviteeName).toBeNull();
+    }
   });
 });
 
@@ -414,8 +444,8 @@ function makeMemberVerdict(
 }
 
 describe("routeSetup — caller-trust source", () => {
-  test("present verdict builds trust from the verdict (no local resolve)", () => {
-    const { resolved, outcome } = route(
+  test("present verdict builds trust from the verdict (no local resolve)", async () => {
+    const { resolved, outcome } = await route(
       null,
       makeMemberVerdict("guardian", { status: "active" }),
     );
@@ -425,31 +455,31 @@ describe("routeSetup — caller-trust source", () => {
     expect(outcome.action).toBe("normal_call");
   });
 
-  test("resolutionFailed verdict falls back to local resolveActorTrust", () => {
+  test("resolutionFailed verdict falls back to local resolveActorTrust", async () => {
     nextTrust = makeTrust("guardian", { status: "active", role: "guardian" });
-    const { resolved } = route(null, makeVerdict({ resolutionFailed: true }));
+    const { resolved } = await route(null, makeVerdict({ resolutionFailed: true }));
 
     expect(resolveActorTrustMock).toHaveBeenCalledTimes(1);
     expect(resolved.actorTrust.trustClass).toBe("guardian");
   });
 
-  test("null verdict falls back to local resolveActorTrust", () => {
+  test("null verdict falls back to local resolveActorTrust", async () => {
     nextTrust = makeTrust("trusted_contact", { status: "active" });
-    const { resolved } = route(null, null);
+    const { resolved } = await route(null, null);
 
     expect(resolveActorTrustMock).toHaveBeenCalledTimes(1);
     expect(resolved.actorTrust.trustClass).toBe("trusted_contact");
   });
 
-  test("absent verdict falls back to local resolveActorTrust", () => {
+  test("absent verdict falls back to local resolveActorTrust", async () => {
     nextTrust = makeTrust("guardian", { status: "active", role: "guardian" });
-    route(null);
+    await route(null);
 
     expect(resolveActorTrustMock).toHaveBeenCalledTimes(1);
   });
 
-  test("admission floor still applies on the verdict path (guardian_only denies trusted_contact)", () => {
-    const { outcome } = route(
+  test("admission floor still applies on the verdict path (guardian_only denies trusted_contact)", async () => {
+    const { outcome } = await route(
       "guardian_only",
       makeMemberVerdict("trusted_contact", { status: "active" }),
     );
@@ -458,9 +488,9 @@ describe("routeSetup — caller-trust source", () => {
     expect(outcome.action).toBe("deny");
   });
 
-  test("admission floor still applies on the fallback path (guardian_only denies trusted_contact)", () => {
+  test("admission floor still applies on the fallback path (guardian_only denies trusted_contact)", async () => {
     nextTrust = makeTrust("trusted_contact", { status: "active" });
-    const { outcome } = route(
+    const { outcome } = await route(
       "guardian_only",
       makeVerdict({ resolutionFailed: true }),
     );
@@ -477,8 +507,8 @@ describe("routeSetup — caller-trust source", () => {
 // ---------------------------------------------------------------------------
 
 describe("routeSetup — verdict path enforces member ACL", () => {
-  test("blocked member via verdict is denied (not normal_call) under permissive floor", () => {
-    const { outcome } = route(
+  test("blocked member via verdict is denied (not normal_call) under permissive floor", async () => {
+    const { outcome } = await route(
       "strangers",
       makeMemberVerdict("unknown", { status: "blocked" }),
     );
@@ -487,8 +517,8 @@ describe("routeSetup — verdict path enforces member ACL", () => {
     expect(outcome.action).toBe("deny");
   });
 
-  test("revoked member via verdict is denied under permissive floor", () => {
-    const { outcome } = route(
+  test("revoked member via verdict is denied under permissive floor", async () => {
+    const { outcome } = await route(
       "strangers",
       makeMemberVerdict("unknown", { status: "revoked" }),
     );
@@ -497,8 +527,8 @@ describe("routeSetup — verdict path enforces member ACL", () => {
     expect(outcome.action).toBe("deny");
   });
 
-  test("policy deny member via verdict is denied (not normal_call)", () => {
-    const { outcome } = route(
+  test("policy deny member via verdict is denied (not normal_call)", async () => {
+    const { outcome } = await route(
       null,
       makeMemberVerdict("trusted_contact", {
         status: "active",
@@ -510,8 +540,8 @@ describe("routeSetup — verdict path enforces member ACL", () => {
     expect(outcome.action).toBe("deny");
   });
 
-  test("policy escalate member via verdict is denied (live call can't await approval)", () => {
-    const { outcome } = route(
+  test("policy escalate member via verdict is denied (live call can't await approval)", async () => {
+    const { outcome } = await route(
       null,
       makeMemberVerdict("trusted_contact", {
         status: "active",
@@ -523,8 +553,8 @@ describe("routeSetup — verdict path enforces member ACL", () => {
     expect(outcome.action).toBe("deny");
   });
 
-  test("trusted/active member via verdict still admits to normal_call", () => {
-    const { outcome } = route(
+  test("trusted/active member via verdict still admits to normal_call", async () => {
+    const { outcome } = await route(
       null,
       makeMemberVerdict("trusted_contact", {
         status: "active",
@@ -536,8 +566,8 @@ describe("routeSetup — verdict path enforces member ACL", () => {
     expect(outcome.action).toBe("normal_call");
   });
 
-  test("guardian via verdict still admits to normal_call", () => {
-    const { outcome } = route(
+  test("guardian via verdict still admits to normal_call", async () => {
+    const { outcome } = await route(
       null,
       makeMemberVerdict("guardian", { status: "active" }),
     );
@@ -555,9 +585,9 @@ describe("routeSetup — verdict path enforces member ACL", () => {
 // ---------------------------------------------------------------------------
 
 describe("routeSetup — unresolvable member verdict falls back to local", () => {
-  test("member identity with missing status falls back to local resolveActorTrust", () => {
+  test("member identity with missing status falls back to local resolveActorTrust", async () => {
     nextTrust = makeTrust("trusted_contact", { status: "active" });
-    const { resolved } = route(
+    const { resolved } = await route(
       null,
       makeVerdict({
         trustClass: "trusted_contact",
@@ -572,9 +602,9 @@ describe("routeSetup — unresolvable member verdict falls back to local", () =>
     expect(resolved.actorTrust.trustClass).toBe("trusted_contact");
   });
 
-  test("member identity with unknown status falls back to local resolveActorTrust", () => {
+  test("member identity with unknown status falls back to local resolveActorTrust", async () => {
     nextTrust = makeTrust("trusted_contact", { status: "active" });
-    route(
+    await route(
       null,
       makeVerdict({
         trustClass: "trusted_contact",
@@ -588,9 +618,9 @@ describe("routeSetup — unresolvable member verdict falls back to local", () =>
     expect(resolveActorTrustMock).toHaveBeenCalledTimes(1);
   });
 
-  test("member identity with unknown policy falls back to local resolveActorTrust", () => {
+  test("member identity with unknown policy falls back to local resolveActorTrust", async () => {
     nextTrust = makeTrust("trusted_contact", { status: "active" });
-    route(
+    await route(
       null,
       makeVerdict({
         trustClass: "trusted_contact",
@@ -604,15 +634,15 @@ describe("routeSetup — unresolvable member verdict falls back to local", () =>
     expect(resolveActorTrustMock).toHaveBeenCalledTimes(1);
   });
 
-  test("real stranger verdict (no member identity) still takes the verdict path", () => {
-    const { resolved } = route(null, makeVerdict({ trustClass: "unknown" }));
+  test("real stranger verdict (no member identity) still takes the verdict path", async () => {
+    const { resolved } = await route(null, makeVerdict({ trustClass: "unknown" }));
 
     expect(resolveActorTrustMock).not.toHaveBeenCalled();
     expect(resolved.actorTrust.trustClass).toBe("unknown");
   });
 
-  test("valid member verdict (good status+policy) still takes the verdict path", () => {
-    const { outcome } = route(
+  test("valid member verdict (good status+policy) still takes the verdict path", async () => {
+    const { outcome } = await route(
       null,
       makeMemberVerdict("trusted_contact", {
         status: "active",

@@ -12,11 +12,9 @@ import { startInviteCall } from "../calls/call-domain.js";
 import { isChannelId } from "../channels/types.js";
 import { getContact } from "../contacts/contact-store.js";
 import {
-  findById,
   findByTokenHash,
   hashToken,
   type IngressInvite,
-  markInviteExpired,
 } from "../persistence/invite-store.js";
 import {
   DECLINED_BY_USER_SENTINEL,
@@ -28,11 +26,7 @@ import {
   resolveAdapterHandle,
 } from "./channel-invite-transport.js";
 import { generateInviteInstruction } from "./invite-instruction-generator.js";
-import {
-  redeemInvite as redeemInviteTyped,
-  redeemVoiceInviteCode as redeemVoiceInviteCodeTyped,
-  type VoiceRedemptionOutcome,
-} from "./invite-redemption-service.js";
+import { redeemInvite as redeemInviteTyped } from "./invite-redemption-service.js";
 
 // ---------------------------------------------------------------------------
 // Response shapes — used by both HTTP routes and message handlers
@@ -236,38 +230,35 @@ export async function composeInvitePresentation(params: {
   };
 }
 
-export async function triggerInviteCall(
-  inviteId: string,
-): Promise<IngressResult<{ callSid: string }>> {
-  if (!inviteId) return { ok: false, error: "inviteId is required" };
-  const invite = findById(inviteId);
-  if (!invite) return { ok: false, error: "Invite not found" };
-  if (invite.status !== "active")
-    return { ok: false, error: "Invite is not active" };
-  if (invite.expiresAt && invite.expiresAt <= Date.now()) {
-    markInviteExpired(invite.id);
-    return { ok: false, error: "Invite has expired" };
+/**
+ * Place the outbound provider call for a voice invite. Invite lifecycle
+ * validation (existence, active status, expiry, phone channel) is the
+ * gateway's responsibility — it reads its canonical row and relays the
+ * resolved call fields here; the daemon only performs the provider call.
+ */
+export async function triggerInviteCall(params: {
+  phoneNumber?: string;
+  friendName?: string | null;
+  guardianName?: string | null;
+}): Promise<IngressResult<{ callSid: string }>> {
+  const phoneNumber = params.phoneNumber?.trim();
+  if (!phoneNumber) {
+    return { ok: false, error: "phoneNumber is required" };
   }
-  if (invite.sourceChannel !== "phone")
-    return { ok: false, error: "Only phone invites support call triggering" };
-  if (!invite.expectedExternalUserId) {
-    return { ok: false, error: "Invite is missing required voice metadata" };
-  }
-  // Resolve the invitee's name from the bound contact's displayName.
-  // `contact_id` is NOT NULL on the invite row, so every invite is bound;
-  // an empty displayName falls through to the neutral "Hi there" greeting
-  // downstream rather than a stale free-text `friend_name` label.
-  const boundContact = getContact(invite.contactId);
-  const friendName = boundContact?.displayName?.trim() || "";
-  // Guardian label is resolved at runtime by the relay; mirror the legacy
-  // value into the session so STT hints continue to seed correctly.
-  const guardianName = invite.guardianName || resolveGuardianName() || "";
+  // An empty friendName falls through to the neutral "Hi there" greeting
+  // downstream rather than substituting the channel address.
+  const friendName = params.friendName?.trim() || "";
+  // Guardian label is resolved at runtime by the relay; mirror the value
+  // into the session so STT hints continue to seed correctly.
+  const guardianName = params.guardianName || resolveGuardianName() || "";
   const result = await startInviteCall({
-    phoneNumber: invite.expectedExternalUserId,
+    phoneNumber,
     friendName,
     guardianName,
   });
-  if (!result.ok) return { ok: false, error: result.error };
+  if (!result.ok) {
+    return { ok: false, error: result.error };
+  }
   return { ok: true, data: { callSid: result.callSid } };
 }
 
@@ -306,13 +297,4 @@ export async function redeemIngressInvite(params: {
     ok: true,
     data: { invite: inviteToResponse(inv), type: outcome.type },
   };
-}
-
-export function redeemVoiceInviteCode(params: {
-  assistantId?: string;
-  callerExternalUserId: string;
-  sourceChannel: "phone";
-  code: string;
-}): Promise<VoiceRedemptionOutcome> {
-  return redeemVoiceInviteCodeTyped(params);
 }
