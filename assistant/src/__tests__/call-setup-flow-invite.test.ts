@@ -61,7 +61,7 @@ function inviteOutcome(inviteeName: string | null): SetupOutcome {
   };
 }
 
-type RedemptionFn = CallSetupFlowDeps["attemptInviteCodeRedemption"];
+type RedemptionFn = NonNullable<CallSetupFlowDeps["attemptInviteCodeRedemption"]>;
 
 const successRedemption: RedemptionFn = async () => ({
   outcome: "success",

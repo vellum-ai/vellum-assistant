@@ -63,21 +63,29 @@ export type SetupFlowState =
  * - `proceed-handoff-spoken` — the flow already spoke the handoff copy;
  *   the controller calls `markNextCallerTurnAsOpeningAck()`.
  * - `ended` — the flow terminated the call; no controller is created.
+ *
+ * `deferredTranscripts` carries final caller transcripts that arrived while
+ * mid-setup trust re-resolution was in flight. The owning server replays
+ * them (in order) into the call controller once it exists, so a verified
+ * caller's first utterance is answered under the upgraded trust.
  */
 export type SetupFlowResult =
   | {
       kind: "proceed-initial-greeting";
       assistantId: string;
       trustContext: TrustContext;
+      deferredTranscripts?: string[];
     }
   | {
       kind: "proceed-post-verification-greeting";
       assistantId: string;
       trustContext: TrustContext;
+      deferredTranscripts?: string[];
     }
   | {
       kind: "proceed-handoff-spoken";
       assistantId: string;
       trustContext: TrustContext;
+      deferredTranscripts?: string[];
     }
   | { kind: "ended"; reason: string };
