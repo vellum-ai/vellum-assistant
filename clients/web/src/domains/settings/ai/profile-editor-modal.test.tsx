@@ -265,15 +265,22 @@ function renderView(
   );
 }
 
+/** Finds a Toggle switch by its visible label (wired via aria-labelledby). */
+function findSwitchByLabel(label: string): HTMLButtonElement | null {
+  return (
+    Array.from(
+      document.querySelectorAll<HTMLButtonElement>('[role="switch"]'),
+    ).find((el) => {
+      const labelId = el.getAttribute("aria-labelledby");
+      const labelEl = labelId ? document.getElementById(labelId) : null;
+      return labelEl?.textContent?.trim() === label;
+    }) ?? null
+  );
+}
+
 /** The Top P toggle is a switch labelled (via aria-labelledby) "Top P". */
-function topPSwitch(): HTMLElement {
-  const sw = Array.from(
-    document.querySelectorAll<HTMLElement>('[role="switch"]'),
-  ).find((el) => {
-    const labelId = el.getAttribute("aria-labelledby");
-    const labelEl = labelId ? document.getElementById(labelId) : null;
-    return labelEl?.textContent?.trim() === "Top P";
-  });
+function topPSwitch(): HTMLButtonElement {
+  const sw = findSwitchByLabel("Top P");
   if (!sw) throw new Error("expected a Top P switch");
   return sw;
 }
@@ -889,5 +896,98 @@ describe("ProfileEditorModal — Top P wiring", () => {
       expect(saveCalls[0].entry.provider).toBeUndefined();
       expect(saveCalls[0].entry.model).toBeUndefined();
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Invariant (default) profiles — server-stamped `invariant: true`
+// ---------------------------------------------------------------------------
+
+describe("ProfileEditorModal — invariant default profiles in view mode", () => {
+  // A server-stamped default profile. Anthropic opus → visibility.topP is
+  // true, so the Top P control renders and we can assert it is locked.
+  const invariantProfile = {
+    name: "default-a",
+    label: "Default A",
+    provider: "anthropic",
+    model: "claude-opus-4-8",
+    source: "managed",
+    invariant: true,
+    topP: 0.9,
+  };
+
+  test("an active invariant profile is fully read-only: no status toggle, disabled label and Top P, Save never armed", () => {
+    renderView(invariantProfile);
+
+    // No disable affordance: the Active toggle is not rendered at all.
+    expect(findSwitchByLabel("Active")).toBeNull();
+
+    // Label and Top P are locked.
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(true);
+    expect(topPSwitch().disabled).toBe(true);
+
+    // Save opens disabled and clicking the locked Top P toggle can't arm it.
+    expect(getSaveBtn().disabled).toBe(true);
+    fireEvent.click(topPSwitch());
+    expect(getSaveBtn().disabled).toBe(true);
+  });
+
+  test("a disabled invariant profile keeps an enable-only toggle; saving PATCHes exactly {status:'active'} as a merge", async () => {
+    const saveCalls: {
+      name: string;
+      entry: Record<string, unknown>;
+      options?: { mode?: "merge" | "replace" };
+    }[] = [];
+    const onSave = (
+      name: string,
+      entry: unknown,
+      options?: { mode?: "merge" | "replace" },
+    ) => {
+      saveCalls.push({ name, entry: entry as Record<string, unknown>, options });
+      return Promise.resolve();
+    };
+
+    renderView({ ...invariantProfile, status: "disabled" }, onSave);
+
+    // The re-enable affordance is present and Save starts disarmed.
+    const activeSwitch = findSwitchByLabel("Active");
+    expect(activeSwitch).not.toBeNull();
+    expect(getSaveBtn().disabled).toBe(true);
+
+    // Flip to active: Save arms, and the toggle disappears (the flip is
+    // one-directional — an active invariant profile can't be disabled).
+    fireEvent.click(activeSwitch!);
+    expect(getSaveBtn().disabled).toBe(false);
+    expect(findSwitchByLabel("Active")).toBeNull();
+
+    fireEvent.click(getSaveBtn());
+
+    await waitFor(() => {
+      expect(saveCalls.length).toBe(1);
+    });
+    // The body is exactly {status:"active"} — no label, no topP.
+    expect(saveCalls[0].entry).toEqual({ status: "active" });
+    expect(saveCalls[0].options?.mode).toBe("merge");
+  });
+
+  test("a managed profile without the invariant flag keeps the toggle, editable label, and editable Top P", () => {
+    const { invariant: _invariant, ...nonInvariant } = invariantProfile;
+    renderView(nonInvariant);
+
+    expect(findSwitchByLabel("Active")).not.toBeNull();
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(false);
+    expect(topPSwitch().disabled).toBe(false);
+  });
+
+  test("Save As New from an invariant profile yields a fully editable create form", () => {
+    renderView(invariantProfile);
+
+    fireEvent.click(getButton("Save As New"));
+
+    // The duplicate drops the invariant lock: name and key are editable and
+    // the Active toggle is back.
+    expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(false);
+    expect(getInputByPlaceholder("e.g. fast-cheap").disabled).toBe(false);
+    expect(findSwitchByLabel("Active")).not.toBeNull();
   });
 });

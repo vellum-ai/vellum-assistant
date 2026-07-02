@@ -30,6 +30,7 @@ import * as daemonQueryGen from "@/generated/daemon/@tanstack/react-query.gen";
 
 let toastSuccessCalls: string[] = [];
 let configPatchCalled = false;
+let configPatchBodies: unknown[] = [];
 let profilesState: Record<string, ProfileEntry> = {};
 
 mock.module("@vellumai/design-library/components/toast", () => ({
@@ -54,8 +55,9 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
       },
     },
   })),
-  configPatch: async () => {
+  configPatch: async (options?: { body?: unknown }) => {
     configPatchCalled = true;
+    configPatchBodies.push(options?.body);
     return {
       data: {
         llm: {
@@ -188,6 +190,7 @@ function selectModel(label: string): void {
 beforeEach(() => {
   toastSuccessCalls = [];
   configPatchCalled = false;
+  configPatchBodies = [];
   profilesState = {};
 });
 
@@ -234,5 +237,82 @@ describe("ManageProfilesModal — profile-create success toast (Settings surface
     await waitFor(() => {
       expect(toastSuccessCalls).toEqual(['Profile "My Profile" created']);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Invariant (default) profiles — server-stamped `invariant: true`
+// ---------------------------------------------------------------------------
+
+describe("ManageProfilesModal — invariant default profiles in the list", () => {
+  // The list-item status toggle carries an "Enable <label>"/"Disable <label>"
+  // aria-label — the accessible handle these tests query by.
+  function findStatusToggle(action: "Enable" | "Disable", label: string) {
+    return document.querySelector<HTMLButtonElement>(
+      `[role="switch"][aria-label="${action} ${label}"]`,
+    );
+  }
+
+  function seedInvariantProfiles() {
+    profilesState = {
+      "default-a": {
+        label: "Default A",
+        source: "managed",
+        invariant: true,
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+      },
+      "default-b": {
+        label: "Default B",
+        source: "managed",
+        invariant: true,
+        status: "disabled",
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+      },
+      "custom-managed": {
+        label: "Custom Managed",
+        source: "managed",
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+      },
+    };
+  }
+
+  test("an active invariant profile has no status toggle; a disabled one and non-invariant profiles keep theirs", () => {
+    seedInvariantProfiles();
+    render(
+      <Wrapper>
+        <ManageProfilesModal isOpen assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+
+    // Active invariant profile: no disable affordance at all.
+    expect(findStatusToggle("Disable", "Default A")).toBeNull();
+    expect(findStatusToggle("Enable", "Default A")).toBeNull();
+
+    // Disabled invariant profile: the enable affordance remains.
+    expect(findStatusToggle("Enable", "Default B")).not.toBeNull();
+
+    // Managed profile without the flag: behaves as before.
+    expect(findStatusToggle("Disable", "Custom Managed")).not.toBeNull();
+  });
+
+  test("re-enabling a disabled invariant profile PATCHes status:'active' and nothing else", async () => {
+    seedInvariantProfiles();
+    render(
+      <Wrapper>
+        <ManageProfilesModal isOpen assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+
+    fireEvent.click(findStatusToggle("Enable", "Default B")!);
+
+    await waitFor(() => {
+      expect(configPatchCalled).toBe(true);
+    });
+    expect(configPatchBodies).toEqual([
+      { llm: { profiles: { "default-b": { status: "active" } } } },
+    ]);
   });
 });
