@@ -670,12 +670,16 @@ export class MediaStreamCallSession {
     // handleBargeIn path so initial inbound audio frames do not cancel a
     // still-starting initial turn.
     //
-    // clearAudio runs BEFORE handleBargeIn so that the end-of-turn mark
-    // enqueued by handleInterrupt (called within handleBargeIn) is not
-    // wiped by the queue flush.
+    // clearAudio runs via the onAccepted hook so it only fires when the
+    // barge-in passes the speaking gate — an ignored barge-in (controller
+    // idle/processing) must not flush queued/in-flight TTS such as a
+    // buffered greeting. The hook runs before handleInterrupt so the
+    // end-of-turn mark it enqueues survives the queue flush.
     if (this.output && this.controller) {
-      this.output.clearAudio();
-      const accepted = this.controller.handleBargeIn();
+      const output = this.output;
+      const accepted = this.controller.handleBargeIn(() =>
+        output.clearAudio(),
+      );
       if (accepted) {
         this.bargeInAccepted++;
         log.info(
