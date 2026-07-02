@@ -18,6 +18,7 @@
 import type { AgentLoopConfig } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
+import type { commitAppTurnChanges } from "../apps/app-git-service.js";
 import type {
   ChannelId,
   InterfaceId,
@@ -192,7 +193,9 @@ const log = getLogger("conversation");
  * per-turn `turnCount++`, so counting these reconstructs `turnCount` on load.
  */
 function startsNewTurn(role: string, content: string): boolean {
-  if (role !== "user") return false;
+  if (role !== "user") {
+    return false;
+  }
   try {
     const parsed = JSON.parse(content);
     if (
@@ -424,6 +427,7 @@ export class Conversation {
     workspaceDir: string,
   ) => Pick<WorkspaceGitService, "ensureInitialized">;
   /** @internal */ commitTurnChanges?: typeof commitTurnChanges;
+  /** @internal */ commitAppTurnChanges?: typeof commitAppTurnChanges;
   /**
    * Abort-watchdog timeout (ms) for the agent loop's bounded-unwind backstop.
    * Overridable in tests to fire the watchdog quickly; defaults to the
@@ -758,7 +762,9 @@ export class Conversation {
       isExclusiveTool: (name) => getTool(name)?.exclusive === true,
       resolveConversationDir: () => {
         const conv = getConversation(this.conversationId);
-        if (!conv) return null;
+        if (!conv) {
+          return null;
+        }
         return getResolvedConversationDirPath(
           this.conversationId,
           conv.createdAt,
@@ -874,7 +880,9 @@ export class Conversation {
    */
   syncLoopSystemPrompt(): void {
     const next = this.buildCurrentSystemPrompt();
-    if (next === this.systemPrompt) return;
+    if (next === this.systemPrompt) {
+      return;
+    }
     this.systemPrompt = next;
     this.agentLoop.setSystemPrompt(next);
   }
@@ -1298,7 +1306,9 @@ export class Conversation {
   private restoreSurfaceStateFromHistory(): void {
     this.surfaceState.clear();
     for (const msg of this.messages) {
-      if (!Array.isArray(msg.content)) continue;
+      if (!Array.isArray(msg.content)) {
+        continue;
+      }
       for (const block of msg.content) {
         const b = block as unknown as Record<string, unknown>;
         if (b.type === "ui_surface" && typeof b.surfaceId === "string") {

@@ -1545,8 +1545,10 @@ export async function runAgentLoopImpl(
       // captures everything else. Both target the same workspace repo, so this
       // must land before the workspace commit's `git add -A` would otherwise
       // sweep the app files up under the generic turn message.
+      const commitAppTurnChangesFn =
+        ctx.commitAppTurnChanges ?? commitAppTurnChanges;
       const appOutcome = await raceWithTimeout(
-        commitAppTurnChanges(ctx.conversationId, ctx.turnCount),
+        commitAppTurnChangesFn(ctx.conversationId, ctx.turnCount),
         maxWait,
       );
       if (appOutcome === "timed_out") {

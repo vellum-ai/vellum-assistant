@@ -430,6 +430,10 @@ type ConversationWithWorkspaceDeps = Conversation & {
     provider?: unknown,
     deadlineMs?: number,
   ) => Promise<void>;
+  commitAppTurnChanges?: (
+    conversationId: string,
+    turnNumber: number,
+  ) => Promise<void>;
 };
 
 function makeConversation(
@@ -459,6 +463,8 @@ function makeConversation(
   conversationWithWorkspaceDeps.getWorkspaceGitService = () => ({
     ensureInitialized: async () => {},
   });
+  // Stub the app-subtree commit so the turn path never touches real git.
+  conversationWithWorkspaceDeps.commitAppTurnChanges = async () => {};
   conversationWithWorkspaceDeps.commitTurnChanges = async (
     workspaceDir: string,
     conversationId: string,
