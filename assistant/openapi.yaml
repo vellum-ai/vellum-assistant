@@ -5665,8 +5665,8 @@ paths:
       operationId: contacts_invites_by_id_call_post
       summary: Trigger invite call
       description:
-        Trigger an outbound call for a phone invite. The gateway validates its canonical invite row and supplies
-        the resolved call fields in the body.
+        "Trigger an outbound call for a phone invite. Gateway-only: the gateway validates its canonical invite row
+        and supplies the resolved call fields in the body."
       tags:
         - contacts
       parameters:

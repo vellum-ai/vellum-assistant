@@ -222,6 +222,22 @@ describe("invite relay routes", () => {
       expect(result).toEqual({ ok: true, callSid: "CA123" });
     });
 
+    test("route is gateway-only and stays dispatchable over the gateway's direct IPC path", () => {
+      const route = ROUTES.find(
+        (r) => r.operationId === "invites_trigger_call",
+      );
+      expect(route).toBeDefined();
+      // Gateway-only policy: the handler dials whatever number the body
+      // supplies, so it must never be reachable by actor principals (see
+      // route-policy.test.ts for the enforcement assertions).
+      expect(route!.policy!.allowedPrincipalTypes).toEqual(["svc_gateway"]);
+      expect(route!.policy!.requiredScopes).toEqual(["internal.write"]);
+      // The gateway invokes it via ipcCallAssistant("invites_trigger_call"),
+      // which dispatches shared routes that pass the IPC-eligibility filter.
+      expect(route!.requireGuardian).toBeUndefined();
+      expect(route!.isPublic).toBeUndefined();
+    });
+
     test("surfaces a failed provider call as a 400", async () => {
       triggerInviteCallResult = { ok: false, error: "Invite not eligible" };
 

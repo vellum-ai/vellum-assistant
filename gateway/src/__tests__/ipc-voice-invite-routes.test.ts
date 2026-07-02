@@ -36,15 +36,16 @@ mock.module("../db/assistant-db-proxy.js", () => ({
 // Capture the best-effort invite_redeemed daemon event instead of dialing
 // the assistant socket.
 let ipcCallAssistantCalls: Array<{ method: string; body: unknown }> = [];
+// Spread the actual module so the real IpcHandlerError/IpcTransportError
+// classes (and untouched exports like ipcSuggestTrustRule) stay importable by
+// later-loaded files when suites share a bun process.
+const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
+  ...actualAssistantClient,
   ipcCallAssistant: async (method: string, opts?: { body?: unknown }) => {
     ipcCallAssistantCalls.push({ method, body: opts?.body });
     return {};
   },
-  // Not exercised here, but the mock must cover what transitive importers
-  // (contacts-control-plane-proxy) pull from this module.
-  IpcHandlerError: class IpcHandlerError extends Error {},
-  IpcTransportError: class IpcTransportError extends Error {},
 }));
 
 const { testWorkspaceDir } = await import("./test-preload.js");

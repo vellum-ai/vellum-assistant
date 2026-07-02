@@ -56,28 +56,14 @@ let ipcCallAssistantMock: ReturnType<typeof mock<IpcCallFn>> = mock(
   async () => ({}),
 );
 
-class IpcHandlerError extends Error {
-  readonly statusCode: number;
-  readonly code: string;
-  constructor(message: string, statusCode: number, code: string) {
-    super(message);
-    this.name = "IpcHandlerError";
-    this.statusCode = statusCode;
-    this.code = code;
-  }
-}
-class IpcTransportError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "IpcTransportError";
-  }
-}
-
+// Spread the actual module so the real IpcHandlerError/IpcTransportError
+// classes (and untouched exports like ipcSuggestTrustRule) stay importable by
+// later-loaded files when suites share a bun process.
+const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
+  ...actualAssistantClient,
   ipcCallAssistant: (...args: Parameters<IpcCallFn>) =>
     ipcCallAssistantMock(...args),
-  IpcHandlerError,
-  IpcTransportError,
 }));
 
 // ── ContactStore mock ─────────────────────────────────────────────────────────
