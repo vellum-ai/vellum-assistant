@@ -230,19 +230,6 @@ describe("MediaStreamOutput", () => {
       output.endSession("second");
       expect(mock.closed).toBe(true);
     });
-
-    test("getConnectionState returns 'connected' initially", () => {
-      const { ws } = createMockWs();
-      const output = new MediaStreamOutput(ws, "stream-1");
-      expect(output.getConnectionState()).toBe("connected");
-    });
-
-    test("getConnectionState returns 'closed' after endSession", () => {
-      const mock = createMockWs();
-      const output = new MediaStreamOutput(mock.ws, "stream-1");
-      output.endSession();
-      expect(output.getConnectionState()).toBe("closed");
-    });
   });
 
   describe("sendAudioPayload", () => {
@@ -369,7 +356,6 @@ describe("MediaStreamOutput", () => {
       const mock = createMockWs();
       const output = new MediaStreamOutput(mock.ws, "stream-1");
       output.markClosed();
-      expect(output.getConnectionState()).toBe("closed");
       expect(mock.closed).toBe(false); // WebSocket not actually closed
       output.sendAudioPayload("dGVzdA=="); // Should be suppressed
       expect(mock.sent).toHaveLength(0);

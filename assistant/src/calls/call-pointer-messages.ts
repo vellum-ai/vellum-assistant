@@ -161,6 +161,24 @@ export async function addPointerMessage(
 }
 
 /**
+ * Fire-and-forget pointer write that tolerates an evicted origin
+ * conversation: failures are logged at warn level and swallowed.
+ */
+export function postPointerMessageSafe(
+  conversationId: string,
+  event: PointerEvent,
+  phoneNumber: string,
+  extra?: Parameters<typeof addPointerMessage>[3],
+): void {
+  addPointerMessage(conversationId, event, phoneNumber, extra).catch((err) => {
+    log.warn(
+      { conversationId, err },
+      "Skipping pointer write — origin conversation may no longer exist",
+    );
+  });
+}
+
+/**
  * Format a duration in milliseconds into a human-friendly string.
  */
 export function formatDuration(ms: number): string {

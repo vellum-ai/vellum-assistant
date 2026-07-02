@@ -31,11 +31,6 @@ export interface CallTransport {
   endSession(reason?: string): void;
 
   /**
-   * Return the current connection-level state.
-   */
-  getConnectionState(): string;
-
-  /**
    * When true, the transport requires WAV (PCM) audio for playback.
    *
    * The media-stream transport sets this because its mu-law transcoder

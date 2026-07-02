@@ -9,7 +9,6 @@
  * - wait-utterance classes incl. cooldown throttling and callback opt-in bypass
  * - callback handoff exactly-once semantics (timeout vs disconnect races)
  * - dispose() idempotence and timer cleanup
- * - config fallbacks for missing/NaN timeout values
  *
  * All timer-driven behavior runs under fake timers — no real delays.
  */
@@ -92,7 +91,6 @@ mock.module("../calls/call-store.js", () => ({
 
 // ── Source imports (after mocks) ─────────────────────────────────────
 
-import type { SetupFlowTransport } from "../calls/call-setup-flow-types.js";
 import {
   GuardianWaitController,
   type GuardianWaitControllerDeps,
@@ -133,20 +131,9 @@ function createController(overrides?: Partial<GuardianWaitControllerDeps>) {
   const approvals: GuardianWaitResolutionContext[] = [];
   const denials: GuardianWaitResolutionContext[] = [];
   const timeouts: GuardianWaitResolutionContext[] = [];
-  let connectionStateReads = 0;
-
-  const transport: SetupFlowTransport = {
-    sendTextToken: () => {},
-    sendPlayUrl: () => {},
-    endSession: () => {},
-    getConnectionState: () => {
-      connectionStateReads += 1;
-      return "connected";
-    },
-  };
 
   const deps: GuardianWaitControllerDeps = {
-    speakSystemPrompt: async (_transport, text) => {
+    speakSystemPrompt: async (text) => {
       spoken.push(text);
     },
     updateCallSession: (_id, updates) => {
@@ -170,11 +157,7 @@ function createController(overrides?: Partial<GuardianWaitControllerDeps>) {
     ...overrides,
   };
 
-  const controller = new GuardianWaitController(
-    CALL_SESSION_ID,
-    transport,
-    deps,
-  );
+  const controller = new GuardianWaitController(CALL_SESSION_ID, deps);
   return {
     controller,
     spoken,
@@ -183,7 +166,6 @@ function createController(overrides?: Partial<GuardianWaitControllerDeps>) {
     approvals,
     denials,
     timeouts,
-    getConnectionStateReads: () => connectionStateReads,
   };
 }
 
@@ -236,15 +218,6 @@ describe("GuardianWaitController", () => {
         "may only be called once",
       );
       controller.dispose();
-    });
-
-    test("never reads wait state through the transport", () => {
-      const { controller, getConnectionStateReads } = createController();
-      controller.start(START_PARAMS);
-      controller.handleTranscript("hello?");
-      jest.advanceTimersByTime(500);
-      controller.dispose();
-      expect(getConnectionStateReads()).toBe(0);
     });
   });
 
@@ -509,8 +482,7 @@ describe("GuardianWaitController", () => {
       );
       expect(
         events.some(
-          (e) =>
-            e.eventType === "voice_guardian_wait_callback_opt_in_declined",
+          (e) => e.eventType === "voice_guardian_wait_callback_opt_in_declined",
         ),
       ).toBe(true);
 
@@ -610,13 +582,8 @@ describe("GuardianWaitController", () => {
   describe("dispose", () => {
     test("clears every timer — nothing fires afterwards", () => {
       seedRequest("pending");
-      const {
-        controller,
-        spoken,
-        approvals,
-        denials,
-        timeouts,
-      } = createController({ consultTimeoutMs: 2000 });
+      const { controller, spoken, approvals, denials, timeouts } =
+        createController({ consultTimeoutMs: 2000 });
       controller.start(START_PARAMS);
 
       controller.dispose();
@@ -647,32 +614,6 @@ describe("GuardianWaitController", () => {
       expect(controller.getState()).toBe("resolved");
       expect(controller.getResolution()).toBe("approved");
       expect(emitSignalCalls).toHaveLength(0);
-    });
-  });
-
-  describe("config fallbacks", () => {
-    test("NaN consult timeout falls back to the 120s schema default", () => {
-      seedRequest("pending");
-      mockConfig.calls.userConsultTimeoutSeconds = Number.NaN;
-      const { controller, timeouts } = createController();
-      controller.start(START_PARAMS);
-
-      jest.advanceTimersByTime(119_999);
-      expect(timeouts).toHaveLength(0);
-      jest.advanceTimersByTime(1);
-      expect(timeouts).toHaveLength(1);
-    });
-
-    test("NaN poll interval falls back to the 500ms schema default", () => {
-      seedRequest("approved");
-      mockConfig.calls.accessRequestPollIntervalMs = Number.NaN;
-      const { controller, approvals } = createController();
-      controller.start(START_PARAMS);
-
-      jest.advanceTimersByTime(499);
-      expect(approvals).toHaveLength(0);
-      jest.advanceTimersByTime(1);
-      expect(approvals).toHaveLength(1);
     });
   });
 });

@@ -171,14 +171,6 @@ export class MediaStreamOutput implements CallTransport {
     }
   }
 
-  /**
-   * Return the current connection-level state. The controller uses this
-   * to suppress silence nudges during guardian wait states.
-   */
-  getConnectionState(): string {
-    return this.state;
-  }
-
   // ── Media-stream specific methods ───────────────────────────────────
 
   /**

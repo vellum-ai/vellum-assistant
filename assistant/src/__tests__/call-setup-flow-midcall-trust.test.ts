@@ -29,6 +29,7 @@ const realInboundTrustReader = {
 mock.module("../calls/inbound-trust-reader.js", () => ({
   ...realInboundTrustReader,
   getInboundTrustVerdict: async () => mockVerdict,
+  getPhoneCallerVerdict: async () => mockVerdict,
 }));
 
 // Records fallback-path cache warms.

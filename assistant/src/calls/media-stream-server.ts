@@ -49,10 +49,12 @@ import {
 import { getAssistantName } from "../daemon/identity-helpers.js";
 import { addMessage } from "../persistence/conversation-crud.js";
 import { resolveGuardianName } from "../prompts/user-reference.js";
-import { notifyGuardianOfAccessRequest } from "../runtime/access-request-helper.js";
 import { getLogger } from "../util/logger.js";
 import { CallController } from "./call-controller.js";
-import { addPointerMessage, formatDuration } from "./call-pointer-messages.js";
+import {
+  formatDuration,
+  postPointerMessageSafe,
+} from "./call-pointer-messages.js";
 import { CallSetupFlow, type CallSetupFlowDeps } from "./call-setup-flow.js";
 import type { SetupFlowResult } from "./call-setup-flow-types.js";
 import { speakSystemPrompt } from "./call-speech-output.js";
@@ -79,10 +81,6 @@ import {
   type MediaStreamSttSessionConfig,
 } from "./media-stream-stt-session.js";
 import { routeSetup } from "./relay-setup-router.js";
-import {
-  attemptInviteCodeRedemption,
-  attemptVerificationCode,
-} from "./relay-verification.js";
 
 const log = getLogger("media-stream-server");
 const UUID_SHAPED_NAME =
@@ -302,19 +300,14 @@ export class MediaStreamCallSession {
         const durationMs = session.startedAt
           ? Date.now() - session.startedAt
           : 0;
-        addPointerMessage(
+        postPointerMessageSafe(
           session.initiatedFromConversationId,
           "completed",
           session.toNumber,
           {
             duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
           },
-        ).catch((err) => {
-          log.warn(
-            { conversationId: session.initiatedFromConversationId, err },
-            "Skipping pointer write — origin conversation may no longer exist",
-          );
-        });
+        );
       }
     } else {
       const detail =
@@ -331,17 +324,12 @@ export class MediaStreamCallSession {
       });
 
       if (session.initiatedFromConversationId) {
-        addPointerMessage(
+        postPointerMessageSafe(
           session.initiatedFromConversationId,
           "failed",
           session.toNumber,
           { reason: detail },
-        ).catch((err) => {
-          log.warn(
-            { conversationId: session.initiatedFromConversationId, err },
-            "Skipping pointer write — origin conversation may no longer exist",
-          );
-        });
+        );
       }
     }
 
@@ -454,12 +442,7 @@ export class MediaStreamCallSession {
     // the WebSocket meanwhile, the close handler will have called destroy().
     // Abort setup so we don't create a controller or speak on a disposed
     // session.
-    if (this.disposed) {
-      log.info(
-        { callSessionId: this.callSessionId },
-        "Media-stream session disposed during admission read — aborting setup",
-      );
-      this.setupRouting = false;
+    if (this.abortIfDisposed("admission read")) {
       return;
     }
 
@@ -473,12 +456,7 @@ export class MediaStreamCallSession {
 
     // The verdict read above yields the event loop; abort if the session was
     // disposed meanwhile, matching the admission-read guard above.
-    if (this.disposed) {
-      log.info(
-        { callSessionId: this.callSessionId },
-        "Media-stream session disposed during verdict read — aborting setup",
-      );
-      this.setupRouting = false;
+    if (this.abortIfDisposed("verdict read")) {
       return;
     }
 
@@ -494,12 +472,7 @@ export class MediaStreamCallSession {
 
     // routeSetup can yield the event loop (gateway voice-invite read); abort
     // if the session was disposed meanwhile, matching the guards above.
-    if (this.disposed) {
-      log.info(
-        { callSessionId: this.callSessionId },
-        "Media-stream session disposed during setup routing — aborting setup",
-      );
-      this.setupRouting = false;
+    if (this.abortIfDisposed("setup routing")) {
       return;
     }
 
@@ -528,16 +501,33 @@ export class MediaStreamCallSession {
   // ── Setup flow wiring ─────────────────────────────────────────────
 
   /**
+   * Abort a pending setup when the session was disposed across an await
+   * in {@link handleStart}: logs the stage and clears the setup-routing
+   * input gate. Returns true when setup must abort.
+   */
+  private abortIfDisposed(stage: string): boolean {
+    if (!this.disposed) {
+      return false;
+    }
+    log.info(
+      { callSessionId: this.callSessionId, stage },
+      "Media-stream session disposed during setup — aborting",
+    );
+    this.setupRouting = false;
+    return true;
+  }
+
+  /**
    * Real side-effect surface for the {@link CallSetupFlow}. Pure-logic
-   * deps (verification code parsing, trust re-resolution, guardian wait
-   * construction) use the flow's real-implementation defaults.
+   * deps (code validation, invite redemption, guardian notification,
+   * trust re-resolution, guardian wait construction) use the flow's
+   * real-implementation defaults.
    */
   private buildSetupFlowDeps(
     session: ReturnType<typeof getCallSession>,
   ): CallSetupFlowDeps {
     return {
-      speakSystemPrompt: (_transport, text) =>
-        speakSystemPrompt(this.output, text),
+      speakSystemPrompt: (text) => speakSystemPrompt(this.output, text),
       updateCallSession,
       recordCallEvent,
       onComplete: (result) => this.handleSetupFlowResult(result, session),
@@ -550,14 +540,11 @@ export class MediaStreamCallSession {
         finalizeCall(callSessionId, conversationId);
       },
       addMessage,
-      addPointerMessage,
+      postPointerMessage: postPointerMessageSafe,
       fireCallTranscriptNotifier,
       resolveGuardianLabel: () =>
         resolveGuardianName(this.primedGuardianDisplayName),
       resolveAssistantLabel,
-      notifyGuardianOfAccessRequest,
-      attemptVerificationCode,
-      attemptInviteCodeRedemption,
     };
   }
 

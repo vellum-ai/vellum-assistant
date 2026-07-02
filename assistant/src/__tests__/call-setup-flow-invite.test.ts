@@ -61,7 +61,9 @@ function inviteOutcome(inviteeName: string | null): SetupOutcome {
   };
 }
 
-type RedemptionFn = NonNullable<CallSetupFlowDeps["attemptInviteCodeRedemption"]>;
+type RedemptionFn = NonNullable<
+  CallSetupFlowDeps["attemptInviteCodeRedemption"]
+>;
 
 const successRedemption: RedemptionFn = async () => ({
   outcome: "success",
@@ -89,8 +91,10 @@ function createHarness(overrides?: Partial<CallSetupFlowDeps>) {
     enteredCode: string;
     guardianLabel: string;
   }> = [];
-  const finalizeCalls: Array<{ callSessionId: string; conversationId: string }> =
-    [];
+  const finalizeCalls: Array<{
+    callSessionId: string;
+    conversationId: string;
+  }> = [];
   const notifierCalls: Array<{
     conversationId: string;
     callSessionId: string;
@@ -100,11 +104,9 @@ function createHarness(overrides?: Partial<CallSetupFlowDeps>) {
 
   const transport: SetupFlowTransport = {
     sendTextToken: () => {},
-    sendPlayUrl: () => {},
     endSession: (reason) => {
       endReasons.push(reason);
     },
-    getConnectionState: () => "connected",
   };
 
   // Record every claim regardless of which redemption impl a test injects.
@@ -114,7 +116,7 @@ function createHarness(overrides?: Partial<CallSetupFlowDeps>) {
   } = overrides ?? {};
 
   const deps: CallSetupFlowDeps = {
-    speakSystemPrompt: async (_transport, text) => {
+    speakSystemPrompt: async (text) => {
       spoken.push(text);
     },
     updateCallSession: (_id, updates) => {
@@ -245,10 +247,7 @@ describe("CallSetupFlow invite redemption", () => {
         endReasons,
       } = createHarness();
 
-      await flow.start(
-        inviteOutcome("Carolina Flaherty"),
-        makeResolved(true),
-      );
+      await flow.start(inviteOutcome("Carolina Flaherty"), makeResolved(true));
       await enterCode(flow);
 
       expect(redemptionCalls).toEqual([

@@ -154,11 +154,9 @@ function createFlow(opts?: {
     sendTextToken: (token, last) => {
       spokenTokens.push({ token, last });
     },
-    sendPlayUrl: () => {},
     endSession: (reason) => {
       endReasons.push(reason);
     },
-    getConnectionState: () => "connected",
   };
 
   const spoken: string[] = [];
@@ -196,7 +194,7 @@ function createFlow(opts?: {
   const attempt = fakeAttemptVerification({ correctCode: CORRECT_CODE });
 
   const deps: CallSetupFlowDeps = {
-    speakSystemPrompt: async (_transport, text) => {
+    speakSystemPrompt: async (text) => {
       spoken.push(text);
     },
     updateCallSession: (_id, updates) => {
@@ -226,14 +224,14 @@ function createFlow(opts?: {
         metadata: options?.metadata,
       });
     }) as unknown as CallSetupFlowDeps["addMessage"],
-    addPointerMessage: (async (
+    postPointerMessage: ((
       conversationId: string,
       event: string,
       phoneNumber: string,
       extra?: Record<string, unknown>,
     ) => {
       pointerMessages.push({ conversationId, event, phoneNumber, extra });
-    }) as unknown as CallSetupFlowDeps["addPointerMessage"],
+    }) as unknown as CallSetupFlowDeps["postPointerMessage"],
     fireCallTranscriptNotifier: (
       conversationId,
       callSessionId,
@@ -808,7 +806,7 @@ describe("CallSetupFlow verification sub-flows", () => {
           getCallSession: undefined,
           finalizeCall: undefined,
           addMessage: undefined,
-          addPointerMessage: undefined,
+          postPointerMessage: undefined,
           fireCallTranscriptNotifier: undefined,
           resolveGuardianLabel: undefined,
           resolveAssistantLabel: undefined,
@@ -818,6 +816,110 @@ describe("CallSetupFlow verification sub-flows", () => {
       expect(
         flow.start(inboundVerificationOutcome, makeResolved()),
       ).rejects.toThrow(/verification deps missing: getCallSession/);
+    });
+  });
+
+  describe("in-flight submission guard", () => {
+    test("a 12-digit DTMF burst fires exactly one validation attempt", async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const attempt = fakeAttemptVerification({ correctCode: CORRECT_CODE });
+      const calls: AttemptParams[] = [];
+      const { flow, results } = createFlow({
+        deps: {
+          attemptVerificationCode: async (params) => {
+            calls.push(params);
+            await gate;
+            return attempt(params);
+          },
+        },
+      });
+      await flow.start(inboundVerificationOutcome, makeResolved());
+
+      // Duplicated DTMF burst: the correct code arrives twice back-to-back.
+      pushCode(flow, CORRECT_CODE + CORRECT_CODE);
+      await sleep();
+
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.enteredCode).toBe(CORRECT_CODE);
+
+      release();
+      await sleep();
+
+      expect(calls).toHaveLength(1);
+      expect(results).toHaveLength(1);
+      expect(results[0]?.kind).toBe("proceed-initial-greeting");
+    });
+
+    test("a spoken code during a pending validation is dropped", async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const attempt = fakeAttemptVerification({ correctCode: CORRECT_CODE });
+      const calls: AttemptParams[] = [];
+      const { flow, results } = createFlow({
+        deps: {
+          attemptVerificationCode: async (params) => {
+            calls.push(params);
+            await gate;
+            return attempt(params);
+          },
+        },
+      });
+      await flow.start(inboundVerificationOutcome, makeResolved());
+
+      pushCode(flow, CORRECT_CODE);
+      await sleep();
+      expect(calls).toHaveLength(1);
+
+      // The same code re-spoken while the validation is pending must not
+      // launch a second attempt.
+      flow.pushTranscriptFinal("one two three four five six");
+      await sleep();
+      expect(calls).toHaveLength(1);
+
+      release();
+      await sleep();
+      expect(calls).toHaveLength(1);
+      expect(results).toHaveLength(1);
+    });
+
+    test("the attempt counter advances once per settled attempt", async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const attempt = fakeAttemptVerification({ correctCode: CORRECT_CODE });
+      const calls: AttemptParams[] = [];
+      const { flow } = createFlow({
+        deps: {
+          attemptVerificationCode: async (params) => {
+            calls.push(params);
+            await gate;
+            return attempt(params);
+          },
+        },
+      });
+      await flow.start(inboundVerificationOutcome, makeResolved());
+
+      // Duplicated wrong code: only the first submission validates.
+      pushCode(flow, "000000" + "000000");
+      flow.pushTranscriptFinal("zero zero zero zero zero zero");
+      await sleep();
+      expect(calls).toHaveLength(1);
+      expect(calls[0]?.verificationAttempts).toBe(0);
+
+      release();
+      await sleep();
+
+      // The next submission sees a counter advanced exactly once.
+      pushCode(flow, "111111");
+      await sleep();
+      expect(calls).toHaveLength(2);
+      expect(calls[1]?.verificationAttempts).toBe(1);
     });
   });
 });
