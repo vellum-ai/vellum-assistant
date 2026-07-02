@@ -11,6 +11,7 @@ import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { cleanupBootstrapFiles } from "../prompts/bootstrap-cleanup.js";
+import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { initConversationDir } from "./conversation-disk-view.js";
 import { GENERATING_TITLE } from "./conversation-title-service.js";
 import { getDb } from "./db-connection.js";
@@ -217,11 +218,22 @@ export function getOrCreateConversation(
     const customTitle = opts?.title?.trim();
     const title = customTitle || GENERATING_TITLE;
     const memoryScopeId = "default";
+    // Snapshot↔stream alignment baseline, captured at the creation instant —
+    // the same seed `createConversation` writes. Without it the row starts at
+    // seq NULL and `/messages` stays anchor-less for the whole first turn
+    // (the 1s partial-persist debounce outlives a fast reply), which is what
+    // let mid-turn refetches wipe the streamed transcript on clients. Every
+    // event this conversation will ever emit is stamped above the current
+    // counter, so the current value is a correct baseline. 0 (nothing stamped
+    // yet this process) stays NULL so clients cold-start rather than align to
+    // seq 0.
+    const initialSeq = getCurrentSeq();
 
     tx.insert(conversations)
       .values({
         id: conversationId,
         title,
+        seq: initialSeq > 0 ? initialSeq : null,
         // A caller-supplied title is user-set: mark it non-auto (0) so the
         // async LLM title generator's `canReplaceTitle` check won't overwrite
         // it. Without one, omit the column so it takes its default

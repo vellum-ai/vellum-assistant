@@ -53,6 +53,12 @@ import {
   conversationKeys,
   conversations,
 } from "../persistence/schema/index.js";
+import type { AssistantEvent } from "../runtime/assistant-event.js";
+import {
+  _resetStreamStateForTesting,
+  getCurrentSeq,
+  stampAndBuffer,
+} from "../runtime/assistant-stream-state.js";
 
 await initializeDb();
 
@@ -104,5 +110,49 @@ describe("conversation-key-store disk view", () => {
     expect(conversationRows).toHaveLength(1);
     expect(keyRows).toHaveLength(1);
     expect(readdirSync(conversationsDir)).toEqual([expectedDirName]);
+  });
+
+  test("seeds the seq alignment baseline from the global counter at creation", () => {
+    // Regression: this insert used to omit `seq`, so key-materialized
+    // conversations (the web's first-send path) reported `seq: null` on
+    // /messages for their entire first turn — the anchor-less snapshot that
+    // let mid-turn refetches wipe streamed transcript content on clients.
+    _resetStreamStateForTesting();
+    const event: AssistantEvent = {
+      id: "seed-evt",
+      conversationId: "other-conversation",
+      emittedAt: new Date().toISOString(),
+      message: {
+        type: "assistant_text_delta",
+        conversationId: "other-conversation",
+        text: "x",
+      } as AssistantEvent["message"],
+    };
+    stampAndBuffer(event);
+    const baseline = getCurrentSeq();
+    expect(baseline).toBeGreaterThan(0);
+
+    const created = getOrCreateConversation("seed-key");
+    const row = getDb()
+      .select({ seq: conversations.seq })
+      .from(conversations)
+      .where(eq(conversations.id, created.conversationId))
+      .get();
+    expect(row?.seq).toBe(baseline);
+  });
+
+  test("stores NULL seq when nothing has been stamped yet (cold process)", () => {
+    // getCurrentSeq() === 0 means no event was ever emitted; clients must
+    // cold-start rather than align to seq 0, so the column stays NULL.
+    _resetStreamStateForTesting();
+    expect(getCurrentSeq()).toBe(0);
+
+    const created = getOrCreateConversation("cold-key");
+    const row = getDb()
+      .select({ seq: conversations.seq })
+      .from(conversations)
+      .where(eq(conversations.id, created.conversationId))
+      .get();
+    expect(row?.seq).toBeNull();
   });
 });
