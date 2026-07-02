@@ -21,6 +21,15 @@ mock.module("../../../security/secure-keys.js", () => ({
   deleteSecureKeyAsync: async () => {},
 }));
 
+// Wiring-only: the real composition (guardian-name resolution, contact
+// lookups) needs a migrated DB and is unit-tested in invite-routes-http.
+// A passthrough keeps this suite asserting envelope + payload retention.
+mock.module("../../../runtime/invite-service.js", () => ({
+  composeInvitePresentation: async (params: {
+    invite: Record<string, unknown>;
+  }) => params.invite,
+}));
+
 import { ROUTES as contactRoutes } from "../../../runtime/routes/contact-routes.js";
 import { INVITE_IPC_METHODS } from "../invite-ipc-routes.js";
 import { routeDefinitionsToIpcMethods } from "../route-adapter.js";
