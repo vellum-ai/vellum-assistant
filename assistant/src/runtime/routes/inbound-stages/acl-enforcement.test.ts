@@ -205,13 +205,13 @@ describe("enforceIngressAcl — verdict-sourced member resolution", () => {
     expect(findContactChannelCalls.length).toBe(0);
   });
 
-  test("member-less guardian verdict is admitted and never fires an access request", async () => {
-    // A guardian classified by principal reaches this channel with NO
-    // per-channel member row: trustClass is "guardian" but the verdict
-    // carries no contactId/channelId/status/policy. The guardian
-    // short-circuit must admit them instead of routing them into the
-    // stranger branch, which fires notifyGuardianOfAccessRequest at the
-    // guardian themselves.
+  test("member-less guardian verdict fails safe: denied with no stranger-lane side effects", async () => {
+    // ATL-958 regression: the gateway proves guardian identity via a
+    // same-channel member row, so every guardian verdict carries one. A
+    // guardian verdict with NO member row is contradictory (e.g. a forged
+    // cross-channel classification) and must not be admitted — but it must
+    // not be routed through the stranger lane either, which would fire an
+    // access request carrying the claimed guardian identity.
     const result = await enforceIngressAcl(
       makeParams({
         sourceMetadata: withVerdict({
@@ -222,10 +222,15 @@ describe("enforceIngressAcl — verdict-sourced member resolution", () => {
       }),
     );
 
-    expect(result.earlyResponse).toBeUndefined();
+    expect(result.earlyResponse).toMatchObject({
+      accepted: true,
+      denied: true,
+      reason: "not_a_member",
+    });
     expect(result.resolvedMember).toBeNull();
     expect(accessRequestCalls.length).toBe(0);
     expect(deliverReplyCalls.length).toBe(0);
+    expect(createOutboundSessionCalls.length).toBe(0);
   });
 
   test("guardian verdict with an inactive (pending) member row is still admitted", async () => {
