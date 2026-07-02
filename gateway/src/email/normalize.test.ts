@@ -126,4 +126,30 @@ describe("normalizeEmailWebhook", () => {
     const result = normalizeEmailWebhook(payload);
     expect(result!.event.raw).toEqual(payload);
   });
+
+  it("passes through senderAuthenticated=false so the trust downgrade engages", () => {
+    const result = normalizeEmailWebhook(
+      makePayload({ senderAuthenticated: false }),
+    );
+    expect(result!.senderAuthenticated).toBe(false);
+  });
+
+  it("passes through senderAuthenticated=true", () => {
+    const result = normalizeEmailWebhook(
+      makePayload({ senderAuthenticated: true }),
+    );
+    expect(result!.senderAuthenticated).toBe(true);
+  });
+
+  it("omits senderAuthenticated when absent (platform could not evaluate)", () => {
+    const result = normalizeEmailWebhook(makePayload());
+    expect(result!.senderAuthenticated).toBeUndefined();
+  });
+
+  it("ignores a non-boolean senderAuthenticated value", () => {
+    const result = normalizeEmailWebhook(
+      makePayload({ senderAuthenticated: "pass" }),
+    );
+    expect(result!.senderAuthenticated).toBeUndefined();
+  });
 });

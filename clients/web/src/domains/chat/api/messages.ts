@@ -400,7 +400,15 @@ export type PostMessageResult =
   | { ok: false; status: number; error: { code?: string; detail?: string } };
 
 export type UploadAttachmentResult =
-  | { ok: true; id: string }
+  | {
+      ok: true;
+      id: string;
+      /** Stored metadata — may differ from the uploaded file when the
+       *  assistant normalizes the format (e.g. HEIC stored as JPEG). */
+      filename?: string;
+      mimeType?: string;
+      sizeBytes?: number;
+    }
   | { ok: false; status: number; error: { detail?: string } };
 
 /**
@@ -446,7 +454,13 @@ export async function uploadChatAttachment(
       error: { detail: "Upload response did not include an attachment id." },
     };
   }
-  return { ok: true, id };
+  return {
+    ok: true,
+    id,
+    ...(typeof data.filename === "string" ? { filename: data.filename } : {}),
+    ...(typeof data.mimeType === "string" ? { mimeType: data.mimeType } : {}),
+    ...(typeof data.sizeBytes === "number" ? { sizeBytes: data.sizeBytes } : {}),
+  };
 }
 
 /**
@@ -478,6 +492,7 @@ export async function postChatMessage(
   onboarding?: PreChatOnboardingContext,
   clientMessageId?: string,
   inferenceProfile?: string | null,
+  enabledPlugins?: string[] | null,
   isHidden?: boolean,
 ): Promise<PostMessageResult> {
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
@@ -536,6 +551,15 @@ export async function postChatMessage(
   // otherwise so the conversation inherits the global default profile.
   if (inferenceProfile) {
     body.inferenceProfile = inferenceProfile;
+  }
+  // Per-chat plugin selection for the conversation this message mints — the
+  // user picked an explicit plugin set in the composer before sending. The
+  // daemon persists it as the conversation's enabled-plugin set. Omitted when
+  // `null`/`undefined` so the conversation inherits the default set. The caller
+  // gates attachment on daemon support + an explicit selection (see
+  // `use-send-message.ts`); an empty array is a valid "no plugins" selection.
+  if (enabledPlugins != null) {
+    body.enabledPlugins = enabledPlugins;
   }
   // Persist the message but suppress it from the transcript (it still drives the
   // turn LLM-side). Used by the research-onboarding "Let's chat" handoff to

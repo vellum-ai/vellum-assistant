@@ -22,6 +22,7 @@ import { clearStaleProcessingFlags } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-runtime-manager.js";
+import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
 import { runMemoryStartup } from "../plugins/defaults/memory/startup.js";
@@ -111,7 +112,9 @@ function runDeferredDiskPressureStartupSample(): void {
 export function startDiskPressureGuardForLifecycle(): void {
   try {
     const startedStatus = startDiskPressureGuard();
-    if (!startedStatus.enabled) return;
+    if (!startedStatus.enabled) {
+      return;
+    }
     if (!diskPressureStartupSampleTimer) {
       diskPressureStartupSampleTimer = setTimeout(
         runDeferredDiskPressureStartupSample,
@@ -150,6 +153,13 @@ export async function runDaemon(): Promise<void> {
   // consent gate below confirms share_diagnostics opt-in; dev mode and the
   // legacy local opt-out hard-disable via closeSentry().
   initSentry();
+
+  // Signal handlers install before any blocking startup work — a boot that
+  // inherits a large WAL can spend minutes inside `initializeDb()`, and
+  // without handlers a SIGTERM in that window is the default hard kill.
+  // Handlers run a minimal exit path until `setStartupComplete()` below
+  // switches them to the full graceful shutdown.
+  installShutdownHandlers();
 
   ensureDataDir();
 
@@ -661,6 +671,14 @@ export async function runDaemon(): Promise<void> {
     log.warn({ err }, "Background Qdrant init failed"),
   );
 
+  // One-time, self-healing backfill of existing messages into the Qdrant
+  // lexical index (`messages_lexical`) on upgrade, so message-content search
+  // never opens onto an empty index. Enqueue-only and checkpoint-guarded — the
+  // indexing runs off the event loop via the background job worker; see the
+  // function's docstring for the guards and the deliberate exception it makes
+  // to the "no work at daemon startup" rule.
+  maybeEnqueueLexicalBackfillOnUpgrade();
+
   // Spawn the resource monitor as a child of the daemon when enabled, off the
   // main event loop.
   startMonitoring();
@@ -708,12 +726,12 @@ export async function runDaemon(): Promise<void> {
 
   startHeartbeatService();
 
-  installShutdownHandlers();
-
   // The critical startup await-chain has completed and the daemon can serve
   // requests, so latch readiness before logging "Daemon started". Any fatal
   // failure earlier in startup propagates out of runDaemon before this line,
-  // so the latch is never set on a failed start.
+  // so the latch is never set on a failed start. The latch also switches the
+  // signal handlers installed at the top of startup from their minimal
+  // early-exit mode to the full graceful shutdown.
   setStartupComplete();
 
   log.info(

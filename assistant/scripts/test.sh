@@ -205,22 +205,44 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
     fi
   }
 
+  # Bun test output evidence: "(fail)" lines mark assertion failures, and the
+  # end-of-run summary ("Ran X tests across Y files") marks a completed run.
+  has_failed_assertion() {
+    grep -q "^(fail)" "${out_file}" 2>/dev/null
+  }
+  reached_end_of_run() {
+    grep -qE "^Ran [0-9]+ tests? across" "${out_file}" 2>/dev/null
+  }
+
   start_ms=$(perl -MTime::HiRes=time -e "printf \"%d\", time*1000")
 
   run_bun_test
   exit_code=$?
 
-  # Retry once on a transient bun loader/runtime crash. Bun occasionally aborts
-  # a worker before its tests run — e.g. "# Unhandled error between tests" with
-  # "error: ENOENT reading <corrupted path>" — failing the whole job even though
-  # the file is green on a clean process. Such a crash truncates the run before
-  # any assertion executes, so it prints no "(fail)" line; genuine assertion
-  # failures do, and are reported immediately without a retry (fast feedback, no
-  # masking of intermittent real failures). Timeouts (124/137) are handled by the
-  # hang branch below, not here.
-  if [[ ${exit_code} -ne 0 && ${exit_code} -ne 124 && ${exit_code} -ne 137 ]] \
-     && ! grep -q "^(fail)" "${out_file}" 2>/dev/null; then
-    echo "  ↻ ${base} (transient crash, exit ${exit_code} — retrying once)"
+  # Retry once when a failing run produced no conclusive test evidence:
+  #   - transient loader/runtime crash (non-zero, non-timeout exit): bun
+  #     occasionally aborts a worker before its tests run — e.g. "# Unhandled
+  #     error between tests" with "error: ENOENT reading <corrupted path>"
+  #   - transient hang (timeout kill before the end-of-run summary): bun
+  #     occasionally deadlocks while loading a test file, so the timeout reaps
+  #     a process that never completed the run
+  # Neither leaves a "(fail)" line; genuine assertion failures print one and
+  # are reported immediately without a retry (fast feedback, no masking of
+  # intermittent real failures). A timed-out run that reached the end-of-run
+  # summary is the passed-but-hung-at-exit case classified below — no retry
+  # needed.
+  retry_reason=""
+  if [[ ${exit_code} -ne 0 ]] && ! has_failed_assertion; then
+    if [[ -n "${timeout_cmd}" && ( ${exit_code} -eq 124 || ${exit_code} -eq 137 ) ]]; then
+      if ! reached_end_of_run; then
+        retry_reason="hung after ${per_test_timeout}s without completing"
+      fi
+    else
+      retry_reason="transient crash, exit ${exit_code}"
+    fi
+  fi
+  if [[ -n "${retry_reason}" ]]; then
+    echo "  ↻ ${base} (${retry_reason} — retrying once)"
     run_bun_test
     exit_code=$?
   fi
@@ -239,10 +261,10 @@ printf '%s\n' "${test_files[@]}" | xargs -P "${WORKERS}" -I {} bash -c '
     # "Ran X tests across Y files" when the run completes. Both conditions
     # must hold: no failures AND the end-of-run summary present. Without
     # the summary, the process was killed mid-run before finishing all tests.
-    if grep -q "^(fail)" "${out_file}" 2>/dev/null; then
+    if has_failed_assertion; then
       echo "${test_file}" >> "${results_dir}/failures"
       echo "  ✗ ${base} (killed after ${per_test_timeout}s — tests failed and process hung)"
-    elif grep -qE "^Ran [0-9]+ tests? across" "${out_file}" 2>/dev/null; then
+    elif reached_end_of_run; then
       echo "  ⚠ ${base} (tests passed but process hung after ${per_test_timeout}s — likely open handles)"
     else
       echo "${test_file}" >> "${results_dir}/failures"

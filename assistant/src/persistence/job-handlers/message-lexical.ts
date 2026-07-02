@@ -1,49 +1,22 @@
 import { eq } from "drizzle-orm";
 
-import { getConfig } from "../../../../config/loader.js";
-import type { AssistantConfig } from "../../../../config/types.js";
-import { getDb } from "../../../../persistence/db-connection.js";
-import { generateSparseEmbedding } from "../../../../persistence/embeddings/embedding-backend.js";
+import type { AssistantConfig } from "../../config/types.js";
+import { getLogger } from "../../util/logger.js";
+import { getDb } from "../db-connection.js";
+import { generateSparseEmbedding } from "../embeddings/embedding-backend.js";
 import {
   getMessagesLexicalIndex,
   initMessagesLexicalIndex,
   MESSAGES_LEXICAL_COLLECTION,
   type MessagesLexicalIndex,
-} from "../../../../persistence/embeddings/messages-lexical-index.js";
-import { withQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
-import { asString } from "../../../../persistence/job-utils.js";
-import {
-  enqueueMemoryJob,
-  isMemoryEnabled,
-  type MemoryJob,
-} from "../../../../persistence/jobs-store.js";
-import { messages } from "../../../../persistence/schema/index.js";
-import { getLogger } from "../../../../util/logger.js";
-import { isPluginDisabled } from "../../../disabled-state.js";
-import { resolveQdrantUrl } from "../embeddings.js";
-import memoryPkg from "../package.json" with { type: "json" };
+} from "../embeddings/messages-lexical-index.js";
+import { withQdrantBreaker } from "../embeddings/qdrant-circuit-breaker.js";
+import { resolveQdrantUrl } from "../embeddings/qdrant-client.js";
+import { asString } from "../job-utils.js";
+import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
+import { messages } from "../schema/index.js";
 
 const log = getLogger("messages-lexical-enqueue");
-
-/**
- * True when the memory plugin's per-message index writes should be suppressed —
- * either the memory feature is off in config (`memory.enabled === false`) or the
- * `default-memory` plugin is disabled via its `.disabled` sentinel. This mirrors
- * the FULL disabled-state check the host applies in
- * `guardPersistenceHooksByDisabledState`, because the index-write call sites
- * (streaming finalize, import, edit, consolidation) call
- * {@link enqueueLexicalIndexForMessage} directly, outside that guard.
- *
- * On the write side this suppresses ONLY the index/write path — the cleanup
- * paths (purge/delete/clear) must still run while disabled so points written
- * when enabled are not orphaned. It doubles as the read-side population signal:
- * when suppression is active the lexical index is not being forward-filled, so
- * lexical-backed reads must fall back to FTS rather than query a stale/empty
- * `messages_lexical` collection.
- */
-export function isMemoryIndexingSuppressed(): boolean {
-  return !isMemoryEnabled() || isPluginDisabled(memoryPkg.name);
-}
 
 /**
  * Resolve the messages lexical index singleton, lazily initializing it from
@@ -62,7 +35,7 @@ export function resolveLexicalIndex(
     return getMessagesLexicalIndex();
   } catch {
     return initMessagesLexicalIndex({
-      url: resolveQdrantUrl(),
+      url: resolveQdrantUrl(config),
       collection: MESSAGES_LEXICAL_COLLECTION,
       onDisk: config.memory.qdrant.onDisk,
     });
@@ -104,7 +77,9 @@ export async function indexMessageLexicalJob(
   config: AssistantConfig,
 ): Promise<void> {
   const messageId = asString(job.payload.messageId);
-  if (!messageId) return;
+  if (!messageId) {
+    return;
+  }
 
   const db = getDb();
   const row = db
@@ -119,15 +94,16 @@ export async function indexMessageLexicalJob(
     .get();
 
   // The message may have been deleted between enqueue and dispatch — no-op.
-  if (!row) return;
+  if (!row) {
+    return;
+  }
 
   await indexMessageToLexical(row, config);
 }
 
 /**
- * Delete a conversation's points from the lexical index. Shared by the
- * `purge_conversation_lexical` job handler and the disabled-memory inline
- * cleanup path (see {@link enqueuePurgeConversationLexical}).
+ * Delete a conversation's points from the lexical index (the
+ * `purge_conversation_lexical` job body).
  */
 async function purgeConversationLexical(
   conversationId: string,
@@ -138,9 +114,8 @@ async function purgeConversationLexical(
 }
 
 /**
- * Delete a single message's point from the lexical index. Shared by the
- * `delete_message_lexical` job handler and the disabled-memory inline cleanup
- * path (see {@link enqueueDeleteMessageLexical}).
+ * Delete a single message's point from the lexical index (the
+ * `delete_message_lexical` job body).
  */
 async function deleteMessageLexical(
   messageId: string,
@@ -155,7 +130,9 @@ export async function purgeConversationLexicalJob(
   config: AssistantConfig,
 ): Promise<void> {
   const conversationId = asString(job.payload.conversationId);
-  if (!conversationId) return;
+  if (!conversationId) {
+    return;
+  }
   await purgeConversationLexical(conversationId, config);
 }
 
@@ -164,7 +141,9 @@ export async function deleteMessageLexicalJob(
   config: AssistantConfig,
 ): Promise<void> {
   const messageId = asString(job.payload.messageId);
-  if (!messageId) return;
+  if (!messageId) {
+    return;
+  }
   await deleteMessageLexical(messageId, config);
 }
 
@@ -180,22 +159,20 @@ export async function deleteMessageLexicalJob(
  * drop every message but the last from the index. The upsert into Qdrant is
  * idempotent, so re-enqueuing the same message id is harmless.
  *
- * This is the INDEX/write path: it is gated on {@link isMemoryIndexingSuppressed}
- * — the same FULL disabled-state check the host applies in
- * `guardPersistenceHooksByDisabledState` (config `memory.enabled` AND the
- * `default-memory` `.disabled` sentinel) — so no index job is created while the
- * plugin is disabled. The direct callers (streaming finalize, import, edit,
- * consolidation) run outside that host guard, so the gate lives here.
+ * Unconditional: message-content search is host infrastructure, so indexing
+ * runs regardless of the memory feature's or memory plugin's state (the job
+ * worker drains the lexical types even while memory is disabled).
  *
- * Best-effort: the enqueue itself is a memory side effect off the message write
- * path, so a failure (e.g. the memory database is unavailable) is swallowed and
- * logged rather than propagated — a memory hiccup must not escalate a
- * successful message persist into a throw, mirroring the `indexMessageNow` call
- * sites this runs beside.
+ * Best-effort: the enqueue is a search side effect off the message write path,
+ * so a failure (e.g. the jobs database is unavailable) is swallowed and logged
+ * rather than propagated — an indexing hiccup must not escalate a successful
+ * message persist into a throw, mirroring the `indexMessageNow` call sites
+ * this runs beside.
  */
 export function enqueueLexicalIndexForMessage(messageId: string): void {
-  if (!messageId) return;
-  if (isMemoryIndexingSuppressed()) return;
+  if (!messageId) {
+    return;
+  }
   try {
     enqueueMemoryJob("index_message_lexical", { messageId });
   } catch (err) {
@@ -207,17 +184,9 @@ export function enqueueLexicalIndexForMessage(messageId: string): void {
 }
 
 /**
- * Purge a deleted/wiped conversation's points from the lexical index. This is a
- * cleanup path that must run even while the memory plugin is disabled, so points
- * written while it was enabled are not orphaned.
- *
- * When memory is enabled the work is enqueued as a `purge_conversation_lexical`
- * job (processed off the write path by the worker). When memory is DISABLED the
- * memory job worker skips every job (`runMemoryJobsOnce` returns early), so an
- * enqueued job would sit pending forever and the points would leak — but Qdrant
- * itself is still up (daemon startup boots it unconditionally, independent of
- * `memory.enabled`), so the purge is run INLINE instead, best-effort and
- * breaker-wrapped (a safe no-op if Qdrant is unreachable).
+ * Purge a deleted/wiped conversation's points from the lexical index, as a
+ * `purge_conversation_lexical` job processed off the write path (the worker
+ * drains the lexical types regardless of the memory feature's state).
  *
  * The purge targets Qdrant by `conversationId`, so it is correct even after the
  * conversation's message rows have been deleted. Callers on the wipe path must
@@ -225,22 +194,15 @@ export function enqueueLexicalIndexForMessage(messageId: string): void {
  * pending `conversationId`-keyed job — otherwise an enqueued purge is swept by
  * that same cancellation.
  *
- * Best-effort: a failed enqueue or inline purge is swallowed and logged rather
- * than propagated, so conversation deletion never fails on a memory hiccup.
+ * Best-effort: a failed enqueue is swallowed and logged rather than
+ * propagated, so conversation deletion never fails on an indexing hiccup.
  */
 export function enqueuePurgeConversationLexical(conversationId: string): void {
-  if (!conversationId) return;
+  if (!conversationId) {
+    return;
+  }
   try {
-    if (isMemoryEnabled()) {
-      enqueueMemoryJob("purge_conversation_lexical", { conversationId });
-    } else {
-      void purgeConversationLexical(conversationId, getConfig()).catch((err) =>
-        log.warn(
-          { err, conversationId },
-          "Inline lexical purge failed (memory disabled, non-fatal)",
-        ),
-      );
-    }
+    enqueueMemoryJob("purge_conversation_lexical", { conversationId });
   } catch (err) {
     log.warn(
       { err, conversationId },
@@ -250,27 +212,18 @@ export function enqueuePurgeConversationLexical(conversationId: string): void {
 }
 
 /**
- * Remove a deleted message's point from the lexical index. Used by
- * single-message delete paths (consolidation, undo) that remove a row without
- * wiping the whole conversation. Like the purge, a cleanup path: enqueues a
- * `delete_message_lexical` job when memory is enabled, and runs INLINE
- * (best-effort, breaker-wrapped) when memory is disabled — where the worker
- * would never process the job but Qdrant is still reachable. Best-effort so
- * message deletion never fails on a memory hiccup.
+ * Remove a deleted message's point from the lexical index, as a
+ * `delete_message_lexical` job. Used by single-message delete paths
+ * (consolidation, undo) that remove a row without wiping the whole
+ * conversation. Best-effort so message deletion never fails on an indexing
+ * hiccup.
  */
 export function enqueueDeleteMessageLexical(messageId: string): void {
-  if (!messageId) return;
+  if (!messageId) {
+    return;
+  }
   try {
-    if (isMemoryEnabled()) {
-      enqueueMemoryJob("delete_message_lexical", { messageId });
-    } else {
-      void deleteMessageLexical(messageId, getConfig()).catch((err) =>
-        log.warn(
-          { err, messageId },
-          "Inline lexical delete failed (memory disabled, non-fatal)",
-        ),
-      );
-    }
+    enqueueMemoryJob("delete_message_lexical", { messageId });
   } catch (err) {
     log.warn(
       { err, messageId },

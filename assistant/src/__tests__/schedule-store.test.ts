@@ -55,7 +55,9 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   // predicate holds, so a larger budget costs nothing when events flow.
   const deadline = Date.now() + 2000;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error("Timed out waiting for schedule-store event");

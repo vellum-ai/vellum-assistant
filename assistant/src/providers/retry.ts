@@ -713,6 +713,7 @@ export class RetryProvider implements Provider {
               retryAfterHeader: retryAfter !== undefined,
               errorType,
               provider: this.name,
+              message: error instanceof Error ? error.message : String(error),
             },
             "Retrying after transient error",
           );

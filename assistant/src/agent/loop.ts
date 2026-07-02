@@ -15,6 +15,10 @@ import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
+import {
+  timeSyncSection,
+  traceAsyncSection,
+} from "../persistence/slow-sync-log.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
   AgentLoopExitReason,
@@ -763,6 +767,17 @@ export interface AgentLoopConstructorOptions {
    * result-time pass and the post-turn truncation covers the turn instead.
    */
   resolveConversationDir?: () => string | null;
+  /**
+   * Resolve the conversation's per-chat plugin scope as a membership set, read
+   * fresh on each lifecycle-hook gather so a mid-conversation change to the
+   * selection takes effect on the next turn. `null` (or an omitted resolver)
+   * means no per-chat restriction — every globally-enabled plugin's hooks run.
+   * Threaded into each `runHook` call so a deselected plugin's lifecycle hooks
+   * (post-compact, stop, pre/post-model-call, post-tool-use) do not fire for
+   * this conversation. Injected by the conversation wiring, which reads the
+   * live conversation; lightweight loops (workflows) omit it.
+   */
+  resolveEffectiveEnabledPlugins?: () => Set<string> | null;
 }
 
 export class AgentLoop {
@@ -785,6 +800,11 @@ export class AgentLoop {
   /** See {@link AgentLoopConstructorOptions.resolveConversationDir}. */
   private readonly resolveConversationDir: (() => string | null) | null;
 
+  /** See {@link AgentLoopConstructorOptions.resolveEffectiveEnabledPlugins}. */
+  private readonly resolveEffectiveEnabledPlugins:
+    | (() => Set<string> | null)
+    | null;
+
   /**
    * Loop-held compaction circuit breaker. The loop has a 1:1 lifetime with its
    * conversation, so it is the source of truth for the cross-turn failure
@@ -805,6 +825,7 @@ export class AgentLoop {
       isExclusiveTool,
       conversationId,
       resolveConversationDir,
+      resolveEffectiveEnabledPlugins,
     } = options;
     this.provider = provider;
     this.systemPrompt = systemPrompt;
@@ -815,7 +836,14 @@ export class AgentLoop {
     this.isExclusiveTool = isExclusiveTool ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
+    this.resolveEffectiveEnabledPlugins =
+      resolveEffectiveEnabledPlugins ?? null;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
+  }
+
+  /** Per-chat plugin scope for the current gather; see the resolver option. */
+  private effectiveEnabledPlugins(): Set<string> | null {
+    return this.resolveEffectiveEnabledPlugins?.() ?? null;
   }
 
   /**
@@ -1009,6 +1037,7 @@ export class AgentLoop {
     const finalPostCompactCtx = await runHook(
       HOOKS.POST_COMPACT,
       postCompactCtx,
+      this.effectiveEnabledPlugins(),
     );
     return {
       history: finalPostCompactCtx.history,
@@ -1163,7 +1192,7 @@ export class AgentLoop {
         logger: rlog,
       };
       try {
-        await runHook(HOOKS.STOP, stopCtx);
+        await runHook(HOOKS.STOP, stopCtx, this.effectiveEnabledPlugins());
       } catch (stopHookError) {
         rlog.error(
           { err: stopHookError, exitReason: reason },
@@ -1507,15 +1536,20 @@ export class AgentLoop {
         // the existing correction) so the calibrator learns the true
         // bias against provider ground truth instead of ratcheting a
         // feedback loop against its own corrected output.
-        const toolTokenBudget =
-          currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
-        const preSendEstimatedTokens = estimatePromptTokensRaw(
-          history,
-          runSystemPrompt,
-          {
-            providerName: getCalibrationProviderKey(this.provider),
-            toolTokenBudget,
+        const preSendEstimatedTokens = timeSyncSection(
+          "agent-loop:estimate-prompt-tokens",
+          () => {
+            const toolTokenBudget =
+              currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
+            return estimatePromptTokensRaw(history, runSystemPrompt, {
+              providerName: getCalibrationProviderKey(this.provider),
+              toolTokenBudget,
+            });
           },
+          (estimatedTokens) => ({
+            estimatedTokens,
+            messageCount: history.length,
+          }),
         );
         lastPreSendEstimatedTokens = preSendEstimatedTokens;
         rlog.info({ turn: toolUseTurns }, "LLM call start");
@@ -1523,7 +1557,11 @@ export class AgentLoop {
         // Sanitize the outbound history right before sending: drop accumulated
         // media, collapse old AX-tree snapshots, and convert historical
         // web-search results to text. See {@link preModelCallSanitize}.
-        const providerHistory = preModelCallSanitize(history);
+        const providerHistory = timeSyncSection(
+          "agent-loop:pre-model-call-sanitize",
+          () => preModelCallSanitize(history),
+          (sanitized) => ({ messageCount: sanitized.length }),
+        );
 
         // A `pre-model-call` hook (below) can defer this turn's assistant
         // output; when set, the live text stream is held so an
@@ -1634,9 +1672,14 @@ export class AgentLoop {
             deferAssistantOutput: false,
             logger: rlog,
           };
-          const finalPreModelCtx = await runHook(
-            HOOKS.PRE_MODEL_CALL,
-            preModelCtx,
+          const finalPreModelCtx = await traceAsyncSection(
+            "agent-loop:pre-model-call-hook",
+            () =>
+              runHook(
+                HOOKS.PRE_MODEL_CALL,
+                preModelCtx,
+                this.effectiveEnabledPlugins(),
+              ),
           );
           // Emit a changed event when the hook mutated the prompt. Compare
           // against the pre-hook value from providerOptions, not
@@ -1705,9 +1748,8 @@ export class AgentLoop {
         latencyTracker?.mark("request_sent");
         let response: ProviderResponse;
         try {
-          response = await this.provider.sendMessage(
-            providerHistory,
-            providerOptions,
+          response = await traceAsyncSection("agent-loop:provider-send", () =>
+            this.provider.sendMessage(providerHistory, providerOptions),
           );
         } catch (llmCallError) {
           // Skip recording on abort — the user cancelled the request and
@@ -1803,7 +1845,15 @@ export class AgentLoop {
               decision: "stop",
               logger: rlog,
             };
-            const result = await runHook(HOOKS.POST_MODEL_CALL, ctx);
+            const result = await traceAsyncSection(
+              "agent-loop:post-model-call-hook",
+              () =>
+                runHook(
+                  HOOKS.POST_MODEL_CALL,
+                  ctx,
+                  this.effectiveEnabledPlugins(),
+                ),
+            );
             return {
               finalized: { role: "assistant", content: result.content },
               decision: result.decision,
@@ -2241,7 +2291,11 @@ export class AgentLoop {
             supportsDynamicUi,
             logger: rlog,
           };
-          const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
+          const finalCtx = await runHook(
+            HOOKS.POST_TOOL_USE,
+            postToolUseCtx,
+            this.effectiveEnabledPlugins(),
+          );
           resultBlocks.push(finalCtx.toolResponse);
           if (finalCtx.additionalContext !== null) {
             additionalContextBlocks.push({
@@ -2451,6 +2505,7 @@ export class AgentLoop {
             errorOutcome = await runHook(
               HOOKS.POST_MODEL_CALL,
               errorOutcomeCtx,
+              this.effectiveEnabledPlugins(),
             );
           } catch (postModelCallError) {
             rlog.error(

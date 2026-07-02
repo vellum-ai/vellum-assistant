@@ -36,7 +36,7 @@ import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
-import { createRowMapper } from "../util/row-mapper.js";
+import { createRowMapper, parseJsonNullable } from "../util/row-mapper.js";
 import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
   deleteOrphanAttachments,
@@ -72,6 +72,7 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
+import { enqueueLexicalIndexForMessage } from "./job-handlers/message-lexical.js";
 import { getMemoryPersistenceHooks } from "./memory-lifecycle-hooks.js";
 import {
   rawExec,
@@ -326,6 +327,8 @@ export interface ConversationRow {
   archivedAt: number | null;
   surfacedAt: number | null;
   inferenceProfile: string | null;
+  /** Parsed plugin-id list scoping this chat; null = default (all globally-enabled). */
+  enabledPlugins: string[] | null;
   inferenceProfileSessionId: string | null;
   inferenceProfileExpiresAt: number | null;
   lastNotifiedInferenceProfile: string | null;
@@ -362,6 +365,10 @@ export const parseConversation = createRowMapper<
   archivedAt: "archivedAt",
   surfacedAt: "surfacedAt",
   inferenceProfile: "inferenceProfile",
+  enabledPlugins: {
+    from: "enabledPlugins",
+    transform: parseJsonNullable<string[]>(),
+  },
   inferenceProfileSessionId: "inferenceProfileSessionId",
   inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
   lastNotifiedInferenceProfile: "lastNotifiedInferenceProfile",
@@ -935,6 +942,7 @@ export function forkConversation(params: {
           ? sourceHistoryStrippedAt
           : null,
         inferenceProfile: sourceConversation.inferenceProfile,
+        enabledPlugins: encodeEnabledPlugins(sourceConversation.enabledPlugins),
       })
       .where(eq(conversations.id, fc.id))
       .run();
@@ -1327,6 +1335,9 @@ export async function forkConversationForRetrospective(params: {
               ? sourceHistoryStrippedAt
               : null,
             inferenceProfile: sourceConversation.inferenceProfile,
+            enabledPlugins: encodeEnabledPlugins(
+              sourceConversation.enabledPlugins,
+            ),
           })
           .where(eq(conversations.id, fc.id))
           .run();
@@ -1684,6 +1695,12 @@ export async function addMessage(
   const message = inserted;
 
   if (!skipIndexing) {
+    // Message-content lexical indexing is host infrastructure, invoked
+    // directly (not through the memory hook seam, whose active side effects go
+    // inert while the memory plugin is disabled — search indexing must not).
+    // The direct write seams (streaming finalize, import, edit) enqueue for
+    // themselves; this covers the plain addMessage path.
+    enqueueLexicalIndexForMessage(message.id);
     try {
       const parsed = metadata
         ? messageMetadataSchema.safeParse(metadata)
@@ -2397,6 +2414,51 @@ export function setConversationInferenceProfile(
       inferenceProfile: profile,
       inferenceProfileSessionId: null,
       inferenceProfileExpiresAt: null,
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, conversationId))
+    .run();
+}
+
+/**
+ * Encode a plugin-id list for the `enabled_plugins` text column. Keeps a true
+ * SQL NULL for `null` (rather than the JSON literal `"null"`) so it reads back
+ * as "no per-chat restriction".
+ */
+function encodeEnabledPlugins(plugins: string[] | null): string | null {
+  return plugins === null ? null : JSON.stringify(plugins);
+}
+
+/**
+ * Read the per-conversation plugin scope. Returns the parsed `string[]` of
+ * plugin ids, or `null` when the column is unset/empty (= no per-chat
+ * restriction). Defensively returns `null` on a JSON parse failure.
+ */
+export function getConversationEnabledPlugins(
+  conversationId: string,
+): string[] | null {
+  const db = getDb();
+  const row = db
+    .select({ enabledPlugins: conversations.enabledPlugins })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  return parseJsonNullable<string[]>()(row?.enabledPlugins);
+}
+
+/**
+ * Set or clear the per-conversation plugin scope. Pass a `string[]` to scope
+ * the chat to those plugin ids, or `null` to clear the restriction and fall
+ * back to all globally-enabled plugins.
+ */
+export function setConversationEnabledPlugins(
+  conversationId: string,
+  plugins: string[] | null,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      enabledPlugins: encodeEnabledPlugins(plugins),
       updatedAt: Date.now(),
     })
     .where(eq(conversations.id, conversationId))

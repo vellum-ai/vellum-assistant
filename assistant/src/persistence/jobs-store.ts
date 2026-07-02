@@ -83,6 +83,19 @@ export const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_concept_page",
 ];
 
+/**
+ * Job types that power message-content lexical search — host infrastructure
+ * that shares the background job queue but is not a memory feature. The worker
+ * keeps draining exactly these types while memory is disabled, so message
+ * search stays indexed regardless of the memory feature's state.
+ */
+export const MESSAGE_LEXICAL_JOB_TYPES: MemoryJobType[] = [
+  "index_message_lexical",
+  "purge_conversation_lexical",
+  "delete_message_lexical",
+  "backfill_lexical_index",
+];
+
 export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
   "graph_consolidate",
   "graph_pattern_scan",
@@ -561,14 +574,29 @@ export interface LaneBudgets {
   embed: number;
 }
 
-export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
-  if (limits.slowLlm <= 0 && limits.fast <= 0 && limits.embed <= 0) return [];
+/**
+ * Claim up to the per-lane budgets of pending jobs. When `restrictToTypes` is
+ * provided, only jobs of those types are eligible in every lane — the worker
+ * uses this to drain exclusively the message-lexical types while memory is
+ * disabled.
+ */
+export function claimMemoryJobs(
+  limits: LaneBudgets,
+  restrictToTypes?: readonly MemoryJobType[],
+): MemoryJob[] {
+  if (limits.slowLlm <= 0 && limits.fast <= 0 && limits.embed <= 0) {
+    return [];
+  }
 
   const db = memoryDb();
   const now = Date.now();
+  const restrictFilter = restrictToTypes
+    ? inArray(memoryJobs.type, [...restrictToTypes])
+    : undefined;
   const pendingFilter = and(
     eq(memoryJobs.status, "pending"),
     lte(memoryJobs.runAfter, now),
+    restrictFilter,
   );
 
   // Slow lane: long-running LLM jobs (graph extract/consolidate, analysis, etc.).
@@ -650,7 +678,9 @@ export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
       .set({ status: "running", startedAt: now, updatedAt: now })
       .where(and(eq(memoryJobs.id, row.id), eq(memoryJobs.status, "pending")))
       .run();
-    if (rawMemoryChanges() === 0) continue;
+    if (rawMemoryChanges() === 0) {
+      continue;
+    }
     claimed.push(
       parseRow({
         ...row,
@@ -694,7 +724,9 @@ const DEFER_MAX_DELAY_MS = 5 * 60 * 1000;
 export function deferMemoryJob(id: string): "deferred" | "failed" {
   const db = memoryDb();
   const row = db.select().from(memoryJobs).where(eq(memoryJobs.id, id)).get();
-  if (!row) return "failed";
+  if (!row) {
+    return "failed";
+  }
 
   const deferrals = row.deferrals + 1;
   const now = Date.now();
@@ -751,7 +783,9 @@ export function failMemoryJob(
   const maxAttempts = options?.maxAttempts ?? 5;
   const db = memoryDb();
   const row = db.select().from(memoryJobs).where(eq(memoryJobs.id, id)).get();
-  if (!row) return;
+  if (!row) {
+    return;
+  }
   const attempts = row.attempts + 1;
   const now = Date.now();
   if (attempts >= maxAttempts) {
@@ -804,7 +838,9 @@ export function failStalledJobs(timeoutMs: number): number {
   `,
     cutoff,
   );
-  if (stalled.length === 0) return 0;
+  if (stalled.length === 0) {
+    return 0;
+  }
 
   const db = memoryDb();
   for (const row of stalled) {

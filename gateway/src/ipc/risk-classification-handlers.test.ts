@@ -262,6 +262,26 @@ describe("file classification", () => {
     expect(result.reason).toContain("routes");
   });
 
+  test("file_write to workflows dir is high risk", async () => {
+    const result = await classify({
+      tool: "file_write",
+      path: "/workspace/workflows/victim/workflow.ts",
+      workingDir: "/workspace",
+      fileContext: {
+        protectedDir: "/workspace/.vellum/protected",
+        hooksDir: "/workspace/.hooks",
+        toolsDir: "/workspace/tools",
+        routesDir: "/workspace/routes",
+        workflowsDir: "/workspace/workflows",
+        actorTokenSigningKeyPath:
+          "/workspace/.vellum/protected/actor-token-signing-key",
+        skillSourceDirs: ["/workspace/.vellum/skills"],
+      },
+    });
+    expect(result.risk).toBe("high");
+    expect(result.reason).toContain("workflows");
+  });
+
   test("host_file_transfer to_sandbox dest in tools dir is high risk", async () => {
     const result = await classify({
       tool: "host_file_transfer",

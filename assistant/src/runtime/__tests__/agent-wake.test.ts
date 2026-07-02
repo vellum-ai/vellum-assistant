@@ -88,6 +88,13 @@ interface WakeConversationProbe {
    */
   turnTrustContextSets: Array<{ ctx: unknown; order: number }>;
   /**
+   * `setTrustContext` writes to the persistent `conversation.trustContext`,
+   * in order. A trust-carrying wake's resolver leaves its trust here; the
+   * wake must put the prior value back so it doesn't linger for a later
+   * no-trust wake.
+   */
+  trustContextSets: unknown[];
+  /**
    * Every assignment to `conversation.wakePersonaOverride`, in order. A
    * wake that applies an override records `[override, undefined]` — the
    * trailing `undefined` proves the wake restored the field before
@@ -340,6 +347,10 @@ import type {
   AgentLoopRunResult,
 } from "../../agent/loop.js";
 import type { Conversation } from "../../daemon/conversation.js";
+import {
+  deleteConversation,
+  setConversation,
+} from "../../daemon/conversation-registry.js";
 import { ContextOverflowError, type Message } from "../../providers/types.js";
 import {
   __resetWakeChainForTests,
@@ -387,6 +398,8 @@ function makeWakeConversation(options: {
    * (always under the mocked 200k window).
    */
   estimatedInputTokens?: number;
+  /** Seed for the conversation's resting `trustContext`. */
+  initialTrustContext?: unknown;
 }): WakeConversation {
   const conversationId = options.conversationId ?? "conv-test";
   const probe: WakeConversationProbe = {
@@ -401,6 +414,7 @@ function makeWakeConversation(options: {
     processingDuringDrain: [],
     allowedToolSnapshots: [],
     turnTrustContextSets: [],
+    trustContextSets: [],
     personaOverrideSets: [],
     persistedAtEachEmit: [],
     maybeCompactOrders: [],
@@ -413,6 +427,7 @@ function makeWakeConversation(options: {
   let activeAllowedTools = options.initialAllowedTools;
   let wakePersonaOverride: unknown;
   let currentTurnTrustContext: unknown;
+  let persistentTrustContext: unknown = options.initialTrustContext;
   const snapshotAllowedTools = (): string[] | undefined =>
     activeAllowedTools ? [...activeAllowedTools].sort() : undefined;
 
@@ -526,7 +541,14 @@ function makeWakeConversation(options: {
     },
     getTurnChannelContext: () => null,
     getTurnInterfaceContext: () => null,
-    trustContext: undefined,
+    get trustContext() {
+      return persistentTrustContext;
+    },
+    // Mirrors Conversation.setTrustContext (coerces null → undefined).
+    setTrustContext(ctx: unknown) {
+      persistentTrustContext = ctx ?? undefined;
+      probe.trustContextSets.push(ctx);
+    },
     buildCurrentSystemPrompt: () => "mock-system-prompt",
     modelOverride: undefined,
     ...(drainQueue ? { drainQueue } : {}),
@@ -1533,6 +1555,141 @@ describe("wakeAgentForOpportunity", () => {
       conversation.turnTrustContextSets.filter((s) => s.ctx != null),
     ).toHaveLength(0);
     expect(conversation.currentTurnTrustContext).toBeUndefined();
+  });
+
+  // ── Persistent-trust restore ────────────────────────────────────────
+  // The resolver leaves the wake's trust on the conversation. The wake must
+  // put the prior resting value back, or a later no-trust wake inherits it
+  // through tool setup's `currentTurnTrustContext ?? trustContext` fallback.
+
+  const GUARDIAN_TRUST = {
+    sourceChannel: "vellum",
+    trustClass: "guardian",
+  } as const;
+
+  // The wake reads the prior trust from the live registry, so a test that
+  // wants to exercise the restore registers its double there and simulates
+  // the resolver's write by setting the trust in resolveTarget.
+  const withRegisteredConversation = async (
+    conversation: WakeConversation,
+    run: () => Promise<unknown>,
+  ): Promise<void> => {
+    setConversation(conversation.conversationId, conversation as Conversation);
+    try {
+      await run();
+    } finally {
+      deleteConversation(conversation.conversationId);
+    }
+  };
+
+  test("restores the conversation's prior trust once the wake ends", async () => {
+    const priorTrust = {
+      sourceChannel: "slack",
+      trustClass: "trusted_contact",
+    } as const;
+    const conversation = makeWakeConversation({
+      conversationId: "conv-trust-restore",
+      initialTrustContext: priorTrust,
+    });
+
+    await withRegisteredConversation(conversation, () =>
+      wakeAgentForOpportunity(
+        {
+          conversationId: "conv-trust-restore",
+          hint: "x",
+          source: "t",
+          trustContext: GUARDIAN_TRUST,
+        },
+        {
+          resolveTarget: async () => {
+            conversation.setTrustContext(GUARDIAN_TRUST);
+            return conversation;
+          },
+        },
+      ),
+    );
+
+    // Resolver installs guardian, wake restores the prior value.
+    expect(conversation.trustContextSets).toEqual([GUARDIAN_TRUST, priorTrust]);
+    expect(conversation.trustContext).toEqual(priorTrust);
+  });
+
+  test("restores the prior trust even when the agent loop throws", async () => {
+    const conversation = makeWakeConversation({
+      conversationId: "conv-trust-restore-throw",
+      runImpl: async () => {
+        throw new Error("boom");
+      },
+    });
+
+    await withRegisteredConversation(conversation, () =>
+      wakeAgentForOpportunity(
+        {
+          conversationId: "conv-trust-restore-throw",
+          hint: "x",
+          source: "t",
+          trustContext: GUARDIAN_TRUST,
+        },
+        {
+          resolveTarget: async () => {
+            conversation.setTrustContext(GUARDIAN_TRUST);
+            return conversation;
+          },
+        },
+      ),
+    );
+
+    // Nothing was resting before the wake, so it goes back to unset.
+    expect(conversation.trustContext).toBeUndefined();
+  });
+
+  test("leaves a trust that was re-set mid-run alone (identity guard)", async () => {
+    const replaced = {
+      sourceChannel: "vellum",
+      trustClass: "unknown",
+    } as const;
+    const conversation = makeWakeConversation({
+      conversationId: "conv-trust-guard",
+      runImpl: async (input) => {
+        conversation.setTrustContext(replaced);
+        return runResult(input);
+      },
+    });
+
+    await withRegisteredConversation(conversation, () =>
+      wakeAgentForOpportunity(
+        {
+          conversationId: "conv-trust-guard",
+          hint: "x",
+          source: "t",
+          trustContext: GUARDIAN_TRUST,
+        },
+        {
+          resolveTarget: async () => {
+            conversation.setTrustContext(GUARDIAN_TRUST);
+            return conversation;
+          },
+        },
+      ),
+    );
+
+    // The wake sees a different reference than it installed, so it doesn't
+    // restore: two writes (resolver install, mid-run replacement), no third.
+    expect(conversation.trustContext).toEqual(replaced);
+    expect(conversation.trustContextSets).toHaveLength(2);
+  });
+
+  test("never touches the persistent trust when the wake carries none", async () => {
+    const conversation = makeWakeConversation({
+      conversationId: "conv-trust-none",
+    });
+
+    await wakeAgentForOpportunity(
+      { conversationId: "conv-trust-none", hint: "x", source: "t" },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(conversation.trustContextSets).toHaveLength(0);
   });
 
   test("two concurrent wakes on the same conversation are serialized", async () => {

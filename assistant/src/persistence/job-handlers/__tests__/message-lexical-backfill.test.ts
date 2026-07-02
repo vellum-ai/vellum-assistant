@@ -1,8 +1,8 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { SparseEmbedding } from "../../../../../persistence/embeddings/embedding-types.js";
+import type { SparseEmbedding } from "../../embeddings/embedding-types.js";
 
-mock.module("../../../../../util/logger.js", () => ({
+mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -40,31 +40,25 @@ function resetLexicalSingleton(ready: boolean): void {
   singletonReady = ready;
 }
 
-mock.module(
-  "../../../../../persistence/embeddings/messages-lexical-index.js",
-  () => ({
-    MESSAGES_LEXICAL_COLLECTION: "messages_lexical",
-    getMessagesLexicalIndex: () => {
-      if (!singletonReady) {
-        throw new Error("Messages lexical index not initialized.");
-      }
-      return fakeIndex;
-    },
-    initMessagesLexicalIndex: () => {
-      singletonReady = true;
-      return fakeIndex;
-    },
-  }),
-);
+mock.module("../../embeddings/messages-lexical-index.js", () => ({
+  MESSAGES_LEXICAL_COLLECTION: "messages_lexical",
+  getMessagesLexicalIndex: () => {
+    if (!singletonReady) {
+      throw new Error("Messages lexical index not initialized.");
+    }
+    return fakeIndex;
+  },
+  initMessagesLexicalIndex: () => {
+    singletonReady = true;
+    return fakeIndex;
+  },
+}));
 
 // `withQdrantBreaker` just invokes the operation in tests — replace it with a
 // pass-through so the breaker's timing/state machinery stays out of the way.
-mock.module(
-  "../../../../../persistence/embeddings/qdrant-circuit-breaker.js",
-  () => ({
-    withQdrantBreaker: <T>(op: () => Promise<T>) => op(),
-  }),
-);
+mock.module("../../embeddings/qdrant-circuit-breaker.js", () => ({
+  withQdrantBreaker: <T>(op: () => Promise<T>) => op(),
+}));
 
 // `generateSparseEmbedding` is a pure local TF-IDF encoder (no provider call),
 // so it runs unmocked — mocking `embedding-backend.js` wholesale would starve
@@ -72,14 +66,19 @@ mock.module(
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { resetDbForTesting } from "../../../../../__tests__/db-test-helpers.js";
-import { DEFAULT_CONFIG } from "../../../../../config/defaults.js";
+import { resetDbForTesting } from "../../../__tests__/db-test-helpers.js";
+import { DEFAULT_CONFIG } from "../../../config/defaults.js";
 import {
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
-} from "../../../../../config/loader.js";
-import type { AssistantConfig } from "../../../../../config/types.js";
+} from "../../../config/loader.js";
+import type { AssistantConfig } from "../../../config/types.js";
+import type {
+  RouteDefinition,
+  RouteHandlerArgs,
+} from "../../../runtime/routes/types.js";
+import { getWorkspacePluginsDir } from "../../../util/platform.js";
 import {
   deleteMemoryCheckpoint,
   isLexicalBackfillComplete,
@@ -88,30 +87,18 @@ import {
   resetMessageCursorCheckpoint,
   setMemoryCheckpoint,
   writeMessageCursorCheckpoint,
-} from "../../../../../persistence/checkpoints.js";
-import {
-  getDb,
-  getMemoryDb,
-} from "../../../../../persistence/db-connection.js";
-import { initializeDb } from "../../../../../persistence/db-init.js";
-import { generateSparseEmbedding } from "../../../../../persistence/embeddings/embedding-backend.js";
-import type { MemoryJob } from "../../../../../persistence/jobs-store.js";
-import {
-  conversations,
-  memoryJobs,
-  messages,
-} from "../../../../../persistence/schema/index.js";
-import type {
-  RouteDefinition,
-  RouteHandlerArgs,
-} from "../../../../../runtime/routes/types.js";
-import { getWorkspacePluginsDir } from "../../../../../util/platform.js";
-import memoryPkg from "../../package.json" with { type: "json" };
-import { ROUTES as MESSAGES_LEXICAL_ROUTES } from "../../routes/messages-lexical-routes.js";
+} from "../../checkpoints.js";
+import { getDb, getMemoryDb } from "../../db-connection.js";
+import { initializeDb } from "../../db-init.js";
+import { generateSparseEmbedding } from "../../embeddings/embedding-backend.js";
+import type { MemoryJob } from "../../jobs-store.js";
+import { conversations, memoryJobs, messages } from "../../schema/index.js";
+const MEMORY_PLUGIN_NAME = "default-memory";
+import { ROUTES as MESSAGES_LEXICAL_ROUTES } from "../../../runtime/routes/messages-lexical-routes.js";
 import {
   backfillLexicalIndexJob,
   maybeEnqueueLexicalBackfillOnUpgrade,
-} from "../backfill-lexical-index.js";
+} from "../message-lexical-backfill.js";
 
 const TEST_CONFIG: AssistantConfig = DEFAULT_CONFIG;
 
@@ -180,7 +167,9 @@ async function callBackfillRoute(
   const route = MESSAGES_LEXICAL_ROUTES.find(
     (r: RouteDefinition) => r.operationId === "messages_lexical_backfill",
   );
-  if (!route) throw new Error("messages_lexical_backfill route not found");
+  if (!route) {
+    throw new Error("messages_lexical_backfill route not found");
+  }
   const args: RouteHandlerArgs = { body };
   return (await route.handler(args)) as { jobId: string };
 }
@@ -203,13 +192,12 @@ function setMemoryEnabled(enabled: boolean): void {
 
 /**
  * Toggle the memory plugin's `.disabled` sentinel in the real workspace plugins
- * dir so `isMemoryIndexingSuppressed()` (via `isPluginDisabled(memoryPkg.name)`)
- * sees the change. Driving the real sentinel — not a process-global mock —
- * exercises the same suppression path the write/recall gates use and avoids
- * leaking a mock into sibling test files.
+ * dir. Driving the real sentinel — not a process-global mock — proves the
+ * backfill enqueue ignores the plugin's disabled state without leaking a mock
+ * into sibling test files.
  */
 function setMemoryPluginDisabled(disabled: boolean): void {
-  const dir = join(getWorkspacePluginsDir(), memoryPkg.name);
+  const dir = join(getWorkspacePluginsDir(), MEMORY_PLUGIN_NAME);
   if (disabled) {
     mkdirSync(dir, { recursive: true });
     writeFileSync(join(dir, ".disabled"), "");
@@ -441,29 +429,24 @@ describe("backfillLexicalIndexJob", () => {
       expect(pendingBackfillJobCount()).toBe(0);
     });
 
-    test("does NOT enqueue when memory is disabled", () => {
+    // Message-content search is host infrastructure: the backfill enqueues
+    // regardless of the memory feature's or memory plugin's state (the job
+    // worker drains the lexical types even while memory is disabled).
+    test("enqueues even when memory is disabled", () => {
       setMemoryEnabled(false);
 
       maybeEnqueueLexicalBackfillOnUpgrade();
 
-      expect(pendingBackfillJobCount()).toBe(0);
+      expect(pendingBackfillJobCount()).toBe(1);
     });
 
-    // Indexing is suppressed by the memory plugin's `.disabled` sentinel even
-    // while `memory.enabled` is true. The hook gates on the same
-    // `isMemoryIndexingSuppressed` signal as the write/recall paths, so it must
-    // skip: enqueuing (and later setting the completion marker) would leave a
-    // stale index that a lexical-backed read could serve while per-message writes
-    // stay suppressed.
-    test("does NOT enqueue when the memory plugin is disabled but memory.enabled is true", () => {
+    test("enqueues even when the memory plugin is disabled", () => {
       setMemoryEnabled(true);
       setMemoryPluginDisabled(true);
 
       maybeEnqueueLexicalBackfillOnUpgrade();
 
-      expect(pendingBackfillJobCount()).toBe(0);
-      // The completion marker must stay unset so reads stay on FTS.
-      expect(isLexicalBackfillComplete()).toBe(false);
+      expect(pendingBackfillJobCount()).toBe(1);
     });
 
     test("does NOT enqueue a duplicate when a backfill job is already pending", () => {

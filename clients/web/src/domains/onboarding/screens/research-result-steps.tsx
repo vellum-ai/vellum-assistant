@@ -16,7 +16,14 @@
  * loading / empty presentation while the turn is still streaming.
  */
 
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { ArrowRight, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -219,12 +226,27 @@ export function MeetingCreatedStep({
 // Looking you up (loading carousel)
 // ---------------------------------------------------------------------------
 
-const LOOKING_MESSAGES = [
+// Rotating status lines shown while the research turn (and, when the user
+// configured one, the personality rewrite) settle in the background. They loop
+// until `ready`, so the copy is pure flavor — it never gates progress.
+const WEB_SEARCH_MESSAGES = [
   "Searching the web to get to know you…",
   "Reading public profiles…",
+  "Skimming the highlights…",
   "Connecting the dots…",
-  "Almost there…",
+  "Piecing it together…",
 ];
+
+// Extra lines woven in when a personality was configured this session, so the
+// wait also narrates the persona rewrite that's running in the background.
+const PERSONALITY_MESSAGES = [
+  "Updating my personality…",
+  "Finding my voice…",
+  "Getting into character…",
+];
+
+// Always the final line, so the carousel settles on it when both operations land.
+const LOOKING_CLOSING_MESSAGE = "Almost there…";
 
 /** How long each rotating message lingers before advancing to the next. */
 const LOOKING_MESSAGE_INTERVAL_MS = 2800;
@@ -235,6 +257,7 @@ export function LookingYouUpStep({
   onAdvance,
   onForward,
   ready,
+  applyingPersonality = false,
 }: {
   onDone: () => void;
   onBack: () => void;
@@ -243,30 +266,46 @@ export function LookingYouUpStep({
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
   /**
-   * The research turn has settled (results are ready, or there were none). Until
-   * then the carousel keeps rotating — looping the messages — so we never land
-   * on an empty "this is what I found" page.
+   * Both background operations have settled — the research turn (results are
+   * ready, or there were none) AND, when configured, the personality rewrite.
+   * Until then the carousel keeps rotating — looping the messages — so we never
+   * land on an empty "this is what I found" page or a half-written persona.
    */
   ready: boolean;
+  /**
+   * A personality was configured this session, so its rewrite is running in the
+   * background too — weave the persona lines into the carousel.
+   */
+  applyingPersonality?: boolean;
 }) {
   const tone = DARK_TONE;
   const [index, setIndex] = useState(0);
 
+  // Web-search lines first, the persona lines next (only when one's being
+  // applied), then the shared closer — so the wait reads as one continuous
+  // "getting ready" rather than two disjoint phases.
+  const messages = useMemo(() => {
+    const lines = [...WEB_SEARCH_MESSAGES];
+    if (applyingPersonality) lines.push(...PERSONALITY_MESSAGES);
+    lines.push(LOOKING_CLOSING_MESSAGE);
+    return lines;
+  }, [applyingPersonality]);
+
   useEffect(() => {
     onAdvance?.(index);
-    const isLast = index >= LOOKING_MESSAGES.length - 1;
-    // Finish on the last message once research is ready; otherwise keep cycling
-    // (looping back to the start) until it lands.
+    const isLast = index >= messages.length - 1;
+    // Finish on the last message once both operations are ready; otherwise keep
+    // cycling (looping back to the start) until they land.
     if (ready && isLast) {
       const done = setTimeout(onDone, LOOKING_MESSAGE_INTERVAL_MS);
       return () => clearTimeout(done);
     }
     const next = setTimeout(
-      () => setIndex((i) => (i + 1) % LOOKING_MESSAGES.length),
+      () => setIndex((i) => (i + 1) % messages.length),
       LOOKING_MESSAGE_INTERVAL_MS,
     );
     return () => clearTimeout(next);
-  }, [index, ready, onDone, onAdvance]);
+  }, [index, ready, onDone, onAdvance, messages.length]);
 
   return (
     <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
@@ -285,7 +324,7 @@ export function LookingYouUpStep({
             exit={{ y: -12, opacity: 0 }}
             transition={{ duration: 0.35 }}
           >
-            {LOOKING_MESSAGES[index]}
+            {messages[index]}
           </motion.p>
         </AnimatePresence>
       </div>

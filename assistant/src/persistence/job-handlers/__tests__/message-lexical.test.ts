@@ -1,8 +1,8 @@
 import { beforeAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { SparseEmbedding } from "../../../../../persistence/embeddings/embedding-types.js";
+import type { SparseEmbedding } from "../../embeddings/embedding-types.js";
 
-mock.module("../../../../../util/logger.js", () => ({
+mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -45,46 +45,40 @@ function resetLexicalSingleton(ready: boolean): void {
   initConfigCalls.length = 0;
 }
 
-mock.module(
-  "../../../../../persistence/embeddings/messages-lexical-index.js",
-  () => ({
-    MESSAGES_LEXICAL_COLLECTION: "messages_lexical",
-    getMessagesLexicalIndex: () => {
-      if (!singletonReady) {
-        throw new Error("Messages lexical index not initialized.");
-      }
-      return fakeIndex;
-    },
-    initMessagesLexicalIndex: (config: {
-      url: string;
-      collection?: string;
-      onDisk?: boolean;
-    }) => {
-      initConfigCalls.push(config);
-      singletonReady = true;
-      return fakeIndex;
-    },
-  }),
-);
+mock.module("../../embeddings/messages-lexical-index.js", () => ({
+  MESSAGES_LEXICAL_COLLECTION: "messages_lexical",
+  getMessagesLexicalIndex: () => {
+    if (!singletonReady) {
+      throw new Error("Messages lexical index not initialized.");
+    }
+    return fakeIndex;
+  },
+  initMessagesLexicalIndex: (config: {
+    url: string;
+    collection?: string;
+    onDisk?: boolean;
+  }) => {
+    initConfigCalls.push(config);
+    singletonReady = true;
+    return fakeIndex;
+  },
+}));
 
 // `generateSparseEmbedding` is a pure local TF-IDF encoder (no provider call),
 // so it runs unmocked — mocking `embedding-backend.js` wholesale would starve
 // its other named exports that the db-init import graph pulls in.
-import { resetDbForTesting } from "../../../../../__tests__/db-test-helpers.js";
-import { DEFAULT_CONFIG } from "../../../../../config/defaults.js";
-import type { AssistantConfig } from "../../../../../config/types.js";
-import { getDb } from "../../../../../persistence/db-connection.js";
-import { initializeDb } from "../../../../../persistence/db-init.js";
-import { generateSparseEmbedding } from "../../../../../persistence/embeddings/embedding-backend.js";
-import type { MemoryJob } from "../../../../../persistence/jobs-store.js";
-import {
-  conversations,
-  messages,
-} from "../../../../../persistence/schema/index.js";
+import { resetDbForTesting } from "../../../__tests__/db-test-helpers.js";
+import { DEFAULT_CONFIG } from "../../../config/defaults.js";
+import type { AssistantConfig } from "../../../config/types.js";
+import { getDb } from "../../db-connection.js";
+import { initializeDb } from "../../db-init.js";
+import { generateSparseEmbedding } from "../../embeddings/embedding-backend.js";
+import type { MemoryJob } from "../../jobs-store.js";
+import { conversations, messages } from "../../schema/index.js";
 import {
   indexMessageLexicalJob,
   purgeConversationLexicalJob,
-} from "../index-message-lexical.js";
+} from "../message-lexical.js";
 
 const TEST_CONFIG: AssistantConfig = DEFAULT_CONFIG;
 
