@@ -188,13 +188,16 @@ export async function resolveSlackUser(
           ? data.user.tz_offset
           : undefined;
 
-      const isBot = data.user.is_bot === true ? true : undefined;
-      const isStranger = data.user.is_stranger === true ? true : undefined;
+      // Explicit booleans, not presence flags: a successful users.info is a
+      // positive identity resolution, so `false` means "Slack says this user
+      // is a regular workspace member". When resolution fails these fields
+      // are absent entirely (unknown), and downstream trust policy must fail
+      // toward the handshake rather than treating the sender as vouched.
+      const isBot = data.user.is_bot === true;
+      const isStranger = data.user.is_stranger === true;
       const isRestricted =
         data.user.is_restricted === true ||
-        data.user.is_ultra_restricted === true
-          ? true
-          : undefined;
+        data.user.is_ultra_restricted === true;
 
       const info: SlackUserInfo = {
         displayName,
@@ -204,9 +207,9 @@ export async function resolveSlackUser(
         ...(timezoneOffsetSeconds !== undefined
           ? { timezoneOffsetSeconds }
           : {}),
-        ...(isBot !== undefined ? { isBot } : {}),
-        ...(isStranger !== undefined ? { isStranger } : {}),
-        ...(isRestricted !== undefined ? { isRestricted } : {}),
+        isBot,
+        isStranger,
+        isRestricted,
       };
       cacheSet(
         userInfoCache,

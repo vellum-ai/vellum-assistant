@@ -567,7 +567,12 @@ export async function routeGuardianReply(
   // approve/reject phrase ("approve", "yes", "reject", "no"), apply the
   // decision directly instead of falling through to legacy handlers.
   if (messageText.length > 0 && pendingRequests.length > 0) {
-    const inferredAction = inferDecisionActionFromFreeText(messageText);
+    // The action is only applied when exactly one request is pending, so the
+    // kind-aware verb set is used for that single known target.
+    const inferredAction = inferDecisionActionFromFreeText(
+      messageText,
+      pendingRequests.length === 1 ? pendingRequests[0].kind : undefined,
+    );
     if (inferredAction) {
       if (pendingRequests.length === 1) {
         return applyDecision(
@@ -854,12 +859,49 @@ function normalizeDecisionPhrase(text: string): string {
 }
 
 /**
- * Strict free-text decision parser used when no request code is present.
- * Returns null unless the message starts with an explicit approve/reject cue.
+ * Introduction-card phrases recognized without a request code. Checked before
+ * the generic reject vocabulary so a bare "block" on an access request maps
+ * to the block action (revoke) rather than the weaker leave-unverified
+ * outcome.
  */
-function inferDecisionActionFromFreeText(text: string): ApprovalAction | null {
+const EXPLICIT_INTRODUCTION_PHRASES: ReadonlyMap<string, ApprovalAction> =
+  new Map([
+    ["trust", "trust"],
+    ["trust them", "trust"],
+    ["verify", "verify_code"],
+    ["block", "block"],
+    ["ban", "block"],
+  ]);
+
+/**
+ * Strict free-text decision parser used when no request code is present.
+ * Returns null unless the message starts with an explicit decision cue.
+ *
+ * For `access_request` targets the introduction-card verbs are recognized
+ * first, and the generic rejection vocabulary maps to `leave_unverified`
+ * (its historical deny semantics).
+ *
+ * Exported for tests.
+ */
+export function inferDecisionActionFromFreeText(
+  text: string,
+  requestKind?: string,
+): ApprovalAction | null {
   const normalized = normalizeDecisionPhrase(text);
   if (!normalized) {
+    return null;
+  }
+  if (requestKind === "access_request") {
+    const introductionAction = EXPLICIT_INTRODUCTION_PHRASES.get(normalized);
+    if (introductionAction) {
+      return introductionAction;
+    }
+    if (EXPLICIT_REJECT_PHRASES.has(normalized)) {
+      return "leave_unverified";
+    }
+    if (EXPLICIT_APPROVE_PHRASES.has(normalized)) {
+      return "approve_once";
+    }
     return null;
   }
   if (EXPLICIT_REJECT_PHRASES.has(normalized)) {

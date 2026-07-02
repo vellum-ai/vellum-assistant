@@ -25,8 +25,15 @@ const optStr = z
   .unknown()
   .transform((v) => (typeof v === "string" ? v : undefined));
 
-/** Accepts boolean or any other type — coerces non-true to undefined. */
-const optBool = z.unknown().transform((v) => (v === true ? true : undefined));
+/**
+ * Accepts boolean or any other type — coerces non-booleans to undefined.
+ * Explicit `false` is preserved: for identity signals it is a positive
+ * platform resolution ("Slack vouches this is a regular member"), distinct
+ * from an absent (unknown) signal.
+ */
+const optBool = z
+  .unknown()
+  .transform((v) => (typeof v === "boolean" ? v : undefined));
 
 export const AccessRequestPayloadSchema = z.object({
   requestId: optStr,

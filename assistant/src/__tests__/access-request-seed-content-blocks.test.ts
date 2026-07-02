@@ -154,7 +154,14 @@ describe("buildAccessRequestSeedContentBlocks", () => {
   });
 
   test("surface block renders introduction actions for a workspace member (no code option)", () => {
-    const surface = surfaceOf(buildAccessRequestSeedContentBlocks(basePayload));
+    // Explicit positive signals: users.info resolved a regular member.
+    const surface = surfaceOf(
+      buildAccessRequestSeedContentBlocks({
+        ...basePayload,
+        isStranger: false,
+        isRestricted: false,
+      }),
+    );
     expect(surface.actions).toEqual([
       { id: "apr:req-123:trust", label: "Trust", style: "primary" },
       {
@@ -169,6 +176,14 @@ describe("buildAccessRequestSeedContentBlocks", () => {
   test("surface block leads with the handshake for an external Slack user", () => {
     const surface = surfaceOf(
       buildAccessRequestSeedContentBlocks({ ...basePayload, isStranger: true }),
+    );
+    // Unknown signals (users.info failure) render the same handshake-led
+    // shape — absent platform vouching must never yield one-tap Trust.
+    const unknownSignals = surfaceOf(
+      buildAccessRequestSeedContentBlocks(basePayload),
+    );
+    expect(unknownSignals.actions?.map((a) => a.id)).toEqual(
+      surface.actions?.map((a) => a.id) ?? [],
     );
     expect(surface.actions).toEqual([
       {

@@ -140,8 +140,12 @@ describe("resolveSlackUser", () => {
     expect(info!.timezone).toBe("America/New_York");
     expect(info!.timezoneLabel).toBe("Eastern Daylight Time");
     expect(info!.timezoneOffsetSeconds).toBe(-14400);
-    // Workspace human: no bot signal.
-    expect(info!.isBot).toBeUndefined();
+    // A successful users.info is a positive resolution: explicit false, not
+    // absent, so downstream trust policy can distinguish "member" from
+    // "unknown".
+    expect(info!.isBot).toBe(false);
+    expect(info!.isStranger).toBe(false);
+    expect(info!.isRestricted).toBe(false);
   });
 
   test("resolves the is_bot signal for bot users", async () => {

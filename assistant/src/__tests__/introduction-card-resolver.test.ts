@@ -151,7 +151,11 @@ describe("introduction card decisions", () => {
   beforeEach(() => resetState());
 
   test("trust on a workspace member activates with verifiedVia manual", async () => {
-    const req = makeAccessRequest({ sourceChannel: "slack" });
+    // Explicit positive signals: users.info resolved a regular member.
+    const req = makeAccessRequest({
+      sourceChannel: "slack",
+      signals: { isStranger: false, isRestricted: false },
+    });
 
     const result = await applyCanonicalGuardianDecision({
       requestId: req.id,
@@ -211,7 +215,7 @@ describe("introduction card decisions", () => {
       resetState();
       const req = makeAccessRequest({
         sourceChannel: "slack",
-        signals: { isBot: true },
+        signals: { isBot: true, isStranger: false, isRestricted: false },
       });
 
       const result = await applyCanonicalGuardianDecision({
@@ -279,6 +283,9 @@ describe("introduction card decisions", () => {
     }
     expect(result.resolverFailed).toBe(true);
     expect(result.resolverFailureReason).toBe("block_persist_failed");
+    // The request is reopened: a failed block must not leave a `denied` row
+    // that permanently suppresses re-prompts without the revoke landing.
+    expect(getCanonicalGuardianRequest(req.id)?.status).toBe("pending");
   });
 
   test("refused trust activation surfaces as a resolver failure (fail closed)", async () => {
@@ -297,6 +304,8 @@ describe("introduction card decisions", () => {
     }
     expect(result.resolverFailed).toBe(true);
     expect(result.resolverFailureReason).toBe("trust_activation_refused");
+    // The request is reopened: the sender is not actually trusted.
+    expect(getCanonicalGuardianRequest(req.id)?.status).toBe("pending");
   });
 
   test("introduction actions are rejected for non-access-request kinds", async () => {

@@ -892,10 +892,21 @@ describe("notification decision strategy", () => {
         senderIdentifier: "Alice",
         requestCode: "A1B2C3",
         sourceChannel: "slack",
+        isStranger: false,
+        isRestricted: false,
       });
       expect(text).not.toContain("A1B2C3 verify");
       expect(text).toContain("A1B2C3 trust");
       expect(text).toContain("A1B2C3 block");
+    });
+
+    test("slack contract with unknown signals keeps the verify directive (fail-safe)", () => {
+      const text = buildAccessRequestContractText({
+        senderIdentifier: "Alice",
+        requestCode: "A1B2C3",
+        sourceChannel: "slack",
+      });
+      expect(text).toContain("A1B2C3 verify");
     });
 
     test("bot contract never offers the code option", () => {

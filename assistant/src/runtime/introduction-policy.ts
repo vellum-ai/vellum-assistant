@@ -34,6 +34,11 @@ import type { ApprovalAction } from "./channel-approval-types.js";
  * Platform-provided identity signals for the requester, captured at
  * access-request creation so decision-time policy (binding strength, bot
  * coercion) reads the same facts the card was rendered from.
+ *
+ * Each signal is tri-state: `true` / `false` are positive platform
+ * resolutions (Slack `users.info` succeeded and said so); `undefined` means
+ * the platform could not vouch either way (lookup failure, channel without
+ * workspace identity). Policy must treat `undefined` as NOT vouched.
  */
 export interface RequesterIdentitySignals {
   /** The requester is a bot / integration account (Slack `is_bot`, Telegram `is_bot`). */
@@ -44,15 +49,32 @@ export interface RequesterIdentitySignals {
   isRestricted?: boolean;
 }
 
-/** Serialize signals for the `requester_signals` column. Returns undefined when no signal is set. */
+function compactSignals(record: {
+  isBot?: unknown;
+  isStranger?: unknown;
+  isRestricted?: unknown;
+}): RequesterIdentitySignals {
+  return {
+    ...(typeof record.isBot === "boolean" ? { isBot: record.isBot } : {}),
+    ...(typeof record.isStranger === "boolean"
+      ? { isStranger: record.isStranger }
+      : {}),
+    ...(typeof record.isRestricted === "boolean"
+      ? { isRestricted: record.isRestricted }
+      : {}),
+  };
+}
+
+/**
+ * Serialize signals for the `requester_signals` column. Explicit `false` is
+ * preserved — it is a positive "platform vouches this is a regular member"
+ * fact, distinct from an absent (unknown) signal. Returns undefined when no
+ * signal was resolved at all.
+ */
 export function serializeRequesterSignals(
   signals: RequesterIdentitySignals,
 ): string | undefined {
-  const compact: RequesterIdentitySignals = {
-    ...(signals.isBot === true ? { isBot: true } : {}),
-    ...(signals.isStranger === true ? { isStranger: true } : {}),
-    ...(signals.isRestricted === true ? { isRestricted: true } : {}),
-  };
+  const compact = compactSignals(signals);
   return Object.keys(compact).length > 0 ? JSON.stringify(compact) : undefined;
 }
 
@@ -68,12 +90,13 @@ export function parseRequesterSignals(
     if (typeof parsed !== "object" || parsed === null) {
       return {};
     }
-    const record = parsed as Record<string, unknown>;
-    return {
-      ...(record.isBot === true ? { isBot: true } : {}),
-      ...(record.isStranger === true ? { isStranger: true } : {}),
-      ...(record.isRestricted === true ? { isRestricted: true } : {}),
-    };
+    return compactSignals(
+      parsed as {
+        isBot?: unknown;
+        isStranger?: unknown;
+        isRestricted?: unknown;
+      },
+    );
   } catch {
     return {};
   }
@@ -139,6 +162,12 @@ export function bindingStrengthForVerifiedVia(
  * guardian's workspace. Only Slack carries workspace identity today: a
  * non-stranger, non-restricted member (human or workspace app) is
  * authenticated by Slack. Every other channel is an inbound channel claim.
+ *
+ * Requires POSITIVE signals: `isStranger` and `isRestricted` must be an
+ * explicit `false` (Slack `users.info` resolved the user and vouched).
+ * Absent signals — a lookup failure or timeout — fail toward NOT vouched, so
+ * a Slack-Connect user in a degraded path never gets a one-tap Trust default
+ * or `manual` (workspace-match) provenance.
  */
 export function isWorkspaceVouchedIdentity(
   sourceChannel: string | undefined,
@@ -146,8 +175,8 @@ export function isWorkspaceVouchedIdentity(
 ): boolean {
   return (
     sourceChannel === "slack" &&
-    signals.isStranger !== true &&
-    signals.isRestricted !== true
+    signals.isStranger === false &&
+    signals.isRestricted === false
   );
 }
 

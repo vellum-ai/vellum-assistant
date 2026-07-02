@@ -14,7 +14,9 @@
 import { answerCall } from "../calls/call-domain.js";
 import {
   type CanonicalGuardianRequest,
+  type CanonicalRequestStatus,
   getCanonicalGuardianRequest,
+  resolveCanonicalGuardianRequest,
 } from "../contacts/canonical-guardian-store.js";
 import { findContactChannel } from "../contacts/contact-store.js";
 import {
@@ -454,6 +456,34 @@ type IntroductionOutcome =
   | "block";
 
 /**
+ * Reopen an access request whose gateway-side persist failed after the CAS
+ * already committed a terminal status. Leaving the row terminal would lie
+ * about the ACL state: a `denied` row from a failed Block permanently
+ * suppresses re-prompts for the sender (isAccessRequestDenied) even though
+ * the revoke never landed, and an `approved` row from a failed activation
+ * suppresses re-prompts for the verification window. Reopening keeps the
+ * request decidable (the request code stays live) and lets the expiry sweep
+ * re-enable discovery if the guardian never retries.
+ *
+ * CAS-guarded on the status this decision committed, so a concurrent writer
+ * is never clobbered.
+ */
+function reopenAccessRequestAfterFailedPersist(
+  requestId: string,
+  fromStatus: CanonicalRequestStatus,
+): void {
+  const reopened = resolveCanonicalGuardianRequest(requestId, fromStatus, {
+    status: "pending",
+  });
+  if (!reopened) {
+    log.warn(
+      { event: "access_request_reopen_failed", requestId, fromStatus },
+      "Failed to reopen access request after gateway persist failure",
+    );
+  }
+}
+
+/**
  * Deliver the "denied" notice to the requester and emit the denial lifecycle
  * signals. Shared by the `leave_unverified` and `block` outcomes — both look
  * identical to the requester (the block is not revealed).
@@ -725,6 +755,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         reason: "introduction_block",
       });
       if (!blockResult.revoked) {
+        reopenAccessRequestAfterFailedPersist(request.id, "denied");
         return { ok: false, reason: "block_persist_failed" };
       }
 
@@ -832,6 +863,7 @@ const accessRequestResolver: GuardianRequestResolver = {
           { err, requesterExternalUserId },
           "Access request resolver: failed to activate directly-trusted contact",
         );
+        reopenAccessRequestAfterFailedPersist(request.id, "approved");
         return { ok: false, reason: "trust_activation_failed" };
       }
 
@@ -842,6 +874,7 @@ const accessRequestResolver: GuardianRequestResolver = {
           { requesterExternalUserId },
           "Access request resolver: gateway refused direct-trust activation",
         );
+        reopenAccessRequestAfterFailedPersist(request.id, "approved");
         return { ok: false, reason: "trust_activation_refused" };
       }
 
