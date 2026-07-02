@@ -271,20 +271,6 @@
       "updatedAt": "2026-06-03T03:10:07.000Z"
     },
     {
-      "id": "github-watcher",
-      "name": "github-watcher",
-      "description": "Install a recurring GitHub watcher — a scheduled poll of GitHub notifications (review requests, mentions, assignments) that only spends an LLM call when there's something new. Use for ongoing, hands-off GitHub monitoring (e.g. \"keep an eye on my repos\", \"ping me about review requests\", \"watch my GitHub notifications\").",
-      "metadata": {
-        "emoji": "👀",
-        "vellum": {
-          "category": "development",
-          "display-name": "GitHub Watcher"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T00:38:07.000Z"
-    },
-    {
       "id": "gmail",
       "name": "gmail",
       "description": "Manage Gmail email — drafting, sending, organizing, filters, vacation replies, and inbox analysis",
