@@ -1,16 +1,21 @@
 /**
  * ⚠️  TEMPORARY HACK — DO NOT EXTEND ⚠️
  *
- * Proxy for executing SQL against the assistant's SQLite database via IPC,
- * replacing the direct file access in `getAssistantDb()` that caused
- * database corruption on platform pods (cross-container fcntl lock
- * incompatibility + SQLite WAL-reset bug in ≤3.51.2).
+ * Proxy for executing SQL against the assistant's SQLite database via IPC.
+ * Direct cross-container file access corrupts the DB on platform pods (fcntl
+ * locks are not shared across mount namespaces + a SQLite WAL-reset bug in
+ * ≤3.51.2), so the gateway reaches the assistant DB only through this route.
  *
- * Provides a minimal Database-like interface so callers can migrate from
- * `getAssistantDb()` with minimal diff. NOT a general-purpose query layer.
+ * The caller allowlist is pinned by `__tests__/db-proxy-allowlist.test.ts`.
+ * The surface serves exactly three groups:
+ *   (a) verification-session + rate-limit state (`verification/*`, `voice/*`),
+ *   (b) the contact-merge identity-mirror cluster in `db/contact-store.ts` —
+ *       pending a merge-shaped op that expresses a notes-only survivor UPDATE
+ *       and a resolved-slug dual-write INSERT the typed mirror ops cannot, and
+ *   (c) data migrations (one-time backfills).
  *
- * Remove this once all contacts/guardian-binding logic is migrated to the
- * gateway's own database.
+ * NOT a general-purpose query layer. Slated for removal with the
+ * verification-session source-of-truth move.
  */
 
 import {
