@@ -94,6 +94,23 @@ export function makeResolutionFailedVerdict(
 }
 
 /**
+ * Downgraded verdict for an inbound sender whose channel identity could not be
+ * authenticated — e.g. an email whose `From:` failed SPF/DKIM/DMARC and so
+ * carries a spoofable address. A spoofable sender must never inherit
+ * guardian/trusted_contact trust from a matching address, so it is reduced to
+ * a plain `unknown` stranger: guardian and member/ACL fields are dropped so no
+ * residual trust is reconstructed downstream. Unlike
+ * {@link makeResolutionFailedVerdict} this is NOT `resolutionFailed` — the
+ * sender is a real stranger and should flow through the normal admission floor
+ * + verification lane, not the could-not-vouch soft-deny.
+ */
+export function makeUnauthenticatedSenderVerdict(
+  canonicalSenderId: string | null,
+): TrustVerdict {
+  return { trustClass: "unknown", canonicalSenderId };
+}
+
+/**
  * IPC request for `resolve_inbound_trust`. Per-actor identity keys the
  * gateway resolver needs to classify the inbound sender. The response reuses
  * {@link TrustVerdictSchema}.
