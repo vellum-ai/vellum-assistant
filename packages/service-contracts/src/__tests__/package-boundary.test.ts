@@ -5,8 +5,7 @@
  * 1. Does NOT import from assistant, gateway, credential-executor, or other
  *    service runtime modules.
  * 2. Does NOT import from runtime shared packages that sit above it in the
- *    dependency hierarchy (@vellumai/credential-storage, @vellumai/egress-proxy,
- *    @vellumai/skill-host-contracts).
+ *    dependency hierarchy (@vellumai/credential-storage, @vellumai/egress-proxy).
  * 3. Does NOT import from x-client packages (@vellumai/assistant-client,
  *    @vellumai/ces-client, @vellumai/gateway-client).
  * 4. Remains a pure schema/type package — no runtime dependencies beyond zod.
@@ -73,8 +72,6 @@ const FORBIDDEN_IMPORT_PATTERNS = [
   /require\s*\(\s*["']@vellumai\/credential-storage(?:\/|["'])/,
   /from\s+["']@vellumai\/egress-proxy(?:\/|["'])/,
   /require\s*\(\s*["']@vellumai\/egress-proxy(?:\/|["'])/,
-  /from\s+["']@vellumai\/skill-host-contracts(?:\/|["'])/,
-  /require\s*\(\s*["']@vellumai\/skill-host-contracts(?:\/|["'])/,
 
   // x-client packages (higher layer)
   /from\s+["']@vellumai\/assistant-client(?:\/|["'])/,
@@ -143,7 +140,6 @@ describe("package boundary", () => {
         "@vellumai/assistant",
         "@vellumai/credential-storage",
         "@vellumai/egress-proxy",
-        "@vellumai/skill-host-contracts",
         "@vellumai/assistant-client",
         "@vellumai/ces-client",
         "@vellumai/gateway-client",

@@ -55,7 +55,9 @@ async function waitFor(predicate: () => boolean): Promise<void> {
   // predicate holds, so a larger budget costs nothing when events flow.
   const deadline = Date.now() + 2000;
   while (Date.now() < deadline) {
-    if (predicate()) return;
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error("Timed out waiting for schedule-store event");
@@ -100,7 +102,7 @@ describe("schedule sync invalidation", () => {
     });
 
     try {
-      const job = createSchedule({
+      const job = await createSchedule({
         name: "Sync test",
         cronExpression: "* * * * *",
         message: "sync me",
@@ -108,31 +110,31 @@ describe("schedule sync invalidation", () => {
       });
       await expectScheduleSyncEvent(received);
 
-      updateSchedule(job.id, { name: "Updated sync test" });
+      await updateSchedule(job.id, { name: "Updated sync test" });
       await expectScheduleSyncEvent(received);
 
       getRawDb().run("UPDATE cron_jobs SET next_run_at = ? WHERE id = ?", [
         Date.now() - 1000,
         job.id,
       ]);
-      expect(claimDueSchedules(Date.now())).toHaveLength(1);
+      expect(await claimDueSchedules(Date.now())).toHaveLength(1);
       await expectScheduleSyncEvent(received);
 
-      const runId = createScheduleRun(job.id, "conv-123");
-      completeScheduleRun(runId, { status: "ok" });
+      const runId = await createScheduleRun(job.id, "conv-123");
+      await completeScheduleRun(runId, { status: "ok" });
       await expectScheduleSyncEvent(received);
 
-      const oneShot = createSchedule({
+      const oneShot = await createSchedule({
         name: "One-shot sync test",
         message: "cancel me",
         nextRunAt: Date.now() + 60_000,
       });
       await expectScheduleSyncEvent(received);
 
-      expect(cancelSchedule(oneShot.id)).toBe(true);
+      expect(await cancelSchedule(oneShot.id)).toBe(true);
       await expectScheduleSyncEvent(received);
 
-      expect(deleteSchedule(job.id)).toBe(true);
+      expect(await deleteSchedule(job.id)).toBe(true);
       await expectScheduleSyncEvent(received);
     } finally {
       subscription.dispose();
@@ -149,8 +151,8 @@ describe("createSchedule (cron)", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("creates a cron schedule using only cronExpression", () => {
-    const job = createSchedule({
+  test("creates a cron schedule using only cronExpression", async () => {
+    const job = await createSchedule({
       name: "Morning ping",
       cronExpression: "0 9 * * *",
       message: "good morning",
@@ -165,8 +167,8 @@ describe("createSchedule (cron)", () => {
     expect(job.enabled).toBe(true);
   });
 
-  test("persisted cron schedule is retrievable with new fields", () => {
-    const job = createSchedule({
+  test("persisted cron schedule is retrievable with new fields", async () => {
+    const job = await createSchedule({
       name: "Hourly",
       description: "Check the hourly status report",
       cronExpression: "0 * * * *",
@@ -182,8 +184,8 @@ describe("createSchedule (cron)", () => {
     expect(retrieved!.description).toBe("Check the hourly status report");
   });
 
-  test("normalizes schedule descriptions on create and update", () => {
-    const job = createSchedule({
+  test("normalizes schedule descriptions on create and update", async () => {
+    const job = await createSchedule({
       name: "Description normalization",
       description: "  Daily executive summary  ",
       cronExpression: "0 8 * * *",
@@ -198,7 +200,7 @@ describe("createSchedule (cron)", () => {
       .get(job.id) as { description: string };
     expect(raw.description).toBe("Daily executive summary");
 
-    const updated = updateSchedule(job.id, {
+    const updated = await updateSchedule(job.id, {
       description: "  Updated summary prompt  ",
     });
     expect(updated).not.toBeNull();
@@ -207,8 +209,8 @@ describe("createSchedule (cron)", () => {
     expect(listSchedules()[0].description).toBe("Updated summary prompt");
   });
 
-  test("defaults source conversation metadata to null", () => {
-    const job = createSchedule({
+  test("defaults source conversation metadata to null", async () => {
+    const job = await createSchedule({
       name: "No source conversation",
       cronExpression: "0 9 * * *",
       message: "daily check",
@@ -224,8 +226,8 @@ describe("createSchedule (cron)", () => {
     expect(raw.created_from_conversation_id).toBeNull();
   });
 
-  test("persists source conversation metadata through create, list, and update", () => {
-    const job = createSchedule({
+  test("persists source conversation metadata through create, list, and update", async () => {
+    const job = await createSchedule({
       name: "With source conversation",
       cronExpression: "0 9 * * *",
       message: "daily check",
@@ -237,19 +239,19 @@ describe("createSchedule (cron)", () => {
     expect(getSchedule(job.id)!.createdFromConversationId).toBe("conv-source");
     expect(listSchedules()[0].createdFromConversationId).toBe("conv-source");
 
-    const updated = updateSchedule(job.id, {
+    const updated = await updateSchedule(job.id, {
       createdFromConversationId: "conv-updated",
     });
     expect(updated!.createdFromConversationId).toBe("conv-updated");
 
-    const cleared = updateSchedule(job.id, {
+    const cleared = await updateSchedule(job.id, {
       createdFromConversationId: null,
     });
     expect(cleared!.createdFromConversationId).toBeNull();
   });
 
-  test("stores schedule_syntax in the DB row", () => {
-    const job = createSchedule({
+  test("stores schedule_syntax in the DB row", async () => {
+    const job = await createSchedule({
       name: "Syntax check",
       cronExpression: "*/5 * * * *",
       message: "test",
@@ -263,15 +265,15 @@ describe("createSchedule (cron)", () => {
     expect(raw!.schedule_syntax).toBe("cron");
   });
 
-  test("rejects invalid cron expression", () => {
-    expect(() =>
+  test("rejects invalid cron expression", async () => {
+    await expect(
       createSchedule({
         name: "Bad cron",
         cronExpression: "not-a-cron",
         message: "fail",
         syntax: "cron",
       }),
-    ).toThrow();
+    ).rejects.toThrow();
   });
 });
 
@@ -284,9 +286,9 @@ describe("createSchedule (RRULE)", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("creates an RRULE schedule with syntax + expression", () => {
+  test("creates an RRULE schedule with syntax + expression", async () => {
     const rrule = "DTSTART:20260101T090000Z\nRRULE:FREQ=DAILY;INTERVAL=1";
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Daily RRULE",
       cronExpression: rrule,
       message: "rrule test",
@@ -300,9 +302,9 @@ describe("createSchedule (RRULE)", () => {
     expect(job.nextRunAt).toBeGreaterThan(0);
   });
 
-  test("stores rrule syntax in DB", () => {
+  test("stores rrule syntax in DB", async () => {
     const rrule = "DTSTART:20260101T090000Z\nRRULE:FREQ=WEEKLY;BYDAY=MO";
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Weekly RRULE",
       cronExpression: rrule,
       message: "weekly",
@@ -323,8 +325,8 @@ describe("createSchedule (RRULE)", () => {
     expect(raw!.cron_expression).toBe(rrule);
   });
 
-  test("rejects RRULE without DTSTART", () => {
-    expect(() =>
+  test("rejects RRULE without DTSTART", async () => {
+    await expect(
       createSchedule({
         name: "No dtstart",
         cronExpression: "RRULE:FREQ=DAILY",
@@ -332,7 +334,7 @@ describe("createSchedule (RRULE)", () => {
         syntax: "rrule",
         expression: "RRULE:FREQ=DAILY",
       }),
-    ).toThrow();
+    ).rejects.toThrow();
   });
 });
 
@@ -345,14 +347,14 @@ describe("createSchedule (RRULE set)", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("creates schedule with RRULE + EXDATE set expression", () => {
+  test("creates schedule with RRULE + EXDATE set expression", async () => {
     const expression = [
       "DTSTART:20250101T090000Z",
       "RRULE:FREQ=DAILY;INTERVAL=1",
       "EXDATE:20250102T090000Z",
     ].join("\n");
 
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Daily with exclusion",
       cronExpression: expression,
       message: "set test",
@@ -365,14 +367,14 @@ describe("createSchedule (RRULE set)", () => {
     expect(job.nextRunAt).toBeGreaterThan(0);
   });
 
-  test("creates schedule with RRULE + RDATE set expression", () => {
+  test("creates schedule with RRULE + RDATE set expression", async () => {
     const expression = [
       "DTSTART:20250101T090000Z",
       "RRULE:FREQ=WEEKLY;BYDAY=MO",
       "RDATE:20250115T090000Z",
     ].join("\n");
 
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Weekly with extra dates",
       cronExpression: expression,
       message: "rdate test",
@@ -384,7 +386,7 @@ describe("createSchedule (RRULE set)", () => {
     expect(job.expression).toContain("RDATE");
   });
 
-  test("preserves full set expression text in DB without collapsing", () => {
+  test("preserves full set expression text in DB without collapsing", async () => {
     const expression = [
       "DTSTART:20250101T090000Z",
       "RRULE:FREQ=DAILY;INTERVAL=1",
@@ -392,7 +394,7 @@ describe("createSchedule (RRULE set)", () => {
       "EXDATE:20250103T090000Z",
     ].join("\n");
 
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Multi-EXDATE",
       cronExpression: expression,
       message: "preserve test",
@@ -408,14 +410,14 @@ describe("createSchedule (RRULE set)", () => {
     expect(raw.cron_expression).toContain("EXDATE:20250103T090000Z");
   });
 
-  test("retrieved set schedule matches what was stored", () => {
+  test("retrieved set schedule matches what was stored", async () => {
     const expression = [
       "DTSTART:20250101T090000Z",
       "RRULE:FREQ=DAILY;INTERVAL=1",
       "EXDATE:20250105T090000Z",
     ].join("\n");
 
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Retrieve set",
       cronExpression: expression,
       message: "retrieve test",
@@ -440,7 +442,7 @@ describe("claimDueSchedules (RRULE set)", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("claims RRULE set schedule and correctly advances nextRunAt past exclusions", () => {
+  test("claims RRULE set schedule and correctly advances nextRunAt past exclusions", async () => {
     // Use a recent DTSTART (1 hour ago) so rrule doesn't iterate through hundreds of
     // thousands of occurrences when computing the next run.
     const pastDate = new Date(Date.now() - 3_600_000);
@@ -463,7 +465,7 @@ describe("claimDueSchedules (RRULE set)", () => {
       `EXDATE:${exDs}`,
     ].join("\n");
 
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Claim set test",
       cronExpression: expression,
       message: "claim set",
@@ -478,7 +480,7 @@ describe("claimDueSchedules (RRULE set)", () => {
     ]);
 
     const now = Date.now();
-    const claimed = claimDueSchedules(now);
+    const claimed = await claimDueSchedules(now);
     expect(claimed.length).toBe(1);
     expect(claimed[0].syntax).toBe("rrule");
     // nextRunAt should advance to a future time
@@ -495,15 +497,17 @@ describe("updateSchedule", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("updating cronExpression (legacy path) still works", () => {
-    const job = createSchedule({
+  test("updating cronExpression (legacy path) still works", async () => {
+    const job = await createSchedule({
       name: "Update test",
       cronExpression: "0 9 * * *",
       message: "update me",
       syntax: "cron",
     });
 
-    const updated = updateSchedule(job.id, { cronExpression: "0 10 * * *" });
+    const updated = await updateSchedule(job.id, {
+      cronExpression: "0 10 * * *",
+    });
     expect(updated).not.toBeNull();
     expect(updated!.cronExpression).toBe("0 10 * * *");
     expect(updated!.expression).toBe("0 10 * * *");
@@ -512,8 +516,8 @@ describe("updateSchedule", () => {
     expect(updated!.nextRunAt).not.toBe(job.nextRunAt);
   });
 
-  test("updating syntax + expression switches to RRULE", () => {
-    const job = createSchedule({
+  test("updating syntax + expression switches to RRULE", async () => {
+    const job = await createSchedule({
       name: "Switch to RRULE",
       cronExpression: "0 9 * * *",
       message: "switching",
@@ -521,7 +525,7 @@ describe("updateSchedule", () => {
     });
 
     const rrule = "DTSTART:20260101T090000Z\nRRULE:FREQ=DAILY;INTERVAL=2";
-    const updated = updateSchedule(job.id, {
+    const updated = await updateSchedule(job.id, {
       syntax: "rrule",
       expression: rrule,
     });
@@ -539,8 +543,8 @@ describe("updateSchedule", () => {
     expect(raw!.schedule_syntax).toBe("rrule");
   });
 
-  test("updating to RRULE set expression preserves full text", () => {
-    const job = createSchedule({
+  test("updating to RRULE set expression preserves full text", async () => {
+    const job = await createSchedule({
       name: "Update to set",
       cronExpression: "0 9 * * *",
       message: "update to set",
@@ -553,7 +557,7 @@ describe("updateSchedule", () => {
       "EXDATE:20250102T090000Z",
     ].join("\n");
 
-    const updated = updateSchedule(job.id, {
+    const updated = await updateSchedule(job.id, {
       syntax: "rrule",
       expression: setExpr,
     });
@@ -565,20 +569,20 @@ describe("updateSchedule", () => {
     expect(updated!.nextRunAt).toBeGreaterThan(0);
   });
 
-  test("rejects invalid expression on update", () => {
-    const job = createSchedule({
+  test("rejects invalid expression on update", async () => {
+    const job = await createSchedule({
       name: "Reject bad update",
       cronExpression: "0 9 * * *",
       message: "nope",
       syntax: "cron",
     });
 
-    expect(() =>
+    await expect(
       updateSchedule(job.id, {
         syntax: "rrule",
         expression: "RRULE:FREQ=DAILY",
       }),
-    ).toThrow();
+    ).rejects.toThrow();
   });
 });
 
@@ -591,8 +595,8 @@ describe("claimDueSchedules", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("claims due cron schedules and advances nextRunAt", () => {
-    const job = createSchedule({
+  test("claims due cron schedules and advances nextRunAt", async () => {
+    const job = await createSchedule({
       name: "Claim cron",
       cronExpression: "* * * * *",
       message: "cron claim test",
@@ -605,14 +609,14 @@ describe("claimDueSchedules", () => {
       job.id,
     ]);
 
-    const claimed = claimDueSchedules(Date.now());
+    const claimed = await claimDueSchedules(Date.now());
     expect(claimed.length).toBe(1);
     expect(claimed[0].id).toBe(job.id);
     expect(claimed[0].syntax).toBe("cron");
     expect(claimed[0].nextRunAt).toBeGreaterThan(Date.now() - 1000);
   });
 
-  test("claims due RRULE schedules and advances nextRunAt", () => {
+  test("claims due RRULE schedules and advances nextRunAt", async () => {
     // Use a recent DTSTART (1 hour ago) so rrule doesn't iterate through
     // hundreds of thousands of occurrences when computing the next run.
     const pastDate = new Date(Date.now() - 3_600_000);
@@ -623,7 +627,7 @@ describe("claimDueSchedules", () => {
       pastDate.getUTCMinutes(),
     )}${pad(pastDate.getUTCSeconds())}Z`;
     const rrule = `DTSTART:${ds}\nRRULE:FREQ=MINUTELY;INTERVAL=1`;
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Claim RRULE",
       cronExpression: rrule,
       message: "rrule claim test",
@@ -639,7 +643,7 @@ describe("claimDueSchedules", () => {
     ]);
 
     const now = Date.now();
-    const claimed = claimDueSchedules(now);
+    const claimed = await claimDueSchedules(now);
     expect(claimed.length).toBe(1);
     expect(claimed[0].id).toBe(job.id);
     expect(claimed[0].syntax).toBe("rrule");
@@ -647,19 +651,19 @@ describe("claimDueSchedules", () => {
     expect(claimed[0].nextRunAt).toBeGreaterThanOrEqual(now);
   });
 
-  test("does not claim schedules that are not yet due", () => {
-    createSchedule({
+  test("does not claim schedules that are not yet due", async () => {
+    await createSchedule({
       name: "Not due yet",
       cronExpression: "0 9 * * *",
       message: "future schedule",
       syntax: "cron",
     });
 
-    const claimed = claimDueSchedules(0); // timestamp 0 means nothing is due
+    const claimed = await claimDueSchedules(0); // timestamp 0 means nothing is due
     expect(claimed.length).toBe(0);
   });
 
-  test("claims exhausted RRULE schedule and disables it", () => {
+  test("claims exhausted RRULE schedule and disables it", async () => {
     // COUNT=1 with a past DTSTART means the single occurrence has already
     // passed, so computeNextRunAt returns null — triggering the exhaustion path.
     // We insert directly via SQL because createSchedule validates that at least
@@ -690,7 +694,7 @@ describe("claimDueSchedules", () => {
       ],
     );
 
-    const claimed = claimDueSchedules(Date.now());
+    const claimed = await claimDueSchedules(Date.now());
     expect(claimed.length).toBe(1);
     expect(claimed[0].id).toBe(id);
     expect(claimed[0].enabled).toBe(false);
@@ -701,12 +705,12 @@ describe("claimDueSchedules", () => {
     expect(persisted!.enabled).toBe(false);
 
     // A subsequent claim should not pick it up
-    const again = claimDueSchedules(Date.now());
+    const again = await claimDueSchedules(Date.now());
     expect(again.length).toBe(0);
   });
 
-  test("optimistic lock prevents double-claiming", () => {
-    const job = createSchedule({
+  test("optimistic lock prevents double-claiming", async () => {
+    const job = await createSchedule({
       name: "Double claim",
       cronExpression: "* * * * *",
       message: "no double",
@@ -718,11 +722,11 @@ describe("claimDueSchedules", () => {
       job.id,
     ]);
 
-    const first = claimDueSchedules(Date.now());
+    const first = await claimDueSchedules(Date.now());
     expect(first.length).toBe(1);
 
     // Second claim should find nothing since nextRunAt was advanced
-    const second = claimDueSchedules(Date.now() - 500);
+    const second = await claimDueSchedules(Date.now() - 500);
     expect(second.length).toBe(0);
   });
 });
@@ -736,9 +740,9 @@ describe("createSchedule (one-shot)", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("creates a one-shot schedule with no expression", () => {
+  test("creates a one-shot schedule with no expression", async () => {
     const fireAt = Date.now() + 60_000;
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Remind me",
       message: "take out the trash",
       nextRunAt: fireAt,
@@ -754,10 +758,10 @@ describe("createSchedule (one-shot)", () => {
     expect(job.routingHints).toEqual({});
   });
 
-  test("creates a one-shot schedule with notify mode and routing", () => {
+  test("creates a one-shot schedule with notify mode and routing", async () => {
     const fireAt = Date.now() + 60_000;
     const hints = { preferredChannel: "slack", threadId: "abc123" };
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Notify me",
       message: "meeting in 5",
       nextRunAt: fireAt,
@@ -773,19 +777,19 @@ describe("createSchedule (one-shot)", () => {
     expect(job.status).toBe("active");
   });
 
-  test("rejects one-shot schedule without nextRunAt", () => {
-    expect(() =>
+  test("rejects one-shot schedule without nextRunAt", async () => {
+    await expect(
       createSchedule({
         name: "Bad one-shot",
         message: "no time",
       }),
-    ).toThrow("One-shot schedules (no expression) require nextRunAt");
+    ).rejects.toThrow("One-shot schedules (no expression) require nextRunAt");
   });
 
-  test("one-shot schedule persists and round-trips correctly", () => {
+  test("one-shot schedule persists and round-trips correctly", async () => {
     const fireAt = Date.now() + 120_000;
     const hints = { channel: "telegram" };
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Persist test",
       message: "round trip",
       nextRunAt: fireAt,
@@ -815,48 +819,48 @@ describe("claimDueSchedules (one-shot)", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("claims one-shot schedules whose nextRunAt <= now", () => {
-    const job = createSchedule({
+  test("claims one-shot schedules whose nextRunAt <= now", async () => {
+    const job = await createSchedule({
       name: "Due one-shot",
       message: "fire now",
       nextRunAt: Date.now() - 1000,
     });
 
-    const claimed = claimDueSchedules(Date.now());
+    const claimed = await claimDueSchedules(Date.now());
     expect(claimed.length).toBe(1);
     expect(claimed[0].id).toBe(job.id);
     expect(claimed[0].expression).toBeNull();
     expect(claimed[0].status).toBe("firing");
   });
 
-  test("does not claim one-shot schedules that are not yet due", () => {
-    createSchedule({
+  test("does not claim one-shot schedules that are not yet due", async () => {
+    await createSchedule({
       name: "Future one-shot",
       message: "not yet",
       nextRunAt: Date.now() + 60_000,
     });
 
-    const claimed = claimDueSchedules(Date.now());
+    const claimed = await claimDueSchedules(Date.now());
     expect(claimed.length).toBe(0);
   });
 
-  test("does not double-claim one-shot schedules", () => {
-    createSchedule({
+  test("does not double-claim one-shot schedules", async () => {
+    await createSchedule({
       name: "Once only",
       message: "no double",
       nextRunAt: Date.now() - 1000,
     });
 
-    const first = claimDueSchedules(Date.now());
+    const first = await claimDueSchedules(Date.now());
     expect(first.length).toBe(1);
 
     // Second claim should find nothing since status is now 'firing'
-    const second = claimDueSchedules(Date.now());
+    const second = await claimDueSchedules(Date.now());
     expect(second.length).toBe(0);
   });
 
-  test("claims both recurring and one-shot schedules in the same tick", () => {
-    const recurring = createSchedule({
+  test("claims both recurring and one-shot schedules in the same tick", async () => {
+    const recurring = await createSchedule({
       name: "Recurring",
       cronExpression: "* * * * *",
       message: "recurring",
@@ -867,13 +871,13 @@ describe("claimDueSchedules (one-shot)", () => {
       recurring.id,
     ]);
 
-    createSchedule({
+    await createSchedule({
       name: "One-shot",
       message: "one-shot",
       nextRunAt: Date.now() - 1000,
     });
 
-    const claimed = claimDueSchedules(Date.now());
+    const claimed = await claimDueSchedules(Date.now());
     expect(claimed.length).toBe(2);
     const expressions = claimed.map((c) => c.expression);
     expect(expressions).toContain(null); // one-shot
@@ -890,31 +894,31 @@ describe("completeOneShot", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("transitions firing -> fired", () => {
-    const job = createSchedule({
+  test("transitions firing -> fired", async () => {
+    const job = await createSchedule({
       name: "Complete me",
       message: "done",
       nextRunAt: Date.now() - 1000,
     });
 
     // Claim first to get to 'firing' state
-    claimDueSchedules(Date.now());
+    await claimDueSchedules(Date.now());
 
-    completeOneShot(job.id);
+    await completeOneShot(job.id);
 
     const retrieved = getSchedule(job.id);
     expect(retrieved!.status).toBe("fired");
     expect(retrieved!.enabled).toBe(false);
   });
 
-  test("does not transition if not in firing state", () => {
-    const job = createSchedule({
+  test("does not transition if not in firing state", async () => {
+    const job = await createSchedule({
       name: "Not firing",
       message: "still active",
       nextRunAt: Date.now() + 60_000,
     });
 
-    completeOneShot(job.id);
+    await completeOneShot(job.id);
 
     const retrieved = getSchedule(job.id);
     expect(retrieved!.status).toBe("active"); // unchanged
@@ -929,35 +933,35 @@ describe("failOneShot", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("transitions firing -> active for retry", () => {
-    const job = createSchedule({
+  test("transitions firing -> active for retry", async () => {
+    const job = await createSchedule({
       name: "Fail me",
       message: "retry",
       nextRunAt: Date.now() - 1000,
     });
 
     // Claim to get to 'firing'
-    claimDueSchedules(Date.now());
+    await claimDueSchedules(Date.now());
 
-    failOneShot(job.id);
+    await failOneShot(job.id);
 
     const retrieved = getSchedule(job.id);
     expect(retrieved!.status).toBe("active");
     expect(retrieved!.enabled).toBe(true); // still enabled for retry
   });
 
-  test("can be re-claimed after failing", () => {
-    const job = createSchedule({
+  test("can be re-claimed after failing", async () => {
+    const job = await createSchedule({
       name: "Retry",
       message: "try again",
       nextRunAt: Date.now() - 1000,
     });
 
-    claimDueSchedules(Date.now());
-    failOneShot(job.id);
+    await claimDueSchedules(Date.now());
+    await failOneShot(job.id);
 
     // Should be claimable again
-    const claimed = claimDueSchedules(Date.now());
+    const claimed = await claimDueSchedules(Date.now());
     expect(claimed.length).toBe(1);
     expect(claimed[0].id).toBe(job.id);
   });
@@ -970,14 +974,14 @@ describe("cancelSchedule", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("cancels an active one-shot schedule", () => {
-    const job = createSchedule({
+  test("cancels an active one-shot schedule", async () => {
+    const job = await createSchedule({
       name: "Cancel me",
       message: "never fire",
       nextRunAt: Date.now() + 60_000,
     });
 
-    const result = cancelSchedule(job.id);
+    const result = await cancelSchedule(job.id);
     expect(result).toBe(true);
 
     const retrieved = getSchedule(job.id);
@@ -985,31 +989,31 @@ describe("cancelSchedule", () => {
     expect(retrieved!.enabled).toBe(false);
   });
 
-  test("returns false for non-active schedule", () => {
-    const job = createSchedule({
+  test("returns false for non-active schedule", async () => {
+    const job = await createSchedule({
       name: "Already done",
       message: "completed",
       nextRunAt: Date.now() - 1000,
     });
 
     // Claim and complete it
-    claimDueSchedules(Date.now());
-    completeOneShot(job.id);
+    await claimDueSchedules(Date.now());
+    await completeOneShot(job.id);
 
-    const result = cancelSchedule(job.id);
+    const result = await cancelSchedule(job.id);
     expect(result).toBe(false);
   });
 
-  test("cancelled schedule is not claimable", () => {
-    const job = createSchedule({
+  test("cancelled schedule is not claimable", async () => {
+    const job = await createSchedule({
       name: "Cancelled",
       message: "should not fire",
       nextRunAt: Date.now() - 1000,
     });
 
-    cancelSchedule(job.id);
+    await cancelSchedule(job.id);
 
-    const claimed = claimDueSchedules(Date.now());
+    const claimed = await claimDueSchedules(Date.now());
     expect(claimed.length).toBe(0);
   });
 });
@@ -1023,8 +1027,8 @@ describe("routing and mode fields", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("recurring schedule defaults to execute mode and all_channels", () => {
-    const job = createSchedule({
+  test("recurring schedule defaults to execute mode and all_channels", async () => {
+    const job = await createSchedule({
       name: "Defaults",
       cronExpression: "0 9 * * *",
       message: "check defaults",
@@ -1037,9 +1041,9 @@ describe("routing and mode fields", () => {
     expect(job.status).toBe("active");
   });
 
-  test("routing hints round-trip through create/read", () => {
+  test("routing hints round-trip through create/read", async () => {
     const hints = { channels: ["slack", "discord"], priority: 1 };
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Routed",
       cronExpression: "0 9 * * *",
       message: "routed msg",
@@ -1055,9 +1059,9 @@ describe("routing and mode fields", () => {
     expect(retrieved!.mode).toBe("notify");
   });
 
-  test("routing hints round-trip through DB raw query", () => {
+  test("routing hints round-trip through DB raw query", async () => {
     const hints = { target: "telegram" };
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Raw round-trip",
       message: "check raw",
       nextRunAt: Date.now() + 60_000,
@@ -1082,15 +1086,15 @@ describe("routing and mode fields", () => {
     expect(raw!.status).toBe("active");
   });
 
-  test("updateSchedule updates mode and routing fields", () => {
-    const job = createSchedule({
+  test("updateSchedule updates mode and routing fields", async () => {
+    const job = await createSchedule({
       name: "Update routing",
       cronExpression: "0 9 * * *",
       message: "update routing",
       syntax: "cron",
     });
 
-    const updated = updateSchedule(job.id, {
+    const updated = await updateSchedule(job.id, {
       mode: "notify",
       routingIntent: "single_channel",
       routingHints: { channel: "telegram" },
@@ -1112,9 +1116,9 @@ describe("script timeout override", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("defaults timeoutMs to null when not provided", () => {
+  test("defaults timeoutMs to null when not provided", async () => {
     // GIVEN a schedule created without a timeout override
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "No timeout",
       cronExpression: "0 9 * * *",
       message: "no timeout",
@@ -1126,9 +1130,9 @@ describe("script timeout override", () => {
     expect(getSchedule(job.id)!.timeoutMs).toBeNull();
   });
 
-  test("persists a timeoutMs override through create/read", () => {
+  test("persists a timeoutMs override through create/read", async () => {
     // GIVEN a script schedule created with a custom timeout
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Slow script",
       cronExpression: "0 9 * * *",
       message: "",
@@ -1143,9 +1147,9 @@ describe("script timeout override", () => {
     expect(getSchedule(job.id)!.timeoutMs).toBe(120_000);
   });
 
-  test("updateSchedule sets and clears the timeout override", () => {
+  test("updateSchedule sets and clears the timeout override", async () => {
     // GIVEN a schedule with a custom timeout
-    const job = createSchedule({
+    const job = await createSchedule({
       name: "Adjust timeout",
       cronExpression: "0 9 * * *",
       message: "",
@@ -1156,13 +1160,13 @@ describe("script timeout override", () => {
     });
 
     // WHEN the timeout is changed
-    const updated = updateSchedule(job.id, { timeoutMs: 5_000 });
+    const updated = await updateSchedule(job.id, { timeoutMs: 5_000 });
 
     // THEN the new value is stored
     expect(updated!.timeoutMs).toBe(5_000);
 
     // AND WHEN the timeout is cleared back to the default
-    const cleared = updateSchedule(job.id, { timeoutMs: null });
+    const cleared = await updateSchedule(job.id, { timeoutMs: null });
 
     // THEN it reverts to null
     expect(cleared!.timeoutMs).toBeNull();
@@ -1185,8 +1189,8 @@ describe("capability manifest", () => {
     persona: false,
   };
 
-  test("persists a capability manifest through create/read", () => {
-    const job = createSchedule({
+  test("persists a capability manifest through create/read", async () => {
+    const job = await createSchedule({
       name: "Capable schedule",
       cronExpression: "0 9 * * *",
       message: "do scoped work",
@@ -1198,8 +1202,8 @@ describe("capability manifest", () => {
     expect(getSchedule(job.id)!.capabilities).toEqual(manifest);
   });
 
-  test("defaults capabilities to null when not provided", () => {
-    const job = createSchedule({
+  test("defaults capabilities to null when not provided", async () => {
+    const job = await createSchedule({
       name: "No manifest",
       cronExpression: "0 9 * * *",
       message: "unconstrained",
@@ -1210,8 +1214,8 @@ describe("capability manifest", () => {
     expect(getSchedule(job.id)!.capabilities).toBeNull();
   });
 
-  test("updateSchedule sets and clears the capability manifest", () => {
-    const job = createSchedule({
+  test("updateSchedule sets and clears the capability manifest", async () => {
+    const job = await createSchedule({
       name: "Update manifest",
       cronExpression: "0 9 * * *",
       message: "update manifest",
@@ -1220,11 +1224,11 @@ describe("capability manifest", () => {
 
     expect(job.capabilities).toBeNull();
 
-    const updated = updateSchedule(job.id, { capabilities: manifest });
+    const updated = await updateSchedule(job.id, { capabilities: manifest });
     expect(updated!.capabilities).toEqual(manifest);
     expect(getSchedule(job.id)!.capabilities).toEqual(manifest);
 
-    const cleared = updateSchedule(job.id, { capabilities: null });
+    const cleared = await updateSchedule(job.id, { capabilities: null });
     expect(cleared!.capabilities).toBeNull();
     expect(getSchedule(job.id)!.capabilities).toBeNull();
   });
@@ -1239,14 +1243,14 @@ describe("listSchedules filters", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("oneShotOnly filter returns only one-shot schedules", () => {
-    createSchedule({
+  test("oneShotOnly filter returns only one-shot schedules", async () => {
+    await createSchedule({
       name: "Recurring",
       cronExpression: "0 9 * * *",
       message: "recurring",
       syntax: "cron",
     });
-    createSchedule({
+    await createSchedule({
       name: "One-shot",
       message: "one-shot",
       nextRunAt: Date.now() + 60_000,
@@ -1258,14 +1262,14 @@ describe("listSchedules filters", () => {
     expect(oneShots[0].expression).toBeNull();
   });
 
-  test("recurringOnly filter returns only recurring schedules", () => {
-    createSchedule({
+  test("recurringOnly filter returns only recurring schedules", async () => {
+    await createSchedule({
       name: "Recurring",
       cronExpression: "0 9 * * *",
       message: "recurring",
       syntax: "cron",
     });
-    createSchedule({
+    await createSchedule({
       name: "One-shot",
       message: "one-shot",
       nextRunAt: Date.now() + 60_000,
@@ -1287,8 +1291,8 @@ describe("createSchedule (wake mode)", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("creates a wake schedule with wakeConversationId", () => {
-    const job = createSchedule({
+  test("creates a wake schedule with wakeConversationId", async () => {
+    const job = await createSchedule({
       name: "Wake conv",
       message: "resume conversation",
       nextRunAt: Date.now() + 60_000,
@@ -1305,15 +1309,15 @@ describe("createSchedule (wake mode)", () => {
     expect(retrieved!.wakeConversationId).toBe("conv-123");
   });
 
-  test("throws when creating wake schedule without wakeConversationId", () => {
-    expect(() =>
+  test("throws when creating wake schedule without wakeConversationId", async () => {
+    await expect(
       createSchedule({
         name: "Bad wake",
         message: "no conv id",
         nextRunAt: Date.now() + 60_000,
         mode: "wake",
       }),
-    ).toThrow("Wake schedules require wakeConversationId");
+    ).rejects.toThrow("Wake schedules require wakeConversationId");
   });
 });
 
@@ -1326,14 +1330,14 @@ describe("listSchedules new filters", () => {
     db.run("DELETE FROM cron_jobs");
   });
 
-  test("mode filter returns only schedules with matching mode", () => {
-    createSchedule({
+  test("mode filter returns only schedules with matching mode", async () => {
+    await createSchedule({
       name: "Execute schedule",
       message: "execute",
       nextRunAt: Date.now() + 60_000,
       mode: "execute",
     });
-    createSchedule({
+    await createSchedule({
       name: "Wake schedule",
       message: "wake",
       nextRunAt: Date.now() + 60_000,
@@ -1347,14 +1351,14 @@ describe("listSchedules new filters", () => {
     expect(wakeOnly[0].mode).toBe("wake");
   });
 
-  test("createdBy filter returns only schedules with matching creator", () => {
-    createSchedule({
+  test("createdBy filter returns only schedules with matching creator", async () => {
+    await createSchedule({
       name: "Agent schedule",
       message: "by agent",
       nextRunAt: Date.now() + 60_000,
       createdBy: "agent",
     });
-    createSchedule({
+    await createSchedule({
       name: "Defer schedule",
       message: "by defer",
       nextRunAt: Date.now() + 60_000,
@@ -1367,22 +1371,22 @@ describe("listSchedules new filters", () => {
     expect(deferOnly[0].createdBy).toBe("defer");
   });
 
-  test("conversationId filter returns only wakes targeting that conversation", () => {
-    createSchedule({
+  test("conversationId filter returns only wakes targeting that conversation", async () => {
+    await createSchedule({
       name: "Wake for conv-123",
       message: "wake conv-123",
       nextRunAt: Date.now() + 60_000,
       mode: "wake",
       wakeConversationId: "conv-123",
     });
-    createSchedule({
+    await createSchedule({
       name: "Wake for conv-456",
       message: "wake conv-456",
       nextRunAt: Date.now() + 60_000,
       mode: "wake",
       wakeConversationId: "conv-456",
     });
-    createSchedule({
+    await createSchedule({
       name: "Regular schedule",
       message: "no wake",
       nextRunAt: Date.now() + 60_000,

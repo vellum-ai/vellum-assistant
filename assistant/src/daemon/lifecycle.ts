@@ -1,13 +1,7 @@
-import { join } from "node:path";
-
 import { config as dotenvConfig } from "dotenv";
 
-import { refreshBackgroundWakeIntent } from "../background-wake/publisher.js";
-import { setPointerMessageProcessor } from "../calls/call-pointer-messages.js";
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
-import { setRelayBroadcast } from "../calls/relay-server.js";
 import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
-import { setVoiceBridgeDeps } from "../calls/voice-session-bridge.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
@@ -16,49 +10,25 @@ import { reconcileFlagGatedProfiles } from "../config/sync-gated-profiles.js";
 import { expireAllPendingCanonicalRequests } from "../contacts/canonical-guardian-store.js";
 import { startCes } from "../credential-execution/ces-runtime.js";
 import { refreshManagedConnectionCache } from "../credential-execution/managed-catalog.js";
-import { startFilingService } from "../filing/filing-service.js";
 import { startHeartbeatService } from "../heartbeat/heartbeat-service.js";
 import { backfillRelationshipStateIfMissing } from "../home/relationship-state-writer.js";
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
-import { startSkillIpcServer } from "../ipc/skill-server.js";
-import { registerMemoryJobHandlers } from "../jobs/register-job-handlers.js";
-import { sweepConceptPageFrontmatter } from "../memory/v2/frontmatter-sweep.js";
-import { emitNotificationSignal } from "../notifications/emit-signal.js";
+import { startMonitoring } from "../monitoring/control.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
-import {
-  getAttachmentsByIds,
-  getSourcePathsForAttachments,
-} from "../persistence/attachments-store.js";
-import {
-  clearStaleProcessingFlags,
-  deleteMessageById,
-  getMessages,
-} from "../persistence/conversation-crud.js";
+import { clearStaleProcessingFlags } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { selectEmbeddingBackend } from "../persistence/embeddings/embedding-backend.js";
-import {
-  initQdrantClient,
-  resolveQdrantUrl,
-} from "../persistence/embeddings/qdrant-client.js";
-import { createQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
-import {
-  enqueueMemoryJob,
-  isMemoryEnabled,
-} from "../persistence/jobs-store.js";
-import { startMemoryJobsWorker } from "../persistence/jobs-worker.js";
-import {
-  startConsentRefresh,
-  stopConsentRefresh,
-} from "../platform/consent-cache.js";
+import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-runtime-manager.js";
+import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
+import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
+import { runMemoryStartup } from "../plugins/defaults/memory/startup.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { initializeProviders } from "../providers/registry.js";
-import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
   initAuthSigningKey,
   resolveSigningKey,
@@ -69,13 +39,10 @@ import {
 } from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
-import {
-  publishConfigChanged,
-  publishConversationListChanged,
-} from "../runtime/sync/resource-sync-events.js";
+import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
 import { recoverStaleSchedules } from "../schedule/schedule-recovery.js";
 import { startScheduler } from "../schedule/scheduler.js";
-import { rotateToolInvocations } from "../telemetry/tool-usage-store.js";
+import { getSubagentManager } from "../subagent/index.js";
 import { startUsageTelemetryReporter } from "../telemetry/usage-telemetry-reporter.js";
 import { syncFlagGatedTools } from "../tools/registry.js";
 import { registerBuiltinTtsProviders } from "../tts/providers/register-builtins.js";
@@ -99,7 +66,6 @@ import { runWorkspaceMigrations } from "../workspace/migrations/runner.js";
 import { startAppSourceWatcher } from "./app-source-watcher.js";
 import { startConfigWatcher } from "./config-watcher.js";
 import { startConversationEvictor } from "./conversation-evictor.js";
-import { getOrCreateConversation } from "./conversation-store.js";
 import { writePid } from "./daemon-control.js";
 import {
   setDbMigrating,
@@ -116,13 +82,7 @@ import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
 import { installAssistantSymlink } from "./install-symlink.js";
-import {
-  maybeRebuildMemoryV2Concepts,
-  rebuildBm25CorpusStatsAndReseedSkills,
-} from "./memory-v2-startup.js";
 import { startOrphanReaper } from "./orphan-reaper.js";
-import { elevatePointerConversationToGuardian } from "./pointer-conversation-trust.js";
-import { processMessage } from "./process-message.js";
 import { runProfilerSweep } from "./profiler-run-store.js";
 import {
   initializeProvidersAndTools,
@@ -130,8 +90,6 @@ import {
   registerWatcherProviders,
 } from "./providers-setup.js";
 import { installShutdownHandlers } from "./shutdown-handlers.js";
-import { registerShutdownHook } from "./shutdown-registry.js";
-import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
 import { broadcastDaemonStatus } from "./status.js";
 
 const log = getLogger("lifecycle");
@@ -162,7 +120,9 @@ function runDeferredDiskPressureStartupSample(): void {
 export function startDiskPressureGuardForLifecycle(): void {
   try {
     const startedStatus = startDiskPressureGuard();
-    if (!startedStatus.enabled) return;
+    if (!startedStatus.enabled) {
+      return;
+    }
     if (!diskPressureStartupSampleTimer) {
       diskPressureStartupSampleTimer = setTimeout(
         runDeferredDiskPressureStartupSample,
@@ -201,6 +161,13 @@ export async function runDaemon(): Promise<void> {
   // consent gate below confirms share_diagnostics opt-in; dev mode and the
   // legacy local opt-out hard-disable via closeSentry().
   initSentry();
+
+  // Signal handlers install before any blocking startup work — a boot that
+  // inherits a large WAL can spend minutes inside `initializeDb()`, and
+  // without handlers a SIGTERM in that window is the default hard kill.
+  // Handlers run a minimal exit path until `setStartupComplete()` below
+  // switches them to the full graceful shutdown.
+  installShutdownHandlers();
 
   ensureDataDir();
 
@@ -607,7 +574,6 @@ export async function runDaemon(): Promise<void> {
   // platform. Fire-and-forget: startConsentRefresh() runs an immediate
   // non-blocking refresh, so the startup hot path is never blocked.
   startConsentRefresh();
-  registerShutdownHook("consent-cache", () => stopConsentRefresh());
 
   // Bring up the daemon's CES connection (process + handshake + reconnect
   // wiring). Blocks up to a 20s timeout so credential reads route through CES
@@ -647,11 +613,6 @@ export async function runDaemon(): Promise<void> {
   // against the shared database as an unmanageable duplicate.
   await startCliIpcServer();
 
-  // Start the skill IPC server so first-party skill processes can connect for
-  // host capabilities. The meet-host supervisor reads the live server from the
-  // skill-server singleton at dispatch time.
-  await startSkillIpcServer();
-
   // Warm the gateway guardian-delivery cache so the SSE eager-subscribe path
   // (sync, IO-free) resolves the local actor principal on the FIRST client
   // registration. Without this, a cold cache regresses host-proxy same-user
@@ -666,176 +627,11 @@ export async function runDaemon(): Promise<void> {
   startOrphanReaper();
   startEventLoopWatchdog();
 
-  // Initialize Qdrant vector store and memory worker in the background so the
-  // RuntimeHttpServer can start accepting requests without waiting for Qdrant.
-  async function initializeQdrantAndMemory(): Promise<void> {
-    const qdrantUrl = resolveQdrantUrl(config);
-    log.info({ qdrantUrl }, "Daemon startup: initializing Qdrant");
-    const manager = createQdrantManager({ url: qdrantUrl });
-    const QDRANT_START_MAX_ATTEMPTS = 3;
-    let qdrantStarted = false;
-    for (let attempt = 1; attempt <= QDRANT_START_MAX_ATTEMPTS; attempt++) {
-      try {
-        await manager.start();
-        qdrantStarted = true;
-        break;
-      } catch (err) {
-        if (attempt < QDRANT_START_MAX_ATTEMPTS) {
-          const backoffMs = attempt * 5_000; // 5s, 10s
-          log.warn(
-            {
-              err,
-              attempt,
-              maxAttempts: QDRANT_START_MAX_ATTEMPTS,
-              backoffMs,
-            },
-            "Qdrant startup failed, retrying",
-          );
-          await Bun.sleep(backoffMs);
-        } else {
-          log.warn(
-            { err },
-            "Qdrant failed to start after all attempts — memory features will be unavailable",
-          );
-        }
-      }
-    }
-
-    if (qdrantStarted) {
-      // Skip the v1 Qdrant collection lifecycle when memory v2 is active —
-      // the v1 collection has no writers (handleRemember returns early) or
-      // readers (graph search is bypassed) under v2, so ensuring/migrating
-      // it just maintains a dead-on-arrival collection. Existing on-disk
-      // collections are left intact so flipping v2 off restores v1 cleanly.
-      if (!config.memory.v2.enabled) {
-        try {
-          const embeddingSelection = await selectEmbeddingBackend(config);
-          // Sentinel only encodes the dense provider+model identity; sparse
-          // encoder changes never require collection recreation, so they
-          // intentionally do not contribute to the v1 collection identity.
-          const embeddingModel = embeddingSelection.backend
-            ? `${embeddingSelection.backend.provider}:${embeddingSelection.backend.model}`
-            : undefined;
-          const qdrantClient = initQdrantClient({
-            url: qdrantUrl,
-            collection: config.memory.qdrant.collection,
-            vectorSize: config.memory.qdrant.vectorSize,
-            onDisk: config.memory.qdrant.onDisk,
-            quantization: config.memory.qdrant.quantization,
-            embeddingModel,
-          });
-
-          // Eagerly ensure the collection exists so we detect migrations
-          // (unnamed→named vectors, dimension/model changes) at startup.
-          // If a destructive migration occurred, enqueue a rebuild_index job
-          // to re-embed all memory items from the SQLite cache.
-          const { migrated } = await qdrantClient.ensureCollection();
-          if (migrated && isMemoryEnabled()) {
-            enqueueMemoryJob("rebuild_index", {});
-            log.info(
-              "Qdrant collection was migrated — enqueued rebuild_index job",
-            );
-          }
-
-          log.info("Qdrant vector store initialized");
-        } catch (err) {
-          log.warn(
-            { err },
-            "Qdrant client initialization failed — memory features will be degraded",
-          );
-        }
-      }
-
-      // Detect schema drift on the v2 concept-page collection (e.g.
-      // pre-#29823 collections lacking summary_dense / summary_sparse) and
-      // recreate + enqueue a reembed when needed. Awaited inline so the
-      // reembed enqueue happens before the memory worker drains its first
-      // batch; the call's own try/catch keeps any v2-side failure from
-      // blocking the v1 PKB reconcile or BM25 build below.
-      try {
-        await maybeRebuildMemoryV2Concepts(config);
-      } catch (err) {
-        log.warn(
-          { err },
-          "Memory v2 collection schema check threw — continuing startup",
-        );
-      }
-
-      // Reconcile the PKB Qdrant index against the on-disk tree. Gated on
-      // !v2 because PKB is the v1 storage layer; under v2 the v1 collection
-      // is not initialized, so calling `getQdrantClient()` here would throw.
-      // Fire-and-forget so enqueued re-index jobs drain in the background
-      // and first-turn latency stays unaffected.
-      if (!config.memory.v2.enabled) {
-        void (async () => {
-          try {
-            const { reconcilePkbIndex } =
-              await import("../memory/pkb/pkb-reconcile.js");
-            const { PKB_WORKSPACE_SCOPE } =
-              await import("../memory/pkb/types.js");
-            const pkbRoot = join(getWorkspaceDir(), "pkb");
-            await reconcilePkbIndex(pkbRoot, PKB_WORKSPACE_SCOPE);
-          } catch (err) {
-            log.warn(
-              { err },
-              "PKB index reconciliation failed — continuing startup",
-            );
-          }
-        })();
-      }
-
-      void rebuildBm25CorpusStatsAndReseedSkills(config);
-
-      try {
-        await sweepConceptPageFrontmatter(config, getWorkspaceDir());
-      } catch (err) {
-        log.warn(
-          { err },
-          "Concept page frontmatter sweep threw — continuing startup",
-        );
-      }
-    }
-
-    // `startMemoryJobsWorker` starts the in-process supervisor (which owns
-    // the synchronous runner and stands down when an out-of-process worker is
-    // live) and spawns the out-of-process worker at boot when
-    // `memory.worker.enabled` is set. Shutdown stops whichever worker is
-    // actually running — see shutdown-handlers.ts.
-    log.info("Daemon startup: starting memory worker");
-    registerMemoryJobHandlers();
-    startMemoryJobsWorker();
-
-    // Seed capability graph nodes (new memory graph system)
-    try {
-      const { seedCliGraphNodes } =
-        await import("../memory/graph/capability-seed.js");
-      refreshSkillCapabilityMemories(config);
-      await seedCliGraphNodes();
-    } catch (err) {
-      log.warn({ err }, "Graph capability seeding failed — continuing");
-    }
-
-    // Auto-bootstrap: if the graph has no non-procedural nodes but historical
-    // segments exist, enqueue a one-time graph_bootstrap job to populate the
-    // graph from conversation history and journal files.
-    try {
-      const { maybeEnqueueGraphBootstrap, cleanupStaleItemVectors } =
-        await import("../memory/graph/bootstrap.js");
-      maybeEnqueueGraphBootstrap();
-      // Fire-and-forget: clean up orphaned Qdrant vectors from dropped memory_items table
-      void cleanupStaleItemVectors().catch((err) =>
-        log.warn({ err }, "Stale item vector cleanup failed — continuing"),
-      );
-    } catch (err) {
-      log.warn({ err }, "Graph bootstrap check failed — continuing");
-    }
-  }
-
   registerWatcherProviders();
   registerMessagingProviders();
 
   try {
-    recoverStaleSchedules();
+    await recoverStaleSchedules();
   } catch (err) {
     log.error({ err }, "Schedule recovery failed — continuing startup");
   }
@@ -860,85 +656,24 @@ export async function runDaemon(): Promise<void> {
     );
   }
 
-  startScheduler(
-    async (conversationId, message, options) => {
-      await processMessage(
-        conversationId,
-        message,
-        options
-          ? {
-              ...(options.trustClass
-                ? {
-                    trustContext: {
-                      sourceChannel: "vellum",
-                      trustClass: options.trustClass,
-                    },
-                  }
-                : {}),
-              ...(options.taskRunId ? { taskRunId: options.taskRunId } : {}),
-              ...(options.overrideProfile
-                ? { overrideProfile: options.overrideProfile }
-                : {}),
-              ...(options.cronRunId ? { cronRunId: options.cronRunId } : {}),
-            }
-          : undefined,
+  // Rehydrate subagent records persisted by a prior run: load terminal
+  // subagents so `subagent_read`/`getState` keep working post-restart, and mark
+  // any that were still in flight when the process died as `interrupted` (we do
+  // not auto-resume). Mirrors the workflow-run reconciliation above; never
+  // blocks startup, and runs before the scheduler so no new spawn races it.
+  try {
+    const { rehydrated, interrupted } = getSubagentManager().rehydrateFromDb();
+    if (rehydrated > 0) {
+      log.info(
+        { rehydrated, interrupted },
+        "Rehydrated subagent records from a prior run",
       );
-    },
-    async (schedule) => {
-      await emitNotificationSignal({
-        sourceEventName: "schedule.notify",
-        sourceChannel: "scheduler",
-        sourceContextId: schedule.id,
-        attentionHints: {
-          requiresAction: true,
-          urgency: "high",
-          isAsyncBackground: false,
-          visibleInSourceNow: false,
-        },
-        contextPayload: {
-          scheduleId: schedule.id,
-          label: schedule.label,
-          message: schedule.message,
-        },
-        routingIntent: schedule.routingIntent,
-        routingHints: schedule.routingHints,
-        conversationMetadata: {
-          groupId: "system:scheduled",
-          scheduleJobId: schedule.id,
-          source: "schedule",
-        },
-        dedupeKey: `schedule:notify:${schedule.id}:${Date.now()}`,
-        throwOnError: true,
-      });
-    },
-    (notification) => {
-      void emitNotificationSignal({
-        sourceEventName: "watcher.notification",
-        sourceChannel: "watcher",
-        sourceContextId: `watcher-${Date.now()}`,
-        attentionHints: {
-          requiresAction: false,
-          urgency: "low",
-          isAsyncBackground: true,
-          visibleInSourceNow: false,
-        },
-        contextPayload: {
-          title: notification.title,
-          body: notification.body,
-        },
-        dedupeKey: `watcher:notification:${crypto.randomUUID()}`,
-      });
-    },
-    (info) => {
-      broadcastMessage({
-        type: "schedule_conversation_created",
-        conversationId: info.conversationId,
-        scheduleJobId: info.scheduleJobId,
-        title: info.title,
-      });
-      publishConversationListChanged("created");
-    },
-  );
+    }
+  } catch (err) {
+    log.error({ err }, "Subagent rehydration failed — continuing startup");
+  }
+
+  startScheduler();
 
   // Fire-and-forget: Qdrant init and memory worker startup run concurrently
   // with the rest of daemon boot. Must run AFTER `startRuntimeHttpServer()`
@@ -946,179 +681,25 @@ export async function runDaemon(): Promise<void> {
   // available before the memory worker can claim leftover
   // `conversation_analyze` jobs from a prior run. See the daemon-startup
   // ordering test in `assistant/src/daemon/__tests__/`.
-  void initializeQdrantAndMemory().catch((err) =>
+  void runMemoryStartup(config).catch((err) =>
     log.warn({ err }, "Background Qdrant init failed"),
   );
 
-  // Inject voice bridge deps so the relay pipeline can resolve attachments
-  // once a call lands. Module-level state, so available even when the HTTP
-  // server failed to bind.
-  setVoiceBridgeDeps({
-    resolveAttachments: (attachmentIds) => {
-      const resolved = getAttachmentsByIds(attachmentIds, {
-        hydrateFileData: true,
-      });
-      const sourcePaths = getSourcePathsForAttachments(attachmentIds);
-      return resolved.map((a) => ({
-        id: a.id,
-        filename: a.originalFilename,
-        mimeType: a.mimeType,
-        data: a.dataBase64,
-        ...(sourcePaths.has(a.id) ? { filePath: sourcePaths.get(a.id) } : {}),
-      }));
-    },
-  });
-  try {
-    setRelayBroadcast((msg) => broadcastMessage(msg));
-    setPointerMessageProcessor(
-      async (conversationId, instruction, requiredFacts) => {
-        const conversation = await getOrCreateConversation(conversationId);
+  // One-time, self-healing backfill of existing messages into the Qdrant
+  // lexical index (`messages_lexical`) on upgrade, so message-content search
+  // never opens onto an empty index. Enqueue-only and checkpoint-guarded — the
+  // indexing runs off the event loop via the background job worker; see the
+  // function's docstring for the guards and the deliberate exception it makes
+  // to the "no work at daemon startup" rule.
+  maybeEnqueueLexicalBackfillOnUpgrade();
 
-        // Pointer turns are guardian-gated owner self-maintenance: elevate to
-        // the internal guardian context and rehydrate history so a cold
-        // (evicted) load doesn't filter guardian history to empty and ship a
-        // cache-missing turn. `restoreTrustContext` undoes the elevation after
-        // the turn. See pointer-conversation-trust.ts for the full rationale.
-        const restoreTrustContext =
-          await elevatePointerConversationToGuardian(conversation);
+  // Spawn the resource monitor as a child of the daemon when enabled, off the
+  // main event loop.
+  startMonitoring();
 
-        // Constrain pointer generation to a tool-disabled path so call-
-        // status events cannot trigger unintended side-effect tools.
-        // Incrementing toolsDisabledDepth causes the resolveTools callback
-        // to return an empty tool list, preventing the LLM from seeing or
-        // invoking any tools during the pointer agent loop.
-        //
-        // A depth counter (rather than a boolean) ensures that overlapping
-        // pointer requests on the same conversation don't clear each other's
-        // constraint — each caller increments on entry and decrements in
-        // its own finally block.
-        conversation.toolsDisabledDepth++;
-        try {
-          const { id: messageId } = await conversation.persistUserMessage({
-            content: instruction,
-            metadata: { pointerInstruction: true },
-            displayContent: "[Call status event]",
-          });
-
-          // Helper: roll back persisted messages on failure, then reload
-          // in-memory history from the (now cleaned) DB. Reloading avoids
-          // stale-index issues when context compaction reassigns the
-          // messages array during runAgentLoop.
-          const rollback = async (extraMessageIds?: string[]) => {
-            try {
-              deleteMessageById(messageId);
-            } catch {
-              /* best effort */
-            }
-            for (const id of extraMessageIds ?? []) {
-              try {
-                deleteMessageById(id);
-              } catch {
-                /* best effort */
-              }
-            }
-            try {
-              await conversation.loadFromDb();
-            } catch {
-              /* best effort */
-            }
-          };
-
-          // Snapshot message IDs before the agent loop so we can diff
-          // afterwards to find exactly which messages this run created,
-          // avoiding positional heuristics that break under concurrency.
-          //
-          // Caveat: the diff captures *all* new messages in the
-          // conversation during the loop window, not just those from
-          // this specific agent loop.  If a concurrent pointer event
-          // falls back to a deterministic addMessage() while our loop
-          // is in flight, that message lands in our diff.  The race
-          // requires two pointer events for the same conversation
-          // within the agent loop window *and* this run must fail or
-          // fail fact-check — narrow enough to accept.  A future
-          // improvement could tag messages with a per-run correlation
-          // ID so rollback only targets its own output.
-          const preRunMessageIds = new Set(
-            getMessages(conversationId).map((m) => m.id),
-          );
-
-          let agentLoopError: string | undefined;
-          let generatedText = "";
-          await conversation.runAgentLoop(instruction, messageId, {
-            onEvent: (msg) => {
-              if (
-                "type" in msg &&
-                msg.type === "assistant_text_delta" &&
-                "text" in msg
-              ) {
-                generatedText += (msg as { text: string }).text;
-              }
-              if (
-                "type" in msg &&
-                (msg.type === "error" || msg.type === "conversation_error")
-              ) {
-                agentLoopError =
-                  "message" in msg
-                    ? (msg as { message: string }).message
-                    : "userMessage" in msg
-                      ? (msg as { userMessage: string }).userMessage
-                      : "Agent loop failed";
-              }
-            },
-          });
-
-          // Identify messages created during this run by diffing against
-          // the pre-run snapshot. This captures all messages added to the
-          // conversation during the loop window, which may include messages
-          // from concurrent pointer events (see over-capture caveat above).
-          const postRunMessages = getMessages(conversationId);
-          const createdMessageIds = postRunMessages
-            .filter((m) => !preRunMessageIds.has(m.id) && m.id !== messageId)
-            .map((m) => m.id);
-
-          if (agentLoopError) {
-            await rollback(createdMessageIds);
-            throw new Error(agentLoopError);
-          }
-
-          // Post-generation fact check: verify the assistant's response
-          // includes all required factual details (phone number, duration,
-          // outcome keyword, etc.). If the model omitted or rewrote them,
-          // remove both the instruction and generated messages and throw so
-          // the deterministic fallback fires.
-          //
-          // Validation uses text accumulated from assistant_text_delta
-          // events during the agent loop rather than a DB lookup, avoiding
-          // any positional ambiguity when concurrent pointer events
-          // interleave messages in the conversation.
-          if (requiredFacts && requiredFacts.length > 0) {
-            const missingFacts = requiredFacts.filter(
-              (fact) => !generatedText.includes(fact),
-            );
-            if (missingFacts.length > 0) {
-              log.warn(
-                { conversationId, missingFacts },
-                "Generated pointer text failed fact validation — falling back to deterministic",
-              );
-              await rollback(createdMessageIds);
-              throw new Error("Generated pointer text failed fact validation");
-            }
-          }
-        } finally {
-          // Restore tool availability so subsequent turns aren't affected.
-          conversation.toolsDisabledDepth--;
-          // Undo the temporary guardian elevation installed above.
-          restoreTrustContext();
-        }
-      },
-    );
-    broadcastDaemonStatus();
-  } catch (err) {
-    log.warn(
-      { err },
-      "Failed to wire runtime HTTP server deps, continuing without them",
-    );
-  }
+  // The runtime HTTP server is up; broadcast the fresh daemon status so
+  // connected clients pick up the transition.
+  broadcastDaemonStatus();
 
   // Register built-in TTS providers so the provider abstraction can resolve
   // them by ID. Must happen before call controllers or routes are created.
@@ -1149,61 +730,22 @@ export async function runDaemon(): Promise<void> {
   writePid(process.pid);
 
   // Install the `assistant` CLI symlink idempotently on every daemon start.
-  // Non-blocking — failures are logged but don't affect startup.
-  try {
-    installAssistantSymlink();
-  } catch (err) {
-    log.warn({ err }, "Assistant symlink installation failed — continuing");
-  }
+  // Best-effort and self-contained: every step swallows its own errors, so a
+  // failure never affects startup.
+  installAssistantSymlink();
 
-  // Download embedding runtime in background (non-blocking).
-  // If download fails, local embeddings gracefully fall back to cloud backends.
-  void (async () => {
-    try {
-      const { EmbeddingRuntimeManager } =
-        await import("../persistence/embeddings/embedding-runtime-manager.js");
-      const runtimeManager = new EmbeddingRuntimeManager();
-      if (!runtimeManager.isReady()) {
-        log.info("Downloading embedding runtime in background...");
-        await runtimeManager.ensureInstalled();
-        // Reset the sticky local-backend failure flag so auto mode retries
-        // local embeddings without evicting a worker that may already be live.
-        const { resetLocalEmbeddingFailureState } =
-          await import("../persistence/embeddings/embedding-backend.js");
-        resetLocalEmbeddingFailureState();
-        log.info("Embedding runtime download complete");
-      }
-    } catch (err) {
-      log.warn(
-        { err },
-        "Embedding runtime download failed — local embeddings will use cloud fallback",
-      );
-    }
-  })();
-
-  if (config.auditLog.retentionDays > 0) {
-    void rotateToolInvocations(config.auditLog.retentionDays).catch((err) => {
-      log.warn({ err }, "Audit log rotation failed");
-    });
-  }
+  startEmbeddingRuntimeManager();
 
   startWorkspaceHeartbeatService();
 
   startHeartbeatService();
-  refreshBackgroundWakeIntent("daemon-startup");
-
-  // Filing yields to the memory v2 consolidation job when v2 is enabled — both
-  // serve the same role (periodic background memory processing) and running both
-  // is redundant. The consolidation job runs through the memory jobs worker
-  // (see `maybeEnqueueGraphMaintenanceJobs`).
-  startFilingService();
-
-  installShutdownHandlers();
 
   // The critical startup await-chain has completed and the daemon can serve
   // requests, so latch readiness before logging "Daemon started". Any fatal
   // failure earlier in startup propagates out of runDaemon before this line,
-  // so the latch is never set on a failed start.
+  // so the latch is never set on a failed start. The latch also switches the
+  // signal handlers installed at the top of startup from their minimal
+  // early-exit mode to the full graceful shutdown.
   setStartupComplete();
 
   log.info(

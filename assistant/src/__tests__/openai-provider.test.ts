@@ -400,6 +400,39 @@ describe("OpenAIProvider", () => {
     expect(events[1]).toEqual({ type: "text_delta", text: ", world!" });
   });
 
+  test("fires tool preview and argument progress events while tool calls stream", async () => {
+    fakeChunks = [
+      ...toolCallChunks([
+        {
+          id: "call_write",
+          name: "app_create",
+          args: '{"source_files":[{"path":"src/App.tsx","content":"hello"}]}',
+        },
+      ]),
+      usageChunk(10, 15),
+    ];
+
+    const events: ProviderEvent[] = [];
+    await provider.sendMessage([userMsg("Create an app")], {
+      onEvent: (e) => events.push(e),
+    });
+
+    expect(events.slice(0, 2)).toEqual([
+      {
+        type: "tool_use_preview_start",
+        toolUseId: "call_write",
+        toolName: "app_create",
+      },
+      {
+        type: "input_json_delta",
+        toolUseId: "call_write",
+        toolName: "app_create",
+        accumulatedJson:
+          '{"source_files":[{"path":"src/App.tsx","content":"hello"}]}',
+      },
+    ]);
+  });
+
   // -----------------------------------------------------------------------
   // Reasoning content (MiniMax / DeepSeek extension)
   // -----------------------------------------------------------------------

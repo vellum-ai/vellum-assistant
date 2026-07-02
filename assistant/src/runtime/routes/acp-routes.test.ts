@@ -182,7 +182,7 @@ type ApprovalBehavior = "allow" | "deny";
 let approvalBehavior: ApprovalBehavior = "allow";
 const confirmationRequests: Array<Record<string, unknown>> = [];
 
-mock.module("../../runtime/assistant-event-hub.js", () => ({
+mock.module("../assistant-event-hub.js", () => ({
   broadcastMessage: (msg: { type?: string; requestId?: string }) => {
     if (msg?.type !== "confirmation_request") return;
     confirmationRequests.push(msg as Record<string, unknown>);

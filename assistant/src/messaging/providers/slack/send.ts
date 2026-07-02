@@ -7,16 +7,22 @@
  */
 
 import type { Button, KnownBlock } from "@slack/types";
-import type { ApprovalUIMetadata } from "@vellumai/gateway-client";
+import type {
+  ApprovalUIMetadata,
+  SlackStreamOp,
+} from "@vellumai/gateway-client";
 
 import { getAttachmentContent } from "../../../persistence/attachments-store.js";
 import type { RuntimeAttachmentMetadata } from "../../../runtime/http-types.js";
 import { getLogger } from "../../../util/logger.js";
 import {
+  appendSlackStream,
   callSlackApi,
   callSlackApiForm,
   completeSlackUpload,
   SlackApiError,
+  startSlackStream,
+  stopSlackStream,
   uploadToSlackUrl,
 } from "./api.js";
 import { renderSlackBlocks } from "./render.js";
@@ -145,13 +151,15 @@ export interface SlackSendResult {
  * Those errors fault the Block Kit payload, not the target — the retry repeats
  * the *same* operation (same `chat.update` ts, same `chat.postMessage` thread)
  * without blocks, so it edits/posts in place rather than spawning a second
- * message. Any other error propagates to the caller.
+ * message. `fallbackText` replaces the message text on that retry (used to
+ * re-attach reply instructions whose Block Kit equivalent was dropped). Any
+ * other error propagates to the caller.
  */
 async function sendWithBlockFallback(
   method: string,
   baseBody: Record<string, unknown>,
   blocks: KnownBlock[],
-  options: { fallbackWithoutBlocks: boolean },
+  options: { fallbackWithoutBlocks: boolean; fallbackText?: string },
 ): Promise<SlackSendResult> {
   try {
     const result = await callSlackApi(
@@ -171,11 +179,34 @@ async function sendWithBlockFallback(
         { method, slackError: err.slackError },
         "Slack rejected blocks; retrying without blocks",
       );
-      const result = await callSlackApi(method, baseBody);
+      const retryBody =
+        options.fallbackText !== undefined
+          ? { ...baseBody, text: options.fallbackText }
+          : baseBody;
+      const result = await callSlackApi(method, retryBody);
       return { ok: true, ts: result.ts };
     }
     throw err;
   }
+}
+
+/**
+ * Text for the block-free retry of an approval prompt. Dropping an approval's
+ * blocks removes its Approve/Reject buttons, so the retry re-attaches the
+ * plain-text reply instructions to keep the message actionable. Returns
+ * `undefined` when the approval has no usable instructions — such a prompt
+ * must not be retried bare, since a message with no way to respond is worse
+ * than a failed delivery the delivery layer can surface.
+ */
+function buildApprovalFallbackText(
+  text: string,
+  approval: ApprovalUIMetadata,
+): string | undefined {
+  const instructions = approval.plainTextFallback.trim();
+  if (instructions.length === 0) {
+    return undefined;
+  }
+  return text.includes(instructions) ? text : `${text}\n\n${instructions}`;
 }
 
 /**
@@ -213,51 +244,92 @@ export async function sendSlackReply(
   }
 
   const postBase: Record<string, unknown> = { channel: chatId, text };
-  if (options?.threadTs) postBase.thread_ts = options.threadTs;
+  if (options?.threadTs) {
+    postBase.thread_ts = options.threadTs;
+  }
+
+  // Approval prompts carry their action buttons in `blocks`. When Slack
+  // rejects the payload, the block-free retry re-attaches the plain-text
+  // reply instructions so the recipient can still act by text reply; an
+  // approval without usable instructions is never retried bare.
+  const approvalFallbackText = options?.approval
+    ? buildApprovalFallbackText(text, options.approval)
+    : undefined;
+  const fallbackOptions = {
+    fallbackWithoutBlocks:
+      !options?.approval || approvalFallbackText !== undefined,
+    fallbackText: approvalFallbackText,
+  };
 
   if (options?.ephemeral) {
-    if (!options.user)
+    if (!options.user) {
       throw new Error("user is required for ephemeral messages");
+    }
     return sendWithBlockFallback(
       "chat.postEphemeral",
       { ...postBase, user: options.user },
       blocks,
-      { fallbackWithoutBlocks: !options.approval },
+      fallbackOptions,
     );
   }
 
-  // Approval prompts carry their action buttons in `blocks`; dropping them when
-  // Slack rejects the payload would post a card with no way to respond, so only
-  // non-approval posts fall back to a block-free retry.
   const result = await sendWithBlockFallback(
     "chat.postMessage",
     postBase,
     blocks,
-    {
-      fallbackWithoutBlocks: !options?.approval,
-    },
+    fallbackOptions,
   );
   log.info({ chatId, hasThreadTs: !!options?.threadTs }, "Slack message sent");
   return result;
 }
 
 /**
- * Send a typing indicator placeholder message to Slack.
- * Returns the placeholder message ts for later update.
+ * Execute one Slack streaming operation against a channel, returning the
+ * stream `ts` so the caller can carry it across `append`/`stop` calls. `start`
+ * mints a new `ts`; `append` and `stop` echo the one they were given.
+ *
+ * Throwing on failure is intentional: the streaming session decides whether to
+ * abandon the stream and let durable delivery post the full reply.
  */
-export async function sendSlackTypingIndicator(
-  chatId: string,
-  threadTs?: string,
-): Promise<string | undefined> {
-  const body: Record<string, string> = { channel: chatId, text: "\u2026" };
-  if (threadTs) body.thread_ts = threadTs;
-
-  const result = await callSlackApi("chat.postMessage", body);
-  log.debug(
-    { chatId, placeholderTs: result.ts, hasThreadTs: !!threadTs },
-    "Slack typing placeholder sent",
-  );
-  return result.ts;
+export async function sendSlackStreamOp(
+  channel: string,
+  op: SlackStreamOp,
+): Promise<SlackSendResult> {
+  switch (op.action) {
+    case "start": {
+      const ts = await startSlackStream({
+        channel,
+        threadTs: op.threadTs,
+        markdownText: op.markdownText,
+        taskDisplayMode: op.taskDisplayMode,
+        tasks: op.tasks,
+        recipientUserId: op.recipientUserId,
+        recipientTeamId: op.recipientTeamId,
+      });
+      log.info({ channel, ts }, "Slack stream started");
+      return { ok: ts !== undefined, ts };
+    }
+    case "append": {
+      await appendSlackStream({
+        channel,
+        streamTs: op.streamTs,
+        markdownText: op.markdownText,
+        tasks: op.tasks,
+      });
+      return { ok: true, ts: op.streamTs };
+    }
+    case "stop": {
+      await stopSlackStream({
+        channel,
+        streamTs: op.streamTs,
+        markdownText: op.markdownText,
+        blocks: op.blocks,
+        tasks: op.tasks,
+      });
+      log.info({ channel, ts: op.streamTs }, "Slack stream stopped");
+      return { ok: true, ts: op.streamTs };
+    }
+  }
 }
 
 /**

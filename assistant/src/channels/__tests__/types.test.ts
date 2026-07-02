@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  CLIENT_OS_VALUES,
   INTERACTIVE_INTERFACES,
   INTERFACE_IDS,
   isInterfaceId,
+  parseClientOs,
   parseInterfaceId,
   supportsHostProxy,
 } from "../types.js";
@@ -152,5 +154,31 @@ describe("supportsHostProxy", () => {
 
   test("email returns false for host_browser", () => {
     expect(supportsHostProxy("email", "host_browser")).toBe(false);
+  });
+});
+
+describe("parseClientOs", () => {
+  test("accepts every declared client OS surface", () => {
+    for (const os of CLIENT_OS_VALUES) {
+      expect(parseClientOs(os)).toBe(os);
+    }
+  });
+
+  test("includes android (mobile-web parity with ios)", () => {
+    expect(parseClientOs("android")).toBe("android");
+    expect((CLIENT_OS_VALUES as readonly string[]).includes("android")).toBe(
+      true,
+    );
+  });
+
+  test("rejects transport-only interface ids and unknown values", () => {
+    // `clientOs` is an OS surface, not a transport interface — values like
+    // "cli"/"telegram" (real interfaces) are not valid OS surfaces.
+    expect(parseClientOs("cli")).toBeNull();
+    expect(parseClientOs("telegram")).toBeNull();
+    expect(parseClientOs("vellum")).toBeNull();
+    expect(parseClientOs("linux")).toBeNull();
+    expect(parseClientOs(undefined)).toBeNull();
+    expect(parseClientOs(42)).toBeNull();
   });
 });

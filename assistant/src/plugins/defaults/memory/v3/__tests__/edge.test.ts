@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import type { PageIndexEntry } from "../../../../../memory/v2/page-index.js";
+import type { PageIndexEntry } from "../../v2/page-index.js";
 import { buildEdgeGraph, edgeExpand } from "../edge.js";
 import type { Slug } from "../types.js";
 

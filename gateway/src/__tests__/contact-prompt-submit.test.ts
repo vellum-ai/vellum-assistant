@@ -54,7 +54,12 @@ mock.module("../db/assistant-db-proxy.js", () => ({
 
 const ipcMock = mock(async () => ({ resolved: true }));
 
+// Spread the actual module so untouched exports (IpcHandlerError,
+// IpcTransportError, ipcSuggestTrustRule) stay importable by later-loaded
+// files when suites share a bun process.
+const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
+  ...actualAssistantClient,
   ipcCallAssistant: ipcMock,
 }));
 

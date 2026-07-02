@@ -34,6 +34,9 @@ export const AcpSessionUpdateEventSchema = z
     toolTitle: z.string().optional(),
     toolKind: z.string().optional(),
     toolStatus: z.string().optional(),
+    /** Optional raw tool input/output (ACP rawInput/rawOutput); apply to tool_call/tool_call_update. */
+    rawInput: z.unknown().optional(),
+    rawOutput: z.unknown().optional(),
     /** Files touched by this tool call (for the file-diff affordance). */
     locations: z
       .array(z.object({ path: z.string(), line: z.number().optional() }))

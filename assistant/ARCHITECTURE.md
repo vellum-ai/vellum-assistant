@@ -289,17 +289,17 @@ When a voice call's ASK_GUARDIAN consultation times out before the guardian resp
 
 **Key source files:**
 
-| File                                                    | Purpose                                                                                                                                                                                     |
-| ------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/memory/guardian-action-store.ts`                   | Follow-up state machine with atomic transitions (`startFollowupFromExpiredRequest`, `progressFollowupState`, `finalizeFollowup`) and query helpers for pending/expired/follow-up deliveries |
-| `src/runtime/guardian-action-message-composer.ts`       | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates. Covers all scenarios from timeout acknowledgment through follow-up completion                  |
-| `src/runtime/guardian-action-followup-executor.ts`      | Action dispatch: resolves counterparty from call session, executes `call_back` (outbound call via `startCall`), finalizes follow-up state                                                   |
-| `src/daemon/guardian-action-generators.ts`              | Daemon-injected generator factory: `createGuardianActionCopyGenerator` (latency-optimized text rewriting for guardian-facing copy)                                                          |
-| `src/calls/call-controller.ts`                          | Voice timeout handling: marks requests as timed out, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for generated voice response                                            |
-| `src/runtime/routes/inbound-message-handler.ts`         | Late reply interception for Telegram channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions                                            |
-| `src/daemon/conversation-process.ts`                    | Late reply interception for mac channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup                                                              |
-| `src/calls/guardian-action-sweep.ts`                    | Periodic sweep for stale pending requests; sends expiry notices to guardian destinations                                                                                                    |
-| `src/memory/migrations/030-guardian-action-followup.ts` | Schema migration adding follow-up columns (`followup_state`, `late_answer_text`, `late_answered_at`, `followup_action`, `followup_completed_at`)                                            |
+| File                                                         | Purpose                                                                                                                                                                                     |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/memory/guardian-action-store.ts`                        | Follow-up state machine with atomic transitions (`startFollowupFromExpiredRequest`, `progressFollowupState`, `finalizeFollowup`) and query helpers for pending/expired/follow-up deliveries |
+| `src/runtime/guardian-action-message-composer.ts`            | 2-tier text generation: daemon-injected LLM generator with deterministic fallback templates. Covers all scenarios from timeout acknowledgment through follow-up completion                  |
+| `src/runtime/guardian-action-followup-executor.ts`           | Action dispatch: resolves counterparty from call session, executes `call_back` (outbound call via `startCall`), finalizes follow-up state                                                   |
+| `src/daemon/guardian-action-generators.ts`                   | Daemon-injected generator factory: `createGuardianActionCopyGenerator` (latency-optimized text rewriting for guardian-facing copy)                                                          |
+| `src/calls/call-controller.ts`                               | Voice timeout handling: marks requests as timed out, sends expiry notices, injects `[GUARDIAN_TIMEOUT]` instruction for generated voice response                                            |
+| `src/runtime/routes/inbound-message-handler.ts`              | Late reply interception for Telegram channels: matches late answers to expired requests, routes follow-up conversation turns, dispatches actions                                            |
+| `src/daemon/conversation-process.ts`                         | Late reply interception for mac channel: same logic as inbound-message-handler but using conversation-ID-based delivery lookup                                                              |
+| `src/calls/guardian-action-sweep.ts`                         | Periodic sweep for stale pending requests; sends expiry notices to guardian destinations                                                                                                    |
+| `src/persistence/migrations/030-guardian-action-followup.ts` | Schema migration adding follow-up columns (`followup_state`, `late_answer_text`, `late_answered_at`, `followup_action`, `followup_completed_at`)                                            |
 
 ### WhatsApp Channel (Meta Cloud API)
 
@@ -429,9 +429,8 @@ External users who are not the guardian can gain access to the assistant through
 | `src/runtime/routes/access-request-decision.ts`        | Guardian decision → verification session creation                             |
 | `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler |
 | `src/runtime/channel-verification-service.ts`          | Verification session lifecycle, identity binding, rate limiting               |
-| `src/runtime/routes/contact-routes.ts`                 | HTTP API handlers for contact and channel management                          |
-| `src/runtime/routes/invite-routes.ts`                  | HTTP API handlers for invite management                                       |
-| `src/runtime/invite-service.ts`                        | Business logic for invite operations                                          |
+| `src/runtime/routes/contact-routes.ts`                 | HTTP/IPC handlers for contacts, channels, and invites (invite ops relay to gateway IPC) |
+| `src/runtime/invite-service.ts`                        | Daemon-owned invite presentation (share link, guardian instruction) over gateway-minted invites |
 | `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations           |
 | `src/memory/guardian-approvals.ts`                     | Approval request persistence                                                  |
 | `src/channels/channel-verification-sessions.ts`        | Verification challenge persistence                                            |
@@ -455,11 +454,12 @@ A complementary access-granting flow where the guardian proactively creates a sh
 │    • extractInboundToken(payload) → token | undefined        │
 │  Registered: Telegram  │  Deferred: Slack, Voice             │
 ├─────────────────────────────────────────────────────────────┤
-│  Core Redemption Engine (invite-redemption-service.ts)       │
-│  Channel-agnostic token validation, expiry, use-count,       │
-│  channel-match enforcement, contact activation/reactivation  │
+│  Core Redemption Engine (gateway-native)                     │
+│  gateway/src/verification/invite-redemption.ts               │
+│  Token/code validation, expiry, use-count, channel-match     │
+│  enforcement, atomic claim, gateway ACL activation           │
 │  Returns: InviteRedemptionOutcome (discriminated union)      │
-│  Reply templates: invite-redemption-templates.ts             │
+│  Daemon mirrors contact info via the invite_redeemed event   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -467,16 +467,16 @@ A complementary access-granting flow where the guardian proactively creates a sh
 
 1. Guardian asks the assistant to create an invite via desktop chat.
 2. `guardian-invite-intent.ts` detects the intent and rewrites the message to force-load the `contacts` skill.
-3. The skill calls the ingress HTTP API to create an invite token, then calls the Telegram transport adapter to build a deep link: `https://t.me/<bot>?start=iv_<token>`.
+3. The skill calls the invites HTTP API; the daemon relays the mint to the gateway (`invites_create` IPC), which writes the canonical `ingress_invites` row, then the daemon's Telegram transport adapter builds a deep link: `https://t.me/<bot>?start=iv_<token>`.
 4. Guardian shares the link with the invitee out-of-band.
 5. Invitee clicks the link, opening Telegram which sends `/start iv_<token>` to the bot.
-6. The gateway forwards the message to `/channels/inbound`. The inbound handler calls `getInviteAdapterRegistry().get('telegram').extractInboundToken()` to parse the `iv_` token.
-7. The token is redeemed via `invite-redemption-service.ts`, which validates, activates the contact, and returns a `redeemed` outcome.
+6. The gateway intercepts the `/start iv_<token>` message at ingress (before any daemon forwarding) and redeems the token against its canonical `ingress_invites` row.
+7. The gateway's redemption engine validates, activates the channel in the gateway ACL, and notifies the daemon (`invite_redeemed`) to mirror the contact info locally.
 8. A deterministic welcome message is delivered to the invitee (bypasses the LLM pipeline).
 
 **Token prefix convention:** The `iv_` prefix distinguishes invite tokens from `gv_` (guardian verification) tokens. Both use the same Telegram `/start` deep-link mechanism but are routed to different handlers.
 
-**Inbound intercept points:** Invite token extraction runs early in the inbound handler, before ACL denial, so valid invites short-circuit the contact check. Two intercept branches handle: (a) unknown contacts — the invite creates their first contact record; (b) inactive contacts (revoked/pending) — the invite reactivates them.
+**Inbound intercept points:** Invite token/code extraction runs at gateway ingress for non-member senders, before ACL denial, so valid invites short-circuit the contact check. The engine handles: (a) unknown contacts — the invite creates their first channel record; (b) inactive contacts (revoked) — the invite reactivates them; blocked channels are never reactivated.
 
 **Channel adapter status:**
 
@@ -488,21 +488,21 @@ A complementary access-granting flow where the guardian proactively creates a sh
 
 ### Voice Invite Flow (invite_redemption_pending)
 
-Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL token. The guardian creates an invite bound to the invitee's E.164 phone number; the invitee redeems it by entering the code during an inbound voice call.
+Voice invites use a short numeric code (6 digits) instead of a URL token. The guardian creates an invite bound to the invitee's E.164 phone number; the invitee redeems it by entering the code during an inbound voice call.
 
 **Creation flow:**
 
 1. Guardian creates a voice invite via `POST /v1/contacts/invites` with `sourceChannel: "phone"` and `expectedExternalUserId` (E.164 phone).
-2. `invite-service.ts` generates a cryptographically random numeric code (`generateVoiceCode`), hashes it with SHA-256 (`hashVoiceCode`), and stores only the hash.
+2. The daemon relays the mint to the gateway (`invites_create` IPC), which generates a cryptographically random numeric code and stores only its SHA-256 hash on the canonical `ingress_invites` row.
 3. The one-time plaintext `voiceCode` is returned in the creation response. The raw token is NOT returned for voice invites — redemption uses the identity-bound code flow exclusively.
 4. Guardian communicates the code to the invitee out-of-band.
 
 **Call-time redemption subflow (`invite_redemption_pending`):**
 
 1. Unknown caller dials in. `relay-server.ts` resolves trust via `resolveActorTrust`. Caller is `unknown`, no pending guardian challenge.
-2. The relay checks `findActiveVoiceInvites` for invites bound to the caller's phone number.
-3. If active, non-expired invites exist, the relay enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
-4. `redeemVoiceInviteCode` validates: identity match, code hash match, expiry, use count. On success, the contact is activated and the call transitions to the normal call flow.
+2. The relay asks the gateway for the active voice invite bound to the caller's phone number (`get_active_voice_invite` IPC via `calls/gateway-invite-reader.ts`; fail-soft — any gateway failure falls through to the unverified path).
+3. If an active, non-expired invite exists, the relay enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
+4. The gateway's `redeem_voice_invite` engine validates: identity match, code hash match, expiry, use count. On success, the phone channel is activated in the gateway ACL and the call transitions to the normal call flow.
 5. On invalid/expired code, the caller hears deterministic failure copy: `Sorry, the code you provided is incorrect or has since expired. Please ask <guardian-name> for a new code. Goodbye.` and the call ends immediately.
 
 **Security invariants:**
@@ -516,18 +516,15 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 
 | File                                                | Purpose                                                                                                            |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `src/runtime/invite-redemption-service.ts`          | Core redemption engine — token validation, voice code redemption, contact activation, discriminated-union outcomes |
-| `src/runtime/invite-redemption-templates.ts`        | Deterministic reply templates for each redemption outcome                                                          |
+| `gateway/src/verification/invite-redemption.ts` (gateway) | Core redemption engine + gateway-ingress token/code intercept — validation, atomic claim, ACL activation, discriminated-union outcomes  |
 | `src/runtime/channel-invite-transport.ts`           | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface                           |
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                        |
 | `src/runtime/channel-invite-transports/voice.ts`    | Voice transport adapter — code-based redemption metadata                                                           |
 | `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes create/list/revoke requests into the contacts skill                                      |
-| `src/runtime/invite-service.ts`                     | Shared business logic for invite operations (used by HTTP routes)                                                  |
-| `src/runtime/routes/invite-routes.ts`               | HTTP API handlers for invite management including voice invite creation and redemption                             |
-| `src/runtime/routes/inbound-message-handler.ts`     | Invite token intercept in the inbound flow (unknown-contact and inactive-contact branches)                         |
+| `src/runtime/invite-service.ts`                     | Daemon-owned invite presentation (share link, guardian instruction, channel handle) over gateway-minted invites    |
+| `src/runtime/routes/contact-routes.ts`              | HTTP/IPC invite handlers — relay mint/list/revoke/redeem to the gateway's invite IPC routes                        |
 | `src/calls/relay-server.ts`                         | Voice relay state machine — `invite_redemption_pending` subflow (always-on canonical behavior)                     |
-| `src/util/voice-code.ts`                            | Cryptographic voice code generation and SHA-256 hashing                                                            |
-| `src/memory/invite-store.ts`                        | Invite persistence including `findActiveVoiceInvites` for identity-bound lookup                                    |
+| `src/calls/gateway-invite-reader.ts`                | Gateway IPC read of the active voice invite for a caller identity                                                  |
 
 ### Voice Inbound Security Model (Canonical)
 
@@ -550,7 +547,7 @@ resolveActorTrust() → trustClass
                                    |
               ┌────────────────────┼──────────────────────┐
               |                    |                       |
-    pendingChallenge?     activeVoiceInvites?      no invite, no challenge
+    pendingChallenge?     activeVoiceInvite?       no invite, no challenge
               |                    |                       |
               v                    v                       v
     Guardian verification   Invite redemption     Name capture +
@@ -799,14 +796,14 @@ The assistant feature-flag resolver (`src/config/assistant-feature-flags.ts`) is
 
 **Skill-gating guarantee:** Skill feature-flag gating is **opt-in**: only skills whose SKILL.md frontmatter contains a `featureFlag` field are gated. Skills without the field are always available regardless of feature flag state. For skills that declare a `featureFlag`, when the corresponding flag is OFF the skill is unavailable everywhere — it cannot appear in client UIs, model context, or runtime tool execution. This is enforced at six independent points:
 
-| Enforcement Point                | Module                                                        | Effect                                                                                                                                                                                                      |
-| -------------------------------- | ------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1. Client skill list**         | `resolveSkillStates()` in `config/skill-state.ts`             | Skills with flag OFF are excluded from the resolved list returned to clients (macOS skill list, settings UI). The skill never appears in the client.                                                        |
-| **2. Capability memory seeding** | `seedSkillGraphNodes()` in `memory/graph/capability-seed.ts`  | Skills with flag OFF are excluded from capability memory seeding. The model cannot discover them via semantic recall.                                                                                       |
-| **3. `skill_load` tool**         | `executeSkillLoad()` in `tools/skills/load.ts`                | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
-| **4. Runtime tool projection**   | `projectSkillTools()` in `daemon/conversation-skill-tools.ts` | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
-| **5. Included child skills**     | `executeSkillLoad()` in `tools/skills/load.ts`                | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
-| **6. Skill install gate**        | `installSkill()` in `daemon/handlers/skills.ts`               | When a client requests skill installation, the function checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                       |
+| Enforcement Point                | Module                                                                        | Effect                                                                                                                                                                                                      |
+| -------------------------------- | ----------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1. Client skill list**         | `resolveSkillStates()` in `config/skill-state.ts`                             | Skills with flag OFF are excluded from the resolved list returned to clients (macOS skill list, settings UI). The skill never appears in the client.                                                        |
+| **2. Capability memory seeding** | `seedSkillGraphNodes()` in `plugins/defaults/memory/graph/capability-seed.ts` | Skills with flag OFF are excluded from capability memory seeding. The model cannot discover them via semantic recall.                                                                                       |
+| **3. `skill_load` tool**         | `executeSkillLoad()` in `tools/skills/load.ts`                                | If the model attempts to load a flagged-off skill by name, the tool returns an error: `"skill is currently unavailable (disabled by feature flag)"`.                                                        |
+| **4. Runtime tool projection**   | `projectSkillTools()` in `daemon/conversation-skill-tools.ts`                 | Even if a skill was previously active in a session (has `<loaded_skill>` markers in history), the per-turn projection drops it when the flag is OFF. Already-registered tools are unregistered.             |
+| **5. Included child skills**     | `executeSkillLoad()` in `tools/skills/load.ts`                                | When a parent skill includes children via the `includes` directive, each child is independently checked against its feature flag. Flagged-off children are silently excluded from the loaded skill content. |
+| **6. Skill install gate**        | `installSkill()` in `daemon/handlers/skills.ts`                               | When a client requests skill installation, the function checks the skill's feature flag before proceeding. If the flag is OFF, the install is rejected with an error.                                       |
 
 All six enforcement points derive the flag key via `skillFlagKey(skill)` — which returns `undefined` for ungated skills, short-circuiting the check — and then call `isAssistantFeatureFlagEnabled(flagKey, config)` for consistency.
 
@@ -814,17 +811,17 @@ All six enforcement points derive the flag key via `skillFlagKey(skill)` — whi
 
 **Key source files:**
 
-| File                                            | Purpose                                                                                                                                                                   |
-| ----------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/config/assistant-feature-flags.ts`         | Canonical resolver: `isAssistantFeatureFlagEnabled()`, registry loader                                                                                                    |
-| `src/config/skill-state.ts`                     | `skillFlagKey(skill)` — returns canonical flag key for skills with a `featureFlag` frontmatter field, `undefined` otherwise; `resolveSkillStates()` — enforcement point 1 |
-| `src/memory/graph/capability-seed.ts`           | `seedSkillGraphNodes()` — enforcement point 2                                                                                                                             |
-| `src/tools/skills/load.ts`                      | `executeSkillLoad()` — enforcement points 3 and 5                                                                                                                         |
-| `src/daemon/conversation-skill-tools.ts`        | `projectSkillTools()` — enforcement point 4                                                                                                                               |
-| `src/config/schema.ts`                          | `AssistantConfig` Zod schema definition (feature flag values are no longer stored here)                                                                                   |
-| `src/daemon/handlers/skills.ts`                 | `listSkills()` — uses `resolveSkillStates()` for client responses; `installSkill()` — enforcement point 6                                                                 |
-| `meta/feature-flags/feature-flag-registry.json` | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions                                                        |
-| `src/config/feature-flag-registry.json`         | Bundled copy of the unified registry for compiled binary resolution                                                                                                       |
+| File                                                   | Purpose                                                                                                                                                                   |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/config/assistant-feature-flags.ts`                | Canonical resolver: `isAssistantFeatureFlagEnabled()`, registry loader                                                                                                    |
+| `src/config/skill-state.ts`                            | `skillFlagKey(skill)` — returns canonical flag key for skills with a `featureFlag` frontmatter field, `undefined` otherwise; `resolveSkillStates()` — enforcement point 1 |
+| `src/plugins/defaults/memory/graph/capability-seed.ts` | `seedSkillGraphNodes()` — enforcement point 2                                                                                                                             |
+| `src/tools/skills/load.ts`                             | `executeSkillLoad()` — enforcement points 3 and 5                                                                                                                         |
+| `src/daemon/conversation-skill-tools.ts`               | `projectSkillTools()` — enforcement point 4                                                                                                                               |
+| `src/config/schema.ts`                                 | `AssistantConfig` Zod schema definition (feature flag values are no longer stored here)                                                                                   |
+| `src/daemon/handlers/skills.ts`                        | `listSkills()` — uses `resolveSkillStates()` for client responses; `installSkill()` — enforcement point 6                                                                 |
+| `meta/feature-flags/feature-flag-registry.json`        | Unified feature flag registry (repo root) — all declared flags with scope, label, default values, and descriptions                                                        |
+| `src/config/feature-flag-registry.json`                | Bundled copy of the unified registry for compiled binary resolution                                                                                                       |
 
 ---
 

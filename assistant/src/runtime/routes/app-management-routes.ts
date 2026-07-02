@@ -49,7 +49,10 @@ import { compareSemver } from "../../daemon/handlers/shared.js";
 import { computeContentId } from "../../util/content-id.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { publishAppsChanged } from "../sync/resource-sync-events.js";
+import {
+  getOriginClientId,
+  publishAppsChanged,
+} from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   NotFoundError,
@@ -62,12 +65,6 @@ const log = getLogger("app-management-routes");
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function getOriginClientId(
-  headers: RouteHandlerArgs["headers"],
-): string | undefined {
-  return headers?.["x-vellum-client-id"]?.trim() || undefined;
-}
 
 function getSharedAppsDir(): string {
   return join(

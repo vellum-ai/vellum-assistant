@@ -185,6 +185,40 @@ describe("computeAcpRunSteps — folding rules", () => {
     expect(messageStep(steps[2]!).content).toBe("c");
   });
 
+  test("folds a final id-bearing snapshot into the streamed anonymous step", () => {
+    // Some agents stream a message as id-less deltas, then re-send the whole
+    // message as one chunk that finally carries a messageId; it must not open a
+    // duplicate step.
+    const steps = computeAcpRunSteps([
+      event({ updateType: "agent_message_chunk", content: "## Plan\n" }),
+      event({ updateType: "agent_message_chunk", content: "step one" }),
+      event({
+        updateType: "agent_message_chunk",
+        messageId: "m1",
+        content: "## Plan\nstep one",
+      }),
+    ]);
+    expect(steps).toHaveLength(1);
+    const msg = messageStep(steps[0]!);
+    expect(msg.content).toBe("## Plan\nstep one");
+    expect(msg.messageId).toBe("m1");
+    expect(msg.detailKey).toBe("msg:m1");
+  });
+
+  test("does not fold an id-bearing chunk that differs from the streamed text", () => {
+    const steps = computeAcpRunSteps([
+      event({ updateType: "agent_message_chunk", content: "first" }),
+      event({
+        updateType: "agent_message_chunk",
+        messageId: "m2",
+        content: "a different message",
+      }),
+    ]);
+    expect(steps).toHaveLength(2);
+    expect(messageStep(steps[0]!).messageId).toBe("");
+    expect(messageStep(steps[1]!).messageId).toBe("m2");
+  });
+
   test("agent_thought_chunk accumulates and splits by messageId", () => {
     const steps = computeAcpRunSteps([
       event({ updateType: "agent_thought_chunk", messageId: "th1", content: "Pon" }),

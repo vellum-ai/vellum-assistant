@@ -27,7 +27,6 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
-import { runShutdownHooks } from "../daemon/shutdown-registry.js";
 import { RiskLevel } from "../permissions/types.js";
 import {
   registerPlugin,
@@ -154,22 +153,6 @@ describe("plugin tool contributions", () => {
     expect(names).toContain("plugin-contrib-tool");
   });
 
-  test("plugin tools are unregistered when shutdown hooks run", async () => {
-    const plugin = buildPlugin("bravo-contributor", {
-      async init() {},
-      tools: [makeFakeTool("bravo-tool")],
-    });
-    registerPlugin(plugin);
-
-    await bootstrapPlugins();
-    expect(getTool("bravo-tool")).toBeDefined();
-
-    await runShutdownHooks("test-shutdown");
-
-    expect(getTool("bravo-tool")).toBeUndefined();
-    expect(getPluginRefCount("bravo-contributor")).toBe(0);
-  });
-
   test("bootstrap is a no-op for plugins that declare no tools", async () => {
     const plugin = buildPlugin("no-tools", { async init() {} });
     registerPlugin(plugin);
@@ -179,11 +162,6 @@ describe("plugin tool contributions", () => {
     // default contributes the `advisor` tool), so the global tool set is not
     // empty. What matters here is that the no-tools plugin contributed nothing
     // of its own — its tool refcount stays at zero.
-    expect(getPluginRefCount("no-tools")).toBe(0);
-
-    // Shutdown must also be safe — `unregisterPluginTools` is idempotent for
-    // plugins that never contributed any tools.
-    await runShutdownHooks("test-shutdown");
     expect(getPluginRefCount("no-tools")).toBe(0);
   });
 

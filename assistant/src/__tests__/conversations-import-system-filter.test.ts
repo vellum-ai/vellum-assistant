@@ -24,7 +24,7 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../memory/indexer.js", () => ({
+mock.module("../plugins/defaults/memory/indexer.js", () => ({
   indexMessageNow: async () => {},
 }));
 

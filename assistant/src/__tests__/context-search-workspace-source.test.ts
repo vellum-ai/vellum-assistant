@@ -16,8 +16,8 @@ import {
   searchWorkspaceSource,
   WORKSPACE_SOURCE_MAX_FILE_SIZE_BYTES,
   WORKSPACE_SOURCE_MAX_SCANNED_FILES,
-} from "../memory/context-search/sources/workspace.js";
-import type { RecallSearchContext } from "../memory/context-search/types.js";
+} from "../plugins/defaults/memory/context-search/sources/workspace.js";
+import type { RecallSearchContext } from "../plugins/defaults/memory/context-search/types.js";
 
 const testDirs: string[] = [];
 

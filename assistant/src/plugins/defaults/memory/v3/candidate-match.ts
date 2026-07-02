@@ -22,8 +22,6 @@
 import { getConfig } from "../../../../config/loader.js";
 import { loadSkillCatalog } from "../../../../config/skills.js";
 import type { AssistantConfig } from "../../../../config/types.js";
-import { simBatch } from "../../../../memory/v2/sim.js";
-import { skillSlugFor } from "../../../../memory/v2/skill-store.js";
 import {
   EMBED_BASE_DELAY_MS,
   EMBED_MAX_RETRIES,
@@ -32,6 +30,8 @@ import {
 } from "../../../../persistence/embeddings/embed.js";
 import { getLogger } from "../../../../util/logger.js";
 import { abortableSleep, computeRetryDelay } from "../../../../util/retry.js";
+import { simBatch } from "../v2/sim.js";
+import { skillSlugFor } from "../v2/skill-store.js";
 
 const log = getLogger("memory-v3-candidate-match");
 

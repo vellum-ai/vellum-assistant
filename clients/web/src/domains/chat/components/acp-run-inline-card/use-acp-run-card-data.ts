@@ -1,9 +1,10 @@
 /**
- * Builds the props for `AcpRunInlineProgressCard` from a single ACP run's
- * store entry. Projects the run's raw event buffer into the carousel via
- * `useAcpRunSteps` + `acpStepsToCarousel`, then maps the run status to the
- * shared card props consumed by the tool-progress card chrome — the same shape
- * the workflow and subagent inline cards feed their shells.
+ * Builds the `ToolCallCardData` consumed by `InlineProcessCard` via the acp-run
+ * descriptor, from a single ACP run's store entry. Projects the run's raw event
+ * buffer into the carousel via `useAcpRunSteps` + `acpStepsToCarousel`, then
+ * maps the run status to the shared card props consumed by the tool-progress
+ * card chrome — the same shape the workflow and subagent inline cards feed their
+ * shells.
  *
  * Returns `null` when no entry exists for the given session yet — the
  * spawn-race window where the assistant message containing the inline card
@@ -38,6 +39,8 @@ export interface AcpRunCardData {
   currentStepInfo: string;
   /** Pre-formatted tool-step count, e.g. `"2 steps"`. */
   stepCount: string;
+  /** Backing agent (e.g. "claude", "codex") — drives the brand glyph. */
+  agent: string;
 }
 
 /**
@@ -111,6 +114,7 @@ export function useAcpRunCardData(acpSessionId: string): AcpRunCardData | null {
       currentStepTitle: latest?.label ?? "Working",
       currentStepInfo: deriveCurrentStepInfo(steps),
       stepCount: `${toolStepCount} step${toolStepCount === 1 ? "" : "s"}`,
+      agent: entry.agent,
     };
   }, [entry, steps]);
 }

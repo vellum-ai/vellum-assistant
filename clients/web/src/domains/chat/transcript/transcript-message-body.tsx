@@ -16,8 +16,10 @@ import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-mes
 import { toast } from "@vellumai/design-library";
 import { MessageHoverActions } from "@/domains/chat/components/message-hover-actions/message-hover-actions";
 import { SubagentSpawnGroup } from "@/domains/chat/components/subagent-inline-progress-card/subagent-spawn-group";
-import { WorkflowInlineProgressCard } from "@/domains/chat/components/workflow-inline-progress-card/workflow-inline-progress-card";
-import { AcpRunInlineProgressCard } from "@/domains/chat/components/acp-run-inline-card/acp-run-inline-progress-card";
+import { InlineProcessCardRow } from "@/domains/chat/process-registry/inline-process-card-row";
+import { WORKFLOW_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/workflow";
+import { ACP_RUN_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/acp-run";
+import { BACKGROUND_TASK_DESCRIPTOR } from "@/domains/chat/process-registry/descriptors/background-task";
 import { SurfaceRouter } from "@/domains/chat/components/surfaces/surface-router";
 import { SingleActivity } from "@/domains/chat/components/single-activity/single-activity";
 import { MultiActivityGroup } from "@/domains/chat/components/multi-activity-group/multi-activity-group";
@@ -32,21 +34,27 @@ import {
   isSuppressedUiTool,
 } from "@/domains/chat/transcript/message-content";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
+import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
+import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
+import { captureError } from "@/lib/sentry/capture-error";
 import { getSlackLinkUrl } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
+import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ConversationMessageSurface } from "@vellumai/assistant-api";
 import {
   computeCardBackedWorkflowRunIds,
+  extractBgIdFromResult,
   isInteractiveClickTarget,
   lookupSubagentEntriesForMessage,
   acpRunIdForCall,
   resolveAcpRunIds,
+  resolveBackgroundTaskIds,
   resolveSpawnedSubagentIds,
   resolveWorkflowRunIds,
   SlackMessageAttribution,
@@ -216,10 +224,34 @@ export function TranscriptMessageBody({
     () => new Set(cardBackedAcpKey ? cardBackedAcpKey.split("|") : []),
     [cardBackedAcpKey],
   );
+  // The background-task ids in THIS message whose `bash`/`host_bash` chip is
+  // suppressed in favor of an inline card ("card-backed"). Mirrors the ACP gate:
+  // a bg id is card-backed only when an entry exists in the store, so a
+  // backgrounded call whose start event hasn't landed (or whose store wiring
+  // isn't present yet) keeps rendering its tool result instead of vanishing
+  // behind a card with nothing to show.
+  const cardBackedBgKey = useBackgroundTaskStore(
+    useCallback(
+      (s) => {
+        const ids: string[] = [];
+        for (const tc of message.toolCalls ?? []) {
+          const id = extractBgIdFromResult(tc);
+          if (id !== undefined && s.byId[id] !== undefined) ids.push(id);
+        }
+        return ids.join("|");
+      },
+      [message.toolCalls],
+    ),
+  );
+  const cardBackedBackgroundTaskIds = useMemo(
+    () => new Set(cardBackedBgKey ? cardBackedBgKey.split("|") : []),
+    [cardBackedBgKey],
+  );
 
   const claimedSpawnIds = new Set<string>();
   const claimedWorkflowIds = new Set<string>();
   const claimedAcpIds = new Set<string>();
+  const claimedBackgroundTaskIds = new Set<string>();
   const cardBackedWorkflowRunId = (tc: ChatMessageToolCall): string | null => {
     const rid = workflowRunIdForCall(tc, byToolUseIdWf);
     return rid !== null && cardBackedWorkflowRunIds.has(rid) ? rid : null;
@@ -228,8 +260,17 @@ export function TranscriptMessageBody({
     const id = acpRunIdForCall(tc, byToolUseIdAcp);
     return id !== null && cardBackedAcpRunIds.has(id) ? id : null;
   };
+  const cardBackedBackgroundTaskId = (
+    tc: ChatMessageToolCall,
+  ): string | null => {
+    const id = extractBgIdFromResult(tc);
+    return id !== undefined && cardBackedBackgroundTaskIds.has(id) ? id : null;
+  };
   const handleAcpRunClick = useCallback((acpSessionId: string) => {
     useViewerStore.getState().openAcpRunDetail(acpSessionId);
+  }, []);
+  const handleBackgroundTaskClick = useCallback((id: string) => {
+    useViewerStore.getState().openBackgroundTaskDetail(id);
   }, []);
 
   const handleVellumLinkClick = useCallback(
@@ -315,11 +356,14 @@ export function TranscriptMessageBody({
     return (
       <div className="flex w-full flex-col gap-1.5">
         {runIds.map((runId) => (
-          <WorkflowInlineProgressCard
+          <InlineProcessCardRow
             key={runId}
-            runId={runId}
-            onWorkflowClick={onWorkflowClick}
-            onStopWorkflow={onStopWorkflow}
+            descriptor={WORKFLOW_DESCRIPTOR}
+            id={runId}
+            onOpen={onWorkflowClick ? () => onWorkflowClick(runId) : undefined}
+            onStop={onStopWorkflow ? () => onStopWorkflow(runId) : undefined}
+            stopAriaLabel="Stop workflow"
+            testId="inline-process-card"
           />
         ))}
       </div>
@@ -336,10 +380,46 @@ export function TranscriptMessageBody({
     return (
       <div className="flex w-full flex-col gap-1.5">
         {acpSessionIds.map((acpSessionId) => (
-          <AcpRunInlineProgressCard
+          <InlineProcessCardRow
             key={acpSessionId}
-            acpSessionId={acpSessionId}
-            onAcpRunClick={handleAcpRunClick}
+            descriptor={ACP_RUN_DESCRIPTOR}
+            id={acpSessionId}
+            onOpen={() => handleAcpRunClick(acpSessionId)}
+            onStop={() =>
+              void stopAcpRun(acpSessionId).catch((err) => {
+                captureError(err, { context: "TranscriptMessageBody.stopAcpRun" });
+              })
+            }
+            stopAriaLabel="Stop run"
+            testId="inline-process-card"
+          />
+        ))}
+      </div>
+    );
+  };
+
+  const renderInlineBackgroundTaskCards = (
+    toolCalls: ChatMessageToolCall[],
+  ) => {
+    const taskIds = resolveBackgroundTaskIds(toolCalls, claimedBackgroundTaskIds);
+    if (taskIds.length === 0) return null;
+    return (
+      <div className="flex w-full flex-col gap-1.5">
+        {taskIds.map((id) => (
+          <InlineProcessCardRow
+            key={id}
+            descriptor={BACKGROUND_TASK_DESCRIPTOR}
+            id={id}
+            onOpen={() => handleBackgroundTaskClick(id)}
+            onStop={() =>
+              void stopBackgroundTask(id).catch((err) => {
+                captureError(err, {
+                  context: "TranscriptMessageBody.stopBackgroundTask",
+                });
+              })
+            }
+            stopAriaLabel="Stop command"
+            testId="inline-process-card"
           />
         ))}
       </div>
@@ -418,14 +498,16 @@ export function TranscriptMessageBody({
       }
     }
     const renderableToolCalls = groupToolCalls.filter(
-      // Suppress the raw chip only for a card-backed run_workflow / acp_spawn
-      // call (see cardBackedWorkflowRunId / cardBackedAcpRunId). A failed call
-      // (no id) or a run with no store entry is not card-backed, so it renders
-      // its tool result instead of vanishing.
+      // Suppress the raw chip only for a card-backed run_workflow / acp_spawn /
+      // background bash call (see cardBackedWorkflowRunId / cardBackedAcpRunId /
+      // cardBackedBackgroundTaskId). A failed call (no id) or a run with no
+      // store entry is not card-backed, so it renders its tool result instead
+      // of vanishing.
       (tc) =>
         !isSubagentSpawnCall(tc) &&
         cardBackedWorkflowRunId(tc) === null &&
-        cardBackedAcpRunId(tc) === null,
+        cardBackedAcpRunId(tc) === null &&
+        cardBackedBackgroundTaskId(tc) === null,
     );
     const loneTool =
       cardItems.length === 1 &&
@@ -443,6 +525,7 @@ export function TranscriptMessageBody({
           {renderInlineSubagentCards(groupToolCalls)}
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
+          {renderInlineBackgroundTaskCards(groupToolCalls)}
         </Fragment>
       );
     }
@@ -457,7 +540,8 @@ export function TranscriptMessageBody({
           .filter(
             (tc) =>
               cardBackedWorkflowRunId(tc) !== null ||
-              cardBackedAcpRunId(tc) !== null,
+              cardBackedAcpRunId(tc) !== null ||
+              cardBackedBackgroundTaskId(tc) !== null,
           )
           .map((tc) => tc.id),
       );
@@ -492,6 +576,7 @@ export function TranscriptMessageBody({
           {renderInlineSubagentCards(groupToolCalls)}
           {renderInlineWorkflowCards(groupToolCalls)}
           {renderInlineAcpRunCards(groupToolCalls)}
+          {renderInlineBackgroundTaskCards(groupToolCalls)}
         </Fragment>
       );
     }
@@ -515,6 +600,7 @@ export function TranscriptMessageBody({
         {renderInlineSubagentCards(groupToolCalls)}
         {renderInlineWorkflowCards(groupToolCalls)}
         {renderInlineAcpRunCards(groupToolCalls)}
+        {renderInlineBackgroundTaskCards(groupToolCalls)}
       </Fragment>
     );
   };

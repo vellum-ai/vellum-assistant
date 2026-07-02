@@ -6,7 +6,7 @@ import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
 import { ipcClassifyRisk } from "../ipc/gateway-client.js";
-import { MEMORY_RETROSPECTIVE_ORIGIN } from "../memory/memory-retrospective-constants.js";
+import { MEMORY_RETROSPECTIVE_ORIGIN } from "../plugins/defaults/memory/memory-retrospective-constants.js";
 import { indexCatalogById } from "../skills/include-graph.js";
 import { getSkillRoots } from "../skills/path-classifier.js";
 import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
@@ -27,6 +27,7 @@ import {
   getWorkspacePluginsDir,
   getWorkspaceRoutesDir,
   getWorkspaceToolsDir,
+  getWorkspaceWorkflowsDir,
 } from "../util/platform.js";
 import {
   type ApprovalContext,
@@ -311,6 +312,7 @@ function buildFileContext(): FileContext {
     pluginsDir: resolveRealPath(getWorkspacePluginsDir()),
     toolsDir: resolveRealPath(getWorkspaceToolsDir()),
     routesDir: resolveRealPath(getWorkspaceRoutesDir()),
+    workflowsDir: resolveRealPath(getWorkspaceWorkflowsDir()),
     actorTokenSigningKeyPath: join(protectedDir, "actor-token-signing-key"),
     skillSourceDirs: getSkillRoots(config.skills.load.extraDirs).map(
       resolveRealPath,

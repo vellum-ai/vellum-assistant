@@ -148,6 +148,7 @@ async function runOnce(args: {
     onEvent: (event) => {
       events.push(event);
     },
+    modelProfileKey: "balanced",
     resolveContextWindow: () => ({
       maxInputTokens: 10,
       overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
@@ -215,6 +216,7 @@ describe("AgentLoop budget-gate regrowth guard", () => {
       onEvent: (event) => {
         events.push(event);
       },
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
@@ -249,6 +251,7 @@ describe("AgentLoop budget-gate regrowth guard", () => {
       requestId: "req",
       messages: [userMessage],
       onEvent: () => {},
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
@@ -310,6 +313,7 @@ describe("AgentLoop budget-gate per-turn proactive-futility suppression", () => 
       onEvent: (event) => {
         events.push(event);
       },
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
@@ -369,6 +373,7 @@ describe("AgentLoop budget-gate per-turn proactive-futility suppression", () => 
       onEvent: (e) => {
         events.push(e);
       },
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
@@ -411,6 +416,7 @@ describe("AgentLoop budget-gate per-turn proactive-futility suppression", () => 
       onEvent: (e) => {
         turn1.push(e);
       },
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
@@ -428,6 +434,7 @@ describe("AgentLoop budget-gate per-turn proactive-futility suppression", () => 
       onEvent: (e) => {
         turn2.push(e);
       },
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },
@@ -483,6 +490,7 @@ describe("AgentLoop budget-gate per-turn proactive-futility suppression", () => 
       onEvent: (e) => {
         events.push(e);
       },
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },

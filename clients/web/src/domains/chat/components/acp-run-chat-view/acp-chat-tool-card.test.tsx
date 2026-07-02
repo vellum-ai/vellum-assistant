@@ -20,9 +20,126 @@ function toolBlock(overrides: Partial<ToolBlock> = {}): ToolBlock {
 }
 
 describe("AcpChatToolCard", () => {
-  test("renders the tool title", () => {
-    render(<AcpChatToolCard block={toolBlock()} onOpenDiff={() => {}} />);
+  test("renders the kind label in the header", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({ toolKind: "read", title: "cat ./README.md" })}
+        onOpenDiff={() => {}}
+      />,
+    );
     expect(screen.getByText("Read file")).toBeDefined();
+  });
+
+  test("renders an execute command as a full, wrapping body line", () => {
+    const command = "git log --oneline | grep something && echo ".repeat(10);
+    render(
+      <AcpChatToolCard
+        block={toolBlock({ toolKind: "execute", title: command })}
+        onOpenDiff={() => {}}
+      />,
+    );
+    expect(screen.getByText("Run command")).toBeDefined();
+    const detail = screen.getByTestId("acp-chat-tool-detail");
+    // Full command present in the DOM (not truncated) and set to wrap.
+    expect(detail.textContent).toBe(command);
+    expect(detail.className).toContain("whitespace-pre-wrap");
+    expect(detail.className).toContain("break-words");
+    expect(detail.className).not.toContain("truncate");
+  });
+
+  test("a read block shows the kind label + path chip with no duplicate title line", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({
+          toolKind: "read",
+          title: "src/touched.ts",
+          locations: [{ path: "src/touched.ts" }],
+        })}
+        onOpenDiff={() => {}}
+      />,
+    );
+    expect(screen.getByText("Read file")).toBeDefined();
+    expect(screen.getByTestId("acp-chat-tool-file-ref").textContent).toContain(
+      "src/touched.ts",
+    );
+    expect(screen.queryByTestId("acp-chat-tool-detail")).toBeNull();
+  });
+
+  test("a file-op block with no chips falls back to showing its title", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({ toolKind: "read", title: "src/foo.ts" })}
+        onOpenDiff={() => {}}
+      />,
+    );
+    // No locations/diff → no chip → the title must still surface as the detail.
+    expect(screen.getByText("Read file")).toBeDefined();
+    expect(screen.queryByTestId("acp-chat-tool-file-ref")).toBeNull();
+    expect(screen.getByTestId("acp-chat-tool-detail").textContent).toBe(
+      "src/foo.ts",
+    );
+  });
+
+  test("an unknown kind falls back to the Tool call label and Code icon", () => {
+    const { container } = render(
+      <AcpChatToolCard
+        block={toolBlock({ toolKind: "other", title: "mystery" })}
+        onOpenDiff={() => {}}
+      />,
+    );
+    expect(screen.getByText("Tool call")).toBeDefined();
+    expect(container.querySelector(".lucide-code")).not.toBeNull();
+  });
+
+  test("shows the command from rawInput.command as the detail line", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({
+          toolKind: "execute",
+          title: "fallback title",
+          rawInput: { command: "npm test" },
+        })}
+        onOpenDiff={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("acp-chat-tool-detail").textContent).toBe(
+      "npm test",
+    );
+  });
+
+  test("falls back to the title and hides the raw section when rawInput is absent", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({ toolKind: "execute", title: "npm test" })}
+        onOpenDiff={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("acp-chat-tool-detail").textContent).toBe(
+      "npm test",
+    );
+    expect(screen.queryByTestId("acp-chat-tool-raw")).toBeNull();
+  });
+
+  test("renders a collapsible raw input/output section that expands to pretty-printed values", () => {
+    render(
+      <AcpChatToolCard
+        block={toolBlock({
+          toolKind: "execute",
+          rawInput: { command: "npm test" },
+          rawOutput: { exitCode: 0, stdout: "ok" },
+        })}
+        onOpenDiff={() => {}}
+      />,
+    );
+    // Collapsed by default — sub-blocks not yet rendered.
+    expect(screen.queryByTestId("acp-chat-tool-raw-input")).toBeNull();
+    fireEvent.click(screen.getByTestId("acp-chat-tool-raw-toggle"));
+    expect(screen.getByTestId("acp-chat-tool-raw-input").textContent).toContain(
+      JSON.stringify({ command: "npm test" }, null, 2),
+    );
+    expect(
+      screen.getByTestId("acp-chat-tool-raw-output").textContent,
+    ).toContain(JSON.stringify({ exitCode: 0, stdout: "ok" }, null, 2));
   });
 
   test("renders the status pill per status", () => {
@@ -50,16 +167,24 @@ describe("AcpChatToolCard", () => {
     expect(screen.queryByTestId("acp-chat-tool-running")).toBeNull();
   });
 
-  test("renders inline content output in a monospace block", () => {
+  test("renders an output-open button that opens the panel via onOpenOutput", () => {
     const content = JSON.stringify([
-      { type: "content", content: { type: "text", text: "file contents here" } },
+      { type: "content", content: { type: "text", text: "created" } },
     ]);
+    const onOpenOutput = mock((_id: string) => {});
     render(
-      <AcpChatToolCard block={toolBlock({ content })} onOpenDiff={() => {}} />,
+      <AcpChatToolCard
+        block={toolBlock({ toolCallId: "call-9", content })}
+        onOpenDiff={() => {}}
+        onOpenOutput={onOpenOutput}
+      />,
     );
-    const output = screen.getByTestId("acp-chat-tool-output");
-    expect(output.textContent).toContain("file contents here");
-    expect(output.className).toContain("font-mono");
+    // Output opens the nested panel rather than expanding inline.
+    expect(screen.queryByTestId("acp-chat-tool-output")).toBeNull();
+    const open = screen.getByTestId("acp-chat-tool-output-open");
+    expect(open.textContent).toContain("created"); // first line previewed
+    fireEvent.click(open);
+    expect(onOpenOutput).toHaveBeenCalledWith("call-9");
   });
 
   test("renders a file chip per diff and fires onOpenDiff with the tool id + file change", () => {
@@ -102,19 +227,15 @@ describe("AcpChatToolCard", () => {
     expect(screen.queryByTestId("acp-chat-tool-file-chip")).toBeNull();
   });
 
-  test("collapses long output behind a toggle", () => {
-    const longText = "x".repeat(800);
+  test("shows no output-open button when there is no textual output", () => {
+    // A diff-only tool has file chips but no content/terminal text → no button.
     const content = JSON.stringify([
-      { type: "content", content: { type: "text", text: longText } },
+      { type: "diff", path: "src/a.ts", oldText: "old", newText: "new" },
     ]);
     render(
       <AcpChatToolCard block={toolBlock({ content })} onOpenDiff={() => {}} />,
     );
-
-    expect(screen.queryByTestId("acp-chat-tool-output")).toBeNull();
-    const toggle = screen.getByTestId("acp-chat-tool-output-toggle");
-    fireEvent.click(toggle);
-    expect(screen.getByTestId("acp-chat-tool-output")).toBeDefined();
+    expect(screen.queryByTestId("acp-chat-tool-output-open")).toBeNull();
   });
 });
 

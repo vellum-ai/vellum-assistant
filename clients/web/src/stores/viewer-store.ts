@@ -16,6 +16,7 @@
  * - `activeToolDetail` — tool-call detail drawer payload
  * - `activeWorkflowRunId` — workflow detail panel
  * - `activeAcpRunId` — ACP run detail panel
+ * - `activeBackgroundTaskId` — background-task detail panel
  *
  * App share/deploy lifecycle lives in `domains/chat/deploy-store.ts`.
  *
@@ -25,6 +26,8 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import { create } from "zustand";
 
+import type { SetupChannelId } from "@/types/channel-types";
+import type { ProcessKind } from "@/domains/chat/process-registry/types";
 import { appsByIdOpenPost, documentsByIdGet } from "@/generated/daemon/sdk.gen";
 import { primeAppHtmlCache } from "@/utils/app-html-cache";
 
@@ -37,7 +40,9 @@ type OverlayView =
   | "subagent-detail"
   | "tool-detail"
   | "workflow-detail"
-  | "acp-run-detail";
+  | "acp-run-detail"
+  | "background-task-detail"
+  | "channel-setup";
 
 /**
  * Resolve the "view before" value for overlay navigation.
@@ -98,7 +103,9 @@ function resolveViewBefore(
     | "viewBeforeSubagentDetail"
     | "viewBeforeToolDetail"
     | "viewBeforeWorkflowDetail"
-    | "viewBeforeAcpRunDetail",
+    | "viewBeforeAcpRunDetail"
+    | "viewBeforeBackgroundTaskDetail"
+    | "viewBeforeChannelSetup",
 ): Exclude<MainView, OverlayView> {
   const mv = state.mainView;
   if (
@@ -106,7 +113,9 @@ function resolveViewBefore(
     mv === "subagent-detail" ||
     mv === "tool-detail" ||
     mv === "workflow-detail" ||
-    mv === "acp-run-detail"
+    mv === "acp-run-detail" ||
+    mv === "background-task-detail" ||
+    mv === "channel-setup"
   ) {
     return state[field];
   }
@@ -125,7 +134,9 @@ export type MainView =
   | "subagent-detail"
   | "tool-detail"
   | "workflow-detail"
-  | "acp-run-detail";
+  | "acp-run-detail"
+  | "background-task-detail"
+  | "channel-setup";
 
 export type IntelligenceTab = "identity" | "skills" | "workspace" | "contacts";
 
@@ -141,6 +152,21 @@ export interface OpenedDocumentState {
   conversationId: string;
   documentName: string;
   content: string;
+}
+
+export type ChannelSetupType = SetupChannelId;
+
+export interface ChannelSetupPayload {
+  channel: ChannelSetupType;
+  assistantId: string;
+  assistantName: string;
+  /**
+   * Conversation that opened the wizard (from the `open_panel` event).
+   * Targets the close auto-notify at the originating conversation even if
+   * the user switches conversations while the drawer is open. Absent when
+   * the panel was opened outside an assistant conversation.
+   */
+  conversationId?: string;
 }
 
 export interface ToolDetailPayload {
@@ -249,6 +275,10 @@ export interface ViewerState {
   viewBeforeWorkflowDetail: Exclude<MainView, OverlayView>;
   activeAcpRunId: string | null;
   viewBeforeAcpRunDetail: Exclude<MainView, OverlayView>;
+  activeBackgroundTaskId: string | null;
+  viewBeforeBackgroundTaskDetail: Exclude<MainView, OverlayView>;
+  activeChannelSetup: ChannelSetupPayload | null;
+  viewBeforeChannelSetup: Exclude<MainView, OverlayView>;
   /**
    * Monotonic counter bumped when a viewer (e.g. the mobile tool-detail
    * overlay, which lives in a separate portal subtree) asks to open the trust
@@ -286,6 +316,28 @@ export interface ViewerActions {
   openAcpRunDetail: (acpSessionId: string) => void;
   closeAcpRunDetail: () => void;
 
+  // --- Background task detail ---
+  openBackgroundTaskDetail: (id: string) => void;
+  closeBackgroundTaskDetail: () => void;
+
+  // --- Process-detail routing facade ---
+  /**
+   * Opens any background-process detail panel by `{ kind, id }`, delegating to
+   * the matching per-kind `openXDetail` action so every process kind routes
+   * through one call site. Handles the four process kinds (subagent, workflow,
+   * acp-run, background-task); `tool-detail`, `document`, and `channel-setup`
+   * keep their own dedicated open actions.
+   */
+  openProcessDetail: (ref: { kind: ProcessKind; id: string }) => void;
+  /**
+   * Close whichever of the four process-detail panels (subagent, workflow,
+   * acp-run, background-task) is currently open, restoring the prior view. A
+   * no-op when none of the four is the active view. Mirrors the existing
+   * Escape behavior for these kinds; does not handle tool-detail, document, or
+   * channel-setup.
+   */
+  closeActiveDetail: () => void;
+
   // --- Tool detail ---
   openToolDetail: (payload: ToolDetailPayload) => void;
   /**
@@ -297,6 +349,10 @@ export interface ViewerActions {
   toggleToolDetail: (payload: ToolDetailPayload) => void;
   closeToolDetail: () => void;
   requestRuleEditorForActiveTool: () => void;
+
+  // --- Channel setup ---
+  openChannelSetup: (payload: ChannelSetupPayload) => void;
+  closeChannelSetup: () => void;
 
   // --- Document viewer ---
   openDocument: () => void;
@@ -337,6 +393,10 @@ const INITIAL_STATE: ViewerState = {
   viewBeforeWorkflowDetail: "chat",
   activeAcpRunId: null,
   viewBeforeAcpRunDetail: "chat",
+  activeBackgroundTaskId: null,
+  viewBeforeBackgroundTaskDetail: "chat",
+  activeChannelSetup: null,
+  viewBeforeChannelSetup: "chat",
   ruleEditorRequestSeq: 0,
 };
 
@@ -493,6 +553,82 @@ const useViewerStoreBase = create<ViewerStore>()((set, get) => ({
     set({
       mainView: get().viewBeforeAcpRunDetail,
       activeAcpRunId: null,
+    });
+  },
+
+  // --- Background task detail ---
+
+  openBackgroundTaskDetail: (id) => {
+    set({
+      mainView: "background-task-detail",
+      activeBackgroundTaskId: id,
+      viewBeforeBackgroundTaskDetail: resolveViewBefore(get(), "viewBeforeBackgroundTaskDetail"),
+    });
+  },
+
+  closeBackgroundTaskDetail: () => {
+    set({
+      mainView: get().viewBeforeBackgroundTaskDetail,
+      activeBackgroundTaskId: null,
+    });
+  },
+
+  // --- Process-detail routing facade ---
+
+  openProcessDetail: ({ kind, id }) => {
+    switch (kind) {
+      case "subagent":
+        get().openSubagentDetail(id);
+        return;
+      case "workflow":
+        get().openWorkflowDetail(id);
+        return;
+      case "acp-run":
+        get().openAcpRunDetail(id);
+        return;
+      case "background-task":
+        get().openBackgroundTaskDetail(id);
+        return;
+      default: {
+        const _exhaustive: never = kind;
+        void _exhaustive;
+      }
+    }
+  },
+
+  closeActiveDetail: () => {
+    switch (get().mainView) {
+      case "subagent-detail":
+        get().closeSubagentDetail();
+        return;
+      case "workflow-detail":
+        get().closeWorkflowDetail();
+        return;
+      case "acp-run-detail":
+        get().closeAcpRunDetail();
+        return;
+      case "background-task-detail":
+        get().closeBackgroundTaskDetail();
+        return;
+      default:
+        return;
+    }
+  },
+
+  // --- Channel setup ---
+
+  openChannelSetup: (payload) => {
+    set({
+      mainView: "channel-setup",
+      activeChannelSetup: payload,
+      viewBeforeChannelSetup: resolveViewBefore(get(), "viewBeforeChannelSetup"),
+    });
+  },
+
+  closeChannelSetup: () => {
+    set({
+      mainView: get().viewBeforeChannelSetup,
+      activeChannelSetup: null,
     });
   },
 

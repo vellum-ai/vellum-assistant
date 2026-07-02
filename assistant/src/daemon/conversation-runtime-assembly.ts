@@ -27,12 +27,6 @@ import {
 } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
 import {
-  countMemoryPrefixBlocks,
-  extractMemoryPrefixBlocks,
-  getLiveGraphMemory,
-} from "../memory/graph/conversation-graph-memory.js";
-import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
-import {
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
@@ -51,6 +45,15 @@ import {
 import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
 import {
+  countMemoryPrefixBlocks,
+  extractMemoryPrefixBlocks,
+  getLiveGraphMemory,
+} from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import {
+  unwrapMemoryBlock,
+  wrapMemoryBlock,
+} from "../plugins/defaults/memory/memory-marker.js";
+import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
 } from "../plugins/defaults/memory/v3/types.js";
@@ -68,6 +71,7 @@ import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
+import { getEffectiveEnabledPluginSet } from "./conversation-tool-setup.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
 import type {
   DynamicPageSurfaceData,
@@ -188,8 +192,8 @@ export function resolveTurnInboundActorContext(
 }
 
 /**
- * Render the `model_profile:` turn-context label for a turn from its resolved
- * inference profile key, for the unified `<turn_context>` block.
+ * Render the `model_profile:` turn-context label from the turn's profile
+ * notice key, for the unified `<turn_context>` block.
  *
  * Returns `null` when there is no key to announce (the caller gates this to the
  * turns where the active profile changed since the one last delivered to the
@@ -207,21 +211,23 @@ export function resolveTurnInboundActorContext(
  * random arm that can disagree with the model actually serving the turn.
  */
 export function resolveTurnModelProfileLabel(
-  modelProfileKey: string | null,
+  modelProfileNoticeKey: string | null,
   callSite: LLMCallSite,
   llm: LLMConfig,
   selectionSeed?: string,
 ): string | null {
-  if (modelProfileKey == null) {
+  if (modelProfileNoticeKey == null) {
     return null;
   }
-  const profileEntry = llm.profiles?.[modelProfileKey];
+  const profileEntry = llm.profiles?.[modelProfileNoticeKey];
   const resolved = resolveCallSiteConfig(callSite, llm, {
-    overrideProfile: modelProfileKey,
+    overrideProfile: modelProfileNoticeKey,
     selectionSeed,
   });
-  const label = profileEntry?.label ?? modelProfileKey;
-  return resolved.model ? `${label} (${resolved.model})` : label;
+  const label = profileEntry?.label ?? modelProfileNoticeKey;
+  return resolved.model && resolved.model !== label
+    ? `${label} (${resolved.model})`
+    : label;
 }
 
 /** Derive channel capabilities from source channel + interface identifiers. */
@@ -1587,13 +1593,19 @@ export interface RuntimeInjectionResult {
  * preserves ascending-`order` sort so downstream callers (notably
  * {@link applyRuntimeInjections}) can group blocks by `placement` and apply
  * them declaratively without losing per-injector ordering within each slot.
+ *
+ * `effectiveEnabledPlugins` carries the conversation's per-chat plugin scope:
+ * when non-null, injectors contributed by a plugin outside the set are excluded
+ * for this turn (see {@link getRegisteredInjectors}). `null`/omitted means no
+ * per-chat restriction.
  */
 async function collectInjectorBlocks(
   ctx: TurnContext,
   runMessages?: Message[],
+  effectiveEnabledPlugins?: Set<string> | null,
 ): Promise<InjectionBlock[]> {
   const out: InjectionBlock[] = [];
-  for (const injector of getRegisteredInjectors()) {
+  for (const injector of getRegisteredInjectors(effectiveEnabledPlugins)) {
     const block = await injector.produce(ctx, runMessages);
     if (block) out.push(block);
   }
@@ -1932,6 +1944,14 @@ export async function applyRuntimeInjections(
   // field below from it rather than from orchestrator-computed options.
   const liveConversation = findConversationOrSubagent(conversationId);
 
+  // Per-chat plugin scope for this turn: when the conversation restricts its
+  // plugins (`enabledPlugins` non-null), injectors contributed by a plugin
+  // outside the set are excluded below. `null` (no live conversation, or no
+  // restriction) leaves the injector chain unchanged.
+  const effectiveEnabledPlugins = liveConversation
+    ? getEffectiveEnabledPluginSet(liveConversation)
+    : null;
+
   const channelCapabilities = liveConversation?.channelCapabilities ?? null;
   const slackConversation = channelCapabilities?.channel === "slack";
 
@@ -1946,6 +1966,13 @@ export async function applyRuntimeInjections(
       liveConversation.originInterface ??
       "web")
     : undefined;
+  // OS surface reported by the client, independent of the transport interface
+  // above. Drives the per-turn `client_os:` line so the model knows whether it
+  // is talking to the web, iOS, or macOS app (all sharing the `"web"`
+  // transport interface). Read the frozen per-turn snapshot (not the live
+  // `clientOs`) so a queued message from another surface can't perturb the
+  // in-flight turn — same anti-race pattern as `clientTimezone`.
+  const clientOs = liveConversation?.currentTurnClientOs ?? undefined;
   const channelName = liveConversation
     ? (liveConversation.currentTurnChannelContext?.userMessageChannel ??
       liveConversation.originChannel ??
@@ -2054,6 +2081,7 @@ export async function applyRuntimeInjections(
     activeDocuments,
     timestamp,
     interfaceName,
+    clientOs,
     channelName,
     actorContext: options.actorContext,
     configuredUserTimezone,
@@ -2075,7 +2103,11 @@ export async function applyRuntimeInjections(
     ...injectionInputs,
   };
 
-  const chainBlocks = await collectInjectorBlocks(turnCtx, runMessages);
+  const chainBlocks = await collectInjectorBlocks(
+    turnCtx,
+    runMessages,
+    effectiveEnabledPlugins,
+  );
 
   // Split the chain output by placement so the downstream assembly can
   // process each slot with the correct ordering rule.

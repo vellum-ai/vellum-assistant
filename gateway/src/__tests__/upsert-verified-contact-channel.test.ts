@@ -486,7 +486,11 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     // reach the gateway write; the authoritative gateway row may be
     // blocked/revoked and must not be reactivated.
     queryRows = [
-      { channelId: "assistant-ch", contactId: "co-10", channelStatus: "active" },
+      {
+        channelId: "assistant-ch",
+        contactId: "co-10",
+        channelStatus: "active",
+      },
     ];
     gwUpdateChanges = [0, 0];
 
@@ -613,7 +617,11 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
     // race). The assistant mirror must NOT be activated, so a blocked actor is
     // never left active locally.
     queryRows = [
-      { channelId: "ch-race", contactId: "co-race", channelStatus: "unverified" },
+      {
+        channelId: "ch-race",
+        contactId: "co-race",
+        channelStatus: "unverified",
+      },
     ];
     gwSelectStatus = "unverified"; // pre-check passes
     gwUpdateChanges = [0, 0]; // guarded gateway updates miss
@@ -774,7 +782,11 @@ describe("upsertVerifiedContactChannel — revoked/blocked guards", () => {
 
   test("without the flag a gateway-revoked channel is still refused", async () => {
     queryRows = [
-      { channelId: "ch-mirror", contactId: "co-mirror", channelStatus: "active" },
+      {
+        channelId: "ch-mirror",
+        contactId: "co-mirror",
+        channelStatus: "active",
+      },
     ];
     gwSelectStatus = "revoked";
 
@@ -814,7 +826,11 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
     // The redeemer's channel currently lives under a different contact (the
     // guardian); the invite binds it to the target contact "mom".
     queryRows = [
-      { channelId: "ch-redeemer", contactId: "co-guardian", channelStatus: "active" },
+      {
+        channelId: "ch-redeemer",
+        contactId: "co-guardian",
+        channelStatus: "active",
+      },
     ];
 
     await upsertVerifiedContactChannel({
@@ -853,19 +869,23 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
       col: "type",
       val: "telegram",
     });
-    expect(where.conds.some((c) => c.op === "eq" && c.col === "id")).toBe(false);
+    expect(where.conds.some((c) => c.op === "eq" && c.col === "id")).toBe(
+      false,
+    );
 
     // The verified gateway write lands under the bound (target) contact.
     expect(
-      gwUpdates.some(
-        (u) => (u.set as { status?: string }).status === "active",
-      ),
+      gwUpdates.some((u) => (u.set as { status?: string }).status === "active"),
     ).toBe(true);
   });
 
   test("activates the gateway channel even when the assistant mirror re-parent fails", async () => {
     queryRows = [
-      { channelId: "ch-redeemer", contactId: "co-guardian", channelStatus: "active" },
+      {
+        channelId: "ch-redeemer",
+        contactId: "co-guardian",
+        channelStatus: "active",
+      },
     ];
     // The assistant-DB mirror re-parent throws transiently.
     runThrowOnSql = "SET contact_id";
@@ -882,9 +902,7 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
     // gateway source of truth is verified rather than left inactive.
     expect(result).toEqual({ verified: true });
     expect(
-      gwUpdates.some(
-        (u) => (u.set as { status?: string }).status === "active",
-      ),
+      gwUpdates.some((u) => (u.set as { status?: string }).status === "active"),
     ).toBe(true);
   });
 
@@ -961,7 +979,9 @@ describe("upsertVerifiedContactChannel — invite target-contact binding", () =>
       col: "type",
       val: "telegram",
     });
-    expect(where.conds.some((c) => c.op === "eq" && c.col === "id")).toBe(false);
+    expect(where.conds.some((c) => c.op === "eq" && c.col === "id")).toBe(
+      false,
+    );
   });
 });
 
@@ -984,5 +1004,74 @@ describe("upsertContactChannel — channel address casing", () => {
 
     expect(queryCalls[0]!.sql).toContain("cc.address = ? COLLATE NOCASE");
     expect(queryCalls[0]!.params).toEqual(["slack", "U123EXAMPLE"]);
+  });
+});
+
+describe("upsertContactChannel — bot sender classification", () => {
+  test("creates a bot sender's contact as 'assistant' with a provenance note, not 'human'", async () => {
+    queryRows = [];
+
+    await upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UBOT99",
+      externalChatId: "D123EXAMPLE",
+      displayName: "Peer Assistant",
+      contactType: "assistant",
+      notes:
+        "Automated Slack bot — messages from this contact are sent by an app, not a person.",
+    });
+
+    const contactInsert = runCalls.find((c) =>
+      c.sql.includes("INSERT OR IGNORE INTO contacts"),
+    );
+    expect(contactInsert).toBeTruthy();
+    expect(contactInsert!.sql).toContain("contact_type");
+    // params: [id, display_name, notes, contact_type, created_at, updated_at]
+    expect(contactInsert!.params[1]).toBe("Peer Assistant");
+    expect(contactInsert!.params[2]).toContain("Automated Slack bot");
+    expect(contactInsert!.params[3]).toBe("assistant");
+    expect(contactInsert!.params[3]).not.toBe("human");
+  });
+
+  test("creates a human sender's contact as 'human' with no notes by default", async () => {
+    queryRows = [];
+
+    await upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "U123EXAMPLE",
+      externalChatId: "D123EXAMPLE",
+      displayName: "Alice",
+    });
+
+    const contactInsert = runCalls.find((c) =>
+      c.sql.includes("INSERT OR IGNORE INTO contacts"),
+    );
+    expect(contactInsert).toBeTruthy();
+    expect(contactInsert!.params[2]).toBeNull();
+    expect(contactInsert!.params[3]).toBe("human");
+  });
+
+  test("does not overwrite contact type or notes for an existing channel", async () => {
+    queryRows = [
+      {
+        channelId: "ch-bot",
+        contactId: "co-bot",
+        channelStatus: "unverified",
+      },
+    ];
+
+    await upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UBOT99",
+      contactType: "assistant",
+      notes: "Automated Slack bot",
+    });
+
+    const contactUpdate = runCalls.find((c) =>
+      c.sql.includes("UPDATE contacts"),
+    );
+    expect(contactUpdate).toBeTruthy();
+    expect(contactUpdate!.sql).not.toContain("contact_type");
+    expect(contactUpdate!.sql).not.toContain("notes");
   });
 });

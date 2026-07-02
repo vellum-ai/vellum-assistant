@@ -38,7 +38,6 @@ describe("plugin core types", () => {
     const manifest: PluginManifest = {
       name: "sample-plugin",
       version: "0.1.0",
-      requiresFlag: ["sample-feature"],
       config: { parse: (input: unknown) => input },
     };
 

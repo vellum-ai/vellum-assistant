@@ -26,6 +26,7 @@ import {
 // ---------------------------------------------------------------------------
 
 const EFFORT_OPTIONS = [
+  "inherit",
   "none",
   "low",
   "medium",
@@ -38,8 +39,8 @@ const VERBOSITY_OPTIONS = ["low", "medium", "high"] as const;
 
 /**
  * Sentinel for the Gemini thinking-level selector: "inherit" → omit
- * thinking.level so the daemon applies the model default (mirrors effort's
- * "none"). Concrete levels come from `geminiThinkingLevels(model)`.
+ * thinking.level so the daemon applies the model default. Concrete levels come
+ * from `geminiThinkingLevels(model)`.
  */
 export const THINKING_LEVEL_INHERIT = "default";
 
@@ -339,10 +340,7 @@ export function ProfileAdvancedParams({
       {visibility.effort && (
         <div className="space-y-1">
           <label className="block text-body-small-default text-[var(--content-tertiary)]">
-            Effort{" "}
-            <span className="text-[var(--content-disabled)]">
-              (none = inherit)
-            </span>
+            Effort
           </label>
           <SegmentControl
             items={EFFORT_OPTIONS.map((v) => ({ value: v, label: v }))}

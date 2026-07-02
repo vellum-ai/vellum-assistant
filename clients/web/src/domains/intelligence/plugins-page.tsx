@@ -29,5 +29,7 @@ export function PluginsPage() {
     return <Navigate to={routes.identity} replace />;
   }
 
+  // `PluginsTab` reads the `?plugin=` deep-link itself (it owns the open-detail
+  // URL state), so nothing extra to thread through here.
   return <PluginsTab assistantId={assistantId} />;
 }

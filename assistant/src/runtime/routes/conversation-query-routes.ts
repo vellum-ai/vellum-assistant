@@ -22,7 +22,11 @@
 import { z } from "zod";
 
 import { LlmContextResponseSchema } from "../../api/responses/llm-context-response.js";
-import { LLMRequestLogEntrySchema } from "../../api/responses/llm-request-log-entry.js";
+import {
+  type LatencyBreakdown,
+  LatencyBreakdownSchema,
+  LLMRequestLogEntrySchema,
+} from "../../api/responses/llm-request-log-entry.js";
 import {
   deepMergeOverwrite,
   fillContextDefaultsForMissingKeys,
@@ -62,9 +66,6 @@ import {
   CONFIG_RELOAD_DEBOUNCE_MS,
   log,
 } from "../../daemon/handlers/shared.js";
-import { getMemoryRecallLogByMessageIds } from "../../memory/memory-recall-log-store.js";
-import { getMemoryV2ActivationLogByMessageIds } from "../../memory/memory-v2-activation-log-store.js";
-import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../memory/v2/constants.js";
 import {
   getAssistantMessageIdsInTurn,
   getConversation,
@@ -75,6 +76,9 @@ import { getDb } from "../../persistence/db-connection.js";
 import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
 import { getLlmRequestLogSource } from "../../persistence/llm-request-log-source.js";
 import { type LogRow } from "../../persistence/llm-request-log-store.js";
+import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/memory-recall-log-store.js";
+import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/memory-v2-activation-log-store.js";
+import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/v2/constants.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
 import {
   createConnection,
@@ -272,6 +276,21 @@ function resolveLlmContextView(view: string | undefined): LlmContextView {
   );
 }
 
+/**
+ * Parse the stored `latency_breakdown` JSON into a validated
+ * {@link LatencyBreakdown}. Returns `null` for the common no-data case and
+ * for malformed/legacy rows — a bad blob must never break the inspector.
+ */
+function parseLatencyBreakdown(raw: string | null): LatencyBreakdown | null {
+  if (!raw) return null;
+  try {
+    const parsed = LatencyBreakdownSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
 function normalizeLlmContextLog(
   log: LogRow,
   view: LlmContextView = "full",
@@ -282,6 +301,7 @@ function normalizeLlmContextLog(
   createdAt: number;
   agentLoopExitReason: string | null;
   callSite: string | null;
+  latency: LatencyBreakdown | null;
 } {
   let requestPayload: unknown;
   try {
@@ -321,6 +341,9 @@ function normalizeLlmContextLog(
     // other fields — the frontend branches on this value alone, and the
     // existing `agent_loop_exit_reason` column tells it WHICH error fired.
     callSite: log.callSite ?? null,
+    // Daemon-measured first-token latency waterfall, stamped on the row at
+    // record time (like `callSite`) rather than derived from the payloads.
+    latency: parseLatencyBreakdown(log.latencyBreakdown),
     ...result,
     ...(view === "summary"
       ? { requestSections: undefined, responseSections: undefined }
@@ -1185,7 +1208,9 @@ function patchManagedProfileFields(
   profiles[name] = nextProfile;
 }
 
-function handleSearchConversations({ queryParams = {} }: RouteHandlerArgs) {
+async function handleSearchConversations({
+  queryParams = {},
+}: RouteHandlerArgs) {
   const q = queryParams.q;
   if (!q) {
     throw new BadRequestError("Missing required query parameter: q");
@@ -1194,7 +1219,7 @@ function handleSearchConversations({ queryParams = {} }: RouteHandlerArgs) {
   const maxMessages = queryParams.maxMessagesPerConversation
     ? Number(queryParams.maxMessagesPerConversation)
     : undefined;
-  const results = performConversationSearch({
+  const results = await performConversationSearch({
     query: q,
     limit,
     maxMessagesPerConversation: maxMessages,
@@ -1596,6 +1621,7 @@ export const ROUTES: RouteDefinition[] = [
     description:
       "Replace the settings-UI-managed leaves of a single llm.profiles entry while preserving non-UI leaves.",
     tags: ["config"],
+    requestBody: ProfileEntry,
     handler: handleReplaceInferenceProfile,
   },
   {

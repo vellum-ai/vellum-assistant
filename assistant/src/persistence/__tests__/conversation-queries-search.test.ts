@@ -1,0 +1,397 @@
+/**
+ * Read-path tests for {@link searchConversations}.
+ *
+ * Message-content candidates come exclusively from the Qdrant lexical index
+ * (mocked here), filtered by the visibility/archived SQL and merged with the
+ * title `LIKE` arm. Content matching is index-only (no `messages.content`
+ * scan fallback): a Qdrant lookup failure and a non-tokenizable query both
+ * leave title matches as the only arm, and while content search is
+ * unavailable (memory disabled / backfill not yet drained) the lexical index
+ * is never consulted and only titles can match.
+ *
+ * The lexical index is mocked at the `conversation-search-lexical` seam so no
+ * real Qdrant is required; a real SQLite DB backs the visibility/archived SQL.
+ */
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+
+import type { MessageLexicalSearchResult } from "../embeddings/messages-lexical-index.js";
+
+mock.module("../../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
+}));
+
+// The lexical candidate source is the single seam this cutover swaps in. Mock
+// it directly (returning caller-controlled candidate ids/scores) and, per test,
+// override it to throw to exercise the Qdrant-error degrade path. Spreading the
+// real module keeps its other exports intact for any test sharing the process.
+const searchMessageIdsLexicalMock = mock(
+  async (
+    _query: string,
+    _limit: number,
+    _opts?: { conversationId?: string },
+  ): Promise<MessageLexicalSearchResult[]> => [],
+);
+const actualLexical = await import("../conversation-search-lexical.js");
+mock.module("../conversation-search-lexical.js", () => ({
+  ...actualLexical,
+  searchMessageIdsLexical: searchMessageIdsLexicalMock,
+}));
+
+// Message-content search is host infrastructure, independent of the memory
+// feature. Control `isMemoryEnabled` so one test can flip it `false` and
+// prove reads ignore it. Spread the real module to preserve its other exports
+// (many modules import from `jobs-store`).
+let memoryEnabled = true;
+const actualJobsStore = await import("../jobs-store.js");
+mock.module("../jobs-store.js", () => ({
+  ...actualJobsStore,
+  isMemoryEnabled: () => memoryEnabled,
+}));
+
+import {
+  deleteMemoryCheckpoint,
+  LEXICAL_BACKFILL_COMPLETE_KEY,
+  setMemoryCheckpoint,
+} from "../checkpoints.js";
+import { createConversation } from "../conversation-crud.js";
+import { searchConversations } from "../conversation-queries.js";
+import { getDb } from "../db-connection.js";
+import { initializeDb } from "../db-init.js";
+import { rawRun } from "../raw-query.js";
+
+await initializeDb();
+
+/**
+ * Mark the messages lexical-index backfill complete. Content search is gated
+ * on this: an upgraded instance whose backfill has not finished never reads
+ * from a partially-populated `messages_lexical` (title matches only). The
+ * tests below index candidates as if the backfill has drained, so they set
+ * this marker; the gate itself is covered by its own test.
+ */
+function markBackfillComplete(): void {
+  setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
+}
+
+function resetTables(): void {
+  const db = getDb();
+  db.run(`DELETE FROM messages`);
+  db.run(`DELETE FROM conversations`);
+}
+
+/**
+ * Insert a message row directly. `id` is caller-supplied so tests can wire the
+ * exact ids the mocked lexical index returns as candidates.
+ */
+function insertMessage(
+  id: string,
+  conversationId: string,
+  content: string,
+  createdAt = 1000,
+): void {
+  rawRun(
+    "test:insertMessage",
+    "INSERT INTO messages (id, conversation_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)",
+    id,
+    conversationId,
+    "user",
+    content,
+    createdAt,
+  );
+}
+
+function setConversationType(conversationId: string, type: string): void {
+  rawRun(
+    "test:setConversationType",
+    "UPDATE conversations SET conversation_type = ? WHERE id = ?",
+    type,
+    conversationId,
+  );
+}
+
+function archive(conversationId: string): void {
+  rawRun(
+    "test:archiveConversation",
+    "UPDATE conversations SET archived_at = ? WHERE id = ?",
+    Date.now(),
+    conversationId,
+  );
+}
+
+/** Make the mocked lexical index return exactly these ids as candidates. */
+function lexicalReturns(ids: string[]): void {
+  searchMessageIdsLexicalMock.mockImplementation(async () =>
+    ids.map((messageId, i) => ({ messageId, score: 1 - i * 0.01 })),
+  );
+}
+
+afterAll(() => {
+  mock.restore();
+});
+
+describe("searchConversations · qdrant lexical index", () => {
+  beforeEach(() => {
+    resetTables();
+    memoryEnabled = true;
+    // Content search is available once the index is populated: memory enabled
+    // + backfill complete. These tests exercise that post-backfill path.
+    markBackfillComplete();
+    searchMessageIdsLexicalMock.mockClear();
+    searchMessageIdsLexicalMock.mockImplementation(async () => []);
+  });
+
+  test("sources content candidates exclusively from the lexical index", async () => {
+    const conv = createConversation("Notes");
+    insertMessage("m-1", conv.id, "the flux capacitor needs recalibration");
+    // A message matching the query text that the lexical index does NOT
+    // return: if the query still surfaces it, candidates are coming from
+    // somewhere other than the index.
+    insertMessage("m-2", conv.id, "flux capacitor decoy", 2000);
+
+    lexicalReturns(["m-1"]);
+
+    const results = await searchConversations("flux capacitor");
+
+    expect(searchMessageIdsLexicalMock).toHaveBeenCalledTimes(1);
+    // The query text is passed through; the limit is the wide candidate
+    // over-fetch (asserted precisely in its own test below).
+    expect(searchMessageIdsLexicalMock.mock.calls[0]![0]).toBe(
+      "flux capacitor",
+    );
+
+    expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
+    // Only the candidate the lexical index returned is surfaced as a match.
+    expect(results[0]!.matchingMessages.map((m) => m.messageId)).toEqual([
+      "m-1",
+    ]);
+  });
+
+  test("does not issue a second lexical round-trip for per-conversation messages", async () => {
+    const convA = createConversation("A");
+    const convB = createConversation("B");
+    insertMessage("a-1", convA.id, "shared token alpha", 1000);
+    insertMessage("b-1", convB.id, "shared token beta", 1000);
+
+    lexicalReturns(["a-1", "b-1"]);
+
+    const results = await searchConversations("shared token");
+
+    // Exactly one lexical call total — the per-conversation message rows are
+    // selected from the already-fetched candidate set, not a fresh query.
+    expect(searchMessageIdsLexicalMock).toHaveBeenCalledTimes(1);
+    expect(results.map((r) => r.conversationId).sort()).toEqual(
+      [convA.id, convB.id].sort(),
+    );
+    for (const r of results) {
+      expect(r.matchingMessages).toHaveLength(1);
+    }
+  });
+
+  test("over-fetches a wide message-candidate pool (cap on distinct conversations, not messages)", async () => {
+    const conv = createConversation("Notes");
+    insertMessage("m-1", conv.id, "flux capacitor");
+    lexicalReturns(["m-1"]);
+
+    await searchConversations("flux capacitor");
+
+    // The candidate limit must be far larger than the caller's result `limit`
+    // (default 20) so the effective cap lands on distinct visible
+    // conversations after dedup, not raw messages. A single chatty
+    // conversation must not be able to consume the whole candidate budget.
+    const requestedLimit = searchMessageIdsLexicalMock.mock.calls[0]![1];
+    expect(requestedLimit).toBeGreaterThanOrEqual(5000);
+  });
+
+  test("a chatty conversation does not starve other distinct visible conversations", async () => {
+    // `chatty` has many matching messages; `other` has a single one. If the
+    // cap were on messages (and chatty's messages ranked first), `other` could
+    // be crowded out. The distinct-conversation cap must surface both.
+    const chatty = createConversation("Chatty");
+    const other = createConversation("Other");
+
+    const chattyIds: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      const id = `chatty-${i}`;
+      insertMessage(id, chatty.id, `flux capacitor mention ${i}`, 1000 + i);
+      chattyIds.push(id);
+    }
+    insertMessage("other-1", other.id, "flux capacitor once", 999);
+
+    // Rank ALL of chatty's messages ahead of other's single message — the
+    // worst case for a message-level cap.
+    lexicalReturns([...chattyIds, "other-1"]);
+
+    const results = await searchConversations("flux capacitor");
+
+    expect(searchMessageIdsLexicalMock).toHaveBeenCalledTimes(1);
+    // Both distinct visible conversations surface despite chatty dominating
+    // the candidate ranking.
+    expect(results.map((r) => r.conversationId).sort()).toEqual(
+      [chatty.id, other.id].sort(),
+    );
+    // Per-conversation message rows are still capped (default 3) and sourced
+    // from the single round-trip.
+    const chattyResult = results.find((r) => r.conversationId === chatty.id)!;
+    expect(chattyResult.matchingMessages.length).toBeLessThanOrEqual(3);
+    const otherResult = results.find((r) => r.conversationId === other.id)!;
+    expect(otherResult.matchingMessages.map((m) => m.messageId)).toEqual([
+      "other-1",
+    ]);
+  });
+
+  test("applies the same visibility filtering (excludes non-surfaced background)", async () => {
+    const background = createConversation({
+      title: "bg-run",
+      conversationType: "background",
+    });
+    insertMessage("bg-1", background.id, "flux capacitor in the background");
+
+    lexicalReturns(["bg-1"]);
+
+    // Candidate exists in the index, but the conversation is a non-surfaced
+    // background row — the visibility SQL must filter it out.
+    expect(await searchConversations("flux capacitor")).toEqual([]);
+  });
+
+  test("applies the same archived filtering (excludes archived conversations)", async () => {
+    const conv = createConversation("Archived notes");
+    insertMessage("arch-1", conv.id, "flux capacitor archived");
+    archive(conv.id);
+
+    lexicalReturns(["arch-1"]);
+
+    expect(await searchConversations("flux capacitor")).toEqual([]);
+  });
+
+  test("excludes private conversations even when the index returns their messages", async () => {
+    const priv = createConversation("Private notes");
+    setConversationType(priv.id, "private");
+    insertMessage("p-1", priv.id, "flux capacitor secret");
+
+    lexicalReturns(["p-1"]);
+
+    expect(await searchConversations("flux capacitor")).toEqual([]);
+  });
+
+  test("title-only matches still work without any lexical candidates", async () => {
+    const conv = createConversation("Quarterly metrics rollup");
+
+    // Index returns nothing for the content query; the title LIKE arm still
+    // finds the conversation.
+    lexicalReturns([]);
+
+    const results = await searchConversations("Quarterly metrics");
+
+    expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
+    // No content candidates → no matching messages, just the title hit.
+    expect(results[0]!.matchingMessages).toEqual([]);
+  });
+
+  test("returns title matches only when the lexical lookup throws", async () => {
+    // Content matching is index-only: a lexical failure is logged and the
+    // content arm contributes nothing — no messages.content scan recovers it.
+    const contentOnly = createConversation("Degrade notes");
+    insertMessage("c-1", contentOnly.id, "flux capacitor mentioned in content");
+    const titleMatch = createConversation("Flux capacitor planning");
+
+    searchMessageIdsLexicalMock.mockImplementation(async () => {
+      throw new Error("qdrant unreachable");
+    });
+
+    const results = await searchConversations("flux capacitor");
+
+    expect(searchMessageIdsLexicalMock).toHaveBeenCalledTimes(1);
+    // The content-only conversation is dropped; the title-matched conversation
+    // still surfaces, without content excerpts.
+    expect(results.map((r) => r.conversationId)).toEqual([titleMatch.id]);
+    expect(results[0]!.matchingMessages).toEqual([]);
+  });
+
+  test("serves lexical content matches even when memory is disabled", async () => {
+    // Message-content search is host infrastructure: indexing runs and reads
+    // serve regardless of the memory feature's state, so disabling memory
+    // must not degrade search to title-only.
+    memoryEnabled = false;
+    const conv = createConversation("Notes");
+    insertMessage("m-1", conv.id, "flux capacitor in content only");
+    lexicalReturns(["m-1"]);
+
+    const results = await searchConversations("flux capacitor");
+
+    expect(searchMessageIdsLexicalMock).toHaveBeenCalledTimes(1);
+    expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
+    expect(results[0]!.matchingMessages.map((m) => m.messageId)).toEqual([
+      "m-1",
+    ]);
+  });
+
+  test("returns title matches only until the backfill completion checkpoint is set", async () => {
+    // On an upgraded instance the historical messages are indexed by a
+    // background backfill. Until it drains, the lexical collection is only
+    // partially populated and a read would silently miss older content. With
+    // the completion checkpoint UNSET, the index must not be consulted at
+    // all; only titles can match.
+    deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
+    const contentOnly = createConversation("Notes");
+    insertMessage("m-1", contentOnly.id, "flux capacitor in content only");
+    const titleMatch = createConversation("Flux capacitor planning");
+    lexicalReturns(["m-1"]);
+
+    const results = await searchConversations("flux capacitor");
+
+    expect(searchMessageIdsLexicalMock).not.toHaveBeenCalled();
+    expect(results.map((r) => r.conversationId)).toEqual([titleMatch.id]);
+    expect(results[0]!.matchingMessages).toEqual([]);
+  });
+
+  test("includes a surfaced background conversation via lexical candidates", async () => {
+    // Surfacing flips a background conversation into the visible listing set,
+    // so its content matches must surface like any standard conversation's.
+    const surfaced = createConversation({
+      title: "bg-run",
+      conversationType: "background",
+    });
+    rawRun(
+      "test:setSurfaced",
+      "UPDATE conversations SET surfaced_at = ? WHERE id = ?",
+      Date.now(),
+      surfaced.id,
+    );
+    insertMessage("sb-1", surfaced.id, "flux capacitor surfaced background");
+
+    lexicalReturns(["sb-1"]);
+
+    const results = await searchConversations("flux capacitor");
+
+    expect(results.map((r) => r.conversationId)).toEqual([surfaced.id]);
+    expect(results[0]!.matchingMessages.map((m) => m.messageId)).toEqual([
+      "sb-1",
+    ]);
+  });
+
+  test("non-tokenizable queries return title matches only, without hitting the index", async () => {
+    // Single-char / non-ASCII queries produce no tokens, so neither FTS nor the
+    // sparse encoder yields terms. Content matching is index-only, so only the
+    // title LIKE arm can match such queries.
+    const contentOnly = createConversation("Symbols");
+    insertMessage("s-1", contentOnly.id, "review the C§ draft");
+    const titleMatch = createConversation("C§ symbol reference");
+
+    const results = await searchConversations("C§");
+
+    expect(searchMessageIdsLexicalMock).not.toHaveBeenCalled();
+    expect(results.map((r) => r.conversationId)).toEqual([titleMatch.id]);
+    expect(results[0]!.matchingMessages).toEqual([]);
+  });
+
+  test("returns [] when the index yields no candidates and nothing matches by title", async () => {
+    const conv = createConversation("Unrelated");
+    insertMessage("u-1", conv.id, "totally different content");
+
+    lexicalReturns([]);
+
+    expect(await searchConversations("flux capacitor")).toEqual([]);
+  });
+});

@@ -633,6 +633,23 @@ describe("command-registry", () => {
       expect(modeRule).toBeDefined();
       expect(modeRule!.risk).toBe("high");
     });
+
+    test("assistant schedules create escalates to high for script payloads", () => {
+      const createSpec = getAssistantPath("schedules create");
+      expect(createSpec.argRules).toBeDefined();
+
+      const scriptRule = createSpec.argRules!.find((r) =>
+        r.flags?.includes("--script"),
+      );
+      expect(scriptRule).toBeDefined();
+      expect(scriptRule!.risk).toBe("high");
+
+      const modeRule = createSpec.argRules!.find(
+        (r) => r.flags?.includes("--mode") && r.valuePattern === "^script$",
+      );
+      expect(modeRule).toBeDefined();
+      expect(modeRule!.risk).toBe("high");
+    });
   });
 
   // ── sandboxAutoApprove allowlist guard ───────────────────────────────────

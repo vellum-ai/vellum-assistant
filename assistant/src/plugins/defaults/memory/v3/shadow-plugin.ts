@@ -25,11 +25,6 @@ import { existsSync, readFileSync } from "node:fs";
 import { getConfig } from "../../../../config/loader.js";
 import type { AssistantConfig } from "../../../../config/schema.js";
 import { loadSkillCatalog } from "../../../../config/skills.js";
-import { getPageIndex } from "../../../../memory/v2/page-index.js";
-import {
-  readPage,
-  renderPageContent,
-} from "../../../../memory/v2/page-store.js";
 import { getMessages } from "../../../../persistence/conversation-crud.js";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
 import { stringifyMessageContent } from "../../../../persistence/message-content.js";
@@ -39,12 +34,17 @@ import {
   getWorkspacePromptPath,
 } from "../../../../util/platform.js";
 import { stripCommentLines } from "../../../../util/strip-comment-lines.js";
+import { getPageIndex } from "../v2/page-index.js";
+import { readPage, renderPageContent } from "../v2/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
 import { renderCard } from "./card.js";
 import { loadCoreSet } from "./core-set.js";
 import type { EdgeGraph } from "./edge.js";
 import { buildEdgeGraph } from "./edge.js";
+import type { EntityIndex } from "./entity-lane.js";
+import { buildEntityIndex } from "./entity-lane.js";
 import { computeFreshSet } from "./fresh-set.js";
+import { isMemoryV3InjectionGateEnabled } from "./gate-flag.js";
 import { computeHotSet } from "./hot-set.js";
 import { computeLearnedEdgeGraph } from "./learned-edges.js";
 import type { OrchestrateResult } from "./orchestrate.js";
@@ -57,6 +57,7 @@ import { ensureSectionCollection } from "./section-dense-store.js";
 import type { SectionNeedle } from "./section-needle.js";
 import { buildSectionNeedle } from "./section-needle.js";
 import { buildSectionIndex } from "./sections.js";
+import { resolveV3Tuning } from "./tuning-profile.js";
 import {
   type MemoryRoutingTurn,
   type SectionIndex,
@@ -89,6 +90,9 @@ const LEARNED_EDGES_WINDOW_DAYS = 90;
 export interface ShadowLanes {
   sectionIndex: SectionIndex;
   needle: SectionNeedle;
+  /** Heading-anchored entity catalog, built at lane init when the entity lane
+   *  is enabled (`memory.v3.entity.enabled`). Omitted disables the lane. */
+  entityIndex?: EntityIndex;
   /** Config the dense lane needs to embed the query + search the section
    *  collection. */
   denseConfig: AssistantConfig;
@@ -105,12 +109,18 @@ export interface ShadowLanes {
    *  in SKILL.md), existence-filtered and core/hot/fresh-excluded. */
   alwaysCandidateSlugs: string[];
   /** Learned-edge graph: co-selection NPMI associations over the selection
-   *  log, rebuilt with the lanes (the consolidation cadence). */
-  learnedGraph: EdgeGraph;
+   *  log, rebuilt with the lanes when the learned lane is enabled. */
+  learnedGraph?: EdgeGraph;
   /** Pre-rendered FULL cards for the stable-prefix (core+hot+fresh) slugs,
    *  keyed by slug. Frozen at lane build so the selector's stable prefix is
    *  byte-identical across turns until the next invalidation. */
   prefixCards: Map<Slug, string>;
+  /** Real concept-page count at lane build (page-index entries with a real
+   *  mtime): the corpus-size signal for {@link resolveV3Tuning}. The lane-build
+   *  tuning (hot/fresh K, learned-edge graph) is derived from it here, and the
+   *  per-turn orchestrate knobs are re-resolved from it each turn so a live
+   *  config edit takes effect without waiting for a lane rebuild. */
+  realConceptPageCount: number;
 }
 
 /** Milliseconds per day — converts `hotSet.halfLifeDays` config to ms. */
@@ -143,6 +153,15 @@ export function resetShadowLanesForTests(): void {
 async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   const pageIndex = await getPageIndex(getWorkspaceDir());
   const slugs = pageIndex.entries.map((entry) => entry.slug);
+
+  // Synthetic capability slugs (skills / CLI commands) carry `modifiedAt: 0`;
+  // real on-disk concept pages carry a file mtime. The real-page count drives
+  // the corpus-size-adaptive tuning: a sparse corpus runs the lean new-user
+  // profile until it crosses the page threshold, then the configured/full one.
+  const realConceptPageCount = pageIndex.entries.filter(
+    (entry) => entry.modifiedAt > 0,
+  ).length;
+  const tuning = resolveV3Tuning(config, realConceptPageCount);
 
   // Read each page ONCE and feed BOTH forms downstream: the frontmatter-stripped
   // body to the section index (lexical/dense matching), and the raw page
@@ -182,6 +201,18 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   const sectionIndex = await buildSectionIndex(slugs, pageBody);
   const needle = buildSectionNeedle(sectionIndex);
 
+  // The entity lane's heading catalog: distinctive `## ` heading tokens → the
+  // sections they head, so a named entity in the turn message surfaces its page
+  // even when additive BM25 buries it under the message's bulk theme. Gated by
+  // the needle's corpus IDF so hub tokens (e.g. "vellum") never become keys.
+  const entityCfg = config.memory.v3.entity;
+  const entityIndex = entityCfg.enabled
+    ? buildEntityIndex(
+        sectionIndex,
+        (token) => needle.idf(token) >= entityCfg.idfFloor,
+      )
+    : undefined;
+
   // The stable-prefix lanes. Core is the maintainer-curated file (file order
   // preserved — it is the prefix's stable sort), filtered to pages that exist
   // in the live section index so a dangling entry can never reach the pool.
@@ -195,7 +226,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   const hotSlugs = computeHotSet(
     { db: getDb() },
     {
-      k: config.memory.v3.hotSet.k,
+      k: tuning.hotSetK,
       halfLifeMs: config.memory.v3.hotSet.halfLifeDays * DAY_MS,
       now: Date.now(),
       excludeSlugs: new Set(coreSlugs),
@@ -209,7 +240,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   // move at consolidation — the same event that invalidates the lanes — so the
   // set is recomputed exactly when it can have changed.
   const freshSlugs = computeFreshSet(pageIndex.entries, {
-    k: config.memory.v3.freshSet.k,
+    k: tuning.freshSetK,
     excludeSlugs: new Set([...coreSlugs, ...hotSlugs]),
   }).filter((slug) => sectionIndex.byArticle.has(slug));
 
@@ -279,18 +310,21 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   // index membership is the existence filter (capability slugs included —
   // they are first-class pages there).
   const learned = config.memory.v3.learnedEdges;
-  const learnedGraph = computeLearnedEdgeGraph(
-    { db: getDb() },
-    {
-      halfLifeMs: learned.halfLifeDays * DAY_MS,
-      minCount: learned.minCount,
-      npmiFloor: learned.npmiFloor,
-      maxPerPage: learned.maxPerPage,
-      now: Date.now(),
-      windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
-      knownSlugs: new Set(sectionIndex.byArticle.keys()),
-    },
-  );
+  const learnedGraph =
+    tuning.learnedEdgesCap > 0 && learned.maxPerPage > 0
+      ? computeLearnedEdgeGraph(
+          { db: getDb() },
+          {
+            halfLifeMs: learned.halfLifeDays * DAY_MS,
+            minCount: learned.minCount,
+            npmiFloor: learned.npmiFloor,
+            maxPerPage: learned.maxPerPage,
+            now: Date.now(),
+            windowMs: LEARNED_EDGES_WINDOW_DAYS * DAY_MS,
+            knownSlugs: new Set(sectionIndex.byArticle.keys()),
+          },
+        )
+      : undefined;
   // Ensuring the dense collection is best-effort: the needle + edge lanes and
   // the core/hot prefix are in-memory and independent of Qdrant, so a Qdrant outage
   // must NOT reject lane init (which would return `null` from observeTurn and
@@ -310,6 +344,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
   return {
     sectionIndex,
     needle,
+    entityIndex,
     denseConfig: config,
     edgeGraph,
     learnedGraph,
@@ -318,6 +353,7 @@ async function initLanes(config: AssistantConfig): Promise<ShadowLanes> {
     freshSlugs,
     alwaysCandidateSlugs,
     prefixCards,
+    realConceptPageCount,
   };
 }
 
@@ -551,9 +587,21 @@ export async function observeTurn(
     if (cfg.memory.enabled === false) return null;
     const lanes = await getLanes(cfg);
     const v3 = cfg.memory.v3;
+    // Resolve the effective gate enable once for the turn: the feature flag
+    // AND the `memory.v3.gate.enabled` config kill-switch. Tuning lives in
+    // `memory.v3.gate`.
+    const gateEnabled = isMemoryV3InjectionGateEnabled(cfg);
+    // Re-resolve the corpus-adaptive tuning each turn from the CURRENT config
+    // (with the lane-build corpus-size signal) so a live config.json edit to a
+    // per-turn knob (selectorEnabled, denseK, replyQueryK, edge.*) takes effect
+    // on the next turn instead of waiting for the next lane rebuild. The
+    // lane-build params (hot/fresh K, learned-edge graph) stay frozen on the
+    // lanes for stable-prefix cache reuse.
+    const tuning = resolveV3Tuning(cfg, lanes.realConceptPageCount);
     const result = await orchestrate(turn, {
       sectionIndex: lanes.sectionIndex,
       needle: lanes.needle,
+      entityIndex: lanes.entityIndex,
       denseConfig: lanes.denseConfig,
       edgeGraph: lanes.edgeGraph,
       coreSlugs: lanes.coreSlugs,
@@ -561,20 +609,26 @@ export async function observeTurn(
       freshSlugs: lanes.freshSlugs,
       alwaysCandidateSlugs: lanes.alwaysCandidateSlugs,
       prefixCards: lanes.prefixCards,
-      needleK: v3.needleK,
-      denseK: v3.denseK,
-      replyQueryK: v3.replyQueryK,
-      edgeSeeds: v3.edge.seedCount,
-      edgePerSeed: v3.edge.perSeed,
-      edgeCap: v3.edge.cap,
+      needleK: tuning.needleK,
+      denseK: tuning.denseK,
+      entityCap: v3.entity.cap,
+      replyQueryK: tuning.replyQueryK,
+      edgeSeeds: tuning.edgeSeedCount,
+      edgePerSeed: tuning.edgePerSeed,
+      edgeCap: tuning.edgeCap,
       learnedGraph: lanes.learnedGraph,
       learnedPerSeed: v3.learnedEdges.perSeed,
-      learnedCap: v3.learnedEdges.cap,
-      selectorEnabled: v3.selectorEnabled,
+      learnedCap: tuning.learnedEdgesCap,
+      selectorEnabled: tuning.selectorEnabled,
       selectorPrompt: resolveSelectorPrompt(
         v3.selectorPromptPath,
         getWorkspaceDir(),
       ),
+      // Per-turn injection gate: the `memory.v3.gate` tuning with the raw
+      // config `enabled` overwritten by the effective enable (flag AND config).
+      // The spread is the compile-time drift guard — if the gate schema and
+      // `V3GateConfig` diverge, this stops typechecking.
+      gateConfig: { ...v3.gate, enabled: gateEnabled },
     });
 
     // A zero-selection turn over a non-trivial pool is unusual enough to be

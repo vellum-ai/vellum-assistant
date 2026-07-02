@@ -3,12 +3,12 @@ import { and, asc, eq, gt, lt, lte, or, sql } from "drizzle-orm";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { getDb } from "../persistence/db-connection.js";
 import { messages, toolInvocations } from "../persistence/schema/index.js";
+import { getLogger } from "../util/logger.js";
 import type {
   TurnTrace,
   TurnTraceMessage,
   TurnTraceToolCall,
-} from "../telemetry/types.js";
-import { getLogger } from "../util/logger.js";
+} from "./types.js";
 
 const log = getLogger("turn-trace-store");
 

@@ -678,7 +678,19 @@ export interface ManageSecureCommandToolHandlerDeps {
 export function createManageSecureCommandToolHandler(
   deps: ManageSecureCommandToolHandlerDeps,
 ): RpcMethodHandler<ManageSecureCommandTool, ManageSecureCommandToolResponse> {
-  return async (request) => {
+  // Serialize all manage_secure_command_tool operations. The register path
+  // awaits a bundle download mid-handler; during that await a concurrent
+  // unregister would run its "still in use?" check + bundle delete against a
+  // registry that doesn't yet reflect the in-flight registration — transiently
+  // deleting a bundle another caller is publishing or executing. Running these
+  // operations one-at-a-time closes that window. The registry and toolstore are
+  // process-global, so this single chain serializes tool management across
+  // every connection.
+  let tail: Promise<unknown> = Promise.resolve();
+
+  const handle = async (
+    request: ManageSecureCommandTool,
+  ): Promise<ManageSecureCommandToolResponse> => {
     if (request.action === "unregister") {
       const removed = deps.unregisterTool(request.toolName);
       if (!removed) {
@@ -783,6 +795,18 @@ export function createManageSecureCommandToolHandler(
     });
 
     return { success: true };
+  };
+
+  return (request) => {
+    // Chain each operation onto the previous one so they never interleave.
+    const result = tail.then(() => handle(request));
+    // Keep the chain alive regardless of this op's outcome — a rejection must
+    // not break serialization for subsequent operations.
+    tail = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   };
 }
 

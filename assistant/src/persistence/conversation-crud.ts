@@ -23,65 +23,43 @@ import { z } from "zod";
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
-import { getConfig } from "../config/loader.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
-import { forkGraphMemoryState } from "../memory/graph/graph-memory-state-store.js";
-import { indexMessageNow } from "../memory/indexer.js";
-import { MEMORY_RETROSPECTIVE_SOURCES } from "../memory/memory-retrospective-constants.js";
-import { forkRetrospectiveState } from "../memory/memory-retrospective-state.js";
-import { cancelPendingJobsForConversation } from "../memory/task-memory-cleanup.js";
-import {
-  forkActivationState,
-  seedForkActivationState,
-} from "../memory/v2/activation-store.js";
-import { extractInjectedConceptSlugs } from "../memory/v2/injected-block-slugs.js";
-import { AUTO_ANALYSIS_SOURCE } from "../persistence/auto-analysis-constants.js";
-import {
-  projectAssistantMessage,
-  seedForkedConversationAttention,
-} from "../persistence/conversation-attention-store.js";
-import {
-  initConversationDir,
-  removeConversationDir,
-  syncMessageToDisk,
-  updateMetaFile,
-} from "../persistence/conversation-disk-view.js";
-import { ensureDisplayOrderMigration } from "../persistence/conversation-display-order-migration.js";
-import { ensureGroupMigration } from "../persistence/conversation-group-migration.js";
-import {
-  rawExec,
-  rawGet,
-  rawLogsRun,
-  rawMemoryRun,
-  rawRun,
-} from "../persistence/raw-query.js";
-import {
-  forkEverInjected,
-  MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-  seedEverInjectedFromSlugs,
-} from "../plugins/defaults/memory/v3/ever-injected-store.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import { trustClassSchema } from "../runtime/trust-class.js";
 import { UserError } from "../util/errors.js";
 import { safeParseRecord } from "../util/json.js";
 import { getLogger } from "../util/logger.js";
 import { getLogsDbPath } from "../util/logs-db-path.js";
 import { getConversationsDir } from "../util/platform.js";
-import { createRowMapper } from "../util/row-mapper.js";
-import { withSqliteRetry, withSqliteRetrySync } from "../util/sqlite-retry.js";
+import { createRowMapper, parseJsonNullable } from "../util/row-mapper.js";
+import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
   deleteOrphanAttachments,
   linkAttachmentToMessage,
 } from "./attachments-store.js";
+import { AUTO_ANALYSIS_SOURCE } from "./auto-analysis-constants.js";
 import {
   appendCompactionEvent,
   forkCompactionLedger,
   getLatestCompactionEventAtOrBefore,
 } from "./compaction-ledger-store.js";
+import {
+  projectAssistantMessage,
+  seedForkedConversationAttention,
+} from "./conversation-attention-store.js";
+import {
+  initConversationDir,
+  removeConversationDir,
+  syncMessageToDisk,
+  updateMetaFile,
+} from "./conversation-disk-view.js";
+import { ensureDisplayOrderMigration } from "./conversation-display-order-migration.js";
+import { ensureGroupMigration } from "./conversation-group-migration.js";
 import { deleteConversationRowsInBatches } from "./conversation-row-batch-delete.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import {
@@ -94,6 +72,15 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
+import { enqueueLexicalIndexForMessage } from "./job-handlers/message-lexical.js";
+import { getMemoryPersistenceHooks } from "./memory-lifecycle-hooks.js";
+import {
+  rawExec,
+  rawGet,
+  rawLogsRun,
+  rawMemoryRun,
+  rawRun,
+} from "./raw-query.js";
 import {
   channelInboundEvents,
   conversations,
@@ -106,6 +93,7 @@ import {
   skillLoadedEvents,
   toolInvocations,
 } from "./schema/index.js";
+import { timeSyncSection } from "./slow-sync-log.js";
 
 const log = getLogger("conversation-store");
 
@@ -143,6 +131,23 @@ const subagentNotificationSchema = z.object({
   objective: z.string().optional(),
 });
 
+const acpNotificationSchema = z.object({
+  acpSessionId: z.string(),
+  agent: z.string().optional(),
+});
+
+const backgroundToolCompletionMetadataSchema = z.object({
+  id: z.string(),
+  toolName: z.string(),
+  conversationId: z.string(),
+  command: z.string(),
+  startedAt: z.number(),
+  status: z.enum(["completed", "failed", "cancelled"]),
+  exitCode: z.number().nullable(),
+  output: z.string(),
+  completedAt: z.number(),
+});
+
 export const messageMetadataSchema = z
   .object({
     userMessageChannel: channelIdSchema.optional(),
@@ -160,26 +165,44 @@ export const messageMetadataSchema = z
      */
     client: z.record(z.string(), z.unknown()).optional(),
     subagentNotification: subagentNotificationSchema.optional(),
+    acpNotification: acpNotificationSchema.optional(),
     /**
      * Trust class of the actor at the time this message was persisted.
      * This is a durable snapshot -- it does NOT change if the actor's
      * trust status changes later. Used by the memory write gate (indexer)
      * and read gate (conversation history loading) to enforce trust-aware access.
      */
-    provenanceTrustClass: z
-      .enum(["guardian", "trusted_contact", "unverified_contact", "unknown"])
-      .optional(),
+    provenanceTrustClass: trustClassSchema.optional(),
     provenanceSourceChannel: channelIdSchema.optional(),
     provenanceGuardianExternalUserId: z.string().optional(),
     provenanceRequesterIdentifier: z.string().optional(),
     automated: z.boolean().optional(),
+    /**
+     * Transcript-suppression flag: the row is a machine signal (e.g. the
+     * channel-setup wizard-close marker, the onboarding greeting kickoff),
+     * persisted and LLM-visible but never rendered as a user message. Test
+     * with {@link isHiddenMessageMetadata} — hidden rows are filtered from
+     * list-messages and queued snapshots, skip the user_message_echo, and
+     * are excluded from search/memory indexing and other consumers that
+     * treat message text as organic user input.
+     */
+    hidden: z.boolean().optional(),
+    /**
+     * Structured terminal record stamped onto a `<background_event
+     * source="background-tool">` wake so the web can rebuild the inline
+     * bash/host_bash card from history after a daemon restart.
+     */
+    backgroundToolCompletion: backgroundToolCompletionMetadataSchema.optional(),
     forkSourceMessageId: z.string().optional(),
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
     /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
-     *  of `memoryInjectedBlock`. A row carries at most one of the two. */
-    [MEMORY_V3_INJECTED_BLOCK_METADATA_KEY]: z.string().optional(),
+     *  of `memoryInjectedBlock`. A row carries at most one of the two. The key
+     *  matches the memory plugin's `MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`, kept
+     *  as a literal here (like `memoryInjectedBlock`) so the storage schema does
+     *  not import the memory feature. */
+    memoryV3InjectedBlock: z.string().optional(),
     turnContextBlock: z.string().optional(),
     pkbSystemReminderBlock: z.string().optional(),
     workspaceBlock: z.string().optional(),
@@ -195,6 +218,44 @@ export const messageMetadataSchema = z
     nonInteractiveContextBlock: z.string().optional(),
   })
   .passthrough();
+
+/** Validated shape of a persisted message's `metadata` column. */
+export type MessageMetadata = z.infer<typeof messageMetadataSchema>;
+
+/**
+ * Shared predicate for the transcript-suppression flag on user-message
+ * metadata (see the `hidden` field on {@link messageMetadataSchema}). One
+ * definition so the sites that must agree — echo suppression, list-messages
+ * filtering, queued-snapshot filtering, indexing exclusion, and downstream
+ * consumers of message text — cannot drift.
+ */
+export function isHiddenMessageMetadata(
+  metadata: Record<string, unknown> | null | undefined,
+): boolean {
+  return metadata?.hidden === true;
+}
+
+/**
+ * Parse a persisted message's metadata JSON against {@link messageMetadataSchema}
+ * — the single source of truth for its shape — returning the validated fields,
+ * or `undefined` when the column is absent, not valid JSON, or fails validation.
+ * The single place the raw JSON.parse + safeParse dance lives, so callers read
+ * typed fields (e.g. `provenanceTrustClass`, `automated`, `subagentNotification`)
+ * instead of re-implementing it.
+ */
+export function parseMessageMetadata(
+  metadataJson: string | null,
+): MessageMetadata | undefined {
+  if (!metadataJson) {
+    return undefined;
+  }
+  try {
+    const parsed = messageMetadataSchema.safeParse(JSON.parse(metadataJson));
+    return parsed.success ? parsed.data : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 function cloneForkMessageMetadata(
   metadata: string | null,
@@ -225,30 +286,6 @@ function cloneForkMessageMetadata(
 }
 
 /**
- * Read a persisted memory-injection block off a message's metadata JSON, or
- * `null` when absent/malformed. `key` selects the injection layer: v2's
- * `memoryInjectedBlock` or memory-v3's card block
- * (`MEMORY_V3_INJECTED_BLOCK_METADATA_KEY`). The block is what the request
- * builder re-attaches as the message's `<memory>` content each turn.
- */
-function readInjectedBlock(
-  metadata: string | null,
-  key: string,
-): string | null {
-  if (!metadata) return null;
-  try {
-    const parsed: unknown = JSON.parse(metadata);
-    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-      const block = (parsed as Record<string, unknown>)[key];
-      if (typeof block === "string") return block;
-    }
-  } catch {
-    // Malformed metadata — treat as no block.
-  }
-  return null;
-}
-
-/**
  * Extract provenance metadata fields from a TrustContext.
  * When no guardian context is provided, defaults to 'unknown' because the
  * absence of trust context means we cannot verify trust —
@@ -257,7 +294,9 @@ function readInjectedBlock(
 export function provenanceFromTrustContext(
   ctx: TrustContext | null | undefined,
 ): Record<string, unknown> {
-  if (!ctx) return { provenanceTrustClass: "unknown" };
+  if (!ctx) {
+    return { provenanceTrustClass: "unknown" };
+  }
   return {
     provenanceTrustClass: ctx.trustClass,
     provenanceSourceChannel: ctx.sourceChannel,
@@ -311,6 +350,8 @@ export interface ConversationRow {
   archivedAt: number | null;
   surfacedAt: number | null;
   inferenceProfile: string | null;
+  /** Parsed plugin-id list scoping this chat; null = default (all globally-enabled). */
+  enabledPlugins: string[] | null;
   inferenceProfileSessionId: string | null;
   inferenceProfileExpiresAt: number | null;
   lastNotifiedInferenceProfile: string | null;
@@ -347,6 +388,10 @@ export const parseConversation = createRowMapper<
   archivedAt: "archivedAt",
   surfacedAt: "surfacedAt",
   inferenceProfile: "inferenceProfile",
+  enabledPlugins: {
+    from: "enabledPlugins",
+    transform: parseJsonNullable<string[]>(),
+  },
   inferenceProfileSessionId: "inferenceProfileSessionId",
   inferenceProfileExpiresAt: "inferenceProfileExpiresAt",
   lastNotifiedInferenceProfile: "lastNotifiedInferenceProfile",
@@ -412,6 +457,11 @@ interface InsertMessageCoreParams {
   content: string;
   metadata?: Record<string, unknown>;
   clientMessageId?: string;
+  /** Pre-assigned message ID. When omitted, one is generated via
+   *  `uuid()`. Callers that already have a correlation ID (e.g.
+   *  `requestId` for user turns) can pass it here so the persisted
+   *  row ID matches the runtime request ID. */
+  id?: string;
 }
 
 /**
@@ -438,9 +488,10 @@ interface InsertMessageCoreParams {
 async function insertMessageCore(
   params: InsertMessageCoreParams,
 ): Promise<InsertedMessage> {
-  const { conversationId, role, content, metadata, clientMessageId } = params;
+  const { conversationId, role, content, metadata, clientMessageId, id } =
+    params;
   const db = getDb();
-  const messageId = uuid();
+  const messageId = id ?? uuid();
 
   if (metadata) {
     const result = messageMetadataSchema.safeParse(metadata);
@@ -461,105 +512,117 @@ async function insertMessageCore(
   // The timestamp is recomputed each attempt so a late retry doesn't persist a
   // stale `updatedAt`.
   return withSqliteRetry(
-    (): InsertedMessage => {
-      const now = monotonicNow();
-      const values = {
-        id: messageId,
-        conversationId,
-        role,
-        content,
-        createdAt: now,
-        ...(metadataStr ? { metadata: metadataStr } : {}),
-        ...(clientMessageId ? { clientMessageId } : {}),
-      };
+    (): InsertedMessage =>
+      timeSyncSection(
+        "messages:insert",
+        (): InsertedMessage => {
+          const now = monotonicNow();
+          const values = {
+            id: messageId,
+            conversationId,
+            role,
+            content,
+            createdAt: now,
+            ...(metadataStr ? { metadata: metadataStr } : {}),
+            ...(clientMessageId ? { clientMessageId } : {}),
+          };
 
-      if (clientMessageId) {
-        // Idempotent insert: skip silently if this clientMessageId was
-        // already persisted for the conversation.
-        const raw = getSqliteFrom(db);
-        raw.exec("SAVEPOINT insert_msg");
-        try {
-          db.insert(messages).values(values).run();
-          if (originChannelCandidate) {
-            db.update(conversations)
-              .set({ originChannel: originChannelCandidate })
-              .where(
-                and(
-                  eq(conversations.id, conversationId),
-                  isNull(conversations.originChannel),
-                ),
-              )
-              .run();
-          }
-          db.update(conversations)
-            .set({ updatedAt: now, lastMessageAt: now })
-            .where(eq(conversations.id, conversationId))
-            .run();
-          raw.exec("RELEASE insert_msg");
-        } catch (insertErr) {
-          raw.exec("ROLLBACK TO insert_msg");
-          raw.exec("RELEASE insert_msg");
-          const code = (insertErr as { code?: string }).code ?? "";
-          if (code === "SQLITE_CONSTRAINT_UNIQUE") {
-            // Duplicate clientMessageId — return the existing row.
-            const existing = db
-              .select()
-              .from(messages)
-              .where(
-                and(
-                  eq(messages.conversationId, conversationId),
-                  eq(messages.clientMessageId, clientMessageId),
-                ),
-              )
-              .get();
-            if (existing) {
-              return {
-                id: existing.id,
-                conversationId: existing.conversationId,
-                role: existing.role as MessageRole,
-                content: existing.content,
-                createdAt: existing.createdAt,
-                ...(existing.metadata ? { metadata: existing.metadata } : {}),
-                clientMessageId: existing.clientMessageId ?? undefined,
-                deduplicated: true,
-              };
+          if (clientMessageId) {
+            // Idempotent insert: skip silently if this clientMessageId was
+            // already persisted for the conversation.
+            const raw = getSqliteFrom(db);
+            raw.exec("SAVEPOINT insert_msg");
+            try {
+              db.insert(messages).values(values).run();
+              if (originChannelCandidate) {
+                db.update(conversations)
+                  .set({ originChannel: originChannelCandidate })
+                  .where(
+                    and(
+                      eq(conversations.id, conversationId),
+                      isNull(conversations.originChannel),
+                    ),
+                  )
+                  .run();
+              }
+              db.update(conversations)
+                .set({ updatedAt: now, lastMessageAt: now })
+                .where(eq(conversations.id, conversationId))
+                .run();
+              raw.exec("RELEASE insert_msg");
+            } catch (insertErr) {
+              raw.exec("ROLLBACK TO insert_msg");
+              raw.exec("RELEASE insert_msg");
+              const code = (insertErr as { code?: string }).code ?? "";
+              if (code === "SQLITE_CONSTRAINT_UNIQUE") {
+                // Duplicate clientMessageId — return the existing row.
+                const existing = db
+                  .select()
+                  .from(messages)
+                  .where(
+                    and(
+                      eq(messages.conversationId, conversationId),
+                      eq(messages.clientMessageId, clientMessageId),
+                    ),
+                  )
+                  .get();
+                if (existing) {
+                  return {
+                    id: existing.id,
+                    conversationId: existing.conversationId,
+                    role: existing.role as MessageRole,
+                    content: existing.content,
+                    createdAt: existing.createdAt,
+                    ...(existing.metadata
+                      ? { metadata: existing.metadata }
+                      : {}),
+                    clientMessageId: existing.clientMessageId ?? undefined,
+                    deduplicated: true,
+                  };
+                }
+              }
+              throw insertErr;
             }
+          } else {
+            // No clientMessageId — standard insert inside a transaction.
+            db.transaction((tx) => {
+              tx.insert(messages).values(values).run();
+              if (originChannelCandidate) {
+                tx.update(conversations)
+                  .set({ originChannel: originChannelCandidate })
+                  .where(
+                    and(
+                      eq(conversations.id, conversationId),
+                      isNull(conversations.originChannel),
+                    ),
+                  )
+                  .run();
+              }
+              tx.update(conversations)
+                .set({ updatedAt: now, lastMessageAt: now })
+                .where(eq(conversations.id, conversationId))
+                .run();
+            });
           }
-          throw insertErr;
-        }
-      } else {
-        // No clientMessageId — standard insert inside a transaction.
-        db.transaction((tx) => {
-          tx.insert(messages).values(values).run();
-          if (originChannelCandidate) {
-            tx.update(conversations)
-              .set({ originChannel: originChannelCandidate })
-              .where(
-                and(
-                  eq(conversations.id, conversationId),
-                  isNull(conversations.originChannel),
-                ),
-              )
-              .run();
-          }
-          tx.update(conversations)
-            .set({ updatedAt: now, lastMessageAt: now })
-            .where(eq(conversations.id, conversationId))
-            .run();
-        });
-      }
 
-      return {
-        id: messageId,
-        conversationId,
-        role,
-        content,
-        createdAt: now,
-        ...(metadataStr ? { metadata: metadataStr } : {}),
-        ...(clientMessageId ? { clientMessageId } : {}),
-        deduplicated: false,
-      };
-    },
+          return {
+            id: messageId,
+            conversationId,
+            role,
+            content,
+            createdAt: now,
+            ...(metadataStr ? { metadata: metadataStr } : {}),
+            ...(clientMessageId ? { clientMessageId } : {}),
+            deduplicated: false,
+          };
+        },
+        () => ({
+          conversationId,
+          role,
+          contentBytes:
+            typeof content === "string" ? content.length : undefined,
+        }),
+      ),
     { op: "insertMessageCore", context: { conversationId } },
   );
 }
@@ -630,34 +693,32 @@ export function createConversation(
     seq: initialSeq > 0 ? initialSeq : null,
   };
 
-  // Retry on SQLITE_BUSY and SQLITE_IOERR — transient disk I/O errors or WAL
-  // contention can cause the first attempt to fail even under normal load.
-  // INSERT and group_id UPDATE are retried independently so a transient failure
-  // on the UPDATE doesn't re-execute the already-succeeded INSERT (which would
-  // hit a unique constraint violation).
-  // No explicit BEGIN/COMMIT here — callers that need atomicity (e.g.
-  // forkConversation) wrap in their own transaction, and nesting raw BEGIN
-  // inside Drizzle's db.transaction() would crash SQLite.
-  withSqliteRetrySync(
-    () => db.insert(conversations).values(conversation).run(),
-    { op: "createConversation.insert", context: { conversationId: id } },
-  );
-
-  // group_id is NOT in the Drizzle schema (raw-query-only pattern).
-  // Set via raw SQL after the INSERT succeeds.
-  // Always set group_id — default to "system:all" when none provided.
-  {
-    const effectiveGroupId = groupId ?? "system:all";
-    withSqliteRetrySync(
-      () =>
-        rawRun(
-          "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
-          effectiveGroupId,
-          effectiveGroupId === "system:pinned" ? 1 : 0,
-          id,
-        ),
-      { op: "createConversation.groupId", context: { conversationId: id } },
+  // Insert the row and set its group_id (raw-SQL-only, not in the Drizzle
+  // schema, so it's a second statement) atomically. A SAVEPOINT — not
+  // `db.transaction()` — because createConversation also runs INSIDE the fork
+  // paths' transactions, where a nested `BEGIN` would error; a savepoint nests
+  // cleanly and is still atomic at the top level. createConversation is a
+  // synchronous primitive and does not retry on contention: callers on
+  // write-contended paths wrap the call in `withSqliteRetry`, and because the
+  // insert+update are atomic here, such a retry re-runs the whole thing cleanly
+  // (a failed attempt rolls back, so no half-written row is ever left behind).
+  const effectiveGroupId = groupId ?? "system:all";
+  const raw = getSqliteFrom(db);
+  raw.exec("SAVEPOINT create_conv");
+  try {
+    db.insert(conversations).values(conversation).run();
+    rawRun(
+      "conversation:create:setGroup",
+      "UPDATE conversations SET group_id = ?, is_pinned = ? WHERE id = ?",
+      effectiveGroupId,
+      effectiveGroupId === "system:pinned" ? 1 : 0,
+      id,
     );
+    raw.exec("RELEASE create_conv");
+  } catch (err) {
+    raw.exec("ROLLBACK TO create_conv");
+    raw.exec("RELEASE create_conv");
+    throw err;
   }
 
   initConversationDir({ ...conversation, originChannel: null });
@@ -685,6 +746,7 @@ export function countConversationsByScheduleJobId(
 ): number {
   return (
     rawGet<{ c: number }>(
+      "conversation:countByScheduleJobId",
       "SELECT COUNT(*) AS c FROM conversations WHERE schedule_job_id = ?",
       scheduleJobId,
     )?.c ?? 0
@@ -723,67 +785,6 @@ export function findAnalysisConversationFor(
 }
 
 /**
- * Find the most recent memory-retrospective background conversation rooted
- * at `parentConversationId`. Used by the memory-retrospective job handler
- * to load the prior retrospective's `remember` calls into the new run's
- * `<already_remembered>` block — bounded source-of-truth for "what the
- * prior pass already saved" that scales as the source conversation grows.
- *
- * Walks up `forkParentConversationId` when no retrospective exists at the
- * current level. This lets a forked conversation inherit dedup context from
- * its source's most recent retro on the fork's *first* retrospective —
- * otherwise the fork would re-save every fact the source already retro'd.
- * Once the fork accumulates its own retros, those are found at the first
- * iteration and we never walk up.
- *
- * The returned `forkParentConversationId` is the conversation the
- * retrospective row is rooted at — `parentConversationId` itself when it has
- * its own retros, or an ancestor when the chain walk found the row higher
- * up. Callers that mutate the prior (e.g. GC of superseded runs) must check
- * it against the source conversation: an ancestor's row is that ancestor's
- * dedup baseline, not the caller's to delete.
- *
- * Returns `null` when no prior retrospective exists anywhere in the fork
- * chain (true first-run case).
- *
- * Hits `idx_conversations_fork_parent_conversation_id` for the
- * `forkParentConversationId` lookup.
- */
-const MAX_FORK_CHAIN_DEPTH = 16;
-
-export function findMostRecentRetrospectiveFor(
-  parentConversationId: string,
-): { id: string; forkParentConversationId: string } | null {
-  const db = getDb();
-  let currentId: string | null = parentConversationId;
-  for (let depth = 0; depth < MAX_FORK_CHAIN_DEPTH && currentId; depth++) {
-    const row = db
-      .select({ id: conversations.id })
-      .from(conversations)
-      .where(
-        and(
-          inArray(conversations.source, MEMORY_RETROSPECTIVE_SOURCES),
-          eq(conversations.forkParentConversationId, currentId),
-        ),
-      )
-      .orderBy(desc(conversations.createdAt))
-      .limit(1)
-      .get();
-    if (row) return { id: row.id, forkParentConversationId: currentId };
-
-    const parent = db
-      .select({
-        forkParentConversationId: conversations.forkParentConversationId,
-      })
-      .from(conversations)
-      .where(eq(conversations.id, currentId))
-      .get();
-    currentId = parent?.forkParentConversationId ?? null;
-  }
-  return null;
-}
-
-/**
  * Returns the `source` column for the given conversation, or null if
  * not found. Tiny convenience used by the recursion guard in the
  * auto-analyze loop.
@@ -806,6 +807,7 @@ export function getConversationSource(conversationId: string): string | null {
 function getConversationGroupId(conversationId: string): string | null {
   ensureGroupMigration();
   const row = rawGet<{ group_id: string | null }>(
+    "conversation:getGroupId",
     "SELECT group_id FROM conversations WHERE id = ?",
     conversationId,
   );
@@ -972,6 +974,7 @@ export function forkConversation(params: {
           ? sourceHistoryStrippedAt
           : null,
         inferenceProfile: sourceConversation.inferenceProfile,
+        enabledPlugins: encodeEnabledPlugins(sourceConversation.enabledPlugins),
       })
       .where(eq(conversations.id, fc.id))
       .run();
@@ -982,18 +985,8 @@ export function forkConversation(params: {
       messageAt: number;
     } | null = null;
 
-    for (const message of messagesToCopy) {
+    const forkedMessageValues = messagesToCopy.map((message) => {
       const forkedMessageId = uuid();
-      db.insert(messages)
-        .values({
-          id: forkedMessageId,
-          conversationId: fc.id,
-          role: message.role,
-          content: message.content,
-          createdAt: message.createdAt,
-          metadata: cloneForkMessageMetadata(message.metadata, message.id),
-        })
-        .run();
       forkedMessageIds.set(message.id, forkedMessageId);
 
       if (message.role === "assistant") {
@@ -1002,6 +995,27 @@ export function forkConversation(params: {
           messageAt: message.createdAt,
         };
       }
+
+      return {
+        id: forkedMessageId,
+        conversationId: fc.id,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        metadata: cloneForkMessageMetadata(message.metadata, message.id),
+      };
+    });
+
+    // Insert in chunks of one multi-row statement each so a large fork takes
+    // the SQLite write lock O(messages / chunk) times instead of once per row.
+    const FORK_INSERT_CHUNK_SIZE = 200;
+    for (
+      let i = 0;
+      i < forkedMessageValues.length;
+      i += FORK_INSERT_CHUNK_SIZE
+    ) {
+      const chunk = forkedMessageValues.slice(i, i + FORK_INSERT_CHUNK_SIZE);
+      db.insert(messages).values(chunk).run();
     }
 
     populateForkContentsInProcess({
@@ -1091,7 +1105,9 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
   const attachmentIdMap = new Map<string, string>();
   for (const message of messagesToCopy) {
     const forkedMessageId = forkedMessageIds.get(message.id);
-    if (!forkedMessageId) continue;
+    if (!forkedMessageId) {
+      continue;
+    }
 
     const attachmentLinks = db
       .select({
@@ -1171,64 +1187,17 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
     latestAssistantMessageAt: latestForkedAssistant?.messageAt ?? null,
   });
 
-  // Carry the parent's per-conversation memory state into the child so the
-  // forked thread resumes with the same activation/injection log and
-  // in-context tracker the parent had at fork time. Only valid for
-  // full-history forks: a truncated fork would inherit activation/tracker
-  // entries for turns the child does not actually contain.
-  if (isFullHistoryFork) {
-    forkActivationState(db, sourceConversationId, fork.id);
-    forkEverInjected(db, sourceConversationId, fork.id);
-    forkGraphMemoryState(sourceConversationId, fork.id);
-  } else {
-    // Truncated fork: the wholesale copy above would over-claim, but
-    // seeding nothing makes the child re-select and re-attach every page
-    // whose `<memory>` attachment it already inherited (observed in
-    // production: 89 duplicate page injections on one fork). Derive
-    // `everInjected` from the inherited attachments themselves — scoped to
-    // the child's visible window, since attachments behind an inherited
-    // compaction boundary are not rendered and must stay re-injectable.
-    // The v2 and v3 layers persist under separate metadata keys with the
-    // same `# memory/concepts/<slug>.md` header convention, so each seeds
-    // its own dedup record from its own blocks.
-    const visibleStartIndex = Math.min(
-      inheritedCompactedMessageCount,
-      messagesToCopy.length,
-    );
-    const inheritedSlugs = new Set<string>();
-    const inheritedV3Slugs = new Set<string>();
-    for (const message of messagesToCopy.slice(visibleStartIndex)) {
-      const block = readInjectedBlock(message.metadata, "memoryInjectedBlock");
-      if (block) {
-        for (const slug of extractInjectedConceptSlugs(block)) {
-          inheritedSlugs.add(slug);
-        }
-      }
-      const v3Block = readInjectedBlock(
-        message.metadata,
-        MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
-      );
-      if (v3Block) {
-        for (const slug of extractInjectedConceptSlugs(v3Block)) {
-          inheritedV3Slugs.add(slug);
-        }
-      }
-    }
-    seedForkActivationState(db, fork.id, [...inheritedSlugs]);
-    seedEverInjectedFromSlugs(
-      db,
-      sourceConversationId,
-      fork.id,
-      [...inheritedV3Slugs],
-      Date.now(),
-    );
-  }
-  forkRetrospectiveState({
-    database: db,
+  // Carry the parent's per-conversation memory state into the child (activation
+  // and injection logs, graph state, retrospective state). Runs synchronously
+  // inside the fork transaction; a no-op when memory is absent or disabled.
+  getMemoryPersistenceHooks().onConversationForked({
+    db,
     sourceConversationId,
-    forkedConversationId: fork.id,
+    forkId: fork.id,
+    isFullHistoryFork,
+    messagesToCopy,
     forkedMessageIds,
-    lastCopiedSourceMessageId: messagesToCopy.at(-1)?.id ?? null,
+    inheritedCompactedMessageCount,
   });
 
   // Carry the source's compaction events that predate the fork boundary so the
@@ -1252,7 +1221,9 @@ function latestForkedAssistantFrom(
 ): { messageId: string; messageAt: number } | null {
   for (let i = messagesToCopy.length - 1; i >= 0; i--) {
     const message = messagesToCopy[i]!;
-    if (message.role !== "assistant") continue;
+    if (message.role !== "assistant") {
+      continue;
+    }
     const forkedMessageId = forkedMessageIds.get(message.id);
     if (forkedMessageId) {
       return { messageId: forkedMessageId, messageAt: message.createdAt };
@@ -1366,37 +1337,46 @@ export async function forkConversationForRetrospective(params: {
   );
 
   // Phase 1 (in-process, tiny): create the fork conversation row + lineage so
-  // the subprocess connection sees it before inserting messages.
-  const fork = db.transaction(() => {
-    const fc = createConversation({
-      title: forkTitle,
-      conversationType: params.conversationType ?? "standard",
-      groupId: params.groupId ?? parentGroupId ?? "system:all",
-      ...(params.source != null ? { source: params.source } : {}),
-    });
-    db.update(conversations)
-      .set({
-        forkParentConversationId: sourceConversation.id,
-        forkParentMessageId,
-        contextSummary: inheritedCompaction?.summary ?? null,
-        contextCompactedMessageCount:
-          inheritedCompaction?.compactedMessageCount ?? 0,
-        contextCompactedAt: inheritedCompaction?.compactedAt ?? null,
-        slackContextCompactionWatermarkTs: inheritsLatestCompaction
-          ? sourceConversation.slackContextCompactionWatermarkTs
-          : null,
-        slackContextCompactionWatermarkAt: inheritsLatestCompaction
-          ? sourceConversation.slackContextCompactionWatermarkAt
-          : null,
-        historyStrippedAt: inheritsHistoryStrippedAt
-          ? sourceHistoryStrippedAt
-          : null,
-        inferenceProfile: sourceConversation.inferenceProfile,
-      })
-      .where(eq(conversations.id, fc.id))
-      .run();
-    return fc;
-  });
+  // the subprocess connection sees it before inserting messages. The whole
+  // transaction is the retry unit — it rolls back atomically on contention, so
+  // re-running it (with a fresh conversation id) is safe.
+  const fork = await withSqliteRetry(
+    () =>
+      db.transaction(() => {
+        const fc = createConversation({
+          title: forkTitle,
+          conversationType: params.conversationType ?? "standard",
+          groupId: params.groupId ?? parentGroupId ?? "system:all",
+          ...(params.source != null ? { source: params.source } : {}),
+        });
+        db.update(conversations)
+          .set({
+            forkParentConversationId: sourceConversation.id,
+            forkParentMessageId,
+            contextSummary: inheritedCompaction?.summary ?? null,
+            contextCompactedMessageCount:
+              inheritedCompaction?.compactedMessageCount ?? 0,
+            contextCompactedAt: inheritedCompaction?.compactedAt ?? null,
+            slackContextCompactionWatermarkTs: inheritsLatestCompaction
+              ? sourceConversation.slackContextCompactionWatermarkTs
+              : null,
+            slackContextCompactionWatermarkAt: inheritsLatestCompaction
+              ? sourceConversation.slackContextCompactionWatermarkAt
+              : null,
+            historyStrippedAt: inheritsHistoryStrippedAt
+              ? sourceHistoryStrippedAt
+              : null,
+            inferenceProfile: sourceConversation.inferenceProfile,
+            enabledPlugins: encodeEnabledPlugins(
+              sourceConversation.enabledPlugins,
+            ),
+          })
+          .where(eq(conversations.id, fc.id))
+          .run();
+        return fc;
+      }),
+    { op: "forkConversationForRetrospective.create" },
+  );
 
   try {
     // Phase 2 (off the event loop): copy the message rows in a sqlite3
@@ -1528,6 +1508,13 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
+  // Let the memory feature purge the conversation's per-message index (e.g. its
+  // lexical points). Fired from the shared primitive so every delete caller —
+  // route, wipe, retrospective cleanup/GC — cleans up. Routed through the
+  // persistence-hook seam so this layer stays decoupled from the memory plugin;
+  // a no-op when memory is not present.
+  getMemoryPersistenceHooks().onConversationDeleted(id);
+
   return result;
 }
 
@@ -1634,6 +1621,12 @@ export async function deleteConversationGently(
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
+  // Let the memory feature purge the conversation's per-message index — the
+  // gentle path is the retrospective-GC caller, which would otherwise leak the
+  // conversation's lexical points. Routed through the persistence-hook seam;
+  // a no-op when memory is not present.
+  getMemoryPersistenceHooks().onConversationDeleted(id);
+
   return result;
 }
 
@@ -1649,8 +1642,9 @@ export function wipeConversation(id: string): WipeConversationResult {
   const deletedSummaryIds: string[] = [];
 
   // Step A — Cancel pending memory jobs (before deleting messages, since
-  // the cancellation queries join on `messages`).
-  const cancelledJobCount = cancelPendingJobsForConversation(id);
+  // the cancellation queries join on `messages`). Cleanup runs even while the
+  // memory plugin is disabled; returns 0 when memory is not present.
+  const cancelledJobCount = getMemoryPersistenceHooks().onConversationWiped(id);
 
   // Step C — Delete conversation-scoped memory summaries and their embeddings.
   const summaryRows = db
@@ -1704,6 +1698,10 @@ export interface AddMessageOptions {
    *  duplicate inserts for the same `(conversationId, clientMessageId)`
    *  pair are silently skipped. */
   clientMessageId?: string;
+  /** Pre-assigned message ID. When omitted, one is generated
+   *  internally. Pass the same value as `requestId` for user turns so
+   *  the persisted row ID matches the runtime correlation ID. */
+  id?: string;
 }
 
 /**
@@ -1717,13 +1715,14 @@ export async function addMessage(
   content: string,
   options?: AddMessageOptions,
 ) {
-  const { metadata, skipIndexing, clientMessageId } = options ?? {};
+  const { metadata, skipIndexing, clientMessageId, id } = options ?? {};
   const inserted = await insertMessageCore({
     conversationId,
     role,
     content,
     metadata,
     clientMessageId,
+    id,
   });
 
   if (inserted.deduplicated) {
@@ -1732,9 +1731,16 @@ export async function addMessage(
 
   const message = inserted;
 
-  if (!skipIndexing) {
+  // Hidden rows are machine signals suppressed from the transcript — they
+  // must not surface as search excerpts or be embedded into memory either.
+  if (!skipIndexing && !isHiddenMessageMetadata(metadata)) {
+    // Message-content lexical indexing is host infrastructure, invoked
+    // directly (not through the memory hook seam, whose active side effects go
+    // inert while the memory plugin is disabled — search indexing must not).
+    // The direct write seams (streaming finalize, import, edit) enqueue for
+    // themselves; this covers the plain addMessage path.
+    enqueueLexicalIndexForMessage(message.id);
     try {
-      const config = getConfig();
       const parsed = metadata
         ? messageMetadataSchema.safeParse(metadata)
         : null;
@@ -1742,19 +1748,15 @@ export async function addMessage(
         ? parsed.data.provenanceTrustClass
         : undefined;
       const automated = parsed?.success ? parsed.data.automated : undefined;
-      await indexMessageNow(
-        {
-          messageId: message.id,
-          conversationId: message.conversationId,
-          role: message.role,
-          content: message.content,
-          createdAt: message.createdAt,
-          scopeId: "default",
-          provenanceTrustClass,
-          automated,
-        },
-        config.memory,
-      );
+      await getMemoryPersistenceHooks().onMessagePersisted({
+        messageId: message.id,
+        conversationId: message.conversationId,
+        role: message.role,
+        content: message.content,
+        createdAt: message.createdAt,
+        provenanceTrustClass,
+        automated,
+      });
     } catch (err) {
       log.warn(
         { err, conversationId, messageId: message.id },
@@ -1788,13 +1790,21 @@ export async function addMessage(
 
 export function getMessages(conversationId: string): MessageRow[] {
   const db = getDb();
-  return db
-    .select()
-    .from(messages)
-    .where(eq(messages.conversationId, conversationId))
-    .orderBy(asc(messages.createdAt))
-    .all()
-    .map(parseMessage);
+  // Synchronous read of every row for the conversation — the dominant
+  // per-turn main-thread cost on large conversations. Timed so a freeze the
+  // event-loop watchdog detects can be attributed here (see slow-sync-log).
+  return timeSyncSection(
+    "conversation-crud:get-messages",
+    () =>
+      db
+        .select()
+        .from(messages)
+        .where(eq(messages.conversationId, conversationId))
+        .orderBy(asc(messages.createdAt))
+        .all()
+        .map(parseMessage),
+    (rows) => ({ conversationId, rowCount: rows.length }),
+  );
 }
 
 /**
@@ -1873,7 +1883,9 @@ export function countMessagesAfter(
     .from(messages)
     .where(eq(messages.id, afterMessageId))
     .get();
-  if (!ref) return 0;
+  if (!ref) {
+    return 0;
+  }
   // Tie-breaker on `messages.id` so rows that share a millisecond timestamp
   // with the reference are not permanently skipped. Mirrors the
   // `(createdAt, id)` cursor pattern used by the backfill job-handler and
@@ -1926,7 +1938,9 @@ export function getMessagesAfter(
     .from(messages)
     .where(eq(messages.id, afterMessageId))
     .get();
-  if (!ref) return [];
+  if (!ref) {
+    return [];
+  }
   // Same `(createdAt, id)` cursor as `countMessagesAfter` — rows sharing
   // the reference's millisecond timestamp would otherwise be skipped.
   return db
@@ -2067,15 +2081,23 @@ export function getMessagesPaginated(
       .all()
       .map(parseMessage);
 
-    if (chunk.length === 0) break;
+    if (chunk.length === 0) {
+      break;
+    }
     rowsScanned += chunk.length;
 
     for (const row of chunk) {
-      if (!filter || filter(row)) visible.push(row);
-      if (visible.length >= limit + 1) break;
+      if (!filter || filter(row)) {
+        visible.push(row);
+      }
+      if (visible.length >= limit + 1) {
+        break;
+      }
     }
 
-    if (chunk.length < chunkSize) break;
+    if (chunk.length < chunkSize) {
+      break;
+    }
     const lastRow = chunk[chunk.length - 1];
     lastScanned = { createdAt: lastRow.createdAt, id: lastRow.id };
     cursorCreatedAt = lastRow.createdAt;
@@ -2087,7 +2109,9 @@ export function getMessagesPaginated(
   // the scanned window, so report `hasMore: true` to keep the client draining
   // — returning `false` here is the stall this loop exists to prevent.
   const hasMore = filledPage || scanCapTruncated;
-  if (filledPage) visible.splice(limit);
+  if (filledPage) {
+    visible.splice(limit);
+  }
   visible.reverse();
 
   // Only hand back a resume cursor when the cap (not DB exhaustion) cut the
@@ -2169,7 +2193,9 @@ export function updateConversationTitle(
 ): void {
   const db = getDb();
   const set: Record<string, unknown> = { title, updatedAt: Date.now() };
-  if (isAutoTitle !== undefined) set.isAutoTitle = isAutoTitle;
+  if (isAutoTitle !== undefined) {
+    set.isAutoTitle = isAutoTitle;
+  }
   db.update(conversations).set(set).where(eq(conversations.id, id)).run();
 
   // Update disk view meta.json with the new title
@@ -2258,9 +2284,12 @@ export function updateConversationSlackContextWatermark(
 
 export function archiveConversation(id: string): boolean {
   const conv = getConversation(id);
-  if (!conv) return false;
+  if (!conv) {
+    return false;
+  }
   const now = Date.now();
   rawRun(
+    "conversation:archive",
     "UPDATE conversations SET archived_at = ?, updated_at = ? WHERE id = ?",
     now,
     now,
@@ -2271,9 +2300,12 @@ export function archiveConversation(id: string): boolean {
 
 export function unarchiveConversation(id: string): boolean {
   const conv = getConversation(id);
-  if (!conv) return false;
+  if (!conv) {
+    return false;
+  }
   const now = Date.now();
   rawRun(
+    "conversation:unarchive",
     "UPDATE conversations SET archived_at = NULL, updated_at = ? WHERE id = ?",
     now,
     id,
@@ -2292,6 +2324,7 @@ export function setConversationProcessingStartedAt(
   startedAt: number | null,
 ): void {
   rawRun(
+    "conversation:setProcessingStartedAt",
     "UPDATE conversations SET processing_started_at = ? WHERE id = ?",
     startedAt,
     id,
@@ -2307,6 +2340,7 @@ export function setConversationProcessingStartedAt(
  */
 export function clearStaleProcessingFlags(): number {
   return rawRun(
+    "conversation:clearStaleProcessingFlags",
     "UPDATE conversations SET processing_started_at = NULL WHERE processing_started_at IS NOT NULL",
   );
 }
@@ -2321,8 +2355,11 @@ export function clearStaleProcessingFlags(): number {
  */
 export function isConversationProcessing(id: string): boolean {
   const inMemory = findConversation(id)?.isProcessing();
-  if (inMemory != null) return inMemory;
+  if (inMemory != null) {
+    return inMemory;
+  }
   const row = rawGet<{ processing_started_at: number | null }>(
+    "conversation:isProcessing",
     "SELECT processing_started_at FROM conversations WHERE id = ?",
     id,
   );
@@ -2342,6 +2379,7 @@ export function isConversationProcessing(id: string): boolean {
  */
 export function getConversationPersistedSeq(id: string): number | null {
   const row = rawGet<{ seq: number | null }>(
+    "conversation:getPersistedSeq",
     "SELECT seq FROM conversations WHERE id = ?",
     id,
   );
@@ -2359,8 +2397,11 @@ export function getConversationPersistedSeq(id: string): number | null {
  * Non-positive or non-finite `seq` values are ignored.
  */
 export function recordConversationPersistedSeq(id: string, seq: number): void {
-  if (!Number.isFinite(seq) || seq <= 0) return;
+  if (!Number.isFinite(seq) || seq <= 0) {
+    return;
+  }
   rawRun(
+    "conversation:recordPersistedSeq",
     "UPDATE conversations SET seq = ? WHERE id = ? AND (seq IS NULL OR seq < ?)",
     seq,
     id,
@@ -2386,10 +2427,13 @@ export function setConversationSurfaced(
   surfaced: boolean,
 ): { surfacedAt: number | null } | null {
   const conv = getConversation(id);
-  if (!conv) return null;
+  if (!conv) {
+    return null;
+  }
   const now = Date.now();
   const surfacedAt = surfaced ? now : null;
   rawRun(
+    "conversation:setSurfaced",
     "UPDATE conversations SET surfaced_at = ?, updated_at = ? WHERE id = ?",
     surfacedAt,
     now,
@@ -2417,6 +2461,51 @@ export function setConversationInferenceProfile(
       inferenceProfile: profile,
       inferenceProfileSessionId: null,
       inferenceProfileExpiresAt: null,
+      updatedAt: Date.now(),
+    })
+    .where(eq(conversations.id, conversationId))
+    .run();
+}
+
+/**
+ * Encode a plugin-id list for the `enabled_plugins` text column. Keeps a true
+ * SQL NULL for `null` (rather than the JSON literal `"null"`) so it reads back
+ * as "no per-chat restriction".
+ */
+function encodeEnabledPlugins(plugins: string[] | null): string | null {
+  return plugins === null ? null : JSON.stringify(plugins);
+}
+
+/**
+ * Read the per-conversation plugin scope. Returns the parsed `string[]` of
+ * plugin ids, or `null` when the column is unset/empty (= no per-chat
+ * restriction). Defensively returns `null` on a JSON parse failure.
+ */
+export function getConversationEnabledPlugins(
+  conversationId: string,
+): string[] | null {
+  const db = getDb();
+  const row = db
+    .select({ enabledPlugins: conversations.enabledPlugins })
+    .from(conversations)
+    .where(eq(conversations.id, conversationId))
+    .get();
+  return parseJsonNullable<string[]>()(row?.enabledPlugins);
+}
+
+/**
+ * Set or clear the per-conversation plugin scope. Pass a `string[]` to scope
+ * the chat to those plugin ids, or `null` to clear the restriction and fall
+ * back to all globally-enabled plugins.
+ */
+export function setConversationEnabledPlugins(
+  conversationId: string,
+  plugins: string[] | null,
+): void {
+  const db = getDb();
+  db.update(conversations)
+    .set({
+      enabledPlugins: encodeEnabledPlugins(plugins),
       updatedAt: Date.now(),
     })
     .where(eq(conversations.id, conversationId))
@@ -2468,7 +2557,9 @@ export function clearExpiredInferenceProfiles(
     )
     .all(now) as Array<{ conversationId: string; sessionId: string | null }>;
 
-  if (expired.length === 0) return [];
+  if (expired.length === 0) {
+    return [];
+  }
 
   const ids = expired.map((r) => r.conversationId);
   const placeholders = ids.map(() => "?").join(", ");
@@ -2593,6 +2684,7 @@ export function setLastNotifiedInferenceProfile(
   profileKey: string | null,
 ): void {
   rawRun(
+    "conversation:setLastNotifiedProfile",
     "UPDATE conversations SET last_notified_inference_profile = ? WHERE id = ?",
     profileKey,
     conversationId,
@@ -2616,9 +2708,15 @@ export async function clearAll(): Promise<{
   messages: number;
 }> {
   const msgCount =
-    rawGet<{ c: number }>("SELECT COUNT(*) AS c FROM messages")?.c ?? 0;
+    rawGet<{ c: number }>(
+      "conversation:clearAll:countMessages",
+      "SELECT COUNT(*) AS c FROM messages",
+    )?.c ?? 0;
   const convCount =
-    rawGet<{ c: number }>("SELECT COUNT(*) AS c FROM conversations")?.c ?? 0;
+    rawGet<{ c: number }>(
+      "conversation:clearAll:countConvs",
+      "SELECT COUNT(*) AS c FROM conversations",
+    )?.c ?? 0;
 
   // Each DELETE goes through `runAsyncSqlite`. The original code threw
   // on rawExec failure; mirror that here by throwing when the async
@@ -2638,71 +2736,48 @@ export async function clearAll(): Promise<{
   // Delete in dependency order. Cascades handle memory_segments and
   // tool_invocations, but we explicitly clear non-cascading memory
   // tables too.
-  //
-  // FTS virtual tables are cleared before their base tables. If an FTS
-  // table is corrupted, the DELETE will fail — we drop the associated
-  // triggers so that the subsequent base-table DELETEs don't also fail
-  // (SQLite triggers are atomic with the triggering statement, so a
-  // corrupted FTS table would roll back every base-table DELETE).
   await runOrThrow("DELETE FROM memory_segments");
   await runOrThrow("DELETE FROM memory_summaries");
   await runOrThrow("DELETE FROM memory_embeddings");
   // memory_jobs and llm_request_logs each live in their own dedicated
   // connection; clear them directly on those connections rather than through a
   // sqlite3 subprocess.
-  rawMemoryRun("DELETE FROM memory_jobs");
+  rawMemoryRun("conversation:clearAll:memoryJobs", "DELETE FROM memory_jobs");
   await runOrThrow("DELETE FROM memory_checkpoints");
-  rawLogsRun("DELETE FROM llm_request_logs");
+  rawLogsRun(
+    "conversation:clearAll:requestLogs",
+    "DELETE FROM llm_request_logs",
+  );
   await runOrThrow("DELETE FROM llm_usage_events");
   await runOrThrow("DELETE FROM message_attachments");
   await runOrThrow("DELETE FROM attachments");
   await runOrThrow("DELETE FROM tool_invocations");
   await runOrThrow("DELETE FROM skill_loaded_events");
-  let messagesFtsCorrupted = false;
-  const ftsResult = await runAsyncSqlite(
-    "DELETE FROM messages_fts",
-    "clearAll:messages-fts",
-  );
-  if (!ftsResult.ok) {
-    log.warn(
-      { error: ftsResult.error, backend: ftsResult.backend },
-      "clearAll: failed to clear messages_fts — dropping triggers so base-table cleanup can proceed",
-    );
-    rawExec("DROP TRIGGER IF EXISTS messages_fts_ai");
-    rawExec("DROP TRIGGER IF EXISTS messages_fts_ad");
-    rawExec("DROP TRIGGER IF EXISTS messages_fts_au");
-    messagesFtsCorrupted = true;
-  }
   await runOrThrow("DELETE FROM messages");
   await runOrThrow("DELETE FROM conversations");
 
   // Record audit event — lifecycle_events is NOT deleted by clearAll(),
   // so this survives the wipe and provides a permanent trail.
   rawRun(
+    "conversation:clearAll:auditEvent",
     `INSERT INTO lifecycle_events (id, event_name, created_at) VALUES (?, ?, ?)`,
     uuid(),
     "conversations_clear_all",
     Date.now(),
   );
 
-  // Rebuild corrupted FTS tables and restore triggers after all base-table
-  // DELETEs have completed. Dropping the virtual table clears the corruption,
-  // and recreating it + triggers means subsequent writes maintain FTS
-  // consistency without requiring a daemon restart.
-  if (messagesFtsCorrupted) {
-    rawExec("DROP TABLE IF EXISTS messages_fts");
-    rawExec(
-      `CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(message_id UNINDEXED, content)`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_ai AFTER INSERT ON messages BEGIN INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_ad AFTER DELETE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; END`,
-    );
-    rawExec(
-      `CREATE TRIGGER IF NOT EXISTS messages_fts_au AFTER UPDATE ON messages BEGIN DELETE FROM messages_fts WHERE message_id = old.id; INSERT INTO messages_fts(message_id, content) VALUES (new.id, new.content); END`,
-    );
+  // Let the memory feature drop its bulk per-message index (e.g. the whole
+  // lexical Qdrant collection) — a "delete all" leaves no ids to key
+  // per-message cleanup on. Routed through the persistence-hook seam so this
+  // layer stays decoupled from the memory plugin; a no-op when memory is not
+  // present. AWAITED so the drop completes before clear-all returns and writes
+  // resume — a message created right after must not upsert into a collection
+  // that is about to be dropped. Best-effort — a failure must not fail the
+  // whole clear-all.
+  try {
+    await getMemoryPersistenceHooks().onAllConversationsCleared();
+  } catch (err) {
+    log.warn({ err }, "clearAll: failed to clear memory per-message index");
   }
 
   // Clear the disk-view conversations directory and recreate it empty
@@ -2735,7 +2810,9 @@ export function deleteLastExchange(conversationId: string): number {
     .limit(1)
     .get();
 
-  if (!lastUserMsg) return 0;
+  if (!lastUserMsg) {
+    return 0;
+  }
 
   // Use rowid to identify the last user message and everything after it.
   // rowid is monotonically increasing for inserts, so this is safe even if
@@ -2751,7 +2828,9 @@ export function deleteLastExchange(conversationId: string): number {
     .from(messages)
     .where(condition)
     .all();
-  if (deleted === 0) return 0;
+  if (deleted === 0) {
+    return 0;
+  }
 
   // Collect attachment IDs linked to the messages being deleted so we can
   // scope orphan cleanup to only those candidates (not freshly uploaded ones).
@@ -2789,6 +2868,12 @@ export function deleteLastExchange(conversationId: string): number {
   });
 
   deleteOrphanAttachments(candidateAttachmentIds);
+
+  // Let the memory feature clean up the undone messages' per-message index
+  // entries. This bulk delete bypasses `deleteMessageById`, so notify the seam
+  // with the collected ids — after the transaction and off the write path. A
+  // no-op when memory is not present.
+  getMemoryPersistenceHooks().onMessagesDeleted(messageIds);
 
   return deleted;
 }
@@ -2833,6 +2918,13 @@ export async function reserveMessage(
 /**
  * Update the content of an existing message. Used when consolidating
  * multiple assistant messages into one.
+ *
+ * This is a pure CRUD primitive: it does NOT enqueue a lexical reindex, because
+ * it is also driven by mid-stream partial flushes and high-frequency tool-timing
+ * stamps (`_startedAt`/`_previewStartedAt`) that either don't change searchable
+ * text or would spam reindex jobs. Callers on genuine content-change seams
+ * (streaming finalize, channel edits, consolidation) enqueue the reindex
+ * themselves via `enqueueLexicalIndexForMessage`.
  */
 export function updateMessageContent(
   messageId: string,
@@ -2908,7 +3000,9 @@ export function relinkAttachments(
   fromMessageIds: string[],
   toMessageId: string,
 ): number {
-  if (fromMessageIds.length === 0) return 0;
+  if (fromMessageIds.length === 0) {
+    return 0;
+  }
   const db = getDb();
 
   // Count how many links will be moved before updating.
@@ -2918,7 +3012,9 @@ export function relinkAttachments(
     .where(inArray(messageAttachments.messageId, fromMessageIds))
     .all();
 
-  if (total === 0) return 0;
+  if (total === 0) {
+    return 0;
+  }
 
   db.update(messageAttachments)
     .set({ messageId: toMessageId })
@@ -3010,6 +3106,15 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
+  // Let the memory feature clean up the deleted message's per-message index
+  // entry. Notified only when the row actually existed (`msgRow` set), after the
+  // transaction and off the write path, via the persistence-hook seam (a no-op
+  // when memory is not present). Covers single-message deletes (consolidation)
+  // that do not go through the conversation-level purge.
+  if (msgRow) {
+    getMemoryPersistenceHooks().onMessagesDeleted([messageId]);
+  }
+
   return result;
 }
 
@@ -3086,18 +3191,13 @@ export function getConversationRecentProvenanceTrustClass(
   | "unknown"
   | undefined {
   const row = rawGet<{ metadata: string | null }>(
+    "conversation:getProvenanceTrustClass",
     `SELECT metadata FROM messages
      WHERE conversation_id = ? AND role = 'user' AND metadata IS NOT NULL
      ORDER BY created_at DESC LIMIT 1`,
     conversationId,
   );
-  if (!row?.metadata) return undefined;
-  try {
-    const parsed = messageMetadataSchema.safeParse(JSON.parse(row.metadata));
-    return parsed.success ? parsed.data.provenanceTrustClass : undefined;
-  } catch {
-    return undefined;
-  }
+  return parseMessageMetadata(row?.metadata ?? null)?.provenanceTrustClass;
 }
 
 // ---------------------------------------------------------------------------
@@ -3128,6 +3228,7 @@ export function batchSetDisplayOrders(
           safeGroupId = "system:all";
         } else if (
           !rawGet<{ id: string }>(
+            "conversation:batchSetDisplayOrders:groupCheck",
             "SELECT id FROM conversation_groups WHERE id = ?",
             safeGroupId,
           )
@@ -3143,6 +3244,7 @@ export function batchSetDisplayOrders(
           safeGroupId === "system:background" ||
           safeGroupId === "system:scheduled";
         rawRun(
+          "conversation:batchSetDisplayOrders:group",
           `UPDATE conversations SET display_order = ?, is_pinned = ?, group_id = ?${
             clearsSurfaced ? ", surfaced_at = NULL" : ""
           } WHERE id = ?`,
@@ -3154,12 +3256,14 @@ export function batchSetDisplayOrders(
       } else if (update.isPinned === undefined) {
         // Only displayOrder provided — preserve existing pin state and group.
         rawRun(
+          "conversation:batchSetDisplayOrders:orderOnly",
           "UPDATE conversations SET display_order = ? WHERE id = ?",
           update.displayOrder,
           update.id,
         );
       } else if (update.isPinned) {
         rawRun(
+          "conversation:batchSetDisplayOrders:pin",
           "UPDATE conversations SET display_order = ?, is_pinned = 1, group_id = 'system:pinned' WHERE id = ?",
           update.displayOrder,
           update.id,
@@ -3168,6 +3272,7 @@ export function batchSetDisplayOrders(
         // Restore system group from source/conversationType when unpinning,
         // instead of clearing to NULL (which would lose provenance).
         rawRun(
+          "conversation:batchSetDisplayOrders:unpin",
           `UPDATE conversations SET display_order = ?, is_pinned = 0,
            group_id = CASE WHEN group_id = 'system:pinned' THEN
              CASE
@@ -3202,13 +3307,16 @@ export function getDisplayMetaForConversations(
     string,
     { displayOrder: number | null; isPinned: boolean; groupId: string | null }
   >();
-  if (conversationIds.length === 0) return result;
+  if (conversationIds.length === 0) {
+    return result;
+  }
   for (const id of conversationIds) {
     const row = rawGet<{
       display_order: number | null;
       is_pinned: number | null;
       group_id: string | null;
     }>(
+      "conversation:getDisplayMeta",
       "SELECT display_order, is_pinned, group_id FROM conversations WHERE id = ?",
       id,
     );
@@ -3231,10 +3339,14 @@ export function getDisplayMetaForConversations(
  * be treated as turn boundaries.
  */
 function isToolResultMessage(role: string, content: string): boolean {
-  if (role !== "user") return false;
+  if (role !== "user") {
+    return false;
+  }
   try {
     const parsed = JSON.parse(content);
-    if (!Array.isArray(parsed) || parsed.length === 0) return false;
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      return false;
+    }
     return parsed.every(
       (block: unknown) =>
         block != null &&
@@ -3390,7 +3502,9 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   // Look up the target message to get its conversationId and createdAt.
   const target = getMessageById(messageId);
-  if (!target) return [messageId];
+  if (!target) {
+    return [messageId];
+  }
 
   // Walk backward from the target message to find the turn boundary.
   // Limit to 50 rows — sufficient for even aggressive tool-use loops.
@@ -3495,7 +3609,9 @@ export function getAssistantMessageIdsInTurn(messageId: string): string[] {
 
   // Sort by createdAt to ensure stable ordering.
   // Re-fetch createdAt for all collected IDs so the sort is accurate.
-  if (assistantIds.length <= 1) return assistantIds;
+  if (assistantIds.length <= 1) {
+    return assistantIds;
+  }
 
   const idSet = new Set(assistantIds);
   const sorted = db

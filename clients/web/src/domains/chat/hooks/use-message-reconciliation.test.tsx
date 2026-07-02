@@ -1,0 +1,162 @@
+/**
+ * `useMessageReconciliation` — the reconcile path adopts the daemon's
+ * authoritative `processing` flag.
+ *
+ * The load-bearing behavior for the "stuck on thinking until refresh" bug: when
+ * the reconcile fetch reports `processing: false` but the local rolling snapshot
+ * still shows the turn processing, the reconcile must reseed the snapshot
+ * (history invalidation) so the fresh `processing: false` reaches the
+ * `snapshotProcessing` CLOSE-gate in `shouldShowThinkingIndicator`. Content diffs
+ * are mocked out here so these tests isolate the processing-flag gate; the
+ * content-diff detection and the close-gate itself are covered by
+ * `reconcile-detection.test.ts` and `turn-selectors.test.ts`.
+ */
+
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
+import { cleanup, renderHook } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
+import { createElement } from "react";
+
+// Isolate the processing-flag gate: force "no new content" and "assistant
+// produced output" so `changed`/`assistantProgress` never drive invalidation.
+mock.module("@/domains/chat/utils/reconcile-detection", () => ({
+  serverSnapshotHasNewContent: () => false,
+  serverHasAssistantProgress: () => true,
+}));
+
+mock.module("@/domains/chat/utils/map-runtime-message", () => ({
+  mapRuntimeToDisplayMessage: (m: unknown) => m,
+}));
+
+// Server fetch is driven per-test — spied (not module-mocked) so the rest of
+// the messages module's exports stay real for other importers in the graph.
+import * as messagesApi from "@/domains/chat/api/messages";
+let fetchResult: unknown = undefined;
+spyOn(messagesApi, "fetchConversationMessages").mockImplementation(
+  async () => fetchResult as never,
+);
+
+const { useMessageReconciliation } = await import(
+  "@/domains/chat/hooks/use-message-reconciliation"
+);
+const { useStreamStore } = await import("@/domains/chat/stream-store");
+const { useChatSessionStore } = await import(
+  "@/domains/chat/chat-session-store"
+);
+const { useConversationStore } = await import("@/stores/conversation-store");
+const { __resetLocalSeqForTesting } = await import("@/lib/streaming/local-seq");
+
+const ASSISTANT_ID = "asst-1";
+const CONV_ID = "conv-A";
+
+function seedSnapshotProcessing(processing: boolean | undefined): void {
+  useChatSessionStore.setState({
+    snapshot: {
+      messages: [],
+      seq: 10,
+      processing,
+      hasMore: false,
+      oldestTimestamp: null,
+      oldestMessageId: null,
+      backgroundToolCompletions: [],
+    },
+  } as never);
+}
+
+function seedServerFetch(processing: boolean | undefined): void {
+  fetchResult = {
+    messages: [{ id: "a1", role: "assistant" }],
+    seq: 11,
+    processing,
+  };
+}
+
+/** Render the hook against a spied query client; returns the invalidate spy. */
+function renderReconciliation() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  const invalidateSpy = mock(async () => {});
+  client.invalidateQueries = invalidateSpy as never;
+
+  function wrapper({ children }: { children: ReactNode }) {
+    return createElement(QueryClientProvider, { client }, children);
+  }
+  const { result } = renderHook(
+    () => useMessageReconciliation({ latestPageOldestTimestamp: null }),
+    { wrapper },
+  );
+  return { result, invalidateSpy };
+}
+
+beforeEach(() => {
+  __resetLocalSeqForTesting();
+  useStreamStore.getState().setStreamContext({
+    assistantId: ASSISTANT_ID,
+    conversationId: CONV_ID,
+  });
+  useConversationStore.getState().setActiveConversationId(CONV_ID);
+});
+
+afterEach(() => {
+  cleanup();
+  useStreamStore.getState().setStreamContext(null);
+  useConversationStore.getState().setActiveConversationId(null);
+  useChatSessionStore.setState({ snapshot: null } as never);
+  fetchResult = undefined;
+});
+
+describe("useMessageReconciliation — server processing flag drives reseed", () => {
+  test("reseeds when the server clears processing but the snapshot still shows it active", async () => {
+    seedSnapshotProcessing(true);
+    seedServerFetch(false);
+    const { result, invalidateSpy } = renderReconciliation();
+
+    const outcome = await result.current.reconcileActiveConversation();
+
+    expect(outcome.changed).toBe(false);
+    // No content diff, but the server's `processing: false` must still trigger
+    // a reseed so the close-gate receives the fresh flag.
+    expect(invalidateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("does not reseed while the server is still processing and content matches", async () => {
+    seedSnapshotProcessing(true);
+    seedServerFetch(true);
+    const { result, invalidateSpy } = renderReconciliation();
+
+    await result.current.reconcileActiveConversation();
+
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+
+  test("does not reseed when the snapshot already reflects the idle turn", async () => {
+    // Turn already idle locally — no stale spinner to clear, so no refetch.
+    seedSnapshotProcessing(false);
+    seedServerFetch(false);
+    const { result, invalidateSpy } = renderReconciliation();
+
+    await result.current.reconcileActiveConversation();
+
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+
+  test("older daemons without the processing field keep phase-only behavior", async () => {
+    seedSnapshotProcessing(true);
+    seedServerFetch(undefined);
+    const { result, invalidateSpy } = renderReconciliation();
+
+    await result.current.reconcileActiveConversation();
+
+    expect(invalidateSpy).not.toHaveBeenCalled();
+  });
+});

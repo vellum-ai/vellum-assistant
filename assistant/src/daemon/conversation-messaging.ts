@@ -551,7 +551,7 @@ export async function persistQueuedMessageBody(
       ctx.conversationId,
       "user",
       contentToPersist,
-      { metadata: mergedMetadata, clientMessageId },
+      { metadata: mergedMetadata, clientMessageId, id: requestId },
     );
 
     if (persistedUserMessage.deduplicated) {
@@ -613,7 +613,7 @@ export async function persistQueuedMessageBody(
           a.filename,
           a.mimeType,
           a.data,
-          { sourcePath: a.filePath },
+          { sourcePath: a.filePath, normalizeImage: true },
         );
       } catch (err) {
         if (err instanceof AttachmentUploadError) {

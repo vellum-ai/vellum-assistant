@@ -2,7 +2,6 @@ import { and, asc, eq, inArray, lte, notInArray, or, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { getConfig } from "../config/loader.js";
-import { rawMemoryAll, rawMemoryChanges } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
 import { truncate } from "../util/truncate.js";
 import { type DrizzleDb, getMemoryDb } from "./db-connection.js";
@@ -14,6 +13,7 @@ import {
   isQdrantBreakerOpen,
   shouldAllowQdrantProbe,
 } from "./embeddings/qdrant-circuit-breaker.js";
+import { rawMemoryAll, rawMemoryChanges } from "./raw-query.js";
 import { memoryJobs } from "./schema/index.js";
 
 const log = getLogger("memory-jobs-store");
@@ -36,6 +36,7 @@ export type MemoryJobType =
   | "prune_old_conversations"
   | "prune_old_llm_request_logs"
   | "prune_old_trace_events"
+  | "prune_old_tool_invocations"
   | "build_conversation_summary"
   | "conversation_analyze"
   | "backfill"
@@ -61,6 +62,10 @@ export type MemoryJobType =
   | "memory_v2_reembed"
   | "memory_v2_activation_recompute"
   | "memory_v3_maintain"
+  | "index_message_lexical"
+  | "purge_conversation_lexical"
+  | "delete_message_lexical"
+  | "backfill_lexical_index"
   // Retired/legacy — no live handler; persisted rows drop via LEGACY_JOB_TYPES.
   | "memory_v3_consolidate"
   | "memory_v3_index_maintenance"
@@ -76,6 +81,19 @@ export const EMBED_JOB_TYPES: MemoryJobType[] = [
   "embed_pkb_file",
   "graph_trigger_embed",
   "embed_concept_page",
+];
+
+/**
+ * Job types that power message-content lexical search — host infrastructure
+ * that shares the background job queue but is not a memory feature. The worker
+ * keeps draining exactly these types while memory is disabled, so message
+ * search stays indexed regardless of the memory feature's state.
+ */
+export const MESSAGE_LEXICAL_JOB_TYPES: MemoryJobType[] = [
+  "index_message_lexical",
+  "purge_conversation_lexical",
+  "delete_message_lexical",
+  "backfill_lexical_index",
 ];
 
 export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
@@ -501,20 +519,84 @@ export function enqueuePruneOldTraceEventsJob(retentionDays?: number): string {
   return enqueueMemoryJob("prune_old_trace_events", payload);
 }
 
+export function enqueuePruneOldToolInvocationsJob(
+  retentionDays?: number,
+): string {
+  const db = memoryDb();
+  const existing = db
+    .select()
+    .from(memoryJobs)
+    .where(
+      and(
+        eq(memoryJobs.type, "prune_old_tool_invocations"),
+        inArray(memoryJobs.status, ["pending", "running"]),
+      ),
+    )
+    .orderBy(asc(memoryJobs.createdAt))
+    .get();
+  if (existing) {
+    if (
+      existing.status === "pending" &&
+      typeof retentionDays === "number" &&
+      Number.isFinite(retentionDays) &&
+      retentionDays >= 0
+    ) {
+      let payload: Record<string, unknown> = {};
+      try {
+        payload = JSON.parse(existing.payload) as Record<string, unknown>;
+      } catch {
+        payload = {};
+      }
+      if (payload.retentionDays !== retentionDays) {
+        db.update(memoryJobs)
+          .set({
+            payload: JSON.stringify({ ...payload, retentionDays }),
+            updatedAt: Date.now(),
+          })
+          .where(eq(memoryJobs.id, existing.id))
+          .run();
+      }
+    }
+    return existing.id;
+  }
+  const payload =
+    typeof retentionDays === "number" &&
+    Number.isFinite(retentionDays) &&
+    retentionDays >= 0
+      ? { retentionDays }
+      : {};
+  return enqueueMemoryJob("prune_old_tool_invocations", payload);
+}
+
 export interface LaneBudgets {
   slowLlm: number;
   fast: number;
   embed: number;
 }
 
-export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
-  if (limits.slowLlm <= 0 && limits.fast <= 0 && limits.embed <= 0) return [];
+/**
+ * Claim up to the per-lane budgets of pending jobs. When `restrictToTypes` is
+ * provided, only jobs of those types are eligible in every lane — the worker
+ * uses this to drain exclusively the message-lexical types while memory is
+ * disabled.
+ */
+export function claimMemoryJobs(
+  limits: LaneBudgets,
+  restrictToTypes?: readonly MemoryJobType[],
+): MemoryJob[] {
+  if (limits.slowLlm <= 0 && limits.fast <= 0 && limits.embed <= 0) {
+    return [];
+  }
 
   const db = memoryDb();
   const now = Date.now();
+  const restrictFilter = restrictToTypes
+    ? inArray(memoryJobs.type, [...restrictToTypes])
+    : undefined;
   const pendingFilter = and(
     eq(memoryJobs.status, "pending"),
     lte(memoryJobs.runAfter, now),
+    restrictFilter,
   );
 
   // Slow lane: long-running LLM jobs (graph extract/consolidate, analysis, etc.).
@@ -596,7 +678,9 @@ export function claimMemoryJobs(limits: LaneBudgets): MemoryJob[] {
       .set({ status: "running", startedAt: now, updatedAt: now })
       .where(and(eq(memoryJobs.id, row.id), eq(memoryJobs.status, "pending")))
       .run();
-    if (rawMemoryChanges() === 0) continue;
+    if (rawMemoryChanges() === 0) {
+      continue;
+    }
     claimed.push(
       parseRow({
         ...row,
@@ -640,7 +724,9 @@ const DEFER_MAX_DELAY_MS = 5 * 60 * 1000;
 export function deferMemoryJob(id: string): "deferred" | "failed" {
   const db = memoryDb();
   const row = db.select().from(memoryJobs).where(eq(memoryJobs.id, id)).get();
-  if (!row) return "failed";
+  if (!row) {
+    return "failed";
+  }
 
   const deferrals = row.deferrals + 1;
   const now = Date.now();
@@ -697,7 +783,9 @@ export function failMemoryJob(
   const maxAttempts = options?.maxAttempts ?? 5;
   const db = memoryDb();
   const row = db.select().from(memoryJobs).where(eq(memoryJobs.id, id)).get();
-  if (!row) return;
+  if (!row) {
+    return;
+  }
   const attempts = row.attempts + 1;
   const now = Date.now();
   if (attempts >= maxAttempts) {
@@ -741,6 +829,7 @@ export function failStalledJobs(timeoutMs: number): number {
   const now = Date.now();
   const cutoff = now - timeoutMs;
   const stalled = rawMemoryAll<{ id: string; type: string }>(
+    "jobs:failStalledJobs:select",
     `
     SELECT id, type
     FROM memory_jobs
@@ -750,7 +839,9 @@ export function failStalledJobs(timeoutMs: number): number {
   `,
     cutoff,
   );
-  if (stalled.length === 0) return 0;
+  if (stalled.length === 0) {
+    return 0;
+  }
 
   const db = memoryDb();
   for (const row of stalled) {
@@ -773,11 +864,14 @@ export function failStalledJobs(timeoutMs: number): number {
 }
 
 export function getMemoryJobCounts(): Record<string, number> {
-  const rows = rawMemoryAll<{ status: string; c: number }>(`
+  const rows = rawMemoryAll<{ status: string; c: number }>(
+    "jobs:getMemoryJobCounts",
+    `
     SELECT status, COUNT(*) AS c
     FROM memory_jobs
     GROUP BY status
-  `);
+  `,
+  );
   const counts: Record<string, number> = {
     pending: 0,
     running: 0,

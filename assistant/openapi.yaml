@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.3
+  version: 0.10.4
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -2310,8 +2310,49 @@ paths:
                         - command
                         - startedAt
                       additionalProperties: false
+                  completed:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        toolName:
+                          type: string
+                        conversationId:
+                          type: string
+                        command:
+                          type: string
+                        startedAt:
+                          type: number
+                        status:
+                          type: string
+                          enum:
+                            - completed
+                            - failed
+                            - cancelled
+                        exitCode:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        output:
+                          type: string
+                        completedAt:
+                          type: number
+                      required:
+                        - id
+                        - toolName
+                        - conversationId
+                        - command
+                        - startedAt
+                        - status
+                        - exitCode
+                        - output
+                        - completedAt
+                      additionalProperties: false
                 required:
                   - tools
+                  - completed
                 additionalProperties: false
   /v1/background-tools/cancel:
     post:
@@ -4027,6 +4068,8 @@ paths:
                       type: boolean
                     account:
                       type: string
+                    actorTeamId:
+                      type: string
                     admissionPolicy:
                       type: string
                       enum:
@@ -4090,6 +4133,8 @@ paths:
                       required:
                         - trustClass
                         - canonicalSenderId
+                    emailProvider:
+                      type: string
                     emailSubject:
                       type: string
                     emailRecipient:
@@ -4591,6 +4636,162 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                provider:
+                  $ref: "#/components/schemas/LLMProvider"
+                model:
+                  type: string
+                  minLength: 1
+                maxTokens:
+                  type: integer
+                  exclusiveMinimum: 0
+                  maximum: 9007199254740991
+                effort:
+                  type: string
+                  enum:
+                    - none
+                    - low
+                    - medium
+                    - high
+                    - xhigh
+                    - max
+                speed:
+                  type: string
+                  enum:
+                    - standard
+                    - fast
+                verbosity:
+                  type: string
+                  enum:
+                    - low
+                    - medium
+                    - high
+                temperature:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 2
+                    - type: "null"
+                topP:
+                  anyOf:
+                    - type: number
+                      minimum: 0
+                      maximum: 1
+                    - type: "null"
+                thinking:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                    streamThinking:
+                      type: boolean
+                    level:
+                      type: string
+                      enum:
+                        - minimal
+                        - low
+                        - medium
+                        - high
+                contextWindow:
+                  type: object
+                  properties:
+                    enabled:
+                      type: boolean
+                    maxInputTokens:
+                      type: integer
+                      exclusiveMinimum: 0
+                      maximum: 9007199254740991
+                    targetBudgetRatio:
+                      type: number
+                      exclusiveMinimum: 0
+                      maximum: 1
+                    compactThreshold:
+                      type: number
+                      exclusiveMinimum: 0
+                      maximum: 1
+                    summaryBudgetRatio:
+                      type: number
+                      exclusiveMinimum: 0
+                      maximum: 1
+                    overflowRecovery:
+                      type: object
+                      properties:
+                        enabled:
+                          type: boolean
+                        safetyMarginRatio:
+                          type: number
+                          exclusiveMinimum: 0
+                          exclusiveMaximum: 1
+                        maxAttempts:
+                          type: integer
+                          exclusiveMinimum: 0
+                          maximum: 9007199254740991
+                        interactiveLatestTurnCompression:
+                          type: string
+                          enum:
+                            - truncate
+                            - summarize
+                            - drop
+                        nonInteractiveLatestTurnCompression:
+                          type: string
+                          enum:
+                            - truncate
+                            - summarize
+                            - drop
+                openrouter:
+                  type: object
+                  properties:
+                    only:
+                      type: array
+                      items:
+                        type: string
+                        minLength: 1
+                logitBias:
+                  type: string
+                  enum:
+                    - suppress-cjk
+                disableCache:
+                  type: boolean
+                source:
+                  type: string
+                  enum:
+                    - managed
+                    - user
+                label:
+                  anyOf:
+                    - type: string
+                      minLength: 1
+                    - type: "null"
+                description:
+                  type: string
+                provider_connection:
+                  type: string
+                  minLength: 1
+                status:
+                  anyOf:
+                    - $ref: "#/components/schemas/ProfileStatus"
+                    - type: "null"
+                mix:
+                  minItems: 2
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      profile:
+                        type: string
+                        minLength: 1
+                      weight:
+                        type: number
+                        exclusiveMinimum: 0
+                    required:
+                      - profile
+                      - weight
       responses:
         "200":
           description: Successful response
@@ -5414,6 +5615,9 @@ paths:
                 expectedExternalUserId:
                   type: string
                   description: Expected user ID (E.164 for phone)
+                sourceConversationId:
+                  type: string
+                  description: Conversation the invite was created from (opaque)
               required:
                 - contactId
       responses:
@@ -5462,7 +5666,9 @@ paths:
     post:
       operationId: contacts_invites_by_id_call_post
       summary: Trigger invite call
-      description: Trigger an outbound call for a phone invite.
+      description:
+        "Trigger an outbound call for a phone invite. Gateway-only: the gateway validates its canonical invite row
+        and supplies the resolved call fields in the body."
       tags:
         - contacts
       parameters:
@@ -5471,6 +5677,28 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phoneNumber:
+                  type: string
+                  description: E.164 number the invite call dials (invite's bound caller)
+                friendName:
+                  description: Invitee display name for the call greeting
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                guardianName:
+                  description: Guardian display label recorded on the invite
+                  anyOf:
+                    - type: string
+                    - type: "null"
+              required:
+                - phoneNumber
       responses:
         "200":
           description: Successful response
@@ -5505,34 +5733,32 @@ paths:
               type: object
               properties:
                 token:
-                  type: string
                   description: Invite token (token-based redemption)
+                  type: string
                 code:
-                  type: string
                   description: Voice code (voice-code redemption)
+                  type: string
                 callerExternalUserId:
-                  type: string
                   description: Caller E.164 phone (voice-code)
+                  type: string
                 externalUserId:
-                  type: string
                   description: External user ID (token-based)
+                  type: string
                 externalChatId:
-                  type: string
                   description: External chat ID (token-based)
+                  type: string
                 sourceChannel:
-                  type: string
                   description: Source channel (token-based)
-                assistantId:
                   type: string
+                displayName:
+                  description: Sender display name (token-based)
+                  type: string
+                username:
+                  description: Sender username (token-based)
+                  type: string
+                assistantId:
                   description: Assistant ID (voice-code)
-              required:
-                - token
-                - code
-                - callerExternalUserId
-                - externalUserId
-                - externalChatId
-                - sourceChannel
-                - assistantId
+                  type: string
       responses:
         "200":
           description: Successful response
@@ -6262,6 +6488,12 @@ paths:
                           type: number
                         inferenceProfile:
                           type: string
+                        enabledPlugins:
+                          anyOf:
+                            - type: array
+                              items:
+                                type: string
+                            - type: "null"
                         isProcessing:
                           type: boolean
                       required:
@@ -6601,6 +6833,12 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      enabledPlugins:
+                        anyOf:
+                          - type: array
+                            items:
+                              type: string
+                          - type: "null"
                       isProcessing:
                         type: boolean
                     required:
@@ -6802,6 +7040,12 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      enabledPlugins:
+                        anyOf:
+                          - type: array
+                            items:
+                              type: string
+                          - type: "null"
                       isProcessing:
                         type: boolean
                     required:
@@ -7009,6 +7253,56 @@ paths:
           description: Returned when the callId is missing or refers to a call in a different conversation.
         "404":
           description: Returned when the conversation or the referenced LLM call does not exist.
+  /v1/conversations/{id}/enabledplugins:
+    put:
+      operationId: conversations_by_id_enabledplugins_put
+      summary: Set conversation enabled plugins
+      description:
+        Scope a single conversation to a subset of installed plugins (first-party defaults are always available).
+        Pass null to clear the scope back to the default (all enabled plugins).
+      tags:
+        - conversations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                enabledPlugins:
+                  anyOf:
+                    - type: array
+                      items:
+                        type: string
+                    - type: "null"
+              required:
+                - enabledPlugins
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversationId:
+                    type: string
+                  enabledPlugins:
+                    anyOf:
+                      - type: array
+                        items:
+                          type: string
+                      - type: "null"
+                required:
+                  - conversationId
+                  - enabledPlugins
+                additionalProperties: false
   /v1/conversations/{id}/inference-profile:
     put:
       operationId: conversations_by_id_inferenceprofile_put
@@ -7212,22 +7506,6 @@ paths:
             type: string
       responses:
         "200":
-          description: Successful response
-  /v1/conversations/{id}/regenerate:
-    post:
-      operationId: conversations_by_id_regenerate_post
-      summary: Regenerate response
-      description: Re-run the assistant for the last user message in a conversation.
-      tags:
-        - conversations
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "202":
           description: Successful response
   /v1/conversations/{id}/slash:
     post:
@@ -7955,6 +8233,12 @@ paths:
                         type: number
                       inferenceProfile:
                         type: string
+                      enabledPlugins:
+                        anyOf:
+                          - type: array
+                            items:
+                              type: string
+                          - type: "null"
                       isProcessing:
                         type: boolean
                     required:
@@ -8527,6 +8811,49 @@ paths:
                                     - type: "null"
                               additionalProperties: false
                             - type: "null"
+                        latency:
+                          anyOf:
+                            - type: object
+                              properties:
+                                phases:
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      key:
+                                        type: string
+                                      label:
+                                        type: string
+                                      ms:
+                                        type: number
+                                    required:
+                                      - key
+                                      - label
+                                      - ms
+                                    additionalProperties: false
+                                ttftMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                totalToFirstTokenMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                providerDurationMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                firstTokenKind:
+                                  anyOf:
+                                    - type: string
+                                      enum:
+                                        - thinking
+                                        - text
+                                    - type: "null"
+                              required:
+                                - phases
+                              additionalProperties: false
+                            - type: "null"
                       required:
                         - id
                         - createdAt
@@ -9097,6 +9424,10 @@ paths:
                 cronRunId:
                   type: string
                   minLength: 1
+                persist:
+                  type: boolean
+                externalContent:
+                  type: string
               required:
                 - conversationId
                 - hint
@@ -9359,6 +9690,8 @@ paths:
                 type: object
                 properties:
                   ok:
+                    type: boolean
+                  cancelled:
                     type: boolean
                   error:
                     type: string
@@ -12650,6 +12983,68 @@ paths:
           description: Feed item or action not found
         "500":
           description: Failed to create conversation
+  /v1/home/feed/mark-all:
+    post:
+      operationId: home_feed_markall_post
+      summary: Bulk update home feed item statuses
+      description:
+        Flip every home feed item currently at one of the `from` statuses to the single `to` status. Returns the
+        count of items whose status actually changed (items already at `to`, or outside `from`, are left untouched).
+        Used to implement 'Mark all as read' (from=['new'], to='seen') and 'Clear all' (from=['new','seen','acted_on'],
+        to='dismissed').
+      tags:
+        - home
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - new
+                      - seen
+                      - acted_on
+                      - dismissed
+                to:
+                  type: string
+                  enum:
+                    - new
+                    - seen
+                    - acted_on
+                    - dismissed
+                ids:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - from
+                - to
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updatedCount:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  updatedAt:
+                    type: string
+                required:
+                  - updatedCount
+                  - updatedAt
+                additionalProperties: false
+        "500":
+          description: Failed to persist bulk status update
   /v1/home/feed/query:
     post:
       operationId: home_feed_query_post
@@ -15565,6 +15960,49 @@ paths:
                               - type: "null"
                         additionalProperties: false
                       - type: "null"
+                  latency:
+                    anyOf:
+                      - type: object
+                        properties:
+                          phases:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                key:
+                                  type: string
+                                label:
+                                  type: string
+                                ms:
+                                  type: number
+                              required:
+                                - key
+                                - label
+                                - ms
+                              additionalProperties: false
+                          ttftMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          totalToFirstTokenMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          providerDurationMs:
+                            anyOf:
+                              - type: number
+                              - type: "null"
+                          firstTokenKind:
+                            anyOf:
+                              - type: string
+                                enum:
+                                  - thinking
+                                  - text
+                              - type: "null"
+                        required:
+                          - phases
+                        additionalProperties: false
+                      - type: "null"
                 required:
                   - id
                   - createdAt
@@ -16607,7 +17045,9 @@ paths:
     get:
       operationId: memory_worker_status_get
       summary: Memory worker status
-      description: Reports the memory worker process state, memory.worker.enabled, and the synchronous in-process runner.
+      description:
+        Reports the memory worker process state, memory.worker.enabled, the synchronous in-process runner, and the
+        embedding-backend status (including a degraded flag and reason when no backend resolves).
       tags:
         - system
       responses:
@@ -16640,10 +17080,42 @@ paths:
                     required:
                       - status
                     additionalProperties: false
+                  embedding:
+                    type: object
+                    properties:
+                      enabled:
+                        type: boolean
+                      degraded:
+                        type: boolean
+                      provider:
+                        anyOf:
+                          - type: string
+                            enum:
+                              - local
+                              - openai
+                              - gemini
+                              - ollama
+                          - type: "null"
+                      model:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      reason:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                    required:
+                      - enabled
+                      - degraded
+                      - provider
+                      - model
+                      - reason
+                    additionalProperties: false
                 required:
                   - status
                   - workerEnabled
                   - syncRunner
+                  - embedding
                 additionalProperties: false
   /v1/memory/worker/stop:
     post:
@@ -17643,6 +18115,56 @@ paths:
                             - label
                             - status
                           additionalProperties: false
+                        acpNotification:
+                          type: object
+                          properties:
+                            acpSessionId:
+                              type: string
+                            agent:
+                              type: string
+                          required:
+                            - acpSessionId
+                          additionalProperties: false
+                        backgroundEventNotification:
+                          type: boolean
+                        backgroundToolCompletion:
+                          type: object
+                          properties:
+                            id:
+                              type: string
+                            toolName:
+                              type: string
+                            conversationId:
+                              type: string
+                            command:
+                              type: string
+                            startedAt:
+                              type: number
+                            status:
+                              type: string
+                              enum:
+                                - completed
+                                - failed
+                                - cancelled
+                            exitCode:
+                              anyOf:
+                                - type: number
+                                - type: "null"
+                            output:
+                              type: string
+                            completedAt:
+                              type: number
+                          required:
+                            - id
+                            - toolName
+                            - conversationId
+                            - command
+                            - startedAt
+                            - status
+                            - exitCode
+                            - output
+                            - completedAt
+                          additionalProperties: false
                         slackMessage:
                           type: object
                           properties:
@@ -17804,6 +18326,11 @@ paths:
                   type: string
                 clientTimezone:
                   type: string
+                clientOs:
+                  description:
+                    Client OS surface ("web" | "ios" | "macos" | "android"), reported separately from `interface`. Drives the
+                    per-turn `client_os` context only; does not affect transport/host-proxy capabilities.
+                  type: string
                 clientMessageId:
                   type: string
                   description:
@@ -17814,6 +18341,17 @@ paths:
                   anyOf:
                     - type: string
                     - type: "null"
+                enabledPlugins:
+                  description:
+                    Plugin ids that scope this conversation to a subset of installed plugins (first-party defaults are always
+                    available). When present on a message, it sets/updates the conversation's plugin scope (the web
+                    client sends it only on the first message of a new chat). null clears the scope to default (all
+                    enabled plugins); omitting the field leaves the existing scope unchanged.
+                  anyOf:
+                    - type: array
+                      items:
+                        type: string
+                    - type: "null"
                 riskThreshold:
                   type: string
                   enum:
@@ -17821,6 +18359,15 @@ paths:
                     - low
                     - medium
                     - high
+                hidden:
+                  description:
+                    "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history
+                    and still drives the turn). Used for machine signals the user never typed (proactive-greeting
+                    priming, channel-setup wizard close). Suppression covers the queued path too: a hidden send that
+                    lands mid-turn returns { queued: true, requestId } but never appears in list-messages queued
+                    snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send
+                    path only — slash-command content bypasses it."
+                  type: boolean
                 onboarding:
                   type: object
                   properties:
@@ -18179,6 +18726,49 @@ paths:
                                     - type: "null"
                               additionalProperties: false
                             - type: "null"
+                        latency:
+                          anyOf:
+                            - type: object
+                              properties:
+                                phases:
+                                  type: array
+                                  items:
+                                    type: object
+                                    properties:
+                                      key:
+                                        type: string
+                                      label:
+                                        type: string
+                                      ms:
+                                        type: number
+                                    required:
+                                      - key
+                                      - label
+                                      - ms
+                                    additionalProperties: false
+                                ttftMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                totalToFirstTokenMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                providerDurationMs:
+                                  anyOf:
+                                    - type: number
+                                    - type: "null"
+                                firstTokenKind:
+                                  anyOf:
+                                    - type: string
+                                      enum:
+                                        - thinking
+                                        - text
+                                    - type: "null"
+                              required:
+                                - phases
+                              additionalProperties: false
+                            - type: "null"
                       required:
                         - id
                         - createdAt
@@ -18453,6 +19043,30 @@ paths:
           schema:
             type: string
           description: Conversation that contains the message
+      responses:
+        "200":
+          description: Successful response
+  /v1/messages/lexical/backfill:
+    post:
+      operationId: messages_lexical_backfill_post
+      summary: Enqueue a resumable backfill of messages into the lexical index
+      description:
+        "Enqueues the cursor-checkpointed backfill job that indexes existing messages into the Qdrant lexical
+        (BM25-style) collection in batches. Resumable and idempotent — re-running continues from the last checkpoint.
+        Pass `force: true` to reset the cursor and re-index from the beginning. The same backfill is also auto-enqueued
+        once per instance on upgrade at assistant startup."
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                force:
+                  type: boolean
+              additionalProperties: false
       responses:
         "200":
           description: Successful response
@@ -18907,6 +19521,175 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/monitoring/start:
+    post:
+      operationId: monitoring_start_post
+      summary: Start the resource monitor
+      description: Spawns (or reuses) the resource monitor process as a child of the daemon and enables monitoring.enabled.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pid:
+                    type: number
+                  alreadyRunning:
+                    type: boolean
+                  monitoringEnabled:
+                    type: boolean
+                    const: true
+                  pidPath:
+                    type: string
+                required:
+                  - pid
+                  - alreadyRunning
+                  - monitoringEnabled
+                  - pidPath
+                additionalProperties: false
+  /v1/monitoring/status:
+    get:
+      operationId: monitoring_status_get
+      summary: Resource monitor status
+      description:
+        Reports the resource monitor process state, monitoring.enabled, the forensics data directory, and the most
+        recent persisted memory/disk sample.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - running
+                      - not_running
+                  pid:
+                    type: number
+                  monitoringEnabled:
+                    type: boolean
+                  dataDir:
+                    type: string
+                  latestSample:
+                    anyOf:
+                      - type: object
+                        properties:
+                          ts:
+                            type: number
+                          memory:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  currentBytes:
+                                    type: number
+                                  limitBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  peakBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  ratio:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                required:
+                                  - currentBytes
+                                  - limitBytes
+                                  - peakBytes
+                                  - ratio
+                                additionalProperties: false
+                              - type: "null"
+                          events:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  low:
+                                    type: number
+                                  high:
+                                    type: number
+                                  max:
+                                    type: number
+                                  oom:
+                                    type: number
+                                  oomKill:
+                                    type: number
+                                required:
+                                  - low
+                                  - high
+                                  - max
+                                  - oom
+                                  - oomKill
+                                additionalProperties: false
+                              - type: "null"
+                          disk:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  path:
+                                    type: string
+                                  usedMb:
+                                    type: number
+                                  totalMb:
+                                    type: number
+                                  freeMb:
+                                    type: number
+                                required:
+                                  - path
+                                  - usedMb
+                                  - totalMb
+                                  - freeMb
+                                additionalProperties: false
+                              - type: "null"
+                        required:
+                          - ts
+                          - memory
+                          - events
+                          - disk
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - status
+                  - monitoringEnabled
+                  - dataDir
+                  - latestSample
+                additionalProperties: false
+  /v1/monitoring/stop:
+    post:
+      operationId: monitoring_stop_post
+      summary: Stop the resource monitor
+      description: Disables monitoring.enabled and SIGTERMs the resource monitor process if it is running.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  monitoringWasRunning:
+                    type: boolean
+                  pid:
+                    type: number
+                  monitoringEnabled:
+                    type: boolean
+                    const: false
+                required:
+                  - monitoringWasRunning
+                  - monitoringEnabled
+                additionalProperties: false
   /v1/notification-intent-result:
     post:
       operationId: notificationintentresult_post
@@ -20349,6 +21132,10 @@ paths:
                     type: boolean
                   hasWebhookSecret:
                     type: boolean
+                  clientInstallationId:
+                    anyOf:
+                      - type: string
+                      - type: "null"
                   available:
                     type: boolean
                   organizationId:
@@ -20380,6 +21167,7 @@ paths:
                   - assistantId
                   - hasAssistantApiKey
                   - hasWebhookSecret
+                  - clientInstallationId
                   - available
                   - organizationId
                   - userId
@@ -20454,7 +21242,10 @@ paths:
       description:
         Return one entry per directory under `<workspaceDir>/plugins/`, sorted alphabetically. Matches the CLI's
         `assistant plugins list`. Supports `?q=<text>` for case-insensitive substring matching across plugin id, name,
-        and description.
+        and description. Each entry carries a `category` (marketplace slug from the Skills taxonomy, or `null` for
+        non-marketplace installs); the response also reports `categoryCounts` (per-category totals, computed before the
+        category filter) and `totalCount`. `?category=<slug>` filters the returned plugins by category server-side while
+        leaving the counts unfiltered. A marketplace outage degrades `category` to `null` without failing the list.
       tags:
         - plugins
       parameters:
@@ -20464,6 +21255,12 @@ paths:
           schema:
             type: string
           description: Optional substring filter applied to plugin id, name, and description.
+        - name: category
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Filter installed plugins by category slug (Skills taxonomy).
       responses:
         "200":
           description: Successful response
@@ -20483,6 +21280,11 @@ paths:
                         name:
                           type: string
                           description: Display name. Equal to `id` today.
+                        enabled:
+                          type: boolean
+                          description:
+                            Whether the plugin is active in this workspace. `false` when a `.disabled` sentinel is present under its
+                            directory; `true` otherwise.
                         description:
                           anyOf:
                             - type: string
@@ -20501,12 +21303,30 @@ paths:
                           type: array
                           items:
                             type: string
+                        category:
+                          description:
+                            Marketplace category slug (Skills taxonomy); null when origin/category is unknown, e.g. non-marketplace
+                            installs.
+                          anyOf:
+                            - type: string
+                            - type: "null"
                       required:
                         - id
                         - name
+                        - enabled
                         - description
                         - version
                       additionalProperties: false
+                  categoryCounts:
+                    description: Installed plugins per category (before the category filter is applied).
+                    type: object
+                    propertyNames:
+                      type: string
+                    additionalProperties:
+                      type: number
+                  totalCount:
+                    description: Total installed plugins matching non-category filters.
+                    type: number
                 required:
                   - plugins
                 additionalProperties: false
@@ -20777,6 +21597,80 @@ paths:
           description: The install recorded no commit or no fingerprint to re-materialize and verify a baseline from.
         "503":
           description: The plugin source (GitHub) was temporarily unavailable; the diff is retryable.
+  /v1/plugins/{name}/disable:
+    post:
+      operationId: plugins_by_name_disable_post
+      summary: Disable a plugin
+      description:
+        Disable a plugin in this workspace by dropping a `.disabled` sentinel, mirroring the CLI's `assistant
+        plugins disable <name>`. The change is honored live at read time by every tool / injector / hook gate — no
+        restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients
+        refetch `GET /v1/plugins`. An already-disabled plugin returns 409; a user plugin with no directory returns 404
+        (default plugins are stubbed on demand via the `default-` prefix); a malformed name returns 400.
+      tags:
+        - plugins
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+        "400":
+          description: The plugin name failed validation (not kebab-case alphanumerics).
+        "404":
+          description: No plugin directory exists with the given name (user plugins must already be installed).
+        "409":
+          description: The plugin is already disabled.
+  /v1/plugins/{name}/enable:
+    post:
+      operationId: plugins_by_name_enable_post
+      summary: Enable a plugin
+      description:
+        Enable a plugin in this workspace by removing its `.disabled` sentinel, mirroring the CLI's `assistant
+        plugins enable <name>`. The change is honored live at read time by every tool / injector / hook gate — no
+        restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients
+        refetch `GET /v1/plugins`. An already-enabled plugin returns 409; a name with no plugin directory returns 404
+        (prefix a default plugin with `default-`); a malformed name returns 400.
+      tags:
+        - plugins
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+        "400":
+          description: The plugin name failed validation (not kebab-case alphanumerics).
+        "404":
+          description: No plugin directory exists with the given name.
+        "409":
+          description: The plugin is already enabled.
   /v1/plugins/{name}/inspect:
     get:
       operationId: plugins_by_name_inspect_get
@@ -21367,6 +22261,11 @@ paths:
                         description:
                           description: Short description, when known (external entries only today).
                           type: string
+                        category:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                          description: Marketplace category slug (Skills taxonomy); null when the entry declares none.
                         source:
                           type: object
                           properties:
@@ -21391,6 +22290,7 @@ paths:
                       required:
                         - name
                         - path
+                        - category
                         - source
                       additionalProperties: false
                     description: Directory matches, sorted alphabetically by name.
@@ -22304,7 +23204,7 @@ paths:
     post:
       operationId: schedules_post
       summary: Create schedule
-      description: Create a new recurring schedule. Currently restricted to mode='execute'.
+      description: Create a new recurring schedule (execute, script, or workflow mode).
       tags:
         - schedules
       requestBody:
@@ -22338,12 +23238,20 @@ paths:
                   description: Whether the schedule starts active (default true)
                 mode:
                   type: string
-                  description: "'execute' (default) or 'workflow' (flag-gated)"
+                  description: "'execute' (default), 'script', or 'workflow' (flag-gated)"
                 workflowName:
                   type: string
                   description: Saved workflow to trigger (required for workflow mode)
                 workflowArgs:
                   description: Args passed to the workflow run (workflow mode)
+                script:
+                  type: string
+                  description: Shell command run on each fire (required for script mode)
+                timeoutMs:
+                  anyOf:
+                    - type: number
+                    - type: "null"
+                  description: Script execution timeout override in ms (script mode)
                 inferenceProfile:
                   anyOf:
                     - type: string
@@ -22362,145 +23270,143 @@ paths:
               schema:
                 type: object
                 properties:
-                  schedules:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        name:
-                          type: string
-                        enabled:
-                          type: boolean
-                        syntax:
-                          type: string
-                          enum:
-                            - cron
-                            - rrule
-                        expression:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        cronExpression:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        timezone:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        message:
-                          type: string
-                        script:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        nextRunAt:
-                          type: number
-                        lastRunAt:
-                          anyOf:
-                            - type: number
-                            - type: "null"
-                        lastStatus:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        retryCount:
-                          type: number
-                        maxRetries:
-                          type: number
-                        retryBackoffMs:
-                          type: number
-                        timeoutMs:
-                          anyOf:
-                            - type: number
-                            - type: "null"
-                        inferenceProfile:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        createdFromConversationId:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        createdFromConversationExists:
-                          type: boolean
-                        createdFromConversationArchivedAt:
-                          anyOf:
-                            - type: number
-                            - type: "null"
-                        description:
-                          type: string
-                        cadenceDescription:
-                          type: string
-                        mode:
-                          type: string
-                          enum:
-                            - notify
-                            - execute
-                            - script
-                            - wake
-                            - workflow
-                        status:
-                          type: string
-                          enum:
-                            - active
-                            - firing
-                            - fired
-                            - cancelled
-                        routingIntent:
-                          type: string
-                          enum:
-                            - single_channel
-                            - multi_channel
-                            - all_channels
-                        reuseConversation:
-                          type: boolean
-                        wakeConversationId:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        workflowName:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        isOneShot:
-                          type: boolean
-                      required:
-                        - id
-                        - name
-                        - enabled
-                        - syntax
-                        - expression
-                        - cronExpression
-                        - timezone
-                        - message
-                        - script
-                        - nextRunAt
-                        - lastRunAt
-                        - lastStatus
-                        - retryCount
-                        - maxRetries
-                        - retryBackoffMs
-                        - timeoutMs
-                        - inferenceProfile
-                        - createdFromConversationId
-                        - createdFromConversationExists
-                        - createdFromConversationArchivedAt
-                        - description
-                        - cadenceDescription
-                        - mode
-                        - status
-                        - routingIntent
-                        - reuseConversation
-                        - wakeConversationId
-                        - workflowName
-                        - isOneShot
-                      additionalProperties: false
-                    description: Updated schedule list
+                  schedule:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      name:
+                        type: string
+                      enabled:
+                        type: boolean
+                      syntax:
+                        type: string
+                        enum:
+                          - cron
+                          - rrule
+                      expression:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      cronExpression:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      timezone:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      message:
+                        type: string
+                      script:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      nextRunAt:
+                        type: number
+                      lastRunAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      lastStatus:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      retryCount:
+                        type: number
+                      maxRetries:
+                        type: number
+                      retryBackoffMs:
+                        type: number
+                      timeoutMs:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      inferenceProfile:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      createdFromConversationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      createdFromConversationExists:
+                        type: boolean
+                      createdFromConversationArchivedAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      description:
+                        type: string
+                      cadenceDescription:
+                        type: string
+                      mode:
+                        type: string
+                        enum:
+                          - notify
+                          - execute
+                          - script
+                          - wake
+                          - workflow
+                      status:
+                        type: string
+                        enum:
+                          - active
+                          - firing
+                          - fired
+                          - cancelled
+                      routingIntent:
+                        type: string
+                        enum:
+                          - single_channel
+                          - multi_channel
+                          - all_channels
+                      reuseConversation:
+                        type: boolean
+                      wakeConversationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      workflowName:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      isOneShot:
+                        type: boolean
+                    required:
+                      - id
+                      - name
+                      - enabled
+                      - syntax
+                      - expression
+                      - cronExpression
+                      - timezone
+                      - message
+                      - script
+                      - nextRunAt
+                      - lastRunAt
+                      - lastStatus
+                      - retryCount
+                      - maxRetries
+                      - retryBackoffMs
+                      - timeoutMs
+                      - inferenceProfile
+                      - createdFromConversationId
+                      - createdFromConversationExists
+                      - createdFromConversationArchivedAt
+                      - description
+                      - cadenceDescription
+                      - mode
+                      - status
+                      - routingIntent
+                      - reuseConversation
+                      - wakeConversationId
+                      - workflowName
+                      - isOneShot
+                    additionalProperties: false
+                    description: The created schedule
                 required:
-                  - schedules
+                  - schedule
                 additionalProperties: false
   /v1/schedules/{id}:
     delete:
@@ -23684,6 +24590,110 @@ paths:
                     description: Schedule usage summary rows
                 required:
                   - summaries
+                additionalProperties: false
+  /v1/schedules/worker/start:
+    post:
+      operationId: schedules_worker_start_post
+      summary: Start the schedule worker
+      description:
+        Spawns (or reuses) the schedule worker process as a child of the daemon and enables
+        schedules.worker.enabled, so scheduled jobs run out of process.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pid:
+                    type: number
+                  alreadyRunning:
+                    type: boolean
+                  workerEnabled:
+                    type: boolean
+                    const: true
+                  pidPath:
+                    type: string
+                required:
+                  - pid
+                  - alreadyRunning
+                  - workerEnabled
+                  - pidPath
+                additionalProperties: false
+  /v1/schedules/worker/status:
+    get:
+      operationId: schedules_worker_status_get
+      summary: Schedule worker status
+      description:
+        Reports the schedule worker process state, schedules.worker.enabled, and whether the daemon's in-process
+        scheduler is currently executing schedules.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - running
+                      - not_running
+                  pid:
+                    type: number
+                  workerEnabled:
+                    type: boolean
+                  inProcessScheduler:
+                    type: object
+                    properties:
+                      status:
+                        type: string
+                        enum:
+                          - running
+                          - not_running
+                      pid:
+                        type: number
+                    required:
+                      - status
+                    additionalProperties: false
+                required:
+                  - status
+                  - workerEnabled
+                  - inProcessScheduler
+                additionalProperties: false
+  /v1/schedules/worker/stop:
+    post:
+      operationId: schedules_worker_stop_post
+      summary: Stop the schedule worker
+      description:
+        Disables schedules.worker.enabled (handing schedule execution back to the in-process scheduler) and
+        SIGTERMs the schedule worker process if it is running.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  workerWasRunning:
+                    type: boolean
+                  pid:
+                    type: number
+                  workerEnabled:
+                    type: boolean
+                    const: false
+                required:
+                  - workerWasRunning
+                  - workerEnabled
                 additionalProperties: false
   /v1/search:
     get:
@@ -26648,6 +27658,7 @@ paths:
                       - completed
                       - failed
                       - aborted
+                      - interrupted
                   usage:
                     type: object
                     properties:

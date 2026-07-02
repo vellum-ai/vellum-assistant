@@ -64,6 +64,10 @@ import type {
 } from "../agent/loop.js";
 import type { InterfaceId } from "../channels/types.js";
 import { resolveEffectiveContextWindow } from "../config/llm-context-resolution.js";
+import {
+  resolveDefaultProfileKey,
+  resolveProfilelessModelKey,
+} from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { conversationSupportsDynamicUi } from "../daemon/channel-ui-capability.js";
@@ -104,6 +108,7 @@ import {
   type UntrustedContentSource,
   wrapUntrustedContent,
 } from "../security/untrusted-content.js";
+import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("agent-wake");
@@ -320,11 +325,28 @@ export interface WakeOptions {
    */
   untrustedOutput?: WakeUntrustedOutput;
   /**
+   * Structured terminal record for a backgrounded bash/host_bash run, stamped
+   * onto the persisted background-event wake so the web can rebuild the inline
+   * card from history after a daemon restart.
+   */
+  backgroundToolCompletion?: CompletedBackgroundTool;
+  /**
    * Schedule-run id to stamp on the usage rows this wake records. Set when the
    * wake is triggered by a script-mode schedule (the firing's run id), so the
    * woken turn's cost is attributed to that firing.
    */
   cronRunId?: string;
+  /**
+   * Run the woken turn clientless: pin `hasNoClient = true` for the duration of
+   * the agent-loop run (restored after). Wakes bypass the orchestrator's
+   * turn-start interactivity setup, so a wake on a conversation with no client
+   * attached otherwise derives `isInteractive: true` (the default
+   * `hasNoClient = false`). Pinning it makes `conversation-tool-setup` derive
+   * `isInteractive: false`, which `policy-context` maps to `background`
+   * (guardian) / `headless` (unknown) — so a side-effecting tool that would
+   * prompt is denied instead of stalling on a client that isn't there.
+   */
+  clientless?: boolean;
 }
 
 /**
@@ -597,6 +619,18 @@ export async function wakeAgentForOpportunity(
   const startedAt = nowFn();
 
   return runSingleFlight(conversationId, async () => {
+    // Snapshot the conversation's resting trust before the resolver runs, so
+    // it can be restored after. The resolver leaves the wake's trust on the
+    // conversation, and a following no-trust wake would otherwise read it via
+    // tool setup's `currentTurnTrustContext ?? trustContext` fallback. Null
+    // when the conversation isn't resident yet (a fresh hydrate or a fork).
+    let priorPersistentTrust: TrustContext | null = null;
+    if (opts.trustContext) {
+      const { findConversation } =
+        await import("../daemon/conversation-registry.js");
+      priorPersistentTrust =
+        findConversation(conversationId)?.trustContext ?? null;
+    }
     const resolved = await resolveTarget(opts);
     if (resolved === "archived") {
       log.info(
@@ -618,6 +652,18 @@ export async function wakeAgentForOpportunity(
     }
     const conversation = resolved;
 
+    // Put the resting trust back on exit. The guard restores only our own
+    // elevation, so a trust re-set by another turn is left alone; it's also
+    // idempotent, so the several call sites below are safe.
+    const restorePersistentWakeTrust = (): void => {
+      if (
+        opts.trustContext &&
+        conversation.trustContext === opts.trustContext
+      ) {
+        conversation.setTrustContext(priorPersistentTrust);
+      }
+    };
+
     const { decision: diskPressureDecision, status: diskPressureStatus } =
       classifyWakeDiskPressurePolicy(opts);
     if (diskPressureDecision.action === "block") {
@@ -635,6 +681,7 @@ export async function wakeAgentForOpportunity(
         },
         "agent-wake: blocked by disk pressure cleanup mode",
       );
+      restorePersistentWakeTrust();
       return {
         invoked: false,
         producedToolCalls: false,
@@ -648,15 +695,12 @@ export async function wakeAgentForOpportunity(
         { conversationId, source },
         "agent-wake: conversation still processing after timeout; skipping",
       );
+      restorePersistentWakeTrust();
       return { invoked: false, producedToolCalls: false, reason: "timeout" };
     }
 
-    // Apply caller-supplied trust before the agent loop reads its per-turn
-    // snapshot. Background jobs without an inbound message use this to
-    // declare guardian trust so side-effect tools clear the approval gate.
-    if (opts.trustContext) {
-      conversation.setTrustContext(opts.trustContext);
-    }
+    // Trust elevation is applied per-turn via `currentTurnTrustContext` right
+    // before the run (see below) — not on the persistent conversation trust.
 
     // Honor the conversation's pinned inference-profile override (if any).
     // Without this, scheduled-task wakes and other opportunity wakes bypass
@@ -680,6 +724,18 @@ export async function wakeAgentForOpportunity(
       overrideProfile,
       forceOverrideProfile,
     });
+    const modelProfileKey =
+      (forceOverrideProfile || callSite === "mainAgent"
+        ? overrideProfile
+        : undefined) ??
+      resolveDefaultProfileKey(callSite, config.llm) ??
+      overrideProfile ??
+      resolveDefaultProfileKey("mainAgent", config.llm) ??
+      resolveProfilelessModelKey(callSite, config.llm, {
+        ...(overrideProfile != null ? { overrideProfile } : {}),
+        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+        selectionSeed: conversationId,
+      });
 
     // Apply the caller's persona override for the duration of the run. The
     // prompt is built once before `agentLoop.run()` (via
@@ -761,7 +817,12 @@ export async function wakeAgentForOpportunity(
       };
       conversation.messages.push(triggerMessage);
       try {
-        await persistWakeTriggerMessage(conversation, triggerMessage, source);
+        await persistWakeTriggerMessage(
+          conversation,
+          triggerMessage,
+          source,
+          opts.backgroundToolCompletion,
+        );
       } catch (err) {
         log.warn(
           { conversationId, source, err },
@@ -1236,8 +1297,16 @@ export async function wakeAgentForOpportunity(
       // user turn or a later background read never inherits the wake's stamps.
       const priorCallSite = conversation.currentCallSite;
       const priorTurnOverrideProfile = conversation.currentTurnOverrideProfile;
+      const priorHasNoClient = conversation.hasNoClient;
+      const priorTurnTrust = conversation.currentTurnTrustContext;
       conversation.currentCallSite = callSite;
       conversation.currentTurnOverrideProfile = overrideProfile;
+      if (opts.clientless) conversation.hasNoClient = true;
+      // Per-turn guardian elevation for the wake's tools, set after the pre-run
+      // reads so a pre-run failure can't leak it; restored in the finally.
+      if (opts.trustContext) {
+        conversation.currentTurnTrustContext = opts.trustContext;
+      }
 
       let updatedHistory: Message[];
       try {
@@ -1268,6 +1337,7 @@ export async function wakeAgentForOpportunity(
             maxInputTokens: effectiveContextWindow.maxInputTokens,
             overflowRecovery: { enabled: false, safetyMarginRatio: 0 },
           }),
+          modelProfileKey,
           ...(conversation.modelOverride
             ? { model: conversation.modelOverride }
             : {}),
@@ -1298,6 +1368,8 @@ export async function wakeAgentForOpportunity(
         // at the start of the next normal turn regardless.)
         conversation.currentCallSite = priorCallSite;
         conversation.currentTurnOverrideProfile = priorTurnOverrideProfile;
+        conversation.hasNoClient = priorHasNoClient;
+        conversation.currentTurnTrustContext = priorTurnTrust;
       }
 
       // The loop swallows provider rejections into a graceful no-output
@@ -1378,6 +1450,8 @@ export async function wakeAgentForOpportunity(
 
       return { invoked: true, producedToolCalls };
     } finally {
+      // Put the conversation's resting trust back on every exit path.
+      restorePersistentWakeTrust();
       // The success path (above) already called setProcessing(false)
       // + drainQueue after tail persist. This catch-all handles the
       // error and early-return paths where no tail was produced — those

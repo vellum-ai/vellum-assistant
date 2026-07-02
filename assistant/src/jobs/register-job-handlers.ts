@@ -1,128 +1,76 @@
-import type { AssistantConfig } from "../config/types.js";
 import { buildConversationSummaryJob } from "../conversations/job-handlers/summarization.js";
 import { generateConversationStartersJob } from "../home/job-handlers/conversation-starters.js";
 import { mediaProcessingJob } from "../media/job-handlers/media-processing.js";
-import { bootstrapFromHistory } from "../memory/graph/bootstrap.js";
-import { runConsolidation } from "../memory/graph/consolidation.js";
-import { runDecayTick } from "../memory/graph/decay.js";
-import { graphExtractJob } from "../memory/graph/extraction-job.js";
-import {
-  embedGraphNodeJob,
-  embedGraphTriggerJob,
-} from "../memory/graph/graph-search.js";
-import { runNarrativeRefinement } from "../memory/graph/narrative.js";
-import { runPatternScan } from "../memory/graph/pattern-scan.js";
-import { backfillJob } from "../memory/job-handlers/backfill.js";
-import {
-  embedAttachmentJob,
-  embedMediaJob,
-  embedSegmentJob,
-  embedSummaryJob,
-} from "../memory/job-handlers/embedding.js";
-import {
-  deleteQdrantVectorsJob,
-  rebuildIndexJob,
-} from "../memory/job-handlers/index-maintenance.js";
-import { embedConceptPageJob } from "../memory/jobs/embed-concept-page.js";
-import { embedPkbFileJob } from "../memory/jobs/embed-pkb-file.js";
-import { memoryRetrospectiveJob } from "../memory/memory-retrospective-job.js";
-import {
-  memoryV2ActivationRecomputeJob,
-  memoryV2MigrateJob,
-  memoryV2ReembedJob,
-} from "../memory/v2/backfill-jobs.js";
-import { memoryV2ConsolidateJob } from "../memory/v2/consolidation-job.js";
-import { memoryV2SweepJob } from "../memory/v2/sweep-job.js";
 import {
   pruneOldConversationsJob,
   pruneOldLlmRequestLogsJob,
+  pruneOldToolInvocationsJob,
   pruneOldTraceEventsJob,
 } from "../persistence/job-handlers/cleanup.js";
-import type { MemoryJob } from "../persistence/jobs-store.js";
+import {
+  deleteMessageLexicalJob,
+  indexMessageLexicalJob,
+  purgeConversationLexicalJob,
+} from "../persistence/job-handlers/message-lexical.js";
+import { backfillLexicalIndexJob } from "../persistence/job-handlers/message-lexical-backfill.js";
 import { registerJobHandler } from "../persistence/jobs-worker.js";
-import { maintainJob as memoryV3MaintainJob } from "../plugins/defaults/memory/v3/maintain-job.js";
+import {
+  registerDefaultPluginJobHandlers,
+  registerDefaultPluginPersistenceHooks,
+} from "../plugins/defaults/index.js";
+import { getRegisteredJobHandlers } from "../plugins/job-handler-registry.js";
 import { conversationAnalyzeJob } from "../runtime/services/conversation-analyze-job.js";
-import { getLogger } from "../util/logger.js";
-
-const log = getLogger("memory-jobs-worker");
-
-// ── Graph lifecycle job handlers ──────────────────────────────────
-
-function graphDecayJob(job: MemoryJob): void {
-  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
-  const result = runDecayTick(scopeId);
-  log.info({ jobId: job.id, ...result }, "Graph decay tick complete");
-}
-
-async function graphConsolidateJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
-  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
-  const result = await runConsolidation(scopeId, config);
-  log.info(
-    {
-      jobId: job.id,
-      updated: result.totalUpdated,
-      deleted: result.totalDeleted,
-      mergeEdges: result.totalMergeEdges,
-    },
-    "Graph consolidation complete",
-  );
-}
-
-async function graphPatternScanJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
-  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
-  const result = await runPatternScan(scopeId, config);
-  log.info(
-    {
-      jobId: job.id,
-      patterns: result.patternsDetected,
-      edges: result.edgesCreated,
-    },
-    "Graph pattern scan complete",
-  );
-}
-
-async function graphNarrativeRefineJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
-  const scopeId = (job.payload as { scopeId?: string })?.scopeId ?? "default";
-  const result = await runNarrativeRefinement(scopeId, config);
-  log.info(
-    {
-      jobId: job.id,
-      updated: result.nodesUpdated,
-      arcs: result.arcsIdentified,
-    },
-    "Graph narrative refinement complete",
-  );
-}
 
 /**
- * Wire the memory feature's per-job-type handlers into the generic
- * {@link registerJobHandler} registry owned by `persistence/jobs-worker`.
+ * Register every background-job handler into the worker's dispatch table
+ * (`registerJobHandler` in `persistence/jobs-worker`).
+ *
+ * Plugin-contributed handlers (memory, and any future plugin) flow through the
+ * global job-handler registry; the remaining handlers belong to domains that are
+ * not plugins (persistence cleanup, conversations, media, home, runtime) and are
+ * wired here directly.
  *
  * Idempotent: registering a type twice overwrites with the same handler, so
  * repeated calls (e.g. from the daemon supervisor and the standalone worker
  * process) are safe.
  */
 export function registerMemoryJobHandlers(): void {
-  // Each handler is registered behind an arrow that reads the imported binding
-  // at dispatch time rather than capturing it eagerly, so a per-test
-  // `mock.module` of the underlying handler is honored.
-  registerJobHandler("embed_segment", (job, config) =>
-    embedSegmentJob(job, config),
-  );
-  registerJobHandler("embed_summary", (job, config) =>
-    embedSummaryJob(job, config),
-  );
+  // Forward plugin-contributed job handlers into the worker. Ensure the default
+  // plugins' contributions are in the registry first: the standalone worker
+  // process does not run plugin bootstrap, so it must self-register the defaults
+  // here. Idempotent — on the daemon path bootstrap has already registered them
+  // (plus any user plugins, which this union also picks up).
+  registerDefaultPluginJobHandlers();
+  // The standalone worker runs fork-based memory retrospectives, which carry
+  // per-conversation memory state through the persistence-lifecycle seam. The
+  // daemon wires that seam at bootstrap; the worker must self-register it here
+  // too, or `onConversationForked` is the no-op and the retrospective fork
+  // silently drops the carried activation/injection/graph/retrospective state.
+  registerDefaultPluginPersistenceHooks();
+  for (const { type, handler } of getRegisteredJobHandlers()) {
+    registerJobHandler(type, handler);
+  }
+
+  // Non-plugin domain handlers. Each is registered behind an arrow that reads
+  // the imported binding at dispatch time rather than capturing it eagerly, so a
+  // per-test `mock.module` of the underlying handler is honored.
   registerJobHandler("prune_old_conversations", (job, config) =>
     pruneOldConversationsJob(job, config),
+  );
+  // Message-content lexical indexing powers regular message search — host
+  // infrastructure, not a memory-plugin feature (the jobs merely share the
+  // background job queue).
+  registerJobHandler("index_message_lexical", (job, config) =>
+    indexMessageLexicalJob(job, config),
+  );
+  registerJobHandler("purge_conversation_lexical", (job, config) =>
+    purgeConversationLexicalJob(job, config),
+  );
+  registerJobHandler("delete_message_lexical", (job, config) =>
+    deleteMessageLexicalJob(job, config),
+  );
+  registerJobHandler("backfill_lexical_index", (job, config) =>
+    backfillLexicalIndexJob(job, config),
   );
   registerJobHandler("prune_old_llm_request_logs", (job, config) =>
     pruneOldLlmRequestLogsJob(job, config),
@@ -130,79 +78,24 @@ export function registerMemoryJobHandlers(): void {
   registerJobHandler("prune_old_trace_events", (job, config) =>
     pruneOldTraceEventsJob(job, config),
   );
+  registerJobHandler("prune_old_tool_invocations", (job, config) =>
+    pruneOldToolInvocationsJob(job, config),
+  );
   registerJobHandler("build_conversation_summary", async (job, config) => {
     // Stale rows enqueued before v2 was enabled must not consume the
     // `conversationSummarization` LLM budget — v2 readers do not consume
-    // `memorySummaries`, mirroring the `graph_extract` gate below.
-    if (config.memory.v2.enabled) return;
+    // `memorySummaries`, mirroring the `graph_extract` gate in the memory
+    // plugin's job handlers.
+    if (config.memory.v2.enabled) {
+      return;
+    }
     await buildConversationSummaryJob(job, config);
   });
-  registerJobHandler("backfill", (job, config) => backfillJob(job, config));
-  registerJobHandler("rebuild_index", () => rebuildIndexJob());
-  registerJobHandler("delete_qdrant_vectors", (job) =>
-    deleteQdrantVectorsJob(job),
-  );
   registerJobHandler("media_processing", (job) => mediaProcessingJob(job));
-  registerJobHandler("embed_media", (job, config) =>
-    embedMediaJob(job, config),
-  );
-  registerJobHandler("embed_attachment", (job, config) =>
-    embedAttachmentJob(job, config),
-  );
-  registerJobHandler("embed_graph_node", (job, config) =>
-    embedGraphNodeJob(job, config),
-  );
-  registerJobHandler("embed_pkb_file", (job, config) =>
-    embedPkbFileJob(job, config),
-  );
-  registerJobHandler("graph_trigger_embed", (job, config) =>
-    embedGraphTriggerJob(job, config),
-  );
-  registerJobHandler("graph_extract", async (job, config) => {
-    // Stale rows enqueued before v2 was enabled (or by any unguarded v1
-    // path) must not consume embedding/extraction budget when v2 is on.
-    if (config.memory.v2.enabled) return;
-    await graphExtractJob(job, config);
-  });
   registerJobHandler("conversation_analyze", (job, config) =>
     conversationAnalyzeJob(job, config),
   );
-  registerJobHandler("graph_decay", (job) => graphDecayJob(job));
-  registerJobHandler("graph_consolidate", (job, config) =>
-    graphConsolidateJob(job, config),
-  );
-  registerJobHandler("graph_pattern_scan", (job, config) =>
-    graphPatternScanJob(job, config),
-  );
-  registerJobHandler("graph_narrative_refine", (job, config) =>
-    graphNarrativeRefineJob(job, config),
-  );
   registerJobHandler("generate_conversation_starters", (job) =>
     generateConversationStartersJob(job),
-  );
-  registerJobHandler("graph_bootstrap", () => bootstrapFromHistory());
-  registerJobHandler("embed_concept_page", (job, config) =>
-    embedConceptPageJob(job, config),
-  );
-  registerJobHandler("memory_v2_sweep", (job, config) =>
-    memoryV2SweepJob(job, config),
-  );
-  registerJobHandler("memory_v2_consolidate", (job, config) =>
-    memoryV2ConsolidateJob(job, config),
-  );
-  registerJobHandler("memory_v2_migrate", (job, config) =>
-    memoryV2MigrateJob(job, config),
-  );
-  registerJobHandler("memory_v2_reembed", (job, config) =>
-    memoryV2ReembedJob(job, config),
-  );
-  registerJobHandler("memory_v2_activation_recompute", (job, config) =>
-    memoryV2ActivationRecomputeJob(job, config),
-  );
-  registerJobHandler("memory_v3_maintain", (job, config) =>
-    memoryV3MaintainJob(job, config),
-  );
-  registerJobHandler("memory_retrospective", (job, config) =>
-    memoryRetrospectiveJob(job, config),
   );
 }

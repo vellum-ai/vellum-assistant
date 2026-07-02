@@ -26,10 +26,6 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import {
-  MEMORY_RETROSPECTIVE_FORK_SOURCE,
-  MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
-} from "../memory/memory-retrospective-constants.js";
-import {
   _setPaginationScanCapForTesting,
   addMessage,
   createConversation,
@@ -38,6 +34,10 @@ import {
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { messages } from "../persistence/schema/index.js";
+import {
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+  MEMORY_RETROSPECTIVE_INSTRUCTION_KIND,
+} from "../plugins/defaults/memory/memory-retrospective-constants.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
 
 await initializeDb();

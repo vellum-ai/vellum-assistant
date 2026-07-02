@@ -1,5 +1,3 @@
-import { v4 as uuid } from "uuid";
-
 import { peekAcpSessionManager } from "../../acp/index.js";
 import { resolveCanonicalGuardianRequest } from "../../contacts/canonical-guardian-store.js";
 import {
@@ -13,9 +11,7 @@ import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { UserError } from "../../util/errors.js";
-import { truncate } from "../../util/truncate.js";
 import { touchConversation } from "../conversation-evictor.js";
-import { regenerate } from "../conversation-history.js";
 import {
   buildSlashContext,
   formatCleanResult,
@@ -237,54 +233,6 @@ export async function resolveMetaSlashCommand(
   }
 }
 
-/**
- * Regenerate the last assistant response for a conversation. The caller provides
- * a `sendEvent` callback for delivering streaming events via HTTP/SSE.
- * Returns null if the conversation does not exist. Restores evicted conversations
- * from the database when needed. Throws on regeneration errors.
- */
-export async function regenerateResponse(
-  conversationId: string,
-): Promise<{ requestId: string } | null> {
-  // The caller may pass a conversation key (e.g. the macOS client's local
-  // conversation ID) instead of the daemon's internal conversation ID. Resolve
-  // to the internal ID so all downstream lookups succeed.
-  const resolvedId = resolveConversationId(conversationId);
-  if (!resolvedId) {
-    return null;
-  }
-  conversationId = resolvedId;
-  const conversation = await getOrCreateConversation(conversationId);
-  touchConversation(conversationId);
-  conversation.updateClient(broadcastMessage, false);
-  getSubagentManager().updateParentSender(conversationId, broadcastMessage);
-  const requestId = uuid();
-  conversation.traceEmitter.emit("request_received", "Regenerate requested", {
-    requestId,
-    status: "info",
-    attributes: { source: "regenerate" },
-  });
-  try {
-    await regenerate(conversation, requestId);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, conversationId }, "Error regenerating message");
-    conversation.traceEmitter.emit(
-      "request_error",
-      truncate(message, 200, ""),
-      {
-        requestId,
-        status: "error",
-        attributes: {
-          errorClass: err instanceof Error ? err.constructor.name : "Error",
-          message: truncate(message, 500, ""),
-        },
-      },
-    );
-    throw err;
-  }
-  return { requestId };
-}
 // ---------------------------------------------------------------------------
 // Shared business logic (transport-agnostic)
 // ---------------------------------------------------------------------------

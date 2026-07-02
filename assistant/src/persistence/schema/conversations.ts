@@ -49,6 +49,8 @@ export const conversations = sqliteTable(
      */
     surfacedAt: integer("surfaced_at"),
     inferenceProfile: text("inference_profile"),
+    // JSON-encoded string[] of plugin ids scoping this chat; null = default (all globally-enabled).
+    enabledPlugins: text("enabled_plugins"),
     inferenceProfileSessionId: text("inference_profile_session_id"),
     inferenceProfileExpiresAt: integer("inference_profile_expires_at"),
     lastNotifiedInferenceProfile: text("last_notified_inference_profile"),
@@ -99,7 +101,6 @@ export const messages = sqliteTable(
     clientMessageId: text("client_message_id"),
   },
   (table) => [
-    index("idx_messages_conversation_id").on(table.conversationId),
     uniqueIndex("idx_messages_conv_client_msg_id")
       .on(table.conversationId, table.clientMessageId)
       .where(sql`client_message_id IS NOT NULL`),

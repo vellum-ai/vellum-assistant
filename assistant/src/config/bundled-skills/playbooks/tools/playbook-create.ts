@@ -1,7 +1,5 @@
 import { sql } from "drizzle-orm";
 
-import { createNode, updateNode } from "../../../../memory/graph/store.js";
-import type { NewNode } from "../../../../memory/graph/types.js";
 import { getDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
@@ -12,6 +10,11 @@ import type {
   Playbook,
   PlaybookAutonomyLevel,
 } from "../../../../playbooks/types.js";
+import {
+  createNode,
+  updateNode,
+} from "../../../../plugins/defaults/memory/graph/store.js";
+import type { NewNode } from "../../../../plugins/defaults/memory/graph/types.js";
 import type {
   ToolContext,
   ToolExecutionResult,

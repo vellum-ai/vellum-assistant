@@ -109,6 +109,47 @@ function extractTerminalText(obj: Record<string, unknown>): string | undefined {
 }
 
 /**
+ * Read the agent's command from a tool's `rawInput`, when present. ACP rawInput
+ * is optional and its shape is tool-specific, so this is defensive: only a
+ * non-null object with a string `command` yields a value; anything else
+ * returns `undefined`.
+ */
+export function getAcpToolCommand(rawInput: unknown): string | undefined {
+  if (typeof rawInput !== "object" || rawInput === null) return undefined;
+  const command = (rawInput as Record<string, unknown>).command;
+  return typeof command === "string" ? command : undefined;
+}
+
+/** Join a tool call's `content`/`terminal` text into one string (diffs excluded). */
+export function getAcpToolOutputText(content?: string): string {
+  return parseAcpToolContent(content)
+    .filter((b) => b.type === "content" || b.type === "terminal")
+    .map((b) => ("text" in b ? (b.text ?? "") : ""))
+    .filter((text) => text.length > 0)
+    .join("\n");
+}
+
+/**
+ * Format a raw ACP input/output value for display. `undefined`/`null` → no
+ * value; strings pass through verbatim; objects pretty-print as JSON (falling
+ * back to `String` when a payload can't serialize, e.g. a circular reference);
+ * anything else stringifies. Used to render the expandable Raw input/output
+ * section. (Mirrors the inspector's `formatPayload`.)
+ */
+export function formatRawValue(value: unknown): string | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (typeof value === "string") return value;
+  if (typeof value === "object") {
+    try {
+      return JSON.stringify(value, null, 2);
+    } catch {
+      return String(value);
+    }
+  }
+  return String(value);
+}
+
+/**
  * Collect file changes from `diff` blocks, then union in any `locations[].path`
  * not already represented (path-only). Deduped by path; diff entries win over
  * a path-only `locations` entry for the same file.

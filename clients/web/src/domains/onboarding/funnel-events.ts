@@ -61,12 +61,17 @@ export const RESEARCH_ONBOARDING_FUNNEL_STEPS = {
   face: { stepName: "research_face", stepIndex: 1 },
   intro: { stepName: "research_intro", stepIndex: 2 },
   different: { stepName: "research_pitch", stepIndex: 3 },
-  integration: { stepName: "research_integration", stepIndex: 4 },
-  letschat: { stepName: "research_calendar", stepIndex: 5 },
-  meeting: { stepName: "research_meeting", stepIndex: 6 },
-  looking: { stepName: "research_looking", stepIndex: 7 },
-  results: { stepName: "research_results", stepIndex: 8 },
-  suggestions: { stepName: "research_suggestions", stepIndex: 9 },
+  personality: { stepName: "research_personality", stepIndex: 4 },
+  integration: { stepName: "research_integration", stepIndex: 5 },
+  letschat: { stepName: "research_calendar", stepIndex: 6 },
+  meeting: { stepName: "research_meeting", stepIndex: 7 },
+  looking: { stepName: "research_looking", stepIndex: 8 },
+  results: { stepName: "research_results", stepIndex: 9 },
+  suggestions: { stepName: "research_suggestions", stepIndex: 10 },
+  // Post-terminal loading state (personality rewrite finishing before chat). We
+  // don't emit for it — the flow's completion is recorded on `suggestions` — but
+  // it's a `ResearchStep`, so the exhaustive record needs an entry.
+  finishing: { stepName: "research_finishing", stepIndex: 11 },
 } as const satisfies Record<ResearchStep, OnboardingFunnelStepDescriptor>;
 
 export type ResearchOnboardingFunnelStep =
@@ -96,7 +101,7 @@ export const RESEARCH_CHECKIN_CALENDAR_ATTRIBUTION = "research_checkin";
  */
 export const RESEARCH_ONBOARDING_CHECKIN_STEP = {
   stepName: "research_checkin_open",
-  stepIndex: 10,
+  stepIndex: 11,
 } as const satisfies OnboardingFunnelStepDescriptor;
 
 /**

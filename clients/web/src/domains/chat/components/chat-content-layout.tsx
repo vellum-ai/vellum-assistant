@@ -27,6 +27,9 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
+import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
+import { ChannelSetupPanel } from "@/domains/chat/components/channel-setup-panel";
+import { notifyChannelSetupHandedOff } from "@/domains/chat/channel-setup-close-notify";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
@@ -42,6 +45,10 @@ const importAcpRunDetailPanel = () =>
   import("@/domains/chat/components/acp-run-detail-panel/acp-run-detail-panel");
 const importWorkflowDetailPanel = () =>
   import("@/domains/chat/components/workflow-detail-panel");
+const importBackgroundTaskDetailPanel = () =>
+  import(
+    "@/domains/chat/components/background-task-detail-panel/background-task-detail-panel"
+  );
 
 const SubagentDetailPanel = lazy(() =>
   importSubagentDetailPanel().then((m) => ({ default: m.SubagentDetailPanel })),
@@ -54,6 +61,11 @@ const WorkflowDetailPanel = lazy(() =>
 );
 const ToolDetailPanel = lazy(() =>
   importToolDetailPanel().then((m) => ({ default: m.ToolDetailPanel })),
+);
+const BackgroundTaskDetailPanel = lazy(() =>
+  importBackgroundTaskDetailPanel().then((m) => ({
+    default: m.BackgroundTaskDetailPanel,
+  })),
 );
 
 // ---------------------------------------------------------------------------
@@ -81,6 +93,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
   const activeAcpRunEntry = useAcpRunStore((s) =>
     activeAcpRunId ? s.byId[activeAcpRunId] : undefined,
   );
+  const activeBackgroundTaskId = useViewerStore.use.activeBackgroundTaskId();
+  // Active task's entry only — same narrow selector as the entries above.
+  const activeBackgroundTaskEntry = useBackgroundTaskStore((s) =>
+    activeBackgroundTaskId ? s.byId[activeBackgroundTaskId] : undefined,
+  );
+  const activeChannelSetup = useViewerStore.use.activeChannelSetup();
 
   const isSharing = useDeployStore.use.isSharing();
   const isDeploying = useDeployStore.use.isDeploying();
@@ -165,6 +183,35 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     useViewerStore.getState().closeAcpRunDetail();
   }, []);
 
+  const onCloseBackgroundTaskDetail = useCallback(() => {
+    useViewerStore.getState().closeBackgroundTaskDetail();
+  }, []);
+
+  const onCloseChannelSetup = useCallback(() => {
+    useViewerStore.getState().closeChannelSetup();
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // Mobile fallback: side-drawer panels don't render on narrow viewports, so
+  // redirect to the Contacts page with the Slack channel pre-expanded.
+  // -------------------------------------------------------------------------
+
+  useEffect(() => {
+    if (!isMobile) return;
+    if (mainView !== "channel-setup" || !activeChannelSetup) return;
+    const channel = activeChannelSetup.channel;
+    // This close is a hand-off, not a dismissal: setup continues on the
+    // Contacts page, which runs standalone and cannot auto-notify on
+    // completion. Signal the hand-off so the assistant switches to the
+    // "tell me when you're done" flow instead of waiting for a
+    // wizard-closed notification that will never come. Fired before the
+    // store close so the close-notify watcher (which skips narrow
+    // viewports) can never race it.
+    void notifyChannelSetupHandedOff(activeChannelSetup);
+    useViewerStore.getState().closeChannelSetup();
+    navigate(`${routes.contacts.root}?setup=${channel}`);
+  }, [isMobile, mainView, activeChannelSetup, navigate]);
+
   // -------------------------------------------------------------------------
   // Escape closes whichever right-hand side panel is open (tool detail /
   // thought process, subagent detail, workflow detail, acp run detail,
@@ -201,6 +248,12 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         case "acp-run-detail":
           viewer.closeAcpRunDetail();
           break;
+        case "background-task-detail":
+          viewer.closeBackgroundTaskDetail();
+          break;
+        case "channel-setup":
+          viewer.closeChannelSetup();
+          break;
         case "document":
           viewer.closeDocument();
           break;
@@ -224,6 +277,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
       importToolDetailPanel().catch(() => {});
       importAcpRunDetailPanel().catch(() => {});
       importWorkflowDetailPanel().catch(() => {});
+      importBackgroundTaskDetailPanel().catch(() => {});
     };
     if (typeof window.requestIdleCallback === "function") {
       const id = window.requestIdleCallback(run);
@@ -370,6 +424,19 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
         </LazyBoundary>
       );
     } else if (
+      mainView === "background-task-detail" &&
+      activeBackgroundTaskId &&
+      activeBackgroundTaskEntry
+    ) {
+      rightPanel = (
+        <LazyBoundary>
+          <BackgroundTaskDetailPanel
+            entry={activeBackgroundTaskEntry}
+            onClose={onCloseBackgroundTaskDetail}
+          />
+        </LazyBoundary>
+      );
+    } else if (
       mainView === "workflow-detail" &&
       activeWorkflowRunId &&
       workflowById[activeWorkflowRunId]
@@ -383,6 +450,13 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
             onRequestJournal={onRequestWorkflowJournal}
           />
         </LazyBoundary>
+      );
+    } else if (mainView === "channel-setup" && activeChannelSetup) {
+      rightPanel = (
+        <ChannelSetupPanel
+          payload={activeChannelSetup}
+          onClose={onCloseChannelSetup}
+        />
       );
     }
   }

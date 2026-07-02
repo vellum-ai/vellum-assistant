@@ -19,9 +19,9 @@
 import type { MemoryV3SelectionLog } from "../../../../api/responses/memory-v3-selection-log.js";
 import { getConfig } from "../../../../config/loader.js";
 import { isMemoryV3Live } from "../../../../config/memory-v3-gate.js";
-import { readPage } from "../../../../memory/v2/page-store.js";
 import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
+import { readPage } from "../v2/page-store.js";
 import { capabilityOrDiskBody } from "./capabilities.js";
 import { sectionByOrdinal } from "./orchestrate.js";
 import { renderV3SectionContent } from "./page-content.js";

@@ -212,6 +212,35 @@ export const skillLoadTool = {
 
     const skill = loaded.skill;
 
+    // Per-chat plugin scope gate: a plugin-owned skill whose owning plugin is
+    // outside the conversation's effective set must not have its instructions
+    // loaded. Mirrors the projection/tools filter's owner-id lookup
+    // (`filterSkillsByEnabledPlugins`). `null` = no restriction; first-party
+    // defaults are always in the set, so bundled/workspace skills pass.
+    const enabledPluginSet = context.enabledPluginSet ?? null;
+    if (
+      enabledPluginSet !== null &&
+      skill.owner?.kind === "plugin" &&
+      !enabledPluginSet.has(skill.owner.id)
+    ) {
+      return {
+        content: `Error: skill "${skill.id}" is not available in this conversation — its plugin is not enabled here.`,
+        isError: true,
+      };
+    }
+
+    // Per-chat plugin scope gate for INCLUDED child skills. Mirrors the
+    // top-level owner-id check above: a child owned by a plugin outside the
+    // effective set (and not a first-party default — those ids are unioned into
+    // the set) must be omitted from include resolution entirely, so an in-scope
+    // parent cannot inject an out-of-scope plugin child's body or loaded-skill
+    // marker. `null` set = no restriction; bundled/core children (no plugin
+    // owner) always pass.
+    const childOutOfPluginScope = (child: SkillSummary): boolean =>
+      enabledPluginSet !== null &&
+      child.owner?.kind === "plugin" &&
+      !enabledPluginSet.has(child.owner.id);
+
     // Assistant feature flag gate: reject loading if the skill's flag is OFF
     const config = getConfig();
     const flagKey = skillFlagKey(skill);
@@ -381,6 +410,9 @@ export const skillLoadTool = {
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
         if (!child) continue;
+        // Skip a child whose owning plugin is outside this conversation's
+        // effective set — do not list it, load its body, or surface its tools.
+        if (childOutOfPluginScope(child)) continue;
         const childFlagKey = skillFlagKey(child);
         if (
           childFlagKey &&
@@ -520,6 +552,10 @@ export const skillLoadTool = {
       for (const childId of skill.includes) {
         const child = catalogIndex.get(childId);
         if (!child) continue;
+        // Same per-chat plugin scope gate as the body loop: never emit a
+        // loaded-skill marker (which projects the child's tools) for a child
+        // whose owning plugin is outside the effective set.
+        if (childOutOfPluginScope(child)) continue;
         const childFlagKey2 = skillFlagKey(child);
         if (
           childFlagKey2 &&

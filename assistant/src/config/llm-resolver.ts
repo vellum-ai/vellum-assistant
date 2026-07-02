@@ -352,6 +352,23 @@ export function resolveDefaultProfileKey(
   return undefined;
 }
 
+/**
+ * Stable non-null identity for profileless configs. Callers should prefer real
+ * profile keys first; when no named profile applies, the resolved model id is
+ * the only model-selection identifier available.
+ */
+export function resolveProfilelessModelKey(
+  callSite: LLMCallSite,
+  llm: z.infer<typeof LLMSchema>,
+  opts: ResolveCallSiteOpts = {},
+): string {
+  try {
+    return resolveCallSiteConfig(callSite, llm, opts).model;
+  } catch {
+    return llm.default?.model ?? "default";
+  }
+}
+
 function effectiveDefault(
   callSite: LLMCallSite,
   llm: z.infer<typeof LLMSchema>,

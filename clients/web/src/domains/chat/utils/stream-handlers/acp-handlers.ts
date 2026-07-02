@@ -44,6 +44,9 @@ export function handleAcpSessionUpdate(event: AcpSessionUpdateEvent): void {
       toolStatus: event.toolStatus,
       // Tool-call locations[]; absent on older daemons.
       locations: event.locations,
+      // Optional raw tool input/output, when the daemon forwards them.
+      rawInput: event.rawInput,
+      rawOutput: event.rawOutput,
       messageId: event.messageId,
     },
   });

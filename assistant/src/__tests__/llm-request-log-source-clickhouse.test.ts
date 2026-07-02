@@ -106,6 +106,7 @@ describe("ClickHouseLlmRequestLogSource", () => {
       createdAt: 1778465138786,
       agentLoopExitReason: "no_tool_calls",
       callSite: "mainAgent",
+      latencyBreakdown: null,
     });
   });
 

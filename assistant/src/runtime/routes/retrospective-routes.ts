@@ -17,10 +17,6 @@
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import {
-  MEMORY_RETROSPECTIVE_FORK_SOURCE,
-  MEMORY_RETROSPECTIVE_SOURCE,
-} from "../../memory/memory-retrospective-constants.js";
 import type { ConversationRow } from "../../persistence/conversation-crud.js";
 import {
   getMessageRoleStatsByConversation,
@@ -28,6 +24,10 @@ import {
 } from "../../persistence/conversation-queries.js";
 import { isMemoryEnabled } from "../../persistence/jobs-store.js";
 import { getUsageCostForConversationWindow } from "../../persistence/llm-usage-store.js";
+import {
+  MEMORY_RETROSPECTIVE_FORK_SOURCE,
+  MEMORY_RETROSPECTIVE_SOURCE,
+} from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   paginateRuns,

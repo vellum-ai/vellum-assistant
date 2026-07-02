@@ -10,6 +10,8 @@ import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js"
 import { AssistantThinkingDeltaEventSchema } from "./events/assistant-thinking-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
 import { AvatarUpdatedEventSchema } from "./events/avatar-updated.js";
+import { BackgroundToolCompletedEventSchema } from "./events/background-tool-completed.js";
+import { BackgroundToolStartedEventSchema } from "./events/background-tool-started.js";
 import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-closed.js";
 import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
 import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
@@ -37,6 +39,7 @@ import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
 import { NotificationIntentEventSchema } from "./events/notification-intent.js";
+import { OpenPanelEventSchema } from "./events/open-panel.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
@@ -126,6 +129,14 @@ export {
   type AvatarUpdatedEvent,
   AvatarUpdatedEventSchema,
 } from "./events/avatar-updated.js";
+export {
+  type BackgroundToolCompletedEvent,
+  BackgroundToolCompletedEventSchema,
+} from "./events/background-tool-completed.js";
+export {
+  type BackgroundToolStartedEvent,
+  BackgroundToolStartedEventSchema,
+} from "./events/background-tool-started.js";
 export {
   type CompactionCircuitClosedEvent,
   CompactionCircuitClosedEventSchema,
@@ -258,6 +269,10 @@ export {
   type NotificationIntentEvent,
   NotificationIntentEventSchema,
 } from "./events/notification-intent.js";
+export {
+  type OpenPanelEvent,
+  OpenPanelEventSchema,
+} from "./events/open-panel.js";
 export { type OpenUrlEvent, OpenUrlEventSchema } from "./events/open-url.js";
 export {
   type QuestionEntry,
@@ -394,6 +409,7 @@ export {
   DictationRequestSchema,
 } from "./requests/dictation.js";
 export {
+  type BackgroundToolCompletion,
   type ConversationAttachmentBlock,
   ConversationAttachmentBlockSchema,
   type ConversationContentBlock,
@@ -469,6 +485,10 @@ export {
   LlmContextResponseSchema,
 } from "./responses/llm-context-response.js";
 export {
+  type LatencyBreakdown,
+  LatencyBreakdownSchema,
+  type LatencyPhase,
+  LatencyPhaseSchema,
   type LLMCallError,
   LLMCallErrorSchema,
   type LLMCallSummary,
@@ -543,6 +563,8 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   AssistantThinkingDeltaEventSchema,
   AssistantTurnStartEventSchema,
   AvatarUpdatedEventSchema,
+  BackgroundToolCompletedEventSchema,
+  BackgroundToolStartedEventSchema,
   CompactionCircuitClosedEventSchema,
   CompactionCircuitOpenEventSchema,
   ConfirmationRequestEventSchema,
@@ -570,6 +592,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageRequestCompleteEventSchema,
   NavigateSettingsEventSchema,
   NotificationIntentEventSchema,
+  OpenPanelEventSchema,
   OpenUrlEventSchema,
   QuestionRequestEventSchema,
   RelationshipStateUpdatedEventSchema,

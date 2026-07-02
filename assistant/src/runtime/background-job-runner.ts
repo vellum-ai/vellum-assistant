@@ -111,15 +111,15 @@ export interface RunBackgroundJobOptions {
    */
   scheduleJobId?: string;
   /**
-   * Fires synchronously after `bootstrapConversation` returns and BEFORE
+   * Fires (and is awaited) after `bootstrapConversation` returns and BEFORE
    * `processMessage` starts. Use this to populate the macOS sidebar entry
    * immediately (the SSE event fires when the job starts) rather than after
    * the job finishes (which can be up to `timeoutMs` later for long jobs).
    *
-   * Wrapped in try/catch internally — a callback throw is logged and
-   * swallowed so it cannot kill the job runner.
+   * Wrapped in try/catch internally — a callback throw (or rejection) is
+   * logged and swallowed so it cannot kill the job runner.
    */
-  onConversationCreated?: (conversationId: string) => void;
+  onConversationCreated?: (conversationId: string) => void | Promise<void>;
   /**
    * Opt out of the "skip until first user message" gate. Defaults to
    * `false` (gate active). Set to `true` ONLY for jobs that genuinely need
@@ -221,14 +221,16 @@ export async function runBackgroundJob(
     };
   }
 
-  let conversation: ReturnType<typeof bootstrapConversation> | undefined;
+  let conversation:
+    | Awaited<ReturnType<typeof bootstrapConversation>>
+    | undefined;
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     // Bootstrap inside the try so that a `createConversation` /
     // `queueGenerateConversationTitle` failure is caught and surfaced as a
     // structured `{ ok: false }` result rather than re-thrown to the caller —
     // the documented contract of this runner.
-    conversation = bootstrapConversation({
+    conversation = await bootstrapConversation({
       conversationType: opts.conversationType ?? "background",
       source: opts.source,
       origin: opts.origin,
@@ -247,7 +249,7 @@ export async function runBackgroundJob(
     // callback throw cannot abort the job.
     if (opts.onConversationCreated) {
       try {
-        opts.onConversationCreated(conversation.id);
+        await opts.onConversationCreated(conversation.id);
       } catch (cbErr) {
         log.warn(
           {

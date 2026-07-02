@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/assistant",
-  "version": "0.10.3",
+  "version": "0.10.4",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -50,7 +50,6 @@
     "@vellumai/gateway-client": "file:../packages/gateway-client",
     "@vellumai/ipc-server-utils": "file:../packages/ipc-server-utils",
     "@vellumai/service-contracts": "file:../packages/service-contracts",
-    "@vellumai/skill-host-contracts": "file:../packages/skill-host-contracts",
     "@vellumai/slack-text": "file:../packages/slack-text",
     "@vellumai/twilio-client": "file:../packages/twilio-client",
     "commander": "13.1.0",
@@ -67,7 +66,6 @@
     "pino": "9.14.0",
     "pino-pretty": "13.1.3",
     "playwright": "1.58.2",
-    "postgres": "3.4.8",
     "quickjs-emscripten": "0.32.0",
     "re2js": "2.8.3",
     "remark-gfm": "4.0.1",
@@ -94,7 +92,6 @@
     "@vellumai/environments",
     "@vellumai/gateway-client",
     "@vellumai/ipc-server-utils",
-    "@vellumai/skill-host-contracts",
     "@vellumai/slack-text",
     "@vellumai/twilio-client"
   ],

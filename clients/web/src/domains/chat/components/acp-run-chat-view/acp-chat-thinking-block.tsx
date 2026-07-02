@@ -7,8 +7,9 @@
  * once complete. An empty thought "signal" (no reasoning text) renders as a
  * static, non-expandable indicator — no chevron, no toggle, no body — so the
  * transcript still surfaces that the agent was thinking without an accordion
- * that expands to nothing. Both carry a muted `Brain` glyph and a streaming
- * indicator while live.
+ * that expands to nothing. While live the leading glyph is the pulsing progress
+ * indicator standing in for the `Brain` glyph; the `Brain` returns once the
+ * thought completes.
  */
 
 import { Brain, ChevronDown, ChevronRight } from "lucide-react";
@@ -35,11 +36,16 @@ export function AcpChatThinkingBlock({
   const expanded = override ?? !isComplete;
   const hasContent = content.trim().length > 0;
 
-  const label = isComplete ? "Thought process" : "Thinking…";
-  const streamingIndicator = !isComplete && (
+  const label = isComplete ? "Thought process" : "Thinking";
+  // While live, the pulsing progress dots stand in for the Brain glyph and lead
+  // the label; once complete the static Brain returns. (Brain + a trailing
+  // indicator at the same time read as redundant.)
+  const leadingGlyph = isComplete ? (
+    <Brain aria-hidden className="h-3.5 w-3.5 shrink-0" />
+  ) : (
     <ThreeDotIndicator
-      className="ml-1"
       dotSize={5}
+      className="shrink-0"
       data-testid="acp-chat-thinking-streaming"
     />
   );
@@ -49,9 +55,8 @@ export function AcpChatThinkingBlock({
     return (
       <div data-testid="acp-chat-thinking-block" className="w-full">
         <div className="flex w-full items-center gap-1.5 text-body-small-default text-[var(--content-tertiary)]">
-          <Brain aria-hidden className="h-3.5 w-3.5 shrink-0" />
+          {leadingGlyph}
           <span>{label}</span>
-          {streamingIndicator}
         </div>
       </div>
     );
@@ -71,9 +76,8 @@ export function AcpChatThinkingBlock({
         ) : (
           <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
         )}
-        <Brain aria-hidden className="h-3.5 w-3.5 shrink-0" />
+        {leadingGlyph}
         <span>{label}</span>
-        {streamingIndicator}
       </button>
 
       {expanded && (

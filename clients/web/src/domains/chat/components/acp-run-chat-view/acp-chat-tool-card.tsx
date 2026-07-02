@@ -1,14 +1,34 @@
 /**
- * A tool call rendered as a card in the ACP chat transcript.
+ * A tool call rendered as a card in the ACP chat transcript: a kind glyph +
+ * standardized label, a status pill, the command/title as a body line, an
+ * output button that opens the nested detail panel (`onOpenOutput`),
+ * file-change chips (`onOpenDiff`), and a collapsible raw input/output section.
  */
 
-import { ChevronDown, ChevronRight, Code, FileText } from "lucide-react";
+import {
+  Brain,
+  ChevronDown,
+  ChevronRight,
+  Code,
+  FilePen,
+  FileText,
+  FolderInput,
+  Globe,
+  Repeat,
+  Search,
+  Terminal,
+  Trash2,
+  type LucideIcon,
+} from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { Tag, Typography, type TagTone } from "@vellumai/design-library";
 
 import {
+  formatRawValue,
   getAcpFileChanges,
+  getAcpToolCommand,
+  getAcpToolOutputText,
   parseAcpToolContent,
 } from "@/domains/chat/acp-tool-content";
 import type { AcpChatBlock } from "@/domains/chat/acp-run-message-projection";
@@ -40,10 +60,9 @@ export interface AcpChatToolCardProps {
    * blocks (the chip's `fileChange` is only a snapshot at click time).
    */
   onOpenDiff: (toolCallId: string, fileChange: AcpFileChange) => void;
+  /** Open this tool's console output in the nested detail panel. */
+  onOpenOutput?: (toolCallId: string) => void;
 }
-
-/** Output longer than this (chars) collapses behind a toggle. */
-const COLLAPSE_THRESHOLD = 600;
 
 /** Display status: the data model's `AcpToolStatus` plus a terminal-only
  *  "ended" state for a tool the agent never finalized. */
@@ -63,9 +82,40 @@ const STATUS_LABEL: Record<ToolDisplayStatus, string> = {
   ended: "Ended",
 };
 
-/** Leading kind glyph — file glyph for read/edit, code brackets otherwise. */
+/** Standardized, human-readable header label per ACP tool kind. */
+const KIND_LABEL: Record<string, string> = {
+  read: "Read file",
+  edit: "Edit file",
+  delete: "Delete file",
+  move: "Move file",
+  search: "Search",
+  execute: "Run command",
+  think: "Thinking",
+  fetch: "Fetch",
+  switch_mode: "Switch mode",
+};
+
+const DEFAULT_KIND_LABEL = "Tool call";
+
+/** Leading kind glyph per ACP tool kind. */
+const KIND_ICON: Record<string, LucideIcon> = {
+  read: FileText,
+  edit: FilePen,
+  delete: Trash2,
+  move: FolderInput,
+  search: Search,
+  execute: Terminal,
+  think: Brain,
+  fetch: Globe,
+  switch_mode: Repeat,
+};
+
+/** Kinds whose specifics already surface via file chips, so the raw title
+ *  would be redundant as a body detail line. */
+const FILE_OP_KINDS = new Set(["read", "edit", "delete", "move"]);
+
 function KindIcon({ toolKind }: { toolKind?: string }) {
-  const Icon = toolKind === "read" || toolKind === "edit" ? FileText : Code;
+  const Icon = (toolKind && KIND_ICON[toolKind]) || Code;
   return (
     <Icon
       aria-hidden
@@ -74,12 +124,35 @@ function KindIcon({ toolKind }: { toolKind?: string }) {
   );
 }
 
+/** A labeled, scrollable monospace block for a pretty-printed raw payload. */
+function RawBlock({
+  label,
+  value,
+  testId,
+}: {
+  label: string;
+  value: string;
+  testId: string;
+}) {
+  return (
+    <div data-testid={testId}>
+      <div className="mb-1 text-body-small-default text-[var(--content-tertiary)]">
+        {label}
+      </div>
+      <pre className="max-h-60 overflow-auto rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] p-2.5 font-mono text-body-small-default text-[var(--content-secondary)]">
+        {value}
+      </pre>
+    </div>
+  );
+}
+
 export function AcpChatToolCard({
   block,
   isTerminal = false,
   onOpenDiff,
+  onOpenOutput,
 }: AcpChatToolCardProps) {
-  const [expanded, setExpanded] = useState(false);
+  const [expandedRaw, setExpandedRaw] = useState(false);
 
   const parsed = useMemo(
     () => parseAcpToolContent(block.content),
@@ -87,14 +160,18 @@ export function AcpChatToolCard({
   );
 
   const outputText = useMemo(
-    () =>
-      parsed
-        .filter((b) => b.type === "content" || b.type === "terminal")
-        .map((b) => ("text" in b ? (b.text ?? "") : ""))
-        .filter((text) => text.length > 0)
-        .join("\n"),
-    [parsed],
+    () => getAcpToolOutputText(block.content),
+    [block.content],
   );
+
+  // First non-empty, non-fence line — a glanceable preview on the open button.
+  const outputPreview = useMemo(() => {
+    const line = outputText
+      .split("\n")
+      .map((l) => l.trim())
+      .find((l) => l.length > 0 && !l.startsWith("```"));
+    return line || "View output";
+  }, [outputText]);
 
   const fileChanges = useMemo(
     () => getAcpFileChanges(parsed, block.locations),
@@ -104,8 +181,27 @@ export function AcpChatToolCard({
   const displayStatus: ToolDisplayStatus =
     isTerminal && block.status === "running" ? "ended" : block.status;
   const isRunning = displayStatus === "running";
-  const isLong = outputText.length > COLLAPSE_THRESHOLD;
-  const showOutput = outputText.length > 0 && (!isLong || expanded);
+
+  const kindLabel =
+    (block.toolKind && KIND_LABEL[block.toolKind]) || DEFAULT_KIND_LABEL;
+  // Prefer a structured command from rawInput; fall back to the agent's title
+  // when rawInput is absent (it is optional).
+  const command = getAcpToolCommand(block.rawInput);
+  const detailText = command ?? block.title;
+  // Surface the command/title when the header label alone hides what the tool
+  // did. File-op kinds normally show their path via chips, so suppress it there
+  // — but fall back when no chips rendered (a detail-only call with no
+  // locations/diff).
+  const detailLine =
+    detailText &&
+    detailText !== kindLabel &&
+    (!FILE_OP_KINDS.has(block.toolKind ?? "") || fileChanges.length === 0)
+      ? detailText
+      : null;
+
+  const rawInputText = formatRawValue(block.rawInput);
+  const rawOutputText = formatRawValue(block.rawOutput);
+  const hasRaw = rawInputText !== undefined || rawOutputText !== undefined;
 
   return (
     <div
@@ -120,7 +216,7 @@ export function AcpChatToolCard({
           className="min-w-0 flex-1 truncate text-[var(--content-default)]"
           title={block.title}
         >
-          {block.title || "Tool call"}
+          {kindLabel}
         </Typography>
         <Tag
           tone={STATUS_TONE[displayStatus]}
@@ -135,6 +231,15 @@ export function AcpChatToolCard({
           />
         )}
       </div>
+
+      {detailLine && (
+        <div
+          data-testid="acp-chat-tool-detail"
+          className="mt-1.5 font-mono text-body-small-default whitespace-pre-wrap break-words text-[var(--content-secondary)]"
+        >
+          {detailLine}
+        </div>
+      )}
 
       {fileChanges.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
@@ -181,30 +286,59 @@ export function AcpChatToolCard({
       )}
 
       {outputText.length > 0 && (
-        <div className="mt-2">
-          {isLong && (
-            <button
-              type="button"
-              data-testid="acp-chat-tool-output-toggle"
-              aria-expanded={expanded}
-              onClick={() => setExpanded((prev) => !prev)}
-              className="mb-1.5 flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-default)]"
-            >
-              {expanded ? (
-                <ChevronDown aria-hidden className="h-3.5 w-3.5 shrink-0" />
-              ) : (
-                <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
+        <button
+          type="button"
+          data-testid="acp-chat-tool-output-open"
+          onClick={() => onOpenOutput?.(block.toolCallId)}
+          className="mt-2 flex w-full items-center gap-2 rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] px-2.5 py-2 text-left transition-colors hover:bg-[var(--surface-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--border-focus)]"
+        >
+          <Terminal
+            aria-hidden
+            className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
+          />
+          <span className="min-w-0 flex-1 truncate font-mono text-body-small-default text-[var(--content-secondary)]">
+            {outputPreview}
+          </span>
+          <ChevronRight
+            aria-hidden
+            className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
+          />
+        </button>
+      )}
+
+      {hasRaw && (
+        <div className="mt-2" data-testid="acp-chat-tool-raw">
+          <button
+            type="button"
+            data-testid="acp-chat-tool-raw-toggle"
+            aria-expanded={expandedRaw}
+            onClick={() => setExpandedRaw((prev) => !prev)}
+            className="flex items-center gap-1 text-body-small-default text-[var(--content-tertiary)] transition-colors hover:text-[var(--content-default)]"
+          >
+            {expandedRaw ? (
+              <ChevronDown aria-hidden className="h-3.5 w-3.5 shrink-0" />
+            ) : (
+              <ChevronRight aria-hidden className="h-3.5 w-3.5 shrink-0" />
+            )}
+            <span>{expandedRaw ? "Hide raw input/output" : "Show raw input/output"}</span>
+          </button>
+          {expandedRaw && (
+            <div className="mt-1.5 flex flex-col gap-2">
+              {rawInputText !== undefined && (
+                <RawBlock
+                  label="Raw input"
+                  value={rawInputText}
+                  testId="acp-chat-tool-raw-input"
+                />
               )}
-              <span>{expanded ? "Hide output" : "Show output"}</span>
-            </button>
-          )}
-          {showOutput && (
-            <pre
-              data-testid="acp-chat-tool-output"
-              className="max-h-60 overflow-auto rounded-md border border-[var(--border-element)] bg-[var(--surface-base)] p-2.5 font-mono text-body-small-default whitespace-pre-wrap break-words text-[var(--content-default)]"
-            >
-              {outputText}
-            </pre>
+              {rawOutputText !== undefined && (
+                <RawBlock
+                  label="Raw output"
+                  value={rawOutputText}
+                  testId="acp-chat-tool-raw-output"
+                />
+              )}
+            </div>
           )}
         </div>
       )}

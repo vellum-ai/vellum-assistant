@@ -629,6 +629,25 @@ describe("plugin runtime activation", () => {
     expect(existsSync(shutdownMarker)).toBe(true);
   });
 
+  test("a user plugin's shutdown hook is surfaced through the unified hook lookup", async () => {
+    // Plugin `shutdown` hooks fire at daemon shutdown through the same
+    // getHooksFor/runHook pipeline as every other lifecycle hook. Prove the
+    // user-land side is discoverable that way: the plugin's shutdown hook is
+    // returned by the unified per-name lookup and runs when invoked.
+    const dir = freshPluginDir("shutdown-hook-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "shutdown-hook-plugin" });
+    const shutdownMarker = join(ROOT, "user-shutdown.log");
+    writeMarkerHook(dir, "shutdown", shutdownMarker, "bye");
+
+    await populateCacheAtBoot();
+
+    const shutdownHooks = await getUserHooksFor("shutdown");
+    expect(shutdownHooks).toHaveLength(1);
+
+    await shutdownHooks[0]!({ assistantVersion: "test", reason: "shutdown" });
+    expect(existsSync(shutdownMarker)).toBe(true);
+  });
+
   test("disabling a plugin at runtime tears down its tools", async () => {
     const dir = freshPluginDir("disable-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "disable-plugin" });

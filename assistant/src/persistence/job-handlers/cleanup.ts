@@ -1,13 +1,11 @@
 import type { AssistantConfig } from "../../config/types.js";
-import { runAsyncSqlite } from "../../persistence/db-async-query.js";
-import { getDb } from "../../persistence/db-connection.js";
-import {
-  enqueueMemoryJob,
-  type MemoryJob,
-} from "../../persistence/jobs-store.js";
-import { rawAll, rawLogsRun, rawRun } from "../../persistence/raw-query.js";
+import { rotateToolInvocations } from "../../telemetry/tool-usage-store.js";
 import { getLogger } from "../../util/logger.js";
 import { getLogsDbPath } from "../../util/logs-db-path.js";
+import { runAsyncSqlite } from "../db-async-query.js";
+import { getDb } from "../db-connection.js";
+import { enqueueMemoryJob, type MemoryJob } from "../jobs-store.js";
+import { rawAll, rawLogsRun, rawRun } from "../raw-query.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -143,6 +141,32 @@ SELECT changes();`,
 }
 
 /**
+ * Delete audit-log (`tool_invocations`) entries older than the configured
+ * retention window. Retention comes from `auditLog.retentionDays` (0 = keep
+ * forever). The DELETE itself lives in {@link rotateToolInvocations}; this
+ * handler just resolves the window and dispatches, mirroring the other
+ * scheduled cleanup jobs.
+ */
+export async function pruneOldToolInvocationsJob(
+  job: MemoryJob,
+  config: AssistantConfig,
+): Promise<void> {
+  const rawRetention = job.payload.retentionDays;
+  const retentionDays =
+    typeof rawRetention === "number" &&
+    Number.isFinite(rawRetention) &&
+    rawRetention >= 0
+      ? rawRetention
+      : config.auditLog.retentionDays;
+
+  // 0 means disabled. rotateToolInvocations no-ops on this too, but
+  // short-circuit so we don't dispatch a pointless async query.
+  if (!retentionDays) return;
+
+  await rotateToolInvocations(retentionDays);
+}
+
+/**
  * Parse the `SELECT changes()` result emitted by the sqlite3 CLI after
  * the prune DELETE. Returns 0 if stdout is missing or unparseable —
  * callers treat that the same as "no rows deleted, do not re-enqueue".
@@ -173,10 +197,9 @@ function parseDeletedCount(stdout: string | undefined): number {
  *
  * Tables with onDelete cascade on conversation FK (memory_segments,
  * conversation_keys, channel_inbound_events, message_runs, call_sessions,
- * external_conversation_bindings, assistant_inbox_conversation_state) are handled
- * automatically. Tables without cascade (messages, tool_invocations,
- * llm_request_logs, skill_loaded_events) are deleted explicitly before
- * removing the conversation row.
+ * external_conversation_bindings) are handled automatically. Tables without
+ * cascade (messages, tool_invocations, llm_request_logs, skill_loaded_events)
+ * are deleted explicitly before removing the conversation row.
  */
 export function pruneOldConversationsJob(
   job: MemoryJob,
@@ -195,6 +218,7 @@ export function pruneOldConversationsJob(
   const cutoffMs = Date.now() - retentionDays * 86_400_000;
 
   const stale = rawAll<{ id: string }>(
+    "cleanup:pruneOldConversations:stale",
     `SELECT id FROM conversations WHERE updated_at < ? ORDER BY updated_at ASC LIMIT ?`,
     cutoffMs,
     PRUNE_BATCH_LIMIT,
@@ -208,6 +232,7 @@ export function pruneOldConversationsJob(
       // Re-check staleness inside the transaction to avoid racing with a conversation
       // that became active again between the initial SELECT and this DELETE.
       const still = rawAll<{ id: string }>(
+        "cleanup:pruneOldConversations:recheck",
         `SELECT id FROM conversations WHERE id = ? AND updated_at < ?`,
         id,
         cutoffMs,
@@ -216,12 +241,32 @@ export function pruneOldConversationsJob(
 
       // Non-cascading tables. llm_request_logs lives in the dedicated logs
       // connection, so it is deleted there (outside this main-DB transaction).
-      rawLogsRun(`DELETE FROM llm_request_logs WHERE conversation_id = ?`, id);
-      rawRun(`DELETE FROM tool_invocations WHERE conversation_id = ?`, id);
-      rawRun(`DELETE FROM messages WHERE conversation_id = ?`, id);
-      rawRun(`DELETE FROM skill_loaded_events WHERE conversation_id = ?`, id);
+      rawLogsRun(
+        "cleanup:pruneOldConversations:logs",
+        `DELETE FROM llm_request_logs WHERE conversation_id = ?`,
+        id,
+      );
+      rawRun(
+        "cleanup:pruneOldConversations:toolInv",
+        `DELETE FROM tool_invocations WHERE conversation_id = ?`,
+        id,
+      );
+      rawRun(
+        "cleanup:pruneOldConversations:messages",
+        `DELETE FROM messages WHERE conversation_id = ?`,
+        id,
+      );
+      rawRun(
+        "cleanup:pruneOldConversations:skills",
+        `DELETE FROM skill_loaded_events WHERE conversation_id = ?`,
+        id,
+      );
       // Conversation row deletion cascades to remaining dependent tables
-      rawRun(`DELETE FROM conversations WHERE id = ?`, id);
+      rawRun(
+        "cleanup:pruneOldConversations:conv",
+        `DELETE FROM conversations WHERE id = ?`,
+        id,
+      );
       pruned++;
     });
   }

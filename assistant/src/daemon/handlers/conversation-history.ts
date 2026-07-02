@@ -16,7 +16,9 @@ export interface ConversationSearchParams {
 }
 
 /** Search conversations and return results (no transport dependency). */
-export function performConversationSearch(params: ConversationSearchParams) {
+export async function performConversationSearch(
+  params: ConversationSearchParams,
+) {
   // Treat "*" as a list-all wildcard — FTS treats it as a literal character.
   if (params.query.trim() === "*") {
     const rows = listConversations(params.limit);

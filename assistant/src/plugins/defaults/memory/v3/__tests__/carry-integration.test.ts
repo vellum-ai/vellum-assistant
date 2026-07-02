@@ -48,24 +48,21 @@ import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
-import { drizzle } from "drizzle-orm/bun-sqlite";
-
-import { stripSpotlightInjections } from "../../../../../context/strip-injections.js";
-import {
-  unwrapMemoryBlock,
-  wrapMemoryBlock,
-} from "../../../../../memory/memory-marker.js";
-import type { PageIndexEntry } from "../../../../../memory/v2/page-index.js";
-import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
-import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
-import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
-import * as schema from "../../../../../persistence/schema/index.js";
 import type {
   ContentBlock,
   Message,
   Provider,
   ProviderResponse,
-} from "../../../../../providers/types.js";
+} from "@vellumai/plugin-api";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+
+import { stripSpotlightInjections } from "../../../../../context/strip-injections.js";
+import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
+import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
+import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
+import * as schema from "../../../../../persistence/schema/index.js";
+import { unwrapMemoryBlock, wrapMemoryBlock } from "../../memory-marker.js";
+import type { PageIndexEntry } from "../../v2/page-index.js";
 import { cardBytes, renderCard } from "../card.js";
 import { loadCoreSet } from "../core-set.js";
 import type { EdgeGraph } from "../edge.js";
@@ -85,9 +82,7 @@ import {
 
 let carryMockActive = false;
 
-const realProvider = {
-  ...(await import("../../../../../providers/provider-send-message.js")),
-};
+const realPluginApi = await import("@vellumai/plugin-api");
 const realFlags = {
   ...(await import("../../../../../config/assistant-feature-flags.js")),
 };
@@ -101,16 +96,14 @@ const realDense = { ...(await import("../dense.js")) };
 const realPageContent = { ...(await import("../page-content.js")) };
 
 let providerStub: Provider | null = null;
-mock.module("../../../../../providers/provider-send-message.js", () => ({
-  ...realProvider,
+mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: async (
-    ...args: Parameters<typeof realProvider.getConfiguredProvider>
+    ...args: Parameters<typeof realPluginApi.getConfiguredProvider>
   ) =>
     carryMockActive
       ? providerStub
-      : realProvider.getConfiguredProvider(...args),
-  extractToolUse: (response: ProviderResponse) =>
-    response.content.find((b) => b.type === "tool_use"),
+      : realPluginApi.getConfiguredProvider(...args),
 }));
 
 mock.module("../../../../../util/logger.js", () => ({
@@ -125,6 +118,12 @@ mock.module("../dense.js", () => ({
   ...realDense,
   denseLane: async (...args: Parameters<typeof realDense.denseLane>) =>
     carryMockActive ? [] : realDense.denseLane(...args),
+  // Defensive: this fixture never sets denseK > 0, so orchestrate does not call
+  // the scored lane today — but mirror the delegation so a future denseK > 0
+  // test can't silently reach real Qdrant after the orchestrate swap.
+  denseLaneScored: async (
+    ...args: Parameters<typeof realDense.denseLaneScored>
+  ) => (carryMockActive ? [] : realDense.denseLaneScored(...args)),
 }));
 
 let testSqlite: Database;

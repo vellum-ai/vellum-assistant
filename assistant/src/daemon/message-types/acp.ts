@@ -28,6 +28,10 @@ export interface AcpSessionUpdate {
   toolTitle?: string;
   toolKind?: string;
   toolStatus?: string;
+  /** Optional raw input parameters sent to the tool (ACP `rawInput`); shape is tool-specific. */
+  rawInput?: unknown;
+  /** Optional raw output returned by the tool (ACP `rawOutput`); shape is tool-specific. */
+  rawOutput?: unknown;
   /** Files touched by this tool call (for the file-diff affordance). */
   locations?: { path: string; line?: number }[];
   /** Stable id for the message this chunk belongs to. */

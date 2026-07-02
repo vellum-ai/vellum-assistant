@@ -8,12 +8,12 @@ import {
   within,
 } from "@testing-library/react";
 
-import type {
-  AcpRunEntry,
-  AcpRunRawEvent,
-} from "@/domains/chat/acp-run-store";
+import type { AcpRunEntry, AcpRunRawEvent } from "@/domains/chat/acp-run-store";
 
-const steerAcpRun = mock(async () => ({ acpSessionId: "acp-1", steered: true }));
+const steerAcpRun = mock(async () => ({
+  acpSessionId: "acp-1",
+  steered: true,
+}));
 const stopAcpRun = mock(async () => {});
 
 // The real actions module imports the daemon client + resolved-assistants
@@ -75,9 +75,24 @@ describe("AcpRunChatView", () => {
   test("renders chat blocks in order from the seeded store events", () => {
     const e = entry();
     seed(e, [
-      { seq: 1, updateType: "user_message_chunk", messageId: "u1", content: "fix it" },
-      { seq: 2, updateType: "agent_thought_chunk", messageId: "t1", content: "pondering" },
-      { seq: 3, updateType: "agent_message_chunk", messageId: "a1", content: "on it" },
+      {
+        seq: 1,
+        updateType: "user_message_chunk",
+        messageId: "u1",
+        content: "fix it",
+      },
+      {
+        seq: 2,
+        updateType: "agent_thought_chunk",
+        messageId: "t1",
+        content: "pondering",
+      },
+      {
+        seq: 3,
+        updateType: "agent_message_chunk",
+        messageId: "a1",
+        content: "on it",
+      },
       {
         seq: 4,
         updateType: "tool_call",
@@ -116,6 +131,39 @@ describe("AcpRunChatView", () => {
       "Refactor the parser",
     );
     expect(screen.getByTestId("acp-usage-meter")).toBeDefined();
+  });
+
+  test("header badge reads 'Cancelled', not 'Completed', for a run cancelled mid-flight", () => {
+    const e = entry({ status: "completed", stopReason: "cancelled" });
+    seed(e, []);
+
+    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+
+    // The badge previously read the bare status and showed a green "Completed".
+    expect(screen.queryByText("Completed")).toBeNull();
+    expect(screen.getAllByText("Cancelled").length).toBeGreaterThan(0);
+  });
+
+  test("renders the agent brand mark in the header", () => {
+    const e = entry({ agent: "claude" });
+    seed(e, []);
+
+    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+
+    expect(
+      screen.getByTestId("acp-agent-icon-brand").getAttribute("src"),
+    ).toContain("claude.svg");
+  });
+
+  test("uses the codex brand mark for a codex agent header", () => {
+    const e = entry({ agent: "gpt-5-codex" });
+    seed(e, []);
+
+    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+
+    expect(
+      screen.getByTestId("acp-agent-icon-brand").getAttribute("src"),
+    ).toContain("chatgpt.svg");
   });
 
   test("shows the steer composer only while running and calls steerAcpRun", () => {
@@ -183,6 +231,45 @@ describe("AcpRunChatView", () => {
     expect(screen.getByTestId("acp-chat-steer-form")).toBeDefined();
   });
 
+  test("opens the command output panel from a tool card and Back restores the conversation", () => {
+    const e = entry();
+    const content = JSON.stringify([
+      {
+        type: "content",
+        content: { type: "text", text: "```console\nbuild ok\n```" },
+      },
+    ]);
+    seed(e, [
+      {
+        seq: 1,
+        updateType: "tool_call",
+        toolCallId: "call-2",
+        toolTitle: "Terminal",
+        toolKind: "execute",
+        toolStatus: "completed",
+        content,
+      },
+    ]);
+
+    render(<AcpRunChatView entry={e} onClose={() => {}} />);
+    expect(screen.getByTestId("acp-chat-conversation")).toBeDefined();
+
+    fireEvent.click(screen.getByTestId("acp-chat-tool-output-open"));
+
+    // The output panel replaces the conversation; Back shows; composer hidden.
+    expect(screen.getByTestId("acp-chat-command-output")).toBeDefined();
+    expect(screen.queryByTestId("acp-chat-conversation")).toBeNull();
+    expect(screen.getByTestId("acp-chat-diff-back")).toBeDefined();
+    expect(screen.queryByTestId("acp-chat-steer-form")).toBeNull();
+    expect(screen.getByTestId("acp-chat-command-output").textContent).toContain(
+      "build ok",
+    );
+
+    fireEvent.click(screen.getByTestId("acp-chat-diff-back"));
+    expect(screen.getByTestId("acp-chat-conversation")).toBeDefined();
+    expect(screen.queryByTestId("acp-chat-command-output")).toBeNull();
+  });
+
   test("keeps the open file diff synced as tool_call_update content streams in", () => {
     const e = entry();
     seed(e, [
@@ -193,7 +280,12 @@ describe("AcpRunChatView", () => {
         toolTitle: "Edit file",
         toolStatus: "in_progress",
         content: JSON.stringify([
-          { type: "diff", path: "src/parser.ts", oldText: "before", newText: "after-v1" },
+          {
+            type: "diff",
+            path: "src/parser.ts",
+            oldText: "before",
+            newText: "after-v1",
+          },
         ]),
       },
     ]);
@@ -213,7 +305,12 @@ describe("AcpRunChatView", () => {
           toolCallId: "call-1",
           toolStatus: "completed",
           content: JSON.stringify([
-            { type: "diff", path: "src/parser.ts", oldText: "before", newText: "after-v2" },
+            {
+              type: "diff",
+              path: "src/parser.ts",
+              oldText: "before",
+              newText: "after-v2",
+            },
           ]),
         },
       });
@@ -255,9 +352,9 @@ describe("AcpRunChatView", () => {
     const view = within(container);
 
     // Dirty the run-specific subcomponent state: type a steer instruction.
-    const input = within(view.getByTestId("acp-chat-steer-form")).getByLabelText(
-      "Steering instruction",
-    ) as HTMLInputElement;
+    const input = within(
+      view.getByTestId("acp-chat-steer-form"),
+    ).getByLabelText("Steering instruction") as HTMLInputElement;
     fireEvent.change(input, { target: { value: "leftover instruction" } });
     expect(input.value).toBe("leftover instruction");
 
@@ -274,9 +371,9 @@ describe("AcpRunChatView", () => {
 
     // Header remounts fresh: the Stop button is not stuck disabled from the
     // previous run's `stopping` state.
-    expect((view.getByLabelText("Stop run") as HTMLButtonElement).disabled).toBe(
-      false,
-    );
+    expect(
+      (view.getByLabelText("Stop run") as HTMLButtonElement).disabled,
+    ).toBe(false);
   });
 
   test("hides the streaming indicator on a trailing live block when terminal", () => {

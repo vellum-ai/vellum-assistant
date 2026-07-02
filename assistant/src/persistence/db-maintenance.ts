@@ -1,11 +1,11 @@
 import { statSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
-import { getLastUserMessageTimestamp } from "../persistence/conversation-crud.js";
 import { getLogger } from "../util/logger.js";
 import { getDbPath } from "../util/platform.js";
 import { pruneRuns } from "../workflows/journal-store.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
+import { getLastUserMessageTimestamp } from "./conversation-crud.js";
 import { runAsyncSqlite } from "./db-async-query.js";
 import { getSqlite } from "./db-connection.js";
 

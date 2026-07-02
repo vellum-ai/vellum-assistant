@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { wrapMemoryBlock } from "../../../../../memory/memory-marker.js";
+import { wrapMemoryBlock } from "../../memory-marker.js";
 import {
   renderCardsBlockInner,
   renderMemoryBlock,

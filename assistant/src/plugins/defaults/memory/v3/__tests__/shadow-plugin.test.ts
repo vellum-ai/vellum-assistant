@@ -25,12 +25,14 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
+import { MemoryV3GateSchema } from "../../../../../config/schemas/memory-v3.js";
 import { migrateAddMemoryV3Selections } from "../../../../../persistence/migrations/268-add-memory-v3-selections.js";
 import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
 import { migrateMemoryV3SelectionsMessageIdAndSections } from "../../../../../persistence/migrations/283-memory-v3-selections-message-id-and-sections.js";
 import * as schema from "../../../../../persistence/schema/index.js";
 import type { HotSetEntry, HotSetOptions } from "../hot-set.js";
 import type { OrchestrateResult } from "../orchestrate.js";
+import { MEMORY_V3_FULL_PROFILE_MIN_PAGES } from "../tuning-profile.js";
 import {
   MEMORY_V3_COMMIT_META_KEY,
   type MemoryRoutingTurn,
@@ -56,18 +58,19 @@ const realSectionDenseStore = {
   ...(await import("../section-dense-store.js")),
 };
 const realOrchestrate = { ...(await import("../orchestrate.js")) };
+const realLearnedEdges = { ...(await import("../learned-edges.js")) };
 const realPlatform = { ...(await import("../../../../../util/platform.js")) };
 const realPageStore = {
-  ...(await import("../../../../../memory/v2/page-store.js")),
+  ...(await import("../../v2/page-store.js")),
 };
 const realConversationCrud = {
   ...(await import("../../../../../persistence/conversation-crud.js")),
 };
 const realSkillStore = {
-  ...(await import("../../../../../memory/v2/skill-store.js")),
+  ...(await import("../../v2/skill-store.js")),
 };
 const realCliCommandStore = {
-  ...(await import("../../../../../memory/v2/cli-command-store.js")),
+  ...(await import("../../v2/cli-command-store.js")),
 };
 const realCoreSet = { ...(await import("../core-set.js")) };
 const realHotSet = { ...(await import("../hot-set.js")) };
@@ -78,7 +81,27 @@ let shadowMockActive = false;
 
 let liveEnabled = false;
 let memoryEnabled = true;
+let learnedEdgesCap = 0;
+// Synthetic real concept pages (modifiedAt > 0) appended to the mocked page
+// index so a test can cross the v3 full-profile page threshold; 0 → sparse
+// corpus, lean profile.
+let extraRealConceptPages = 0;
+// Mutable mocked config knob (orchestrate-only) for asserting per-turn tuning
+// re-resolution from a live config edit.
+let selectorEnabledCfg = false;
+// Drives the `memory-v3-injection-gate` feature flag through the shared
+// assistant-feature-flags mock below (default off).
+let gateFlagEnabled = false;
+// Mutable `memory.v3.gate.enabled` config kill-switch carried by the mocked
+// config (default on, mirroring the schema default).
+let gateEnabledCfg = true;
 let messages: Array<{ role: string; content: string }> = [];
+
+// Schema defaults for `memory.v3.gate` (the tuning the mocked config carries
+// and the gate-config threading test asserts against). Includes the default-on
+// `enabled` kill-switch; `observeTurn` overwrites `enabled` with the effective
+// flag AND config value.
+const GATE_DEFAULTS = MemoryV3GateSchema.parse({});
 
 // A synthetic skill capability slug the page index carries. Its rendered
 // content holds a distinctive term ("kumquat") so the real needle, built over
@@ -127,6 +150,7 @@ const orchestrateSpy = mock(
 let sectionBuilds = 0;
 let needleBuilds = 0;
 let edgeBuilds = 0;
+let learnedGraphBuilds = 0;
 let ensureCollectionCalls = 0;
 let ensureCollectionThrows = false;
 
@@ -174,7 +198,11 @@ const FAKE_SECTION_INDEX: SectionIndex = {
 
 mock.module("../../../../../config/assistant-feature-flags.js", () => ({
   isAssistantFeatureFlagEnabled: (key: string) =>
-    key === "memory-v3-live" ? liveEnabled : false,
+    key === "memory-v3-live"
+      ? liveEnabled
+      : key === "memory-v3-injection-gate"
+        ? gateFlagEnabled
+        : false,
 }));
 
 mock.module("../../../../../config/loader.js", () => ({
@@ -183,22 +211,27 @@ mock.module("../../../../../config/loader.js", () => ({
       enabled: memoryEnabled,
       v3: {
         live: liveEnabled,
-        hotSet: { k: 40, halfLifeDays: 14 },
-        freshSet: { k: 50 },
+        hotSet: { k: 8, halfLifeDays: 14 },
+        freshSet: { k: 8 },
         spotlight: { n: 6, windowTurns: 2 },
-        needleK: 100,
-        denseK: 100,
-        replyQueryK: 12,
-        selectorEnabled: true,
+        needleK: 12,
+        denseK: 0,
+        replyQueryK: 0,
+        selectorEnabled: selectorEnabledCfg,
         learnedEdges: {
           halfLifeDays: 30,
           minCount: 3,
           npmiFloor: 0.2,
           maxPerPage: 6,
           perSeed: 3,
-          cap: 20,
+          cap: learnedEdgesCap,
         },
-        edge: { hubDegree: 30, seedCount: 18, perSeed: 6, cap: 45 },
+        edge: { hubDegree: 30, seedCount: 6, perSeed: 1, cap: 6 },
+        entity: { enabled: true, idfFloor: 4, cap: 8 },
+        // Gate tuning (schema defaults) with the mutable `enabled` kill-switch;
+        // `observeTurn` spreads this and overwrites `enabled` with the effective
+        // flag AND config value before passing to orchestrate.
+        gate: { ...GATE_DEFAULTS, enabled: gateEnabledCfg },
       },
       qdrant: { vectorSize: 8, onDisk: false },
     },
@@ -237,7 +270,7 @@ mock.module("../../../../../persistence/db-connection.js", () => ({
   getSqliteFrom: () => testSqlite,
 }));
 
-mock.module("../../../../../memory/v2/page-index.js", () => ({
+mock.module("../../v2/page-index.js", () => ({
   getPageIndex: async () => ({
     entries: [
       {
@@ -267,13 +300,23 @@ mock.module("../../../../../memory/v2/page-index.js", () => ({
         leaves: [],
         modifiedAt: 0,
       },
+      // Extra real concept rows (modifiedAt > 0) a test can request to cross the
+      // v3 full-profile page threshold; default 0 keeps the corpus sparse (lean).
+      ...Array.from({ length: extraRealConceptPages }, (_, i) => ({
+        slug: `concepts/seed-${i}`,
+        id: 100 + i,
+        summary: "",
+        edges: [],
+        leaves: [],
+        modifiedAt: 1,
+      })),
     ],
     bySlug: new Map(),
   }),
 }));
 
 // `pageContent` (live mode) reads the full page via `readPage`/`renderPageContent`.
-mock.module("../../../../../memory/v2/page-store.js", () => ({
+mock.module("../../v2/page-store.js", () => ({
   ...realPageStore,
   readPage: async (workspaceDir: string, slug: string) =>
     shadowMockActive
@@ -299,7 +342,7 @@ mock.module("../../../../../util/platform.js", () => ({
 // and from the live injector) resolves synthetic slugs through these. Spread the
 // real module so the prefix predicates (`isSkillSlug`/`isCliCommandSlug`) stay
 // intact; override only the content lookup so the capability slug resolves.
-mock.module("../../../../../memory/v2/skill-store.js", () => ({
+mock.module("../../v2/skill-store.js", () => ({
   ...realSkillStore,
   getSkillCapability: (idOrSlug: string) =>
     shadowMockActive
@@ -309,7 +352,7 @@ mock.module("../../../../../memory/v2/skill-store.js", () => ({
       : realSkillStore.getSkillCapability(idOrSlug),
 }));
 
-mock.module("../../../../../memory/v2/cli-command-store.js", () => ({
+mock.module("../../v2/cli-command-store.js", () => ({
   ...realCliCommandStore,
   getCliCommandCapability: (idOrSlug: string) =>
     shadowMockActive
@@ -349,6 +392,18 @@ mock.module("../edge.js", () => ({
   ) => {
     if (!shadowMockActive) return realEdge.buildEdgeGraph(...args);
     edgeBuilds++;
+    return { adjacency: new Map(), hubs: new Set(), slugs: new Set() };
+  },
+}));
+
+mock.module("../learned-edges.js", () => ({
+  ...realLearnedEdges,
+  computeLearnedEdgeGraph: (
+    ...args: Parameters<typeof realLearnedEdges.computeLearnedEdgeGraph>
+  ) => {
+    if (!shadowMockActive)
+      return realLearnedEdges.computeLearnedEdgeGraph(...args);
+    learnedGraphBuilds++;
     return { adjacency: new Map(), hubs: new Set(), slugs: new Set() };
   },
 }));
@@ -401,6 +456,11 @@ beforeEach(() => {
   shadowMockActive = true;
   liveEnabled = false;
   memoryEnabled = true;
+  learnedEdgesCap = 0;
+  extraRealConceptPages = 0;
+  selectorEnabledCfg = false;
+  gateFlagEnabled = false;
+  gateEnabledCfg = true;
   messages = [
     {
       role: "user",
@@ -411,6 +471,7 @@ beforeEach(() => {
   sectionBuilds = 0;
   needleBuilds = 0;
   edgeBuilds = 0;
+  learnedGraphBuilds = 0;
   ensureCollectionCalls = 0;
   ensureCollectionThrows = false;
   capturedPageBody = null;
@@ -572,6 +633,96 @@ describe("memory-v3 engine", () => {
     expect(deps.hotSlugs).toEqual([]);
   });
 
+  test("learned-edge graph init is skipped when the configured cap is zero", async () => {
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as {
+      learnedGraph?: unknown;
+      learnedCap?: number;
+    };
+    expect(learnedGraphBuilds).toBe(0);
+    expect(deps.learnedGraph).toBeUndefined();
+    expect(deps.learnedCap).toBe(0);
+  });
+
+  test("learned-edge graph init runs when the configured cap is positive", async () => {
+    learnedEdgesCap = 6;
+    // The learned lane lives in the full profile, which a sparse corpus never
+    // reaches — seed enough real concept pages to cross the page threshold.
+    extraRealConceptPages = MEMORY_V3_FULL_PROFILE_MIN_PAGES;
+
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as {
+      learnedGraph?: unknown;
+      learnedCap?: number;
+    };
+    expect(learnedGraphBuilds).toBe(1);
+    expect(deps.learnedGraph).toBeDefined();
+    expect(deps.learnedCap).toBe(6);
+  });
+
+  test("re-resolves per-turn tuning from current config without a lane rebuild", async () => {
+    // Established corpus so the configured knobs (not the lean profile) apply.
+    extraRealConceptPages = MEMORY_V3_FULL_PROFILE_MIN_PAGES;
+    selectorEnabledCfg = false;
+    await observeTurn("conv-1", 0);
+    const firstDeps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { selectorEnabled?: boolean };
+    expect(firstDeps.selectorEnabled).toBe(false);
+
+    // Edit config mid-conversation; the lanes are NOT invalidated.
+    selectorEnabledCfg = true;
+    await observeTurn("conv-1", 1);
+    const secondDeps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[1]![1] as { selectorEnabled?: boolean };
+    expect(secondDeps.selectorEnabled).toBe(true);
+  });
+
+  test("flag on → threads the gate tuning plus enabled:true into orchestrate", async () => {
+    gateFlagEnabled = true;
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { gateConfig?: unknown };
+    // The spread is the live gate config: the `memory.v3.gate` tuning with the
+    // flag-derived `enabled` folded in.
+    expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: true });
+  });
+
+  test("flag off (default) → gate config threads inert (enabled:false, schema-default tuning)", async () => {
+    // gateFlagEnabled defaults to false in beforeEach.
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { gateConfig?: { enabled?: boolean } };
+    // Flag off → the gate is wired in but inert, and the tuning fields are the
+    // schema defaults the config carries.
+    expect(deps.gateConfig?.enabled).toBe(false);
+    expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: false });
+  });
+
+  test("flag on + gate.enabled:false config kill-switch → gate threads inert", async () => {
+    gateFlagEnabled = true;
+    gateEnabledCfg = false;
+    await observeTurn("conv-1", 0);
+
+    const deps = (
+      orchestrateSpy.mock.calls as unknown as unknown[][]
+    )[0]![1] as { gateConfig?: unknown };
+    // The config kill-switch wins over the flag: the effective `enabled` is
+    // false, so selection always runs.
+    expect(deps.gateConfig).toEqual({ ...GATE_DEFAULTS, enabled: false });
+  });
+
   test("initLanes filters core to existing pages and excludes core from the hot set", async () => {
     // The core file lists a live page and a dangling slug; the hot set returns
     // a live page and a deleted one (selection rows can outlive their pages).
@@ -591,7 +742,7 @@ describe("memory-v3 engine", () => {
     // The hot set was computed with the (filtered) core excluded and the
     // configured k / half-life (14 days, in ms).
     expect(hotSetOpts?.excludeSlugs).toEqual(new Set(["page-1"]));
-    expect(hotSetOpts?.k).toBe(40);
+    expect(hotSetOpts?.k).toBe(8);
     expect(hotSetOpts?.halfLifeMs).toBe(14 * 24 * 60 * 60 * 1000);
   });
 

@@ -2,7 +2,6 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import { indexMessageNow } from "../../memory/indexer.js";
 import {
   addMessage,
   createConversation,
@@ -13,11 +12,14 @@ import {
   setConversationKey,
 } from "../../persistence/conversation-key-store.js";
 import { getDb } from "../../persistence/db-connection.js";
+import { enqueueLexicalIndexForMessage } from "../../persistence/job-handlers/message-lexical.js";
 import {
   conversations as conversationsTable,
   messages as messagesTable,
 } from "../../persistence/schema/index.js";
+import { indexMessageNow } from "../../plugins/defaults/memory/indexer.js";
 import { getLogger } from "../../util/logger.js";
+import { withSqliteRetry } from "../../util/sqlite-retry.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -58,7 +60,9 @@ function resolveTimestamps(
   const convCreatedAt = conv.createdAt ?? now;
   const convUpdatedAt = conv.updatedAt ?? conv.createdAt ?? now;
   const messageTimestamps = messages.map((msg, i) => {
-    if (msg.createdAt != null) return msg.createdAt;
+    if (msg.createdAt != null) {
+      return msg.createdAt;
+    }
     return convCreatedAt + i;
   });
   return { convCreatedAt, convUpdatedAt, messageTimestamps };
@@ -119,7 +123,10 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
       const { convCreatedAt, convUpdatedAt, messageTimestamps } =
         resolveTimestamps(conv, messages);
 
-      const conversation = createConversation(conv.title);
+      const conversation = await withSqliteRetry(
+        () => createConversation(conv.title),
+        { op: "conversationsImport.createConversation" },
+      );
 
       for (const msg of messages) {
         const contentStr =
@@ -186,6 +193,10 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
             err instanceof Error ? err.message : String(err),
           );
         }
+        // Dual-write the imported message into the lexical index. Import inserts
+        // rows directly, bypassing `onMessagePersisted`, so enqueue here to keep
+        // the lexical index in lockstep with the segment index.
+        enqueueLexicalIndexForMessage(dbMessages[i].id);
       }
 
       if (conv.sourceKey) {

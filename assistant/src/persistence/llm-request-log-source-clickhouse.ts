@@ -464,6 +464,10 @@ export class ClickHouseLlmRequestLogSource implements LlmRequestLogSource {
       ...this.toLogMetaRow(row),
       requestPayload: row.request_payload,
       responsePayload: row.response_payload,
+      // The ClickHouse mirror does not replicate `latency_breakdown` yet, so
+      // ClickHouse-sourced rows carry no waterfall — the inspector falls back
+      // to no latency card, exactly as for a pre-instrumentation row.
+      latencyBreakdown: null,
     };
   }
 

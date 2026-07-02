@@ -848,7 +848,7 @@ describe("discoverTargetsViaWs", () => {
       send: async () => ({ targetInfos }),
       addEventListener: () => () => {},
       dispose: () => {},
-    } as unknown as import("../../cdp-inspect/ws-transport.js").CdpWsTransport;
+    } as unknown as import("../ws-transport.js").CdpWsTransport;
   }
 
   test("filters page targets and constructs ws URLs", async () => {
@@ -928,7 +928,7 @@ describe("discoverTargetsViaWs", () => {
       send: async () => ({}),
       addEventListener: () => () => {},
       dispose: () => {},
-    } as unknown as import("../../cdp-inspect/ws-transport.js").CdpWsTransport;
+    } as unknown as import("../ws-transport.js").CdpWsTransport;
 
     const error = await discoverTargetsViaWs({
       transport,
@@ -949,7 +949,7 @@ describe("discoverTargetsViaWs", () => {
       },
       addEventListener: () => () => {},
       dispose: () => {},
-    } as unknown as import("../../cdp-inspect/ws-transport.js").CdpWsTransport;
+    } as unknown as import("../ws-transport.js").CdpWsTransport;
 
     const error = await discoverTargetsViaWs({
       transport,

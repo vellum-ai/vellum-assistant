@@ -5,18 +5,19 @@ import type {
   RecallEvidence,
   RecallSearchContext,
   RecallSearchResult,
-} from "../memory/context-search/types.js";
-import type { MemoryNode } from "../memory/graph/types.js";
+} from "../plugins/defaults/memory/context-search/types.js";
+import type { MemoryNode } from "../plugins/defaults/memory/graph/types.js";
 
 const loggerModule = import.meta.resolve("../util/logger.js");
 const embedModule = import.meta.resolve("../persistence/embeddings/embed.js");
 const embeddingBackendModule = import.meta
   .resolve("../persistence/embeddings/embedding-backend.js");
 const graphSearchModule = import.meta
-  .resolve("../memory/graph/graph-search.js");
-const graphStoreModule = import.meta.resolve("../memory/graph/store.js");
+  .resolve("../plugins/defaults/memory/graph/graph-search.js");
+const graphStoreModule = import.meta
+  .resolve("../plugins/defaults/memory/graph/store.js");
 const memoryV2SourceModule = import.meta
-  .resolve("../memory/context-search/sources/memory-v2.js");
+  .resolve("../plugins/defaults/memory/context-search/sources/memory-v2.js");
 
 const warnCalls: unknown[][] = [];
 mock.module(loggerModule, () => ({
@@ -118,7 +119,7 @@ mock.module(memoryV2SourceModule, () => ({
 }));
 
 const { searchMemorySource } =
-  await import("../memory/context-search/sources/memory.js");
+  await import("../plugins/defaults/memory/context-search/sources/memory.js");
 
 describe("searchMemorySource", () => {
   beforeEach(() => {

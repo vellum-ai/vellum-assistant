@@ -31,11 +31,21 @@ export interface UseAutoSendEffectsOptions {
   activeConversationId: string | null;
   searchParams: URLSearchParams;
   setSearchParams: SetURLSearchParams;
-  sendMessage: (content: string) => Promise<void>;
+  sendMessage: (
+    content: string,
+    attachments?: never[],
+    opts?: { hidden?: boolean },
+  ) => Promise<void>;
   reachabilityPhase: ReachabilityState["phase"];
   reachabilityProbe: (options?: ReachabilityProbeOptions) => void;
   /** Reads the staged pre-chat initial message from sessionStorage. */
   getPendingInitialMessage: () => string | undefined;
+  /**
+   * Whether the staged pre-chat initial message should be sent hidden — driving
+   * the assistant's reply but rendering no user bubble (used by the
+   * research-onboarding "Let's chat" handoff for a proactive greeting).
+   */
+  getPendingInitialMessageHidden?: () => boolean;
 }
 
 export function useAutoSendEffects({
@@ -47,10 +57,17 @@ export function useAutoSendEffects({
   reachabilityPhase,
   reachabilityProbe,
   getPendingInitialMessage,
+  getPendingInitialMessageHidden,
 }: UseAutoSendEffectsOptions): void {
   const getPendingInitialMessageRef = useRef(getPendingInitialMessage);
   useLayoutEffect(() => {
     getPendingInitialMessageRef.current = getPendingInitialMessage;
+  });
+  const getPendingInitialMessageHiddenRef = useRef(
+    getPendingInitialMessageHidden,
+  );
+  useLayoutEffect(() => {
+    getPendingInitialMessageHiddenRef.current = getPendingInitialMessageHidden;
   });
   // 1. URL ?prompt= auto-send.
   // Keyed by conversationId + prompt so the same text sent to different
@@ -100,6 +117,7 @@ export function useAutoSendEffects({
     const message = getPendingInitialMessageRef.current();
     if (!message) return;
     initialMessageConsumedRef.current = true;
-    void sendMessage(message);
+    const hidden = getPendingInitialMessageHiddenRef.current?.() ?? false;
+    void sendMessage(message, [], { hidden });
   }, [activeConversationId, assistantId, reachabilityPhase, sendMessage]);
 }

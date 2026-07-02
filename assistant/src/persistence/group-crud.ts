@@ -7,8 +7,8 @@
 
 import { v4 as uuid } from "uuid";
 
-import { rawAll, rawExec, rawGet, rawRun } from "../persistence/raw-query.js";
 import { ensureGroupMigration } from "./conversation-group-migration.js";
+import { rawAll, rawExec, rawGet, rawRun } from "./raw-query.js";
 export interface ConversationGroupRow {
   id: string;
   name: string;
@@ -37,6 +37,7 @@ export function listGroups(): ConversationGroupRow[] {
     created_at: number;
     updated_at: number;
   }>(
+    "group:listGroups",
     "SELECT id, name, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id NOT GLOB '_*' ORDER BY sort_position ASC",
   );
   return rows.map((r) => ({
@@ -63,6 +64,7 @@ export function getGroup(groupId: string): ConversationGroupRow | null {
     created_at: number;
     updated_at: number;
   }>(
+    "group:getGroup",
     "SELECT id, name, sort_position, is_system_group, created_at, updated_at FROM conversation_groups WHERE id = ?",
     groupId,
   );
@@ -91,12 +93,14 @@ export function createGroup(name: string): ConversationGroupRow {
   ensureGroupMigration();
   const maxPos =
     rawGet<{ max: number | null }>(
+      "group:createGroup:maxPos",
       "SELECT MAX(sort_position) as max FROM conversation_groups WHERE is_system_group = 0",
     )?.max ?? 3;
   const sortPosition = maxPos + 1;
   const id = uuid();
   const now = Math.floor(Date.now() / 1000);
   rawRun(
+    "group:createGroup:insert",
     "INSERT INTO conversation_groups (id, name, sort_position, is_system_group, created_at, updated_at) VALUES (?, ?, ?, 0, ?, ?)",
     id,
     name,
@@ -146,6 +150,7 @@ export function updateGroup(
   values.push(groupId);
 
   rawRun(
+    "group:updateGroup",
     `UPDATE conversation_groups SET ${fields.join(", ")} WHERE id = ?`,
     ...values,
   );
@@ -164,10 +169,15 @@ export function updateGroup(
 export function deleteGroup(groupId: string): boolean {
   ensureGroupMigration();
   rawRun(
+    "group:deleteGroup:reassign",
     "UPDATE conversations SET group_id = 'system:all' WHERE group_id = ?",
     groupId,
   );
-  rawRun("DELETE FROM conversation_groups WHERE id = ?", groupId);
+  rawRun(
+    "group:deleteGroup:delete",
+    "DELETE FROM conversation_groups WHERE id = ?",
+    groupId,
+  );
   return true;
 }
 
@@ -185,6 +195,7 @@ export function reorderGroups(
     for (const update of updates) {
       // Look up the group first — skip unknown/stale IDs and system groups
       const group = rawGet<{ id: string; is_system_group: number }>(
+        "group:reorderGroups:select",
         "SELECT id, is_system_group FROM conversation_groups WHERE id = ?",
         update.groupId,
       );
@@ -197,6 +208,7 @@ export function reorderGroups(
         );
       }
       rawRun(
+        "group:reorderGroups:update",
         "UPDATE conversation_groups SET sort_position = ?, updated_at = ? WHERE id = ?",
         update.sortPosition,
         now,

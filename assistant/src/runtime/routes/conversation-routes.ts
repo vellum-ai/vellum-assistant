@@ -11,7 +11,9 @@ import {
   createUserMessage,
 } from "../../agent/message-types.js";
 import {
+  BackgroundToolCompletionSchema,
   type ConversationContentBlock,
+  type ConversationMessage,
   ConversationMessageSchema,
 } from "../../api/responses/conversation-message.js";
 import {
@@ -19,6 +21,7 @@ import {
   INTERFACE_IDS,
   isInteractiveInterface,
   parseChannelId,
+  parseClientOs,
   parseInterfaceId,
   supportsHostProxy,
 } from "../../channels/types.js";
@@ -81,7 +84,6 @@ import {
   writeRelationshipState,
 } from "../../home/relationship-state-writer.js";
 import { ipcCall } from "../../ipc/gateway-client.js";
-import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../memory/memory-retrospective-constants.js";
 import { buildSlackMessageDeepLinks } from "../../messaging/providers/slack/deep-link.js";
 import {
   readSlackMetadataFromMessageMetadata,
@@ -104,6 +106,7 @@ import {
   getMessagesPaginated,
   hasMessages,
   isConversationProcessing,
+  isHiddenMessageMetadata,
   type MessageRow,
   provenanceFromTrustContext,
   setConversationInferenceProfile,
@@ -113,12 +116,17 @@ import {
   getOrCreateConversation,
 } from "../../persistence/conversation-key-store.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
+import { MEMORY_RETROSPECTIVE_FORK_SOURCE } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { normalizeOnboardingContext } from "../../prompts/normalize-onboarding.js";
 import { writeOnboardingSection } from "../../prompts/persona-resolver.js";
 import { getConfiguredProvider } from "../../providers/provider-send-message.js";
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getSubagentManager } from "../../subagent/index.js";
+import {
+  isHeicFilename,
+  normalizeImageBase64,
+} from "../../util/image-conversion.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getWorkspaceDir,
@@ -341,8 +349,9 @@ function emitCannedMessageComplete(
 function isHiddenMessage(metadata: string | null): boolean {
   if (!metadata) return false;
   try {
-    const meta = JSON.parse(metadata) as { hidden?: unknown };
-    return meta?.hidden === true;
+    return isHiddenMessageMetadata(
+      JSON.parse(metadata) as Record<string, unknown>,
+    );
   } catch {
     return false;
   }
@@ -625,43 +634,51 @@ function buildQueuedMessagePayloads(
   const conversation = findConversation(conversationId);
   if (!conversation) return [];
 
-  return conversation.snapshotQueuedMessages().map((item, index) => {
-    const text = item.displayContent ?? item.content;
-    const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
-      (a, idx) => ({
-        id: a.id ?? `${item.requestId}:attachment:${idx}`,
-        filename: a.filename,
-        mimeType: a.mimeType,
-        sizeBytes:
-          a.sizeBytes ?? (a.data ? Math.floor((a.data.length * 3) / 4) : 0),
-        kind: classifyKind(a.mimeType),
-        ...(a.mimeType.startsWith("image/") && a.data ? { data: a.data } : {}),
-        ...(a.thumbnailData ? { thumbnailData: a.thumbnailData } : {}),
-      }),
-    );
+  // Hidden sends are suppressed from the transcript at every stage — echo,
+  // persisted row, and here the in-memory queue window: a latest-page fetch
+  // while the item still awaits drain must not surface it as a queued bubble.
+  return conversation
+    .snapshotQueuedMessages()
+    .filter((item) => !isHiddenMessageMetadata(item.metadata))
+    .map((item, index) => {
+      const text = item.displayContent ?? item.content;
+      const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
+        (a, idx) => ({
+          id: a.id ?? `${item.requestId}:attachment:${idx}`,
+          filename: a.filename,
+          mimeType: a.mimeType,
+          sizeBytes:
+            a.sizeBytes ?? (a.data ? Math.floor((a.data.length * 3) / 4) : 0),
+          kind: classifyKind(a.mimeType),
+          ...(a.mimeType.startsWith("image/") && a.data
+            ? { data: a.data }
+            : {}),
+          ...(a.thumbnailData ? { thumbnailData: a.thumbnailData } : {}),
+        }),
+      );
 
-    const contentBlocks: ConversationContentBlock[] = [];
-    if (text.length > 0) contentBlocks.push({ type: "text", text });
-    for (const attachment of attachments) {
-      contentBlocks.push({ type: "attachment", attachment });
-    }
+      const contentBlocks: ConversationContentBlock[] = [];
+      if (text.length > 0) contentBlocks.push({ type: "text", text });
+      for (const attachment of attachments) {
+        contentBlocks.push({ type: "attachment", attachment });
+      }
 
-    return {
-      // The queued message has no DB row yet; its requestId is the stable
-      // identifier the queued-message delete/steer endpoints key on.
-      id: item.requestId,
-      role: "user" as const,
-      content: text,
-      timestamp: new Date(item.sentAt).toISOString(),
-      attachments,
-      ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
-      ...(item.clientMessageId
-        ? { clientMessageId: item.clientMessageId }
-        : {}),
-      queueStatus: "queued" as const,
-      queuePosition: index + 1,
-    };
-  });
+      return {
+        // The queued message has no DB row yet; its requestId is the stable
+        // identifier the queued-message delete/steer endpoints key on.
+        id: item.requestId,
+        role: "user" as const,
+        content: text,
+        timestamp: new Date(item.sentAt).toISOString(),
+        attachments,
+        ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
+        ...(item.clientMessageId
+          ? { clientMessageId: item.clientMessageId }
+          : {}),
+        queueStatus: "queued" as const,
+        queuePosition: index + 1,
+      };
+    });
 }
 
 export function handleListMessages({
@@ -837,10 +854,30 @@ export function handleListMessages({
           conversationId?: string;
         }
       | undefined;
+    let acpNotification: { acpSessionId: string; agent?: string } | undefined;
+    let backgroundEventNotification: boolean | undefined;
+    let backgroundToolCompletion: ConversationMessage["backgroundToolCompletion"];
     if (msg.metadata) {
       try {
         const meta = JSON.parse(msg.metadata);
         if (typeof meta.sentAt === "number") sentAt = meta.sentAt;
+        // Every wake persists a `<background_event source="...">` trigger row
+        // (see `persistWakeTriggerMessage`) that the LLM reads. Flag any such
+        // row so clients hide it from the transcript like a subagent/ACP
+        // notification — the user-facing "Conversation Woke" card (or, for a
+        // backgrounded bash run, the inline terminal card) carries the status.
+        if (typeof meta.backgroundEventSource === "string") {
+          backgroundEventNotification = true;
+        }
+        // `persistWakeTriggerMessage` stamps the structured completion onto the
+        // same wake row, letting the web rebuild a terminal inline card from
+        // history after a restart (the in-memory completed ring does not survive).
+        const completionParse = BackgroundToolCompletionSchema.safeParse(
+          meta.backgroundToolCompletion,
+        );
+        if (completionParse.success) {
+          backgroundToolCompletion = completionParse.data;
+        }
         if (meta.subagentNotification) {
           const n = meta.subagentNotification;
           if (typeof n.subagentId === "string" && typeof n.label === "string") {
@@ -855,6 +892,15 @@ export function handleListMessages({
               ...(typeof n.objective === "string"
                 ? { objective: n.objective }
                 : {}),
+            };
+          }
+        }
+        if (meta.acpNotification) {
+          const n = meta.acpNotification;
+          if (typeof n.acpSessionId === "string") {
+            acpNotification = {
+              acpSessionId: n.acpSessionId,
+              ...(typeof n.agent === "string" ? { agent: n.agent } : {}),
             };
           }
         }
@@ -883,6 +929,9 @@ export function handleListMessages({
       createdAt: msg.createdAt,
       sentAt,
       subagentNotification,
+      acpNotification,
+      backgroundEventNotification,
+      backgroundToolCompletion,
       slackMessage,
       clientMessageId: msg.clientMessageId ?? undefined,
     };
@@ -915,27 +964,36 @@ export function handleListMessages({
       );
       if (linked.length > 0) {
         msgAttachments = linked.map((a) => {
-          if (a.mimeType.startsWith("image/")) {
-            const full = getAttachmentById(a.id, { hydrateFileData: true });
-            return {
-              id: a.id,
-              filename: a.originalFilename,
-              mimeType: a.mimeType,
-              sizeBytes: a.sizeBytes,
-              kind: a.kind,
-              ...(full?.dataBase64 ? { data: full.dataBase64 } : {}),
-              ...(a.thumbnailBase64
-                ? { thumbnailData: a.thumbnailBase64 }
-                : {}),
-              fileBacked: true,
-            };
-          }
+          // Hydrate image rows for inline thumbnails. Legacy HEIC can be
+          // stored under application/octet-stream (empty File.type fallback),
+          // so `.heic`/`.heif` rows are hydrated by filename too;
+          // normalizeImageBase64 sniffs the bytes and rewrites only genuine
+          // HEIF, which Chromium-based clients cannot decode. Filename and
+          // sizeBytes keep describing the stored original, which
+          // /attachments/:id/content serves verbatim for downloads.
+          const isImage = a.mimeType.startsWith("image/");
+          const isLegacyHeic = !isImage && isHeicFilename(a.originalFilename);
+          const full =
+            isImage || isLegacyHeic
+              ? getAttachmentById(a.id, { hydrateFileData: true })
+              : null;
+          const display = full?.dataBase64
+            ? normalizeImageBase64(a.mimeType, full.dataBase64)
+            : null;
+          // Image rows carry data even when unconverted (thumbnails); a
+          // non-image row only becomes renderable once conversion yields a
+          // JPEG, so it stays metadata-only when conversion is unavailable.
+          const useDisplay =
+            display && (isImage || display.converted) ? display : null;
           return {
             id: a.id,
             filename: a.originalFilename,
-            mimeType: a.mimeType,
+            mimeType: useDisplay?.mimeType ?? a.mimeType,
             sizeBytes: a.sizeBytes,
-            kind: a.kind,
+            kind: useDisplay?.converted
+              ? classifyKind(useDisplay.mimeType)
+              : a.kind,
+            ...(useDisplay ? { data: useDisplay.dataBase64 } : {}),
             ...(a.thumbnailBase64 ? { thumbnailData: a.thumbnailBase64 } : {}),
             fileBacked: true,
           };
@@ -1065,6 +1123,13 @@ export function handleListMessages({
       contentBlocks,
       ...(m.subagentNotification
         ? { subagentNotification: m.subagentNotification }
+        : {}),
+      ...(m.acpNotification ? { acpNotification: m.acpNotification } : {}),
+      ...(m.backgroundEventNotification
+        ? { backgroundEventNotification: true }
+        : {}),
+      ...(m.backgroundToolCompletion
+        ? { backgroundToolCompletion: m.backgroundToolCompletion }
         : {}),
       ...(m.slackMessage ? { slackMessage: m.slackMessage } : {}),
     };
@@ -1233,13 +1298,20 @@ export async function handleSendMessage(
     interface?: string;
     conversationType?: string;
     automated?: boolean;
+    // Persist the user message but suppress it from the UI transcript (kept in
+    // LLM history). Used by flows like research-onboarding's "Let's chat"
+    // handoff to prime a proactive assistant greeting without showing the
+    // triggering user message. Honored on the standard send path only.
+    hidden?: boolean;
     bypassSecretCheck?: boolean;
     hostHomeDir?: string;
     hostUsername?: string;
     clientTimezone?: unknown;
+    clientOs?: unknown;
     clientId?: string;
     clientMessageId?: string;
     inferenceProfile?: string | null;
+    enabledPlugins?: string[] | null;
     riskThreshold?: string;
     onboarding?: {
       tools: string[];
@@ -1299,6 +1371,18 @@ export async function handleSendMessage(
       );
     }
   }
+  // `undefined` leaves the stored scope untouched; `null` clears it to the
+  // default; `[]` scopes the chat to no plugins.
+  const requestedEnabledPlugins = body.enabledPlugins;
+  if (
+    requestedEnabledPlugins != null &&
+    (!Array.isArray(requestedEnabledPlugins) ||
+      requestedEnabledPlugins.some((p) => typeof p !== "string"))
+  ) {
+    throw new BadRequestError(
+      "enabledPlugins must be an array of strings or null",
+    );
+  }
   if (
     requestedRiskThreshold !== undefined &&
     !isValidRiskThreshold(requestedRiskThreshold)
@@ -1334,6 +1418,15 @@ export async function handleSendMessage(
   const clientTimezone =
     typeof body.clientTimezone === "string"
       ? (canonicalizeTimeZone(body.clientTimezone) ?? undefined)
+      : undefined;
+  // Client OS surface ("web" | "ios" | "macos" | "android"), reported
+  // separately from the transport `interface`. Validated against the dedicated
+  // `ClientOs` value set (NOT the interface vocabulary) and only kept when it
+  // resolves — it drives the per-turn `client_os:` context line, never
+  // transport/host-proxy gating.
+  const clientOs =
+    typeof body.clientOs === "string"
+      ? (parseClientOs(body.clientOs) ?? undefined)
       : undefined;
 
   // Reject non-string content values (numbers, objects, etc.)
@@ -1494,11 +1587,13 @@ export async function handleSendMessage(
         hostHomeDir: body.hostHomeDir,
         hostUsername: body.hostUsername,
         ...(clientTimezone ? { clientTimezone } : {}),
+        ...(clientOs ? { clientOs } : {}),
       } satisfies HostProxyTransportMetadata)
     : ({
         channelId: sourceChannel,
         interfaceId: sourceInterface,
         ...(clientTimezone ? { clientTimezone } : {}),
+        ...(clientOs ? { clientOs } : {}),
       } satisfies NonHostProxyTransportMetadata);
 
   const conversation = await smDeps.getOrCreateConversation(
@@ -1516,6 +1611,10 @@ export async function handleSendMessage(
       sessionId: null,
       expiresAt: null,
     });
+  }
+
+  if (requestedEnabledPlugins !== undefined) {
+    conversation.setEnabledPlugins(requestedEnabledPlugins);
   }
 
   // Store pre-chat onboarding context on the conversation when this is the
@@ -1726,6 +1825,7 @@ export async function handleSendMessage(
         attachments,
         requestId: crypto.randomUUID(),
         metadata: greetingMeta,
+        clientMessageId,
       });
 
       const conversationId = mapping.conversationId;
@@ -1893,6 +1993,10 @@ export async function handleSendMessage(
         userMessageInterface: sourceInterface,
         assistantMessageInterface: sourceInterface,
         ...(body.automated === true ? { automated: true } : {}),
+        // Carry the transcript-suppression flag through the queue so a
+        // hidden send that lands mid-turn stays hidden when drained —
+        // the drain path persists this metadata and skips the echo.
+        ...(body.hidden === true ? { hidden: true } : {}),
       },
       isInteractive,
       sourceActorPrincipalId,
@@ -1914,21 +2018,34 @@ export async function handleSendMessage(
     // here must not turn the 202 response into a 500 — that would leave
     // the client showing "Failed to send" for a message the daemon will
     // process from the queue.
-    try {
-      // Supersede interactions left pending by the in-flight turn: auto-deny
-      // confirmations (with canonical/client sync) and steer to the enqueued
-      // message if an ask_question is parked. Centralized so the CLI signal
-      // path (signals/user-message.ts) gets identical handling.
-      supersedePendingInteractionsOnEnqueue(mapping.conversationId, requestId);
+    //
+    // Supersede encodes user intent — a typed message while a prompt is open
+    // means the user chose to move on. A hidden send is a machine signal
+    // (e.g. the channel-setup wizard-close marker), not a user decision: it
+    // must not auto-deny live approval prompts or steer a parked
+    // ask_question to a message the user never typed. Daemon-injected
+    // synthetic messages (subagent/ACP notifications) skip this path the
+    // same way by enqueuing directly.
+    if (body.hidden !== true) {
+      try {
+        // Supersede interactions left pending by the in-flight turn: auto-deny
+        // confirmations (with canonical/client sync) and steer to the enqueued
+        // message if an ask_question is parked. Centralized so the CLI signal
+        // path (signals/user-message.ts) gets identical handling.
+        supersedePendingInteractionsOnEnqueue(
+          mapping.conversationId,
+          requestId,
+        );
 
-      // Expire any orphaned canonical requests that survived without a
-      // matching in-memory pending interaction (e.g. prompter timeouts).
-      expireOrphanedCanonicalRequests(mapping.conversationId);
-    } catch (err) {
-      log.warn(
-        { err, conversationId: mapping.conversationId },
-        "Post-enqueue auto-deny failed — queued message unaffected",
-      );
+        // Expire any orphaned canonical requests that survived without a
+        // matching in-memory pending interaction (e.g. prompter timeouts).
+        expireOrphanedCanonicalRequests(mapping.conversationId);
+      } catch (err) {
+        log.warn(
+          { err, conversationId: mapping.conversationId },
+          "Post-enqueue auto-deny failed — queued message unaffected",
+        );
+      }
     }
 
     return {
@@ -1944,7 +2061,11 @@ export async function handleSendMessage(
   // before dispatching, so an idle conversation with lingering confirmations
   // (e.g. the user never responded to a tool-approval prompt) must deny
   // them before starting the new turn.
-  if (conversation.hasAnyPendingConfirmation()) {
+  // Hidden sends are machine signals, not user decisions — like the queue
+  // branch's supersede bypass above, they must not deny confirmations that
+  // outlived a turn (e.g. a guardian approval still awaiting a channel
+  // reply). The next visible send performs the cleanup instead.
+  if (body.hidden !== true && conversation.hasAnyPendingConfirmation()) {
     for (const interaction of pendingInteractions.getByConversation(
       mapping.conversationId,
     )) {
@@ -2301,7 +2422,13 @@ export async function handleSendMessage(
     content: resolvedContent,
     attachments,
     requestId,
-    metadata: body.automated === true ? { automated: true } : undefined,
+    metadata:
+      body.automated === true || body.hidden === true
+        ? {
+            ...(body.automated === true ? { automated: true } : {}),
+            ...(body.hidden === true ? { hidden: true } : {}),
+          }
+        : undefined,
     clientMessageId,
   });
 
@@ -2315,14 +2442,20 @@ export async function handleSendMessage(
     };
   }
 
-  broadcastMessage({
-    type: "user_message_echo",
-    text: resolvedContent,
-    conversationId: mapping.conversationId,
-    messageId,
-    requestId,
-    clientMessageId,
-  });
+  // A hidden message is suppressed from the UI transcript: don't echo it back
+  // to clients (the echo would render a user bubble the list-messages filter
+  // otherwise hides). The turn still runs below, and the assistant's reply
+  // streams normally — so the chat reads as a proactive greeting.
+  if (body.hidden !== true) {
+    broadcastMessage({
+      type: "user_message_echo",
+      text: resolvedContent,
+      conversationId: mapping.conversationId,
+      messageId,
+      requestId,
+      clientMessageId,
+    });
+  }
   publishConversationMessagesChanged(mapping.conversationId, originClientId);
 
   // Fire-and-forget the agent loop; events flow to the hub via broadcastMessage.
@@ -2331,6 +2464,7 @@ export async function handleSendMessage(
       onEvent: broadcastMessage,
       isInteractive,
       isUserMessage: true,
+      ...(body.hidden === true ? { isHiddenPrompt: true } : {}),
     })
     .catch((err) => {
       log.error(
@@ -2606,9 +2740,9 @@ export async function handleGetSuggestion(
  * Full-text search across all conversations (message content + titles).
  * Returns ranked results grouped by conversation, each with matching message excerpts.
  */
-function handleSearchConversations({
+async function handleSearchConversations({
   queryParams,
-}: RouteHandlerArgs): Record<string, unknown> {
+}: RouteHandlerArgs): Promise<Record<string, unknown>> {
   const query = queryParams?.q ?? "";
   if (!query.trim()) {
     throw new BadRequestError("q query parameter is required");
@@ -2619,7 +2753,7 @@ function handleSearchConversations({
     ? Number(queryParams.maxMessagesPerConversation)
     : undefined;
 
-  const results = searchConversations(query, {
+  const results = await searchConversations(query, {
     ...(limit !== undefined && !isNaN(limit) ? { limit } : {}),
     ...(maxMessagesPerConversation !== undefined &&
     !isNaN(maxMessagesPerConversation)
@@ -2821,6 +2955,12 @@ export const ROUTES: RouteDefinition[] = [
       conversationType: z.string().optional(),
       slashCommand: z.string().optional(),
       clientTimezone: z.string().optional(),
+      clientOs: z
+        .string()
+        .optional()
+        .describe(
+          'Client OS surface ("web" | "ios" | "macos" | "android"), reported separately from `interface`. Drives the per-turn `client_os` context only; does not affect transport/host-proxy capabilities.',
+        ),
       clientMessageId: z
         .string()
         .describe(
@@ -2828,7 +2968,20 @@ export const ROUTES: RouteDefinition[] = [
         )
         .optional(),
       inferenceProfile: z.string().nullable().optional(),
+      enabledPlugins: z
+        .array(z.string())
+        .nullable()
+        .optional()
+        .describe(
+          "Plugin ids that scope this conversation to a subset of installed plugins (first-party defaults are always available). When present on a message, it sets/updates the conversation's plugin scope (the web client sends it only on the first message of a new chat). null clears the scope to default (all enabled plugins); omitting the field leaves the existing scope unchanged.",
+        ),
       riskThreshold: z.enum(VALID_RISK_THRESHOLDS).optional(),
+      hidden: z
+        .boolean()
+        .optional()
+        .describe(
+          "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history and still drives the turn). Used for machine signals the user never typed (proactive-greeting priming, channel-setup wizard close). Suppression covers the queued path too: a hidden send that lands mid-turn returns { queued: true, requestId } but never appears in list-messages queued snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send path only — slash-command content bypasses it.",
+        ),
       onboarding: z
         .object({
           tools: z.array(z.string()),

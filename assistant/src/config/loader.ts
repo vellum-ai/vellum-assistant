@@ -127,6 +127,15 @@ export function getDeploymentContextDefaults(): Record<string, unknown> {
   // search for providers/models that support it.
   const managed = { mode: "managed" as const };
   return {
+    // Express platform intent that hosted assistants embed via the managed
+    // Gemini backend. Fill-only (applied in-memory by
+    // `fillContextDefaultsForMissingKeys`), so it expresses the default without
+    // persisting it or overriding an explicit on-disk provider. The committed
+    // dimension (`memory.qdrant.vectorSize`) and `geminiModel` are NOT set here:
+    // the dimension is derived at startup by the embedding-identity reconcile
+    // from a live backend probe, and `geminiModel` carries its own schema
+    // default (`gemini-embedding-2`).
+    memory: { embeddings: { provider: "gemini" } },
     services: {
       "image-generation": managed,
       "web-search": managed,
@@ -680,8 +689,8 @@ export function loadConfig(): AssistantConfig {
           // Same shape contract as `loadRawConfig`: top-level value must be a
           // plain object. A `null`, primitive, or array is treated like a
           // parse error so downstream code (`warnAndStripDeprecatedFields`,
-          // `setNestedValue` in the managed-Gemini migration block, etc.)
-          // never iterates a non-record. Quarantine + fall through to defaults.
+          // etc.) never iterates a non-record. Quarantine + fall through to
+          // defaults.
           quarantineCorruptConfig(
             configPath,
             new Error(
@@ -714,50 +723,14 @@ export function loadConfig(): AssistantConfig {
     }
 
     // Validate and apply defaults via Zod schema
-    let config = validateWithSchema(fileConfig);
+    const config = validateWithSchema(fileConfig);
 
-    if (suppressConfigDiskWritesDepth === 0) {
-      // Managed Gemini embedding defaults migration.
-      // When on a managed platform (IS_PLATFORM=true) and no explicit embedding
-      // provider chosen (provider=auto), persist Gemini embedding defaults into
-      // the raw config file.
-      // Idempotent: once provider=gemini is written, subsequent loads skip this.
-      if (config.memory.embeddings.provider === "auto") {
-        try {
-          if (
-            process.env.IS_PLATFORM === "true" ||
-            process.env.IS_PLATFORM === "1"
-          ) {
-            setNestedValue(fileConfig, "memory.embeddings.provider", "gemini");
-            setNestedValue(
-              fileConfig,
-              "memory.embeddings.geminiModel",
-              "gemini-embedding-2",
-            );
-            setNestedValue(
-              fileConfig,
-              "memory.embeddings.geminiDimensions",
-              3072,
-            );
-            setNestedValue(fileConfig, "memory.qdrant.vectorSize", 3072);
-            writeFileSync(
-              configPath,
-              JSON.stringify(fileConfig, null, 2) + "\n",
-            );
-            log.info(
-              "Applied managed Gemini embedding defaults (provider=gemini, model=gemini-embedding-2, dimensions=3072, vectorSize=3072)",
-            );
-            // Re-validate so the returned config reflects the migration.
-            config = validateWithSchema(fileConfig);
-          }
-        } catch (err) {
-          log.warn(
-            { err },
-            "Managed Gemini defaults migration failed — continuing with existing config",
-          );
-        }
-      }
-    }
+    // Snapshot the schema-defaulted config BEFORE deployment-context fills are
+    // layered on — but only when the first-launch seed below will actually
+    // persist it. Disk records user intent (schema defaults only), while the
+    // in-memory `config` returned below carries the deployment-context fills as
+    // this run's effective values.
+    const willSeed = !configFileExisted && suppressConfigDiskWritesDepth === 0;
 
     // Layer deployment-context defaults (e.g. IS_PLATFORM=true → all service
     // modes = "managed") onto the in-memory config for any leaves that aren't
@@ -778,29 +751,47 @@ export function loadConfig(): AssistantConfig {
       );
     }
 
-    // First-launch seed only: when config.json does not exist, write the full
-    // schema defaults (with any deployment-context overrides already applied
-    // above) to disk so users can discover and edit all available options.
+    // First-launch seed only: when config.json does not exist, write the
+    // effective config to disk so users can discover and edit all available
+    // options. Deployment-context service-mode defaults (e.g. IS_PLATFORM=true →
+    // managed service modes) are included for discoverability, but the platform
+    // embedding-provider intent is OMITTED entirely — not even persisted as the
+    // schema default "auto". `fillContextDefaultsForMissingKeys` only fills a
+    // leaf absent from disk, so persisting any provider value (including "auto")
+    // would be read back as an explicit user choice on the next load and
+    // permanently suppress re-applying the platform "gemini" default. Leaving
+    // the leaf absent keeps the platform intent in-memory-only yet re-applied on
+    // every load.
+    //
     // When the file already exists, leave it alone — disk represents user
     // intent, while the in-memory `cached: AssistantConfig` (above) has all
     // schema defaults applied via `applyNestedDefaults`/`validateWithSchema`,
     // so consumers calling `getConfig().memory.v2.bm25_b` continue to receive
-    // the schema default whenever the field is absent on disk.
-    //
-    // The previous behavior — eagerly merging missing keys back into the file
-    // on every load — silently baked stale defaults into existing users'
-    // config.json. Once a default landed in the file, future schema-default
-    // changes were inert because the merge only filled absent keys and never
-    // reconciled existing values. Contract: disk = user intent, in-memory
-    // cache = effective values.
-    if (!configFileExisted && suppressConfigDiskWritesDepth === 0) {
+    // the schema default whenever the field is absent on disk. Contract: disk =
+    // user intent, in-memory cache = effective values.
+    if (willSeed) {
       try {
         const dir = dirname(configPath);
         if (!existsSync(dir)) {
           mkdirSync(dir, { recursive: true });
         }
+        const seed = structuredClone(config);
+        // Drop the deployment-context embedding provider so it is never
+        // persisted (see above); the schema default re-applies in memory.
+        delete (seed.memory.embeddings as { provider?: unknown }).provider;
+        // Memory-v3 tuning knobs are globally-shipped defaults, not per-assistant
+        // config: persist only `live` (genuine per-assistant state — some
+        // workspaces predate the v3 migration and must not be flipped on) and let
+        // every tuning knob resolve from the schema on load. This way a shipped
+        // schema-default change reaches all assistants (mirrors the
+        // embedding-provider strip above); migration
+        // 119-strip-persisted-memory-v3-tuning-defaults handles already-seeded
+        // configs.
+        seed.memory.v3 = {
+          live: seed.memory.v3.live,
+        } as (typeof seed.memory)["v3"];
         // Strip dataDir (runtime-derived) from the persisted config
-        const { dataDir: _, ...persistable } = config;
+        const { dataDir: _, ...persistable } = seed;
         writeFileSync(configPath, JSON.stringify(persistable, null, 2) + "\n");
         log.info("Wrote default config to %s", configPath);
       } catch (err) {

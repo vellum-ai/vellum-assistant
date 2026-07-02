@@ -22,7 +22,6 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { registerShutdownHook } from "../daemon/shutdown-registry.js";
 import {
   clearPluginHooks,
   collectUserHooks,
@@ -35,7 +34,7 @@ import {
   runShutdownHook,
   WORKSPACE_HOOKS_OWNER,
 } from "../hooks/hook-loader.js";
-import type { HookFunction, ShutdownContext } from "../plugin-api/types.js";
+import type { HookFunction, ShutdownReason } from "../plugin-api/types.js";
 import {
   registerPluginTools,
   unregisterPluginTools,
@@ -178,12 +177,21 @@ const disabledPluginDirs = new Set<string>();
  * workspace hooks. Refreshes plugin discovery first, then delegates the actual
  * hook resolution to the hook loader. Plugin hooks run in install-date order,
  * the workspace hook runs last.
+ *
+ * `effectiveEnabledPlugins` carries the per-chat plugin scope: when non-null,
+ * user plugins outside the set are skipped (standalone workspace hooks always
+ * run). `null`/omitted means no per-chat restriction.
  */
 export async function getUserHooksFor<TCtx = unknown>(
   hookName: string,
+  effectiveEnabledPlugins?: Set<string> | null,
 ): Promise<HookFunction<TCtx>[]> {
   await scanPlugins();
-  return collectUserHooks<TCtx>(hookName, discoveredPluginDirs);
+  return collectUserHooks<TCtx>(
+    hookName,
+    discoveredPluginDirs,
+    effectiveEnabledPlugins,
+  );
 }
 
 // ─── Tool cache ──────────────────────────────────────────────────────────────
@@ -320,7 +328,7 @@ async function scanPlugins(): Promise<void> {
       const manifest = await parsePluginManifest(pluginDir);
       const pluginName = manifest?.name ?? entry;
       if (discoveredPluginDirs.has(pluginDir)) {
-        await deactivatePlugin(pluginName);
+        await deactivatePlugin(pluginName, "disable");
         await evictPlugin(pluginDir, pluginName);
       }
       if (!disabledPluginDirs.has(pluginDir)) {
@@ -351,7 +359,7 @@ async function scanPlugins(): Promise<void> {
   // Deactivate and evict cache entries for deleted plugins.
   for (const [pluginDir, pluginName] of discoveredPluginDirs) {
     if (!currentDirs.has(pluginDir)) {
-      await deactivatePlugin(pluginName);
+      await deactivatePlugin(pluginName, "uninstall");
       await evictPlugin(pluginDir, pluginName);
     }
   }
@@ -422,8 +430,10 @@ async function evictAll(): Promise<void> {
 
 /**
  * Plugins (and the workspace-hooks pseudo-owner) fully activated (tools
- * registered + `init` hook run) within this process, in activation order. The
- * process shutdown hook walks this list in reverse to tear everything down.
+ * registered + `init` hook run) within this process, in activation order. A
+ * runtime uninstall/disable tears a single entry down via
+ * {@link deactivatePlugin}; at daemon shutdown the owners' `shutdown` hooks
+ * fire through the unified `runHook(HOOKS.SHUTDOWN)` pipeline.
  */
 const activatedPlugins: Array<{ name: string }> = [];
 
@@ -436,16 +446,12 @@ const activatedPlugins: Array<{ name: string }> = [];
  */
 const activatedNames = new Set<string>();
 
-const shutdownContext: ShutdownContext = {
-  assistantVersion: APP_VERSION,
-};
-
 /**
  * Activate a single discovered plugin: pre-import its hooks, register its tools
  * into the global tool registry, and run its `init` hook. Idempotent — a plugin
  * already activated (or mid-activation) is skipped. Never throws; per-surface
  * failures are logged and the plugin still counts as activated so the shutdown
- * hook tears down whatever came up (mirrors boot semantics).
+ * teardown handles whatever came up (mirrors boot semantics).
  *
  * Called from `scanPlugins`, which runs both at boot and on every subsequent
  * scan — so a plugin whose files appear at runtime (installed via the CLI or
@@ -491,12 +497,16 @@ async function activatePlugin(
 }
 
 /**
- * Deactivate a plugin whose directory was removed or disabled at runtime:
- * unregister its tools and run its `shutdown` hook. Must run *before*
- * `evictPlugin` clears the hook cache, since the shutdown hook is read from it.
- * Idempotent — a plugin that was never activated is a no-op.
+ * Deactivate a plugin whose directory was removed (`uninstall`) or disabled
+ * (`disable`) at runtime: unregister its tools and run its `shutdown` hook with
+ * the matching {@link ShutdownReason}. Must run *before* `evictPlugin` clears
+ * the hook cache, since the shutdown hook is read from it. Idempotent — a plugin
+ * that was never activated is a no-op.
  */
-async function deactivatePlugin(pluginName: string): Promise<void> {
+async function deactivatePlugin(
+  pluginName: string,
+  reason: ShutdownReason,
+): Promise<void> {
   if (!activatedNames.has(pluginName)) return;
   activatedNames.delete(pluginName);
   const idx = activatedPlugins.findIndex((p) => p.name === pluginName);
@@ -513,7 +523,11 @@ async function deactivatePlugin(pluginName: string): Promise<void> {
     );
   }
 
-  await runShutdownHook(pluginName, shutdownContext, "plugin-removed");
+  await runShutdownHook(
+    pluginName,
+    { assistantVersion: APP_VERSION, reason },
+    reason,
+  );
 }
 
 // ─── Boot population ─────────────────────────────────────────────────────────
@@ -521,8 +535,10 @@ async function deactivatePlugin(pluginName: string): Promise<void> {
 /**
  * Populate the caches at boot by scanning the plugins directory once (which
  * imports surfaces, registers tools, and runs `init` hooks via `activatePlugin`
- * inside `scanPlugins`), activating standalone workspace hooks, and installing
- * the process shutdown hook.
+ * inside `scanPlugins`) and activating standalone workspace hooks. At daemon
+ * shutdown these owners' `shutdown` hooks fire through the unified
+ * `runHook(HOOKS.SHUTDOWN)` pipeline; a runtime uninstall/disable tears a single
+ * owner down via {@link deactivatePlugin}.
  *
  * This replaces the old `loadExternalPlugin` → `registerPlugin` →
  * `bootstrapPlugins` path for user plugins. Instead of registering whole
@@ -555,33 +571,6 @@ export async function populateCacheAtBoot(
     await runInitHook(WORKSPACE_HOOKS_OWNER);
     activatedPlugins.push({ name: WORKSPACE_HOOKS_OWNER });
   }
-
-  // Register a single shutdown hook that walks all activated owners in reverse
-  // order, unregistering tools and running shutdown hooks. It reads the live
-  // `activatedPlugins` array at teardown time, so plugins activated after boot
-  // (runtime installs) are torn down too.
-  registerShutdownHook("user-plugins", async (reason) => {
-    for (let i = activatedPlugins.length - 1; i >= 0; i--) {
-      const entry = activatedPlugins[i];
-      if (entry === undefined) continue;
-      const { name } = entry;
-
-      // Unregister tools before running shutdown so onShutdown sees a
-      // clean model-visible surface. (No-op for the workspace-hooks owner,
-      // which registers no tools.)
-      try {
-        unregisterPluginTools(name);
-      } catch (err) {
-        log.warn(
-          { err, plugin: name, reason },
-          "user plugin tool unregister failed (continuing)",
-        );
-      }
-
-      // Run the `shutdown` hook if present.
-      await runShutdownHook(name, shutdownContext, reason);
-    }
-  });
 }
 
 // ─── Test hooks ──────────────────────────────────────────────────────────────

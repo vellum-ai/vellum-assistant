@@ -150,6 +150,7 @@ describe("AgentLoop compaction start/end event pair", () => {
       onEvent: (event) => {
         events.push(event);
       },
+      modelProfileKey: "balanced",
       resolveContextWindow: () => ({
         maxInputTokens: 10,
         overflowRecovery: { enabled: true, safetyMarginRatio: 0 },

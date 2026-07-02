@@ -9,6 +9,7 @@
 
 import { captureError } from "@/lib/sentry/capture-error";
 import type {
+  BackgroundToolCompletion,
   ConversationContentBlock,
   ConversationMessage,
   ConversationMessageToolCall,
@@ -17,6 +18,7 @@ import type {
 import { parseAttachmentSummariesFromContent } from "@/domains/chat/utils/parse-attachment-summaries";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
 import {
   attachmentsPost,
   messagesGet,
@@ -38,6 +40,7 @@ import { persistPreChatOnboardingProfile } from "@/domains/onboarding/prechat-pr
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { pickConversationIdWireField } from "@/lib/backwards-compat/conversation-id-wire-field";
 import { getEffectiveTimezone } from "@/utils/effective-timezone";
+import { detectClientOs } from "@/runtime/platform-detection";
 
 const POLL_INTERVAL_MS = 1000;
 const POLL_TIMEOUT_MS = 120_000;
@@ -54,6 +57,28 @@ export interface RuntimeSubagentNotification extends ConversationSubagentNotific
   parentMessageStableId?: string;
   /** Daemon UUID of the parent assistant message. Stable across reloads. */
   parentMessageId?: string;
+}
+
+/**
+ * Project a history message's `backgroundToolCompletion` wire record onto the
+ * `BackgroundTaskEntry` the viewer store seeds from. The `id` is preserved
+ * exactly: web background-card detection keys off the spawning tool result's
+ * `bg-…` id, so the seeded entry's id must equal the completion's id.
+ */
+export function toBackgroundTaskEntryFromCompletion(
+  c: BackgroundToolCompletion,
+): BackgroundTaskEntry {
+  return {
+    id: c.id,
+    toolName: c.toolName,
+    conversationId: c.conversationId,
+    command: c.command,
+    startedAt: c.startedAt,
+    status: c.status,
+    exitCode: c.exitCode,
+    output: c.output,
+    completedAt: c.completedAt,
+  };
 }
 
 export async function pollForResponse(
@@ -375,7 +400,15 @@ export type PostMessageResult =
   | { ok: false; status: number; error: { code?: string; detail?: string } };
 
 export type UploadAttachmentResult =
-  | { ok: true; id: string }
+  | {
+      ok: true;
+      id: string;
+      /** Stored metadata — may differ from the uploaded file when the
+       *  assistant normalizes the format (e.g. HEIC stored as JPEG). */
+      filename?: string;
+      mimeType?: string;
+      sizeBytes?: number;
+    }
   | { ok: false; status: number; error: { detail?: string } };
 
 /**
@@ -421,14 +454,40 @@ export async function uploadChatAttachment(
       error: { detail: "Upload response did not include an attachment id." },
     };
   }
-  return { ok: true, id };
+  return {
+    ok: true,
+    id,
+    ...(typeof data.filename === "string" ? { filename: data.filename } : {}),
+    ...(typeof data.mimeType === "string" ? { mimeType: data.mimeType } : {}),
+    ...(typeof data.sizeBytes === "number" ? { sizeBytes: data.sizeBytes } : {}),
+  };
 }
+
+/**
+ * Optional fields for {@link postChatMessage}.
+ *
+ * The wire-bound fields are Picked from the generated request body so they
+ * can never drift from the daemon's schema; `onboarding` stays the domain
+ * type because it is normalized (`normalizePreChatOnboardingContext`) before
+ * it reaches the wire.
+ */
+export type PostChatMessageOptions = Pick<
+  MessagesPostData["body"],
+  | "attachmentIds"
+  | "clientMessageId"
+  | "inferenceProfile"
+  | "enabledPlugins"
+  | "hidden"
+> & {
+  /** PreChat onboarding context — see the `postChatMessage` docs. */
+  onboarding?: PreChatOnboardingContext;
+};
 
 /**
  * Send a user message without polling for the response.
  * Returns the assistant/conversation IDs needed to subscribe to events.
  *
- * The optional `onboarding` parameter carries PreChat onboarding context that
+ * The optional `onboarding` field carries PreChat onboarding context that
  * should be attached only to the FIRST message after PreChat completion. Callers
  * are responsible for the consume-once semantics: include `onboarding` on the
  * initial post and omit it on every subsequent message in the conversation.
@@ -449,11 +508,16 @@ export async function postChatMessage(
   assistantId: string,
   conversationId: string | null,
   content: string,
-  attachmentIds: string[] = [],
-  onboarding?: PreChatOnboardingContext,
-  clientMessageId?: string,
-  inferenceProfile?: string | null,
+  options: PostChatMessageOptions = {},
 ): Promise<PostMessageResult> {
+  const {
+    attachmentIds = [],
+    onboarding,
+    clientMessageId,
+    inferenceProfile,
+    enabledPlugins,
+    hidden,
+  } = options;
   // Wire-field selection picks exactly one of `conversationId` (0.8.6+
   // strict internal-id lookup) or `conversationKey` (legacy
   // create-or-lookup). See `lib/backwards-compat/conversation-id-wire-field.ts`.
@@ -472,7 +536,13 @@ export async function postChatMessage(
   const body: MessagesPostData["body"] = {
     content,
     sourceChannel: "vellum",
-    interface: "vellum",
+    // `interface` is the transport surface, not the OS: the web/iOS/macOS apps
+    // all run this same web renderer, so the transport is always "web". The
+    // daemon keys host-proxy/transport capability off this value, so it must
+    // NOT carry the OS. The real platform travels in `clientOs` below and only
+    // feeds the assistant's per-turn `client_os` context.
+    interface: "web",
+    clientOs: detectClientOs(),
   };
   // Read the effective timezone LIVE at send time (not from cached state) so
   // every message carries the user's current zone, keeping the assistant's
@@ -504,6 +574,22 @@ export async function postChatMessage(
   // otherwise so the conversation inherits the global default profile.
   if (inferenceProfile) {
     body.inferenceProfile = inferenceProfile;
+  }
+  // Per-chat plugin selection for the conversation this message mints — the
+  // user picked an explicit plugin set in the composer before sending. The
+  // daemon persists it as the conversation's enabled-plugin set. Omitted when
+  // `null`/`undefined` so the conversation inherits the default set. The caller
+  // gates attachment on daemon support + an explicit selection (see
+  // `use-send-message.ts`); an empty array is a valid "no plugins" selection.
+  if (enabledPlugins != null) {
+    body.enabledPlugins = enabledPlugins;
+  }
+  // Persist the message but suppress it from the transcript (it still drives
+  // the turn LLM-side). Used for client-initiated machine signals the user
+  // never typed: the research-onboarding "Let's chat" greeting kickoff and
+  // the channel-setup wizard close/hand-off notifications.
+  if (hidden) {
+    body.hidden = true;
   }
   const normalizedOnboarding = onboarding
     ? normalizePreChatOnboardingContext(onboarding)

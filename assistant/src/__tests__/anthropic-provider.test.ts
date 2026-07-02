@@ -2087,6 +2087,54 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     expect(emitted).toEqual([]);
   });
 
+  test("suppresses a leading-space-corrupted sentinel echo (proxy dropped the guard byte)", async () => {
+    // OpenRouter's Anthropic-compat path returns the `\x00` guard as a leading
+    // space; the normalized prefix check must still hold and drop it.
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: " __PLACEHOLDER__[empty assistant turn]" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], {
+      onEvent: (event) => {
+        if (event.type === "text_delta") emitted.push(event.text);
+      },
+    });
+    expect(emitted).toEqual([]);
+  });
+
+  test("suppresses a leading-space-corrupted sentinel split across chunks", async () => {
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: " __PLACE" },
+      { kind: "text", text: "HOLDER__[empty assistant turn]" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], {
+      onEvent: (event) => {
+        if (event.type === "text_delta") emitted.push(event.text);
+      },
+    });
+    expect(emitted).toEqual([]);
+  });
+
+  test("still streams real text that begins with whitespace", async () => {
+    scriptedStream = [
+      { kind: "blockStart" },
+      { kind: "text", text: " hello there" },
+      { kind: "blockStop" },
+    ];
+    const emitted: string[] = [];
+    await provider.sendMessage([userMsg("Hi")], {
+      onEvent: (event) => {
+        if (event.type === "text_delta") emitted.push(event.text);
+      },
+    });
+    expect(emitted.join("")).toBe(" hello there");
+  });
+
   test("flushes buffered prefix when the continuation diverges from all sentinels", async () => {
     // "__PLACEHOLDER__" is a prefix of the sentinels, so it stays buffered.
     // Once the next chunk diverges (bracket instead of the expected opening),
@@ -3197,11 +3245,14 @@ describe("AnthropicProvider — deprecated sampling params (temperature / top_p 
     lastStreamParams = null;
   });
 
-  // opus-4-7 / opus-4-8 (and, conservatively, fable) reject `temperature`,
-  // `top_p`, and `top_k` with a 400; the provider must strip all three.
+  // opus-4-7 / opus-4-8 / sonnet-5 (and, conservatively, fable) reject
+  // `temperature`, `top_p`, and `top_k` with a 400; the provider must strip
+  // all three. The OpenRouter `anthropic/...` form delegates here too.
   for (const model of [
     "claude-opus-4-8",
     "claude-opus-4-7",
+    "claude-sonnet-5",
+    "anthropic/claude-sonnet-5",
     "claude-fable-5",
   ]) {
     test(`strips temperature, top_p, and top_k for ${model}`, async () => {

@@ -1,4 +1,4 @@
-import { wrapMemoryBlock } from "../../../../memory/memory-marker.js";
+import { wrapMemoryBlock } from "../memory-marker.js";
 import { Section, Slug } from "./types.js";
 
 /**

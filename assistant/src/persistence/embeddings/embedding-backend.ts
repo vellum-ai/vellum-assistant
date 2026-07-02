@@ -3,11 +3,6 @@ import { createHash } from "node:crypto";
 import { getOllamaBaseUrlEnv } from "../../config/env.js";
 import { resolveCallSiteConfig } from "../../config/llm-resolver.js";
 import type { AssistantConfig } from "../../config/types.js";
-import {
-  SPARSE_VOCAB_SIZE,
-  tokenHash,
-  tokenize,
-} from "../../memory/sparse-tokenize.js";
 import { PLATFORM_PROVIDER_META } from "../../providers/platform-proxy/constants.js";
 import { resolveManagedProxyContext } from "../../providers/platform-proxy/context.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
@@ -23,6 +18,7 @@ import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
 import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
 import { OpenAIEmbeddingBackend } from "./embedding-openai.js";
 import {
+  EMBEDDING_DIMENSION_PROBE_TEXT,
   type EmbeddingBackend,
   type EmbeddingInput,
   embeddingInputContentHash,
@@ -33,6 +29,7 @@ import {
   type SparseEmbedding,
   type TextEmbeddingInput,
 } from "./embedding-types.js";
+import { SPARSE_VOCAB_SIZE, tokenHash, tokenize } from "./sparse-tokenize.js";
 
 export type { EmbeddingInput, MultimodalEmbeddingInput, TextEmbeddingInput };
 
@@ -216,6 +213,7 @@ export function clearEmbeddingBackendCache(): void {
   backendCache.clear();
   vectorCache.clear();
   vectorCacheBytes = 0;
+  backendDimCache.clear();
   localBackendBroken = false;
 }
 
@@ -509,6 +507,99 @@ export async function getMemoryBackendStatus(config: AssistantConfig): Promise<{
 }
 
 /**
+ * Memoized output dimension per "provider:model". A backend's vector dimension
+ * is fixed for the life of a (provider, model) pair, so a single probe answers
+ * every subsequent {@link isEmbeddingDimensionAvailable} call without another
+ * backend round-trip. Cleared alongside the backend cache so a credential
+ * change or explicit reset re-probes the (possibly different) backend.
+ */
+const backendDimCache = new Map<string, number>();
+
+/**
+ * Whether the currently-reachable embedding backend can produce vectors of the
+ * committed Qdrant collection dimension (`config.memory.qdrant.vectorSize`).
+ *
+ * Read lanes call this BEFORE embedding a query for a dense Qdrant search so a
+ * known mismatch (e.g. a 3072-dim collection committed to Gemini, but only a
+ * 384-dim local backend reachable while Gemini is down) short-circuits to a
+ * clean degraded outcome instead of paying for an embed round-trip that
+ * {@link embedWithBackend} would only reject on its dimension assertion. The
+ * write path keeps that assertion as the correctness backstop.
+ *
+ * Returns `false` when memory is degraded for any of these reasons:
+ *   - no backend is configured/selectable (`getMemoryBackendStatus().degraded`);
+ *   - the selected backend is unreachable (its probe `embed` throws);
+ *   - the selected backend's output dimension differs from the committed one.
+ *
+ * The selected backend's output dimension is not statically known from
+ * provider/model alone, so it is measured with a fixed-string probe and
+ * memoized per (provider, model) — steady-state calls resolve from
+ * {@link backendDimCache} without a backend round-trip.
+ */
+export async function isEmbeddingDimensionAvailable(
+  config: AssistantConfig,
+): Promise<boolean> {
+  const status = await getMemoryBackendStatus(config);
+  if (status.degraded || !status.provider) return false;
+
+  const { backend } = await selectEmbeddingBackend(config);
+  if (!backend) return false;
+
+  // Probe the exact backend chain `embedWithBackend` would try (primary +
+  // auto-mode fallbacks + the managed→direct Gemini fallback) via the shared
+  // assembler, so this preflight can never be more pessimistic than the real
+  // embed path. Dense recall stays available if ANY backend in the chain
+  // produces the committed dimension. `resolveBackendDimension` memoizes per
+  // provider:model, so each backend is probed at most once.
+  const expected = config.memory.qdrant.vectorSize;
+  for (const candidate of await assembleEmbeddingBackends(config, backend)) {
+    if ((await resolveBackendDimension(candidate)) === expected) return true;
+  }
+  return false;
+}
+
+/**
+ * Resolve a backend's output dimension, probing once and memoizing the result.
+ * Returns `null` when the probe fails (backend unreachable) so the caller can
+ * treat the lane as degraded.
+ *
+ * The single source of truth for backend-dimension measurement: the per-query
+ * availability check ({@link isEmbeddingDimensionAvailable}) and the startup
+ * reconcile probe both resolve through here, so they share one memoization and
+ * cannot disagree.
+ */
+export async function resolveBackendDimension(
+  backend: EmbeddingBackend,
+): Promise<number | null> {
+  const key = `${backend.provider}:${backend.model}`;
+  const cached = backendDimCache.get(key);
+  if (cached != null) return cached;
+
+  // Respect the embedding billing breaker: once a 402 opens it,
+  // `embedWithBackend` fail-fasts, so probing here would only burn provider
+  // requests that cannot succeed (failed probes are not cached, so every read
+  // lane calling this would re-probe). Treat an open breaker as "unknown".
+  if (isEmbeddingBillingBreakerOpen()) return null;
+
+  try {
+    const [vector] = await backend.embed([EMBEDDING_DIMENSION_PROBE_TEXT]);
+    const dim = vector?.length;
+    if (dim == null) return null;
+    backendDimCache.set(key, dim);
+    return dim;
+  } catch (err) {
+    // A 402 means billing is depleted — trip the breaker so sibling probes and
+    // embeds stop hammering the provider, mirroring `embedWithBackend`.
+    if (extractHttpStatus(err) === 402) recordBillingBlock();
+    log.warn(
+      { err, provider: backend.provider, model: backend.model },
+      "Embedding-dimension availability probe failed; treating as degraded",
+    );
+    return null;
+  }
+}
+
+/**
  * Thrown by {@link embedWithBackend} when no embedding backend is configured or
  * available. This is a PROCESS-WIDE condition (backend selection is effectively
  * cached for the run), so a caller embedding many items should treat the first
@@ -520,6 +611,42 @@ export class EmbeddingBackendUnavailableError extends Error {
     super(message);
     this.name = "EmbeddingBackendUnavailableError";
   }
+}
+
+/**
+ * Assemble the ordered backend chain {@link embedWithBackend} will try for a
+ * given primary selection: the primary, then (in `auto` mode, non-Gemini
+ * primary) the configured fallbacks, then a direct-key Gemini fallback when the
+ * primary is managed-proxy Gemini. This is the single source of truth for the
+ * fallback chain, shared with the dimension-availability preflight
+ * ({@link isEmbeddingDimensionAvailable}) so the preflight cannot diverge from
+ * what the real embed path attempts.
+ */
+async function assembleEmbeddingBackends(
+  config: AssistantConfig,
+  primary: EmbeddingBackend,
+): Promise<EmbeddingBackend[]> {
+  // In auto mode, fall through to all configured backends (excluding the
+  // primary) so e.g. multimodal inputs can reach Gemini even when the primary
+  // is local or openai.
+  const fallbacks: EmbeddingBackend[] =
+    config.memory.embeddings.provider === "auto" &&
+    primary.provider !== "gemini"
+      ? await selectFallbackBackends(config, primary.provider)
+      : [];
+
+  // A managed-proxy Gemini primary can fail at the proxy (e.g. a stale or
+  // revoked platform credential) while a valid direct Gemini key sits in the
+  // credential store. The provider chain above never includes Gemini when
+  // Gemini IS the primary, so without this the direct key would never be tried.
+  if (primary instanceof GeminiEmbeddingBackend && primary.managed) {
+    const geminiKey = await getProviderKeyAsync("gemini");
+    if (geminiKey) {
+      fallbacks.push(getDirectGeminiBackend(config, geminiKey));
+    }
+  }
+
+  return [primary, ...fallbacks];
 }
 
 export async function embedWithBackend(
@@ -546,31 +673,6 @@ export async function embedWithBackend(
 
   const expectedDim = config.memory.qdrant.vectorSize;
   const { provider: primaryProvider, model: primaryModel } = selection.backend;
-
-  // ── Build fallback backends list (needed for embed fallback) ──
-  // In auto mode, build a fallback chain from all configured backends
-  // (excluding the primary). This lets multimodal inputs fall through
-  // to Gemini even when the primary is local or openai.
-  const fallbacks: EmbeddingBackend[] =
-    config.memory.embeddings.provider === "auto" &&
-    selection.backend.provider !== "gemini"
-      ? await selectFallbackBackends(config, selection.backend.provider)
-      : [];
-
-  // A managed-proxy Gemini primary can fail at the proxy (e.g. a stale or
-  // revoked platform credential) while a valid direct Gemini key sits in the
-  // credential store. The provider-level chain above never includes Gemini
-  // when Gemini IS the primary, so without this the direct key would never
-  // be tried and the provider would stay down for the whole process.
-  if (
-    selection.backend instanceof GeminiEmbeddingBackend &&
-    selection.backend.managed
-  ) {
-    const geminiKey = await getProviderKeyAsync("gemini");
-    if (geminiKey) {
-      fallbacks.push(getDirectGeminiBackend(config, geminiKey));
-    }
-  }
 
   // ── Compute provider-specific vector cache extras ───────────────
   const vectorExtras =
@@ -600,7 +702,7 @@ export async function embedWithBackend(
   }
 
   // ── Embed uncached inputs ───────────────────────────────────────
-  const backends: EmbeddingBackend[] = [selection.backend, ...fallbacks];
+  const backends = await assembleEmbeddingBackends(config, selection.backend);
 
   let lastErr: unknown;
   let anyBackendAttempted = false;

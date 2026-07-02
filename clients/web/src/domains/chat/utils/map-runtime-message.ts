@@ -20,9 +20,7 @@ import {
  * The daemon only emits "inline" / "panel" (or omits it); any other value
  * maps to undefined, which the renderer treats as an unset display mode.
  */
-function narrowSurfaceDisplay(
-  display: string | undefined,
-): Surface["display"] {
+function narrowSurfaceDisplay(display: string | undefined): Surface["display"] {
   return display === "inline" || display === "panel" ? display : undefined;
 }
 
@@ -33,9 +31,7 @@ function narrowSurfaceDisplay(
  * surface block through this helper; `mapServerSurfaces` maps the positional
  * `surfaces` array through it.
  */
-export function wireSurfaceToDisplay(
-  s: ConversationMessageSurface,
-): Surface {
+export function wireSurfaceToDisplay(s: ConversationMessageSurface): Surface {
   return {
     surfaceId: s.surfaceId,
     surfaceType: s.surfaceType,
@@ -61,9 +57,7 @@ export function mapServerSurfaces(
  * The daemon sends timestamps as ISO strings in history payloads but as
  * numbers in SSE events; this normalizes both to a consistent number.
  */
-function parseRuntimeTimestamp(
-  ts: unknown,
-): number | undefined {
+function parseRuntimeTimestamp(ts: unknown): number | undefined {
   if (typeof ts === "number") return ts;
   if (typeof ts === "string") {
     const parsed = new Date(ts).getTime();
@@ -125,7 +119,9 @@ function cleanTextSegments(rawSegments: string[] | undefined): {
  * server row reaches reconciliation already display-shaped and the merge runs
  * `DisplayMessage → DisplayMessage`.
  */
-export function mapRuntimeToDisplayMessage(m: ConversationMessage): DisplayMessage {
+export function mapRuntimeToDisplayMessage(
+  m: ConversationMessage,
+): DisplayMessage {
   const { segments: normalizedSegments, attachments: parsedAttachments } =
     cleanTextSegments(
       m.textSegments && m.textSegments.length > 0 ? m.textSegments : undefined,
@@ -163,6 +159,8 @@ export function mapRuntimeToDisplayMessage(m: ConversationMessage): DisplayMessa
   if (normalizedContentOrder) msg.contentOrder = normalizedContentOrder;
   if (thinkingSegments) msg.thinkingSegments = thinkingSegments;
   if (m.subagentNotification) msg.isSubagentNotification = true;
+  if (m.acpNotification) msg.isAcpNotification = true;
+  if (m.backgroundEventNotification) msg.isBackgroundEventNotification = true;
   if (m.slackMessage) msg.slackMessage = m.slackMessage;
   if (toolCalls) msg.toolCalls = toolCalls;
   if (timestamp != null) msg.timestamp = timestamp;

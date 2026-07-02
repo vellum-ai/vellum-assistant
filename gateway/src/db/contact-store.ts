@@ -1,6 +1,6 @@
 import { type Database } from "bun:sqlite";
 
-import { and, desc, eq, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, ne, sql } from "drizzle-orm";
 
 import {
   type AssistantContactMetadata,
@@ -34,6 +34,15 @@ export const GUARDIAN_BINDING_REVOKE_REASON = "guardian_binding_revoked";
 export type Contact = typeof contacts.$inferSelect;
 export type ContactChannel = typeof contactChannels.$inferSelect;
 export type IngressInviteRow = typeof ingressInvites.$inferSelect;
+
+/**
+ * Sentinel stored in `invite_code_hash` for invites without a 6-digit code
+ * (e.g. voice invites, which carry `voice_code_hash` instead). The column
+ * stays NOT NULL because relaxing it forces a drizzle-push table rebuild that
+ * corrupts existing DBs (see the schema.ts comment); m0009 owns normalization.
+ * Never matches a real lookup — real code hashes are SHA-256 hex.
+ */
+export const NO_INVITE_CODE_HASH = "";
 
 export class ContactStore {
   private injectedDb?: GatewayDb;
@@ -803,11 +812,18 @@ export class ContactStore {
   createInvite(params: {
     id: string;
     sourceChannel: string;
-    inviteCodeHash: string;
+    inviteCodeHash?: string | null;
     contactId: string;
     note?: string | null;
     maxUses?: number;
     expiresAt: number;
+    tokenHash?: string | null;
+    voiceCodeHash?: string | null;
+    voiceCodeDigits?: number | null;
+    expectedExternalUserId?: string | null;
+    friendName?: string | null;
+    guardianName?: string | null;
+    sourceConversationId?: string | null;
   }): IngressInviteRow {
     const now = Date.now();
     return this.db
@@ -815,7 +831,14 @@ export class ContactStore {
       .values({
         id: params.id,
         sourceChannel: params.sourceChannel,
-        inviteCodeHash: params.inviteCodeHash,
+        inviteCodeHash: params.inviteCodeHash ?? NO_INVITE_CODE_HASH,
+        tokenHash: params.tokenHash ?? null,
+        voiceCodeHash: params.voiceCodeHash ?? null,
+        voiceCodeDigits: params.voiceCodeDigits ?? null,
+        expectedExternalUserId: params.expectedExternalUserId ?? null,
+        friendName: params.friendName ?? null,
+        guardianName: params.guardianName ?? null,
+        sourceConversationId: params.sourceConversationId ?? null,
         note: params.note ?? null,
         maxUses: params.maxUses ?? 1,
         useCount: 0,
@@ -861,7 +884,7 @@ export class ContactStore {
     inviteId: string;
     redeemedByExternalUserId?: string | null;
     redeemedByExternalChatId?: string | null;
-  }): { updated: boolean; row: IngressInviteRow | null } {
+  }): { updated: boolean } {
     const now = Date.now();
     // RETURNING lets us tell a gated-out update (no active row matched) from a
     // successful one without depending on the driver's `changes` count.
@@ -881,13 +904,10 @@ export class ContactStore {
           eq(ingressInvites.status, "active"),
         ),
       )
-      .returning()
+      .returning({ id: ingressInvites.id })
       .all();
 
-    return {
-      updated: updated.length > 0,
-      row: updated[0] ?? this.getInviteById(params.inviteId),
-    };
+    return { updated: updated.length > 0 };
   }
 
   getInviteById(inviteId: string): IngressInviteRow | null {
@@ -898,6 +918,111 @@ export class ContactStore {
         .where(eq(ingressInvites.id, inviteId))
         .get() ?? null
     );
+  }
+
+  /**
+   * Find an invite by its link-token hash, regardless of status. Token hashes
+   * are 256-bit and globally unique, so no channel scoping is needed; callers
+   * inspect status/expiry themselves to produce precise error messaging.
+   */
+  findInviteByTokenHash(tokenHash: string): IngressInviteRow | null {
+    return (
+      this.db
+        .select()
+        .from(ingressInvites)
+        .where(eq(ingressInvites.tokenHash, tokenHash))
+        .get() ?? null
+    );
+  }
+
+  /**
+   * Find an active invite by its 6-digit invite code hash, scoped to a
+   * specific source channel. Channel scoping is required because 6-digit
+   * codes are drawn from a small keyspace and can collide across channels —
+   * without it, `.get()` could return an arbitrary match, leading to
+   * nondeterministic redemption or false channel-mismatch failures.
+   */
+  findInviteByCodeHash(
+    codeHash: string,
+    sourceChannel: string,
+  ): IngressInviteRow | null {
+    if (codeHash === NO_INVITE_CODE_HASH) return null;
+    return (
+      this.db
+        .select()
+        .from(ingressInvites)
+        .where(
+          and(
+            eq(ingressInvites.inviteCodeHash, codeHash),
+            eq(ingressInvites.sourceChannel, sourceChannel),
+            eq(ingressInvites.status, "active"),
+          ),
+        )
+        .get() ?? null
+    );
+  }
+
+  /**
+   * Find an active, not-yet-expired invite by its 6-digit invite code hash
+   * without channel scoping. Used as a fallback after a channel-scoped lookup
+   * fails, to distinguish "code doesn't exist" from "code exists but for a
+   * different channel" — the latter should produce channel-mismatch messaging
+   * instead of silently falling through.
+   */
+  findInviteByCodeHashAnyChannel(codeHash: string): IngressInviteRow | null {
+    if (codeHash === NO_INVITE_CODE_HASH) return null;
+    return (
+      this.db
+        .select()
+        .from(ingressInvites)
+        .where(
+          and(
+            eq(ingressInvites.inviteCodeHash, codeHash),
+            eq(ingressInvites.status, "active"),
+            gt(ingressInvites.expiresAt, Date.now()),
+          ),
+        )
+        .get() ?? null
+    );
+  }
+
+  /**
+   * Find all active voice invites bound to a specific caller identity.
+   * Used by the voice invite redemption flow to locate candidate invites
+   * before code hash matching.
+   */
+  findActiveVoiceInvites(expectedExternalUserId: string): IngressInviteRow[] {
+    return this.db
+      .select()
+      .from(ingressInvites)
+      .where(
+        and(
+          eq(ingressInvites.sourceChannel, "phone"),
+          eq(ingressInvites.status, "active"),
+          eq(ingressInvites.expectedExternalUserId, expectedExternalUserId),
+        ),
+      )
+      .all();
+  }
+
+  /**
+   * Transition an invite's status to 'expired'. Safe to call on an already
+   * expired/revoked/redeemed invite — the WHERE clause scopes the update to
+   * 'active' rows so it becomes a no-op (returns false) in that case.
+   */
+  markInviteExpired(inviteId: string): boolean {
+    const updated = this.db
+      .update(ingressInvites)
+      .set({ status: "expired", updatedAt: Date.now() })
+      .where(
+        and(
+          eq(ingressInvites.id, inviteId),
+          eq(ingressInvites.status, "active"),
+        ),
+      )
+      .returning({ id: ingressInvites.id })
+      .all();
+    return updated.length > 0;
   }
 
   // ---------------------------------------------------------------------------

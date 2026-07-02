@@ -219,14 +219,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "meet",
-      "scope": "assistant",
-      "key": "meet",
-      "label": "Google Meet",
-      "description": "Enables the Google Meet joining bot and the meet-join skill.",
-      "defaultEnabled": false
-    },
-    {
       "id": "scroll-debug-overlay",
       "scope": "client",
       "key": "scroll-debug-overlay",
@@ -363,6 +355,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "memory-v3-injection-gate",
+      "scope": "assistant",
+      "key": "memory-v3-injection-gate",
+      "label": "Memory v3 injection gate",
+      "description": "Per-turn injection gate for memory v3: after the BM25F needle + dense cosine finder lanes run, skip the selectPool LLM call (inject nothing) when finder-lane scores fall below the configured thresholds (memory.v3.gate). Default off.",
+      "defaultEnabled": false
+    },
+    {
       "id": "self-intro-greeting",
       "scope": "both",
       "key": "self-intro-greeting",
@@ -376,6 +376,14 @@
       "key": "research-onboarding",
       "label": "Research onboarding (spike)",
       "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. Off by default; enable locally via the feature-flags panel.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "personality-onboarding",
+      "scope": "client",
+      "key": "personality-onboarding",
+      "label": "Personality onboarding step (spike)",
+      "description": "Spike: show the \"Create my personality\" trait-slider step in the research-onboarding flow (between the pitch and the integration step). On continue it applies the sliders to the assistant's persona on a throwaway side conversation. When off, the step is skipped entirely. Off by default; enable locally via the feature-flags panel.",
       "defaultEnabled": false
     },
     {

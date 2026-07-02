@@ -7,6 +7,7 @@ import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { createStreamTimeout } from "../stream-timeout.js";
+import { createToolProgressEmitter } from "../tool-progress-events.js";
 import type {
   ContentBlock,
   Message,
@@ -462,6 +463,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         number,
         { id: string; name: string; args: string }
       >();
+      const toolProgress = createToolProgressEmitter(onEvent);
       let finishReason = "unknown";
       let responseModel = modelOverride ?? this.model;
       let promptTokens = 0;
@@ -551,7 +553,15 @@ export class OpenAIChatCompletionsProvider implements Provider {
                 const entry = toolCallMap.get(tc.index)!;
                 if (tc.id) entry.id = tc.id;
                 if (tc.function?.name) entry.name += tc.function.name;
-                if (tc.function?.arguments) entry.args += tc.function.arguments;
+                toolProgress.emitPreviewStart(entry.id, entry.name);
+                if (tc.function?.arguments) {
+                  entry.args += tc.function.arguments;
+                  toolProgress.emitInputJsonDelta(
+                    entry.id,
+                    entry.name,
+                    entry.args,
+                  );
+                }
               }
             }
 
@@ -606,6 +616,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
         content.push({ type: "text", text: finalContent });
       }
       for (const [, tc] of toolCallMap) {
+        toolProgress.emitInputJsonDelta(tc.id, tc.name, tc.args, {
+          force: true,
+        });
         let input: Record<string, unknown>;
         try {
           input = JSON.parse(tc.args);

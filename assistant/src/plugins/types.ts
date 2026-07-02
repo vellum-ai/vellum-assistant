@@ -18,12 +18,13 @@ import type {
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import type { JobHandler } from "../persistence/jobs-worker.js";
 import type { HookFunction } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
+import type { ConversationGraphMemory } from "./defaults/memory/graph/conversation-graph-memory.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
 
@@ -48,13 +49,6 @@ export interface PluginManifest {
    */
   version: string;
   /**
-   * Assistant feature-flag keys that must all be enabled for this plugin to
-   * activate. Checked by `bootstrapPlugins` via `isAssistantFeatureFlagEnabled`
-   * — if any listed flag is disabled, the plugin is skipped entirely for the
-   * boot (no `init()`, no tool/route/skill contributions, no shutdown hook).
-   */
-  requiresFlag?: string[];
-  /**
    * Zod-compatible validator (or any parser-like object) for the plugin's
    * config block under `plugins.<name>`. Typed as `unknown` here — concrete
    * validators land in M2/M3 PRs.
@@ -70,6 +64,7 @@ export type {
   HookFunction,
   InitContext,
   ShutdownContext,
+  ShutdownReason,
 } from "../plugin-api/types.js";
 
 // ─── Memory-graph result ─────────────────────────────────────────────────────
@@ -142,6 +137,13 @@ export interface TurnContext {
   readonly timestamp?: string;
   /** Human-readable interface label (e.g. "vellum", "telegram"). */
   readonly interfaceName?: string;
+  /**
+   * Client OS surface ("web" | "ios" | "macos"), reported independently of
+   * the transport interface. Rendered as the `client_os:` line so the model
+   * knows the platform even though the web/iOS/macOS apps share one `"web"`
+   * transport interface.
+   */
+  readonly clientOs?: string;
   /** Channel label gating response-discretion guidance in `<turn_context>`. */
   readonly channelName?: string;
   /**
@@ -333,6 +335,22 @@ export interface Injector {
  */
 export type PluginRouteRegistration = SkillRoute;
 
+/**
+ * A single background-job-handler contribution: a job `type` string paired with
+ * the {@link JobHandler} that processes it. Plugins contribute these via the
+ * `jobHandlers` field; bootstrap registers them into the global job-handler
+ * registry, and the general job worker's registration entry
+ * (`jobs/register-job-handlers.ts`) forwards the union into the worker dispatch
+ * table. `type` must be globally unique across every plugin — dispatch is a
+ * keyed lookup. See `plugins/job-handler-registry.ts`.
+ */
+export interface JobHandlerEntry {
+  /** The job-queue type string this handler processes (globally unique). */
+  type: string;
+  /** Processes one claimed job of `type`. */
+  handler: JobHandler;
+}
+
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 /**
@@ -383,6 +401,15 @@ export interface Plugin {
    * injectors sharing an `order`. See `plugins/injector-registry.ts`.
    */
   injectors?: readonly Injector[];
+  /**
+   * Background-job handlers contributed to the general job worker. Bootstrap
+   * registers these into the global job-handler registry before `init()` runs,
+   * symmetric with `tools`/`routes`/`injectors`; the general worker's
+   * registration entry (`jobs/register-job-handlers.ts`) forwards the union into
+   * the worker dispatch table. Each `type` must be globally unique across every
+   * plugin. See `plugins/job-handler-registry.ts`.
+   */
+  jobHandlers?: readonly JobHandlerEntry[];
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────

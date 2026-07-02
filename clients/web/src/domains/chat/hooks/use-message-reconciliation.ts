@@ -2,7 +2,7 @@ import { useCallback, useLayoutEffect, useRef } from "react";
 
 import * as Sentry from "@sentry/react";
 
-import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
@@ -12,8 +12,8 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { mapRuntimeToDisplayMessage } from "@/domains/chat/utils/map-runtime-message";
 import { selectTranscriptMessages } from "@/domains/chat/transcript/select-transcript-messages";
-import { mergeAdjacentAssistantMessages } from "@/domains/chat/utils/message-merge";
 import { conversationHistoryQueryKey } from "@/domains/chat/transcript/use-history-pagination";
+import { patchConversation } from "@/utils/conversation-cache";
 import {
   serverHasAssistantProgress,
   serverSnapshotHasNewContent,
@@ -24,15 +24,12 @@ import {
   RECONCILE_LATEST_PAGE_LIMIT,
 } from "@/domains/chat/api/messages";
 import type { ConversationMessage } from "@vellumai/assistant-api";
-import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import { useConversationStore } from "@/stores/conversation-store";
 import { endTurn } from "@/domains/chat/turn-coordinator";
 
 const RECONCILE_DELAY_MS = 5000;
 const RECONCILE_MAX_MS = 60_000;
 const RECONCILE_STABLE_COUNT = 2;
-
-type HistoryCache = InfiniteData<PaginatedHistoryResult>;
 
 interface UseMessageReconciliationArgs {
   latestPageOldestTimestamp: number | null;
@@ -86,37 +83,20 @@ export function useMessageReconciliation({
     }
   }, []);
 
-  // The transcript the user currently sees: cached history ⊕ the in-flight turn.
-  const currentLocalView = useCallback(
-    (conversationId: string): DisplayMessage[] => {
-      const assistantId =
-        useStreamStore.getState().streamContext?.assistantId ?? null;
-      const cached = assistantId
-        ? queryClient.getQueryData<HistoryCache>(
-            conversationHistoryQueryKey(assistantId, conversationId),
-          )
-        : undefined;
-      // pages[0] is the latest page; flatten oldest-first AND fold adjacent
-      // page-boundary assistant rows exactly as the transcript does, so a
-      // straddling answer isn't seen as "new server content" on every poll.
-      const history = cached
-        ? mergeAdjacentAssistantMessages(
-            [...cached.pages].reverse().flatMap((page) => page.messages),
-          )
-        : [];
-      return selectTranscriptMessages(
-        history,
-        useChatSessionStore.getState().liveTurn,
-      );
-    },
-    [queryClient],
-  );
+  // The transcript the user currently sees: the materialized snapshot overlaid
+  // with the client's optimistic sends — the same union `useTranscriptMessages`
+  // renders. Compared against the server snapshot to detect missed content.
+  const currentLocalView = useCallback((): DisplayMessage[] => {
+    const { snapshot, optimisticSends } = useChatSessionStore.getState();
+    return selectTranscriptMessages(snapshot?.messages ?? [], optimisticSends);
+  }, []);
 
   const reconcileFromServerDetailed = useCallback(
     (
       serverMessages: ConversationMessage[],
       conversationId: string,
       serverSeq: number | null,
+      serverProcessing: boolean | undefined,
       authoritative = false,
     ): {
       changed: boolean;
@@ -131,7 +111,7 @@ export function useMessageReconciliation({
       // Advance the local seq frontier — we've observed this server snapshot.
       recordLocalSeq(conversationId, serverSeq);
 
-      const localView = currentLocalView(conversationId);
+      const localView = currentLocalView();
       const serverView = serverMessages.map(mapRuntimeToDisplayMessage);
       const assistantProgress = serverHasAssistantProgress(
         localView,
@@ -154,17 +134,51 @@ export function useMessageReconciliation({
         0,
       );
 
+      // Adopt the daemon's authoritative `processing` flag when it reports the
+      // conversation idle but our rolling snapshot still shows it processing.
+      // This is the sole path that samples the flag independently of the SSE
+      // stream, so it's the only place that learns a turn ended when the
+      // terminal event (`message_complete` / `assistant_activity_state(idle)`)
+      // was dropped on a disconnect. Propagating it lets the existing
+      // authoritative CLOSE-gate in `shouldShowThinkingIndicator` /
+      // `canStopGeneration` (`snapshotProcessing === false`) settle the turn —
+      // no client-side stuck-turn heuristic. `undefined` (older daemons) does
+      // nothing, preserving prior behavior.
+      const localSnapshotProcessing =
+        useChatSessionStore.getState().snapshot?.processing;
+      const serverClearedProcessing =
+        serverProcessing === false && localSnapshotProcessing === true;
+
       // Refresh the single source — history flows into the query cache and the
       // transcript (its union with the live turn) re-renders. No client-side
-      // merge: the server snapshot is authoritative for persisted history.
-      if (changed || authoritative) {
+      // merge: the server snapshot is authoritative for persisted history. A
+      // reseed also carries the fresh `processing: false` onto the snapshot, so
+      // a server-cleared turn reconciles through the same path as new content.
+      if (changed || authoritative || serverClearedProcessing) {
         const assistantId =
           useStreamStore.getState().streamContext?.assistantId ?? null;
         if (assistantId) {
           void queryClient.invalidateQueries({
             queryKey: conversationHistoryQueryKey(assistantId, conversationId),
           });
+          if (serverClearedProcessing) {
+            // Mirror the terminal handlers' cache patch so the conversation-row
+            // half of the processing state (sidebar dot, `activeConversation
+            // ?.isProcessing`) can't stay latched `true` after the server has
+            // gone idle. See `handleMessageComplete`.
+            patchConversation(queryClient, assistantId, conversationId, {
+              isProcessing: false,
+            });
+          }
         }
+      }
+
+      if (serverClearedProcessing) {
+        recordDiagnostic("reconciliation_processing_cleared", {
+          conversationId,
+          changed,
+          assistantProgress,
+        });
       }
 
       recordDiagnostic("reconciliation_applied", {
@@ -172,6 +186,7 @@ export function useMessageReconciliation({
         assistantProgress,
         messagesAdded,
         authoritative,
+        serverProcessing,
         oldestPageTimestamp: initialPageOldestTsRef.current,
         server: summarizeRuntimeMessages(serverMessages),
       });
@@ -187,8 +202,12 @@ export function useMessageReconciliation({
       conversationId: string,
       serverSeq: number | null,
     ): boolean =>
-      reconcileFromServerDetailed(serverMessages, conversationId, serverSeq)
-        .changed,
+      reconcileFromServerDetailed(
+        serverMessages,
+        conversationId,
+        serverSeq,
+        undefined,
+      ).changed,
     [reconcileFromServerDetailed],
   );
 
@@ -198,6 +217,7 @@ export function useMessageReconciliation({
       snapshotTurnId: string | null,
       snapshotConversationId: string,
       serverSeq: number | null,
+      serverProcessing: boolean | undefined,
       authoritative = false,
     ): ReconcileActiveConversationResult => {
       const { changed, assistantProgress, messagesAdded } =
@@ -205,6 +225,7 @@ export function useMessageReconciliation({
           serverMessages,
           snapshotConversationId,
           serverSeq,
+          serverProcessing,
           authoritative,
         );
 
@@ -224,12 +245,12 @@ export function useMessageReconciliation({
       //   - Same turn id we snapshotted at fetch time, and the store
       //     still says we're sending.
       //
-      // Trade-off: in the (rare) case where SSE missed `message_complete`
-      // but the server's persisted view exactly matches what local
-      // already rendered, this rescue cannot fire. The user would need
-      // to reload — but that scenario is also genuinely indistinguishable
-      // from "live mid-stream paused between deltas", so the safe call
-      // is to never auto-idle without positive structural evidence.
+      // The case where SSE missed the terminal event but the server's
+      // persisted view already matches what local rendered (`changed`
+      // false) is handled separately, upstream: `reconcileFromServerDetailed`
+      // adopts the server's `processing: false` onto the snapshot, and the
+      // `snapshotProcessing` CLOSE-gate in `shouldShowThinkingIndicator`
+      // settles the indicator without a content diff.
       const wasStuck =
         changed &&
         assistantProgress &&
@@ -319,11 +340,13 @@ export function useMessageReconciliation({
             if (epoch !== useStreamStore.getState().streamEpoch) return;
             const serverMessages = snapshot?.messages ?? [];
             const serverSeq = snapshot?.seq ?? null;
+            const serverProcessing = snapshot?.processing;
             recordDiagnostic("reconciliation_fetch", {
               assistantId: ctx.assistantId,
               conversationId: ctx.conversationId,
               epoch,
               stableCount,
+              serverProcessing,
               server: summarizeRuntimeMessages(serverMessages),
             });
 
@@ -332,6 +355,7 @@ export function useMessageReconciliation({
               snapshotTurnId,
               ctx.conversationId,
               serverSeq,
+              serverProcessing,
             );
             if (changed) {
               stableCount = 0;
@@ -415,6 +439,7 @@ export function useMessageReconciliation({
         );
         const serverMessages = snapshot?.messages ?? [];
         const serverSeq = snapshot?.seq ?? null;
+        const serverProcessing = snapshot?.processing;
         if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.
@@ -423,6 +448,7 @@ export function useMessageReconciliation({
           assistantId: ctx.assistantId,
           conversationId: ctx.conversationId,
           epoch: snapshotEpoch,
+          serverProcessing,
           server: summarizeRuntimeMessages(serverMessages),
         });
         return reconcileFetchedMessages(
@@ -430,6 +456,7 @@ export function useMessageReconciliation({
           snapshotTurnId,
           ctx.conversationId,
           serverSeq,
+          serverProcessing,
           authoritative,
         );
       } catch (err) {

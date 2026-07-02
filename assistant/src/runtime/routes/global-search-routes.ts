@@ -12,13 +12,13 @@ import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
 import { searchContacts } from "../../contacts/contact-store.js";
-import { semanticSearch } from "../../memory/search/semantic.js";
 import { searchConversations } from "../../persistence/conversation-queries.js";
 import {
   embedWithBackend,
   getMemoryBackendStatus,
 } from "../../persistence/embeddings/embedding-backend.js";
 import { rawAll } from "../../persistence/raw-query.js";
+import { semanticSearch } from "../../plugins/defaults/memory/search/semantic.js";
 import { listSchedules } from "../../schedule/schedule-store.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -112,6 +112,7 @@ function searchMemoryItems(query: string, limit: number): GlobalSearchMemory[] {
   }
 
   const rows = rawAll<MemoryRow>(
+    "globalSearch:searchMemoryItems",
     `SELECT id, type, content, confidence, last_accessed
      FROM memory_graph_nodes
      WHERE content LIKE ? AND fidelity != 'gone'
@@ -223,7 +224,7 @@ async function handleGlobalSearch({
   };
 
   if (categories.has("conversations")) {
-    const convResults = searchConversations(query, {
+    const convResults = await searchConversations(query, {
       limit,
       maxMessagesPerConversation: 1,
     });

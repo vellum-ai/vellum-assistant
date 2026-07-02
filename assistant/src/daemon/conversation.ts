@@ -45,8 +45,6 @@ import {
   ToolProfiler,
 } from "../events/tool-profiling-listener.js";
 import { registerToolTraceListener } from "../events/tool-trace-listener.js";
-import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -54,10 +52,12 @@ import {
   getConversation,
   getMessages,
   resolveOverrideProfile,
+  setConversationEnabledPlugins,
   setConversationHistoryStrippedAt,
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
+import { reportSlowSync } from "../persistence/slow-sync-log.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import {
   createContextWindowManager,
@@ -69,6 +69,11 @@ import {
   createContextSummaryMessage,
 } from "../plugins/defaults/compaction/window-manager.js";
 import { repairHistory } from "../plugins/defaults/history-repair/terminal.js";
+import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import {
+  unwrapMemoryBlock,
+  wrapMemoryBlock,
+} from "../plugins/defaults/memory/memory-marker.js";
 import {
   getPrunedSlugs,
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
@@ -157,6 +162,7 @@ import type {
 import {
   createResolveToolsCallback,
   createToolExecutor,
+  getEffectiveEnabledPluginSet,
 } from "./conversation-tool-setup.js";
 import { canonicalizeTimeZone } from "./date-context.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
@@ -326,6 +332,16 @@ export class Conversation {
   inferenceProfile: string | null = null;
   /** @internal */ inferenceProfileSessionId: string | null = null;
   /** @internal */ inferenceProfileExpiresAt: number | null = null;
+  /**
+   * Per-conversation plugin scope mirrored from the DB row. `null` means no
+   * per-chat restriction (all globally-enabled plugins apply). Hydrated on load
+   * and kept in sync by {@link setEnabledPlugins}, which also persists the value
+   * back to the row, so the live instance is the source of truth; later
+   * tool/skill/hook filters intersect their candidate set against this via
+   * `getEffectiveEnabledPluginSet`.
+   * @internal
+   */
+  enabledPlugins: string[] | null = null;
   /** @internal */ currentRequestId?: string;
   /**
    * The {@link LLMCallSite} of the in-flight turn, set at turn start from
@@ -389,6 +405,7 @@ export class Conversation {
   wakePersonaOverride?: SystemPromptPersonaOverride;
   /** @internal */ currentTurnOverrideProfile?: string;
   /** @internal */ currentTurnIsNonInteractive?: boolean;
+  /** @internal */ currentTurnModelProfileNoticeKey?: string;
   /** @internal */ currentTurnRequestOrigin?: string;
   /** @internal */ authContext?: AuthContext;
   /** @internal */ currentTurnAuthContext?: AuthContext;
@@ -528,6 +545,25 @@ export class Conversation {
    */
   hostUsername?: string;
   /** @internal */ clientTimezone?: string;
+  /**
+   * @internal
+   * The client's OS surface ("web" | "ios" | "macos"), reported separately
+   * from the transport `interfaceId` so the assistant's per-turn context can
+   * show the real platform without affecting host-proxy/transport gating.
+   * This is the LIVE value (re-applied from transport on every inbound
+   * message); the assembly reads the frozen {@link currentTurnClientOs}.
+   */
+  clientOs?: string;
+  /**
+   * Per-turn frozen copy of {@link clientOs}, captured by the agent loop at
+   * turn start (like {@link currentTurnTemporalSnapshot}). The assembly reads
+   * THIS rather than the live `clientOs` so a newer message from a different
+   * OS surface — which re-applies transport metadata via
+   * `getOrCreateConversation` before it is enqueued — cannot leak its
+   * `client_os` into the in-flight turn's prompt.
+   * @internal
+   */
+  currentTurnClientOs?: string;
   /**
    * Per-turn temporal snapshot frozen by the agent loop and read by
    * `applyRuntimeInjections` to build the `<turn_context>` timezone-mismatch
@@ -728,6 +764,9 @@ export class Conversation {
           conv.createdAt,
         );
       },
+      // Read the live per-chat plugin scope each gather so a mid-conversation
+      // selection change applies on the next turn's lifecycle hooks.
+      resolveEffectiveEnabledPlugins: () => getEffectiveEnabledPluginSet(this),
     });
     createContextWindowManager({
       provider,
@@ -814,6 +853,32 @@ export class Conversation {
         });
   }
 
+  /**
+   * Re-resolve the system prompt for the current turn's persona context and
+   * push it into the agent loop when it changed. The loop snapshots its prompt
+   * at construction and reuses it every turn; flows that bind persona context
+   * after construction — a voice call resolves the caller's trust only after
+   * the conversation is created — would otherwise stay pinned to the
+   * construction-time persona (the guardian, or `users/default.md`) for the
+   * whole conversation.
+   *
+   * Pushing only when the rebuilt prompt actually differs keeps the provider's
+   * prefix cache intact for the common case (a stable-identity conversation
+   * rebuilds to the same bytes, so no update is sent). A system-prompt override
+   * resolves verbatim via {@link buildCurrentSystemPrompt}, so override
+   * conversations (subagent forks, stored overrides) are inherently a no-op.
+   *
+   * Called by the turn runner before `agentLoop.run()`, once the turn's
+   * persona snapshots ({@link currentTurnTrustContext},
+   * {@link currentTurnChannelCapabilities}) are set.
+   */
+  syncLoopSystemPrompt(): void {
+    const next = this.buildCurrentSystemPrompt();
+    if (next === this.systemPrompt) return;
+    this.systemPrompt = next;
+    this.agentLoop.setSystemPrompt(next);
+  }
+
   // ── Prompt Cache Warming ─────────────────────────────────────────
 
   /**
@@ -864,6 +929,7 @@ export class Conversation {
   // ── Lifecycle ────────────────────────────────────────────────────
 
   async loadFromDb(): Promise<void> {
+    const loadStartedAt = performance.now();
     const trustClass = this.trustContext?.trustClass;
     const canAccessMemory = resolveCapabilities(trustClass).canAccessMemory;
     const allDbMessages = getMessages(this.conversationId);
@@ -898,6 +964,7 @@ export class Conversation {
     this.inferenceProfile = conv?.inferenceProfile ?? null;
     this.inferenceProfileSessionId = conv?.inferenceProfileSessionId ?? null;
     this.inferenceProfileExpiresAt = conv?.inferenceProfileExpiresAt ?? null;
+    this.enabledPlugins = conv?.enabledPlugins ?? null;
     this.contextCompactedMessageCount = Math.max(
       0,
       conv?.contextCompactedMessageCount ?? 0,
@@ -1197,10 +1264,22 @@ export class Conversation {
     this.loadedHistoryTrustClass = trustClass;
     this.loadedHistoryPersonalMemoryAllowed = personalMemoryAllowed;
 
+    const loadElapsedMs = performance.now() - loadStartedAt;
     log.info(
-      { conversationId: this.conversationId, count: this.messages.length },
+      {
+        conversationId: this.conversationId,
+        count: this.messages.length,
+        elapsedMs: loadElapsedMs,
+      },
       "Loaded messages from DB",
     );
+    // Whole read+parse+repair section — attributes an event-loop freeze to
+    // this conversation load (getMessages times the read alone; the delta is
+    // parse/repair CPU). See slow-sync-log / event-loop-watchdog.
+    reportSlowSync("conversation:load-from-db", loadElapsedMs, {
+      conversationId: this.conversationId,
+      messageCount: this.messages.length,
+    });
 
     this.restoreSurfaceStateFromHistory();
     this.graphMemory.restoreState();
@@ -1299,6 +1378,20 @@ export class Conversation {
 
   setSubagentAllowedTools(tools: Set<string> | undefined): void {
     this.subagentAllowedTools = tools;
+  }
+
+  /**
+   * Set the conversation's per-chat plugin scope, updating both the persisted
+   * `enabled_plugins` row and the live instance (source of truth for the
+   * current turn). `null` clears the per-chat restriction. Callers do not
+   * persist separately.
+   *
+   * Persist first, then mutate the live instance: if the write throws, the
+   * live scope is left untouched rather than diverging from the row.
+   */
+  setEnabledPlugins(plugins: string[] | null): void {
+    setConversationEnabledPlugins(this.conversationId, plugins);
+    this.enabledPlugins = plugins;
   }
 
   setIsSubagent(value: boolean): void {
@@ -1949,6 +2042,10 @@ export class Conversation {
       canonicalizeTimeZone(transport.clientTimezone) ?? undefined;
   }
 
+  applyClientOsFromTransport(transport: ConversationTransportMetadata): void {
+    this.clientOs = transport.clientOs ?? undefined;
+  }
+
   setAssistantId(assistantId: string | null): void {
     this.assistantId = assistantId ?? undefined;
   }
@@ -2020,6 +2117,8 @@ export class Conversation {
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
+      /** See {@link runAgentLoopImpl} — hidden machine-signal turn marker. */
+      isHiddenPrompt?: boolean;
       callSite?: LLMCallSite;
       /**
        * Optional ad-hoc inference-profile override applied to every LLM call

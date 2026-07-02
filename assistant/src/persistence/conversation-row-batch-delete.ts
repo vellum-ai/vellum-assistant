@@ -45,12 +45,16 @@ import {
 /**
  * Default batch size for the chunked delete. Each batch is one `DELETE` that
  * auto-commits, so this bounds how long the subprocess holds the write lock
- * before releasing it to in-process writers. Kept small so the worst-case wait
- * for a contending foreground write is one short batch, even on a bloated
- * database; per-batch statement overhead stays negligible and delete latency
- * doesn't matter (nobody waits on a background GC).
+ * before releasing it to in-process writers; the worst-case wait for a
+ * contending foreground write is one batch, and delete latency doesn't matter
+ * (nobody waits on a background GC).
+ *
+ * A deleted row costs a plain b-tree delete plus any FK cascade deletes —
+ * cheap and roughly proportional to the row count, with no per-row trigger
+ * work — so a batch this size still holds the lock only briefly while
+ * amortizing the per-batch subprocess spawn cost.
  */
-export const DEFAULT_DELETE_BATCH_SIZE = 50;
+export const DEFAULT_DELETE_BATCH_SIZE = 200;
 
 /**
  * Pause inserted between batch subprocess calls. Without it the delete releases

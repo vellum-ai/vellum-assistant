@@ -167,6 +167,29 @@ describe("image-fallback user-prompt-submit hook", () => {
     expect(ctx.latestMessages[0].content[0].type).toBe("image");
   });
 
+  test("uses the model id fallback when no named profile exists", async () => {
+    mockProfiles = [];
+    const messages = [imageMsg()];
+    const ctx = makeCtx({
+      latestMessages: messages,
+      modelProfileKey: "text-only-model",
+    });
+    await userPromptSubmit(ctx);
+    expect(ctx.latestMessages[0].content[0].type).toBe("text");
+  });
+
+  test("leaves images alone when the profileless model id supports vision", async () => {
+    mockProfiles = [];
+    visionModels = new Set(["vision-model"]);
+    const messages = [imageMsg()];
+    const ctx = makeCtx({
+      latestMessages: messages,
+      modelProfileKey: "vision-model",
+    });
+    await userPromptSubmit(ctx);
+    expect(ctx.latestMessages[0].content[0].type).toBe("image");
+  });
+
   test("does not gate on isNonInteractive — captions even for background runs", async () => {
     const messages = [imageMsg()];
     const ctx = makeCtx({ latestMessages: messages, isNonInteractive: true });
@@ -316,15 +339,6 @@ describe("image-fallback user-prompt-submit hook", () => {
     expect((ctx.latestMessages[2].content[1] as { text: string }).text).toBe(
       "both?",
     );
-  });
-
-  test("resolves active profile via isActive when modelProfileKey is null", async () => {
-    const messages = [imageMsg()];
-    const ctx = makeCtx({ latestMessages: messages, modelProfileKey: null });
-    await userPromptSubmit(ctx);
-    // The active profile is "text-only" (isActive: true), which doesn't support
-    // vision, so images should be captioned.
-    expect(ctx.latestMessages[0].content[0].type).toBe("text");
   });
 });
 

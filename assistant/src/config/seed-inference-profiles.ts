@@ -58,8 +58,8 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
     thinking: { enabled: true, streamThinking: true },
     contextWindow: { maxInputTokens: DEFAULT_CONTEXT_WINDOW_MAX_INPUT_TOKENS },
   },
-  // Served by Anthropic Opus via managed platform inference — the most capable
-  // managed profile. The `quality-optimized` intent resolves to Opus for the
+  // Served by Anthropic via managed platform inference — the most capable
+  // managed profile. The `quality-optimized` intent resolves to Fable for the
   // `anthropic` provider.
   "quality-optimized": {
     intent: "quality-optimized",

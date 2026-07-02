@@ -40,10 +40,6 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-import {
-  invalidateAssistantInferredItemsForConversation,
-  isConversationFailed,
-} from "../memory/task-memory-cleanup.js";
 import { getDb, getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { enqueueMemoryJob } from "../persistence/jobs-store.js";
@@ -57,6 +53,10 @@ import {
   taskRuns,
   tasks,
 } from "../persistence/schema/index.js";
+import {
+  invalidateAssistantInferredItemsForConversation,
+  isConversationFailed,
+} from "../plugins/defaults/memory/task-memory-cleanup.js";
 
 const DEFAULT_EMOTIONAL_CHARGE =
   '{"valence":0,"intensity":0.1,"decayCurve":"linear","decayRate":0.05,"originalIntensity":0.1}';

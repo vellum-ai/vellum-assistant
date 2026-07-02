@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { SkillSource } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { refreshSkillCapabilityMemories } from "../../daemon/skill-memory-refresh.js";
-import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../memory/memory-retrospective-constants.js";
+import { MEMORY_RETROSPECTIVE_ORIGIN } from "../../plugins/defaults/memory/memory-retrospective-constants.js";
 import { readInstallMeta } from "../../skills/install-meta.js";
 import {
   createManagedSkill,
@@ -15,6 +15,42 @@ import type { ToolContext, ToolExecutionResult } from "../types.js";
 /** Strip embedded newlines/carriage returns to prevent YAML frontmatter injection. */
 function sanitizeFrontmatterValue(value: string): string {
   return value.replace(/[\r\n]+/g, " ").trim();
+}
+
+/**
+ * Validate + normalize an optional string-array input (sanitize, drop blanks,
+ * dedupe). Returns `{ error }` on the first invalid element, or `{ value }`
+ * holding the normalized array (undefined when empty). Shared by the
+ * includes / activation_hints / avoid_when inputs so they behave identically.
+ * Each element goes through sanitizeFrontmatterValue: activation_hints /
+ * avoid_when are concatenated verbatim into capability memory text (see
+ * buildSkillContent), so an embedded newline could otherwise smuggle an extra
+ * prompt line into a future turn — collapse control chars the same way
+ * name/description are.
+ */
+function normalizeOptionalStringArray(
+  raw: unknown,
+  field: string,
+): { value?: string[]; error?: string } {
+  if (raw === undefined) return {};
+  if (!Array.isArray(raw)) {
+    return { error: `${field} must be an array of strings` };
+  }
+  const normalized: string[] = [];
+  const seen = new Set<string>();
+  for (const item of raw) {
+    if (typeof item !== "string") {
+      return { error: `each element in ${field} must be a non-empty string` };
+    }
+    const cleaned = sanitizeFrontmatterValue(item);
+    if (!cleaned) {
+      return { error: `each element in ${field} must be a non-empty string` };
+    }
+    if (seen.has(cleaned)) continue;
+    seen.add(cleaned);
+    normalized.push(cleaned);
+  }
+  return { value: normalized.length > 0 ? normalized : undefined };
 }
 
 /**
@@ -63,41 +99,35 @@ export async function executeScaffoldManagedSkill(
     };
   }
 
-  // Validate and normalize includes
-  let includes: string[] | undefined;
-  if (input.includes !== undefined) {
-    if (!Array.isArray(input.includes)) {
-      return {
-        content: "Error: includes must be an array of strings",
-        isError: true,
-      };
-    }
-    for (const item of input.includes) {
-      if (typeof item !== "string") {
-        return {
-          content: "Error: each element in includes must be a non-empty string",
-          isError: true,
-        };
-      }
-      if (!item.trim()) {
-        return {
-          content: "Error: each element in includes must be a non-empty string",
-          isError: true,
-        };
-      }
-    }
-    const normalized: string[] = [];
-    const seen = new Set<string>();
-    for (const item of input.includes as string[]) {
-      const trimmed = item.trim();
-      if (seen.has(trimmed)) continue;
-      seen.add(trimmed);
-      normalized.push(trimmed);
-    }
-    if (normalized.length > 0) {
-      includes = normalized;
-    }
+  // Validate and normalize the optional string-array inputs. `includes` lists
+  // child skill IDs; activation_hints / avoid_when become the skill's
+  // "Use when:" / "Avoid when:" retrieval signal in memory.
+  const includesResult = normalizeOptionalStringArray(
+    input.includes,
+    "includes",
+  );
+  if (includesResult.error) {
+    return { content: `Error: ${includesResult.error}`, isError: true };
   }
+  const includes = includesResult.value;
+
+  const activationHintsResult = normalizeOptionalStringArray(
+    input.activation_hints,
+    "activation_hints",
+  );
+  if (activationHintsResult.error) {
+    return { content: `Error: ${activationHintsResult.error}`, isError: true };
+  }
+  const activationHints = activationHintsResult.value;
+
+  const avoidWhenResult = normalizeOptionalStringArray(
+    input.avoid_when,
+    "avoid_when",
+  );
+  if (avoidWhenResult.error) {
+    return { content: `Error: ${avoidWhenResult.error}`, isError: true };
+  }
+  const avoidWhen = avoidWhenResult.value;
 
   // Validate and normalize companion files
   let files: Array<{ path: string; content: string }> | undefined;
@@ -211,6 +241,8 @@ export async function executeScaffoldManagedSkill(
         : undefined,
     overwrite: input.overwrite === true,
     includes,
+    activationHints,
+    avoidWhen,
     category,
     files,
     author,

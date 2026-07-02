@@ -3,24 +3,24 @@
  *
  * A plugin may declare a `routes` array on its {@link Plugin} shape; after
  * `init()` succeeds, bootstrap wires each entry into the skill-route registry
- * via {@link registerSkillRoute}, retains the opaque {@link SkillRouteHandle}
- * it receives back, and on shutdown calls {@link unregisterSkillRoute} with
- * that exact handle. Handle-keyed unregistration ensures that two
- * owners (e.g. a plugin and a skill) that legitimately register the same
- * regex cannot have one owner's teardown silently evict another owner's
- * route, preserving the "no traffic hits a plugin handler during
- * onShutdown" invariant.
+ * via {@link registerSkillRoute} and retains the opaque {@link SkillRouteHandle}
+ * it receives back. A plugin rolled back after a failed bring-up (or a user
+ * plugin uninstalled/disabled at runtime) is unregistered with that exact handle
+ * via {@link unregisterSkillRoute}. Handle-keyed unregistration ensures that two
+ * owners (e.g. a plugin and a skill) that legitimately register the same regex
+ * cannot have one owner's teardown silently evict another owner's route. At
+ * daemon shutdown the plugins' `shutdown` hooks fire through the unified
+ * `runHook(HOOKS.SHUTDOWN, …)` pipeline (surfaces are not unregistered — the
+ * process is exiting).
  *
  * The registry doesn't own HTTP itself — the tests here exercise:
  *
  *  1. Bootstrap → `registerSkillRoute` → `matchSkillRoute` returns the plugin's
  *     handler, and the handler responds as expected.
- *  2. Shutdown → `unregisterSkillRoute` drops the entry, and subsequent
- *     `matchSkillRoute` lookups return `null`.
- *  3. Plugins without `routes` (or with an empty array) bootstrap cleanly.
- *  4. When two plugins register regex patterns with identical `source+flags`,
- *     each plugin's shutdown only removes its own route — the other plugin's
- *     route stays live until its own teardown runs.
+ *  2. Plugins without `routes` (or with an empty array) bootstrap cleanly.
+ *  3. Handle-keyed unregistration: unregistering one route's handle leaves a
+ *     sibling's identical-pattern route live until its own handle is dropped.
+ *  4. Every contributing plugin's `shutdown` hook fires via `runHook`.
  *
  * `resetPluginRegistryForTests()` isolates plugin-registry state and
  * `resetSkillRoutesForTests()` isolates skill-route-registry state between
@@ -33,7 +33,8 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
-import { runShutdownHooks } from "../daemon/shutdown-registry.js";
+import { HOOKS } from "../plugin-api/constants.js";
+import { runHook } from "../plugins/pipeline.js";
 import {
   registerPlugin,
   resetPluginRegistryForTests,
@@ -41,9 +42,10 @@ import {
 import type { InitContext, Plugin } from "../plugins/types.js";
 import {
   matchSkillRoute,
+  registerSkillRoute,
   resetSkillRoutesForTests,
   type SkillRoute,
-  type SkillRouteMatch,
+  unregisterSkillRoute,
 } from "../runtime/skill-route-registry.js";
 
 // Redirect plugin storage creation into a per-process temp tree so the test
@@ -147,96 +149,59 @@ describe("plugin route contributions", () => {
     expect(await res.text()).toBe("echo");
   });
 
-  test("shutdown unregisters the plugin's routes", async () => {
-    const route: SkillRoute = {
-      pattern: echoPattern,
-      methods: ["GET"],
-      handler: async () => new Response("echo", { status: 200 }),
-    };
-
-    registerPlugin(buildPlugin("echo-plugin", { routes: [route] }));
-
-    await bootstrapPlugins();
-
-    // Sanity: route is live after bootstrap.
-    expect(matchSkillRoute("/_plugin/echo", "GET")).not.toBeNull();
-
-    // Shutdown runs the reverse-order teardown hook registered by bootstrap.
-    await runShutdownHooks("test-shutdown");
-
-    // Route is gone — matchSkillRoute returns null because no pattern
-    // matches the path at all anymore.
-    expect(matchSkillRoute("/_plugin/echo", "GET")).toBeNull();
-  });
-
-  test("plugin with no routes bootstraps and shuts down cleanly", async () => {
+  test("plugin with no routes bootstraps and tears down cleanly", async () => {
     // Declaring no `routes` field is the common case; bootstrap must skip
     // route handling entirely (the guard is `if plugin.routes && length > 0`).
     registerPlugin(buildPlugin("no-routes-plugin", { async init() {} }));
 
     await bootstrapPlugins();
-    await runShutdownHooks("test-shutdown");
+    await runHook(HOOKS.SHUTDOWN, {
+      assistantVersion: "test",
+      reason: "shutdown",
+    });
 
     // Nothing to verify beyond "neither throws" — an empty `routes` must not
     // regress existing no-op bootstrap semantics.
     expect(true).toBe(true);
   });
 
-  test("shutdown tolerates a route whose registry entry was wiped externally", async () => {
-    // Guard against the case where a stale handle no longer points at a live
-    // registry entry (e.g. the registry was cleared externally). The shutdown
-    // hook must not crash — unregisterSkillRoute returns false, and
-    // bootstrap's try/catch around the call swallows the signal. This
-    // exercises the defensive path so a partial-crash recovery still runs
-    // every plugin's onShutdown in reverse order.
-    let shutdownFired = false;
-    registerPlugin(
-      buildPlugin("echo-plugin", {
-        routes: [
-          {
-            pattern: echoPattern,
-            methods: ["GET"],
-            handler: async () => new Response("echo", { status: 200 }),
-          },
-        ],
-        async onShutdown() {
-          shutdownFired = true;
-        },
-      }),
-    );
+  test("unregistering one route handle leaves a sibling's identical-pattern route live", async () => {
+    // Regression for the reviewer-flagged invariant: keying unregistration on
+    // `pattern.source + flags` would let one owner's teardown drop another
+    // owner's route when both declared regex with identical text. The plugin
+    // surface teardown unregisters routes by the opaque handle retained at
+    // registration time (`unregisterSkillRoute(handle)`), so that is the
+    // mechanism keeping sibling routes intact. Exercise it directly: two routes
+    // with byte-identical patterns, drop one handle, and the other must still
+    // match until its own handle is dropped too.
+    const handleA = registerSkillRoute({
+      pattern: /^\/_plugin\/echo$/,
+      methods: ["GET"],
+      handler: async () => new Response("a", { status: 200 }),
+    });
+    const handleB = registerSkillRoute({
+      pattern: /^\/_plugin\/echo$/,
+      methods: ["GET"],
+      handler: async () => new Response("b", { status: 200 }),
+    });
 
-    await bootstrapPlugins();
+    expect(matchSkillRoute("/_plugin/echo", "GET")).not.toBeNull();
 
-    // Simulate an external wipe before the shutdown hook runs — e.g. a
-    // different subsystem calling `resetSkillRoutesForTests` or a hot-reload
-    // flow clearing the registry. The plugin's retained handle is now stale.
-    resetSkillRoutesForTests();
+    // Drop B (reverse-order teardown drops the last-registered owner first).
+    expect(unregisterSkillRoute(handleB)).toBe(true);
+    // A's identical-pattern route must still be live.
+    expect(matchSkillRoute("/_plugin/echo", "GET")).not.toBeNull();
 
-    await runShutdownHooks("test-shutdown");
-
-    // onShutdown still ran despite the stale handle — proving the
-    // route-unregister step does not short-circuit plugin teardown.
-    expect(shutdownFired).toBe(true);
+    // Only once A's own handle is dropped does the route disappear.
+    expect(unregisterSkillRoute(handleA)).toBe(true);
+    expect(matchSkillRoute("/_plugin/echo", "GET")).toBeNull();
   });
 
-  test("shutdown of one plugin does not evict a sibling's same-pattern route", async () => {
-    // Regression for the reviewer-flagged invariant: keying unregistration on
-    // `pattern.source + flags` would let plugin-A's teardown drop plugin-B's
-    // route when both declared regex with identical text. With handle-keyed
-    // identity, each plugin's teardown removes only its own registrations.
-    //
-    // We simulate this by wiring two plugins that both contribute a route
-    // matching `/^\/_plugin\/echo$/`. Teardown runs in reverse registration
-    // order, so plugin-B is torn down first; plugin-A's route must still
-    // match afterwards, and only disappear once plugin-A's own teardown
-    // runs.
-    let pluginAShutdown = false;
-    let pluginBShutdown = false;
-    // Capture the match result from inside plugin-B's onShutdown so assertions
-    // run after runShutdownHooks returns. teardownPlugin wraps onShutdown in a
-    // try/catch that swallows thrown assertion errors, so asserting inline
-    // would let a failing match silently pass the test.
-    let pluginBOnShutdownMatch: SkillRouteMatch | null = null;
+  test("every contributing plugin's shutdown hook fires through the runHook pipeline", async () => {
+    // At daemon shutdown the plugins' `shutdown` hooks fire through the unified
+    // `runHook` pipeline — the same dispatch path every other lifecycle hook
+    // uses. Two plugins prove each one's hook fires exactly once.
+    const pluginsThatShutDown: string[] = [];
 
     registerPlugin(
       buildPlugin("plugin-a", {
@@ -248,16 +213,10 @@ describe("plugin route contributions", () => {
           },
         ],
         async onShutdown() {
-          // When plugin-A's teardown runs, plugin-B has already been torn
-          // down — but plugin-A's route must still be live because
-          // `onShutdown` fires *after* the route-unregister step for this
-          // plugin but *before* it leaves teardownPlugin. We check liveness
-          // from plugin-B's teardown instead (see below).
-          pluginAShutdown = true;
+          pluginsThatShutDown.push("plugin-a");
         },
       }),
     );
-
     registerPlugin(
       buildPlugin("plugin-b", {
         routes: [
@@ -268,31 +227,19 @@ describe("plugin route contributions", () => {
           },
         ],
         async onShutdown() {
-          // Plugin-B's routes have already been unregistered by the time
-          // this fires, but plugin-A's route is still live — it only gets
-          // torn down after this hook returns and the loop moves on to
-          // plugin-A. Confirm the registry still has a matching route.
-          pluginBShutdown = true;
-          pluginBOnShutdownMatch = matchSkillRoute("/_plugin/echo", "GET");
+          pluginsThatShutDown.push("plugin-b");
         },
       }),
     );
 
     await bootstrapPlugins();
 
-    // Both plugins' routes landed in the registry; matching returns one of
-    // them (order defined by registration, but we only care that *some*
-    // route matches before shutdown starts).
-    expect(matchSkillRoute("/_plugin/echo", "GET")).not.toBeNull();
+    await runHook(HOOKS.SHUTDOWN, {
+      assistantVersion: "test",
+      reason: "shutdown",
+    });
 
-    await runShutdownHooks("test-shutdown");
-
-    expect(pluginBShutdown).toBe(true);
-    expect(pluginAShutdown).toBe(true);
-    expect(pluginBOnShutdownMatch).not.toBeNull();
-    expect(pluginBOnShutdownMatch!.kind).toBe("match");
-
-    // After both plugins shut down, no routes remain.
-    expect(matchSkillRoute("/_plugin/echo", "GET")).toBeNull();
+    // Both plugins' hooks fired exactly once.
+    expect(pluginsThatShutDown.sort()).toEqual(["plugin-a", "plugin-b"]);
   });
 });

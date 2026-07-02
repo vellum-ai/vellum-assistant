@@ -219,6 +219,7 @@ mock.module("@/lib/local-mode", () => ({
   loadLockfile: async () => ({ assistants: [], activeAssistant: null }),
   setActiveLockfileAssistant: async () => {},
   saveLockfileAssistant: async () => {},
+  updateLockfileAssistant: async () => {},
   primeLocalGatewayConnection: async () => {},
   primeLocalGatewayConnectionWithRepair: async () => {},
   getLocalGatewayUrl: () => localGatewayUrlValue,
@@ -344,6 +345,10 @@ mock.module("@/hooks/use-prefilled-input", () => ({
 mock.module("@/runtime/platform-detection", () => ({
   useIsIOSWeb: () => isIOSWeb,
   useIsMacOSWeb: () => isMacOSWeb,
+  // `messages`/`research-runner` (pulled in transitively) import
+  // `detectClientOs`; this onboarding test doesn't exercise the OS surface, so
+  // stub the web default to keep the partial module mock complete.
+  detectClientOs: () => "web",
 }));
 
 mock.module("@/hooks/use-ios-app-nudge", () => ({
@@ -487,8 +492,7 @@ describe("onboarding lifecycle sync", () => {
       render(<HatchingScreen />);
 
       await waitFor(
-        () =>
-          expect(connectLocalAssistantMock).toHaveBeenCalledWith("local-1"),
+        () => expect(connectLocalAssistantMock).toHaveBeenCalledWith("local-1"),
         { timeout: 5_000 },
       );
     } finally {

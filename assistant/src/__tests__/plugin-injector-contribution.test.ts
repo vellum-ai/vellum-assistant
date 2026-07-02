@@ -4,7 +4,8 @@
  * A plugin may declare an `injectors` array on its {@link Plugin} shape; after
  * its model-visible surface is wired and before `init()` succeeds, bootstrap
  * registers each entry into the global injector registry via
- * {@link registerPluginInjectors}, and on shutdown calls
+ * {@link registerPluginInjectors}. A plugin rolled back after a failed bring-up
+ * (or uninstalled/disabled at runtime) is unregistered via
  * {@link unregisterPluginInjectors}. This mirrors the tools/routes contribution
  * path (see `plugin-route-contribution.test.ts`).
  *
@@ -12,8 +13,7 @@
  *
  *  1. Bootstrap → the contributed injector appears in
  *     {@link getRegisteredInjectors}, and `init()` ran.
- *  2. Shutdown → the contributed injector is unregistered.
- *  3. A plugin without `injectors` bootstraps and shuts down cleanly.
+ *  2. A plugin without `injectors` bootstraps cleanly.
  *
  * `getRegisteredInjectors()` after `bootstrapPlugins()` also contains the
  * first-party defaults (bootstrap registers `default-memory`'s injectors), so
@@ -26,7 +26,6 @@ import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
-import { runShutdownHooks } from "../daemon/shutdown-registry.js";
 import {
   clearInjectorRegistry,
   getRegisteredInjectors,
@@ -122,27 +121,12 @@ describe("plugin injector contributions", () => {
     expect(isTestInjectorRegistered()).toBe(true);
   });
 
-  test("shutdown unregisters the plugin's injectors", async () => {
-    registerPlugin(
-      buildPlugin("injector-plugin", { injectors: [makeTestInjector()] }),
-    );
-
-    await bootstrapPlugins();
-    expect(isTestInjectorRegistered()).toBe(true);
-
-    // Shutdown runs the reverse-order teardown hook registered by bootstrap.
-    await runShutdownHooks("test-shutdown");
-
-    expect(isTestInjectorRegistered()).toBe(false);
-  });
-
-  test("plugin with no injectors bootstraps and shuts down cleanly", async () => {
+  test("plugin with no injectors bootstraps cleanly", async () => {
     // Declaring no `injectors` field is the common case; bootstrap must skip
     // injector handling entirely (the guard is `if plugin.injectors && length`).
     registerPlugin(buildPlugin("no-injectors-plugin", { async init() {} }));
 
     await bootstrapPlugins();
-    await runShutdownHooks("test-shutdown");
 
     expect(isTestInjectorRegistered()).toBe(false);
   });

@@ -195,7 +195,7 @@ export async function executeScheduleCreate(
     }
 
     try {
-      const job = createSchedule({
+      const job = await createSchedule({
         name,
         description,
         cronExpression: null,
@@ -287,7 +287,7 @@ export async function executeScheduleCreate(
   }
 
   try {
-    const job = createSchedule({
+    const job = await createSchedule({
       name,
       description,
       cronExpression: resolved.expression,

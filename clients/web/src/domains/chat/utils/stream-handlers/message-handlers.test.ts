@@ -1,20 +1,23 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 
 import { makeCtx } from "@/domains/chat/utils/stream-handlers/test-helpers";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
 import {
   handleAssistantTextDelta,
   handleAssistantThinkingDelta,
   handleAssistantTurnStart,
   handleAssistantActivityState,
   handleMessageComplete,
+  handleUserMessageEcho,
   handleGenerationHandoff,
   handleGenerationCancelled,
 } from "@/domains/chat/utils/stream-handlers/message-handlers";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
-import { textBody } from "@/domains/chat/utils/message-test-helpers";
 import { conversationsQueryKey } from "@/utils/conversation-list-fetchers";
 import { findConversation } from "@/utils/conversation-cache";
 import type { Conversation } from "@/types/conversation-types";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 
 describe("handleAssistantTurnStart", () => {
   it("seeds currentAssistantMessageIdRef from the event's messageId", () => {
@@ -58,7 +61,6 @@ describe("handleAssistantTextDelta", () => {
     );
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
     expect(ctx.turnActions.onTextDelta).toHaveBeenCalled();
-    expect(ctx.setMessages).toHaveBeenCalled();
   });
 
   it("flips the cached conversation's isProcessing to true when the start event was missed", () => {
@@ -82,50 +84,38 @@ describe("handleAssistantTextDelta", () => {
     ).toBe(true);
   });
 
-  it("creates a new bubble when there is no assistant tail to fold into", () => {
-    // Empty messages → no assistant tail, so the delta opens a new bubble.
+  it("stamps currentAssistantMessageIdRef from the event's messageId when present", () => {
+    // Transcript content is owned by the rolling-snapshot reducer; the
+    // handler only stamps the anchor so subagent handlers attribute nested
+    // notifications to the right parent bubble.
     const ctx = makeCtx();
-    handleAssistantTextDelta({ type: "assistant_text_delta", text: "Hi" }, ctx);
-    expect(ctx.setMessages).toHaveBeenCalled();
-    // Apply the updater to an empty array to confirm a new bubble emerges.
-    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
-      .mock.calls[0][0] as (prev: never[]) => unknown[];
-    const next = updater([]);
-    expect(next).toHaveLength(1);
-    expect(next[0]).toMatchObject({
-      role: "assistant",
-      ...textBody("Hi"),
-    });
+    handleAssistantTextDelta(
+      { type: "assistant_text_delta", text: "Hello", messageId: "msg-A" },
+      ctx,
+    );
+    expect(ctx.currentAssistantMessageIdRef.current).toBe("msg-A");
   });
 });
 
 describe("handleAssistantThinkingDelta", () => {
-  it("cancels reconciliation and accumulates reasoning onto the streaming row", () => {
-    // GIVEN a fresh stream context (no assistant tail yet — the reasoning
-    // burst precedes any text, as with reasoning-heavy models)
+  it("cancels reconciliation and stamps the anchor from the event's messageId", () => {
+    // GIVEN a fresh stream context
     const ctx = makeCtx();
 
-    // WHEN a thinking delta arrives
+    // WHEN a thinking delta carrying a messageId arrives
     handleAssistantThinkingDelta(
-      { type: "assistant_thinking_delta", thinking: "reasoning" },
+      {
+        type: "assistant_thinking_delta",
+        thinking: "reasoning",
+        messageId: "msg-A",
+      },
       ctx,
     );
 
-    // THEN a pending reconcile is cancelled and the row updater runs
+    // THEN a pending reconcile is cancelled and the current-assistant
+    // anchor is stamped (content folds into the snapshot via the reducer)
     expect(ctx.cancelReconciliation).toHaveBeenCalled();
-    expect(ctx.setMessages).toHaveBeenCalled();
-
-    // AND applying the updater opens an assistant bubble carrying the
-    // reasoning as a thinking block, stamping the current-assistant ref
-    const updater = (ctx.setMessages as unknown as ReturnType<typeof Object>)
-      .mock.calls[0][0] as (prev: never[]) => unknown[];
-    const next = updater([]);
-    expect(next).toHaveLength(1);
-    expect(next[0]).toMatchObject({
-      role: "assistant",
-      thinkingSegments: ["reasoning"],
-      contentOrder: [{ type: "thinking", id: "0" }],
-    });
+    expect(ctx.currentAssistantMessageIdRef.current).toBe("msg-A");
   });
 });
 
@@ -162,7 +152,6 @@ describe("handleAssistantActivityState", () => {
       ctx,
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(1);
-    expect(ctx.setMessages).toHaveBeenCalled();
     expect(ctx.endTurn).toHaveBeenCalledWith({
       conversationId: "conv-1",
       reason: "complete",
@@ -185,7 +174,6 @@ describe("handleAssistantActivityState", () => {
     );
     expect(ctx.lastActivityVersionRef.current.get("conv-1")).toBe(2);
     expect(ctx.turnActions.onActivityThinking).toHaveBeenCalledWith(undefined);
-    expect(ctx.setMessages).not.toHaveBeenCalled();
     expect(ctx.startReconciliationLoop).not.toHaveBeenCalled();
   });
 
@@ -238,7 +226,6 @@ describe("handleMessageComplete", () => {
       { type: "message_complete", messageId: "msg-1" },
       ctx,
     );
-    expect(ctx.setMessages).toHaveBeenCalled();
     expect(ctx.endTurn).toHaveBeenCalledWith({
       conversationId: "conv-1",
       reason: "complete",
@@ -344,6 +331,187 @@ describe("handleMessageComplete", () => {
     expect(useSubagentStore.getState().byId["sa-1"]?.parentMessageId).toBe(
       undefined,
     );
+  });
+});
+
+describe("handleUserMessageEcho", () => {
+  const seededSnapshot: PaginatedHistoryResult = {
+    messages: [],
+    hasMore: false,
+    oldestTimestamp: null,
+    oldestMessageId: null,
+    seq: 1,
+  };
+
+  // The handler reads the real chat-session store to decide whether the paired
+  // snapshot fold has somewhere to land. Reset it around each case so state
+  // never leaks between tests.
+  beforeEach(() => {
+    useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+  });
+  afterEach(() => {
+    useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
+  });
+
+  /** Seed the snapshot, run the handler, and apply the captured
+   *  setOptimisticSends updater. */
+  function applyEcho(
+    event: Parameters<typeof handleUserMessageEcho>[0],
+    prev: DisplayMessage[],
+  ): DisplayMessage[] {
+    useChatSessionStore.setState({ snapshot: seededSnapshot });
+    const ctx = makeCtx();
+    handleUserMessageEcho(event, ctx);
+    expect(ctx.setOptimisticSends).toHaveBeenCalled();
+    const updater = (ctx.setOptimisticSends as unknown as ReturnType<typeof Object>)
+      .mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
+    return updater(prev);
+  }
+
+  it("does NOT retire the optimistic send when the snapshot is unseeded (first-message flicker guard)", () => {
+    // Regression: the first message of a freshly server-minted conversation has
+    // no history snapshot yet, so `applyEnvelopeToSnapshot` no-ops. Retiring the
+    // overlay here would blank the message out until `seedSnapshot` lands. The
+    // reseed's `pruneConfirmedOptimisticSends` retires it instead.
+    expect(useChatSessionStore.getState().snapshot).toBeNull();
+    const ctx = makeCtx();
+    handleUserMessageEcho(
+      {
+        type: "user_message_echo",
+        text: "Hello",
+        messageId: "msg-1",
+        clientMessageId: "client-1",
+      },
+      ctx,
+    );
+    expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
+  });
+
+  it("removes the attachment-less optimistic send correlated by clientMessageId", () => {
+    const next = applyEcho(
+      {
+        type: "user_message_echo",
+        text: "Hello",
+        messageId: "msg-1",
+        clientMessageId: "client-1",
+      },
+      [
+        {
+          id: "client-1",
+          clientMessageId: "client-1",
+          role: "user",
+          isOptimistic: true,
+        } as DisplayMessage,
+        {
+          id: "client-2",
+          clientMessageId: "client-2",
+          role: "user",
+          isOptimistic: true,
+        } as DisplayMessage,
+      ],
+    );
+    expect(next.map((m) => m.id)).toEqual(["client-2"]);
+  });
+
+  it("keeps an attachment-carrying send, upgraded to the server id", () => {
+    // The echo event has no attachment payload, so the snapshot row it folds
+    // is text-only — the optimistic row holds the only copy of the previews
+    // and must survive until the reseed carries the hydrated server row.
+    const next = applyEcho(
+      {
+        type: "user_message_echo",
+        text: "look at this",
+        messageId: "msg-1",
+        clientMessageId: "client-1",
+      },
+      [
+        {
+          id: "client-1",
+          clientMessageId: "client-1",
+          role: "user",
+          isOptimistic: true,
+          queueStatus: "queued",
+          queuePosition: 1,
+          attachments: [
+            {
+              id: "att-1",
+              filename: "shot.png",
+              mimeType: "image/png",
+              sizeBytes: 10,
+              previewUrl: "blob:preview",
+            },
+          ],
+        } as DisplayMessage,
+      ],
+    );
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatchObject({
+      id: "msg-1",
+      clientMessageId: "client-1",
+      isOptimistic: false,
+    });
+    expect(next[0]!.queueStatus).toBeUndefined();
+    expect(next[0]!.queuePosition).toBeUndefined();
+    expect(next[0]!.attachments?.[0]?.previewUrl).toBe("blob:preview");
+  });
+
+  it("removes an attachment-carrying send on a synthetic echo with no messageId", () => {
+    // With no server id there is no snapshot row to collapse onto, so keeping
+    // the row would double-render once the reducer appends its own copy.
+    const next = applyEcho(
+      {
+        type: "user_message_echo",
+        text: "look at this",
+        clientMessageId: "client-1",
+      },
+      [
+        {
+          id: "client-1",
+          clientMessageId: "client-1",
+          role: "user",
+          isOptimistic: true,
+          attachments: [
+            {
+              id: "att-1",
+              filename: "shot.png",
+              mimeType: "image/png",
+              sizeBytes: 10,
+              previewUrl: "blob:preview",
+            },
+          ],
+        } as DisplayMessage,
+      ],
+    );
+    expect(next).toEqual([]);
+  });
+
+  it("leaves the list unchanged when no optimistic send matches the nonce", () => {
+    const prev = [
+      { id: "other", clientMessageId: "other", role: "user" } as DisplayMessage,
+    ];
+    const next = applyEcho(
+      {
+        type: "user_message_echo",
+        text: "Hello",
+        messageId: "msg-1",
+        clientMessageId: "client-1",
+      },
+      prev,
+    );
+    expect(next).toBe(prev);
+  });
+
+  it("retires the most recent optimistic user send when the echo carries no nonce", () => {
+    // No nonce to correlate on — the updater drops the last optimistic user
+    // row, leaving others intact.
+    const next = applyEcho(
+      { type: "user_message_echo", text: "Hello", messageId: "msg-1" },
+      [
+        { id: "keep", role: "assistant" } as DisplayMessage,
+        { id: "opt-1", role: "user", isOptimistic: true } as DisplayMessage,
+      ],
+    );
+    expect(next.map((m) => m.id)).toEqual(["keep"]);
   });
 });
 

@@ -16,7 +16,13 @@
  * loading / empty presentation while the turn is still streaming.
  */
 
-import { Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  Fragment,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { ArrowRight, X } from "lucide-react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
@@ -219,12 +225,35 @@ export function MeetingCreatedStep({
 // Looking you up (loading carousel)
 // ---------------------------------------------------------------------------
 
-const LOOKING_MESSAGES = [
+// Rotating status lines shown while the web-research turn settles in the
+// background. They loop until `ready`, so the copy is pure flavor — it never
+// gates progress. The personality rewrite is NOT narrated here: it runs
+// decoupled and is finished off in the dedicated FinishingUpStep, so this quick
+// loader isn't held hostage to the persona turn.
+const WEB_SEARCH_MESSAGES = [
   "Searching the web to get to know you…",
   "Reading public profiles…",
+  "Skimming the highlights…",
   "Connecting the dots…",
-  "Almost there…",
+  "Piecing it together…",
 ];
+
+// Persona-rewrite lines, shown by FinishingUpStep while the personality turn
+// wraps up right before the chat handoff.
+const PERSONALITY_MESSAGES = [
+  "Updating my personality…",
+  "Finding my voice…",
+  "Getting into character…",
+];
+
+// Shared closing line both carousels settle on.
+const LOOKING_CLOSING_MESSAGE = "Almost there…";
+
+/** The web-search carousel: search lines, then the shared closer. */
+const LOOKING_MESSAGES = [...WEB_SEARCH_MESSAGES, LOOKING_CLOSING_MESSAGE];
+
+/** The finishing carousel: persona lines, then the shared closer. */
+const FINISHING_MESSAGES = [...PERSONALITY_MESSAGES, LOOKING_CLOSING_MESSAGE];
 
 /** How long each rotating message lingers before advancing to the next. */
 const LOOKING_MESSAGE_INTERVAL_MS = 2800;
@@ -243,9 +272,9 @@ export function LookingYouUpStep({
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
   /**
-   * The research turn has settled (results are ready, or there were none). Until
-   * then the carousel keeps rotating — looping the messages — so we never land
-   * on an empty "this is what I found" page.
+   * The web-research turn has settled (results are ready, or there were none).
+   * Until then the carousel keeps rotating — looping the messages — so we never
+   * land on an empty "this is what I found" page.
    */
   ready: boolean;
 }) {
@@ -294,6 +323,72 @@ export function LookingYouUpStep({
 }
 
 // ---------------------------------------------------------------------------
+// Finishing up (personality-rewrite loading carousel)
+// ---------------------------------------------------------------------------
+
+/**
+ * Terminal loading carousel shown after "Let's chat" while the personality
+ * rewrite finishes in the background. The rewrite runs decoupled from the
+ * looking-you-up (web-search) carousel — it lands here at the very end so that
+ * quick step, and the results, aren't held hostage to the persona turn. Loops
+ * its lines until `ready` (the rewrite settled), then snaps to the closing line
+ * and hands off — so the user never drops into chat before the persona they
+ * configured is fully written. No nav: the user has already committed to
+ * entering the chat.
+ */
+export function FinishingUpStep({
+  onDone,
+  ready,
+}: {
+  onDone: () => void;
+  /** The personality rewrite has settled; hand off after the closing line. */
+  ready: boolean;
+}) {
+  const tone = DARK_TONE;
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const lastIndex = FINISHING_MESSAGES.length - 1;
+    if (ready) {
+      // Snap to the closing line first (so we don't hand off mid-list), hold a
+      // beat, then enter chat.
+      if (index !== lastIndex) {
+        setIndex(lastIndex);
+        return;
+      }
+      const done = setTimeout(onDone, LOOKING_MESSAGE_INTERVAL_MS);
+      return () => clearTimeout(done);
+    }
+    const next = setTimeout(
+      () => setIndex((i) => (i + 1) % FINISHING_MESSAGES.length),
+      LOOKING_MESSAGE_INTERVAL_MS,
+    );
+    return () => clearTimeout(next);
+  }, [index, ready, onDone]);
+
+  return (
+    <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
+      <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
+        <MiniAssistant isStreaming />
+        <AnimatePresence mode="wait">
+          <motion.p
+            key={index}
+            className="text-[2.6rem] leading-none"
+            style={{ fontFamily: "var(--font-serif)" }}
+            initial={{ y: 12, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -12, opacity: 0 }}
+            transition={{ duration: 0.35 }}
+          >
+            {FINISHING_MESSAGES[index]}
+          </motion.p>
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Research results ("Alright, this is what I got:")
 // ---------------------------------------------------------------------------
 
@@ -301,6 +396,7 @@ export function ResearchResultsStep({
   claims,
   loading,
   onContinue,
+  onRejectAll,
   onBack,
   onForward,
 }: {
@@ -308,7 +404,18 @@ export function ResearchResultsStep({
   claims: ResearchFact[];
   /** True while the research turn is still streaming. */
   loading: boolean;
-  onContinue: () => void;
+  /**
+   * Continue into the suggestions, reporting the claims the user X'd out (their
+   * exact `claim` text) so the assistant can be told to disregard them — pruning
+   * an option here must actually take it out of the assistant's context, not
+   * just hide the row.
+   */
+  onContinue: (removedClaims: string[]) => void;
+  /**
+   * "This is not me" — the whole search matched someone else (a similar-name
+   * mismatch). Discard ALL of the web-research context and continue.
+   */
+  onRejectAll: () => void;
   onBack: () => void;
   /** Redo into the next step — only set when the user has stepped back. */
   onForward?: () => void;
@@ -376,9 +483,24 @@ export function ResearchResultsStep({
           </AnimatePresence>
         </div>
 
+        {/* The whole search can land on the wrong person (similar names). Let the
+            user disown it in one click — continue with no web-research context at
+            all, telling the assistant to forget everything it found. Only once
+            there's something to reject and the turn has settled. */}
+        {hasClaims && canContinue && (
+          <button
+            type="button"
+            onClick={onRejectAll}
+            className="mt-5 self-start cursor-pointer text-[14px] underline underline-offset-2 transition-opacity hover:opacity-80"
+            style={{ color: tone.fgMuted }}
+          >
+            This is not me
+          </button>
+        )}
+
         <button
           type="button"
-          onClick={onContinue}
+          onClick={() => onContinue([...removed])}
           disabled={!canContinue}
           className="mt-8 flex cursor-pointer h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
           style={{
@@ -733,6 +855,233 @@ export function SuggestionsStep({
             head={anchors.head}
             note={anchors.note}
             flyToNote={flown && hasNote && anchors.note !== undefined}
+            reduce={reduce}
+            onLanded={() => setLanded(true)}
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Let's chat (plugins-ready terminal step)
+// ---------------------------------------------------------------------------
+
+/**
+ * Terminal step for the personality-onboarding flow (replaces SuggestionsStep
+ * when that flag is on). The suggestions idea is retired: instead this confirms
+ * the capabilities already set up for the assistant — chosen from the user's
+ * role, hobby, and what the web research surfaced — and offers a single "Let's
+ * chat" button. Clicking primes a fresh chat with a hidden kickoff message so
+ * the assistant opens by proactively greeting the user in the persona they just
+ * configured.
+ *
+ * Reuses SuggestionsStep's plugin choreography: one avatar rests over the
+ * heading and flies down to land beside the "already set up …" note once the
+ * installed plugins are known.
+ */
+export function LetsChatReadyStep({
+  installedPlugins = [],
+  pluginCatalog = {},
+  onStart,
+  onBack,
+  onForward,
+}: {
+  /**
+   * Capabilities installed for the assistant this run (deterministic floor +
+   * the model's persona-level picks, catalog-gated). Surfaced as cards; empty
+   * when none were set up.
+   */
+  installedPlugins?: string[];
+  /** Name → description for the installed plugins, for the card subtitles. */
+  pluginCatalog?: Record<string, string>;
+  /**
+   * Enter the chat: awaits any in-flight plugin installs / corrections, then
+   * hands off to the primed conversation. May be async — the button shows a
+   * pending state until it resolves.
+   */
+  onStart: () => void | Promise<void>;
+  onBack: () => void;
+  /** Redo into this step — only set when the user has stepped back. */
+  onForward?: () => void;
+}) {
+  // Constant dark surface for the UI (the plugin cards match the facts cards).
+  const tone = DARK_TONE;
+  const reduce = useReducedMotion();
+  const [starting, setStarting] = useState(false);
+
+  // Each installed plugin as a card: its display name + (when known) the
+  // catalog description. Names without a display label are dropped.
+  const plugins = installedPlugins
+    .map((name) => ({
+      name,
+      displayName: pluginDisplayName(name),
+      description: pluginCatalog[name]?.trim() ?? "",
+    }))
+    .filter((p) => p.displayName.length > 0);
+  const hasPlugins = plugins.length > 0;
+
+  // A single avatar starts over the heading slot and flies down to the note's
+  // landing slot — same choreography as SuggestionsStep. The note sits BELOW the
+  // plugin cards, so we re-measure when the card count changes to keep the
+  // flight landing on the real note position.
+  const columnRef = useRef<HTMLDivElement>(null);
+  const headSlotRef = useRef<HTMLDivElement>(null);
+  const noteSlotRef = useRef<HTMLDivElement>(null);
+  const [anchors, setAnchors] = useState<{ head: Anchor; note?: Anchor } | null>(
+    null,
+  );
+  const [flown, setFlown] = useState(false);
+  const [landed, setLanded] = useState(false);
+
+  useLayoutEffect(() => {
+    const measure = () => {
+      const col = columnRef.current;
+      const head = headSlotRef.current;
+      if (!col || !head) return;
+      const c = col.getBoundingClientRect();
+      const center = (r: DOMRect): Anchor => ({
+        x: r.left - c.left + r.width / 2,
+        y: r.top - c.top + r.height / 2,
+      });
+      const note = noteSlotRef.current;
+      setAnchors({
+        head: center(head.getBoundingClientRect()),
+        note: note ? center(note.getBoundingClientRect()) : undefined,
+      });
+    };
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+    // Intentionally not re-measuring on `flown`: the head anchor must stay at
+    // its pre-collapse position so the flight starts from where the avatar sat.
+  }, [plugins.length]);
+
+  // Fly down the moment the note slot is measured (the note always renders).
+  const noteY = anchors?.note?.y;
+  useEffect(() => {
+    if (noteY === undefined || flown) return;
+    setFlown(true);
+  }, [noteY, flown]);
+
+  const handleStart = () => {
+    if (starting) return;
+    setStarting(true);
+    // If the handoff rejects, re-enable the button so the user can retry.
+    void Promise.resolve()
+      .then(onStart)
+      .catch(() => setStarting(false));
+  };
+
+  return (
+    <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
+      <OnboardingTopBar onBack={onBack} onNext={onForward} />
+
+      <div
+        ref={columnRef}
+        className="absolute left-1/2 top-1/2 z-10 flex w-full max-w-xl -translate-x-1/2 -translate-y-1/2 flex-col px-6"
+      >
+        <div className="flex items-center">
+          {/*
+            Empty slot the flying avatar rests over. Once the avatar departs
+            (`flown`), it collapses its width + right margin so the title slides
+            smoothly to left-aligned.
+          */}
+          <motion.div
+            ref={headSlotRef}
+            className="shrink-0"
+            style={{ height: HEADING_AVATAR }}
+            initial={false}
+            animate={
+              flown
+                ? { width: 0, marginRight: 0 }
+                : { width: HEADING_AVATAR, marginRight: 12 }
+            }
+            transition={reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }}
+          />
+          <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
+            You&rsquo;re all set
+          </h1>
+        </div>
+
+        {/* One card per installed plugin (name + description), themed to match
+            the "facts about you" cards. Directly under the title. */}
+        {hasPlugins && (
+          <div className="mt-4 flex flex-col gap-3">
+            {plugins.map((p, i) => (
+              <motion.div
+                key={p.name}
+                initial={reduce ? false : { opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={
+                  reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }
+                }
+                className="rounded-2xl px-5 py-4"
+                style={{
+                  backgroundColor: tone.isLight
+                    ? "rgba(0,0,0,0.06)"
+                    : "rgba(255,255,255,0.1)",
+                }}
+              >
+                <div className="text-[15px] font-medium">{p.displayName}</div>
+                {p.description && (
+                  <div
+                    className="mt-1 text-[13px] leading-snug"
+                    style={{ color: tone.fgMuted }}
+                  >
+                    {p.description}
+                  </div>
+                )}
+              </motion.div>
+            ))}
+          </div>
+        )}
+
+        {/* The avatar line below the cards. No avatar of its own — it reserves a
+            landing slot (`noteSlotRef`) for the single avatar that flies down
+            from the heading, mirroring SuggestionsStep. The margin is generous
+            because the flown 64px avatar overflows this collapsed row (~22px),
+            so the visual gap above/below it matches the title→first-card gap. */}
+        <div className="mt-16 flex items-center gap-3">
+          {/* Reserves the avatar's horizontal room but not its full height, so
+              the row is only as tall as the text and the flown avatar lands
+              vertically centered on the line (not within a 64px box). */}
+          <div
+            ref={noteSlotRef}
+            className="shrink-0"
+            style={{ width: NOTE_AVATAR }}
+          />
+          <motion.p
+            className="text-[15px]"
+            style={{ color: tone.fg }}
+            initial={false}
+            animate={{ opacity: landed ? 1 : 0, x: landed ? 0 : -6 }}
+            transition={reduce ? { duration: 0 } : { duration: 0.35 }}
+          >
+            I&rsquo;ve set myself up with plugins around who you are.
+          </motion.p>
+        </div>
+
+        <button
+          type="button"
+          onClick={handleStart}
+          disabled={starting}
+          className="mt-16 flex cursor-pointer h-11 w-[200px] items-center justify-center gap-2 rounded-[10px] text-body-medium-default transition duration-150 enabled:active:scale-[0.97] disabled:cursor-not-allowed disabled:opacity-60"
+          style={{
+            backgroundColor: tone.isLight ? "#1A1A1A" : "#FFFFFF",
+            color: tone.isLight ? "#FFFFFF" : "#1A1A1A",
+          }}
+        >
+          {starting ? "Starting…" : "Let's chat"}
+          {!starting && <ArrowRight className="h-4 w-4" />}
+        </button>
+
+        {anchors && (
+          <FlyingHeadingAvatar
+            head={anchors.head}
+            note={anchors.note}
+            flyToNote={flown && anchors.note !== undefined}
             reduce={reduce}
             onLanded={() => setLanded(true)}
           />

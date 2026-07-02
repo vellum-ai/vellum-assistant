@@ -30,11 +30,6 @@ export const DEFAULT_ACP_AGENT_PROFILES: Readonly<
     args: FROZEN_EMPTY_ARGS,
     description: "OpenAI Codex CLI (via @zed-industries/codex-acp)",
   }),
-  gemini: Object.freeze({
-    command: "gemini",
-    args: Object.freeze(["--acp"]) as unknown as string[],
-    description: "Google Gemini CLI (native ACP via gemini --acp)",
-  }),
 });
 
 /**
@@ -49,5 +44,4 @@ export const DEFAULT_AGENT_NPM_PACKAGES: Readonly<Record<string, string>> =
   Object.freeze({
     "claude-agent-acp": "@agentclientprotocol/claude-agent-acp",
     "codex-acp": "@zed-industries/codex-acp",
-    gemini: "@google/gemini-cli",
   });

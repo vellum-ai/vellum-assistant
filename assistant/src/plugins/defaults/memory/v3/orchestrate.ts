@@ -17,6 +17,14 @@
  *          associations the authored link graph does not record.
  *      Each lane only ever ADDS candidates, so the pool is recall-safe by
  *      construction.
+ *   1b. OPT-IN injection gate (`deps.gateConfig.enabled`, default off): once the
+ *      CURRENT-message finder lanes have run, `checkV3Gate` scores the needle +
+ *      dense hits against the tuned thresholds. A closed gate skips the
+ *      selectPool LLM call for the turn — returning empty selections (or, when
+ *      `bypassForCore` is set, selecting over the stable prefix only via the
+ *      same selector dispatch as the normal path, honoring `selectorEnabled`) —
+ *      so a low-signal turn pays no selector cost. The gate is pass-open: any
+ *      throw inside it logs a warning and falls through to normal selection.
  *   2. Build the candidate pool in CACHE ORDER: the stable prefix —
  *      `[...core (file order), ...hot (score order), ...fresh (recency order),
  *      ...always-candidate (skills pinned every turn)]`, all computed at lane
@@ -47,10 +55,18 @@
  */
 
 import type { AssistantConfig } from "../../../../config/schema.js";
-import { denseLane } from "./dense.js";
+import { getLogger } from "../../../../util/logger.js";
+import { denseLaneScored } from "./dense.js";
 import type { EdgeGraph } from "./edge.js";
 import { edgeExpand } from "./edge.js";
-import type { PoolCandidate, StableCandidate } from "./pool-select.js";
+import type { EntityIndex } from "./entity-lane.js";
+import { entityLane } from "./entity-lane.js";
+import { checkV3Gate, type V3GateConfig, type V3GateResult } from "./gate.js";
+import type {
+  PoolCandidate,
+  SelectorPool,
+  StableCandidate,
+} from "./pool-select.js";
 import { selectAllPoolCandidates, selectPool } from "./pool-select.js";
 import type { SectionNeedle } from "./section-needle.js";
 import type {
@@ -62,14 +78,24 @@ import type {
   Slug,
 } from "./types.js";
 
+// Named to disambiguate from the unrelated `src/config/memory-v3-gate.ts`: this
+// logger names the per-turn INJECTION gate wired in below.
+const log = getLogger("memory-v3-injection-gate");
+
 /** Default number of BM25 needle articles to fold into the pool. */
-export const DEFAULT_NEEDLE_K = 100;
+export const DEFAULT_NEEDLE_K = 12;
 /** Default number of dense-lane articles to fold into the pool. */
-export const DEFAULT_DENSE_K = 100;
+export const DEFAULT_DENSE_K = 0;
+/** Default hard cap on entity-lane articles folded into the pool per turn. */
+export const DEFAULT_ENTITY_CAP = 8;
 
 export interface OrchestrateDeps {
   sectionIndex: SectionIndex;
   needle: SectionNeedle;
+  /** Heading-anchored entity catalog (distinctive `## ` heading tokens → their
+   *  sections), built at lane init when the entity lane is enabled. Omitted
+   *  disables the lane. */
+  entityIndex?: EntityIndex;
   /** Config the dense lane needs to embed the query + search the section
    *  collection. */
   denseConfig: AssistantConfig;
@@ -97,6 +123,9 @@ export interface OrchestrateDeps {
   needleK?: number;
   /** Number of dense-lane articles. Defaults to {@link DEFAULT_DENSE_K}. */
   denseK?: number;
+  /** Hard cap on entity-lane articles. Defaults to {@link DEFAULT_ENTITY_CAP}.
+   *  Ignored when `entityIndex` is omitted (the lane is off). */
+  entityCap?: number;
   /** Per-lane article budget for the reply-query pass (needle + dense re-run
    *  over `turn.previousAssistantMessage` as separate queries). `0` or
    *  omitted disables the pass (canonical value: `memory.v3.replyQueryK`). */
@@ -126,6 +155,10 @@ export interface OrchestrateDeps {
   /** Whether to run the selector LLM. False passes all pooled candidates
    *  straight through as selections, preserving pool-order slug dedup. */
   selectorEnabled?: boolean;
+  /** Per-turn injection gate config (`memory.v3.gate` tuning + the flag-derived
+   *  `enabled`, assembled in observeTurn). Omitted/disabled → the gate never
+   *  runs and every turn proceeds to selectPool as before. */
+  gateConfig?: V3GateConfig;
 }
 
 /** A finder-lane candidate: the slug, the descriptor that justified it, and
@@ -198,6 +231,35 @@ export async function orchestrate(
   );
   const stablePrefix = new Set<Slug>([...coreHotFresh, ...always]);
 
+  // The stable prefix as FULL CARDS, in cache order. Pre-rendered at lane init
+  // (`prefixCards`) so the rendered prefix is byte-identical across turns. A
+  // missing card is a lane-init bug and throws (silently degrading would violate
+  // the byte-stable-prefix contract). Built lazily so the gate's bypass path can
+  // reuse the exact same construction as the normal step-2 pool assembly.
+  const buildStable = (): StableCandidate[] =>
+    [...core, ...hot, ...fresh, ...always].map((slug) => {
+      const card = deps.prefixCards.get(slug);
+      if (card === undefined) {
+        // Lane init renders a card for every core/hot slug; a hole here means
+        // the lanes and the card map are out of sync. Throw rather than render
+        // a degraded card — the caller (observeTurn) logs and skips the turn,
+        // which is better than silently breaking the byte-stable prefix.
+        throw new Error(
+          `memory-v3: no pre-rendered card for stable-prefix slug "${slug}"`,
+        );
+      }
+      return { slug, card };
+    });
+
+  // Run the selector over a pool, or pass its candidates straight through when
+  // the selector LLM is disabled (`selectorEnabled: false`, the new-user
+  // profile). Shared by the normal step-3 selection and the gate's
+  // bypass-to-stable path so the two cannot diverge.
+  const runSelection = async (pool: SelectorPool): Promise<SelectedPage[]> =>
+    deps.selectorEnabled === false
+      ? selectAllPoolCandidates(pool)
+      : selectPool(pool, turn, deps.selectorPrompt);
+
   // Step 1: needle (sync BM25) and the enabled dense lane (async embed +
   // Qdrant) run in parallel. Both return distinct articles each tagged with
   // their best-scoring section index/ordinal. The reply-query pass re-runs the
@@ -212,17 +274,26 @@ export async function orchestrate(
     replyK > 0 ? (turn.previousAssistantMessage ?? "").trim() : "";
   const denseEnabled = denseK > 0;
   const [needled, densed, replyNeedled, replyDensed] = await Promise.all([
-    Promise.resolve(deps.needle.query(turn.currentMessage, needleK)),
+    Promise.resolve(deps.needle.queryScored(turn.currentMessage, needleK)),
     denseEnabled
-      ? denseLane(deps.denseConfig, turn.currentMessage, denseK)
+      ? denseLaneScored(deps.denseConfig, turn.currentMessage, denseK)
       : Promise.resolve([]),
     Promise.resolve(
-      replyQuery.length > 0 ? deps.needle.query(replyQuery, replyK) : [],
+      replyQuery.length > 0 ? deps.needle.queryScored(replyQuery, replyK) : [],
     ),
     replyQuery.length > 0 && denseEnabled
-      ? denseLane(deps.denseConfig, replyQuery, replyK)
+      ? denseLaneScored(deps.denseConfig, replyQuery, replyK)
       : Promise.resolve([]),
   ]);
+
+  // Dense hits restricted to pages still in the live section index. A deleted
+  // page's points can linger in Qdrant; the candidate pool already drops those
+  // (see the dense finder loop), so the gate must score the same live set —
+  // stale low-scored hits for deleted pages must neither fake dense availability
+  // nor drag the gate closed while the live lanes have candidates.
+  const liveDensed = densed.filter((hit) =>
+    deps.sectionIndex.byArticle.has(hit.article),
+  );
 
   // `matchedSections` records the matched `Section` (when one is known) for
   // every finder hit — INCLUDING hits on stable-prefix slugs — for downstream
@@ -292,6 +363,124 @@ export async function orchestrate(
       undefined,
       "reply",
     );
+  }
+
+  // Step 1b'': entity lane — sections whose `## ` heading NAMES a distinctive
+  // entity the message mentions. Additive BM25 buries a single named entity
+  // under a long, multi-topic message's bulk theme; this keys on the heading
+  // vocabulary so the page the user named surfaces regardless of the bulk
+  // theme. Runs before edge expansion so an entity hit joins `finderSeen` (edge
+  // won't re-surface it section-less); it is NOT added to the edge seeds, so it
+  // only contributes its own page.
+  //
+  // The heading section IS the identity this lane exists to surface, so it
+  // takes precedence over any bulk-theme section a prior lane (needle / dense /
+  // reply) already recorded for the SAME page: `addFinder` keeps the first
+  // matched section and skips duplicate slugs, so override the matched section
+  // and the existing finder descriptor here before delegating, ensuring
+  // injection, the spotlight, and the selector snippet all render the heading
+  // rather than the earlier non-entity match.
+  if (deps.entityIndex) {
+    for (const hit of entityLane(
+      deps.entityIndex,
+      deps.sectionIndex,
+      turn.currentMessage,
+      deps.entityCap ?? DEFAULT_ENTITY_CAP,
+    )) {
+      const section = sections[hit.section];
+      if (section) {
+        matchedSections.set(hit.article, section);
+        const existing = finder.find((c) => c.slug === hit.article);
+        if (existing) existing.descriptor = section.text;
+      }
+      addFinder(hit.article, section, undefined, "entity");
+    }
+  }
+
+  // Step 1b''': opt-in injection gate. With the CURRENT-message finder lanes in
+  // hand (needle + dense — NOT reply/entity/edge, which only add recall), decide
+  // whether retrieval is confident enough to spend the selectPool LLM call this
+  // turn. Default-off via `?.enabled`; pass-open on any throw (a gate bug must
+  // never drop a turn's memory). A closed gate either hard-skips selection
+  // (empty selections) or, when `bypassForCore` is set, runs selectPool over the
+  // stable prefix only — never the finder tail.
+  //
+  // The gate is dense-gated: it only runs when the live dense lane produced hits
+  // (`liveDensed.length > 0`). In healthy operation dense returns top-k hits for
+  // any query, so zero live dense hits means dense is unavailable — denseK=0 (the
+  // new-user/small-corpus profile), a degraded embedding backend, a Qdrant error
+  // (`denseLaneScored` swallows these to `[]`), or only stale deleted-page points
+  // returned — NOT low relevance. checkV3Gate reads only finder scores and cannot
+  // tell those apart, so without live dense signal we pass open rather than
+  // suppress all memory (not even the core/hot/fresh prefix) on every
+  // lexically-weak turn.
+  if (deps.gateConfig?.enabled) {
+    if (liveDensed.length === 0) {
+      // No live dense hits (denseK=0 / degraded backend / Qdrant error swallowed
+      // to [] / only stale deleted-page points returned). That means dense is
+      // unavailable, not low relevance, so pass open — but record it so rollout
+      // telemetry sees these turns instead of silently skipping the gate.
+      log.info(
+        {
+          conversationId: turn.conversationId,
+          turnNumber: turn.turnNumber,
+          reason: "dense_unavailable",
+          pass: true,
+        },
+        "memory-v3 injection gate: dense lane unavailable, passing open",
+      );
+    } else {
+      let gate: V3GateResult | null = null;
+      try {
+        gate = checkV3Gate({
+          needleHits: needled,
+          denseHits: liveDensed,
+          config: deps.gateConfig,
+        });
+      } catch (err) {
+        log.warn(
+          {
+            err: err instanceof Error ? err.message : String(err),
+            conversationId: turn.conversationId,
+          },
+          "memory-v3 injection gate threw; passing open (proceeding with selection)",
+        );
+      }
+      if (gate) {
+        log.info(
+          {
+            conversationId: turn.conversationId,
+            turnNumber: turn.turnNumber,
+            gate,
+          },
+          "memory-v3 injection gate decision",
+        );
+        if (!gate.pass) {
+          // A closed gate produces no finder lane and no matched sections; only
+          // the `selections` differ between bypass (stable prefix) and hard-skip.
+          const closed = (selections: SelectedPage[]): OrchestrateResult => ({
+            selections,
+            matchedSections: new Map(),
+            lanes: { core, hot, fresh, finder: [] },
+          });
+          if (deps.gateConfig.bypassForCore) {
+            // Select over the stable prefix only. `runSelection` mirrors the
+            // normal path: with the selector off it passes the stable candidates
+            // straight through rather than forcing the selectPool LLM call —
+            // which a selector-disabled assistant has no provider for, so it
+            // throws MemoryV3RetrievalUnavailableError and escapes the gate on a
+            // benign low-signal turn. Reaching here means the assistant is
+            // explicitly configured with `selectorEnabled: false` AND
+            // `denseK > 0` (the dense-gated gate only runs with dense hits; the
+            // new-user profile sets `denseK: 0`, so the gate never runs for it).
+            return closed(
+              await runSelection({ stable: buildStable(), finder: [] }),
+            );
+          }
+          return closed([]);
+        }
+      }
+    }
   }
 
   // Step 1c: edge expansion over the top needle+dense article seeds. `alive`
@@ -365,21 +554,7 @@ export async function orchestrate(
   // its own snippet line so its CURRENT relevance stays visible; `selectPool`
   // dedupes selections by slug. Finder candidates with no match text fall
   // back to the page's lead-section snippet.
-  const stable: StableCandidate[] = [...core, ...hot, ...fresh, ...always].map(
-    (slug) => {
-      const card = deps.prefixCards.get(slug);
-      if (card === undefined) {
-        // Lane init renders a card for every core/hot slug; a hole here means
-        // the lanes and the card map are out of sync. Throw rather than render
-        // a degraded card — the caller (observeTurn) logs and skips the turn,
-        // which is better than silently breaking the byte-stable prefix.
-        throw new Error(
-          `memory-v3: no pre-rendered card for stable-prefix slug "${slug}"`,
-        );
-      }
-      return { slug, card };
-    },
-  );
+  const stable = buildStable();
   const finderTail: PoolCandidate[] = finder.map((c) => ({
     slug: c.slug,
     lane: c.lane,
@@ -394,10 +569,7 @@ export async function orchestrate(
   // contract. `selectorPrompt` is the (optionally overridden) instruction
   // scaffold; `undefined` falls through to the bundled default.
   const pool = { stable, finder: finderTail };
-  const selections =
-    deps.selectorEnabled === false
-      ? selectAllPoolCandidates(pool)
-      : await selectPool(pool, turn, deps.selectorPrompt);
+  const selections = await runSelection(pool);
 
   return {
     selections,

@@ -17,6 +17,7 @@ import {
 } from "@/domains/settings/ai/call-site-helpers";
 import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
 import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
+import { useSelectableInferenceProviders } from "@/domains/settings/ai/provider-availability";
 import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
 import {
   configGetOptions,
@@ -117,6 +118,7 @@ function CallSiteOverridesModalInner({
     () => buildOrderedProfiles(profiles, profileOrder),
     [profiles, profileOrder],
   );
+  const selectableInferenceProviders = useSelectableInferenceProviders();
 
   const configMutation = useConfigPatchMutation({
     onSuccess: (data) => {
@@ -296,7 +298,8 @@ function CallSiteOverridesModalInner({
       if (seedProfile) {
         setDraftEdits((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
       } else {
-        const defaultProvider = INFERENCE_PROVIDERS[0];
+        const defaultProvider =
+          selectableInferenceProviders[0] ?? INFERENCE_PROVIDERS[0];
         const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
         setDraftEdits((prev) => ({
           ...prev,
@@ -304,7 +307,7 @@ function CallSiteOverridesModalInner({
         }));
       }
     },
-    [gatedCallSites, orderedProfiles],
+    [gatedCallSites, orderedProfiles, selectableInferenceProviders],
   );
 
   // ---------------------------------------------------------------------------

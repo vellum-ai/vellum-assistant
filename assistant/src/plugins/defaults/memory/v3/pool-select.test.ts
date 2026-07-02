@@ -10,8 +10,8 @@
  *     empty pool → [].
  *
  * `mock.module` is process-global and leaks into sibling files in a directory
- * run, so the provider-send-message stub DELEGATES to the real implementation
- * (keeping the real `extractToolUse`) unless this test is actively running
+ * run, so the `@vellumai/plugin-api` stub DELEGATES to the real
+ * `getConfiguredProvider` unless this test is actively running
  * (`selectMockActive`) — mirrors `prune.test.ts` / `ever-injected-store.test.ts`.
  */
 
@@ -21,12 +21,11 @@ import type {
   ContentBlock,
   Provider,
   ProviderResponse,
-} from "../../../../providers/types.js";
+} from "@vellumai/plugin-api";
+
 import type { MemoryRoutingTurn, Slug } from "./types.js";
 
-const realProviderSend = {
-  ...(await import("../../../../providers/provider-send-message.js")),
-};
+const realPluginApi = await import("@vellumai/plugin-api");
 
 let selectMockActive = false;
 let sendMessageImpl: (() => Promise<ProviderResponse>) | null = null;
@@ -39,14 +38,14 @@ const mockProvider = {
   },
 } as unknown as Provider;
 
-mock.module("../../../../providers/provider-send-message.js", () => ({
-  ...realProviderSend,
+mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: (
-    ...args: Parameters<typeof realProviderSend.getConfiguredProvider>
+    ...args: Parameters<typeof realPluginApi.getConfiguredProvider>
   ) =>
     selectMockActive
       ? Promise.resolve(mockProvider)
-      : realProviderSend.getConfiguredProvider(...args),
+      : realPluginApi.getConfiguredProvider(...args),
 }));
 
 const { MemoryV3RetrievalUnavailableError, selectPool } =

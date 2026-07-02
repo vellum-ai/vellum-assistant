@@ -59,6 +59,7 @@ export function ensureGroupMigration(): void {
   // only swallow duplicate-column errors, log+throw everything else.
   try {
     rawRun(
+      "group:migrateAddGroupId",
       "ALTER TABLE conversations ADD COLUMN group_id TEXT REFERENCES conversation_groups(id) ON DELETE SET NULL",
     );
   } catch (err) {
@@ -84,18 +85,22 @@ export function ensureGroupMigration(): void {
   // transaction so a crash between the shift and the sentinel can't cause
   // repeated drift on restart.
   const sortShiftDone = rawGet<{ id: string }>(
+    "group:migrateSortShiftGuard",
     "SELECT id FROM conversation_groups WHERE id = '_sort_shift_complete'",
   );
   if (!sortShiftDone) {
     try {
       rawExec("BEGIN");
       rawRun(
+        "group:migrateSortShift:shift",
         "UPDATE conversation_groups SET sort_position = sort_position + 1 WHERE is_system_group = 0 AND sort_position >= 3",
       );
       rawRun(
+        "group:migrateSortShift:setAll",
         "UPDATE conversation_groups SET sort_position = 3 WHERE id = 'system:all' AND sort_position != 3",
       );
       rawRun(
+        "group:migrateSortShift:marker",
         `INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group, created_at, updated_at)
          VALUES ('_sort_shift_complete', '_sort_shift_complete', -1, TRUE, ${now}, ${now})`,
       );
@@ -115,6 +120,7 @@ export function ensureGroupMigration(): void {
   // would backfill it back into system:background). A persistent marker row in
   // conversation_groups tracks whether backfill has already completed.
   const backfillDone = rawGet<{ id: string }>(
+    "group:migrateBackfillGuard",
     "SELECT id FROM conversation_groups WHERE id = '_backfill_complete'",
   );
 
@@ -200,6 +206,7 @@ export function ensureGroupMigration(): void {
   // Uses its own sentinel so it runs exactly once, even on existing installations
   // where the original backfill already completed.
   const allBackfillDone = rawGet<{ id: string }>(
+    "group:migrateBackfillAllGuard",
     "SELECT id FROM conversation_groups WHERE id = '_backfill_all_complete'",
   );
 
@@ -226,6 +233,7 @@ export function ensureGroupMigration(): void {
 
   // 6. One-time migration: move auto-analysis conversations from system:reflections to system:background
   const reflectionsMigrateDone = rawGet<{ id: string }>(
+    "group:migrateReflectionsGuard",
     "SELECT id FROM conversation_groups WHERE id = '_reflections_to_background_complete'",
   );
 
@@ -262,6 +270,7 @@ export function ensureGroupMigration(): void {
   // place causes the macOS sidebar to render an empty duplicate "Reflections"
   // entry with a fallback folder icon alongside the Background sub-group.
   const reflectionsGroupDeleted = rawGet<{ id: string }>(
+    "group:migrateReflDeleteGuard",
     "SELECT id FROM conversation_groups WHERE id = '_reflections_group_deleted_complete'",
   );
 

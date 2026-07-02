@@ -17,12 +17,6 @@ mock.module("../calls/twilio-rest.js", () => ({
   hasTwilioCredentials: () => mockHasTwilioCredentials,
 }));
 
-mock.module("../channels/config.js", () => ({
-  getChannelInvitePolicy: () => ({
-    codeRedemptionEnabled: true,
-  }),
-}));
-
 mock.module("../config/env.js", () => ({
   getIngressPublicBaseUrl: () => undefined,
 }));

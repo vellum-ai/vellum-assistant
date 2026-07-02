@@ -167,10 +167,13 @@ The `mark_channel_verified` IPC method exists as the daemon/CLI relay surface (s
 
 ## Rate Limiting & Diagnostics
 
-All `/v1/*` endpoints share a per-client-IP sliding-window rate limiter (`middleware/rate-limiter.ts`):
+Most `/v1/*` endpoints share a per-client-IP sliding-window rate limiter (`middleware/rate-limiter.ts`):
 
-- **Authenticated**: 300 requests/minute
+- **Authenticated (loopback)**: 1200 requests/minute — desktop app, CLI, anything on the daemon's own host (`127.0.0.0/8`, `::1`). A cold sidebar load at thousands of conversations legitimately bursts far beyond the remote budget.
+- **Authenticated (remote)**: 300 requests/minute — proxied non-loopback clients, keyed by the forwarded client IP.
 - **Unauthenticated**: 20 requests/minute
+
+**Exempt endpoints** (`isRateLimitExemptEndpoint`): the SSE stream (`events`) and liveness/readiness probes (`health`, `healthz`, `readyz`) bypass the per-minute limiter entirely. The stream is one long-lived connection, not a burst of requests, and 429-ing it drops the stream — which drives a client reconnect + full re-bootstrap loop that generates far more load than the limiter saves. Liveness probes must always answer or the client treats the assistant as down and reconnects harder. The events route still enforces auth downstream, and stream memory is bounded by SSE backpressure shedding + subscriber caps.
 
 When the limit is exceeded, the limiter returns 429 and logs a structured warning (module: `rate-limiter`) with the denied endpoint and a breakdown of which endpoints consumed the budget in the current window. This makes it easy to identify whether the cause is rapid conversation switching, polling, or unexpected request volume.
 

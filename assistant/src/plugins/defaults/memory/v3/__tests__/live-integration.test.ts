@@ -23,18 +23,18 @@
 import { Database } from "bun:sqlite";
 import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { drizzle } from "drizzle-orm/bun-sqlite";
-
-import { wrapMemoryBlock } from "../../../../../memory/memory-marker.js";
-import type { PageIndexEntry } from "../../../../../memory/v2/page-index.js";
-import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
-import * as schema from "../../../../../persistence/schema/index.js";
 import type {
   ContentBlock,
   Message,
   Provider,
   ProviderResponse,
-} from "../../../../../providers/types.js";
+} from "@vellumai/plugin-api";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+
+import { migrateAddMemoryV3EverInjected } from "../../../../../persistence/migrations/277-add-memory-v3-ever-injected.js";
+import * as schema from "../../../../../persistence/schema/index.js";
+import { wrapMemoryBlock } from "../../memory-marker.js";
+import type { PageIndexEntry } from "../../v2/page-index.js";
 import { cardBytes, renderCard } from "../card.js";
 import type { EdgeGraph } from "../edge.js";
 import { buildEdgeGraph } from "../edge.js";
@@ -48,10 +48,8 @@ import type { MemoryRoutingTurn, SectionIndex, Slug } from "../types.js";
 
 let providerStub: Provider | null = null;
 
-mock.module("../../../../../providers/provider-send-message.js", () => ({
+mock.module("@vellumai/plugin-api", () => ({
   getConfiguredProvider: async () => providerStub,
-  extractToolUse: (response: ProviderResponse) =>
-    response.content.find((b) => b.type === "tool_use"),
 }));
 
 mock.module("../../../../../util/logger.js", () => ({
@@ -71,6 +69,12 @@ mock.module("../dense.js", () => ({
   ...realDense,
   denseLane: async (...args: Parameters<typeof realDense.denseLane>) =>
     denseMockActive ? [] : realDense.denseLane(...args),
+  // Defensive: this fixture never sets denseK > 0, so orchestrate does not call
+  // the scored lane today — but mirror the delegation so a future denseK > 0
+  // test can't silently reach real Qdrant after the orchestrate swap.
+  denseLaneScored: async (
+    ...args: Parameters<typeof realDense.denseLaneScored>
+  ) => (denseMockActive ? [] : realDense.denseLaneScored(...args)),
 }));
 
 // In-memory everInjected store backing the net-new dedup, swapped in only

@@ -18,6 +18,7 @@ import { basename } from "node:path";
 import { describe, expect, mock, test } from "bun:test";
 
 import type { SkillSource } from "../../config/skills.js";
+import type { OwnerInfo } from "../types.js";
 
 mock.module("../../util/logger.js", () => ({
   getLogger: () =>
@@ -40,11 +41,12 @@ mock.module("../../skills/install-meta.js", () => ({
 import type { ToolContext } from "../types.js";
 import { executeFindSimilarSkills } from "./find-similar-skills.js";
 
-function makeContext(): ToolContext {
+function makeContext(enabledPluginSet?: Set<string> | null): ToolContext {
   return {
     workingDir: "/tmp",
     conversationId: "test-conversation",
     trustClass: "guardian",
+    enabledPluginSet,
   };
 }
 
@@ -54,6 +56,7 @@ const catalog = (
     name: string;
     description: string;
     source: SkillSource;
+    owner?: OwnerInfo;
   }[]
 ) => skills;
 
@@ -217,6 +220,154 @@ describe("find_similar_skills — enrichment", () => {
 
     expect(result.isError).toBe(false);
     expect(JSON.parse(result.content)).toEqual({ skills: [] });
+  });
+});
+
+describe("find_similar_skills — per-chat plugin scope", () => {
+  const SHORTLIST = [
+    { skillId: "core-skill", score: 0.9 },
+    { skillId: "plug-skill", score: 0.8 },
+  ];
+  const CATALOG = () =>
+    catalog(
+      {
+        id: "core-skill",
+        name: "Core Skill",
+        description: "A bundled skill",
+        source: "bundled",
+      },
+      {
+        id: "plug-skill",
+        name: "Plugin Skill",
+        description: "Owned by plugin p",
+        source: "plugin",
+        owner: { kind: "plugin", id: "p" },
+      },
+    );
+
+  test("drops a plugin skill whose owner is outside the effective set", async () => {
+    const result = await executeFindSimilarSkills(
+      { goal: "do the thing" },
+      makeContext(new Set(["other"])),
+      {
+        nearestExistingSkills: async () => SHORTLIST,
+        loadCatalog: CATALOG,
+      },
+    );
+
+    const ids = (
+      JSON.parse(result.content).skills as { skill_id: string }[]
+    ).map((s) => s.skill_id);
+    expect(ids).toContain("core-skill");
+    expect(ids).not.toContain("plug-skill");
+  });
+
+  test("keeps a plugin skill whose owner is in the effective set", async () => {
+    const result = await executeFindSimilarSkills(
+      { goal: "do the thing" },
+      makeContext(new Set(["p"])),
+      {
+        nearestExistingSkills: async () => SHORTLIST,
+        loadCatalog: CATALOG,
+      },
+    );
+
+    const ids = (
+      JSON.parse(result.content).skills as { skill_id: string }[]
+    ).map((s) => s.skill_id);
+    expect(ids).toContain("core-skill");
+    expect(ids).toContain("plug-skill");
+  });
+
+  test("null set (no restriction) keeps every skill", async () => {
+    const result = await executeFindSimilarSkills(
+      { goal: "do the thing" },
+      makeContext(null),
+      {
+        nearestExistingSkills: async () => SHORTLIST,
+        loadCatalog: CATALOG,
+      },
+    );
+
+    const ids = (
+      JSON.parse(result.content).skills as { skill_id: string }[]
+    ).map((s) => s.skill_id);
+    expect(ids).toEqual(["core-skill", "plug-skill"]);
+  });
+
+  test("fills the limit with in-scope skills when top matches are out of scope", async () => {
+    // The two highest-scoring matches are owned by an out-of-scope plugin "q";
+    // the next two are in scope. With limit=2, a filter applied AFTER the limit
+    // would slice off plug-hi-1/plug-hi-2, then drop both → an empty result.
+    // The fix filters the candidate catalog BEFORE the limit, so the slice
+    // lands on the two in-scope skills instead.
+    const FULL_CATALOG = () =>
+      catalog(
+        {
+          id: "plug-hi-1",
+          name: "Plugin Hi 1",
+          description: "High-rank, out of scope",
+          source: "plugin",
+          owner: { kind: "plugin", id: "q" },
+        },
+        {
+          id: "plug-hi-2",
+          name: "Plugin Hi 2",
+          description: "High-rank, out of scope",
+          source: "plugin",
+          owner: { kind: "plugin", id: "q" },
+        },
+        {
+          id: "core-lo-1",
+          name: "Core Lo 1",
+          description: "Lower-rank, in scope",
+          source: "bundled",
+        },
+        {
+          id: "core-lo-2",
+          name: "Core Lo 2",
+          description: "Lower-rank, in scope",
+          source: "bundled",
+        },
+      );
+
+    // Mimics the real `nearestExistingSkills`: rank the candidate catalog the
+    // caller passes via `loadCatalog`, then slice to `limit`. Pre-fix the tool
+    // passed the full catalog (so the top-K limit hit out-of-scope skills);
+    // post-fix it passes a scope-filtered catalog.
+    const RANKED = [
+      { skillId: "plug-hi-1", score: 0.98 },
+      { skillId: "plug-hi-2", score: 0.97 },
+      { skillId: "core-lo-1", score: 0.5 },
+      { skillId: "core-lo-2", score: 0.4 },
+    ];
+    const rankThenLimit = async (
+      _goal: string,
+      opts?: { limit?: number; loadCatalog?: () => { id: string }[] },
+    ) => {
+      const candidateIds = new Set(
+        (opts?.loadCatalog?.() ?? FULL_CATALOG()).map((s) => s.id),
+      );
+      return RANKED.filter((h) => candidateIds.has(h.skillId)).slice(
+        0,
+        opts?.limit ?? RANKED.length,
+      );
+    };
+
+    const result = await executeFindSimilarSkills(
+      { goal: "do the thing", limit: 2 },
+      makeContext(new Set(["p"])), // plugin "q" is out of scope
+      {
+        nearestExistingSkills: rankThenLimit,
+        loadCatalog: FULL_CATALOG,
+      },
+    );
+
+    const ids = (
+      JSON.parse(result.content).skills as { skill_id: string }[]
+    ).map((s) => s.skill_id);
+    // The limit is honored AND filled with in-scope skills, not starved to empty.
+    expect(ids).toEqual(["core-lo-1", "core-lo-2"]);
   });
 });
 

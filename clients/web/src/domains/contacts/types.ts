@@ -3,6 +3,10 @@ import type {
   ChannelsReadinessGetResponse,
   ContactsGetResponse,
 } from "@/generated/daemon/types.gen";
+import type { SetupChannelId } from "@/types/channel-types";
+
+// Re-export shared channel types for domain consumers.
+export { SETUP_CHANNEL_IDS, isSetupChannelId, type SetupChannelId } from "@/types/channel-types";
 
 // ---------------------------------------------------------------------------
 // Types derived from the generated daemon SDK
@@ -34,17 +38,6 @@ export interface ContactSummary {
 }
 
 export type ChannelStatus = "ready" | "incomplete" | "not_configured";
-
-/**
- * Channels that have user-facing setup flows in the UI. Constrained against
- * the generated readiness snapshot type so drift is caught at compile time.
- */
-export const SETUP_CHANNEL_IDS = ["slack", "telegram", "phone"] as const satisfies readonly ReadinessSnapshot["channel"][];
-export type SetupChannelId = (typeof SETUP_CHANNEL_IDS)[number];
-
-export function isSetupChannelId(value: string): value is SetupChannelId {
-  return (SETUP_CHANNEL_IDS as readonly string[]).includes(value);
-}
 
 export interface AssistantChannelState {
   key: SetupChannelId;

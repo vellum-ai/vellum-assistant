@@ -30,6 +30,7 @@ interface ManifestPlugin {
   name: string;
   source: { source: "github"; repo: string; path?: string; ref: string };
   description?: string;
+  category?: string;
 }
 
 /** Serve `plugins` as the raw marketplace manifest at the manifest URL. */
@@ -51,7 +52,7 @@ function entry(
   name: string,
   repo: string,
   ref: string,
-  extra?: { path?: string; description?: string },
+  extra?: { path?: string; description?: string; category?: string },
 ): ManifestPlugin {
   return {
     name,
@@ -62,6 +63,7 @@ function entry(
       ref,
     },
     ...(extra?.description ? { description: extra.description } : {}),
+    ...(extra?.category ? { category: extra.category } : {}),
   };
 }
 
@@ -151,6 +153,7 @@ describe("searchPlugins", () => {
         name: "nested",
         path: `github:acme/monorepo/packages/nested@${SHA_B}`,
         description: "A nested plugin.",
+        category: null,
         source: {
           kind: "github",
           repo: "acme/monorepo",
@@ -158,6 +161,30 @@ describe("searchPlugins", () => {
           ref: SHA_B,
         },
       },
+    ]);
+  });
+
+  test("carries the marketplace entry category, defaulting to null", async () => {
+    // GIVEN one entry that declares a category and one that does not
+    // WHEN we search
+    const result = await searchPlugins(
+      { query: "" },
+      {
+        fetch: manifestFetch([
+          entry("calendar-sync", "acme/calendar-sync", SHA_A, {
+            category: "calendar",
+          }),
+          entry("plain-plugin", "acme/plain-plugin", SHA_B),
+        ]),
+      },
+    );
+
+    // THEN the declared category flows through and a missing one is null
+    expect(
+      result.matches.map((m) => ({ name: m.name, category: m.category })),
+    ).toEqual([
+      { name: "calendar-sync", category: "calendar" },
+      { name: "plain-plugin", category: null },
     ]);
   });
 
@@ -335,6 +362,7 @@ describe("searchPlugins", () => {
       {
         name: "caveman",
         path: `github:JuliusBrussee/caveman@${SHA_A}`,
+        category: null,
         source: {
           kind: "github",
           repo: "JuliusBrussee/caveman",

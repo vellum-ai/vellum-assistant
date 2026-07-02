@@ -30,20 +30,15 @@ import {
 import {
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
+  resolveProfilelessModelKey,
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import {
-  derefToolResultReReads,
-  postTurnTruncateToolResults,
-} from "../context/post-turn-tool-result-truncation.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import {
   clearSentryConversationContext,
   setSentryConversationContext,
 } from "../instrument.js";
-import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { enqueueMemoryRetrospectiveOnCompaction } from "../memory/memory-retrospective-enqueue.js";
 import {
   addMessage,
   deleteMessageById,
@@ -57,8 +52,6 @@ import {
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
 } from "../persistence/conversation-crud.js";
-import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
-import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import { isReplaceableTitle } from "../persistence/conversation-title-service.js";
 import {
   backfillMessageIdOnLogs,
@@ -66,6 +59,8 @@ import {
 } from "../persistence/llm-request-log-store.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type { UserPromptSubmitContext } from "../plugin-api/types.js";
+import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import { runHook } from "../plugins/pipeline.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { Provider } from "../providers/types.js";
@@ -80,6 +75,7 @@ import { timeAgo } from "../util/time.js";
 import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
+import { ABORT_WATCHDOG_MS } from "./abort-watchdog.js";
 import { cleanAssistantContent } from "./assistant-attachments.js";
 import { conversationSupportsDynamicUi } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
@@ -112,6 +108,8 @@ import {
   type SlackChronologicalContext,
 } from "./conversation-runtime-assembly.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
+import { getEffectiveEnabledPluginSet } from "./conversation-tool-setup.js";
+import { runDeferredTurnTail } from "./conversation-turn-finalize.js";
 import { recordUsage } from "./conversation-usage.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
@@ -124,6 +122,7 @@ import type {
 } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context.js";
 import { resolveTurnCallSite } from "./turn-call-site.js";
+import { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
 const log = getLogger("conversation-agent-loop");
 
@@ -195,28 +194,25 @@ export interface AssistantSurface {
 // ── abort watchdog ───────────────────────────────────────────────────
 
 /**
- * Backstop that drives an aborted turn to its `finally` even if some awaited
- * operation fails to observe the abort signal.
+ * Race `work` against an abort watchdog. The watchdog is a backstop that drives
+ * an aborted turn to its `finally` even if some awaited operation fails to
+ * observe the abort signal. Abort is otherwise cooperative and already wired
+ * into the slow paths: the provider call forwards the signal to its
+ * HTTP/streaming fetch, and tool execution races the signal so a stuck tool
+ * can't block cancellation. The watchdog only fires when a future code path
+ * silently ignores abort — without it, such a path would hang the loop forever
+ * and latch the conversation's `processing` flag true (the wedged "Thinking…"
+ * indicator). It is defense-in-depth, not the primary mechanism: in the common
+ * case abort settles in-flight work in well under a second, so ABORT_WATCHDOG_MS
+ * is ample headroom for a cooperative unwind while still releasing a genuinely
+ * wedged turn promptly.
  *
- * Abort is otherwise cooperative and already wired into the slow paths: the
- * provider call forwards the signal to its HTTP/streaming fetch, and tool
- * execution races the signal so a stuck tool can't block cancellation. This
- * watchdog only fires when a future code path silently ignores abort — without
- * it, such a path would hang the loop forever and latch the conversation's
- * `processing` flag true (the wedged "Thinking…" indicator). It is
- * defense-in-depth, not the primary mechanism: in the common case abort settles
- * in-flight work in well under a second, so a few seconds is ample headroom for
- * a cooperative unwind while still releasing a genuinely wedged turn promptly.
- */
-const ABORT_WATCHDOG_MS = 5_000;
-
-/**
- * Race `work` against an abort watchdog. The watchdog stays disarmed until the
- * signal fires; once it does, the turn has `timeoutMs` to settle before the
- * watchdog rejects with the signal's own abort reason so the caller unwinds to
- * its `finally` and the reason classifies as a user cancellation downstream.
- * The abandoned `work` promise keeps running detached — its eventual rejection
- * is swallowed so it can't surface as an unhandled rejection.
+ * The watchdog stays disarmed until the signal fires; once it does, the turn has
+ * `timeoutMs` to settle before the watchdog rejects with the signal's own abort
+ * reason so the caller unwinds to its `finally` and the reason classifies as a
+ * user cancellation downstream. The abandoned `work` promise keeps running
+ * detached — its eventual rejection is swallowed so it can't surface as an
+ * unhandled rejection.
  */
 async function withAbortWatchdog<T>(
   work: Promise<T>,
@@ -265,6 +261,13 @@ export async function runAgentLoopImpl(
     isInteractive?: boolean;
     isUserMessage?: boolean;
     titleText?: string;
+    /**
+     * True when the triggering message is a transcript-suppressed machine
+     * signal (`metadata.hidden`). Forwarded to the user-prompt-submit hook
+     * context so prompt-as-user-speech consumers (title generation) skip
+     * the turn.
+     */
+    isHiddenPrompt?: boolean;
     /**
      * LLM call-site identifier threaded into the per-call provider config.
      * Adapter callers (heartbeat, filing, scheduler, etc.) pass their own
@@ -315,8 +318,20 @@ export async function runAgentLoopImpl(
   ctx.currentTurnTrustContext = ctx.trustContext;
   ctx.currentTurnChannelCapabilities = ctx.channelCapabilities;
 
+  // Re-resolve the system prompt under the snapshots just set and push it into
+  // the loop when the persona changed. The loop reuses the prompt frozen at
+  // construction otherwise, so a flow that binds trust after construction (a
+  // voice call resolves the caller only after `getOrCreateConversation`) would
+  // run the whole conversation under the construction-time persona.
+  ctx.syncLoopSystemPrompt();
+
   const abortController = ctx.abortController;
   const reqId = ctx.currentRequestId ?? uuid();
+  // First-token latency instrumentation for this turn. Stamped here at the
+  // earliest point of turn processing, then through the prompt-submit hook
+  // (memory/context retrieval) and the agent loop's per-call marks.
+  const latencyTracker = new TurnLatencyTracker();
+  latencyTracker.mark("turn_start");
   const rlog = log.child({
     conversationId: ctx.conversationId,
     requestId: reqId,
@@ -839,29 +854,42 @@ export async function runAgentLoopImpl(
       timeSinceLastMessage,
     };
 
+    // Freeze the turn-start client OS for the same anti-race reason as the
+    // timezone above: the live `ctx.clientOs` is re-applied from transport
+    // whenever a newer message for this conversation arrives mid-turn, so the
+    // assembly reads this frozen copy to avoid leaking a queued message's
+    // `client_os` into the in-flight turn.
+    ctx.currentTurnClientOs = ctx.clientOs ?? undefined;
+
     // Resolve the effective profile key for this turn and detect changes.
-    // Only inject model_profile into the turn context when the profile
-    // changed since the last turn (or on the first turn of a conversation)
-    // to avoid per-turn token cost.
+    // `modelProfileKey` is the actual profile used for this turn. The
+    // notice key is narrower: it only marks turns where runtime context should
+    // remind the model that the profile changed.
     const effectiveProfileKey =
       turnOverrideProfile ??
       config.llm.activeProfile ??
-      resolveDefaultProfileKey("mainAgent", config.llm);
+      resolveDefaultProfileKey("mainAgent", config.llm) ??
+      resolveProfilelessModelKey(turnCallSite, config.llm, {
+        ...(turnOverrideProfile != null
+          ? { overrideProfile: turnOverrideProfile }
+          : {}),
+        ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+        selectionSeed: ctx.conversationId,
+      });
     const lastNotified = ctx.lastNotifiedInferenceProfile;
-    const modelProfileKey =
-      effectiveProfileKey != null && effectiveProfileKey !== lastNotified
-        ? effectiveProfileKey
-        : null;
-    // The key is threaded as plain turn data to the user-prompt-submit and
-    // post-compaction hooks, which render the `Label (model)` line from it
-    // themselves.
-    if (modelProfileKey != null) {
+    const modelProfileKey = effectiveProfileKey;
+    const modelProfileNoticeKey =
+      modelProfileKey !== lastNotified ? modelProfileKey : null;
+    ctx.currentTurnModelProfileNoticeKey = modelProfileNoticeKey ?? undefined;
+    // Persist the notice only after delivery; hooks still receive
+    // `modelProfileKey` as the effective profile for this turn.
+    if (modelProfileNoticeKey != null) {
       // Record the notification for persistence on delivery rather than here:
       // the model only "learns" the profile once it receives this turn
       // context, signalled by the first `message_complete`. Persisting inline
       // would mark the profile notified even if the turn is cancelled or fails
       // before the model ever sees the notice.
-      state.pendingNotifiedInferenceProfile = modelProfileKey;
+      state.pendingNotifiedInferenceProfile = modelProfileNoticeKey;
     }
 
     // user-prompt-submit hook chain. Fires once per user turn at the primary
@@ -882,16 +910,20 @@ export async function runAgentLoopImpl(
       userMessageId,
       requestId: reqId,
       prompt: options?.titleText ?? content,
+      isHiddenPrompt: options?.isHiddenPrompt === true,
       originalMessages: ctx.messages,
       latestMessages: ctx.messages,
       logger: rlog,
       modelProfileKey,
       isNonInteractive,
     };
+    latencyTracker.mark("prompt_hook_start");
     const finalUserPromptCtx = await runHook(
       HOOKS.USER_PROMPT_SUBMIT,
       userPromptCtx,
+      getEffectiveEnabledPluginSet(ctx),
     );
+    latencyTracker.mark("prompt_hook_end");
     const runMessages = finalUserPromptCtx.latestMessages;
 
     // Reset the manager's turn-scoped overflow-recovery ladder at the turn
@@ -912,6 +944,7 @@ export async function runAgentLoopImpl(
       turnChannelContext: capturedTurnChannelContext,
       turnInterfaceContext: capturedTurnInterfaceContext,
       applyCompaction: applySuccessfulCompaction,
+      latencyTracker,
     };
     const eventHandler = (event: AgentEvent): Promise<void> => {
       if (
@@ -992,6 +1025,7 @@ export async function runAgentLoopImpl(
           compactInPlace,
           isNonInteractive,
           modelProfileKey,
+          latencyTracker,
           ...(ctx.modelOverride ? { model: ctx.modelOverride } : {}),
         }),
         abortController.signal,
@@ -1014,6 +1048,10 @@ export async function runAgentLoopImpl(
     };
 
     const updatedHistory = await runAgentLoop(runMessages, true);
+    // Generation is done streaming. Anything awaited between here and the
+    // terminal SSE is what the user perceives as the gap between the last
+    // token and the composer re-enabling, so keep that window minimal.
+    const generationCompletedAt = Date.now();
 
     rlog.info(
       { resultMessageCount: updatedHistory.length },
@@ -1273,39 +1311,18 @@ export async function runAgentLoopImpl(
       0,
       updatedHistory.length - lastRunNewMessages.length,
     );
-    let restoredHistory = [...loopBase, ...newMessages];
-
-    // Post-turn tool result truncation: save large results to disk and
-    // replace in-context content with a prefix/suffix stub + file pointer.
-    try {
-      const conv = getConversation(ctx.conversationId);
-      if (conv) {
-        const convDir = getResolvedConversationDirPath(
-          ctx.conversationId,
-          conv.createdAt,
-        );
-        const { messages: derefMessages, dereferencedCount } =
-          derefToolResultReReads(restoredHistory);
-        const { messages: truncatedMessages, truncatedCount } =
-          postTurnTruncateToolResults(derefMessages, {
-            conversationDir: convDir,
-          });
-        if (truncatedCount > 0 || dereferencedCount > 0) {
-          rlog.info(
-            { truncatedCount, dereferencedCount },
-            "Post-turn tool result truncation applied",
-          );
-        }
-        restoredHistory = truncatedMessages;
-      }
-    } catch (err) {
-      rlog.warn({ err }, "Post-turn tool result truncation failed (non-fatal)");
-    }
+    const restoredHistory = [...loopBase, ...newMessages];
 
     // Persist injections in history: runtime-injected context stays on
     // historical user messages so the conversation prefix is stable for
     // Anthropic's prefix caching.  Stripping only happens during
     // compaction/overflow recovery (where a cache miss is expected).
+    //
+    // Post-turn tool-result truncation (spooling large results to disk and
+    // shrinking the next turn's context) is deferred to `runDeferredTurnTail`
+    // below. It only rewrites the in-memory history the NEXT turn is built
+    // from — never the just-delivered reply — so it must not sit on the
+    // critical path to the terminal SSE that re-enables the composer.
     ctx.messages = restoredHistory;
 
     emitUsage(
@@ -1332,21 +1349,11 @@ export async function runAgentLoopImpl(
       turnCronRunId,
     );
 
-    const syncLastAssistantMessageToDisk = (): void => {
-      if (!state.lastAssistantMessageId) return;
-      const convForDisk = getConversation(ctx.conversationId);
-      if (!convForDisk) return;
-      syncMessageToDisk(
-        ctx.conversationId,
-        state.lastAssistantMessageId,
-        convForDisk.createdAt,
-      );
-    };
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
-    // so the client can re-enable the UI without delay.
+    // so the client can re-enable the UI without delay. Disk sync and the rest
+    // of the bookkeeping run in `runDeferredTurnTail` after this SSE.
     if (abortController.signal.aborted) {
-      syncLastAssistantMessageToDisk();
       ctx.emitActivityState("idle", "generation_cancelled", {
         anchor: "global",
         requestId: reqId,
@@ -1386,7 +1393,6 @@ export async function runAgentLoopImpl(
 
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
-      syncLastAssistantMessageToDisk();
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {
@@ -1467,6 +1473,12 @@ export async function runAgentLoopImpl(
         publishLoopMessagesChanged();
       }
     }
+
+    // The terminal SSE for this turn has now been emitted (message_complete,
+    // generation_handoff, or generation_cancelled), so the composer is already
+    // re-enabling. Drain the deferred bookkeeping now — after the SSE, before
+    // the `finally` commits and drains the queue for the next turn.
+    await runDeferredTurnTail({ ctx, state, rlog, generationCompletedAt });
   } catch (err) {
     clearConversationNotices(ctx.conversationId);
     const errorCtx = {
@@ -1576,6 +1588,7 @@ export async function runAgentLoopImpl(
     ctx.diskPressureCleanupModeActive = false;
     ctx.preactivatedSkillIds = undefined;
     ctx.currentTurnOverrideProfile = undefined;
+    ctx.currentTurnModelProfileNoticeKey = undefined;
     // Turn-scoped interactivity. Clear it so paths that bypass this loop (e.g.
     // opportunity wakes calling `agentLoop.run` directly) don't inherit a stale
     // value and instead fall back to live client state in the tool context.

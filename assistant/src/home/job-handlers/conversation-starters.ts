@@ -9,21 +9,6 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { loadSkillCatalog } from "../../config/skills.js";
-import {
-  checkpointKey,
-  CK_BATCH,
-  CK_ITEM_COUNT,
-  CK_LAST_ATTEMPT_AT,
-  CK_LAST_GEN_AT,
-  countActiveMemoryNodes,
-  getCheckpointValue,
-  parseCheckpointInt,
-  upsertCheckpoint,
-} from "../../home/conversation-starter-checkpoints.js";
-import {
-  buildConversationStarterValidationContext,
-  isValidConversationStarterText,
-} from "../../home/conversation-starter-validation.js";
 import { getDb } from "../../persistence/db-connection.js";
 import { asString } from "../../persistence/job-utils.js";
 import type { MemoryJob } from "../../persistence/jobs-store.js";
@@ -41,6 +26,21 @@ import {
 } from "../../providers/provider-send-message.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
+import {
+  checkpointKey,
+  CK_BATCH,
+  CK_ITEM_COUNT,
+  CK_LAST_ATTEMPT_AT,
+  CK_LAST_GEN_AT,
+  countActiveMemoryNodes,
+  getCheckpointValue,
+  parseCheckpointInt,
+  upsertCheckpoint,
+} from "../conversation-starter-checkpoints.js";
+import {
+  buildConversationStarterValidationContext,
+  isValidConversationStarterText,
+} from "../conversation-starter-validation.js";
 
 const log = getLogger("conversation-starters-gen");
 
@@ -109,6 +109,7 @@ function buildNewItemsDiff(scopeId: string): string {
     kind: string;
     content: string;
   }>(
+    "starters:buildNewItemsDiff",
     `SELECT type AS kind, content FROM memory_graph_nodes
      WHERE fidelity != 'gone' AND scope_id = ? AND created > ?
      ORDER BY created DESC LIMIT 20`,

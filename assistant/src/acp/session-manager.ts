@@ -1034,16 +1034,27 @@ export class AcpSessionManager {
           );
           const resumeHint = hint ? `\n\n${hint}` : "";
           const notifyMessage = `[ACP agent "${agentLabel}" completed]\n\n${responseText}${resumeHint}`;
+          // Tag the injected message so the daemon skips its user_message_echo
+          // and the client filters it from the rendered transcript — the user
+          // sees the run through its inline card, not a chat turn.
+          const acpNotification = {
+            acpSessionId: sessionId,
+            agent: agentLabel,
+          };
           const parentConversation = findConversation(
             current.parentConversationId,
           );
           if (parentConversation) {
             const enqueueResult = parentConversation.enqueueMessage({
               content: notifyMessage,
+              metadata: { acpNotification },
             });
             if (!enqueueResult.queued && !enqueueResult.rejected) {
               parentConversation
-                .persistUserMessage({ content: notifyMessage })
+                .persistUserMessage({
+                  content: notifyMessage,
+                  metadata: { acpNotification },
+                })
                 .then(({ id: messageId }) =>
                   parentConversation.runAgentLoop(notifyMessage, messageId),
                 )

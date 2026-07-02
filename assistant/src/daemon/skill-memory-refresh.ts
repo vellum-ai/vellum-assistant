@@ -3,12 +3,12 @@ import type { AssistantConfig } from "../config/schema.js";
 import {
   seedSkillGraphNodes,
   seedUninstalledCatalogSkillMemories,
-} from "../memory/graph/capability-seed.js";
-import { getLogger } from "../util/logger.js";
+} from "../plugins/defaults/memory/graph/capability-seed.js";
 import {
   maybeSeedMemoryV2CliCommands,
   maybeSeedMemoryV2Skills,
-} from "./memory-v2-startup.js";
+} from "../plugins/defaults/memory/v2/memory-v2-startup.js";
+import { getLogger } from "../util/logger.js";
 
 const log = getLogger("skill-memory-refresh");
 

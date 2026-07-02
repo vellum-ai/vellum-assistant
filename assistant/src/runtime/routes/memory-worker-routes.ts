@@ -17,6 +17,7 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../../config/loader.js";
+import { getMemoryBackendStatus } from "../../persistence/embeddings/embedding-backend.js";
 import {
   MemoryWorkerSpawnError,
   probeMemoryWorker,
@@ -61,11 +62,20 @@ const stopResponseSchema = z.object({
   workerEnabled: z.literal(false),
 });
 
+export const embeddingStatusSchema = z.object({
+  enabled: z.boolean(),
+  degraded: z.boolean(),
+  provider: z.enum(["local", "openai", "gemini", "ollama"]).nullable(),
+  model: z.string().nullable(),
+  reason: z.string().nullable(),
+});
+
 const statusResponseSchema = z.object({
   status: z.enum(["running", "not_running"]),
   pid: z.number().optional(),
   workerEnabled: z.boolean(),
   syncRunner: workerStatusSchema,
+  embedding: embeddingStatusSchema,
 });
 
 /**
@@ -141,8 +151,12 @@ function stopMemoryWorker() {
  * This handler runs inside the daemon — the very process that is (or isn't) the
  * synchronous runner — so the runner's state is derived directly from config,
  * with the daemon's own PID, rather than read back from a marker file.
+ *
+ * The `embedding` block reports the resolved embedding backend (or the
+ * degraded state when none resolves), so a silent embedding-backend
+ * degradation — memory enqueues fine but never embeds — is observable.
  */
-function memoryWorkerStatus() {
+async function memoryWorkerStatus() {
   const worker = probeMemoryWorker();
   const config = getConfigReadOnly();
   const workerEnabled = config.memory.worker.enabled;
@@ -153,11 +167,14 @@ function memoryWorkerStatus() {
       ? { status: "running", pid: process.pid }
       : { status: "not_running" };
 
+  const embedding = await getMemoryBackendStatus(config);
+
   return {
     status: worker.status,
     ...(worker.pid != null ? { pid: worker.pid } : {}),
     workerEnabled,
     syncRunner,
+    embedding,
   };
 }
 
@@ -203,7 +220,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: memoryWorkerStatus,
     summary: "Memory worker status",
     description:
-      "Reports the memory worker process state, memory.worker.enabled, and the synchronous in-process runner.",
+      "Reports the memory worker process state, memory.worker.enabled, the synchronous in-process runner, and the embedding-backend status (including a degraded flag and reason when no backend resolves).",
     tags: ["system"],
     responseBody: statusResponseSchema,
   },

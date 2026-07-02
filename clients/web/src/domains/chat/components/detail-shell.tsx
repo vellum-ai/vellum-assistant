@@ -15,19 +15,30 @@ import type { ReactNode } from "react";
 import { Button, Typography } from "@vellumai/design-library";
 
 export interface DetailShellProps {
-  Glyph: LucideIcon;
+  /** Lucide icon rendered with default sizing/color. Ignored when `icon` is set. */
+  Glyph?: LucideIcon;
+  /** Pre-rendered icon element (e.g. an <img>). Takes precedence over `Glyph`. */
+  icon?: ReactNode;
   title: string;
+  /** Inline slot next to the title (e.g. a status badge), before the spacer. */
   headerTrailing?: ReactNode;
+  /** Right-aligned action cluster after the spacer, before close (e.g. a Stop button). */
+  headerActions?: ReactNode;
   closeLabel?: string;
+  /** Close-button style. "outlined" matches the subagent panel's bordered X. */
+  closeVariant?: "ghost" | "outlined";
   onClose: () => void;
   children: ReactNode;
 }
 
 export function DetailShell({
   Glyph,
+  icon,
   title,
   headerTrailing,
+  headerActions,
   closeLabel = "Close panel",
+  closeVariant = "ghost",
   onClose,
   children,
 }: DetailShellProps) {
@@ -35,10 +46,12 @@ export function DetailShell({
     <div className="flex h-full flex-col overflow-hidden rounded-xl bg-[var(--surface-lift)]">
       {/* Header */}
       <div className="flex shrink-0 items-center gap-3 border-b border-[var(--border-base)] px-5 py-4">
-        <Glyph
-          className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
-          aria-hidden
-        />
+        {icon ?? (Glyph ? (
+          <Glyph
+            className="h-5 w-5 shrink-0 text-[var(--content-secondary)]"
+            aria-hidden
+          />
+        ) : null)}
         <Typography
           variant="title-medium"
           // `title-medium` ships a tight line-height; combined with `truncate`
@@ -50,13 +63,14 @@ export function DetailShell({
         </Typography>
         {headerTrailing}
         <span className="flex-1" />
+        {headerActions}
         <Button
-          variant="ghost"
+          variant={closeVariant === "outlined" ? "outlined" : "ghost"}
           iconOnly={<X />}
           onClick={onClose}
           aria-label={closeLabel}
           tooltip="Close"
-          className="shrink-0"
+          className={`shrink-0${closeVariant === "outlined" ? " rounded-lg" : ""}`}
         />
       </div>
 

@@ -5,6 +5,7 @@
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * POST   /v1/conversations/fork           — fork an existing conversation
  * PUT    /v1/conversations/:id/inference-profile — set per-conversation inference profile
+ * PUT    /v1/conversations/:id/enabledplugins — set per-conversation plugin scope
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
  * POST   /v1/conversations/:id/wipe       — wipe conversation and revert memory
@@ -15,17 +16,16 @@
  * POST   /v1/conversations/:id/surface    — promote to / demote from Recents
  * POST   /v1/conversations/:id/cancel     — cancel generation
  * POST   /v1/conversations/:id/undo       — undo last message
- * POST   /v1/conversations/:id/regenerate — regenerate last assistant response
  * POST   /v1/conversations/reorder        — reorder / pin conversations
  */
 
 import { z } from "zod";
 
+import { findConversation } from "../../daemon/conversation-registry.js";
 import { destroyActiveConversation } from "../../daemon/conversation-store.js";
 import {
   cancelGeneration,
   clearAllConversations,
-  regenerateResponse,
   resolveMetaSlashCommand,
   switchConversation,
   undoLastMessage,
@@ -39,6 +39,7 @@ import {
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
+  setConversationEnabledPlugins,
   setConversationSurfaced,
   unarchiveConversation,
   updateConversationTitle,
@@ -56,6 +57,7 @@ import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
 import {
+  publishConversationEnabledPluginsChanged,
   publishConversationListAndMetadataChanged,
   publishConversationListChanged,
   publishConversationTitleChanged,
@@ -77,13 +79,13 @@ function resolveOrThrow(rawId: string): string {
   return id;
 }
 
-function cancelScheduleIfLast(conversationId: string): void {
+async function cancelScheduleIfLast(conversationId: string): Promise<void> {
   const conv = getConversation(conversationId);
   if (
     conv?.scheduleJobId &&
     countConversationsByScheduleJobId(conv.scheduleJobId) <= 1
   ) {
-    deleteSchedule(conv.scheduleJobId);
+    await deleteSchedule(conv.scheduleJobId);
   }
 }
 
@@ -224,6 +226,49 @@ async function handleSetInferenceProfile({
   return result;
 }
 
+async function handleUpdateConversationEnabledPlugins({
+  pathParams = {},
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  const enabledPlugins = body.enabledPlugins as string[] | null | undefined;
+  // The field is required; `null` is the explicit "clear the scope" signal.
+  // A missing field (malformed/empty body) must not silently clear the scope.
+  if (enabledPlugins === undefined) {
+    throw new BadRequestError(
+      "enabledPlugins is required (use null to clear the scope)",
+    );
+  }
+  if (
+    enabledPlugins !== null &&
+    (!Array.isArray(enabledPlugins) ||
+      enabledPlugins.some((p) => typeof p !== "string"))
+  ) {
+    throw new BadRequestError(
+      "enabledPlugins must be an array of strings or null",
+    );
+  }
+
+  const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
+  const conversation = getConversation(resolvedId);
+  if (!conversation) {
+    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
+  }
+
+  // `null` clears the per-chat scope back to the default (all enabled
+  // plugins); a `string[]` scopes the chat to those plugin ids.
+  const nextEnabledPlugins = enabledPlugins;
+  setConversationEnabledPlugins(resolvedId, nextEnabledPlugins);
+  findConversation(resolvedId)?.setEnabledPlugins(nextEnabledPlugins);
+
+  publishConversationEnabledPluginsChanged(
+    resolvedId,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
+
+  return { conversationId: resolvedId, enabledPlugins: nextEnabledPlugins };
+}
+
 function handleRenameConversation({
   pathParams = {},
   body = {},
@@ -264,13 +309,13 @@ async function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
   return undefined;
 }
 
-function handleWipeConversation({
+async function handleWipeConversation({
   pathParams = {},
   headers,
 }: RouteHandlerArgs) {
   const resolvedId = resolveOrThrow(pathParams.id!);
 
-  cancelScheduleIfLast(resolvedId);
+  await cancelScheduleIfLast(resolvedId);
 
   destroyActiveConversation(resolvedId);
   const result = wipeConversation(resolvedId);
@@ -310,13 +355,13 @@ function handleWipeConversation({
   };
 }
 
-function handleDeleteConversation({
+async function handleDeleteConversation({
   pathParams = {},
   headers,
 }: RouteHandlerArgs) {
   const resolvedId = resolveOrThrow(pathParams.id!);
 
-  cancelScheduleIfLast(resolvedId);
+  await cancelScheduleIfLast(resolvedId);
 
   destroyActiveConversation(resolvedId);
   const deleted = deleteConversation(resolvedId);
@@ -332,6 +377,9 @@ function handleDeleteConversation({
       targetId: summaryId,
     });
   }
+  // The lexical-index purge is fired by `deleteConversation` itself (via the
+  // `onConversationDeleted` persistence hook), so every delete caller cleans up
+  // — no route-level purge needed here.
   log.info({ conversationId: resolvedId }, "Deleted conversation");
 
   publishConversationListAndMetadataChanged(
@@ -489,25 +537,6 @@ async function handleResolveMetaSlashCommand({
     throw new NotFoundError(`No conversation for ${pathParams.id}`);
   }
   return result;
-}
-
-async function handleRegenerateResponse({ pathParams = {} }: RouteHandlerArgs) {
-  const conversationId = pathParams.id!;
-  try {
-    const result = await regenerateResponse(conversationId);
-    if (!result) {
-      throw new NotFoundError(`No active conversation for ${pathParams.id}`);
-    }
-    return undefined;
-  } catch (err) {
-    if (err instanceof NotFoundError) throw err;
-    const message = err instanceof Error ? err.message : String(err);
-    log.error(
-      { err, conversationId: pathParams.id },
-      "Error regenerating via HTTP",
-    );
-    throw new InternalError(`Failed to regenerate: ${message}`);
-  }
 }
 
 function handleReorderConversations({ body = {}, headers }: RouteHandlerArgs) {
@@ -670,6 +699,30 @@ export const ROUTES: RouteDefinition[] = [
         .nullable(),
     }),
     handler: handleSetInferenceProfile,
+  },
+  {
+    operationId: "conversations_by_id_enabledplugins_put",
+    endpoint: "conversations/:id/enabledplugins",
+    method: "PUT",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Set conversation enabled plugins",
+    description:
+      "Scope a single conversation to a subset of installed plugins " +
+      "(first-party defaults are always available). Pass null to clear the " +
+      "scope back to the default (all enabled plugins).",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    requestBody: z.object({
+      enabledPlugins: z.array(z.string()).nullable(),
+    }),
+    responseBody: z.object({
+      conversationId: z.string(),
+      enabledPlugins: z.array(z.string()).nullable(),
+    }),
+    handler: handleUpdateConversationEnabledPlugins,
   },
   {
     operationId: "renameConversation",
@@ -898,22 +951,6 @@ export const ROUTES: RouteDefinition[] = [
         .optional(),
     }),
     handler: handleResolveMetaSlashCommand,
-  },
-  {
-    operationId: "regenerateResponse",
-    endpoint: "conversations/:id/regenerate",
-    method: "POST",
-    policy: {
-      requiredScopes: ["chat.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    summary: "Regenerate response",
-    description:
-      "Re-run the assistant for the last user message in a conversation.",
-    tags: ["conversations"],
-    pathParams: [{ name: "id", type: "uuid" }],
-    responseStatus: "202",
-    handler: handleRegenerateResponse,
   },
   {
     operationId: "reorderConversations",

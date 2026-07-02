@@ -105,6 +105,14 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   callSessionId?: string;
   /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
   readonly transportInterface?: InterfaceId;
+  /**
+   * The conversation's per-chat plugin scope (mirrors
+   * {@link Conversation.enabledPlugins}). `null`/absent means no per-chat
+   * restriction. Read per tool call to derive the effective enabled-plugin set
+   * (via `getEffectiveEnabledPluginSet`) for the `ToolContext.enabledPluginSet`
+   * field and the `skill_execute` dispatch guard.
+   */
+  readonly enabledPlugins?: string[] | null;
 
   /** Turn-scoped flag: true when any tool call in the current turn received explicit user approval via interactive prompt. Cleared at turn end. */
   approvedViaPromptThisTurn?: boolean;

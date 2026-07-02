@@ -122,7 +122,6 @@ mock.module("../persistence/conversation-crud.js", () => ({
   })),
   deleteLastExchange: mock(() => 0),
   findAnalysisConversationFor: mock(() => null),
-  findMostRecentRetrospectiveFor: mock(() => null),
   forkConversation: mock(() => ({ id: "conv-fork" })),
   forkConversationForRetrospective: mock(async () => ({ id: "conv-fork" })),
   getConversationOverrideProfile: () => undefined,
@@ -186,6 +185,7 @@ mock.module("../persistence/jobs-store.js", () => ({
   enqueuePruneOldConversationsJob: mock(() => "job-prune-conv"),
   enqueuePruneOldLlmRequestLogsJob: mock(() => "job-prune-llm"),
   enqueuePruneOldTraceEventsJob: mock(() => "job-prune-trace"),
+  enqueuePruneOldToolInvocationsJob: mock(() => "job-prune-tool"),
   failMemoryJob: mock(() => {}),
   failStalledJobs: mockFailStalledJobs,
   getMemoryJobCounts: mock(() => ({})),
@@ -195,6 +195,7 @@ mock.module("../persistence/jobs-store.js", () => ({
     automatic: "automatic",
     manual: "manual",
   },
+  MESSAGE_LEXICAL_JOB_TYPES: [],
   resetRunningJobsToPending: mock(() => 0),
   SLOW_LLM_JOB_TYPES: [],
   upsertAutoAnalysisJob: mock(() => "job-auto-analysis"),
@@ -213,7 +214,8 @@ mock.module("../persistence/cleanup-schedule-state.js", () => ({
 }));
 
 const { runMemoryJobsOnce } = await import("../persistence/jobs-worker.js");
-const { FilingService } = await import("../filing/filing-service.js");
+const { FilingService } =
+  await import("../plugins/defaults/memory/filing-service.js");
 const { WorkspaceHeartbeatService } =
   await import("../workspace/heartbeat-service.js");
 

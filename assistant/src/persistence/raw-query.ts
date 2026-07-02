@@ -23,9 +23,6 @@
  * - **Atomic in-place updates**: Expressions like `SET count = count + 1` can
  *   use Drizzle's `sql` template, but raw SQL is acceptable when simpler.
  *
- * - **Bulk deletes across virtual tables**: Operations like clearing
- *   messages_fts that reference virtual tables not modeled in Drizzle.
- *
  * For everything else — selects, inserts, updates, deletes, joins, aggregations,
  * filtering, ordering, pagination — use Drizzle.
  */
@@ -39,19 +36,37 @@ type SqlParam = SQLQueryBindings;
 // ---------------------------------------------------------------------------
 // Typed query helpers (global Drizzle instance)
 // ---------------------------------------------------------------------------
+//
+// Every connection returned by the db-connection accessor is wrapped by
+// `wrapSqliteForSlowQueryLogging`, which times each `.get()/.all()/.run()`
+// execution and logs the slow ones. Each helper takes a required `label` first
+// argument — a short `domain:operation` attribution tag (e.g.
+// `"schedule:claimDue"`) — routed through `.label()` so a slow raw query names
+// its call site in the log, not just its SQL. The wrapper caches the timed proxy
+// per (statement, label), so repeated calls stay allocation-light.
 
 /** Execute a raw SQL query and return a single typed row, or null if no match. */
-export function rawGet<T>(sql: string, ...params: SqlParam[]): T | null {
+export function rawGet<T>(
+  label: string,
+  sql: string,
+  ...params: SqlParam[]
+): T | null {
   return (
     (getSqlite()
+      .label(label)
       .query(sql)
       .get(...params) as T) ?? null
   );
 }
 
 /** Execute a raw SQL query and return all matching rows with type safety. */
-export function rawAll<T>(sql: string, ...params: SqlParam[]): T[] {
+export function rawAll<T>(
+  label: string,
+  sql: string,
+  ...params: SqlParam[]
+): T[] {
   return getSqlite()
+    .label(label)
     .query(sql)
     .all(...params) as T[];
 }
@@ -60,8 +75,13 @@ export function rawAll<T>(sql: string, ...params: SqlParam[]): T[] {
  * Execute a raw SQL statement (INSERT/UPDATE/DELETE) and return the number
  * of affected rows.
  */
-export function rawRun(sql: string, ...params: SqlParam[]): number {
+export function rawRun(
+  label: string,
+  sql: string,
+  ...params: SqlParam[]
+): number {
   getSqlite()
+    .label(label)
     .query(sql)
     .run(...params);
   return rawChanges();
@@ -101,16 +121,28 @@ function logsSqlite(): Database {
 }
 
 /** {@link rawAll} against the memory connection. */
-export function rawMemoryAll<T>(sql: string, ...params: SqlParam[]): T[] {
+export function rawMemoryAll<T>(
+  label: string,
+  sql: string,
+  ...params: SqlParam[]
+): T[] {
   return memorySqlite()
+    .label(label)
     .query(sql)
     .all(...params) as T[];
 }
 
 /** {@link rawRun} against the memory connection. */
-export function rawMemoryRun(sql: string, ...params: SqlParam[]): number {
+export function rawMemoryRun(
+  label: string,
+  sql: string,
+  ...params: SqlParam[]
+): number {
   const sqlite = memorySqlite();
-  sqlite.query(sql).run(...params);
+  sqlite
+    .label(label)
+    .query(sql)
+    .run(...params);
   return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
 }
 
@@ -121,9 +153,16 @@ export function rawMemoryChanges(): number {
 }
 
 /** {@link rawRun} against the logs connection. */
-export function rawLogsRun(sql: string, ...params: SqlParam[]): number {
+export function rawLogsRun(
+  label: string,
+  sql: string,
+  ...params: SqlParam[]
+): number {
   const sqlite = logsSqlite();
-  sqlite.query(sql).run(...params);
+  sqlite
+    .label(label)
+    .query(sql)
+    .run(...params);
   return (sqlite.query("SELECT changes() AS c").get() as { c: number }).c;
 }
 

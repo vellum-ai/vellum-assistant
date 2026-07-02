@@ -23,6 +23,7 @@ import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import {
   addMessage,
+  isHiddenMessageMetadata,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -61,18 +62,31 @@ import { resolveVerificationSessionIntent } from "./verification-session-intent.
 const log = getLogger("conversation-process");
 
 /**
- * Daemon-injected subagent lifecycle notifications carry `subagentNotification`
- * metadata. They are persisted into the parent conversation so the orchestrator
- * wakes and reads the subagent's result, but they are internal scaffolding — the
- * user sees subagent activity through the inline progress card, not a chat turn.
- * Skip the `user_message_echo` broadcast for these so they never render as a live
- * user bubble; the persisted row is filtered from the rendered transcript on the
- * client.
+ * Daemon-injected run lifecycle notifications — subagent (`subagentNotification`),
+ * ACP run (`acpNotification`), and any wake trigger (the persisted
+ * `<background_event source="...">` row every wake reads) — are persisted into
+ * the parent conversation so the orchestrator wakes and reads the trigger, but
+ * they are internal scaffolding: the user sees the wake through its inline card
+ * ("Conversation Woke", or a terminal card for a backgrounded bash run), not a
+ * chat turn. Skip the `user_message_echo` broadcast for these so they never
+ * render as a live user bubble; the persisted row is filtered from the rendered
+ * transcript on the client.
+ *
+ * Messages explicitly flagged `hidden` (a hidden `POST /messages` send that
+ * queued behind an in-flight turn, e.g. the channel-setup wizard-close
+ * marker) are suppressed the same way — the immediate route path already
+ * skips their echo, and the persisted `hidden` metadata keeps them out of
+ * the fetched transcript.
  */
-function isSubagentNotificationMessage(
+function isEchoSuppressedUserMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
-  return metadata?.subagentNotification != null;
+  return (
+    isHiddenMessageMetadata(metadata) ||
+    metadata?.subagentNotification != null ||
+    metadata?.acpNotification != null ||
+    typeof metadata?.backgroundEventSource === "string"
+  );
 }
 
 /** Format the result of a forced compaction into a user-facing message. */
@@ -240,6 +254,11 @@ async function buildPassthroughBatch(
     // otherwise diverge.
     if (candIf?.userMessageInterface !== headInterface?.userMessageInterface)
       break;
+    // The batched turn applies only the head's `clientOs`, so messages from a
+    // different OS surface must not coalesce. The web, iOS, and macOS apps all
+    // report `interfaceId: "web"`, so the interface check above no longer
+    // separates them — split on the reported OS explicitly.
+    if (candidate.transport?.clientOs !== head.transport?.clientOs) break;
     if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId) break;
     if (classifySlash(candidate.content) !== "passthrough") break;
     if (
@@ -439,6 +458,7 @@ async function drainSingleMessage(
     // and queue-drain stay in sync without duplicating the gate logic.
     conversation.applyHostEnvFromTransport(next.transport);
     conversation.applyClientTimezoneFromTransport(next.transport);
+    conversation.applyClientOsFromTransport(next.transport);
   }
 
   conversation.currentTurnAuthContext = next.authContext;
@@ -510,6 +530,7 @@ async function drainSingleMessage(
             }
           : {}),
         ...(next.metadata?.automated ? { automated: true } : {}),
+        ...(next.metadata?.hidden === true ? { hidden: true } : {}),
         ...(Object.keys(drainImageSourcePaths).length > 0
           ? { imageSourcePaths: drainImageSourcePaths }
           : {}),
@@ -868,7 +889,7 @@ async function drainSingleMessage(
 
   // Broadcast the user message to all hub subscribers so passive devices
   // see the user turn before the assistant reply starts streaming.
-  if (!isSubagentNotificationMessage(next.metadata)) {
+  if (!isEchoSuppressedUserMessage(next.metadata)) {
     next.onEvent({
       type: "user_message_echo",
       text: resolvedContent,
@@ -886,7 +907,10 @@ async function drainSingleMessage(
 
   // Fire-and-forget: detect notification preferences in the queued message
   // and persist any that are found, mirroring the logic in processMessage.
-  if (conversation.assistantId) {
+  // Hidden rows are machine signals, not user speech — running the detector
+  // on them burns an LLM call per signal and risks persisting a bogus
+  // preference from text the user never typed.
+  if (conversation.assistantId && !isHiddenMessageMetadata(next.metadata)) {
     extractPreferences(resolvedContent)
       .then((result) => {
         if (!result.detected) return;
@@ -921,11 +945,14 @@ async function drainSingleMessage(
     isInteractive?: boolean;
     isUserMessage?: boolean;
     titleText?: string;
+    isHiddenPrompt?: boolean;
   } = { isUserMessage: true };
   if (next.isInteractive !== undefined)
     drainLoopOptions.isInteractive = next.isInteractive;
   if (agentLoopContent !== resolvedContent)
     drainLoopOptions.titleText = resolvedContent;
+  if (isHiddenMessageMetadata(next.metadata))
+    drainLoopOptions.isHiddenPrompt = true;
 
   conversation
     .runAgentLoop(agentLoopContent, userMessageId, {
@@ -1000,6 +1027,7 @@ async function drainBatch(
     conversation.setTransportHints(buildTransportHints(head.transport));
     conversation.applyHostEnvFromTransport(head.transport);
     conversation.applyClientTimezoneFromTransport(head.transport);
+    conversation.applyClientOsFromTransport(head.transport);
   }
 
   conversation.currentTurnAuthContext = head.authContext;
@@ -1221,7 +1249,7 @@ async function drainBatch(
 
     // Broadcast the user message to all hub subscribers so passive devices
     // see each batched user turn before the assistant reply starts streaming.
-    if (!isSubagentNotificationMessage(qm.metadata)) {
+    if (!isEchoSuppressedUserMessage(qm.metadata)) {
       qm.onEvent({
         type: "user_message_echo",
         text: qmContent,
@@ -1242,8 +1270,9 @@ async function drainBatch(
     successfulBatch.push(qm);
 
     // Fire-and-forget: detect notification preferences in each batched user
-    // message and persist any that are found, mirroring drainSingleMessage.
-    if (conversation.assistantId) {
+    // message and persist any that are found, mirroring drainSingleMessage
+    // (including its hidden-row exclusion).
+    if (conversation.assistantId && !isHiddenMessageMetadata(qm.metadata)) {
       extractPreferences(qmContent)
         .then((result) => {
           if (!result.detected) return;
@@ -1330,6 +1359,7 @@ async function drainBatch(
     isInteractive?: boolean;
     isUserMessage?: boolean;
     titleText?: string;
+    isHiddenPrompt?: boolean;
   } = { isUserMessage: true };
   // Source interactive flag from the last successfully-persisted sibling so
   // a trailing failed tail doesn't flip the agent loop's interactivity.
@@ -1339,6 +1369,14 @@ async function drainBatch(
       : undefined;
   if (lastSuccessfulBatchEntry?.isInteractive !== undefined)
     drainLoopOptions.isInteractive = lastSuccessfulBatchEntry.isInteractive;
+  // A batch counts as a hidden turn only when every message in it is a
+  // hidden machine signal — one genuine user prompt justifies the
+  // prompt-as-user-speech consumers (title generation).
+  if (
+    successfulBatch.length > 0 &&
+    successfulBatch.every((qm) => isHiddenMessageMetadata(qm.metadata))
+  )
+    drainLoopOptions.isHiddenPrompt = true;
 
   // Fire-and-forget: runAgentLoop's finally block recursively calls drainQueue
   // when this run completes. Mirrors drainSingleMessage.

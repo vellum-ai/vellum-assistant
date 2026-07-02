@@ -114,6 +114,13 @@ import { swapBalancedProfileToGlm52Migration } from "./113-swap-balanced-profile
 import { swapQualityProfileToOpusMigration } from "./114-swap-quality-profile-to-opus.js";
 import { dropFrontierProfileMigration } from "./115-drop-frontier-profile.js";
 import { renameMemoryPluginDisabledSentinelMigration } from "./116-rename-memory-plugin-disabled-sentinel.js";
+import { normalizeStaleLeanMemoryV3DefaultsMigration } from "./117-normalize-stale-lean-memory-v3-defaults.js";
+import { seedNowMdMigration } from "./118-seed-now-md.js";
+import { stripPersistedMemoryV3TuningDefaultsMigration } from "./119-strip-persisted-memory-v3-tuning-defaults.js";
+import { reviseOnboardingThreadsMigration } from "./120-revise-onboarding-threads.js";
+import { seedDefaultUserGuardrailsMigration } from "./121-seed-default-user-guardrails.js";
+import { relocateDefaultUserBoundaryMigration } from "./122-relocate-default-user-boundary.js";
+import { swapQualityProfileToFableMigration } from "./123-swap-quality-profile-to-fable.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -239,4 +246,11 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   swapQualityProfileToOpusMigration,
   dropFrontierProfileMigration,
   renameMemoryPluginDisabledSentinelMigration,
+  normalizeStaleLeanMemoryV3DefaultsMigration,
+  seedNowMdMigration,
+  stripPersistedMemoryV3TuningDefaultsMigration,
+  reviseOnboardingThreadsMigration,
+  seedDefaultUserGuardrailsMigration,
+  relocateDefaultUserBoundaryMigration,
+  swapQualityProfileToFableMigration,
 ];

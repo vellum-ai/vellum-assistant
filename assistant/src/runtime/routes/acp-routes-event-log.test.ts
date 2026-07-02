@@ -155,6 +155,57 @@ describe("GET /v1/acp/sessions — eventLog", () => {
     expect(eventLog[0]?.content).toBe("persisted");
   });
 
+  test("active and terminal sessions both surface tool_call rawInput/rawOutput in eventLog", async () => {
+    const rawInput = { command: "grep -rn foo", pattern: "foo" };
+    const rawOutput = "src/a.ts:1: foo\nsrc/b.ts:9: foo";
+
+    const activeToolCall: AcpSessionUpdate = {
+      type: "acp_session_update",
+      acpSessionId: "active",
+      updateType: "tool_call",
+      toolCallId: "tc-active",
+      toolKind: "search",
+      toolStatus: "completed",
+      rawInput,
+      rawOutput,
+      seq: 1,
+    };
+    inMemoryStates.set("active", makeInMemoryState("active", "conv-1"));
+    bufferedUpdates.set("active", [activeToolCall]);
+
+    insertHistoryRow({
+      id: "terminal",
+      parentConversationId: "conv-1",
+      eventLogJson: JSON.stringify([
+        {
+          type: "acp_session_update",
+          acpSessionId: "terminal",
+          updateType: "tool_call",
+          toolCallId: "tc-terminal",
+          toolKind: "search",
+          toolStatus: "completed",
+          rawInput,
+          rawOutput,
+          seq: 1,
+        } satisfies AcpSessionUpdate,
+      ]),
+    });
+
+    const handler = getListHandler();
+    const result = (await handler({
+      queryParams: { conversationId: "conv-1" },
+    })) as { sessions: Array<Record<string, unknown>> };
+
+    for (const id of ["active", "terminal"]) {
+      const session = result.sessions.find((s) => s.id === id);
+      expect(session).toBeDefined();
+      const eventLog = session?.eventLog as AcpSessionUpdate[];
+      expect(eventLog).toHaveLength(1);
+      expect(eventLog[0]?.rawInput).toEqual(rawInput);
+      expect(eventLog[0]?.rawOutput).toBe(rawOutput);
+    }
+  });
+
   test("active in-memory session surfaces latestUsage as the usage fields", async () => {
     inMemoryStates.set(
       "active",

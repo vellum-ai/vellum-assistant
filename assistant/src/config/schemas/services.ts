@@ -115,42 +115,6 @@ const HubspotOAuthServiceSchema = BaseServiceSchema.extend({
   mode: ServiceModeSchema.default("your-own"),
 });
 
-/**
- * `services.meet.host.*` — daemon-side knobs for the externalized meet-join
- * skill process. Kept narrow: only the values the daemon reads before the
- * meet-host child is spawned live here. Skill-internal configuration
- * (avatar renderer, consent copy, proactive-chat keywords, etc.) lives in
- * `skills/meet-join/config-schema.ts` and is sourced from the separate
- * `<workspace>/config/meet.json` file the skill owns.
- */
-const MeetHostConfigSchema = z
-  .object({
-    idle_timeout_ms: z
-      .number({
-        error: "services.meet.host.idle_timeout_ms must be a number",
-      })
-      .int()
-      .nonnegative()
-      .optional()
-      .describe(
-        "Idle window in milliseconds after the last active meet session closes before the meet-host child is shut down. Defaults to 5 minutes when unset.",
-      ),
-  })
-  .describe("Daemon-side configuration for the external meet-join skill host");
-
-/**
- * Daemon-side `services.meet` block. Intentionally distinct from the
- * skill-internal `MeetServiceSchema` in `skills/meet-join/config-schema.ts`,
- * which validates the bot-facing `<workspace>/config/meet.json` file. This
- * schema only describes the keys the assistant itself reads from its global
- * `config.json` before the meet-host child process is spawned.
- */
-const MeetDaemonServiceSchema = z
-  .object({
-    host: MeetHostConfigSchema.default(MeetHostConfigSchema.parse({})),
-  })
-  .describe("meet-join skill daemon-side configuration");
-
 export const ServicesSchema = z.object({
   inference: InferenceServiceSchema.default(InferenceServiceSchema.parse({})),
   "image-generation": ImageGenerationServiceSchema.default(
@@ -196,7 +160,6 @@ export const ServicesSchema = z.object({
   "hubspot-oauth": HubspotOAuthServiceSchema.default(
     HubspotOAuthServiceSchema.parse({}),
   ),
-  meet: MeetDaemonServiceSchema.default(MeetDaemonServiceSchema.parse({})),
 });
 export type Services = z.infer<typeof ServicesSchema>;
 

@@ -31,6 +31,7 @@ import {
   upsertOutboundBinding,
 } from "../persistence/external-conversation-store.js";
 import { getLogger } from "../util/logger.js";
+import { withSqliteRetry } from "../util/sqlite-retry.js";
 import {
   composeConversationSeed,
   isConversationSeedSane,
@@ -214,13 +215,17 @@ export async function pairDeliveryWithConversation(
         "Conversation reuse target invalid — falling back to new conversation",
       );
 
-      const conversation = createConversation({
-        title,
-        conversationType,
-        source: signal.conversationMetadata?.source ?? "notification",
-        groupId: signal.conversationMetadata?.groupId,
-        scheduleJobId: signal.conversationMetadata?.scheduleJobId,
-      });
+      const conversation = await withSqliteRetry(
+        () =>
+          createConversation({
+            title,
+            conversationType,
+            source: signal.conversationMetadata?.source ?? "notification",
+            groupId: signal.conversationMetadata?.groupId,
+            scheduleJobId: signal.conversationMetadata?.scheduleJobId,
+          }),
+        { op: "conversationPairing.reuseFallback" },
+      );
 
       const message = await addMessage(
         conversation.id,
@@ -380,13 +385,17 @@ export async function pairDeliveryWithConversation(
     // Default path: create a new conversation
     // Memory indexing is skipped on the seed message below to prevent
     // notification copy from polluting conversational recall.
-    const conversation = createConversation({
-      title,
-      conversationType,
-      source: signal.conversationMetadata?.source ?? "notification",
-      groupId: signal.conversationMetadata?.groupId,
-      scheduleJobId: signal.conversationMetadata?.scheduleJobId,
-    });
+    const conversation = await withSqliteRetry(
+      () =>
+        createConversation({
+          title,
+          conversationType,
+          source: signal.conversationMetadata?.source ?? "notification",
+          groupId: signal.conversationMetadata?.groupId,
+          scheduleJobId: signal.conversationMetadata?.scheduleJobId,
+        }),
+      { op: "conversationPairing.default" },
+    );
 
     // Skip memory indexing — notification audit messages are not conversational
     // memory and should not pollute recall or incur embedding/extraction overhead.

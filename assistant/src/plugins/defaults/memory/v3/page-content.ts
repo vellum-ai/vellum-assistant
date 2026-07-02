@@ -1,9 +1,6 @@
-import { injectedConceptHeader } from "../../../../memory/v2/injected-block-slugs.js";
-import {
-  readPage,
-  renderPageContent,
-} from "../../../../memory/v2/page-store.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
+import { injectedConceptHeader } from "../v2/injected-block-slugs.js";
+import { readPage, renderPageContent } from "../v2/page-store.js";
 import { renderCapabilityContent } from "./capabilities.js";
 import { renderCard } from "./card.js";
 import type { Section, Slug } from "./types.js";

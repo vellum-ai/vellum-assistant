@@ -57,6 +57,15 @@ function resolveAppIdFromRelPath(relPath: string): string | null {
   const dirName = relPath.slice(0, slashIdx);
   const innerPath = relPath.slice(slashIdx + 1);
 
+  // Skip the apps-directory git repo. app-git-service initializes a git repo
+  // at the root of the apps directory (PR #6227) and commits after every app
+  // turn, so .git churns constantly (objects, index, refs, logs). Each such
+  // event would otherwise hit resolveAppIdByDirName -> existsSync, which is
+  // needless work on a path that can never be an app.
+  if (dirName === ".git") {
+    return null;
+  }
+
   // Skip non-source directories (include bare directory names for fs.watch events)
   if (
     innerPath === "records" ||

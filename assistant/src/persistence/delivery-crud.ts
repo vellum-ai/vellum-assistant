@@ -314,13 +314,13 @@ export function storePayload(
 }
 
 /**
- * Persist the assistant reply row generated for an inbound event so callback
- * delivery retries target that exact response instead of the latest message in
- * the conversation.
+ * Merge a patch into an inbound event's stored payload, preserving existing
+ * keys. No-ops when the event has no payload or the stored value is not a JSON
+ * object.
  */
-export function storeReplyMessageId(
+function mergeRawPayload(
   eventId: string,
-  replyMessageId: string,
+  patch: Record<string, unknown>,
 ): void {
   const db = getDb();
   const row = db
@@ -347,11 +347,32 @@ export function storeReplyMessageId(
 
   db.update(channelInboundEvents)
     .set({
-      rawPayload: JSON.stringify({ ...payload, replyMessageId }),
+      rawPayload: JSON.stringify({ ...payload, ...patch }),
       updatedAt: Date.now(),
     })
     .where(eq(channelInboundEvents.id, eventId))
     .run();
+}
+
+/**
+ * Persist the assistant reply row generated for an inbound event so callback
+ * delivery retries target that exact response instead of the latest message in
+ * the conversation.
+ */
+export function storeReplyMessageId(
+  eventId: string,
+  replyMessageId: string,
+): void {
+  mergeRawPayload(eventId, { replyMessageId });
+}
+
+/**
+ * Persist the `ts` of a Slack message already streamed for an inbound event.
+ * A processing retry reconciles its durable delivery into this message instead
+ * of opening a second stream, preventing a duplicate reply.
+ */
+export function storeStreamedReplyTs(eventId: string, streamTs: string): void {
+  mergeRawPayload(eventId, { slackStreamMessageTs: streamTs });
 }
 
 /**

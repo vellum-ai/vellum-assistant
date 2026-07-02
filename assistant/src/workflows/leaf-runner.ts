@@ -48,7 +48,7 @@ import {
   isPersonalMemoryAllowed,
   type TrustContext,
 } from "../daemon/trust-context.js";
-import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import {
   extractToolUse,

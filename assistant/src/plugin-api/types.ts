@@ -134,20 +134,32 @@ export interface ModelProfileInfo {
 // ─── Shutdown context ────────────────────────────────────────────────────────
 
 /**
- * Context passed to the `shutdown` hook during daemon teardown. Kept
- * intentionally narrower than {@link InitContext} — most teardown
- * paths only need to know which assistant version they're shutting
- * down against (e.g. for version-conditional cleanup of state files
- * written by a previous boot).
+ * Why a plugin's `shutdown` hook is firing.
  *
- * Additional fields may be added as concrete plugin needs surface; the
- * `assistantVersion` field mirrors the init context's so plugins that
- * stash a version stamp at init can compare against the same name on
- * tear-down without keeping their own copy.
+ * - `shutdown` — the daemon is tearing down (process exit).
+ * - `uninstall` — the plugin's directory was removed at runtime.
+ * - `disable` — the plugin was disabled at runtime (e.g. a `.disabled`
+ *   sentinel was added, or a feature flag turned it off).
+ */
+export type ShutdownReason = "shutdown" | "uninstall" | "disable";
+
+/**
+ * Context passed to the `shutdown` hook. Kept intentionally narrower than
+ * {@link InitContext} — teardown paths only need to know which assistant
+ * version they're shutting down against (e.g. for version-conditional cleanup
+ * of state files written by a previous boot) and {@link ShutdownReason why}
+ * they're being torn down (so a plugin can, e.g., delete its state on
+ * `uninstall` but preserve it across a plain `shutdown`).
+ *
+ * The `assistantVersion` field mirrors the init context's so plugins that stash
+ * a version stamp at init can compare against the same name on tear-down
+ * without keeping their own copy.
  */
 export interface ShutdownContext {
   /** Assistant semver for compatibility checks inside the plugin. */
   assistantVersion: string;
+  /** Why the plugin is shutting down. */
+  reason: ShutdownReason;
 }
 
 // ─── User-prompt-submit hook context ─────────────────────────────────────────
@@ -182,6 +194,14 @@ export interface UserPromptSubmitContext {
    * attach turn-scoped metadata to the originating message (e.g. recording an
    * injected memory block so it survives a conversation reload) key off this
    * row id rather than the in-memory message arrays, whose entries carry no id.
+   *
+   * @deprecated This field is always identical to {@link requestId}; use
+   *   `requestId` instead. Every path that starts an agent loop persists the
+   *   triggering user message under the turn's request ID before running, so
+   *   the message row id and the request's correlation ID are the same UUID.
+   *   This holds for the standard submit, queue-drain, subagent, voice, wake,
+   *   and conversation-analysis paths alike. This field will be removed in a
+   *   future API version.
    */
   readonly userMessageId: string;
   /**
@@ -189,17 +209,20 @@ export interface UserPromptSubmitContext {
    * runtime injection forward it onto the injector turn context so the
    * assembled blocks are attributed to the originating request; it is fixed
    * for the turn and cannot be recovered from the message arrays.
+   *
+   * As of the requestId/userMessageId merge, this value is also the
+   * persisted row ID of the user message, so hooks that previously
+   * keyed off {@link userMessageId} can use `requestId` directly.
    */
   readonly requestId: string;
   /**
-   * Active inference profile key to surface in this turn's context, or `null`
-   * when the profile is unchanged since the one last announced to the model.
-   * Hooks that emit the `model_profile` grounding line resolve the
-   * human-readable label (and model id) from this key via the workspace LLM
-   * config rather than receiving the rendered string — the key is the minimal
-   * turn input the message arrays cannot carry.
+   * Effective inference profile identity for the model this turn will use.
+   * Named-profile configs receive a profile key; profileless configs receive
+   * the resolved model id. Hooks that need model capabilities should resolve
+   * them from this value rather than the workspace active profile, because a
+   * conversation can be pinned to a different profile.
    */
-  readonly modelProfileKey: string | null;
+  readonly modelProfileKey: string;
   /**
    * Whether the turn has no human present to answer clarification questions
    * (e.g. a scheduled, background, or headless run). Resolved once at turn
@@ -220,6 +243,13 @@ export interface UserPromptSubmitContext {
    * it from the message arrays.
    */
   readonly prompt: string;
+  /**
+   * True when the triggering message is a transcript-suppressed machine
+   * signal (`metadata.hidden` — e.g. the channel-setup wizard-close marker)
+   * rather than something the user typed. Hooks that treat `prompt` as
+   * user speech (e.g. title generation) should skip these turns.
+   */
+  readonly isHiddenPrompt?: boolean;
   /**
    * The user's original message list, immutable for the hook. Plugins
    * may snapshot or compare against this but MUST NOT mutate it.
@@ -285,13 +315,10 @@ export interface PostCompactContext {
    */
   readonly isNonInteractive: boolean;
   /**
-   * Active inference profile key to surface in the re-injected context, or
-   * `null` when the profile is unchanged since the one last announced to the
-   * model. Mirrors {@link UserPromptSubmitContext.modelProfileKey}: hooks that
-   * emit the `model_profile` grounding line resolve the human-readable label
-   * from this key rather than receiving the rendered string.
+   * Effective inference profile identity for the model the compacted turn will
+   * keep using. Mirrors {@link UserPromptSubmitContext.modelProfileKey}.
    */
-  readonly modelProfileKey: string | null;
+  readonly modelProfileKey: string;
   /**
    * Volume of runtime injection to re-apply. `"full"` restores the complete
    * runtime context; `"minimal"` is the reduced volume overflow recovery's

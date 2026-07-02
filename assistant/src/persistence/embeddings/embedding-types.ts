@@ -88,3 +88,10 @@ export interface EmbeddingBackend {
   ): Promise<number[][]>;
   dispose?(): void;
 }
+
+/**
+ * Fixed text embedded to measure a backend's output dimension. Shared so the
+ * startup reconcile probe and the per-query availability check agree on the
+ * input (and therefore the in-memory vector cache identity).
+ */
+export const EMBEDDING_DIMENSION_PROBE_TEXT = "embedding dimension probe";

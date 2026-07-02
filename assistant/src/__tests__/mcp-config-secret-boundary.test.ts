@@ -115,6 +115,7 @@ mock.module("../providers/registry.js", () => ({
 }));
 
 mock.module("../persistence/embeddings/embedding-backend.js", () => ({
+  isEmbeddingDimensionAvailable: async () => true,
   EmbeddingBackendUnavailableError: class EmbeddingBackendUnavailableError extends Error {},
   SPARSE_EMBEDDING_VERSION: 4,
   clearEmbeddingBackendCache: () => {},

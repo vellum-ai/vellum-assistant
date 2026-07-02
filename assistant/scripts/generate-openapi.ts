@@ -16,7 +16,7 @@
  *   cd assistant && bun run generate:openapi -- --check  # CI: fail if stale
  */
 
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 
@@ -32,6 +32,7 @@ import { createDocument } from "zod-openapi";
 
 const ROOT = resolve(import.meta.dir, "..");
 const ROUTES_DIR = join(ROOT, "src/runtime/routes");
+const PLUGIN_DEFAULTS_DIR = join(ROOT, "src/plugins/defaults");
 const OUTPUT_PATH = join(ROOT, "openapi.yaml");
 const PKG_PATH = join(ROOT, "package.json");
 
@@ -147,68 +148,89 @@ function resolveSchemaForDocument(schemaSource: unknown): ContentSchema {
 // ---------------------------------------------------------------------------
 
 /**
- * Dynamically import every route module under `src/runtime/routes/`
- * and collect all exported `ROUTES` arrays.
- *
- * Each route module is expected to export a `ROUTES: RouteDefinition[]`
- * constant. The function automatically picks up new route modules
- * without manual updates.
+ * Directories holding `RouteDefinition` modules: the host `runtime/routes`
+ * tree plus every default plugin's `routes/` subdirectory. A default plugin
+ * that owns model-facing HTTP/IPC routes defines them under
+ * `plugins/defaults/<plugin>/routes/` and the host route aggregator registers
+ * them at runtime; the generator scans those dirs too so the spec stays
+ * complete no matter which package a route lives in. Sorted for reproducible
+ * output (see {@link collectRoutesFromModules}).
+ */
+async function routeModuleDirs(): Promise<string[]> {
+  const dirs = [ROUTES_DIR];
+  for (const entry of await readdir(PLUGIN_DEFAULTS_DIR, {
+    withFileTypes: true,
+  })) {
+    if (!entry.isDirectory()) continue;
+    const routesDir = join(PLUGIN_DEFAULTS_DIR, entry.name, "routes");
+    if (existsSync(routesDir)) dirs.push(routesDir);
+  }
+  return dirs.sort();
+}
+
+/**
+ * Dynamically import every route module under each {@link routeModuleDirs}
+ * entry and collect all exported `ROUTES` / `*_ROUTES` arrays. Each route
+ * module exports a `RouteDefinition[]`; new modules are picked up without
+ * manual updates.
  */
 async function collectRoutesFromModules(): Promise<RouteEntry[]> {
   const routes: RouteEntry[] = [];
 
-  // Skip the `index.ts` barrel: it re-exports every other route module's
-  // ROUTES into a single combined array, so importing it would double-count
-  // every entry. The duplicate `method:endpoint` keys are deduped later by
-  // first-seen, but the surviving entry's `sourceModule` (used to derive
-  // OpenAPI `tags`) depends on `readdir` order — which is filesystem
-  // dependent and diverges between local sandbox and the CI runner, making
-  // the generator non-reproducible. Sort the file list as well so directory
-  // entry order can never affect the output.
-  const files = (await readdir(ROUTES_DIR, { recursive: true }))
-    .filter(
-      (f) =>
-        typeof f === "string" &&
-        f.endsWith(".ts") &&
-        !f.endsWith(".test.ts") &&
-        !f.endsWith(".benchmark.test.ts") &&
-        !f.includes("node_modules") &&
-        f !== "index.ts" &&
-        !f.endsWith("/index.ts"),
-    )
-    .sort();
-
-  for (const file of files) {
-    const filePath = join(ROUTES_DIR, file);
-    let mod: Record<string, unknown>;
-    try {
-      mod = (await import(filePath)) as Record<string, unknown>;
-    } catch (err) {
-      console.warn(
-        `Warning: could not import ${file}: ${err instanceof Error ? err.message : err}`,
-      );
-      continue;
-    }
-
-    // Collect every export whose name is `ROUTES` or ends in `_ROUTES`.
-    // A handful of route files (e.g. `channel-route-definitions.ts`,
-    // `contact-prompt-routes.ts`) export under domain-prefixed names like
-    // `CHANNEL_ROUTES` and `CONTACT_PROMPT_ROUTES` rather than the
-    // canonical `ROUTES`. Without this fan-out the only way those routes
-    // reached the spec was via the `index.ts` barrel — which is excluded
-    // above for reproducibility.
-    const exportNames = Object.keys(mod)
-      .filter((k) => k === "ROUTES" || k.endsWith("_ROUTES"))
+  for (const dir of await routeModuleDirs()) {
+    // Skip the `index.ts` barrel: it re-exports every other route module's
+    // ROUTES into a single combined array, so importing it would double-count
+    // every entry. The duplicate `method:endpoint` keys are deduped later by
+    // first-seen, but the surviving entry's `sourceModule` (used to derive
+    // OpenAPI `tags`) depends on `readdir` order — which is filesystem
+    // dependent and diverges between local sandbox and the CI runner, making
+    // the generator non-reproducible. Sort the file list as well so directory
+    // entry order can never affect the output.
+    const files = (await readdir(dir, { recursive: true }))
+      .filter(
+        (f) =>
+          typeof f === "string" &&
+          f.endsWith(".ts") &&
+          !f.endsWith(".test.ts") &&
+          !f.endsWith(".benchmark.test.ts") &&
+          !f.includes("node_modules") &&
+          f !== "index.ts" &&
+          !f.endsWith("/index.ts"),
+      )
       .sort();
-    for (const name of exportNames) {
-      const arr = mod[name];
-      if (!Array.isArray(arr)) continue;
-      for (const raw of arr) {
-        const result = RouteEntrySchema.safeParse({
-          ...(typeof raw === "object" && raw !== null ? raw : {}),
-          sourceModule: file,
-        });
-        if (result.success) routes.push(result.data);
+
+    for (const file of files) {
+      const filePath = join(dir, file);
+      let mod: Record<string, unknown>;
+      try {
+        mod = (await import(filePath)) as Record<string, unknown>;
+      } catch (err) {
+        console.warn(
+          `Warning: could not import ${file}: ${err instanceof Error ? err.message : err}`,
+        );
+        continue;
+      }
+
+      // Collect every export whose name is `ROUTES` or ends in `_ROUTES`.
+      // A handful of route files (e.g. `channel-route-definitions.ts`,
+      // `contact-prompt-routes.ts`) export under domain-prefixed names like
+      // `CHANNEL_ROUTES` and `CONTACT_PROMPT_ROUTES` rather than the
+      // canonical `ROUTES`. Without this fan-out the only way those routes
+      // reached the spec was via the `index.ts` barrel — which is excluded
+      // above for reproducibility.
+      const exportNames = Object.keys(mod)
+        .filter((k) => k === "ROUTES" || k.endsWith("_ROUTES"))
+        .sort();
+      for (const name of exportNames) {
+        const arr = mod[name];
+        if (!Array.isArray(arr)) continue;
+        for (const raw of arr) {
+          const result = RouteEntrySchema.safeParse({
+            ...(typeof raw === "object" && raw !== null ? raw : {}),
+            sourceModule: file,
+          });
+          if (result.success) routes.push(result.data);
+        }
       }
     }
   }

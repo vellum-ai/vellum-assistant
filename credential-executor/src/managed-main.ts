@@ -122,7 +122,7 @@ function buildHandlers(
   apiKeyRef: ApiKeyRef,
   assistantIdRef: AssistantIdRef,
   secureKeyBackend: SecureKeyBackend,
-): { handlers: RpcHandlerRegistry; temporaryGrantStore: TemporaryGrantStore } {
+): RpcHandlerRegistry {
   // -- Grant stores ----------------------------------------------------------
   const persistentGrantStore = new PersistentGrantStore(
     getCesGrantsDir("managed"),
@@ -411,7 +411,7 @@ function buildHandlers(
     return { results };
   }) as (typeof handlers)[string];
 
-  return { handlers, temporaryGrantStore };
+  return handlers;
 }
 
 // ---------------------------------------------------------------------------
@@ -668,10 +668,23 @@ async function main(): Promise<void> {
   // `unregister` miss a tool registered in an earlier session and orphan its
   // bundle.
   //
-  // The in-memory temporary-grant store is the exception: `allow_once` /
-  // `allow_10m` grants are keyed by proposal hash only (not session), so they
-  // would otherwise leak ephemeral approvals across sessions. It is cleared at
-  // the end of every session below so a reconnecting assistant must re-prompt.
+  // The in-memory temporary-grant store instance is also process-scoped and is
+  // deliberately reused — contents included — across reconnects. Ephemeral
+  // approvals (`allow_once` / `allow_10m` / `allow_conversation`) are keyed by
+  // proposal hash (plus a caller-supplied conversation ID), not by the
+  // connection that produced them, precisely so a single guardian approval can
+  // be shared by any connection entitled to use it. That sharing is what the
+  // multi-process daemon model needs: several assistant processes will each
+  // talk to CES, and an approval granted while one is connected must remain
+  // usable by the others. Grant lifetime is therefore bounded by per-grant TTLs
+  // (every kind now carries an expiry), not by tearing the store down on
+  // disconnect — so an approval that is never consumed expires on its own
+  // instead of surviving indefinitely and being replayed by a much later
+  // connection without a fresh guardian prompt (ATL-935). A future
+  // multi-connection daemon may additionally evict on quiescence (when the
+  // count of live CES connections reaches zero) to scope grants to assistant
+  // presence; that is connection-lifecycle machinery the multi-connection work
+  // should own, and is intentionally not added here.
   //
   // The mutable refs carry the handshake-provided API key and assistant ID;
   // handlers read them at call time. These don't vary across a daemon's
@@ -680,11 +693,7 @@ async function main(): Promise<void> {
   // at call time for audit attribution).
   const apiKeyRef: ApiKeyRef = { current: "" };
   const assistantIdRef: AssistantIdRef = { current: "" };
-  const { handlers, temporaryGrantStore } = buildHandlers(
-    apiKeyRef,
-    assistantIdRef,
-    secureKeyBackend,
-  );
+  const handlers = buildHandlers(apiKeyRef, assistantIdRef, secureKeyBackend);
 
   // Serve loop. CES is a long-lived sidecar that must outlive any single
   // assistant session: the assistant container can crash and be restarted
@@ -779,14 +788,6 @@ async function main(): Promise<void> {
     }
 
     rpcConnected = false;
-
-    // Drop all ephemeral approvals when the session ends. `allow_once` /
-    // `allow_10m` grants are keyed by proposal hash only, so reusing the
-    // store across a reconnect would let a pre-disconnect approval be
-    // consumed by a later session without re-prompting. Clearing here
-    // restores the prior behavior, where the process exited on stream end
-    // and these grants never survived.
-    temporaryGrantStore.clear();
 
     // A signal-driven end means the process is shutting down; exit the loop.
     // Any other end reason (the assistant disconnected, its stream closed,

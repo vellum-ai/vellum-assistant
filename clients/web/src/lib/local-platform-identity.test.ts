@@ -5,6 +5,9 @@ const PLATFORM_ASSISTANT_ID = "019ed7d1-e995-71cc-9859-c54f422ace3c";
 const OTHER_PLATFORM_ASSISTANT_ID = "019ed7d1-e995-71cc-9859-c54f422ace3d";
 const ORGANIZATION_ID = "019ed7d1-e995-71cc-9859-c54f422ace3e";
 const GATEWAY_URL = "http://localhost:5173/assistant/__gateway/20101";
+const HOST_INSTALLATION_ID = "host-installation-1";
+const STATUS_PLATFORM_BASE_URL = "https://registered-platform.example.com";
+const CONFIG_PLATFORM_BASE_URL = "http://localhost:8000";
 
 type RecordedRequest = {
   pathname: string;
@@ -22,6 +25,7 @@ let isPlatformDisabledValue = false;
 let isRemoteGatewayModeValue = false;
 let selfHostedIngressUrl: string | null = GATEWAY_URL;
 let selfHostedActorToken: string | null = "actor-token";
+let browserDeviceId: string | null = null;
 let statusBody: unknown;
 let ensureRegistrationBody: unknown;
 let reprovisionApiKeyBody: unknown;
@@ -38,6 +42,7 @@ const buildVellumMutatingHeadersMock = mock(
 );
 const primeLocalGatewayConnectionWithRepairMock = mock(async () => {});
 const fetchOrganizationsMock = mock(async () => {});
+const updateLockfileAssistantMock = mock(async (_assistant: unknown) => {});
 
 mock.module("@/lib/auth/request-headers", () => ({
   buildVellumMutatingHeaders: buildVellumMutatingHeadersMock,
@@ -46,14 +51,16 @@ mock.module("@/lib/auth/request-headers", () => ({
 mock.module("@/lib/local-mode", () => ({
   getActiveAssistant: () => activeAssistant,
   getLocalGatewayUrl: () => "/assistant/__gateway/20101",
-  getPlatformRuntimeUrl: () => "http://localhost:8000",
+  getPlatformRuntimeUrl: () => CONFIG_PLATFORM_BASE_URL,
   getSelectedAssistant: () => activeAssistant,
-  isLocalAssistant: (assistant: { cloud?: string }) => assistant?.cloud === "local",
+  isLocalAssistant: (assistant: { cloud?: string }) =>
+    assistant?.cloud === "local",
   isLocalMode: () => isLocalModeValue,
   isPlatformDisabled: () => isPlatformDisabledValue,
   isRemoteGatewayMode: () => isRemoteGatewayModeValue,
   primeLocalGatewayConnectionWithRepair:
     primeLocalGatewayConnectionWithRepairMock,
+  updateLockfileAssistant: updateLockfileAssistantMock,
 }));
 
 mock.module("@/lib/self-hosted/connection", () => ({
@@ -62,7 +69,7 @@ mock.module("@/lib/self-hosted/connection", () => ({
 }));
 
 mock.module("@/runtime/device-id", () => ({
-  getDeviceId: () => "device-1",
+  getDeviceId: () => browserDeviceId,
 }));
 
 mock.module("@/runtime/is-electron", () => ({
@@ -124,10 +131,13 @@ beforeEach(() => {
   isRemoteGatewayModeValue = false;
   selfHostedIngressUrl = GATEWAY_URL;
   selfHostedActorToken = "actor-token";
+  browserDeviceId = null;
   statusBody = {
     assistant_id: PLATFORM_ASSISTANT_ID,
+    baseUrl: STATUS_PLATFORM_BASE_URL,
     organization_id: ORGANIZATION_ID,
     has_assistant_api_key: true,
+    client_installation_id: HOST_INSTALLATION_ID,
   };
   ensureRegistrationBody = {
     assistant: { id: PLATFORM_ASSISTANT_ID },
@@ -140,6 +150,7 @@ beforeEach(() => {
   buildVellumMutatingHeadersMock.mockClear();
   primeLocalGatewayConnectionWithRepairMock.mockClear();
   fetchOrganizationsMock.mockClear();
+  updateLockfileAssistantMock.mockClear();
   resetLocalPlatformIdentityCacheForTesting();
 
   globalThis.fetch = mock(
@@ -162,14 +173,12 @@ beforeEach(() => {
         return jsonResponse(statusBody);
       }
       if (
-        url.pathname ===
-        "/v1/assistants/self-hosted-local/ensure-registration/"
+        url.pathname === "/v1/assistants/self-hosted-local/ensure-registration/"
       ) {
         return jsonResponse(ensureRegistrationBody);
       }
       if (
-        url.pathname ===
-        "/v1/assistants/self-hosted-local/reprovision-api-key/"
+        url.pathname === "/v1/assistants/self-hosted-local/reprovision-api-key/"
       ) {
         return jsonResponse(reprovisionApiKeyBody);
       }
@@ -193,13 +202,41 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
 
     expect(platformAssistantId).toBe(PLATFORM_ASSISTANT_ID);
     expect(requestNames()).toEqual(["status"]);
+    expect(updateLockfileAssistantMock).toHaveBeenCalledWith({
+      ...activeAssistant,
+      platformAssistantId: PLATFORM_ASSISTANT_ID,
+      platformBaseUrl: STATUS_PLATFORM_BASE_URL,
+      platformOrganizationId: ORGANIZATION_ID,
+    });
+  });
+
+  test("falls back to the configured platform URL when status omits its base URL", async () => {
+    statusBody = {
+      assistant_id: PLATFORM_ASSISTANT_ID,
+      organization_id: ORGANIZATION_ID,
+      has_assistant_api_key: true,
+      client_installation_id: HOST_INSTALLATION_ID,
+    };
+
+    const platformAssistantId =
+      await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);
+
+    expect(platformAssistantId).toBe(PLATFORM_ASSISTANT_ID);
+    expect(updateLockfileAssistantMock).toHaveBeenCalledWith({
+      ...activeAssistant,
+      platformAssistantId: PLATFORM_ASSISTANT_ID,
+      platformBaseUrl: CONFIG_PLATFORM_BASE_URL,
+      platformOrganizationId: ORGANIZATION_ID,
+    });
   });
 
   test("repairs a stored platform id when the local assistant is missing its API key", async () => {
     statusBody = {
       assistant_id: PLATFORM_ASSISTANT_ID,
+      baseUrl: STATUS_PLATFORM_BASE_URL,
       organization_id: ORGANIZATION_ID,
       has_assistant_api_key: false,
+      client_installation_id: HOST_INSTALLATION_ID,
     };
     ensureRegistrationBody = {
       assistant: { id: OTHER_PLATFORM_ASSISTANT_ID },
@@ -219,6 +256,24 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       "secrets",
       "secrets",
     ]);
+    expect(
+      requests.find((request) =>
+        request.pathname.endsWith("/ensure-registration/"),
+      )?.body,
+    ).toEqual({
+      client_installation_id: HOST_INSTALLATION_ID,
+      runtime_assistant_id: RUNTIME_ASSISTANT_ID,
+      client_platform: "web",
+    });
+    expect(
+      requests.find((request) =>
+        request.pathname.endsWith("/reprovision-api-key/"),
+      )?.body,
+    ).toEqual({
+      client_installation_id: HOST_INSTALLATION_ID,
+      runtime_assistant_id: RUNTIME_ASSISTANT_ID,
+      client_platform: "web",
+    });
 
     const injectedSecrets = requests
       .filter((request) => request.pathname.endsWith("/v1/secrets"))
@@ -233,15 +288,28 @@ describe("resolveLocalAssistantPlatformIdentity", () => {
       name: "vellum:platform_assistant_id",
       value: PLATFORM_ASSISTANT_ID,
     });
+    expect(injectedSecrets).toContainEqual({
+      type: "credential",
+      name: "vellum:platform_base_url",
+      value: STATUS_PLATFORM_BASE_URL,
+    });
+    expect(updateLockfileAssistantMock).toHaveBeenCalledWith({
+      ...activeAssistant,
+      platformAssistantId: PLATFORM_ASSISTANT_ID,
+      platformBaseUrl: STATUS_PLATFORM_BASE_URL,
+      platformOrganizationId: ORGANIZATION_ID,
+    });
   });
 
   test("repairs gateway access by default for blocking platform identity resolution", async () => {
     selfHostedIngressUrl = null;
     selfHostedActorToken = null;
-    primeLocalGatewayConnectionWithRepairMock.mockImplementationOnce(async () => {
-      selfHostedIngressUrl = GATEWAY_URL;
-      selfHostedActorToken = "actor-token";
-    });
+    primeLocalGatewayConnectionWithRepairMock.mockImplementationOnce(
+      async () => {
+        selfHostedIngressUrl = GATEWAY_URL;
+        selfHostedActorToken = "actor-token";
+      },
+    );
 
     const platformAssistantId =
       await resolveLocalAssistantPlatformIdentity(RUNTIME_ASSISTANT_ID);

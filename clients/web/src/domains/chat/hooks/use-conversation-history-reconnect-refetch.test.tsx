@@ -7,7 +7,6 @@ import { __resetForTesting, publish } from "@/lib/event-bus";
 import type { HistoryPaginationResult } from "@/domains/chat/transcript/use-history-pagination";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import type { DisplayMessage } from "@/domains/chat/types/types";
 
 // ---------------------------------------------------------------------------
 // Module mock — `@/domains/chat/transcript/use-history-pagination`.
@@ -28,6 +27,7 @@ function paginationStub(): HistoryPaginationResult {
     messages: [],
     latestPage: undefined,
     subagentNotifications: undefined,
+    backgroundToolCompletions: undefined,
     isLoading: false,
     isSuccess: false,
     isError: false,
@@ -54,7 +54,7 @@ const { useConversationHistory } = await import(
 );
 
 // The hook reads `useQueryClient()` (for surface cache writes and the
-// live-turn→history handoff), so it must render inside a provider.
+// turn-end history reseed), so it must render inside a provider.
 const queryClient = new QueryClient();
 
 function Wrapper({ children }: { children: ReactNode }) {
@@ -83,7 +83,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   __resetForTesting();
-  useChatSessionStore.getState().setLiveTurn([]);
+  useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
   useConversationStore.getState().removeProcessingConversationId("conv-A");
 });
 
@@ -183,27 +183,22 @@ describe("useConversationHistory — refetch on SSE reopen", () => {
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
 
-  test("hands a passively-observed turn off to history on processing→idle", () => {
+  test("reseeds history from the server on a passively-observed processing→idle edge", () => {
     /**
      * Channel turns (phone, Slack, Telegram) and other-client sends stream in
      * without a local `useSendMessage`, so `turnPhase` never enters a sending
-     * state. They still toggle the conversation's processing flag, so the
-     * finished turn must be pulled into the durable history cache on that
-     * processing→idle edge — otherwise the live view shows only the latest
-     * exchange until a reload.
+     * state. They still toggle the conversation's processing flag, so on the
+     * processing→idle edge the materialized snapshot must be reseeded from the
+     * authoritative server copy — pulled by invalidating the history query. The
+     * monotonic seq baseline makes the reseed a no-op when nothing new landed.
      */
-    // GIVEN an active conversation with a live turn, marked processing (a
-    // server-driven turn streaming in)
+    // GIVEN an active conversation marked processing (a server-driven turn
+    // streaming in)
     renderHistory("conv-A");
     act(() => {
-      useChatSessionStore
-        .getState()
-        .setLiveTurn([
-          { id: "m1", role: "assistant" } as unknown as DisplayMessage,
-        ]);
       useConversationStore.getState().markConversationProcessing("conv-A");
     });
-    // No handoff while the turn is still in progress.
+    // No reseed while the turn is still in progress.
     expect(invalidateSpy).not.toHaveBeenCalled();
 
     // WHEN the turn finishes and the processing flag clears
@@ -211,20 +206,7 @@ describe("useConversationHistory — refetch on SSE reopen", () => {
       useConversationStore.getState().removeProcessingConversationId("conv-A");
     });
 
-    // THEN the finished turn is handed off to the durable history cache
+    // THEN the history query is invalidated so the snapshot reseeds.
     expect(invalidateSpy).toHaveBeenCalledTimes(1);
-  });
-
-  test("does not hand off on processing→idle when the live turn is empty", () => {
-    // A processing edge with nothing in the live turn has nothing to hand off,
-    // so it must not trigger a redundant refetch.
-    renderHistory("conv-A");
-    act(() => {
-      useConversationStore.getState().markConversationProcessing("conv-A");
-    });
-    act(() => {
-      useConversationStore.getState().removeProcessingConversationId("conv-A");
-    });
-    expect(invalidateSpy).not.toHaveBeenCalled();
   });
 });

@@ -1,10 +1,10 @@
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
-import { isMemoryRetrospectiveConversation } from "../../memory/memory-retrospective-enqueue.js";
 import {
   isMemoryEnabled,
   upsertAutoAnalysisJob,
 } from "../../persistence/jobs-store.js";
+import { isMemoryRetrospectiveConversation } from "../../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import { getLogger } from "../../util/logger.js";
 import { type TrustClass } from "../actor-trust-resolver.js";
 import { resolveCapabilities } from "../capabilities.js";

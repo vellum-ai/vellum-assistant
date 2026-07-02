@@ -81,6 +81,11 @@ describe("client-identity", () => {
       "X-Vellum-Interface-Id",
     ]);
     expect(headers["X-Vellum-Client-Id"]).toBe(mod.getClientId());
-    expect(headers["X-Vellum-Interface-Id"]).toBe("vellum");
+    // The registration interface is intentionally a constant "web" on every
+    // platform — it must NOT reflect the real OS, since the daemon derives
+    // host-proxy capabilities from this id and the web renderer is never a
+    // host provider (see the comment in `client-identity.ts`). Platform
+    // awareness flows through the message body instead.
+    expect(headers["X-Vellum-Interface-Id"]).toBe("web");
   });
 });

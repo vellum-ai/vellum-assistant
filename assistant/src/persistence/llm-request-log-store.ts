@@ -26,6 +26,7 @@ import {
 } from "./conversation-crud.js";
 import { type DrizzleDb, getDb, getLogsDb } from "./db-connection.js";
 import { llmRequestLogs, messages } from "./schema/index.js";
+import { timeSyncSection } from "./slow-sync-log.js";
 
 /**
  * The logs connection (`assistant-logs.db`), where `llm_request_logs` lives.
@@ -62,10 +63,24 @@ export type LogRow = {
    * In practice values come from `LLMCallSite` (`config/schemas/llm.ts`).
    */
   callSite: string | null;
+  /**
+   * JSON-serialized {@link LatencyBreakdown} — the daemon-measured
+   * first-token latency waterfall for this main-agent call. NULL on
+   * pre-instrumentation rows, failed calls, and non-main-agent call sites.
+   */
+  latencyBreakdown: string | null;
 };
 
-/** `LogRow` without the payload columns — for reads that only need metadata. */
-export type LogMetaRow = Omit<LogRow, "requestPayload" | "responsePayload">;
+/**
+ * `LogRow` without the heavy payload columns — for reads that only need
+ * metadata (conversation scoping, `createdAt` anchoring). `latencyBreakdown`
+ * is likewise excluded: it's per-call detail the metadata/compaction-trail
+ * consumers don't surface.
+ */
+export type LogMetaRow = Omit<
+  LogRow,
+  "requestPayload" | "responsePayload" | "latencyBreakdown"
+>;
 
 /**
  * Compaction-trail row: metadata plus the (small) summarizer response
@@ -149,27 +164,46 @@ export function recordRequestLog(
   messageId?: string,
   provider?: string,
   callSite?: LLMCallSite,
+  latencyBreakdown?: string,
 ): string {
   const db = logsDb();
   const id = uuid();
-  db.insert(llmRequestLogs)
-    .values({
-      id,
+  // Synchronous insert of the full request/response payloads (an entire
+  // context window for main-agent calls) into the append-only logs DB, on the
+  // per-LLM-call critical path. Timed so an event-loop freeze the watchdog
+  // detects can be attributed to this write (see slow-sync-log).
+  timeSyncSection(
+    "llm-request-log:write",
+    () =>
+      db
+        .insert(llmRequestLogs)
+        .values({
+          id,
+          conversationId,
+          messageId: messageId ?? null,
+          provider: provider ?? null,
+          requestPayload,
+          responsePayload,
+          createdAt: Date.now(),
+          // Stamped later via setAgentLoopExitReasonOnLatestLog, once the
+          // agent loop body actually exits. Intermediate rows stay NULL.
+          agentLoopExitReason: null,
+          // Logical call site (`mainAgent`, `compactionAgent`, …). NULL when
+          // a caller hasn't been updated yet — preserves backward compat
+          // while we plumb call sites through one site at a time.
+          callSite: callSite ?? null,
+          // JSON first-token latency waterfall, supplied by `handleUsage` for
+          // main-agent calls. NULL for failed/non-instrumented call paths.
+          latencyBreakdown: latencyBreakdown ?? null,
+        })
+        .run(),
+    () => ({
       conversationId,
-      messageId: messageId ?? null,
-      provider: provider ?? null,
-      requestPayload,
-      responsePayload,
-      createdAt: Date.now(),
-      // Stamped later via setAgentLoopExitReasonOnLatestLog, once the
-      // agent loop body actually exits. Intermediate rows stay NULL.
-      agentLoopExitReason: null,
-      // Logical call site (`mainAgent`, `compactionAgent`, …). NULL when
-      // a caller hasn't been updated yet — preserves backward compat
-      // while we plumb call sites through one site at a time.
       callSite: callSite ?? null,
-    })
-    .run();
+      requestBytes: requestPayload.length,
+      responseBytes: responsePayload.length,
+    }),
+  );
   return id;
 }
 
@@ -337,6 +371,7 @@ function selectLogsByMessageIds(messageIds: string[]): LogRow[] {
       createdAt: llmRequestLogs.createdAt,
       agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
       callSite: llmRequestLogs.callSite,
+      latencyBreakdown: llmRequestLogs.latencyBreakdown,
     })
     .from(llmRequestLogs)
     .where(inArray(llmRequestLogs.messageId, messageIds))
@@ -365,6 +400,7 @@ export function getRequestLogsByConversationId(
       createdAt: llmRequestLogs.createdAt,
       agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
       callSite: llmRequestLogs.callSite,
+      latencyBreakdown: llmRequestLogs.latencyBreakdown,
     })
     .from(llmRequestLogs)
     .where(eq(llmRequestLogs.conversationId, conversationId))
@@ -402,6 +438,7 @@ function selectOrphanedLogsInRange(
       createdAt: llmRequestLogs.createdAt,
       agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
       callSite: llmRequestLogs.callSite,
+      latencyBreakdown: llmRequestLogs.latencyBreakdown,
     })
     .from(llmRequestLogs)
     .where(
@@ -458,6 +495,7 @@ function selectUnlinkedLogsInRange(
       createdAt: llmRequestLogs.createdAt,
       agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
       callSite: llmRequestLogs.callSite,
+      latencyBreakdown: llmRequestLogs.latencyBreakdown,
     })
     .from(llmRequestLogs)
     .where(
@@ -613,6 +651,7 @@ export function getRequestLogById(logId: string): LogRow | null {
         createdAt: llmRequestLogs.createdAt,
         agentLoopExitReason: llmRequestLogs.agentLoopExitReason,
         callSite: llmRequestLogs.callSite,
+        latencyBreakdown: llmRequestLogs.latencyBreakdown,
       })
       .from(llmRequestLogs)
       .where(eq(llmRequestLogs.id, logId))

@@ -8,6 +8,10 @@
  * into this shared array.
  */
 
+import { ROUTES as MEMORY_EVAL_ROUTES } from "../../plugins/defaults/memory/routes/memory-eval-routes.js";
+import { ROUTES as MEMORY_ITEM_ROUTES } from "../../plugins/defaults/memory/routes/memory-item-routes.js";
+import { ROUTES as MEMORY_V2_ROUTES } from "../../plugins/defaults/memory/routes/memory-v2-routes.js";
+import { ROUTES as MEMORY_V3_ROUTES } from "../../plugins/defaults/memory/routes/memory-v3-routes.js";
 import { ROUTES as ACP_ROUTES } from "./acp-routes.js";
 import { ROUTES as APP_MANAGEMENT_ROUTES } from "./app-management-routes.js";
 import { ROUTES as APP_ROUTES } from "./app-routes.js";
@@ -90,13 +94,11 @@ import { ROUTES as INTERNAL_TWILIO_ROUTES } from "./internal-twilio-routes.js";
 import { ROUTES as LLM_CALL_SITES_ROUTES } from "./llm-call-sites-routes.js";
 import { ROUTES as LOG_EXPORT_ROUTES } from "./log-export-routes.js";
 import { ROUTES as MCP_AUTH_ROUTES } from "./mcp-auth-routes.js";
-import { ROUTES as MEMORY_EVAL_ROUTES } from "./memory-eval-routes.js";
-import { ROUTES as MEMORY_ITEM_ROUTES } from "./memory-item-routes.js";
-import { ROUTES as MEMORY_V2_ROUTES } from "./memory-v2-routes.js";
-import { ROUTES as MEMORY_V3_ROUTES } from "./memory-v3-routes.js";
 import { ROUTES as MEMORY_WORKER_ROUTES } from "./memory-worker-routes.js";
+import { ROUTES as MESSAGES_LEXICAL_ROUTES } from "./messages-lexical-routes.js";
 import { ROUTES as MIGRATION_ROLLBACK_ROUTES } from "./migration-rollback-routes.js";
 import { ROUTES as MIGRATION_ROUTES } from "./migration-routes.js";
+import { ROUTES as MONITORING_ROUTES } from "./monitoring-routes.js";
 import { ROUTES as NOTIFICATION_ROUTES } from "./notification-routes.js";
 import { ROUTES as OAUTH_APPS_ROUTES } from "./oauth-apps.js";
 import { ROUTES as OAUTH_COMMANDS_ROUTES } from "./oauth-commands-routes.js";
@@ -116,6 +118,7 @@ import { ROUTES as RENAME_CONVERSATION_ROUTES } from "./rename-conversation-rout
 import { ROUTES as RETROSPECTIVE_ROUTES } from "./retrospective-routes.js";
 import { ROUTES as SANITY_ROUTES } from "./sanity-routes.js";
 import { ROUTES as SCHEDULE_ROUTES } from "./schedule-routes.js";
+import { ROUTES as SCHEDULE_WORKER_ROUTES } from "./schedule-worker-routes.js";
 import { ROUTES as SECRET_ROUTES } from "./secret-routes.js";
 import { ROUTES as SEQUENCE_ROUTES } from "./sequence-routes.js";
 import { ROUTES as SETTINGS_ROUTES } from "./settings-routes.js";
@@ -230,6 +233,7 @@ export const ROUTES: RouteDefinition[] = [
   ...MEMORY_V2_ROUTES,
   ...MEMORY_V3_ROUTES,
   ...MEMORY_WORKER_ROUTES,
+  ...MESSAGES_LEXICAL_ROUTES,
   ...MIGRATION_ROLLBACK_ROUTES,
   ...MIGRATION_ROUTES,
   ...NOTIFICATION_ROUTES,
@@ -247,8 +251,10 @@ export const ROUTES: RouteDefinition[] = [
   ...QUESTION_ROUTES,
   ...RECORDING_ROUTES,
   ...RENAME_CONVERSATION_ROUTES,
+  ...MONITORING_ROUTES,
   ...RETROSPECTIVE_ROUTES,
   ...SCHEDULE_ROUTES,
+  ...SCHEDULE_WORKER_ROUTES,
   ...SANITY_ROUTES,
   ...SECRET_ROUTES,
   ...SETTINGS_ROUTES,

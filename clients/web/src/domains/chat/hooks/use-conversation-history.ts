@@ -11,9 +11,9 @@
  *   refreshes embedded surface content into the query cache.
  *
  * - **The turn returning to idle**: the finished turn is now persisted
- *   server-side, so invalidate history to pull the authoritative copy into the
- *   cache, then drop the handed-off rows from the live turn. Rows not yet in
- *   history stay live, so nothing flashes or disappears.
+ *   server-side, so invalidate history. The committed-snapshot effect then
+ *   reseeds the materialized snapshot from the authoritative server copy,
+ *   replacing the client-folded turn with canonical ids/ordering.
  *
  * Conversation-switch resets are owned by the store's `switchToConversation()`.
  *
@@ -38,10 +38,10 @@ import { anchorColdStartReplay } from "@/lib/streaming/cold-anchor";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { reconcileSubagentStoreFromNotifications } from "@/domains/chat/hooks/reconcile-subagent-hydration";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
-import { messageMatchKeys } from "@/domains/chat/utils/message-identity";
 
 import {
   parsePendingSecretState,
@@ -177,10 +177,10 @@ export function useConversationHistory({
     recordLocalSeq(activeConversationId, latestPageSeq);
     anchorColdStartReplay(latestPageSeq);
 
-    // Client-sync cutover (shadow): seed the materialized snapshot from the
-    // committed history, replaying any buffered events that raced the fetch.
-    // Maintained in parallel with the cached-history ⊕ liveTurn render today;
-    // the render flip reads from it next. See `chat-session-store`.
+    // Seed (or reseed) the materialized snapshot from the committed history,
+    // replaying any buffered events that raced the fetch. This is the single
+    // source the transcript renders from (⊕ optimistic sends). See
+    // `chat-session-store`.
     useChatSessionStore.getState().seedSnapshot(activeConversationId, {
       messages: pagination.messages,
       seq: latestPageSeq,
@@ -314,6 +314,16 @@ export function useConversationHistory({
       );
     }
 
+    // Seed background-task cards from the durable history aggregate: the
+    // daemon's in-memory completed ring doesn't survive a restart, so live
+    // `/background-tools` rehydration alone can't rebuild a finished card.
+    // `seedFromHistory` is a terminal-wins, idempotent merge (never clobbers a
+    // live entry); retiring stays owned by `useBackgroundTaskRehydration`.
+    const completions = pagination.backgroundToolCompletions;
+    if (completions && completions.length > 0) {
+      useBackgroundTaskStore.getState().seedFromHistory(completions);
+    }
+
     // Restore pending interactions (secrets, confirmations).
     const requestedConversationId = activeConversationId;
     void (async () => {
@@ -361,44 +371,25 @@ export function useConversationHistory({
   }, [pagination.dataUpdatedAt, assistantId, activeConversationId]);
 
   // -------------------------------------------------------------------------
-  // Live-turn → history handoff. When a turn finishes, the persisted copy is
-  // authoritative, so refetch history and then drop only the rows that actually
-  // landed in history from the live turn. Rows not yet persisted stay live — no
-  // flash, no loss.
+  // Turn-end reseed. When a turn finishes, the persisted copy is authoritative,
+  // so invalidate history; the committed-snapshot effect above reseeds the
+  // materialized snapshot from the server copy (replacing the client-folded
+  // turn). The monotonic seq baseline makes the reseed a no-op when nothing new
+  // landed, and the buffered event tail is replayed so anything that raced the
+  // fetch isn't lost.
   // -------------------------------------------------------------------------
-  const handoffLiveTurnToHistory = useCallback(() => {
+  const refetchHistoryOnTurnEnd = useCallback(() => {
     if (!assistantId || !activeConversationId) return;
-    if (useChatSessionStore.getState().liveTurn.length === 0) return;
-
-    const key = conversationHistoryQueryKey(assistantId, activeConversationId);
-    void pagination.invalidate().then(() => {
-      const data = queryClient.getQueryData<HistoryCache>(key);
-      const historyKeys = new Set(
-        (data?.pages ?? []).flatMap((page) =>
-          page.messages.flatMap((m) => messageMatchKeys(m)),
-        ),
-      );
-      if (historyKeys.size === 0) return;
-      useChatSessionStore
-        .getState()
-        .setLiveTurn((prev) =>
-          prev.filter(
-            (row) => !messageMatchKeys(row).some((k) => historyKeys.has(k)),
-          ),
-        );
-    });
-  }, [assistantId, activeConversationId, pagination, queryClient]);
+    void pagination.invalidate();
+  }, [assistantId, activeConversationId, pagination]);
 
   // A turn is in progress for the active conversation when either the local
   // turn store is sending (a `useSendMessage` turn this client started) or the
   // conversation is flagged processing. The processing flag also covers
   // passively-observed turns the local flow never initiated — external channels
   // (phone, Slack, Telegram) and other-client sends — where `turnPhase` stays
-  // idle. Without this, such a turn's content would be stranded in the live turn
-  // while the durable history cache went stale, so the live view would show only
-  // the latest exchange until a reload. Hand off on the combined falling edge;
-  // for local sends both signals clear together in `endTurn`, so it fires
-  // exactly once per turn.
+  // idle. Refetch on the combined falling edge; for local sends both signals
+  // clear together in `endTurn`, so it fires exactly once per turn.
   const turnPhase = useTurnStore.use.phase();
   const processingConversationIds =
     useConversationStore.use.processingConversationIds();
@@ -410,8 +401,8 @@ export function useConversationHistory({
   useEffect(() => {
     const justFinished = wasInProgressRef.current && !activeInProgress;
     wasInProgressRef.current = activeInProgress;
-    if (justFinished) handoffLiveTurnToHistory();
-  }, [activeInProgress, handoffLiveTurnToHistory]);
+    if (justFinished) refetchHistoryOnTurnEnd();
+  }, [activeInProgress, refetchHistoryOnTurnEnd]);
 
   // -------------------------------------------------------------------------
   // Refetch history when the SSE connection reopens after a disconnect.

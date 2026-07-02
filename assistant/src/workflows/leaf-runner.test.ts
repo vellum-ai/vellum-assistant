@@ -80,9 +80,12 @@ class MockConversationGraphMemory {
     disposeCalls += 1;
   }
 }
-mock.module("../memory/graph/conversation-graph-memory.js", () => ({
-  ConversationGraphMemory: MockConversationGraphMemory,
-}));
+mock.module(
+  "../plugins/defaults/memory/graph/conversation-graph-memory.js",
+  () => ({
+    ConversationGraphMemory: MockConversationGraphMemory,
+  }),
+);
 
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},

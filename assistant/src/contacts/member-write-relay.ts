@@ -7,12 +7,14 @@
  */
 
 import {
+  CreateContactIpcResponseSchema,
   MarkChannelRevokedIpcResponseSchema,
   UpsertVerifiedChannelIpcResponseSchema,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import { log } from "../daemon/handlers/shared.js";
 import { ipcCallPersistent } from "../ipc/gateway-client.js";
+import { findContactChannel } from "./contact-store.js";
 import { revokeMember, upsertContactChannel } from "./contacts-write.js";
 import type { ContactWriteResult } from "./types.js";
 
@@ -25,7 +27,6 @@ export interface ActivateMemberChannelParams {
   contactId?: string;
   displayName?: string;
   username?: string;
-  inviteId?: string;
   verifiedAt?: number;
   verifiedVia?: string;
   policy?: string;
@@ -130,7 +131,6 @@ function mirrorLocalActivation(
       externalChatId: params.externalChatId,
       displayName: params.displayName,
       username: params.username,
-      inviteId: params.inviteId,
       contactId: params.contactId,
     });
   } catch (err) {
@@ -179,5 +179,130 @@ export async function revokeMemberChannel(
       "Local revoke read failed after gateway revoke; gateway downgrade stands",
     );
     return null;
+  }
+}
+
+// ── Block ────────────────────────────────────────────────────────────
+
+export interface BlockSenderChannelParams {
+  sourceChannel: string;
+  externalUserId: string;
+  displayName?: string;
+  /** Audit reason written to the gateway channel's revokedReason. */
+  reason?: string;
+}
+
+/**
+ * Block a sender's channel gateway-first: ensure a contact/channel row exists
+ * for the (channel, address) pair, then mark it revoked so future inbound
+ * resolves as `unknown` and is hard-denied. Used by the introduction card's
+ * **Block** action for senders that may have no contact record yet.
+ *
+ * The gateway owns the verdict: `create_contact` preserves an existing row's
+ * status, and `mark_channel_revoked` is idempotent (already-revoked →
+ * didWrite:false) and refuses to downgrade a guardian channel. Fails closed —
+ * a relay failure surfaces as `revoked: false` so callers never report a block
+ * the gateway did not persist. The assistant-DB status update is a best-effort
+ * mirror.
+ */
+export async function blockSenderChannel(
+  params: BlockSenderChannelParams,
+): Promise<{ revoked: boolean }> {
+  let channelId: string;
+  try {
+    const created = await ipcCallPersistent("create_contact", {
+      channelType: params.sourceChannel,
+      address: params.externalUserId,
+      ...(params.displayName ? { displayName: params.displayName } : {}),
+    });
+    channelId = CreateContactIpcResponseSchema.parse(created).channelId;
+  } catch (err) {
+    log.warn(
+      { err, sourceChannel: params.sourceChannel },
+      "create_contact relay failed — refusing block (no gateway channel row)",
+    );
+    return { revoked: false };
+  }
+  if (!channelId) {
+    log.error(
+      { sourceChannel: params.sourceChannel },
+      "create_contact returned no channel id — refusing block",
+    );
+    return { revoked: false };
+  }
+
+  try {
+    const result = await ipcCallPersistent("mark_channel_revoked", {
+      contactChannelId: channelId,
+      reason: params.reason,
+    });
+    const parsed = MarkChannelRevokedIpcResponseSchema.parse(result);
+    if (!parsed.ok) {
+      return { revoked: false };
+    }
+  } catch (err) {
+    log.warn(
+      { err, sourceChannel: params.sourceChannel },
+      "mark_channel_revoked relay failed — block did not land on the gateway",
+    );
+    return { revoked: false };
+  }
+
+  // Best-effort local mirror so the Contacts page reflects the downgrade.
+  // Resolved by logical (type, address) key — the local mirror row's id is
+  // not guaranteed to match the gateway channel id.
+  try {
+    const local = findContactChannel({
+      channelType: params.sourceChannel,
+      address: params.externalUserId,
+    });
+    if (local) {
+      revokeMember(local.channel.id);
+    }
+  } catch {
+    // The local row may not exist for a brand-new sender; the gateway
+    // outcome stands.
+  }
+  return { revoked: true };
+}
+
+// ── Seed unverified ──────────────────────────────────────────────────
+
+export interface SeedUnverifiedMemberChannelParams {
+  sourceChannel: string;
+  externalUserId: string;
+  displayName?: string;
+}
+
+/**
+ * Seed a contact channel for a sender at the `unverified` admission tier,
+ * gateway-first. Used when the guardian denies an access request: the sender
+ * becomes a known `unverified_contact` — no longer an unknown stranger — so
+ * subsequent inbound resolves as `unverified_contact` instead of re-running
+ * discovery.
+ *
+ * Delegates to the gateway `create_contact` IPC, which upserts via
+ * `ContactStore.upsertContact` (gateway DB is the ACL source of truth, with a
+ * best-effort assistant-DB mirror). A brand-new channel lands at status
+ * `unverified`; an existing channel's status is preserved, so a blocked,
+ * revoked, or already-active row is never reactivated or downgraded.
+ *
+ * Best-effort: the gateway owns the ACL verdict, so a failed relay is logged
+ * and swallowed — it must never fail the guardian's deny decision.
+ */
+export async function seedUnverifiedMemberChannel(
+  params: SeedUnverifiedMemberChannelParams,
+): Promise<void> {
+  try {
+    await ipcCallPersistent("create_contact", {
+      channelType: params.sourceChannel,
+      address: params.externalUserId,
+      ...(params.displayName ? { displayName: params.displayName } : {}),
+    });
+  } catch (err) {
+    log.warn(
+      { err, sourceChannel: params.sourceChannel },
+      "seed_unverified_channel relay failed (best-effort); sender not persisted as unverified_contact",
+    );
   }
 }

@@ -25,6 +25,14 @@ const HEAD_WEIGHT = 2.5;
 /** `body`-field weight in the BM25F term-frequency blend. */
 const BODY_WEIGHT = 1;
 
+/** A scored section-needle hit: the article, its best-scoring section index
+ *  (into `SectionIndex.sections`), and that section's raw BM25F score. */
+export interface SectionNeedleScoredHit {
+  article: Slug;
+  section: number;
+  score: number;
+}
+
 export interface SectionNeedle {
   /**
    * Returns up to `k` distinct articles ranked by BM25F score (descending),
@@ -33,12 +41,24 @@ export interface SectionNeedle {
    */
   query(text: string, k: number): { article: Slug; section: number }[];
   /**
+   * Like {@link query} but includes the raw BM25F score per hit, in the same
+   * rank order (score desc, then (article, ordinal) asc).
+   */
+  queryScored(text: string, k: number): SectionNeedleScoredHit[];
+  /**
    * Highest-scoring section index (into `SectionIndex.sections`) for `article`
    * against `queryText`. Returns the article's first section index when no term
    * matches (or `-1` if the article has no sections). Used by other lanes to
    * attach a matched-section descriptor to an article they surface.
    */
   bestSection(article: Slug, queryText: string): number;
+  /**
+   * Corpus IDF of `term` over the section index (its head+body postings): higher
+   * means the term occurs in fewer sections. The entity lane gates heading
+   * tokens by this so only terms distinctive enough to disambiguate become
+   * entity keys (hub words like "vellum" fall below the floor).
+   */
+  idf(term: string): number;
 }
 
 /** Lowercase, split on non-alphanumeric, drop empties. */
@@ -112,6 +132,16 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
 
   const avgDocLength = docCount > 0 ? totalLength / docCount : 0;
 
+  /** Okapi IDF from a document frequency: higher for rarer terms. */
+  function idfFromDf(df: number): number {
+    return Math.log(1 + (docCount - df + 0.5) / (df + 0.5));
+  }
+
+  /** Corpus IDF of `term`; an unseen term gets the maximum (df 0) IDF. */
+  function idf(term: string): number {
+    return idfFromDf(postings.get(term)?.length ?? 0);
+  }
+
   /** BM25F score per section for the given query terms. */
   function scoreSections(queryTerms: Set<string>): Map<number, number> {
     const scores = new Map<number, number>();
@@ -121,15 +151,13 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
       const list = postings.get(term);
       if (!list) continue;
 
-      const idf = Math.log(
-        1 + (docCount - list.length + 0.5) / (list.length + 0.5),
-      );
+      const termIdf = idfFromDf(list.length);
 
       for (const { doc, weightedTf } of list) {
         const norm = weightedTf * (k1 + 1);
         const denom =
           weightedTf + k1 * (1 - b + b * (docLengths[doc]! / avgDocLength));
-        scores.set(doc, (scores.get(doc) ?? 0) + idf * (norm / denom));
+        scores.set(doc, (scores.get(doc) ?? 0) + termIdf * (norm / denom));
       }
     }
 
@@ -149,10 +177,7 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
     return sa.article.localeCompare(sc.article) || sa.ordinal - sc.ordinal;
   }
 
-  function query(
-    text: string,
-    k: number,
-  ): { article: Slug; section: number }[] {
+  function queryScored(text: string, k: number): SectionNeedleScoredHit[] {
     if (k <= 0 || docCount === 0) return [];
 
     const queryTerms = new Set(tokenize(text));
@@ -164,15 +189,25 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
     // Dedupe to distinct articles, keeping each article's best (first-ranked)
     // section, until we have `k` articles.
     const seen = new Set<Slug>();
-    const result: { article: Slug; section: number }[] = [];
+    const result: SectionNeedleScoredHit[] = [];
     for (const doc of ranked) {
       const article = sections[doc]!.article;
       if (seen.has(article)) continue;
       seen.add(article);
-      result.push({ article, section: doc });
+      result.push({ article, section: doc, score: scores.get(doc) ?? 0 });
       if (result.length >= k) break;
     }
     return result;
+  }
+
+  function query(
+    text: string,
+    k: number,
+  ): { article: Slug; section: number }[] {
+    return queryScored(text, k).map(({ article, section }) => ({
+      article,
+      section,
+    }));
   }
 
   function bestSection(article: Slug, queryText: string): number {
@@ -196,5 +231,5 @@ export function buildSectionNeedle(index: SectionIndex): SectionNeedle {
     return best;
   }
 
-  return { query, bestSection };
+  return { query, queryScored, bestSection, idf };
 }

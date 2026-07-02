@@ -8,7 +8,6 @@ import { getConfig } from "../config/loader.js";
 import type { EventBus } from "../events/bus.js";
 import type { AssistantDomainEvents } from "../events/domain-events.js";
 import type { ToolProfiler } from "../events/tool-profiling-listener.js";
-import { enqueueMemoryRetrospectiveIfEnabled } from "../memory/memory-retrospective-enqueue.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import {
@@ -16,6 +15,7 @@ import {
   isMemoryEnabled,
 } from "../persistence/jobs-store.js";
 import { disposeContextWindowManager } from "../plugins/defaults/compaction/manager-store.js";
+import { enqueueMemoryRetrospectiveIfEnabled } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { type TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
@@ -69,6 +69,7 @@ export function reinjectImageSourcePaths(
 export interface AbortContext {
   readonly conversationId: string;
   isProcessing(): boolean;
+  setProcessing(value: boolean): void;
   abortController: AbortController | null;
   prompter: PermissionPrompter;
   secretPrompter: SecretPrompter;
@@ -125,7 +126,30 @@ export function abortConversation(
       { conversationId: ctx.conversationId, abortReason: effectiveReason },
       "Aborting in-flight processing",
     );
-    ctx.abortController?.abort(effectiveReason);
+    if (ctx.abortController) {
+      // A live turn owns this controller. Signal it and let the agent loop's
+      // own `finally` observe the abort, unwind, and clear the processing flag
+      // — that path clears it with the correct sync-invalidation ordering
+      // (after the awaited turn-boundary commit), so we deliberately do NOT
+      // clear it here and risk clobbering a client's optimistic state.
+      ctx.abortController.abort(effectiveReason);
+    } else {
+      // The flag is set but there is no live controller to signal: the turn
+      // that owned it already tore its controller down (the agent-loop
+      // `finally` nulls `abortController` before clearing the flag) or died
+      // without ever installing one. Either way no agent-loop `finally` is
+      // going to run to clear the flag. Without this branch the abort is a
+      // silent no-op — `?.abort()` does nothing — and the conversation stays
+      // wedged: every later submit is rejected with "already processing" and
+      // Stop appears dead. Force-clear the flag directly so the conversation
+      // frees up. `setProcessing(false)` also nulls the persisted column and
+      // emits the metadata invalidation that drives clients to idle.
+      log.warn(
+        { conversationId: ctx.conversationId },
+        "Abort requested while processing but no live abort controller — force-clearing stale processing flag",
+      );
+      ctx.setProcessing(false);
+    }
     ctx.prompter.dispose();
     ctx.secretPrompter.dispose();
     ctx.pendingSurfaceActions.clear();

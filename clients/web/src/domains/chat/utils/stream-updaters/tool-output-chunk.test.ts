@@ -1,19 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
 
 import type { DisplayMessage } from "@/domains/chat/types/types";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
-import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { ToolOutputChunkEvent } from "@vellumai/assistant-api";
 
 import {
   MAX_STREAMED_OUTPUT_CHARS,
   appendToolOutputChunk,
   applyToolResult,
 } from "@/domains/chat/utils/stream-updaters/tool-call-updaters";
-import {
-  flushToolOutput,
-  handleToolOutputChunk,
-} from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { textBody as seg } from "@/domains/chat/utils/message-test-helpers";
 
@@ -151,124 +145,5 @@ describe("applyToolResult + streamedOutput", () => {
     s = applyToolResult(s, { toolUseId: "tc-1", result: "final output" });
     expect(s[1]!.toolCalls![0]!.result).toBe("final output");
     expect(s[1]!.toolCalls![0]!.streamedOutput).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// flushToolOutput / handleToolOutputChunk (coalescing)
-// ---------------------------------------------------------------------------
-
-function makeCtx(initial: DisplayMessage[]) {
-  let messages = initial;
-  const ctx = {
-    toolOutputBufferRef: {
-      current: new Map<
-        string,
-        { conversationId?: string; messageId?: string; text: string }
-      >(),
-    },
-    toolOutputFlushHandleRef: { current: null as number | null },
-    setMessages: (
-      updater:
-        | DisplayMessage[]
-        | ((prev: DisplayMessage[]) => DisplayMessage[]),
-    ) => {
-      messages =
-        typeof updater === "function"
-          ? (updater as (p: DisplayMessage[]) => DisplayMessage[])(messages)
-          : updater;
-    },
-  } as unknown as StreamHandlerContext;
-  return { ctx, get: () => messages };
-}
-
-describe("flushToolOutput", () => {
-  it("drains buffered chunks for multiple tools in one pass", () => {
-    const { ctx, get } = makeCtx([userMsg, asstMsg([tc("a"), tc("b")])]);
-    ctx.toolOutputBufferRef.current.set("a", { text: "AA" });
-    ctx.toolOutputBufferRef.current.set("b", { text: "BB" });
-    flushToolOutput(ctx);
-    expect(get()[1]!.toolCalls![0]!.streamedOutput).toBe("AA");
-    expect(get()[1]!.toolCalls![1]!.streamedOutput).toBe("BB");
-    expect(ctx.toolOutputBufferRef.current.size).toBe(0);
-  });
-
-  it("is a no-op when the buffer is empty", () => {
-    const { ctx, get } = makeCtx([userMsg, asstMsg([tc("a")])]);
-    const before = get();
-    flushToolOutput(ctx);
-    expect(get()).toBe(before);
-  });
-
-  it("drops buffered chunks from a non-active conversation", () => {
-    // A deferred flush after a conversation switch must not graft a prior
-    // conversation's output onto the active transcript. The active stream
-    // conversation defaults to none in tests, so an entry stamped with a
-    // conversation is dropped while an unstamped one still applies.
-    const { ctx, get } = makeCtx([userMsg, asstMsg([tc("a"), tc("b")])]);
-    ctx.toolOutputBufferRef.current.set("a", {
-      conversationId: "switched-away-convo",
-      text: "stale",
-    });
-    ctx.toolOutputBufferRef.current.set("b", { text: "kept" });
-    flushToolOutput(ctx);
-    expect(get()[1]!.toolCalls![0]!.streamedOutput).toBeUndefined();
-    expect(get()[1]!.toolCalls![1]!.streamedOutput).toBe("kept");
-  });
-});
-
-describe("handleToolOutputChunk", () => {
-  let scheduled: Array<() => void>;
-  let cancelled: Set<number>;
-  const origRaf = globalThis.requestAnimationFrame;
-  const origCancel = globalThis.cancelAnimationFrame;
-
-  beforeEach(() => {
-    scheduled = [];
-    cancelled = new Set();
-    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
-      scheduled.push(() => cb(0));
-      return scheduled.length;
-    }) as typeof globalThis.requestAnimationFrame;
-    globalThis.cancelAnimationFrame = ((id: number) => {
-      cancelled.add(id);
-    }) as typeof globalThis.cancelAnimationFrame;
-  });
-  afterEach(() => {
-    globalThis.requestAnimationFrame = origRaf;
-    globalThis.cancelAnimationFrame = origCancel;
-  });
-
-  function runScheduled() {
-    const cbs = scheduled.slice();
-    scheduled = [];
-    cbs.forEach((cb, i) => {
-      if (!cancelled.has(i + 1)) cb();
-    });
-  }
-
-  const ev = (chunk: string): ToolOutputChunkEvent =>
-    ({ type: "tool_output_chunk", chunk, toolUseId: "tc-1" }) as ToolOutputChunkEvent;
-
-  it("coalesces multiple chunks into a single flush", () => {
-    const { ctx, get } = makeCtx([userMsg, asstMsg([tc("tc-1")])]);
-    handleToolOutputChunk(ev("a"), ctx);
-    handleToolOutputChunk(ev("b"), ctx);
-    handleToolOutputChunk(ev("c"), ctx);
-    // One frame scheduled (coalesced); nothing applied to state yet.
-    expect(scheduled.length).toBe(1);
-    expect(get()[1]!.toolCalls![0]!.streamedOutput).toBeUndefined();
-
-    runScheduled();
-    expect(get()[1]!.toolCalls![0]!.streamedOutput).toBe("abc");
-  });
-
-  it("schedules no frame for an empty chunk", () => {
-    const { ctx } = makeCtx([userMsg, asstMsg([tc("tc-1")])]);
-    handleToolOutputChunk(
-      { type: "tool_output_chunk", chunk: "", toolUseId: "tc-1" } as ToolOutputChunkEvent,
-      ctx,
-    );
-    expect(scheduled.length).toBe(0);
   });
 });

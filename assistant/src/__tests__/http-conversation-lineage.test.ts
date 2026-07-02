@@ -161,7 +161,11 @@ describe("conversation lineage in HTTP reads", () => {
 
   test("deleted parents are omitted from list and detail responses", async () => {
     const { child, parent } = seedForkedConversation();
-    rawRun("DELETE FROM conversations WHERE id = ?", parent.id);
+    rawRun(
+      "test:deleteParent",
+      "DELETE FROM conversations WHERE id = ?",
+      parent.id,
+    );
     await startServer();
 
     const listResponse = await fetch(url("/conversations"));
@@ -199,6 +203,7 @@ describe("conversation lineage in HTTP reads", () => {
     const child = createConversation("Forked conversation");
 
     rawRun(
+      "test:setForkParent",
       `
         UPDATE conversations
         SET fork_parent_conversation_id = ?, fork_parent_message_id = ?

@@ -67,7 +67,7 @@ const completions: CompletionRecord[] = [];
 // job completes before any slow job — a single 200ms window is plenty.
 const SLOW_DELAY_MS = 200;
 
-mock.module("../memory/graph/consolidation.js", () => ({
+mock.module("../plugins/defaults/memory/graph/consolidation.js", () => ({
   runConsolidation: async (
     scopeId: string,
   ): Promise<{
@@ -87,7 +87,7 @@ mock.module("../memory/graph/consolidation.js", () => ({
 
 // Fast-lane handler: resolves on the next microtask. The test fires this
 // many times in parallel; nothing should block.
-mock.module("../memory/v2/backfill-jobs.js", () => ({
+mock.module("../plugins/defaults/memory/v2/backfill-jobs.js", () => ({
   memoryV2ActivationRecomputeJob: async (job: {
     payload: { scopeId?: string };
   }): Promise<number> => {

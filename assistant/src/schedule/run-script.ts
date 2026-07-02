@@ -32,10 +32,15 @@ export interface ScriptResult {
  */
 export async function runScript(
   command: string,
-  options?: { timeoutMs?: number; cwd?: string; scheduleRunId?: string },
+  options: {
+    scheduleRunId: string;
+    scheduleId: string;
+    timeoutMs?: number;
+    cwd?: string;
+  },
 ): Promise<ScriptResult> {
-  const timeoutMs = options?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const cwd = options?.cwd ?? getWorkspaceDir();
+  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const cwd = options.cwd ?? getWorkspaceDir();
 
   log.info({ command, cwd, timeoutMs }, "Running script");
 
@@ -45,9 +50,11 @@ export async function runScript(
     stderr: "pipe",
     env: {
       ...buildSanitizedEnv(),
-      ...(options?.scheduleRunId
-        ? { __SCHEDULE_RUN_ID: options.scheduleRunId }
-        : {}),
+      // __SCHEDULE_ID lets a saved command find its own dir; __SCHEDULE_RUN_ID
+      // is the per-firing id (cost attribution). Required, so a script run is
+      // always attributable and can locate its dir.
+      __SCHEDULE_RUN_ID: options.scheduleRunId,
+      __SCHEDULE_ID: options.scheduleId,
     },
   });
 

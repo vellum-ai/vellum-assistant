@@ -64,17 +64,11 @@ import {
   type SkillSummary,
 } from "../../../../config/skills.js";
 import type { AssistantConfig } from "../../../../config/types.js";
-import { getPageIndex } from "../../../../memory/v2/page-index.js";
-import { readPage } from "../../../../memory/v2/page-store.js";
-import { skillSlugFor } from "../../../../memory/v2/skill-store.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
 } from "../../../../persistence/checkpoints.js";
-import {
-  EmbeddingBackendUnavailableError,
-  embedWithBackend,
-} from "../../../../persistence/embeddings/embedding-backend.js";
+import { EmbeddingBackendUnavailableError } from "../../../../persistence/embeddings/embedding-backend.js";
 import { EmbeddingBillingBlockError } from "../../../../persistence/embeddings/embedding-billing-breaker.js";
 import type { MemoryJob } from "../../../../persistence/jobs-store.js";
 import {
@@ -84,37 +78,22 @@ import {
 import { executeDeleteManagedSkill } from "../../../../tools/skills/delete-managed.js";
 import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
+import { embedWithBackend } from "../embeddings.js";
+import { getPageIndex } from "../v2/page-index.js";
+import { readPage } from "../v2/page-store.js";
+import { skillSlugFor } from "../v2/skill-store.js";
 import { capabilityOrDiskBody, isCapabilitySlug } from "./capabilities.js";
 import { loadCoreSet as realLoadCoreSet } from "./core-set.js";
 import {
   deleteSectionsForArticle as realDeleteSectionsForArticle,
   ensureSectionCollection as realEnsureSectionCollection,
   listSectionArticles as realListSectionArticles,
+  MAINTAIN_EMBED_HIGH_WATER_KEY,
   upsertSections as realUpsertSections,
 } from "./section-dense-store.js";
 import { buildSectionIndex as realBuildSectionIndex } from "./sections.js";
 import { invalidateLanes as realInvalidateLanes } from "./shadow-plugin.js";
 import type { Slug } from "./types.js";
-
-/**
- * Durable checkpoint holding the epoch-ms high-water mark of the last successful
- * re-embed pass. Pages whose mtime is past this mark are re-chunked + re-embedded
- * into the section dense store; the mark is advanced only after a pass completes,
- * captured before the pass so a transient embed write does not re-trigger itself.
- *
- * This is a FRESH key, distinct from the tree-era `enriched_through_ms` that the
- * old classify-union maintainer advanced. On upgrade the new key is absent, so
- * `computeChangedPages` sees a high-water of 0 and re-embeds EVERY page on the
- * first run — seeding the otherwise-empty `memory_v3_sections` collection.
- * Reusing the old (already-advanced) key would skip all historical pages and
- * leave dense retrieval blind to existing memory until each page was next edited.
- *
- * Distinct too from `memory_v3_maintain_last_run` (the enqueue-cadence checkpoint
- * in `jobs-worker.ts`), which advances on every backstop enqueue rather than on
- * an actual maintenance run.
- */
-const MAINTAIN_EMBED_HIGH_WATER_KEY =
-  "memory_v3_maintain:sections_embedded_through_ms" as const;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
@@ -139,6 +118,13 @@ export interface ChangedPageCandidate {
 
 /** Injectable collaborators; defaults wire the real implementations. */
 export interface MaintainJobDeps {
+  /**
+   * Establish the section collection before delta selection. Recreates it (and
+   * clears the embed high-water) on absence or dimension drift, so a wiped
+   * collection is observed by {@link selectChangedPages} and re-embedded in full
+   * this pass rather than after a clobbered reset.
+   */
+  ensureSectionCollection: typeof realEnsureSectionCollection;
   /**
    * The slugs whose sections to re-embed this pass: pages new or edited since
    * the last successful pass. See {@link computeChangedPages}.
@@ -394,6 +380,7 @@ async function selectAllPagesFromWorkspace(
 function defaultDeps(config: AssistantConfig): MaintainJobDeps {
   const workspaceDir = getWorkspaceDir();
   return {
+    ensureSectionCollection: realEnsureSectionCollection,
     selectChangedPages: () => selectChangedPagesFromWorkspace(workspaceDir),
     buildSectionIndex: realBuildSectionIndex,
     readPageBody: (slug) => readPageBodyFromWorkspace(workspaceDir, slug),
@@ -842,6 +829,14 @@ export async function maintainJob(
   // does not re-trigger it next pass; advance it only when every page succeeded.
   try {
     const startedAtMs = Date.now();
+    // Establish the collection BEFORE selecting deltas. If it is absent or
+    // dimension-drifted, `ensureSectionCollection` recreates it empty and clears
+    // the embed high-water; selecting deltas first would read the stale mark, so
+    // this pass would re-embed only recent pages and then commit `startedAtMs`,
+    // clobbering the reset and stranding the rest. Ensuring first makes the
+    // cleared mark visible to `selectChangedPages`, turning this pass into the
+    // full-corpus re-embed the recreate requires.
+    await deps.ensureSectionCollection(deps.config);
     const changed = await deps.selectChangedPages();
     const { reembedded, reembedFailures } = await reembedChangedPages(
       changed,

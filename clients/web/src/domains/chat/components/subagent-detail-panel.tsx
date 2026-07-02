@@ -6,7 +6,6 @@ import {
     Bolt,
     ChevronDown,
     ChevronRight,
-    Square,
     X,
 } from "lucide-react";
 
@@ -27,6 +26,7 @@ import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-component
 import { Button, Typography } from "@vellumai/design-library";
 
 import { ChatMarkdownMessage } from "@/domains/chat/components/chat-markdown-message";
+import { DetailPanelStopButton } from "@/domains/chat/components/detail-panel-stop-button";
 import { SubagentPhaseTimeline } from "@/domains/chat/components/subagent-phase-timeline";
 import {
     deriveStepLabelFromName,
@@ -308,15 +308,10 @@ export function SubagentDetailPanel({
         <StatusBadge status={entry.status} />
         <span className="flex-1" />
         {isRunning && onStop && (
-          <button
-            type="button"
-            aria-label="Stop subagent"
-            onClick={() => onStop(entry.subagentId)}
-            className="flex h-8 shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border border-[var(--system-negative-strong)] bg-transparent px-2.5 py-1.5 text-[var(--system-negative-strong)] transition-colors hover:bg-[var(--system-negative-weak)]"
-          >
-            <Square className="h-3 w-3" fill="currentColor" />
-            <Typography variant="label-small-default">Stop</Typography>
-          </button>
+          <DetailPanelStopButton
+            onStop={() => onStop(entry.subagentId)}
+            ariaLabel="Stop subagent"
+          />
         )}
         <Button
           variant="outlined"

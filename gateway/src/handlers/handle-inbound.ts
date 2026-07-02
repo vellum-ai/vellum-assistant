@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import {
   makeResolutionFailedVerdict,
+  makeUnauthenticatedSenderVerdict,
   type SourceMetadata,
   type TrustVerdict,
 } from "@vellumai/gateway-client";
@@ -23,6 +24,7 @@ import {
 } from "../runtime/client.js";
 import type { RuntimeInboundResponse } from "../runtime/client.js";
 import type { GatewayInboundEvent } from "../types.js";
+import { tryInviteRedemptionIntercept } from "../verification/invite-redemption.js";
 import { tryTextVerificationIntercept } from "../verification/text-verification.js";
 
 const log = getLogger("handle-inbound");
@@ -33,6 +35,9 @@ export type InboundResult = {
   verificationIntercepted?: boolean;
   /** Reply text when the verification intercept couldn't deliver (no replyCallbackUrl). */
   verificationReplyText?: string;
+  inviteIntercepted?: boolean;
+  /** Reply text when the invite intercept couldn't deliver (no replyCallbackUrl). */
+  inviteReplyText?: string;
   runtimeResponse?: RuntimeInboundResponse;
   rejectionReason?: string;
 };
@@ -51,6 +56,16 @@ export type HandleInboundOptions = {
   routingOverride?: RouteResult;
   /** Extra fields merged into sourceMetadata (e.g. commandIntent). */
   sourceMetadata?: Partial<SourceMetadata>;
+  /**
+   * Result of the ingress channel's sender-authentication check (email
+   * SPF/DKIM/DMARC). `false` means the sender's identity (e.g. the `From:`
+   * address) could not be authenticated and is spoofable — the resolved
+   * verdict is downgraded to a plain stranger so it cannot inherit
+   * guardian/trusted_contact trust from a matching address. `undefined` means
+   * the channel does not authenticate senders, or the provider carried no
+   * result, and preserves the resolved verdict.
+   */
+  senderAuthenticated?: boolean;
 };
 
 function normalizeTransportHints(hints: string[] | undefined): string[] {
@@ -157,15 +172,11 @@ export async function handleInbound(
     };
   }
 
-  const transportHints = normalizeTransportHints(
-    options?.transportMetadata?.hints,
-  );
-  const transportUxBrief = options?.transportMetadata?.uxBrief?.trim();
-  const sourceChannelName = event.source.channelName?.trim();
-
   // ── Per-actor trust verdict ──
   // Resolved from the gateway ACL DB and stamped on sourceMetadata for the
-  // runtime to consume.
+  // runtime to consume. Runs after the verification intercept (messages it
+  // consumes never pay resolution cost) and before the invite intercept,
+  // which gates on the resolved class.
   let trustVerdict: TrustVerdict | undefined;
   try {
     trustVerdict = await resolveTrustVerdict({
@@ -180,6 +191,74 @@ export async function handleInbound(
       canonicalSenderIdFor(event.sourceChannel, event.actor.actorExternalId),
     );
   }
+
+  // ── Sender-authentication downgrade ──
+  // Trust is keyed on the actor's channel address, which some channels (email)
+  // carry from a spoofable `From:` header. When the ingress reports the sender
+  // failed channel authentication (SPF/DKIM/DMARC), never let a forged address
+  // that happens to match a guardian/contact record inherit that trust —
+  // collapse the verdict to a plain stranger so the admission floor and
+  // verification lane treat it as unknown. `undefined` means "not evaluated"
+  // (non-authenticating channel, or a payload with no result) and is a no-op.
+  if (options?.senderAuthenticated === false && trustVerdict) {
+    const priorClass = trustVerdict.trustClass;
+    trustVerdict = makeUnauthenticatedSenderVerdict(
+      trustVerdict.canonicalSenderId,
+    );
+    if (priorClass !== "unknown") {
+      log.warn(
+        {
+          sourceChannel: event.sourceChannel,
+          actorExternalId: event.actor.actorExternalId,
+          resolvedTrustClass: priorClass,
+        },
+        "Inbound sender failed channel authentication — downgrading trust to stranger",
+      );
+    }
+  }
+
+  // ── Invite redemption intercept ──
+  // Bare 6-digit invite codes and `/start iv_<token>` deep links from
+  // non-member senders are redeemed at the gateway; the runtime never sees
+  // them. A code that matches no invite falls through as a normal message.
+  // Unauthenticated senders never redeem: a spoofable address must not mint
+  // a membership binding it may not own.
+  if (options?.senderAuthenticated !== false) {
+    const inviteResult = await tryInviteRedemptionIntercept({
+      sourceChannel: event.sourceChannel,
+      messageContent: event.message.content,
+      commandIntent: options?.sourceMetadata?.commandIntent,
+      actorExternalUserId: event.actor.actorExternalId,
+      actorChatId: event.message.conversationExternalId,
+      actorDisplayName: event.actor.displayName,
+      actorUsername: event.actor.username,
+      replyCallbackUrl: options?.replyCallbackUrl,
+      assistantId: routing.assistantId,
+      trustVerdict,
+    });
+
+    if (inviteResult.intercepted) {
+      log.info(
+        {
+          sourceChannel: event.sourceChannel,
+          outcome: inviteResult.outcome,
+        },
+        "Invite redemption intercepted — not forwarding to runtime",
+      );
+      return {
+        forwarded: false,
+        rejected: false,
+        inviteIntercepted: true,
+        inviteReplyText: inviteResult.pendingReplyText,
+      };
+    }
+  }
+
+  const transportHints = normalizeTransportHints(
+    options?.transportMetadata?.hints,
+  );
+  const transportUxBrief = options?.transportMetadata?.uxBrief?.trim();
+  const sourceChannelName = event.source.channelName?.trim();
 
   try {
     const response = await forwardToRuntime(
@@ -213,6 +292,7 @@ export async function handleInbound(
           timezoneOffsetSeconds: event.actor.timezoneOffsetSeconds,
           isStranger: event.actor.isStranger,
           isRestricted: event.actor.isRestricted,
+          ...(event.actor.teamId ? { actorTeamId: event.actor.teamId } : {}),
           ...(transportHints.length > 0 ? { hints: transportHints } : {}),
           ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
           // Floor for the runtime admission stage. Exempt channels send no

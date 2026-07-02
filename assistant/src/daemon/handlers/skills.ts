@@ -19,7 +19,7 @@ import {
 import { resolveSkillStates, skillFlagKey } from "../../config/skill-state.js";
 import type { SkillSummary } from "../../config/skills.js";
 import { loadSkillCatalog } from "../../config/skills.js";
-import { deleteSkillCapabilityNode } from "../../memory/graph/capability-seed.js";
+import { deleteSkillCapabilityNode } from "../../plugins/defaults/memory/graph/capability-seed.js";
 import {
   createTimeout,
   extractText,
@@ -1352,8 +1352,11 @@ export async function updateSkill(
     if (!result.success) {
       return { success: false, error: result.error ?? "Unknown error" };
     }
-    // Reload skill catalog to pick up updated skill
+    // Reload skill catalog to pick up updated skill, then reseed capability
+    // memory so changed description/activation-hints/avoid-when propagate to the
+    // graph nodes and v2 entries — matching the other skill-mutation handlers.
     loadSkillCatalog();
+    refreshSkillCapabilityMemories(getConfig());
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

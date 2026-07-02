@@ -5,18 +5,32 @@ import type { CliInvocation } from "./util";
 const RETIRE_TIMEOUT_MS = 60_000;
 
 export type RetireResult =
-  | { ok: true }
-  | { ok: false; status: number; error: string };
+  { ok: true } | { ok: false; status: number; error: string };
+
+export interface RetireOptions {
+  platformToken?: string;
+}
 
 export function runRetire(
   invocation: CliInvocation,
   assistantId: string,
+  options: RetireOptions = {},
 ): Promise<RetireResult> {
   return new Promise((resolve) => {
     const child = spawn(
       invocation.command,
       [...invocation.baseArgs, "retire", assistantId, "--yes"],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      {
+        ...(options.platformToken
+          ? {
+              env: {
+                ...process.env,
+                VELLUM_PLATFORM_TOKEN: options.platformToken,
+              },
+            }
+          : {}),
+        stdio: ["ignore", "pipe", "pipe"],
+      },
     );
 
     let stdout = "";
@@ -32,7 +46,11 @@ export function runRetire(
 
     const timeout = setTimeout(() => {
       child.kill("SIGTERM");
-      finish({ ok: false, status: 500, error: "Retire timed out after 60 seconds" });
+      finish({
+        ok: false,
+        status: 500,
+        error: "Retire timed out after 60 seconds",
+      });
     }, RETIRE_TIMEOUT_MS);
 
     child.stdout.on("data", (data: Buffer) => {
@@ -52,7 +70,11 @@ export function runRetire(
     });
 
     child.on("error", (err) => {
-      finish({ ok: false, status: 500, error: `Failed to spawn CLI: ${err.message}` });
+      finish({
+        ok: false,
+        status: 500,
+        error: `Failed to spawn CLI: ${err.message}`,
+      });
     });
   });
 }

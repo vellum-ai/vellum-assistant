@@ -192,6 +192,37 @@ describe("buildSkillMarkdown", () => {
     expect(parsed.metadata.vellum.includes).toEqual(["child-a", "child-b"]);
   });
 
+  test("activation-hints and avoid-when emit kebab-case YAML lists in metadata.vellum", () => {
+    const result = buildSkillMarkdown({
+      name: "Hinted Skill",
+      description: "Has trigger phrases",
+      bodyMarkdown: "Body.",
+      activationHints: ["user asks to deploy staging", "needs a release cut"],
+      avoidWhen: ["local-only changes"],
+    });
+    const fmMatch = result.match(/^---\n([\s\S]*?)\n---/);
+    const parsed = parseYaml(fmMatch![1]);
+    // Kebab-case keys are what parseFrontmatter reads back (config/skills.ts).
+    expect(parsed.metadata.vellum["activation-hints"]).toEqual([
+      "user asks to deploy staging",
+      "needs a release cut",
+    ]);
+    expect(parsed.metadata.vellum["avoid-when"]).toEqual([
+      "local-only changes",
+    ]);
+  });
+
+  test("omits activation-hints / avoid-when when empty and no other vellum fields", () => {
+    const result = buildSkillMarkdown({
+      name: "Empty Hints",
+      description: "Empty arrays",
+      bodyMarkdown: "Body.",
+      activationHints: [],
+      avoidWhen: [],
+    });
+    expect(result).not.toContain("metadata:");
+  });
+
   test("includes optional category in metadata.vellum", () => {
     const result = buildSkillMarkdown({
       name: "Categorized Skill",
@@ -453,7 +484,12 @@ describe("validateCompanionPath", () => {
   });
 
   test("rejects store-owned top-level files", () => {
-    for (const reserved of ["SKILL.md", "install-meta.json", "version.json"]) {
+    for (const reserved of [
+      "SKILL.md",
+      "install-meta.json",
+      "version.json",
+      "TOOLS.json",
+    ]) {
       expect(validateCompanionPath(skillDir, reserved).error).toContain(
         "store-owned",
       );
@@ -461,6 +497,38 @@ describe("validateCompanionPath", () => {
     // The same name nested under a subdirectory is allowed (only top-level reserved).
     expect(
       validateCompanionPath(skillDir, "references/SKILL.md").error,
+    ).toBeUndefined();
+  });
+
+  test("rejects a top-level TOOLS.json companion to block planting executable tools", () => {
+    // TOOLS.json is the manifest the skill loader scans to register (and
+    // dynamically import) executable tools. A scaffold author must never be
+    // able to plant one — otherwise an instruction-only managed skill becomes a
+    // code-injection surface.
+    expect(validateCompanionPath(skillDir, "TOOLS.json").error).toContain(
+      "store-owned",
+    );
+  });
+
+  test("rejects case variants of reserved names (case-insensitive filesystems)", () => {
+    // On macOS (case-insensitive FS), `tools.json` resolves to the same file
+    // the scanner reads as `TOOLS.json`, so a varied-case name must be rejected
+    // too — otherwise the guard is trivially bypassed. Same for SKILL.md.
+    for (const variant of [
+      "tools.json",
+      "Tools.json",
+      "TOOLS.JSON",
+      "skill.md",
+      "Skill.MD",
+      "INSTALL-META.JSON",
+    ]) {
+      expect(validateCompanionPath(skillDir, variant).error).toContain(
+        "store-owned",
+      );
+    }
+    // Nested case variants remain allowed — only top-level is scanned.
+    expect(
+      validateCompanionPath(skillDir, "references/tools.json").error,
     ).toBeUndefined();
   });
 });
@@ -602,6 +670,43 @@ describe("createManagedSkill companion files", () => {
         join(TEST_DIR, "skills", "exists-files", "references", "new.md"),
       ),
     ).toBe(false);
+  });
+
+  test("rejects a TOOLS.json companion and writes nothing", () => {
+    // Planting a TOOLS.json declaring execution_target/risk would let a
+    // scaffolded skill register attacker-controlled tools. The reserved-name
+    // check must reject it before any write, leaving no SKILL.md or manifest.
+    const result = createManagedSkill({
+      id: "tools-manifest",
+      name: "Tools Manifest",
+      description: "Tries to plant a tool manifest",
+      bodyMarkdown: "Body.",
+      files: [
+        {
+          path: "TOOLS.json",
+          content: JSON.stringify({
+            version: 1,
+            tools: [
+              {
+                name: "pwn",
+                description: "x",
+                category: "x",
+                risk: "low",
+                input_schema: { type: "object" },
+                executor: "tools/pwn.ts",
+                execution_target: "host",
+              },
+            ],
+          }),
+        },
+      ],
+    });
+
+    expect(result.created).toBe(false);
+    expect(result.error).toContain("store-owned");
+    const skillDir = join(TEST_DIR, "skills", "tools-manifest");
+    expect(existsSync(join(skillDir, "TOOLS.json"))).toBe(false);
+    expect(existsSync(join(skillDir, "SKILL.md"))).toBe(false);
   });
 
   test("overwrite re-writes companion files", () => {
@@ -1001,6 +1106,29 @@ describe("YAML metadata round-trip", () => {
     );
     expect(skill!.emoji).toBe("🔬");
     expect(skill!.includes).toEqual(["child-a", "child-b"]);
+  });
+
+  test("activation hints and avoid-when round-trip into SkillSummary", () => {
+    // An assistant-authored (retrospective) skill written via createManagedSkill
+    // carries activation hints so the memory seeder emits a "Use when:" clause
+    // for it, just like bundled skills.
+    createManagedSkill({
+      id: "hints-roundtrip",
+      name: "Hints Roundtrip",
+      description: "Trigger phrases round-trip through write and load",
+      bodyMarkdown: "Body.",
+      activationHints: ["user asks to deploy staging", "needs a release cut"],
+      avoidWhen: ["local-only changes"],
+    });
+
+    const catalog = loadSkillCatalog(undefined, [join(TEST_DIR, "skills")]);
+    const skill = catalog.find((s) => s.id === "hints-roundtrip");
+    expect(skill).toBeDefined();
+    expect(skill!.activationHints).toEqual([
+      "user asks to deploy staging",
+      "needs a release cut",
+    ]);
+    expect(skill!.avoidWhen).toEqual(["local-only changes"]);
   });
 
   test("hand-authored YAML nested metadata parses correctly", () => {

@@ -11,7 +11,7 @@ import { DetailCard } from "@/components/detail-card";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
 import { SlackChannelCard } from "@/domains/contacts/components/slack-channel-card";
-import { SlackSetupWizard, type SlackThreadMode } from "@/domains/contacts/components/slack-setup-wizard";
+import { SlackSetupWizard, type SlackThreadMode, type MutationStatus } from "@/components/slack-setup-wizard";
 import type { AssistantChannelState } from "@/domains/contacts/types";
 import {
   ADMISSION_POLICY_DEFAULT,
@@ -21,7 +21,7 @@ import {
   type AdmissionPolicy,
 } from "@/lib/channel-admission-policy/types";
 
-export type { SlackThreadMode } from "@/domains/contacts/components/slack-setup-wizard";
+export type { SlackThreadMode } from "@/components/slack-setup-wizard";
 
 type ChannelKey = AssistantChannelState["key"];
 
@@ -84,10 +84,14 @@ interface AssistantChannelsDetailProps {
   onSetup?: (channelKey: ChannelKey) => void;
   onDisconnect?: (channelKey: ChannelKey) => void;
   onSaveTelegramToken?: (botToken: string) => Promise<void>;
-  onSaveSlackConfig?: (botToken: string, appToken: string) => Promise<void>;
+  onSaveSlackConfig?: (botToken: string, appToken: string) => void;
+  slackSaveStatus?: MutationStatus;
+  slackSaveError?: string | null;
   onSlackThreadModeChange?: (mode: SlackThreadMode) => void;
   onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
   onGenerateInviteLink?: () => void;
+  /** Pre-expand a channel on mount (e.g. from a `?setup=slack` deep-link). */
+  initialExpandedChannel?: ChannelKey | null;
 }
 
 const CHANNEL_META: Record<
@@ -129,13 +133,18 @@ export function AssistantChannelsDetail({
   onDisconnect,
   onSaveTelegramToken,
   onSaveSlackConfig,
+  slackSaveStatus,
+  slackSaveError,
   onSlackThreadModeChange,
   onSaveTwilioCredentials,
   onGenerateInviteLink,
+  initialExpandedChannel = null,
 }: AssistantChannelsDetailProps) {
   const displayName = assistantName.trim() || "your assistant";
   const [pendingDisconnect, setPendingDisconnect] = useState<ChannelKey | null>(null);
-  const [expandedChannels, setExpandedChannels] = useState<Set<ChannelKey>>(new Set());
+  const [expandedChannels, setExpandedChannels] = useState<Set<ChannelKey>>(
+    () => initialExpandedChannel ? new Set([initialExpandedChannel]) : new Set(),
+  );
   // Floor confirmation: non-null while a floor in POLICY_CONFIRMATIONS awaits
   // the user's go-ahead before persisting.
   const [pendingPolicy, setPendingPolicy] = useState<{
@@ -215,6 +224,8 @@ export function AssistantChannelsDetail({
                 }
                 onSaveTelegramToken={onSaveTelegramToken}
                 onSaveSlackConfig={onSaveSlackConfig}
+                slackSaveStatus={slackSaveStatus}
+                slackSaveError={slackSaveError}
                 slackThreadMode={slackThreadMode}
                 slackThreadModePending={slackThreadModePending}
                 onSlackThreadModeChange={onSlackThreadModeChange}
@@ -283,7 +294,9 @@ interface ChannelRowProps {
   onSetup?: () => void;
   onDisconnect?: () => void;
   onSaveTelegramToken?: (botToken: string) => Promise<void>;
-  onSaveSlackConfig?: (botToken: string, appToken: string) => Promise<void>;
+  onSaveSlackConfig?: (botToken: string, appToken: string) => void;
+  slackSaveStatus?: MutationStatus;
+  slackSaveError?: string | null;
   slackThreadMode?: SlackThreadMode;
   slackThreadModePending?: boolean;
   onSlackThreadModeChange?: (mode: SlackThreadMode) => void;
@@ -305,6 +318,8 @@ function ChannelRow({
   onDisconnect,
   onSaveTelegramToken,
   onSaveSlackConfig,
+  slackSaveStatus,
+  slackSaveError,
   slackThreadMode,
   slackThreadModePending = false,
   onSlackThreadModeChange,
@@ -403,6 +418,8 @@ function ChannelRow({
                 assistantName={assistantName}
                 connected={connected}
                 onSave={onSaveSlackConfig}
+                saveStatus={slackSaveStatus}
+                saveError={slackSaveError}
                 threadMode={slackThreadMode}
                 threadModePending={slackThreadModePending}
                 onThreadModeChange={onSlackThreadModeChange}

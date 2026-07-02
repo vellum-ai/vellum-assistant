@@ -8,8 +8,15 @@ import {
 } from "react";
 
 interface UseChatAttachmentDropZoneOptions {
-  /** Callback that receives files dropped on the zone. */
+  /** Callback that receives regular (non-directory) files dropped on the zone. */
   onFiles: (files: File[]) => void;
+  /**
+   * Callback fired when directories are dropped. Directories are surfaced
+   * separately from files because a browser can't read their contents — the
+   * caller decides how to handle them (Electron: resolve the native path via
+   * `webUtils.getPathForFile`; web: reject with a clear error).
+   */
+  onDirectories?: (directories: File[]) => void;
   /** When true, drops are ignored and no visual feedback is shown. */
   disabled?: boolean;
 }
@@ -47,34 +54,56 @@ function dragHasFiles(dataTransfer: DataTransfer | null): boolean {
   return false;
 }
 
+interface ExtractedDrop {
+  files: File[];
+  directories: File[];
+}
+
 /**
- * Collects dropped files, preferring `DataTransferItemList` (which exposes
- * `getAsFile()` for each entry) and falling back to `DataTransfer.files` for
- * browsers that don't surface items for a given drop.
+ * Collects dropped files and directories. Prefers `DataTransferItemList` so we
+ * can inspect each entry via `webkitGetAsEntry` and split directory drops out
+ * of the plain-file stream — the browser hands directories back as zero-byte
+ * `File` objects that would otherwise be queued as failed uploads. Falls back
+ * to `DataTransfer.files` when items aren't exposed; the fallback can't
+ * distinguish directories, so everything there is treated as a file.
  */
-function extractFiles(dataTransfer: DataTransfer): File[] {
-  const collected: File[] = [];
+function extractDrop(dataTransfer: DataTransfer): ExtractedDrop {
+  const files: File[] = [];
+  const directories: File[] = [];
   const items = dataTransfer.items;
   if (items && items.length > 0) {
     for (let index = 0; index < items.length; index += 1) {
       const item = items[index];
-      if (item && item.kind === "file") {
-        const file = item.getAsFile();
-        if (file) {
-          collected.push(file);
+      if (!item || item.kind !== "file") {
+        continue;
+      }
+      const file = item.getAsFile();
+      if (!file) {
+        continue;
+      }
+      const getAsEntry = (
+        item as DataTransferItem & {
+          webkitGetAsEntry?: () => { isDirectory?: boolean } | null;
         }
+      ).webkitGetAsEntry;
+      const entry = typeof getAsEntry === "function" ? getAsEntry.call(item) : null;
+      if (entry?.isDirectory) {
+        directories.push(file);
+      } else {
+        files.push(file);
       }
     }
+    return { files, directories };
   }
-  if (collected.length === 0 && dataTransfer.files.length > 0) {
+  if (dataTransfer.files.length > 0) {
     for (let index = 0; index < dataTransfer.files.length; index += 1) {
       const file = dataTransfer.files.item(index);
       if (file) {
-        collected.push(file);
+        files.push(file);
       }
     }
   }
-  return collected;
+  return { files, directories };
 }
 
 /**
@@ -85,6 +114,7 @@ function extractFiles(dataTransfer: DataTransfer): File[] {
  */
 export function useChatAttachmentDropZone({
   onFiles,
+  onDirectories,
   disabled = false,
 }: UseChatAttachmentDropZoneOptions): UseChatAttachmentDropZoneResult {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -157,13 +187,16 @@ export function useChatAttachmentDropZone({
         return;
       }
       event.preventDefault();
-      const files = extractFiles(event.dataTransfer);
+      const { files, directories } = extractDrop(event.dataTransfer);
       reset();
       if (files.length > 0) {
         onFiles(files);
       }
+      if (directories.length > 0) {
+        onDirectories?.(directories);
+      }
     },
-    [disabled, onFiles, reset],
+    [disabled, onFiles, onDirectories, reset],
   );
 
   const dropHandlers = useMemo<ChatAttachmentDropZoneHandlers>(

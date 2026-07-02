@@ -39,10 +39,13 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbRun: (...args: Parameters<DbRunFn>) => assistantDbRunMock(...args),
 }));
 
+// Spread the actual module so the real IpcHandlerError/IpcTransportError
+// classes (and untouched exports like ipcSuggestTrustRule) stay importable by
+// later-loaded files when suites share a bun process.
+const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
+  ...actualAssistantClient,
   ipcCallAssistant: mock(async () => ({})),
-  IpcHandlerError: class IpcHandlerError extends Error {},
-  IpcTransportError: class IpcTransportError extends Error {},
 }));
 
 import { GatewayIpcServer } from "../ipc/server.js";
@@ -409,6 +412,10 @@ describe("IPC contact routes", () => {
     expect(channels[0].type).toBe("email");
     expect(channels[0].address).toBe("new@example.com");
     expect(channels[0].isPrimary).toBe(true);
+    // A freshly created channel lands at the unverified admission tier: this is
+    // what makes a guardian-denied sender resolve as `unverified_contact` (not
+    // trusted, not an unknown stranger) on subsequent inbound.
+    expect(channels[0].status).toBe("unverified");
   });
 
   test("create_contact returns { contactId, channelId } both present and non-empty", async () => {
@@ -669,7 +676,8 @@ describe("IPC contact routes", () => {
 
     // The assistant-DB contact UPDATE must NOT touch display_name.
     const contactUpdate = runCalls.find(
-      (c) => c.sql.includes("UPDATE contacts") && c.sql.includes("WHERE id = ?"),
+      (c) =>
+        c.sql.includes("UPDATE contacts") && c.sql.includes("WHERE id = ?"),
     );
     expect(contactUpdate).toBeDefined();
     expect(contactUpdate!.sql).not.toContain("display_name");
@@ -728,13 +736,12 @@ describe("IPC contact routes", () => {
 
     // The assistant contact UPDATE targets the provided id, never "other-contact".
     const contactUpdate = runCalls.find(
-      (c) => c.sql.includes("UPDATE contacts") && c.sql.includes("WHERE id = ?"),
+      (c) =>
+        c.sql.includes("UPDATE contacts") && c.sql.includes("WHERE id = ?"),
     );
     expect(contactUpdate).toBeDefined();
     expect(contactUpdate!.bind?.at(-1)).toBe("edit-me");
-    expect(
-      runCalls.some((c) => c.bind?.includes("other-contact")),
-    ).toBe(false);
+    expect(runCalls.some((c) => c.bind?.includes("other-contact"))).toBe(false);
   });
 
   test("upsertContact read-back sources ACL from the gateway DB, not assistant defaults", async () => {
@@ -759,9 +766,7 @@ describe("IPC contact routes", () => {
     const store = new ContactStore(db);
     const { contact } = await store.upsertContact({
       id: "guard-1",
-      channels: [
-        { type: "email", address: "g@example.com", status: "active" },
-      ],
+      channels: [{ type: "email", address: "g@example.com", status: "active" }],
     });
 
     expect(contact.role).toBe("guardian");

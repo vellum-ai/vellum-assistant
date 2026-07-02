@@ -36,31 +36,30 @@ function outputSlackDetachError(message: string, json?: boolean): void {
   process.exitCode = 1;
 }
 
-function readSeedMessages(
-  contentFile?: string,
-): ConversationSeedMessage[] | undefined {
-  if (!contentFile) return undefined;
+// Returns the parsed seed messages (or `undefined` when no file is given), or a
+// validation error for the caller to surface — human or `--json`. The caller
+// owns output/exit so the error shape matches the rest of the command.
+type SeedResult =
+  | { messages: ConversationSeedMessage[] | undefined }
+  | { error: string };
+
+function readSeedMessages(contentFile?: string): SeedResult {
+  if (!contentFile) return { messages: undefined };
   if (!existsSync(contentFile)) {
-    log.error(`Error: content file not found: ${contentFile}`);
-    process.exitCode = 1;
-    return undefined;
+    return { error: `content file not found: ${contentFile}` };
   }
 
   let parsed: unknown;
   try {
     parsed = JSON.parse(readFileSync(contentFile, "utf-8"));
   } catch (err) {
-    log.error(
-      `Error: failed to read content file: ${err instanceof Error ? err.message : String(err)}`,
-    );
-    process.exitCode = 1;
-    return undefined;
+    return {
+      error: `failed to read content file: ${err instanceof Error ? err.message : String(err)}`,
+    };
   }
 
   if (!Array.isArray(parsed)) {
-    log.error("Error: content file must contain an array of messages");
-    process.exitCode = 1;
-    return undefined;
+    return { error: "content file must contain an array of messages" };
   }
 
   const messages: ConversationSeedMessage[] = [];
@@ -71,9 +70,7 @@ function readSeedMessages(
       !("role" in value) ||
       !("content" in value)
     ) {
-      log.error(`Error: message ${index} must include role and content`);
-      process.exitCode = 1;
-      return undefined;
+      return { error: `message ${index} must include role and content` };
     }
     const role = (value as { role?: unknown }).role;
     const content = (value as { content?: unknown }).content;
@@ -81,24 +78,32 @@ function readSeedMessages(
       (role !== "user" && role !== "assistant") ||
       typeof content !== "string"
     ) {
-      log.error(
-        `Error: message ${index} must have role user|assistant and string content`,
-      );
-      process.exitCode = 1;
-      return undefined;
+      return {
+        error: `message ${index} must have role user|assistant and string content`,
+      };
     }
     messages.push({ role, content });
   }
 
-  return messages;
+  return { messages };
 }
 
 async function createConversationCli(
   title: string | undefined,
-  opts?: { contentFile?: string },
+  opts?: { contentFile?: string; json?: boolean },
 ): Promise<void> {
-  const messages = readSeedMessages(opts?.contentFile);
-  if (process.exitCode) return;
+  // Seed-file errors happen before any IPC — surface them in JSON mode too.
+  const seed = readSeedMessages(opts?.contentFile);
+  if ("error" in seed) {
+    if (opts?.json) {
+      log.info(JSON.stringify({ ok: false, error: seed.error }));
+    } else {
+      log.error(`Error: ${seed.error}`);
+    }
+    process.exitCode = 1;
+    return;
+  }
+  const messages = seed.messages;
 
   // A script-mode schedule injects __SCHEDULE_RUN_ID into its env (see
   // schedule/run-script.ts). When set, create the conversation as `scheduled`
@@ -119,9 +124,21 @@ async function createConversationCli(
     },
   });
 
-  if (!result.ok) return exitFromIpcResult(result);
+  if (!result.ok) {
+    if (opts?.json) {
+      log.info(JSON.stringify({ ok: false, error: result.error }));
+      process.exitCode = 1;
+      return;
+    }
+    return exitFromIpcResult(result);
+  }
 
   const conversation = result.result!;
+  // JSON output so callers can capture the new id programmatically.
+  if (opts?.json) {
+    log.info(JSON.stringify({ ok: true, ...conversation }));
+    return;
+  }
   const seedSuffix = conversation.messagesInserted
     ? `, seeded ${conversation.messagesInserted} messages`
     : "";
@@ -218,6 +235,7 @@ Examples:
         .command("new [title]")
         .description("Create a new conversation")
         .option("--content-file <path>", "Seed messages from a JSON file")
+        .option("--json", "Output result as JSON")
         .addHelpText(
           "after",
           `
@@ -599,6 +617,14 @@ Examples:
           "Source label for logging (e.g. github-notification)",
           "cli",
         )
+        .option(
+          "--persist",
+          "Persist the trigger as a transcript-visible background event instead of an ephemeral hint",
+        )
+        .option(
+          "--external-content <string>",
+          "Raw third-party data to fence as untrusted content (implies --persist). The caller reads the data and passes it as a string. Visible in the process table (ps) and bounded by ARG_MAX",
+        )
         .option("--json", "Output result as JSON")
         .addHelpText(
           "after",
@@ -612,22 +638,42 @@ only to the LLM — it never appears in the transcript or SSE feed. If the
 agent produces output (text or tool calls), it is persisted and emitted to
 connected clients. Otherwise the wake is a silent no-op.
 
+--hint is TRUSTED framing authored by you. Any attacker-influenceable data
+(email bodies, PR text, fetched web pages, notification payloads) MUST be
+passed via --external-content — never inlined into --hint. Untrusted content is
+fenced inside <external_content> so the model treats it as data, never
+instructions, and implies --persist. The caller reads the data and passes it as
+a string; it is visible in the process table via 'ps' and bounded by ARG_MAX.
+
 Requires the assistant to be running. Communicates via IPC socket.
 
 Examples:
   $ assistant conversations wake abc123 --hint "PR #25933 received a review requesting changes"
   $ assistant conversations wake abc123 --hint "CI failed on commit abc" --source github-ci
-  $ assistant conversations wake abc123 --hint "New Slack DM from Vargas" --source slack --json`,
+  $ assistant conversations wake abc123 --hint "New Slack DM from Vargas" --source slack --json
+  $ assistant conversations wake abc123 --hint "New Slack msgs to triage" --external-content "$slack_dump"`,
         )
         .action(
           async (
             conversationId: string,
-            opts: { hint: string; source: string; json?: boolean },
+            opts: {
+              hint: string;
+              source: string;
+              persist?: boolean;
+              externalContent?: string;
+              json?: boolean;
+            },
           ) => {
             // A script-mode schedule injects __SCHEDULE_RUN_ID into its env
             // (see schedule/run-script.ts). When set, thread it through so the
             // woken turn's usage is attributed to the firing.
             const cronRunId = process.env.__SCHEDULE_RUN_ID;
+
+            // Fencing only exists on the persisted-event path, so
+            // --external-content implies --persist.
+            const externalContent = opts.externalContent;
+            const persist = opts.persist || externalContent !== undefined;
+
             const result = await cliIpcCall<{
               invoked: boolean;
               producedToolCalls: boolean;
@@ -638,6 +684,8 @@ Examples:
                 hint: opts.hint,
                 source: opts.source,
                 ...(cronRunId ? { cronRunId } : {}),
+                ...(persist ? { persist: true } : {}),
+                ...(externalContent !== undefined ? { externalContent } : {}),
               },
             });
 

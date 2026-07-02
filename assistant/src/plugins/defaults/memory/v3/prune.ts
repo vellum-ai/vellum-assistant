@@ -60,17 +60,14 @@
 
 import type { ContentBlock, Message } from "@vellumai/plugin-api";
 
-import { getConfig } from "../../../../config/loader.js";
-import {
-  unwrapMemoryBlock,
-  wrapMemoryBlock,
-} from "../../../../memory/memory-marker.js";
+import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
+import { getLogger } from "../../../../util/logger.js";
+import { getMemoryConfig } from "../config.js";
+import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory-marker.js";
 import {
   INJECTED_CONCEPT_HEADER_REGEX,
   readInjectedBlock,
-} from "../../../../memory/v2/injected-block-slugs.js";
-import { getDb, getSqliteFrom } from "../../../../persistence/db-connection.js";
-import { getLogger } from "../../../../util/logger.js";
+} from "../v2/injected-block-slugs.js";
 import {
   getActiveEntries,
   getPrunedSlugs,
@@ -396,7 +393,7 @@ export async function runPruneValve(
   options: PruneValveOptions,
 ): Promise<PrunePlan | null> {
   // Defensive read: test configs may omit the prune block entirely.
-  const pruneConfig = getConfig().memory?.v3?.prune;
+  const pruneConfig = getMemoryConfig()?.v3?.prune;
   if (!pruneConfig) return null;
 
   // Planning needs only the store (cheap); the persisted-metadata scan for

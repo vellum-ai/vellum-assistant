@@ -40,7 +40,7 @@ const DEFAULTS_ABS = join(process.cwd(), DEFAULTS_REL);
  * specifiers it reaches for outside itself. These are host-internal couplings
  * with no `@vellumai/plugin-api` equivalent (memory/daemon/context/config
  * internals, runtime builtins, third-party packages). `providers/types.js`
- * appears only for `ToolDefinition` (a `@vellumai/skill-host-contracts` type
+ * appears only for `ToolDefinition` (a `tools/tool-types.js` type
  * distinct from plugin-api's), which the anti-backslide guard enforces.
  *
  * Regenerate after an intentional change with:
@@ -78,74 +78,148 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../util/logger.js",
   ],
   memory: [
+    "../../../../../config/types.js",
+    "../../../../../messaging/providers/slack/message-metadata.js",
+    "../../../../../persistence/auto-analysis-constants.js",
+    "../../../../../persistence/checkpoints.js",
+    "../../../../../persistence/conversation-queries.js",
+    "../../../../../persistence/conversation-search-lexical.js",
+    "../../../../../persistence/db-connection.js",
+    "../../../../../persistence/embeddings/embed.js",
+    "../../../../../persistence/embeddings/embedding-backend.js",
+    "../../../../../persistence/raw-query.js",
+    "../../../../../persistence/schema/index.js",
+    "../../../../../security/untrusted-content.js",
+    "../../../../../util/logger.js",
+    "../../../../../util/platform.js",
+    "../../../../agent/image-optimize.js",
     "../../../../api/responses/memory-v3-selection-log.js",
+    "../../../../channels/types.js",
+    "../../../../cli/program.js",
+    "../../../../config/assistant-feature-flags.js",
     "../../../../config/loader.js",
     "../../../../config/memory-v3-gate.js",
     "../../../../config/schema.js",
+    "../../../../config/skill-state.js",
     "../../../../config/skills.js",
     "../../../../config/types.js",
+    "../../../../context/token-estimator.js",
     "../../../../daemon/conversation-error.js",
     "../../../../daemon/conversation-notices.js",
     "../../../../daemon/conversation-registry.js",
     "../../../../daemon/conversation-runtime-assembly.js",
+    "../../../../daemon/embedding-reconcile.js",
+    "../../../../daemon/identity-helpers.js",
+    "../../../../daemon/message-protocol.js",
     "../../../../daemon/message-types/memory.js",
     "../../../../daemon/trust-context.js",
-    "../../../../memory/graph/conversation-graph-memory.js",
-    "../../../../memory/memory-marker.js",
-    "../../../../memory/memory-recall-log-store.js",
-    "../../../../memory/prompt-override.js",
-    "../../../../memory/v2/cli-command-store.js",
-    "../../../../memory/v2/injected-block-slugs.js",
-    "../../../../memory/v2/page-index.js",
-    "../../../../memory/v2/page-store.js",
-    "../../../../memory/v2/sim.js",
-    "../../../../memory/v2/skill-store.js",
+    "../../../../notifications/emit-signal.js",
     "../../../../persistence/checkpoints.js",
     "../../../../persistence/conversation-crud.js",
+    "../../../../persistence/conversation-disk-view.js",
+    "../../../../persistence/conversation-queries.js",
     "../../../../persistence/db-connection.js",
     "../../../../persistence/embeddings/embed.js",
     "../../../../persistence/embeddings/embedding-backend.js",
     "../../../../persistence/embeddings/embedding-billing-breaker.js",
     "../../../../persistence/embeddings/embedding-cache.js",
     "../../../../persistence/embeddings/embedding-types.js",
+    "../../../../persistence/embeddings/qdrant-circuit-breaker.js",
     "../../../../persistence/embeddings/qdrant-client.js",
+    "../../../../persistence/embeddings/sparse-tokenize.js",
+    "../../../../persistence/job-utils.js",
     "../../../../persistence/jobs-store.js",
     "../../../../persistence/message-content.js",
-    "../../../../providers/cache-control.js",
-    "../../../../providers/provider-send-message.js",
-    "../../../../providers/types.js",
+    "../../../../persistence/raw-query.js",
+    "../../../../persistence/schema/conversations.js",
+    "../../../../persistence/schema/index.js",
+    "../../../../prompts/system-prompt.js",
+    "../../../../providers/platform-proxy/context.js",
     "../../../../runtime/assistant-event-hub.js",
-    "../../../../skills/frontmatter.js",
+    "../../../../runtime/auth/route-policy.js",
+    "../../../../runtime/background-job-runner.js",
+    "../../../../runtime/routes/errors.js",
+    "../../../../runtime/routes/types.js",
+    "../../../../security/secret-scanner.js",
+    "../../../../skills/catalog-cache.js",
     "../../../../skills/install-meta.js",
+    "../../../../skills/skill-memory.js",
     "../../../../tools/skills/delete-managed.js",
+    "../../../../util/abort-reasons.js",
+    "../../../../util/errors.js",
     "../../../../util/log-redact.js",
     "../../../../util/logger.js",
     "../../../../util/platform.js",
+    "../../../../util/process-liveness.js",
     "../../../../util/retry.js",
     "../../../../util/strip-comment-lines.js",
     "../../../../util/truncate.js",
+    "../../../channels/types.js",
+    "../../../config/assistant-feature-flags.js",
     "../../../config/loader.js",
+    "../../../config/memory-v3-gate.js",
+    "../../../config/schema.js",
+    "../../../config/schemas/memory-v2.js",
+    "../../../config/types.js",
+    "../../../contacts/guardian-delivery-reader.js",
+    "../../../context/compactor.js",
     "../../../context/strip-injections.js",
+    "../../../context/token-estimator.js",
+    "../../../daemon/date-context.js",
+    "../../../daemon/disk-pressure-background-gate.js",
+    "../../../daemon/embedding-reconcile.js",
     "../../../daemon/pkb-context-tracker.js",
     "../../../daemon/pkb-reminder-builder.js",
+    "../../../daemon/skill-memory-refresh.js",
+    "../../../daemon/tool-setup-types.js",
     "../../../daemon/trust-context.js",
-    "../../../memory/graph/conversation-graph-memory.js",
-    "../../../memory/pkb/autoinject.js",
-    "../../../memory/pkb/context.js",
-    "../../../memory/pkb/pkb-search.js",
-    "../../../memory/pkb/types.js",
-    "../../../memory/v2/static-context.js",
+    "../../../jobs/register-job-handlers.js",
+    "../../../permissions/types.js",
+    "../../../persistence/checkpoints.js",
+    "../../../persistence/conversation-crud.js",
+    "../../../persistence/db-connection.js",
+    "../../../persistence/embeddings/embedding-backend.js",
+    "../../../persistence/embeddings/embedding-runtime-manager.js",
+    "../../../persistence/embeddings/embedding-types.js",
+    "../../../persistence/embeddings/messages-lexical-index.js",
+    "../../../persistence/embeddings/qdrant-client.js",
+    "../../../persistence/embeddings/qdrant-manager.js",
+    "../../../persistence/job-handlers/message-lexical.js",
+    "../../../persistence/job-utils.js",
+    "../../../persistence/jobs-store.js",
+    "../../../persistence/jobs-worker.js",
+    "../../../persistence/memory-lifecycle-hooks.js",
+    "../../../persistence/message-content.js",
+    "../../../persistence/raw-query.js",
+    "../../../persistence/schema/index.js",
+    "../../../prompts/persona-resolver.js",
+    "../../../prompts/system-prompt.js",
+    "../../../runtime/actor-trust-resolver.js",
+    "../../../runtime/agent-wake.js",
+    "../../../runtime/background-job-runner.js",
+    "../../../runtime/capabilities.js",
+    "../../../runtime/services/auto-analysis-enqueue.js",
+    "../../../runtime/services/auto-analysis-guard.js",
+    "../../../tools/types.js",
     "../../../types.js",
     "../../../util/logger.js",
     "../../../util/platform.js",
+    "../../../util/promise-guard.js",
+    "../../../util/sqlite-retry.js",
+    "../../../util/strip-comment-lines.js",
     "../../types.js",
     "../injection-presence.js",
     "../injector-order.js",
     "@qdrant/js-client-rest",
+    "crypto",
+    "drizzle-orm",
     "node:crypto",
     "node:fs",
+    "node:fs/promises",
+    "node:os",
     "node:path",
     "uuid",
+    "yaml",
     "zod",
   ],
   session: [
@@ -183,7 +257,7 @@ const BASELINE: Record<string, readonly string[]> = {
  * Symbols that `@vellumai/plugin-api` re-exports from `providers/types.js`. A
  * plugin must import these from the public API, not the host module. NOT
  * listed (and therefore allowed from `providers/types.js`): `ToolDefinition`,
- * which `providers/types.js` re-exports from `@vellumai/skill-host-contracts`
+ * which `providers/types.js` re-exports from `tools/tool-types.js`
  * — a different type than plugin-api's own `ToolDefinition`.
  */
 const PLUGIN_API_PROVIDER_TYPES: ReadonlySet<string> = new Set([
@@ -233,13 +307,19 @@ function collectPluginFiles(): PluginFile[] {
       cwd: process.cwd(),
     })) {
       const norm = rel.split("/").join(sep);
-      if (norm.endsWith(".test.ts") || norm.endsWith(".test.tsx")) continue;
-      if (norm.split(sep).includes("__tests__")) continue;
+      if (norm.endsWith(".test.ts") || norm.endsWith(".test.tsx")) {
+        continue;
+      }
+      if (norm.split(sep).includes("__tests__")) {
+        continue;
+      }
       const underDefaults = relative(DEFAULTS_REL, norm);
       const segments = underDefaults.split(sep);
       // A file directly under defaults/ (e.g. index.ts) is the registry, not a
       // plugin — it has no plugin directory segment.
-      if (segments.length < 2) continue;
+      if (segments.length < 2) {
+        continue;
+      }
       const absPath = join(process.cwd(), norm);
       files.push({
         plugin: segments[0]!,
@@ -267,11 +347,15 @@ function collectEscapes(files: PluginFile[]): Escape[] {
     let match: RegExpExecArray | null;
     while ((match = regex.exec(file.source)) !== null) {
       const specifier = match[1] ?? match[2] ?? match[3];
-      if (!specifier || specifier === "@vellumai/plugin-api") continue;
+      if (!specifier || specifier === "@vellumai/plugin-api") {
+        continue;
+      }
       if (specifier.startsWith(".")) {
         const resolved = resolve(dirname(file.absPath), specifier);
         // Stays inside the plugin's own directory → allowed.
-        if (!relative(pluginRoot, resolved).startsWith("..")) continue;
+        if (!relative(pluginRoot, resolved).startsWith("..")) {
+          continue;
+        }
       }
       escapes.push({ plugin: file.plugin, specifier, relPath: file.relPath });
     }
@@ -284,7 +368,9 @@ function escapesByPlugin(escapes: Escape[]): Map<string, string[]> {
   const sets = new Map<string, Set<string>>();
   for (const e of escapes) {
     let set = sets.get(e.plugin);
-    if (!set) sets.set(e.plugin, (set = new Set()));
+    if (!set) {
+      sets.set(e.plugin, (set = new Set()));
+    }
     set.add(e.specifier);
   }
   return new Map(
@@ -307,22 +393,59 @@ function parseNamedSymbols(clause: string): string[] {
     .filter((name) => name.length > 0);
 }
 
+/** Sentinel returned by {@link symbolsImportedFrom} for a namespace import
+ *  (`import * as NS from "X"` / `import type * as NS from "X"`): it binds the
+ *  module's entire export surface, so it counts as importing every re-exported
+ *  symbol. `*` cannot collide with a real named-import identifier. */
+const NAMESPACE_IMPORT = "*";
+
 /** Symbols a plugin file imports from a host module whose specifier ends with
- *  `hostPathSuffix` (e.g. `providers/types.js`), across multi-line clauses. */
+ *  `hostPathSuffix` (e.g. `providers/types.js`), across multi-line clauses. A
+ *  namespace import yields the {@link NAMESPACE_IMPORT} sentinel — it reaches
+ *  the whole surface, so it must not slip past the anti-backslide check. */
 function symbolsImportedFrom(source: string, hostPathSuffix: string): string[] {
   const escaped = hostPathSuffix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const regex = new RegExp(
-    String.raw`import\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"]*` +
-      escaped +
-      String.raw`)['"]`,
+  const from = String.raw`\s*from\s*['"]([^'"]*` + escaped + String.raw`)['"]`;
+  const namedRegex = new RegExp(
+    String.raw`import\s+(?:type\s+)?\{([^}]*)\}` + from,
+    "g",
+  );
+  const namespaceRegex = new RegExp(
+    String.raw`import\s+(?:type\s+)?\*\s+as\s+\w+` + from,
     "g",
   );
   const symbols: string[] = [];
   let match: RegExpExecArray | null;
-  while ((match = regex.exec(source)) !== null) {
+  while ((match = namedRegex.exec(source)) !== null) {
     symbols.push(...parseNamedSymbols(match[1]!));
   }
+  while (namespaceRegex.exec(source) !== null) {
+    symbols.push(NAMESPACE_IMPORT);
+  }
   return symbols;
+}
+
+/** Anti-backslide violations for one plugin file against one guarded host
+ *  module: any re-exported symbol imported by name, plus any namespace import
+ *  (which binds the whole surface, and thus every guarded symbol). */
+function guardedImportViolations(
+  file: PluginFile,
+  hostPathSuffix: string,
+  guarded: ReadonlySet<string>,
+): string[] {
+  const violations: string[] = [];
+  for (const symbol of symbolsImportedFrom(file.source, hostPathSuffix)) {
+    if (symbol === NAMESPACE_IMPORT) {
+      violations.push(
+        `  - ${file.relPath}: "import * as … from ${hostPathSuffix}" reaches all re-exported symbols`,
+      );
+    } else if (guarded.has(symbol)) {
+      violations.push(
+        `  - ${file.relPath}: "${symbol}" from ${hostPathSuffix}`,
+      );
+    }
+  }
+  return violations;
 }
 
 describe("plugin import boundary", () => {
@@ -361,7 +484,9 @@ describe("plugin import boundary", () => {
         }
       }
       for (const spec of [...allowed].sort()) {
-        if (!found.has(spec)) stale.push(`  - ${plugin}: "${spec}"`);
+        if (!found.has(spec)) {
+          stale.push(`  - ${plugin}: "${spec}"`);
+        }
       }
     }
 
@@ -379,7 +504,9 @@ describe("plugin import boundary", () => {
       );
     }
     if (stale.length > 0) {
-      if (problems.length > 0) problems.push("");
+      if (problems.length > 0) {
+        problems.push("");
+      }
       problems.push(
         "Stale baseline entries (no longer imported — tighten the baseline):",
         ...stale,
@@ -394,26 +521,18 @@ describe("plugin import boundary", () => {
   test("plugins import plugin-api-provided types from @vellumai/plugin-api, not host modules", () => {
     const violations: string[] = [];
     for (const file of files) {
-      for (const symbol of symbolsImportedFrom(
-        file.source,
-        "providers/types.js",
-      )) {
-        if (PLUGIN_API_PROVIDER_TYPES.has(symbol)) {
-          violations.push(
-            `  - ${file.relPath}: "${symbol}" from providers/types.js`,
-          );
-        }
-      }
-      for (const symbol of symbolsImportedFrom(
-        file.source,
-        "config/schemas/llm.js",
-      )) {
-        if (PLUGIN_API_LLM_TYPES.has(symbol)) {
-          violations.push(
-            `  - ${file.relPath}: "${symbol}" from config/schemas/llm.js`,
-          );
-        }
-      }
+      violations.push(
+        ...guardedImportViolations(
+          file,
+          "providers/types.js",
+          PLUGIN_API_PROVIDER_TYPES,
+        ),
+        ...guardedImportViolations(
+          file,
+          "config/schemas/llm.js",
+          PLUGIN_API_LLM_TYPES,
+        ),
+      );
     }
 
     const message = [
@@ -422,9 +541,63 @@ describe("plugin import boundary", () => {
       ...violations,
       "",
       "(ToolDefinition from providers/types.js is allowed — it is a distinct",
-      "@vellumai/skill-host-contracts type, not plugin-api's ToolDefinition.)",
+      "tools/tool-types.js type, not plugin-api's ToolDefinition.)",
     ].join("\n");
 
     expect(violations, message).toEqual([]);
+  });
+});
+
+describe("anti-backslide symbol extraction", () => {
+  const fileWith = (source: string): PluginFile => ({
+    plugin: "compaction",
+    relPath: "src/plugins/defaults/compaction/example.ts",
+    absPath: "/example.ts",
+    source,
+  });
+
+  test("a re-exported type imported by name is flagged", () => {
+    const file = fileWith(
+      `import type { Message } from "../../../providers/types.js";`,
+    );
+    expect(
+      guardedImportViolations(
+        file,
+        "providers/types.js",
+        PLUGIN_API_PROVIDER_TYPES,
+      ),
+    ).not.toEqual([]);
+  });
+
+  test("the allowed ToolDefinition named import stays clean", () => {
+    const file = fileWith(
+      `import type { ToolDefinition } from "../../../providers/types.js";`,
+    );
+    expect(
+      guardedImportViolations(
+        file,
+        "providers/types.js",
+        PLUGIN_API_PROVIDER_TYPES,
+      ),
+    ).toEqual([]);
+  });
+
+  // A namespace import binds the whole surface (`NS.Message`), so it must be
+  // caught even though the anti-backslide check extracts no named symbols and
+  // the specifier is already in the ratchet baseline.
+  test("a namespace import of a guarded module is flagged", () => {
+    for (const source of [
+      `import * as ProviderTypes from "../../../providers/types.js";`,
+      `import type * as ProviderTypes from "../../../providers/types.js";`,
+    ]) {
+      expect(
+        guardedImportViolations(
+          fileWith(source),
+          "providers/types.js",
+          PLUGIN_API_PROVIDER_TYPES,
+        ),
+        source,
+      ).not.toEqual([]);
+    }
   });
 });

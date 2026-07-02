@@ -20,7 +20,6 @@ import { resolve } from "node:path";
 
 import type { Message } from "@vellumai/plugin-api";
 
-import { getConfig } from "../../../config/loader.js";
 import type { InjectionMatcher } from "../../../context/strip-injections.js";
 import { getInContextPkbPaths } from "../../../daemon/pkb-context-tracker.js";
 import { buildPkbReminder } from "../../../daemon/pkb-reminder-builder.js";
@@ -28,12 +27,6 @@ import {
   isPersonalMemoryAllowed,
   type TrustContext,
 } from "../../../daemon/trust-context.js";
-import { getLiveGraphMemory } from "../../../memory/graph/conversation-graph-memory.js";
-import { getPkbAutoInjectList } from "../../../memory/pkb/autoinject.js";
-import { readPkbContext } from "../../../memory/pkb/context.js";
-import { searchPkbFiles } from "../../../memory/pkb/pkb-search.js";
-import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "../../../memory/pkb/types.js";
-import { readMemoryV2StaticContent } from "../../../memory/v2/static-context.js";
 import { getLogger } from "../../../util/logger.js";
 import { getSandboxWorkingDir } from "../../../util/platform.js";
 import {
@@ -43,6 +36,13 @@ import {
 } from "../../types.js";
 import { hasInjectedUserTextBlock } from "../injection-presence.js";
 import { DEFAULT_INJECTOR_ORDER } from "../injector-order.js";
+import { getMemoryConfig } from "./config.js";
+import { getLiveGraphMemory } from "./graph/conversation-graph-memory.js";
+import { getPkbAutoInjectList } from "./pkb/autoinject.js";
+import { readPkbContext } from "./pkb/context.js";
+import { searchPkbFiles } from "./pkb/pkb-search.js";
+import { getPkbRoot, PKB_WORKSPACE_SCOPE } from "./pkb/types.js";
+import { readMemoryV2StaticContent } from "./v2/static-context.js";
 
 const pkbReminderLog = getLogger("pkb-reminder");
 
@@ -64,7 +64,7 @@ const PKB_HINT_ARCHIVE_THRESHOLD = 0.7;
  * unchanged.
  */
 function isPkbInjectionSilencedByV2(): boolean {
-  return getConfig().memory.v2.enabled;
+  return getMemoryConfig().v2.enabled;
 }
 
 /**

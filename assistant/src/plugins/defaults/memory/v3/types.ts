@@ -97,7 +97,9 @@ export interface MemoryRoutingTurn {
  * `edge` are the per-turn finder lanes over the user's message; `reply` marks
  * finder candidates first surfaced by the reply-query pass (needle + dense
  * re-run over the assistant's previous message); `learned` marks candidates
- * surfaced by the co-selection NPMI association graph.
+ * surfaced by the co-selection NPMI association graph; `entity` marks
+ * candidates surfaced because the message named an entity that titles a section
+ * heading (the heading-anchored entity lane).
  *
  * The `memory_v3_selections.source` column is free-text, so tightening this set
  * needs no migration: any historical rows with retired labels (e.g. the old
@@ -113,6 +115,7 @@ export const SELECTION_SOURCES = [
   "edge",
   "reply",
   "learned",
+  "entity",
 ] as const;
 
 export type SelectionSource = (typeof SELECTION_SOURCES)[number];

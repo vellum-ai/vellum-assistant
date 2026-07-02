@@ -132,7 +132,7 @@ mock.module("../persistence/db-connection.js", () => ({
 
 // ── Tests ────────────────────────────────────────────────────────────
 
-import { rebuildIndexJob } from "../memory/job-handlers/index-maintenance.js";
+import { rebuildIndexJob } from "../plugins/defaults/memory/job-handlers/index-maintenance.js";
 
 describe("rebuildIndexJob", () => {
   beforeEach(() => {

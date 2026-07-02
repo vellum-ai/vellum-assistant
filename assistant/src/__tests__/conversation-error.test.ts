@@ -520,24 +520,6 @@ describe("classifyConversationError", () => {
     });
   });
 
-  describe("regenerate phase", () => {
-    it("returns REGENERATE_FAILED with nested classification info", () => {
-      const ctx: ErrorContext = { phase: "regenerate" };
-      const result = classifyConversationError(new Error("ECONNREFUSED"), ctx);
-      expect(result.code).toBe("REGENERATE_FAILED");
-      expect(result.retryable).toBe(true);
-      expect(result.userMessage).toContain("regenerate");
-      expect(result.errorCategory).toContain("regenerate:");
-    });
-
-    it("returns REGENERATE_FAILED for generic errors", () => {
-      const ctx: ErrorContext = { phase: "regenerate" };
-      const result = classifyConversationError(new Error("unknown issue"), ctx);
-      expect(result.code).toBe("REGENERATE_FAILED");
-      expect(result.retryable).toBe(true);
-    });
-  });
-
   describe("generic errors", () => {
     it("classifies unknown errors as CONVERSATION_PROCESSING_FAILED with error summary", () => {
       const result = classifyConversationError(

@@ -1,5 +1,5 @@
 /**
- * Retry helpers for transient SQLite write contention.
+ * Retry helper for transient SQLite write contention.
  *
  * SQLite serializes writers at the database level: only one connection holds
  * the write lock at a time. `PRAGMA busy_timeout` makes a contending writer
@@ -9,13 +9,13 @@
  * errors surface as `SQLITE_IOERR`. The only correct recovery for either is to
  * re-run the whole operation, so write paths that several processes contend on
  * (the conversation loop, the scheduler, the memory worker) wrap their writes
- * in one of the helpers below.
+ * in {@link withSqliteRetry}.
  *
- * Both helpers retry on `SQLITE_BUSY*` / `SQLITE_IOERR*` with jittered backoff;
- * the jitter decorrelates retries across the now-separate worker processes so
- * they don't collide in lockstep. Pick the variant that matches the call site:
- * {@link withSqliteRetrySync} for `bun:sqlite`'s synchronous statements,
- * {@link withSqliteRetry} when the body is (or contains) an `await`.
+ * It retries on `SQLITE_BUSY*` / `SQLITE_IOERR*` with jittered backoff; the
+ * jitter decorrelates retries across the now-separate worker processes so they
+ * don't collide in lockstep. The wrapped function may be sync (a `bun:sqlite`
+ * statement) or async — it is always awaited, so the single async signature is
+ * the one boundary to port if the storage layer ever moves to an async driver.
  *
  * The wrapped function must be safe to re-run: either a single statement, or a
  * sequence guarded so re-execution is idempotent (e.g. an optimistic-lock
@@ -59,40 +59,7 @@ export function isRetryableSqliteError(err: unknown): boolean {
 }
 
 /**
- * Run a synchronous `bun:sqlite` write with retry on transient contention.
- * Returns the function's value so single-statement callers can read it inline.
- */
-export function withSqliteRetrySync<T>(
-  fn: () => T,
-  options: SqliteRetryOptions,
-): T {
-  const maxRetries = options.maxRetries ?? DEFAULT_MAX_RETRIES;
-  const baseDelayMs = options.baseDelayMs ?? DEFAULT_BASE_DELAY_MS;
-  for (let attempt = 0; ; attempt++) {
-    try {
-      return fn();
-    } catch (err) {
-      if (attempt < maxRetries && isRetryableSqliteError(err)) {
-        log.warn(
-          {
-            ...options.context,
-            op: options.op,
-            attempt,
-            code: sqliteErrorCode(err),
-          },
-          "withSqliteRetrySync: transient SQLite error, retrying",
-        );
-        Bun.sleepSync(computeRetryDelay(attempt, baseDelayMs));
-        continue;
-      }
-      throw err;
-    }
-  }
-}
-
-/**
- * Run an async (or sync) SQLite write with retry on transient contention.
- * Use when the wrapped body awaits; otherwise prefer {@link withSqliteRetrySync}.
+ * Run a SQLite write (sync or async) with retry on transient contention.
  */
 export async function withSqliteRetry<T>(
   fn: () => T | Promise<T>,

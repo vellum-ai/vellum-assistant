@@ -22,16 +22,6 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import {
-  loadGraphMemoryState,
-  saveGraphMemoryState,
-} from "../memory/graph/graph-memory-state-store.js";
-import {
-  bumpRetrospectiveLastRunAt,
-  getRetrospectiveState,
-  upsertRetrospectiveState,
-} from "../memory/memory-retrospective-state.js";
-import { hydrate as hydrateActivationState } from "../memory/v2/activation-store.js";
-import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
   uploadAttachment,
@@ -65,6 +55,17 @@ import {
   memoryRetrospectiveState,
   toolInvocations,
 } from "../persistence/schema/index.js";
+import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
+import {
+  loadGraphMemoryState,
+  saveGraphMemoryState,
+} from "../plugins/defaults/memory/graph/graph-memory-state-store.js";
+import {
+  bumpRetrospectiveLastRunAt,
+  getRetrospectiveState,
+  upsertRetrospectiveState,
+} from "../plugins/defaults/memory/memory-retrospective-state.js";
+import { hydrate as hydrateActivationState } from "../plugins/defaults/memory/v2/activation-store.js";
 import {
   getInjected as getV3Injected,
   markPruned as markV3Pruned,
@@ -100,6 +101,7 @@ function parseMetadata(metadata: string | null): unknown {
 describe("forkConversation", () => {
   beforeEach(() => {
     resetTables();
+    registerDefaultPluginPersistenceHooks();
   });
 
   test("forks a full transcript with copied history and lineage", async () => {
@@ -1314,6 +1316,7 @@ describe("forkConversation", () => {
       skipIndexing: true,
     });
     rawRun(
+      "test:setGroupId",
       "UPDATE conversations SET group_id = ? WHERE id = ?",
       "system:pinned",
       source.id,
@@ -1326,6 +1329,7 @@ describe("forkConversation", () => {
       .where(eq(conversations.id, fork.id))
       .get();
     const groupIdRow = rawGet<{ group_id: string | null }>(
+      "test:fetchForkGroupId",
       "SELECT group_id FROM conversations WHERE id = ?",
       fork.id,
     );
@@ -1352,6 +1356,7 @@ describe("forkConversation", () => {
       .where(eq(conversations.id, fork.id))
       .get();
     const groupIdRow = rawGet<{ group_id: string | null }>(
+      "test:fetchForkGroupId",
       "SELECT group_id FROM conversations WHERE id = ?",
       fork.id,
     );
@@ -1386,11 +1391,76 @@ describe("forkConversation", () => {
     const childState = await hydrateActivationState(db, fork.id);
     expect(childState?.currentTurn).toBe(1);
   });
+
+  test("batch-copies every message with a complete id map and last-assistant pointer", async () => {
+    // Multi-message transcript whose final row is a user message (after the
+    // last assistant). The batched insert must map every source row to a
+    // distinct forked row and track the latest *assistant* message — not the
+    // trailing user row — for the attention pointer.
+    const source = createConversation("Batch fork thread");
+    await addMessage(source.id, "user", "Question 1", { skipIndexing: true });
+    await addMessage(source.id, "assistant", "Answer 1", {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "user", "Question 2", { skipIndexing: true });
+    const lastAssistant = await addMessage(source.id, "assistant", "Answer 2", {
+      skipIndexing: true,
+    });
+    await addMessage(source.id, "user", "Trailing user message", {
+      skipIndexing: true,
+    });
+
+    const sourceMessages = getMessages(source.id);
+    const fork = forkConversation({ conversationId: source.id });
+    const forkMessages = getMessages(fork.id);
+
+    // Same count, roles, content, and ordering as the source.
+    expect(forkMessages).toHaveLength(sourceMessages.length);
+    expect(forkMessages.map((m) => m.role)).toEqual(
+      sourceMessages.map((m) => m.role),
+    );
+    expect(forkMessages.map((m) => m.content)).toEqual(
+      sourceMessages.map((m) => m.content),
+    );
+
+    // Every source message maps to exactly one distinct forked message via the
+    // forkSourceMessageId stamped into each copy's metadata.
+    const sourceToFork = new Map<string, string>();
+    for (const forked of forkMessages) {
+      const md = parseMetadata(forked.metadata) as {
+        forkSourceMessageId?: string;
+      } | null;
+      expect(md?.forkSourceMessageId).toBeDefined();
+      sourceToFork.set(md!.forkSourceMessageId!, forked.id);
+    }
+    expect(sourceToFork.size).toBe(sourceMessages.length);
+    for (const sourceMessage of sourceMessages) {
+      expect(sourceToFork.has(sourceMessage.id)).toBe(true);
+    }
+    // Forked ids are all fresh — no source id is reused.
+    expect(new Set(forkMessages.map((m) => m.id)).size).toBe(
+      forkMessages.length,
+    );
+    expect(
+      forkMessages.every((m, index) => m.id !== sourceMessages[index]?.id),
+    ).toBe(true);
+
+    // The attention pointer (driven by latestForkedAssistant) targets the
+    // forked copy of the last assistant row, not the trailing user message.
+    const forkState = getAttentionStateByConversationIds([fork.id]).get(
+      fork.id,
+    );
+    expect(forkState?.lastSeenAssistantMessageId).toBe(
+      sourceToFork.get(lastAssistant.id),
+    );
+    expect(forkState?.lastSeenAssistantMessageAt).toBe(lastAssistant.createdAt);
+  });
 });
 
 describe("forkConversation + memory_retrospective_state", () => {
   beforeEach(() => {
     resetTables();
+    registerDefaultPluginPersistenceHooks();
   });
 
   test("does not seed state when the source has none", async () => {
