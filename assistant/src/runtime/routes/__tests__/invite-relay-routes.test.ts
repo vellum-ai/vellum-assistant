@@ -71,6 +71,9 @@ const actualInviteService = await import("../../invite-service.js");
 mock.module("../../invite-service.js", () => ({
   ...actualInviteService,
   triggerInviteCall: triggerInviteCallMock,
+  // Deterministic guardian label so the voice-create passthrough is assertable
+  // (the real resolver reads the guardian persona file).
+  resolveInviteGuardianName: () => "Guardian Name",
 }));
 
 const {
@@ -144,9 +147,9 @@ describe("invite relay routes", () => {
             expiresInMs: undefined,
             expectedExternalUserId: undefined,
           },
-          // The create relay uses a generous timeout (gateway invites_mint can
-          // spend ~5s in generateInviteInstruction); list/revoke use the default.
-          timeoutMs: 30_000,
+          // The gateway mint is a fast native DB write; the LLM presentation
+          // step runs daemon-side after the relay, so the default timeout fits.
+          timeoutMs: undefined,
         },
       ]);
       expect(result).toEqual({
@@ -164,6 +167,35 @@ describe("invite relay routes", () => {
       });
 
       expect(result).toEqual({ ok: true, invite: { id: "i9" } });
+    });
+
+    test("supplies guardianName (voice) and sourceConversationId passthrough", async () => {
+      ipcResult = { invite: { id: "iv" } };
+      await handleCreateInvite({
+        body: {
+          contactId: "c1",
+          sourceChannel: "phone",
+          expectedExternalUserId: "+15551234567",
+          sourceConversationId: "conv-1",
+        },
+      });
+
+      expect(ipcCalls[0].params).toMatchObject({
+        contactId: "c1",
+        sourceChannel: "phone",
+        expectedExternalUserId: "+15551234567",
+        guardianName: "Guardian Name",
+        sourceConversationId: "conv-1",
+      });
+    });
+
+    test("omits guardianName for non-voice creates", async () => {
+      ipcResult = { invite: { id: "i9" } };
+      await handleCreateInvite({
+        body: { contactId: "c1", sourceChannel: "telegram" },
+      });
+
+      expect("guardianName" in (ipcCalls[0].params ?? {})).toBe(false);
     });
   });
 

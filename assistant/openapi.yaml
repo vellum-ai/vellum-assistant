@@ -5613,6 +5613,9 @@ paths:
                 expectedExternalUserId:
                   type: string
                   description: Expected user ID (E.164 for phone)
+                sourceConversationId:
+                  type: string
+                  description: Conversation the invite was created from (opaque)
               required:
                 - contactId
       responses:

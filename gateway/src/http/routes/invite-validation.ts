@@ -23,6 +23,10 @@ export interface CreateInviteInput {
   maxUses?: number;
   expiresInMs?: number;
   expectedExternalUserId?: string;
+  // Daemon-supplied passthrough fields — the gateway stores them on the
+  // invite row and never interprets them.
+  guardianName?: string;
+  sourceConversationId?: string;
 }
 
 export type ParseResult<T> =
@@ -40,6 +44,8 @@ export const createInviteSchema = z.object({
   maxUses: positiveNumber.optional(),
   expiresInMs: positiveNumber.optional(),
   expectedExternalUserId: z.string().optional(),
+  guardianName: z.string().optional(),
+  sourceConversationId: z.string().optional(),
 });
 
 function firstIssueMessage(error: z.ZodError): string {

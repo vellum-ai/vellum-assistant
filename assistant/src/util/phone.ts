@@ -5,12 +5,9 @@
  * them to E.164 before validation, rate-limit lookups, or storage.
  */
 
-/**
- * Basic E.164 phone number validation: starts with +, followed by 10-15 digits.
- */
-export function isValidE164(phone: string): boolean {
-  return /^\+\d{10,15}$/.test(phone);
-}
+// Thin alias over the shared @vellumai/gateway-client invite contract so the
+// daemon and the gateway validate voice-invite phone bindings identically.
+export { isValidE164 } from "@vellumai/gateway-client";
 
 /**
  * Normalize a phone number string to E.164 format.

@@ -12,7 +12,6 @@ import { startInviteCall } from "../calls/call-domain.js";
 import { isChannelId } from "../channels/types.js";
 import { getContact } from "../contacts/contact-store.js";
 import {
-  createInvite,
   findById,
   findByTokenHash,
   hashToken,
@@ -24,8 +23,6 @@ import {
   DEFAULT_USER_REFERENCE,
   resolveGuardianName,
 } from "../prompts/user-reference.js";
-import { isValidE164 } from "../util/phone.js";
-import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 import {
   getInviteAdapterRegistry,
   resolveAdapterHandle,
@@ -150,205 +147,92 @@ export type IngressResult<T> =
 // Invite operations
 // ---------------------------------------------------------------------------
 
-export async function createIngressInvite(params: {
-  sourceChannel?: string;
-  note?: string;
-  maxUses?: number;
-  expiresInMs?: number;
-  // Voice invite parameters. Display metadata is no longer accepted from
-  // callers: the invitee's name is resolved from the bound contact's
-  // displayName at every read site (voice greeting, instructions), and the
-  // guardian label is resolved at runtime via resolveGuardianName().
-  expectedExternalUserId?: string;
-  contactId: string;
-}): Promise<IngressResult<InviteResponseData>> {
-  if (!params.sourceChannel) {
-    return { ok: false, error: "sourceChannel is required for create" };
+/**
+ * Guardian display label attached to voice invites, resolved from the
+ * guardian persona with the placeholder/declined sentinels filtered out.
+ * The daemon passes it through to the gateway mint, which stores it on the
+ * invite row and never interprets it.
+ */
+export function resolveInviteGuardianName(): string | undefined {
+  const name = resolveGuardianName();
+  if (
+    !name ||
+    name === DEFAULT_USER_REFERENCE ||
+    name === DECLINED_BY_USER_SENTINEL
+  ) {
+    return undefined;
+  }
+  return name;
+}
+
+/**
+ * Layer the daemon-owned presentation fields onto a gateway-minted invite
+ * payload: the share link, the guardian instruction (LLM-generated for
+ * non-voice channels), and the resolved channel handle. The gateway owns the
+ * invite row and its secrets; everything added here is display-only, derived
+ * from the one-time create response, and never persisted.
+ */
+export async function composeInvitePresentation(params: {
+  contactId?: string;
+  invite: Record<string, unknown>;
+  rawToken?: string;
+}): Promise<Record<string, unknown>> {
+  const invite = params.invite;
+  const sourceChannel =
+    typeof invite.sourceChannel === "string" ? invite.sourceChannel : "";
+  const isVoice = sourceChannel === "phone";
+  const inviteCode =
+    typeof invite.inviteCode === "string" ? invite.inviteCode : undefined;
+  if (!isVoice && !inviteCode) {
+    return invite;
   }
 
-  if (!params.contactId) {
-    return { ok: false, error: "contactId is required for create" };
-  }
-
-  // Resolve the bound contact's displayName as the canonical invitee name.
-  // The greeting and instruction copy use this rather than a free-text flag.
-  const boundContact = getContact(params.contactId);
-  const resolvedContactName = boundContact?.displayName?.trim() || undefined;
-  const resolvedFirstName = resolvedContactName?.split(/\s+/)[0];
-
-  // For voice invites: generate a one-time numeric code, hash it, and pass
-  // the hash to the store. The plaintext code is included in the response
-  // exactly once and never stored.
-  let voiceCode: string | undefined;
-  let voiceCodeHash: string | undefined;
-  let effectiveGuardianName: string | undefined;
-  const isVoice = params.sourceChannel === "phone";
-
-  // For non-voice invites: generate a 6-digit invite code for guardian-mediated
-  // redemption. The plaintext code is returned once in the response; only the
-  // hash is persisted for later redemption lookup.
-  let inviteCode: string | undefined;
-  let inviteCodeHash: string | undefined;
+  // The invitee's name comes from the bound contact's displayName; fall back
+  // to the gateway-stamped friendName when the local mirror lacks the contact.
+  const boundContact = params.contactId
+    ? getContact(params.contactId)
+    : undefined;
+  const resolvedContactName =
+    boundContact?.displayName?.trim() ||
+    (typeof invite.friendName === "string"
+      ? invite.friendName.trim()
+      : undefined) ||
+    undefined;
 
   if (isVoice) {
-    if (!params.expectedExternalUserId) {
-      return {
-        ok: false,
-        error: "expectedExternalUserId is required for voice invites",
-      };
-    }
-    if (!isValidE164(params.expectedExternalUserId)) {
-      return {
-        ok: false,
-        error:
-          "expectedExternalUserId must be in E.164 format (e.g., +15551234567)",
-      };
-    }
-    effectiveGuardianName = resolveGuardianName();
-    if (
-      !effectiveGuardianName ||
-      effectiveGuardianName === DEFAULT_USER_REFERENCE ||
-      effectiveGuardianName === DECLINED_BY_USER_SENTINEL
-    ) {
-      effectiveGuardianName = undefined;
-    }
-    voiceCode = generateVoiceCode(6);
-    voiceCodeHash = hashVoiceCode(voiceCode);
-  } else {
-    inviteCode = generateVoiceCode(6);
-    inviteCodeHash = hashVoiceCode(inviteCode);
-  }
-
-  const { invite, rawToken } = createInvite({
-    sourceChannel: params.sourceChannel,
-    contactId: params.contactId,
-    note: params.note,
-    maxUses: params.maxUses,
-    expiresInMs: params.expiresInMs,
-    ...(isVoice
-      ? {
-          expectedExternalUserId: params.expectedExternalUserId,
-          voiceCodeHash,
-          voiceCodeDigits: 6,
-          // Mirror the contact-resolved names into the legacy columns so
-          // outbound invite calls (which still read invite.friendName /
-          // invite.guardianName) keep working without a separate lookup.
-          friendName: resolvedContactName,
-          guardianName: effectiveGuardianName,
-        }
-      : { inviteCodeHash }),
-  });
-
-  // Build invite instruction for non-voice invites via LLM generation
-  let guardianInstruction: string | undefined;
-  let channelHandle: string | undefined;
-  if (!isVoice && inviteCode) {
-    const channelId = isChannelId(params.sourceChannel)
-      ? params.sourceChannel
-      : undefined;
-    const adapter = channelId
-      ? getInviteAdapterRegistry().get(channelId)
-      : undefined;
-    if (params.sourceChannel === "telegram") {
-      const { ensureTelegramBotUsernameResolved } =
-        await import("./channel-invite-transports/telegram.js");
-      await ensureTelegramBotUsernameResolved();
-    }
-    channelHandle = adapter ? await resolveAdapterHandle(adapter) : undefined;
-    const share = buildSharePayload(params.sourceChannel, rawToken);
-    guardianInstruction = await generateInviteInstruction({
-      contactName: resolvedContactName,
-      channelType: params.sourceChannel,
-      channelHandle,
-      hasShareUrl: !!share?.url,
-      shareUrl: share?.url,
-    });
-  }
-
-  if (isVoice) {
-    guardianInstruction = resolvedFirstName
+    const resolvedFirstName = resolvedContactName?.split(/\s+/)[0];
+    const guardianInstruction = resolvedFirstName
       ? `${resolvedFirstName} will need this code when they answer. Share it with them first.`
       : "Share this code with them — they'll need it when they answer the call.";
+    return { ...invite, guardianInstruction };
   }
 
-  // Voice invites must not expose the token — callers must redeem via the
-  // identity-bound voice code flow, not the generic token redemption path.
-  return {
-    ok: true,
-    data: inviteToResponse(invite, {
-      rawToken: isVoice ? undefined : rawToken,
-      voiceCode,
-      inviteCode,
-      guardianInstruction,
-      channelHandle,
-    }),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Mint — gateway-facing projection
-//
-// The gateway owns the canonical invite lifecycle in its own DB, but token
-// generation/hashing and voice fields are assistant-owned. `mintIngressInvite`
-// runs the same `createIngressInvite` path and surfaces the raw token plus the
-// minimal projection the gateway mirrors. The raw token is returned exactly
-// once and never persisted in plaintext.
-// ---------------------------------------------------------------------------
-
-/** Minimal invite projection the gateway mirrors into its own store. */
-export interface GatewayInviteProjection {
-  id: string;
-  /** Hash of whatever code redeems this invite: token hash for token invites,
-   * voice code hash for voice/phone invites. Always non-null and mirrorable. */
-  inviteCodeHash: string;
-  sourceChannel: string;
-  contactId: string;
-  note: string | null;
-  maxUses: number;
-  expiresAt: number;
-}
-
-export interface MintInviteResult {
-  invite: InviteResponseData;
-  rawToken?: string;
-  gateway: GatewayInviteProjection;
-}
-
-export async function mintIngressInvite(
-  params: Parameters<typeof createIngressInvite>[0],
-): Promise<IngressResult<MintInviteResult>> {
-  const result = await createIngressInvite(params);
-  if (!result.ok) return result;
-
-  // The persisted row carries fields the response projection omits
-  // (inviteCodeHash); read it back to build the gateway projection.
-  const row = findById(result.data.id);
-  if (!row) {
-    return { ok: false, error: "Invite not found after mint" };
+  const channelId = isChannelId(sourceChannel) ? sourceChannel : undefined;
+  const adapter = channelId
+    ? getInviteAdapterRegistry().get(channelId)
+    : undefined;
+  if (sourceChannel === "telegram") {
+    const { ensureTelegramBotUsernameResolved } =
+      await import("./channel-invite-transports/telegram.js");
+    await ensureTelegramBotUsernameResolved();
   }
-
-  // The gateway mirrors the hash of whatever code redeems this invite. Token
-  // invites carry inviteCodeHash; voice/phone invites gate on voiceCodeHash.
-  const inviteCodeHash = row.inviteCodeHash ?? row.voiceCodeHash;
-  if (!inviteCodeHash) {
-    return { ok: false, error: "Invite is missing a redemption code hash" };
-  }
+  const channelHandle = adapter
+    ? await resolveAdapterHandle(adapter)
+    : undefined;
+  const share = buildSharePayload(sourceChannel, params.rawToken);
+  const guardianInstruction = await generateInviteInstruction({
+    contactName: resolvedContactName,
+    channelType: sourceChannel,
+    channelHandle,
+    hasShareUrl: !!share?.url,
+    shareUrl: share?.url,
+  });
 
   return {
-    ok: true,
-    data: {
-      invite: result.data,
-      rawToken: result.data.token,
-      gateway: {
-        id: row.id,
-        inviteCodeHash,
-        sourceChannel: row.sourceChannel,
-        contactId: row.contactId,
-        note: row.note,
-        maxUses: row.maxUses,
-        expiresAt: row.expiresAt,
-      },
-    },
+    ...invite,
+    ...(share ? { share } : {}),
+    ...(guardianInstruction ? { guardianInstruction } : {}),
+    ...(channelHandle ? { channelHandle } : {}),
   };
 }
 

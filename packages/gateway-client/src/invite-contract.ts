@@ -46,6 +46,15 @@ export function generateInviteToken(): string {
 }
 
 /**
+ * Basic E.164 phone number validation: starts with +, followed by 10-15
+ * digits. Gates `expectedExternalUserId` on voice invites so the identity
+ * binding is a real dialable number.
+ */
+export function isValidE164(phone: string): boolean {
+  return /^\+\d{10,15}$/.test(phone);
+}
+
+/**
  * Generate a cryptographically random numeric code of the given length.
  * Uses node:crypto randomInt for uniform distribution.
  */

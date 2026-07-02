@@ -1,7 +1,7 @@
 /**
- * The three gateway-facing invite methods are IPC-only: registered on the
- * assistant IPC server by operationId, and absent from the shared HTTP route
- * set / `get_route_schema`. Relocating them out of `ROUTES` (per the
+ * The gateway-facing invite redemption methods are IPC-only: registered on
+ * the assistant IPC server by operationId, and absent from the shared HTTP
+ * route set / `get_route_schema`. Relocating them out of `ROUTES` (per the
  * documented IPC-only pattern) is what structurally guarantees they can never
  * reach the gateway's HTTP IPC proxy route schema.
  */
@@ -26,7 +26,6 @@ import { INVITE_IPC_METHODS } from "../invite-ipc-routes.js";
 import { routeDefinitionsToIpcMethods } from "../route-adapter.js";
 
 const INVITE_IPC_OPERATION_IDS = [
-  "invites_mint",
   "invites_redeem_voice",
   "invites_redeem_token",
 ] as const;

@@ -21,9 +21,11 @@
  *   invites_create
  *     params : { contactId: string; sourceChannel: string; note?: string;
  *                maxUses?: number; expiresInMs?: number;
- *                expectedExternalUserId?: string }
+ *                expectedExternalUserId?: string; guardianName?: string;
+ *                sourceConversationId?: string }
  *     returns: { invite: Record<string, unknown>; rawToken?: string }
- *              (the assistant's one-time minted payload)
+ *              (the gateway's one-time minted payload — row fields plus the
+ *              plaintext token/inviteCode/voiceCode, never fetchable later)
  *
  *   invites_revoke
  *     params : { id: string }
@@ -125,8 +127,8 @@ export const inviteRoutes: IpcRoute[] = [
     },
   },
   {
-    // Verify contact → relay assistant mint → write canonical gateway row.
-    // Returns the assistant's one-time minted payload + rawToken.
+    // Verify contact → mint secrets natively → write the canonical gateway
+    // row. Returns the gateway's one-time minted payload + rawToken.
     method: "invites_create",
     schema: CreateInviteParamsSchema,
     handler: async (params?: Record<string, unknown>) => {
