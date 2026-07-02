@@ -348,6 +348,17 @@ export function getWorkspaceRoutesDir(): string {
   return join(getWorkspaceDir(), "routes");
 }
 
+/**
+ * Returns $VELLUM_WORKSPACE_DIR/workflows — saved (named) workflow scripts.
+ *
+ * A file here becomes a saved workflow whose source is executed (in the sandbox,
+ * and unattended when triggered by a schedule), so the file risk classifier
+ * escalates writes under this path to High like `tools/` and `routes/`.
+ */
+export function getWorkspaceWorkflowsDir(): string {
+  return join(getWorkspaceDir(), "workflows");
+}
+
 /** Returns $VELLUM_WORKSPACE_DIR/deprecated — transitional files slated for removal. */
 export function getDeprecatedDir(): string {
   return join(getWorkspaceDir(), "deprecated");

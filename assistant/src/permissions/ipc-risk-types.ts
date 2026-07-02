@@ -55,6 +55,7 @@ export interface FileContext {
   pluginsDir: string;
   toolsDir: string;
   routesDir: string;
+  workflowsDir: string;
   actorTokenSigningKeyPath: string;
   skillSourceDirs: string[];
 }
