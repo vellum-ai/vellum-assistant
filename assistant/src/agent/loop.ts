@@ -1585,7 +1585,10 @@ export class AgentLoop {
         // Gap instrumentation: report stalls between consecutive streamed
         // deltas of THIS call, with the section trail for attribution. Fresh
         // per provider call so tool execution between calls never counts as
-        // a gap.
+        // a gap. Measures at the provider seam — before the deferred-output
+        // hold and substitution buffering below — because a stall is
+        // diagnostic (provider pacing vs event-loop contention) whether or
+        // not the client renders the deltas live.
         const streamGapMonitor = createStreamGapMonitor({
           context: {
             conversationId: this.conversationId,
