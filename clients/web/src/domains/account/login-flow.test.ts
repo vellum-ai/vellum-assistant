@@ -50,23 +50,23 @@ describe("login flow routing", () => {
     });
   });
 
-  test("resolves CLI login callback returnTo with full-page navigation", () => {
-    const cliCallback = "/accounts/cli/callback?port=54321&state=abc123";
+  test("resolves platform-path returnTo with full-page navigation", () => {
+    const platformPath = "/accounts/login?next=%2Fassistant";
     expect(
       resolvePostAuthDestination({
-        returnTo: cliCallback,
+        returnTo: platformPath,
         fallback: routes.assistant,
         authIntent: "login",
       }),
     ).toEqual({
-      destination: cliCallback,
+      destination: platformPath,
       requiresFullPageNavigation: true,
     });
   });
 
-  test("requiresFullPageNavigation for /accounts/ paths", () => {
-    expect(requiresFullPageNavigation("/accounts/cli/callback?port=12345&state=xyz")).toBe(true);
-    expect(requiresFullPageNavigation("/accounts/native/callback?scheme=vellum&state=abc")).toBe(true);
+  test("requiresFullPageNavigation for platform-proxied paths", () => {
+    expect(requiresFullPageNavigation("/accounts/login")).toBe(true);
+    expect(requiresFullPageNavigation("/_allauth/browser/v1/auth/session")).toBe(true);
     expect(requiresFullPageNavigation("/v1/some-api")).toBe(true);
     expect(requiresFullPageNavigation("https://www.vellum.ai/assistant")).toBe(true);
     expect(requiresFullPageNavigation("/assistant")).toBe(false);

@@ -291,8 +291,8 @@ export async function startAuthFlow(
     return;
   }
 
-  // Standalone local mode (no local Django serving the SPA): redirect
-  // through the platform's login page and back to a loopback callback.
+  // Standalone local mode (no local Django serving the SPA): the local web
+  // server runs a WorkOS PKCE flow and installs the token for its proxy.
   if (isLocalMode() && !isPlatformLocal()) {
     await startLoopbackAuth(options.returnTo ?? undefined, {
       intent: options.intent,

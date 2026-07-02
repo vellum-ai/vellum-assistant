@@ -92,7 +92,7 @@ export const routeTree = [
                 { path: "password/reset/key/:key", lazy: { Component: () => import("@/domains/account/pages/password-reset-page").then((m) => m.PasswordResetPage) } },
               ],
             },
-            // OAuth completion / loopback machinery. These render inside the
+            // OAuth completion machinery. These render inside the
             // OAuth popup child window (or are transient redirects), NOT the
             // main window — so they're deliberately OUTSIDE AccountLayout and
             // never mount the sizing hook. The resize IPC targets the
@@ -101,7 +101,6 @@ export const routeTree = [
             { path: "oauth/popup-complete", lazy: { Component: () => import("@/domains/account/pages/oauth-popup-complete-page").then((m) => m.OAuthPopupCompletePage) } },
             { path: "oauth/complete", lazy: { Component: () => import("@/domains/account/pages/oauth-complete-page").then((m) => m.OAuthCompletePage) } },
             { path: "oauth/desktop-complete", Component: OAuthDesktopCompleteRedirect },
-            { path: "platform-callback", lazy: { Component: () => import("@/domains/account/pages/platform-loopback-page").then((m) => m.PlatformLoopbackPage) } },
           ],
         },
       ],

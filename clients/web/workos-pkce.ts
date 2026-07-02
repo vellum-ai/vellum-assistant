@@ -1,16 +1,15 @@
 /**
- * App-held PKCE login against WorkOS User Management (RFC 8252 loopback).
+ * WorkOS PKCE helpers for the dev-server login middlewares. Copy of
+ * `cli/src/lib/workos-pkce.ts` (the vite plugin can't import the CLI
+ * package); consolidate after the bun workspace refactor.
  */
 
 import crypto from "node:crypto";
-
-import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 const WORKOS_API_BASE_URL = "https://api.workos.com";
 const PROVIDER_ID = "workos";
 const SCOPE = "openid profile email";
 
-// Use a loopback callback: `http://127.0.0.1:*/auth/callback`
 export const CALLBACK_PATH = "/auth/callback";
 
 export interface PkcePair {
@@ -48,7 +47,9 @@ export function buildAuthorizeUrl(options: AuthorizeUrlOptions): string {
   url.searchParams.set("state", options.state);
   // No `prompt`: lets the browser's existing IdP session be reused.
   url.searchParams.set("provider", options.providerHint || "authkit");
-  if (options.loginHint) url.searchParams.set("login_hint", options.loginHint);
+  if (options.loginHint) {
+    url.searchParams.set("login_hint", options.loginHint);
+  }
   if (options.intent === "signup") {
     url.searchParams.set("screen_hint", "sign-up");
   }
@@ -84,7 +85,7 @@ export async function fetchWorkosClientId(
   platformUrl: string,
 ): Promise<string> {
   const url = `${new URL(platformUrl).origin}/_allauth/app/v1/config`;
-  const response = await loopbackSafeFetch(url);
+  const response = await fetch(url);
   if (!response.ok) {
     throw new Error(`Failed to fetch auth config (${response.status})`);
   }
@@ -108,7 +109,7 @@ export async function exchangeCodeWithWorkos(options: {
   code: string;
   verifier: string;
 }): Promise<string> {
-  const response = await loopbackSafeFetch(
+  const response = await fetch(
     `${WORKOS_API_BASE_URL}/user_management/authenticate`,
     {
       method: "POST",
@@ -141,7 +142,7 @@ export async function exchangeAccessTokenForSession(
   accessToken: string,
 ): Promise<string> {
   const url = `${new URL(platformUrl).origin}/_allauth/app/v1/auth/provider/token`;
-  const response = await loopbackSafeFetch(url, {
+  const response = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({

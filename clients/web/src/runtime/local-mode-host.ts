@@ -449,24 +449,7 @@ export async function fetchGuardianTokenHost(
 }
 
 /**
- * Hand the loopback platform session token to the local web server so its proxy
- * can authenticate to the platform. Called by the loopback callback page only
- * after it validates the `state` nonce, so the token is never trusted from an
- * unsolicited redirect. The browser never stores a session cookie.
- */
-export async function registerLocalPlatformSession(
-  token: string,
-): Promise<boolean> {
-  const res = await postLocalCommand<{ ok: boolean }>(
-    "/assistant/__local/platform-session",
-    { token },
-    LOCAL_HOST_UNAVAILABLE_ERROR,
-  );
-  return res.ok;
-}
-
-/**
- * Clear the loopback platform session token on logout. Best-effort.
+ * Clear the platform session token on logout. Best-effort.
  */
 export async function clearLocalPlatformSession(): Promise<void> {
   if (!isLocalModeHostAvailable()) return;

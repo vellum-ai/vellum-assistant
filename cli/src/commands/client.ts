@@ -58,6 +58,8 @@ import {
   clearPlatformToken,
 } from "../lib/platform-client";
 import { tuiLog } from "../lib/tui-log";
+import { CALLBACK_PATH } from "../lib/workos-pkce";
+import { createWebLoginFlow } from "../lib/web-login";
 import { loopbackSafeFetch } from "../lib/loopback-fetch.js";
 import { probePort } from "../lib/port-probe.js";
 import { openBrowser } from "../lib/open-browser";
@@ -401,15 +403,16 @@ function findWebSourceDir(): string | null {
 const LOCKFILE_PATTERN = /^(?:\/assistant)?\/__local\/lockfile$/;
 const HATCH_PATTERN = /^(?:\/assistant)?\/__local\/hatch$/;
 const RETIRE_PATTERN = /^(?:\/assistant)?\/__local\/retire$/;
+const LOGIN_START_PATTERN = /^(?:\/assistant)?\/__local\/login\/start$/;
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 const PLATFORM_SESSION_PATTERN =
   /^(?:\/assistant)?\/__local\/platform-session$/;
 
-// The loopback platform session token. Persisted via the same store the CLI
-// uses (so `vellum client` restarts and CLI logins stay in sync), cached here
-// to keep it off the per-request proxy path. Set only after the SPA validates
-// the loopback `state`, so an unsolicited /callback can't fixate a session.
+// The platform session token. Persisted via the same store the CLI uses (so
+// `vellum client` restarts and CLI logins stay in sync), cached here to keep
+// it off the per-request proxy path. Installed only by the PKCE flows
+// (`vellum login` or the browser login below), never from a request body.
 let platformSessionToken: string | null | undefined;
 function currentPlatformToken(): string | null {
   if (platformSessionToken === undefined) {
@@ -417,6 +420,16 @@ function currentPlatformToken(): string | null {
   }
   return platformSessionToken;
 }
+
+// Browser PKCE login; installs the token into the same store `vellum login`
+// writes, so restarts and CLI logins stay in sync.
+const webLoginFlow = createWebLoginFlow({
+  platformUrl: getPlatformUrl(),
+  installToken: (token) => {
+    savePlatformToken(token);
+    platformSessionToken = token;
+  },
+});
 
 // Whether to attach the platform credential to a proxied request. Only
 // same-origin (SPA) traffic qualifies — a cross-site page must not be able to
@@ -458,6 +471,7 @@ async function handleLocalEndpoints(
     RETIRE_PATTERN.test(pathname) ||
     GUARDIAN_TOKEN_PATTERN.test(pathname) ||
     PLATFORM_SESSION_PATTERN.test(pathname) ||
+    LOGIN_START_PATTERN.test(pathname) ||
     parseGatewayUrl(pathname).match;
 
   if (!isLocalRoute) return null;
@@ -475,28 +489,22 @@ async function handleLocalEndpoints(
     return Response.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  // Platform session: the SPA hands over the loopback token here (after it has
-  // validated the `state` nonce) so the proxy below can authenticate to the
-  // platform. The browser never holds a session cookie.
+  // Start the browser PKCE login: hold the verifier/state server-side and
+  // hand the SPA the WorkOS authorize URL to navigate to.
+  if (LOGIN_START_PATTERN.test(pathname)) {
+    if (req.method !== "POST") {
+      return new Response(null, { status: 405 });
+    }
+    return webLoginFlow.handleStart(url);
+  }
+
+  // Platform session: logout clears the token the proxy uses to authenticate
+  // to the platform (installed by the PKCE flows — `vellum login` or the
+  // browser login above). The browser never holds a session cookie.
   if (PLATFORM_SESSION_PATTERN.test(pathname)) {
     if (req.method === "DELETE") {
       clearPlatformToken();
       platformSessionToken = null;
-      return Response.json({ ok: true });
-    }
-    if (req.method === "POST") {
-      const body = (await req.json().catch(() => null)) as {
-        token?: unknown;
-      } | null;
-      const token = body?.token;
-      if (typeof token !== "string" || !/^[A-Za-z0-9]+$/.test(token)) {
-        return Response.json(
-          { ok: false, error: "Invalid token" },
-          { status: 400 },
-        );
-      }
-      savePlatformToken(token);
-      platformSessionToken = token;
       return Response.json({ ok: true });
     }
     return new Response(null, { status: 405 });
@@ -895,11 +903,10 @@ async function runWebInterface(
       return Response.redirect(SPA_BASE, 302);
     }
 
-    // Loopback auth: the platform redirects here after login with
-    // ?state=...&session_token=... — forward into the SPA, which validates the
-    // `state` nonce before registering the token via /__local/platform-session.
-    if (pathname === "/callback") {
-      return Response.redirect(`/account/platform-callback${url.search}`, 302);
+    // WorkOS PKCE callback. Not under the __local guards — it arrives as a
+    // top-level navigation from WorkOS; the state check is the defense.
+    if (pathname === CALLBACK_PATH) {
+      return webLoginFlow.handleCallback(url);
     }
 
     // Expose environment config to the SPA.
@@ -1005,9 +1012,10 @@ async function runWebInterface(
   if (port !== 3000) {
     console.log(`Port 3000 in use; using ${port}.`);
   }
-  // Advertise `localhost` (not `127.0.0.1`) so the app origin matches the host
-  // the platform hardcodes in its loopback callback. We bind both loopback
-  // families above so `localhost` reaches us whichever one it resolves to.
+  // Advertise `localhost` (not `127.0.0.1`); the PKCE callback 302s back to
+  // `localhost` after login, so the user stays on one origin. We bind both
+  // loopback families above so `localhost` reaches us whichever one it
+  // resolves to.
   const webInterfaceUrl = `http://localhost:${port}${SPA_BASE}`;
   console.log(`Vellum web interface: ${webInterfaceUrl}`);
   if (openInBrowser) openBrowser(webInterfaceUrl);

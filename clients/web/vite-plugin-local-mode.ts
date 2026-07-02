@@ -1,7 +1,17 @@
 import http from "node:http";
+import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { Plugin, Connect, ViteDevServer } from "vite";
+
+import {
+  CALLBACK_PATH,
+  buildAuthorizeUrl,
+  exchangeAccessTokenForSession,
+  exchangeCodeWithWorkos,
+  fetchWorkosClientId,
+  generatePkcePair,
+} from "./workos-pkce";
 
 import {
   resolveLocalConfigFromEnv,
@@ -31,6 +41,7 @@ const LOCAL_STATUS_PATTERN = /^(?:\/assistant)?\/__local\/status\/([^/]+)$/;
 const LOCAL_UPGRADE_PATTERN = /^(?:\/assistant)?\/__local\/upgrade$/;
 const PLATFORM_SESSION_PATTERN =
   /^(?:\/assistant)?\/__local\/platform-session$/;
+const LOGIN_START_PATTERN = /^(?:\/assistant)?\/__local\/login\/start$/;
 
 // In-memory loopback platform session token for the dev server. The proxy
 // (vite.config.ts) and the middleware below run in the same Node process, so
@@ -74,7 +85,8 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       );
     },
     configureServer(server) {
-      server.middlewares.use(loopbackCallbackMiddleware());
+      server.middlewares.use(loginStartMiddleware(config.platformUrl));
+      server.middlewares.use(authCallbackMiddleware(config.platformUrl));
       server.middlewares.use(platformSessionMiddleware());
       server.middlewares.use(
         configMiddleware(config.webUrl, config.platformUrl),
@@ -128,21 +140,159 @@ function rejectUnlessLocalEndpointRequest(
   return false;
 }
 
-function loopbackCallbackMiddleware(): Connect.NextHandleFunction {
+// ── Browser PKCE login ──────────────────────────────────────────────
+// Dev twin of the Bun server's web login (`cli/src/lib/web-login.ts`). The
+// state nonce is the CSRF defense — mismatch/expiry/replay → 404.
+
+const PENDING_LOGIN_TTL_MS = 120_000;
+const DEFAULT_RETURN_TO = "/assistant/";
+
+interface PendingLogin {
+  state: string;
+  verifier: string;
+  clientId: string;
+  returnTo: string;
+  expiresAt: number;
+}
+
+let pendingLogin: PendingLogin | null = null;
+
+/** Relative paths only; rejects absolute, protocol-relative, and backslash. */
+function sanitizeLoginReturnTo(value: string | null): string {
+  if (!value || !value.startsWith("/")) {
+    return DEFAULT_RETURN_TO;
+  }
+  if (value.startsWith("//") || value.includes("\\")) {
+    return DEFAULT_RETURN_TO;
+  }
+  return value;
+}
+
+function requestPort(req: http.IncomingMessage): string {
+  const host = Array.isArray(req.headers.host)
+    ? req.headers.host[0]
+    : req.headers.host;
+  try {
+    return new URL(`http://${host ?? "localhost:3000"}`).port || "80";
+  } catch {
+    return "3000";
+  }
+}
+
+function loginStartMiddleware(platformUrl: string): Connect.NextHandleFunction {
   return (req, res, next) => {
-    if (req.url?.startsWith("/callback")) {
-      const qs = req.url.slice("/callback".length);
-      res.writeHead(302, { Location: `/account/platform-callback${qs}` });
+    const url = new URL(req.url ?? "/", "http://placeholder.invalid");
+    if (!LOGIN_START_PATTERN.test(url.pathname)) {
+      return next();
+    }
+    if (rejectUnlessLocalEndpointRequest(req, res)) {
+      return;
+    }
+    if (req.method !== "POST") {
+      res.statusCode = 405;
       res.end();
       return;
     }
-    next();
+
+    void (async () => {
+      let clientId: string;
+      try {
+        clientId = await fetchWorkosClientId(platformUrl);
+      } catch (err) {
+        res.statusCode = 502;
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+        return;
+      }
+
+      const { verifier, challenge } = generatePkcePair();
+      const state = crypto.randomBytes(32).toString("hex");
+      pendingLogin = {
+        state,
+        verifier,
+        clientId,
+        returnTo: sanitizeLoginReturnTo(url.searchParams.get("returnTo")),
+        expiresAt: Date.now() + PENDING_LOGIN_TTL_MS,
+      };
+
+      const authorizeUrl = buildAuthorizeUrl({
+        clientId,
+        // Registered WorkOS redirect URI: http://127.0.0.1:*/auth/callback.
+        redirectUri: `http://127.0.0.1:${requestPort(req)}${CALLBACK_PATH}`,
+        challenge,
+        state,
+        intent: url.searchParams.get("intent") ?? undefined,
+      });
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ authorizeUrl }));
+    })();
   };
 }
 
-// Receives the loopback platform session token from the SPA (after it has
-// validated the `state` nonce) and holds it for the proxy. Mirrors the Bun
-// server's /__local/platform-session endpoint.
+function authCallbackMiddleware(
+  platformUrl: string,
+): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    const url = new URL(req.url ?? "/", "http://placeholder.invalid");
+    if (url.pathname !== CALLBACK_PATH) {
+      return next();
+    }
+
+    const state = url.searchParams.get("state");
+    const code = url.searchParams.get("code");
+    const current = pendingLogin;
+    if (
+      !current ||
+      !state ||
+      !code ||
+      state !== current.state ||
+      Date.now() > current.expiresAt
+    ) {
+      res.statusCode = 404;
+      res.end("Not Found");
+      return;
+    }
+    // Single-use: clear before the network legs to block replays.
+    pendingLogin = null;
+
+    void (async () => {
+      try {
+        const accessToken = await exchangeCodeWithWorkos({
+          clientId: current.clientId,
+          code,
+          verifier: current.verifier,
+        });
+        devPlatformToken = await exchangeAccessTokenForSession(
+          platformUrl,
+          current.clientId,
+          accessToken,
+        );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        res.statusCode = 502;
+        res.setHeader("Content-Type", "text/html; charset=utf-8");
+        res.end(
+          `<!doctype html><html><body><p>Login failed: ${message
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")}</p><p>Close this tab and try again.</p></body></html>`,
+        );
+        return;
+      }
+      res.writeHead(302, {
+        Location: `http://localhost:${requestPort(req)}${current.returnTo}`,
+      });
+      res.end();
+    })();
+  };
+}
+
+// Logout endpoint: DELETE clears the proxy's session token. Mirrors the Bun
+// server's /__local/platform-session.
 function platformSessionMiddleware(): Connect.NextHandleFunction {
   return (req, res, next) => {
     const path = (req.url ?? "").split("?")[0];
@@ -155,33 +305,8 @@ function platformSessionMiddleware(): Connect.NextHandleFunction {
       res.end(JSON.stringify({ ok: true }));
       return;
     }
-    if (req.method !== "POST") {
-      res.statusCode = 405;
-      res.end();
-      return;
-    }
-
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => chunks.push(chunk));
-    req.on("end", () => {
-      let token: unknown;
-      try {
-        token = (
-          JSON.parse(Buffer.concat(chunks).toString()) as { token?: unknown }
-        ).token;
-      } catch {
-        token = undefined;
-      }
-      if (typeof token !== "string" || !/^[A-Za-z0-9]+$/.test(token)) {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ ok: false, error: "Invalid token" }));
-        return;
-      }
-      devPlatformToken = token;
-      res.setHeader("Content-Type", "application/json");
-      res.end(JSON.stringify({ ok: true }));
-    });
+    res.statusCode = 405;
+    res.end();
   };
 }
 

@@ -1,34 +1,23 @@
 /**
- * Loopback authentication for local-mode web UI.
- *
- * Mirrors the CLI's `vellum login` browser flow: navigates to the
- * platform's login page, which authenticates via WorkOS and redirects
- * back to `http://localhost:{port}/callback?state=...&session_token=...`.
- * The local web server forwards `/callback` to the SPA's `PlatformLoopbackPage`,
- * which validates the state and registers the token with the local server so
- * its platform proxy can authenticate — no browser session cookie is used.
+ * Browser login for the local-mode web UI (`vellum client --interface web`).
+ * The local web server holds the WorkOS PKCE exchange: `/__local/login/start`
+ * returns the authorize URL to navigate to, and the server's `/auth/callback`
+ * installs the session token for its proxy and 302s back into the SPA.
  */
 
 const FALLBACK_WEB_URL = "https://www.vellum.ai";
-const LOOPBACK_STATE_KEY = "vellum:loopback:state";
-const LOOPBACK_RETURN_TO_KEY = "vellum:loopback:returnTo";
 
 interface VellumConfig {
   webUrl?: string;
-  platformUrl?: string;
 }
 
 function getLocalConfig(): { webUrl: string } {
   const injected = (window as unknown as { __VELLUM_CONFIG__?: VellumConfig })
     .__VELLUM_CONFIG__;
-  if (injected?.webUrl) return { webUrl: injected.webUrl };
+  if (injected?.webUrl) {
+    return { webUrl: injected.webUrl };
+  }
   return { webUrl: FALLBACK_WEB_URL };
-}
-
-function generateState(): string {
-  const array = new Uint8Array(32);
-  crypto.getRandomValues(array);
-  return Array.from(array, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 export function isPlatformLocal(): boolean {
@@ -43,18 +32,20 @@ export async function startLoopbackAuth(
   returnTo?: string,
   options?: { intent?: string },
 ): Promise<void> {
-  const { webUrl } = getLocalConfig();
-  const state = generateState();
-  const port = window.location.port || "3000";
-
-  sessionStorage.setItem(LOOPBACK_STATE_KEY, state);
+  const params = new URLSearchParams();
   if (returnTo) {
-    sessionStorage.setItem(LOOPBACK_RETURN_TO_KEY, returnTo);
+    params.set("returnTo", returnTo);
+  }
+  if (options?.intent) {
+    params.set("intent", options.intent);
   }
 
-  const callbackReturnTo = `/accounts/cli/callback?port=${port}&state=${state}`;
-  const page = options?.intent === "signup" ? "signup" : "login";
-  const loginUrl = `${webUrl}/account/${page}?returnTo=${encodeURIComponent(callbackReturnTo)}`;
-
-  window.location.href = loginUrl;
+  const res = await fetch(`/assistant/__local/login/start?${params}`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    throw new Error(`Login start failed (${res.status})`);
+  }
+  const { authorizeUrl } = (await res.json()) as { authorizeUrl: string };
+  window.location.href = authorizeUrl;
 }

@@ -71,15 +71,14 @@ describe("account route compact-window grouping", () => {
     expect(isUnderAccountLayout(path)).toBe(true);
   });
 
-  // The OAuth completion / loopback pages render inside a popup child window
-  // (or are transient redirects). They must stay OUT of AccountLayout — the
-  // resize IPC targets the main window, so sizing from a popup would shrink
-  // the wrong window and persist `onboardingActive`.
+  // The OAuth completion pages render inside a popup child window (or are
+  // transient redirects). They must stay OUT of AccountLayout — the resize IPC
+  // targets the main window, so sizing from a popup would shrink the wrong
+  // window and persist `onboardingActive`.
   test.each([
     "/account/oauth/popup-complete",
     "/account/oauth/complete",
     "/account/oauth/desktop-complete",
-    "/account/platform-callback",
   ])("%s is NOT sized by AccountLayout", (path) => {
     expect(isUnderAccountLayout(path)).toBe(false);
   });

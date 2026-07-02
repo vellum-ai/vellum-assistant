@@ -9,8 +9,8 @@ import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
  * outside `RootLayout`, so this is where the compact-window sizing hook is
  * mounted for them: they use the same small (440×630) window as onboarding.
  *
- * Deliberately does NOT wrap the OAuth completion / loopback pages
- * (`oauth/popup-complete`, `oauth/complete`, `platform-callback`). Those
+ * Deliberately does NOT wrap the OAuth completion pages
+ * (`oauth/popup-complete`, `oauth/complete`). Those
  * render inside an OAuth popup child window, and the sizing IPC targets the
  * module-scoped main window — so signalling from a popup would shrink the
  * wrong (main) window and persist `onboardingActive`. They're kept out of
