@@ -212,9 +212,9 @@ export async function runMemoryStartup(config: AssistantConfig): Promise<void> {
   // synchronous runner and stands down when an out-of-process worker is live)
   // and spawns the out-of-process worker at boot when `memory.worker.enabled`
   // is set. Shutdown stops whichever worker is actually running — see
-  // shutdown-handlers.ts. The memory job handlers were registered synchronously
-  // by the plugin's `init` hook before this function was kicked off, so the
-  // dispatch table is populated before the worker's first claim.
+  // shutdown-handlers.ts. The job handlers were registered synchronously by the
+  // plugin's `init` hook before this function was kicked off, so the dispatch
+  // table is populated before the worker's first claim.
   log.info("Daemon startup: starting memory worker");
   startMemoryJobsWorker();
 

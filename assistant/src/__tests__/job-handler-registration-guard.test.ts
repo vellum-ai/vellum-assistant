@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 
-import { registerDomainJobHandlers } from "../jobs/register-job-handlers.js";
 import * as jobsWorker from "../persistence/jobs-worker.js";
 import {
   getMemoryPersistenceHooks,
@@ -10,9 +9,8 @@ import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index
 import { registerMemoryPluginJobHandlers } from "../plugins/defaults/memory/job-handler-registration.js";
 
 /**
- * The exact job types the memory plugin registers directly into the worker from
- * its `init` hook. Locks the contribution against an accidental add/drop — the
- * job-handler analog of the injector order guard.
+ * The exact memory-plugin job types. Locks the contribution against an
+ * accidental add/drop — the job-handler analog of the injector order guard.
  */
 const MEMORY_JOB_TYPES = [
   "embed_segment",
@@ -42,9 +40,10 @@ const MEMORY_JOB_TYPES = [
 ].sort();
 
 /**
- * Job types the host registers directly via `registerDomainJobHandlers` for
- * domains that are not plugins (persistence cleanup, message-content lexical
- * indexing, conversations, media, home, runtime).
+ * Job types the host owns (not a plugin): persistence cleanup, message-content
+ * lexical indexing, conversations, media, home, runtime. Registered alongside
+ * the memory handlers today; they will move to a memory-agnostic background
+ * schedule worker in a future rework.
  */
 const NON_PLUGIN_JOB_TYPES = [
   "prune_old_conversations",
@@ -81,16 +80,11 @@ describe("job-handler registration", () => {
     resetMemoryPersistenceHooksForTests();
   });
 
-  it("the memory plugin registers exactly the memory job types", () => {
+  it("registers exactly the memory job types plus the non-plugin domain types", () => {
     const captured = captureRegisteredTypes(registerMemoryPluginJobHandlers);
-    expect(captured.slice().sort()).toEqual(MEMORY_JOB_TYPES);
-    // Each type registered exactly once — no drop, no dupe.
-    expect(new Set(captured).size).toBe(captured.length);
-  });
-
-  it("the host registers exactly the non-plugin domain job types", () => {
-    const captured = captureRegisteredTypes(registerDomainJobHandlers);
-    expect(captured.slice().sort()).toEqual(NON_PLUGIN_JOB_TYPES);
+    const expected = [...MEMORY_JOB_TYPES, ...NON_PLUGIN_JOB_TYPES].sort();
+    expect(captured.slice().sort()).toEqual(expected);
+    // Each type registered exactly once — no plugin/domain overlap, no drop.
     expect(new Set(captured).size).toBe(captured.length);
   });
 

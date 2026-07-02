@@ -25,12 +25,11 @@ import { runMemoryStartup } from "../startup.js";
 const log = getLogger("memory-init");
 
 const init: HookFunction<InitContext> = async () => {
-  // Register the memory plugin's own job handlers directly into the worker
-  // dispatch table. Synchronous and first, so it happens-before the worker start
-  // inside `runMemoryStartup` below — otherwise a queued job could be dispatched
-  // against an empty table and failed as an unknown type. The daemon's
-  // non-plugin domain handlers are already registered before plugin bootstrap;
-  // the standalone worker process self-registers both sets itself.
+  // Register the job handlers directly into the worker dispatch table — the
+  // memory plugin's own plus the host's non-plugin domain handlers.
+  // Synchronous and first, so it happens-before the worker start inside
+  // `runMemoryStartup` below — otherwise a queued job could be dispatched
+  // against an empty table and failed as an unknown type.
   registerMemoryPluginJobHandlers();
 
   // Boot Qdrant, reconcile collections, and start the memory jobs worker in the

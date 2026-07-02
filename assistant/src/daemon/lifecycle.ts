@@ -15,7 +15,6 @@ import { backfillRelationshipStateIfMissing } from "../home/relationship-state-w
 import { closeSentry, initSentry, setSentryDeviceId } from "../instrument.js";
 import { startCliIpcServer } from "../ipc/assistant-server.js";
 import { startGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
-import { registerDomainJobHandlers } from "../jobs/register-job-handlers.js";
 import { startMonitoring } from "../monitoring/control.js";
 import { backfillManualTokenConnections } from "../oauth/manual-token-connection.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
@@ -568,21 +567,13 @@ export async function runDaemon(): Promise<void> {
   // happens at the process level.
   await startCes(config);
 
-  // Register the host's non-plugin job handlers (persistence cleanup, lexical
-  // indexing, conversations, media, home, runtime) into the worker dispatch
-  // table before plugins boot. The memory plugin registers its own handlers and
-  // starts the jobs worker inside its `init` hook (run by initializePlugins
-  // below), so the domain handlers must be present first — otherwise the worker
-  // could claim a queued domain job against an empty table and fail it as an
-  // unknown type.
-  registerDomainJobHandlers();
-
   // Bring up the plugin layer: install the runtime bridge, register the
   // first-party defaults, load user plugins, and run every plugin's
   // `init()`. Ordering is load-bearing (defaults register ahead of user
   // plugins so they compose innermost) and plugin failures are contained so
   // they can't block daemon startup. The memory plugin's `init` hook registers
-  // its job handlers and starts the jobs worker here.
+  // the job handlers (its own plus the host's non-plugin domain handlers) and
+  // starts the jobs worker here.
   await initializePlugins();
 
   // Initialize providers before Qdrant so HTTP routes can begin accepting
