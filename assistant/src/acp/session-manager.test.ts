@@ -202,6 +202,39 @@ describe("AcpSessionManager parent notification", () => {
     expect(enqueueMessage).not.toHaveBeenCalled();
   });
 
+  test("cancel marks the session cancelled before the protocol cancel resolves", async () => {
+    // Guards the cancel race: if the in-flight prompt rejects while
+    // process.cancel is still pending, the failure gate must already see
+    // "cancelled" so it does not wake the parent after a user stop.
+    const manager = new AcpSessionManager(1);
+    let resolveCancel!: () => void;
+    const cancelPending = new Promise<void>((r) => {
+      resolveCancel = r;
+    });
+    const proc = {
+      markStderr: () => 0,
+      stderrSince: () => "",
+      prompt: () => new Promise(() => {}),
+      kill: mock(() => {}),
+      cancel: mock(() => cancelPending),
+    };
+    const entry = injectSession(
+      manager,
+      "sess-race",
+      "parent-race",
+      proc as unknown as ReturnType<typeof fakeProcess>,
+    );
+
+    const cancelPromise = (manager as any).cancel("sess-race");
+    // Synchronously after kicking off cancel — before the protocol cancel
+    // resolves — the status is already "cancelled".
+    expect(entry.state.status).toBe("cancelled");
+    expect(proc.cancel).toHaveBeenCalled();
+
+    resolveCancel();
+    await cancelPromise;
+  });
+
   test("a superseded prompt does not notify the parent", async () => {
     const manager = new AcpSessionManager(1);
     const { conversation, enqueueMessage } = mockConversation();

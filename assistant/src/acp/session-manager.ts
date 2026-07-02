@@ -740,9 +740,13 @@ export class AcpSessionManager {
     if (!entry) {
       throw new AcpSessionNotFoundError(acpSessionId);
     }
-    await entry.process.cancel(entry.state.acpSessionId);
+    // Mark cancelled BEFORE awaiting the protocol cancel. If the in-flight
+    // prompt rejects during this window, its catch handler must already see
+    // "cancelled" so it neither overwrites the status with "failed" nor wakes
+    // the parent — no model activity may follow a user stop.
     entry.state.status = "cancelled";
     entry.state.completedAt = Date.now();
+    await entry.process.cancel(entry.state.acpSessionId);
     // Re-check the map after the await: the in-flight prompt's handler may
     // have already torn the session down while process.cancel was pending.
     if (!entry.currentPrompt && this.sessions.get(acpSessionId) === entry) {
