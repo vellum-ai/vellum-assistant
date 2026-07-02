@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { deleteContact, upsertContact } from "../../contacts/contact-store.js";
 import { upsertContactChannel } from "../../contacts/contacts-write.js";
+import { getDb } from "../../persistence/db-connection.js";
 import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
 
 const ContactTypeSchema = z.enum(["human", "assistant"]);
@@ -42,6 +43,10 @@ const UpsertChannelParamsSchema = z.object({
   // first-seen race must not steal the channel from the contact the gateway
   // kept). Omitted → the primitive defaults to `!!contactId`.
   reassignConflictingChannels: z.boolean().optional(),
+  // Mark the channel primary. The guardian-bootstrap mirror sets true so its
+  // sole channel keeps the primary flag the gateway binding assigns; omitted
+  // callers leave the flag untouched (existing) or default false (new).
+  isPrimary: z.boolean().optional(),
 });
 
 /**
@@ -58,7 +63,14 @@ const UpsertChannelParamsSchema = z.object({
 export function handleContactsMirrorUpsertChannel({
   body = {},
 }: RouteHandlerArgs) {
-  const params = UpsertChannelParamsSchema.parse(body);
+  applyUpsertChannel(UpsertChannelParamsSchema.parse(body));
+  return { ok: true };
+}
+
+/** Run the channel upsert primitive for an already-parsed op payload. */
+function applyUpsertChannel(
+  params: z.infer<typeof UpsertChannelParamsSchema>,
+): void {
   upsertContactChannel({
     sourceChannel: params.type,
     externalUserId: params.address,
@@ -70,11 +82,11 @@ export function handleContactsMirrorUpsertChannel({
     notes: params.notes,
     refreshDisplayName: params.refreshDisplayName,
     reassignConflictingChannels: params.reassignConflictingChannels,
+    isPrimary: params.isPrimary,
     // The mirror never seeds a persona file: a mirror-created contact keeps
-    // user_file NULL: the mirror never seeds a persona file.
+    // user_file NULL.
     userFileOnCreate: null,
   });
-  return { ok: true };
 }
 
 const UpsertContactParamsSchema = z.object({
@@ -93,7 +105,14 @@ const UpsertContactParamsSchema = z.object({
 export function handleContactsMirrorUpsertContact({
   body = {},
 }: RouteHandlerArgs) {
-  const params = UpsertContactParamsSchema.parse(body);
+  applyUpsertContact(UpsertContactParamsSchema.parse(body));
+  return { ok: true };
+}
+
+/** Run the contact upsert primitive for an already-parsed op payload. */
+function applyUpsertContact(
+  params: z.infer<typeof UpsertContactParamsSchema>,
+): void {
   upsertContact({
     id: params.contactId,
     displayName: params.displayName,
@@ -101,7 +120,6 @@ export function handleContactsMirrorUpsertContact({
     notes: params.notes,
     userFile: null,
   });
-  return { ok: true };
 }
 
 const DeleteContactParamsSchema = z.object({
@@ -115,8 +133,57 @@ const DeleteContactParamsSchema = z.object({
 export function handleContactsMirrorDeleteContact({
   body = {},
 }: RouteHandlerArgs) {
-  const params = DeleteContactParamsSchema.parse(body);
+  applyDeleteContact(DeleteContactParamsSchema.parse(body));
+  return { ok: true };
+}
+
+/** Run the contact delete primitive for an already-parsed op payload. */
+function applyDeleteContact(
+  params: z.infer<typeof DeleteContactParamsSchema>,
+): void {
   deleteContact(params.contactId);
+}
+
+/**
+ * A single identity-mirror operation, tagged by `op`. Each variant reuses the
+ * exact zod schema (and applier) of the corresponding single-row method, so the
+ * per-op semantics are identical — the only added guarantee is atomicity across
+ * ops.
+ */
+const MirrorOpSchema = z.discriminatedUnion("op", [
+  UpsertChannelParamsSchema.extend({ op: z.literal("upsert_channel") }),
+  UpsertContactParamsSchema.extend({ op: z.literal("upsert_contact") }),
+  DeleteContactParamsSchema.extend({ op: z.literal("delete_contact") }),
+]);
+
+const ApplyParamsSchema = z.object({
+  ops: z.array(MirrorOpSchema).min(1),
+});
+
+/**
+ * Apply an ordered batch of identity-mirror ops in ONE daemon-side transaction.
+ * Every op runs against the same connection between BEGIN and COMMIT, so a
+ * mid-batch failure rolls back the entire batch — the mirror is never left
+ * partially applied. Used by the gateway's transactional mirror sites
+ * (guardian bootstrap) whose several writes must land atomically.
+ */
+export function handleContactsMirrorApply({ body = {} }: RouteHandlerArgs) {
+  const { ops } = ApplyParamsSchema.parse(body);
+  getDb().transaction(() => {
+    for (const op of ops) {
+      switch (op.op) {
+        case "upsert_channel":
+          applyUpsertChannel(op);
+          break;
+        case "upsert_contact":
+          applyUpsertContact(op);
+          break;
+        case "delete_contact":
+          applyDeleteContact(op);
+          break;
+      }
+    }
+  });
   return { ok: true };
 }
 
@@ -131,4 +198,5 @@ export const CONTACTS_MIRROR_IPC_METHODS: Record<
   contacts_mirror_upsert_channel: handleContactsMirrorUpsertChannel,
   contacts_mirror_upsert_contact: handleContactsMirrorUpsertContact,
   contacts_mirror_delete_contact: handleContactsMirrorDeleteContact,
+  contacts_mirror_apply: handleContactsMirrorApply,
 };

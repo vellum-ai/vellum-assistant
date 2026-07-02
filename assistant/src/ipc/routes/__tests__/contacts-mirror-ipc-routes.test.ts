@@ -35,11 +35,24 @@ mock.module("../../../contacts/contact-store.js", () => ({
   },
 }));
 
+// The transactional method wraps ops in getDb().transaction(); run the callback
+// inline so op dispatch is observable against the mocked primitives above.
+// Spread the real module so unrelated exports stay intact if suites ever share
+// a process.
+const realDbConnection = await import(
+  "../../../persistence/db-connection.js"
+);
+mock.module("../../../persistence/db-connection.js", () => ({
+  ...realDbConnection,
+  getDb: () => ({ transaction: (fn: () => void) => fn() }),
+}));
+
 const {
   CONTACTS_MIRROR_IPC_METHODS,
   handleContactsMirrorUpsertChannel,
   handleContactsMirrorUpsertContact,
   handleContactsMirrorDeleteContact,
+  handleContactsMirrorApply,
 } = await import("../contacts-mirror-ipc-routes.js");
 
 const { ROUTES: contactRoutes } = await import(
@@ -51,6 +64,7 @@ const MIRROR_OPERATION_IDS = [
   "contacts_mirror_upsert_channel",
   "contacts_mirror_upsert_contact",
   "contacts_mirror_delete_contact",
+  "contacts_mirror_apply",
 ] as const;
 
 describe("contact identity-mirror IPC-only methods", () => {
@@ -250,5 +264,59 @@ describe("contacts_mirror_delete_contact", () => {
     expect(() =>
       handleContactsMirrorDeleteContact({ body: {} }),
     ).toThrow();
+  });
+});
+
+describe("contacts_mirror_apply", () => {
+  test("dispatches each op to its matching single-row primitive, in order", () => {
+    upsertContactCalls.length = 0;
+    upsertContactChannelCalls.length = 0;
+    deleteContactCalls.length = 0;
+
+    const result = handleContactsMirrorApply({
+      body: {
+        ops: [
+          { op: "upsert_contact", contactId: "co-1", displayName: "One" },
+          {
+            op: "upsert_channel",
+            contactId: "co-1",
+            type: "telegram",
+            address: "tg-1",
+            isPrimary: true,
+          },
+          { op: "delete_contact", contactId: "co-old" },
+        ],
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    // Each op reuses the exact single-row primitive semantics.
+    expect(upsertContactCalls).toHaveLength(1);
+    expect(upsertContactCalls[0]).toEqual({
+      id: "co-1",
+      displayName: "One",
+      contactType: undefined,
+      notes: undefined,
+      userFile: null,
+    });
+    expect(upsertContactChannelCalls).toHaveLength(1);
+    const chCall = upsertContactChannelCalls[0] as Record<string, unknown>;
+    expect(chCall.contactId).toBe("co-1");
+    // isPrimary threads through so the guardian mirror keeps its primary flag.
+    expect(chCall.isPrimary).toBe(true);
+    expect(chCall.userFileOnCreate).toBe(null);
+    expect(deleteContactCalls).toEqual(["co-old"]);
+  });
+
+  test("rejects an unknown op discriminator", () => {
+    expect(() =>
+      handleContactsMirrorApply({
+        body: { ops: [{ op: "nope", contactId: "co-1" }] },
+      }),
+    ).toThrow();
+  });
+
+  test("rejects an empty ops array", () => {
+    expect(() => handleContactsMirrorApply({ body: { ops: [] } })).toThrow();
   });
 });

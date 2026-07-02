@@ -52,6 +52,10 @@ export function upsertContactChannel(params: {
    *  Defaults to `!!contactId` to preserve the invite-binding callers that
    *  don't set it explicitly. */
   reassignConflictingChannels?: boolean;
+  /** Mark the channel primary. Omit to leave an existing channel's flag intact
+   *  and default a new channel to non-primary; the guardian-bootstrap mirror
+   *  passes true so the guardian's sole channel stays primary. */
+  isPrimary?: boolean;
 }): ContactWriteResult | null {
   let address: string;
 
@@ -92,6 +96,7 @@ export function upsertContactChannel(params: {
         // external_chat_id (COALESCE semantics); a new channel still defaults
         // to null. An explicit value overwrites.
         externalChatId: params.externalChatId,
+        isPrimary: params.isPrimary,
       },
     ],
     // Reassign a conflicting channel from another contact only when the caller
