@@ -49,8 +49,10 @@ import { createDecision } from "./decisions-store.js";
 import {
   buildGuardianRequestCodeInstruction,
   hasGuardianRequestCodeInstruction,
+  parseInteractiveApprovalPayload,
   resolveGuardianQuestionInstructionMode,
   stripConflictingGuardianRequestInstructions,
+  stripGuardianRequestCodeInstructions,
 } from "./guardian-question-mode.js";
 import { nonEmpty, readPayloadString } from "./notification-utils.js";
 import { getPreferenceSummary } from "./preference-summary.js";
@@ -145,6 +147,7 @@ function buildSystemPrompt(
     `  - Avoid meta-send phrasing (e.g. "I'd like to send a notification", "May I go ahead with that?"). Write the recipient-facing message directly.`,
     `  - Avoid intermediary-instruction phrasing like "consider telling the guardian", "ask the recipient to", or "the assistant should remind them". Rewrite it as final copy the recipient can act on directly.`,
     `  - For telegram: 1-2 concise sentences.`,
+    `  - For slack approval requests: the message renders inside an interactive card with Approve/Reject buttons. Describe only what needs approval — never include approval/reference codes, code-reply instructions, or directions to respond in another app.`,
     `- \`conversationSeedMessage\` is the opening message in the internal notification conversation and also the expanded detail shown in the home feed. It should be richer and more contextual than the popup body.`,
     `  - For vellum (desktop): use structured markdown for readability. Break content into bullet points, numbered lists, or short sections with **bold** labels. Avoid long unbroken paragraphs — scan-friendly formatting is preferred.`,
     `  - Never dump raw JSON. Include only human-readable context.`,
@@ -595,9 +598,42 @@ function ensureGuardianRequestCodeInCopy(
 }
 
 /**
+ * Remove request-code reply instructions from copy for a channel whose
+ * approval UI makes them redundant. Instruction-only fields keep their
+ * original text rather than becoming empty — downstream treats an empty
+ * body as missing copy.
+ */
+function stripGuardianRequestCodeInCopy(
+  copy: RenderedChannelCopy,
+  requestCode: string,
+): RenderedChannelCopy {
+  const strip = (text: string): string => {
+    const stripped = stripGuardianRequestCodeInstructions(text, requestCode);
+    return stripped.length > 0 ? stripped : text;
+  };
+
+  return {
+    ...copy,
+    body: strip(copy.body),
+    deliveryText: copy.deliveryText
+      ? strip(copy.deliveryText)
+      : copy.deliveryText,
+    conversationSeedMessage: copy.conversationSeedMessage
+      ? strip(copy.conversationSeedMessage)
+      : copy.conversationSeedMessage,
+  };
+}
+
+/**
  * Guardian questions that share a conversation require explicit request-code
  * targeting. Enforce request-code instructions in rendered copy so guardians
  * can always disambiguate replies even when model copy omits them.
+ *
+ * Slack is the exception for approval-mode questions: the Slack adapter
+ * renders those as an interactive card with Approve/Reject buttons (see
+ * `resolveApprovalContext` in broadcaster.ts, gated on the same
+ * `parseInteractiveApprovalPayload`), so code-reply instructions are
+ * redundant noise there and are stripped instead of enforced in.
  */
 function enforceGuardianRequestCode(
   decision: NotificationDecision,
@@ -615,6 +651,8 @@ function enforceGuardianRequestCode(
   const modeResolution = resolveGuardianQuestionInstructionMode(
     signal.contextPayload,
   );
+  const slackRendersApprovalButtons =
+    parseInteractiveApprovalPayload(signal.contextPayload) != null;
   const nextCopy: Partial<Record<NotificationChannel, RenderedChannelCopy>> = {
     ...decision.renderedCopy,
   };
@@ -624,11 +662,14 @@ function enforceGuardianRequestCode(
     if (!copy) {
       continue;
     }
-    nextCopy[channel] = ensureGuardianRequestCodeInCopy(
-      copy,
-      requestCode,
-      modeResolution.mode,
-    );
+    nextCopy[channel] =
+      channel === "slack" && slackRendersApprovalButtons
+        ? stripGuardianRequestCodeInCopy(copy, requestCode)
+        : ensureGuardianRequestCodeInCopy(
+            copy,
+            requestCode,
+            modeResolution.mode,
+          );
   }
 
   return {
