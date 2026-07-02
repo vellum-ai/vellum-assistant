@@ -12,8 +12,6 @@ import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { notifyContactsChanged } from "./notify-contacts-changed.js";
 import type {
   AssistantContactMetadata,
-  ChannelPolicy,
-  ChannelStatus,
   Contact,
   ContactChannel,
   ContactRole,
@@ -158,12 +156,6 @@ interface SyncChannelData {
   address: string;
   isPrimary?: boolean;
   externalChatId?: string | null;
-  status?: ChannelStatus;
-  policy?: ChannelPolicy;
-  verifiedAt?: number | null;
-  verifiedVia?: string | null;
-  revokedReason?: string | null;
-  blockedReason?: string | null;
 }
 
 // ── CRUD ─────────────────────────────────────────────────────────────

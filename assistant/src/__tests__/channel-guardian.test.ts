@@ -152,7 +152,6 @@ import {
   getPendingSession,
   isGuardian,
   resolveBootstrapToken,
-  revokeBinding as serviceRevokeBinding,
   updateSessionStatus as serviceUpdateSessionStatus,
   validateAndConsumeVerification,
 } from "../runtime/channel-verification-service.js";
@@ -607,9 +606,8 @@ describe("guardian identity check", () => {
       guardianDeliveryChatId: "chat-42",
     });
 
-    // The revoke is gateway-owned; serviceRevokeBinding's local teardown is a
-    // no-op shim. Stamp the local downgrade and assert the read reflects it.
-    serviceRevokeBinding("asst-1", "telegram");
+    // The revoke is gateway-owned. Stamp the local downgrade and assert the
+    // read reflects it.
     revokeGuardianChannelLocally("telegram");
     expect(await getGuardianBinding("asst-1", "telegram")).toBeNull();
   });
@@ -1478,9 +1476,8 @@ describe("voice guardian identity and revocation", () => {
       guardianDeliveryChatId: "voice-chat-1",
     });
 
-    // The revoke is gateway-owned; serviceRevokeBinding's local teardown is a
-    // no-op shim. Stamp the local downgrade and assert the read reflects it.
-    serviceRevokeBinding("asst-1", "phone");
+    // The revoke is gateway-owned. Stamp the local downgrade and assert the
+    // read reflects it.
     revokeGuardianChannelLocally("phone");
     expect(await getGuardianBinding("asst-1", "phone")).toBeNull();
   });
