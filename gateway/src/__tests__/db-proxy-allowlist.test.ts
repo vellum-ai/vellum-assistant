@@ -67,7 +67,8 @@ function relPosix(file: string): string {
 // A static/dynamic import of the proxy module, or a direct db_proxy IPC call.
 const IMPORTS_PROXY =
   /(?:from|import)\s*\(?\s*["'][^"']*assistant-db-proxy(?:\.js)?["']/;
-const CALLS_DB_PROXY = /ipcCallAssistant\(\s*["']db_proxy["']/;
+// Matches both raw-SQL bridge methods: `db_proxy` and `db_proxy_transaction`.
+const CALLS_DB_PROXY = /ipcCallAssistant\(\s*["']db_proxy(?:_transaction)?["']/;
 
 /** True if `src` reaches the assistant-DB proxy (import or direct IPC call). */
 function usesDbProxy(src: string): boolean {
@@ -99,6 +100,10 @@ describe("db_proxy caller allowlist guard", () => {
     expect(usesDbProxy(`await ipcCallAssistant("db_proxy", { sql });`)).toBe(
       true,
     );
+    // The transaction variant of the same raw-SQL bridge is also caught.
+    expect(
+      usesDbProxy(`await ipcCallAssistant("db_proxy_transaction", { steps });`),
+    ).toBe(true);
     // Unrelated IPC methods and identifiers must NOT match.
     expect(
       usesDbProxy(`await ipcCallAssistant("contacts_mirror_upsert_channel", {});`),
