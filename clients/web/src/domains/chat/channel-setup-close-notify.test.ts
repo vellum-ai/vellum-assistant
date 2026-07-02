@@ -128,7 +128,10 @@ describe("notifyChannelSetupClosed", () => {
     expect(postCalls).toHaveLength(0);
   });
 
-  test("signals the turn store to expect a reply on an immediate send to the active conversation", async () => {
+  test("never starts a local turn — turn state is SSE-driven for this path", async () => {
+    // No per-send recovery exists here (no poll fallback, no reconciliation
+    // kick), so an optimistic "thinking" could strand the UI on an SSE drop.
+    // The daemon's turn events move the turn store out of idle on their own.
     useConversationStore.getState().setActiveConversationId("c1");
 
     await notifyChannelSetupClosed({
@@ -138,14 +141,11 @@ describe("notifyChannelSetupClosed", () => {
       conversationId: "c1",
     });
 
-    expect(useTurnStore.getState().phase).toBe("thinking");
+    expect(postCalls).toHaveLength(1);
+    expect(useTurnStore.getState().phase).toBe("idle");
   });
 
-  test("does not start a local turn when the user switched to another conversation", async () => {
-    // The marker still goes to the originating conversation, but the
-    // singleton turn store belongs to the on-screen chat — starting a turn
-    // there would strand it in "thinking" (its SSE filter drops the
-    // originating conversation's completion events).
+  test("still targets the originating conversation after the user switched chats", async () => {
     useConversationStore.getState().setActiveConversationId("c-other");
 
     await notifyChannelSetupClosed({
@@ -159,7 +159,7 @@ describe("notifyChannelSetupClosed", () => {
     expect(
       postCalls[0]?.body.conversationId ?? postCalls[0]?.body.conversationKey,
     ).toBe("c1");
-    expect(useTurnStore.getState().phase).not.toBe("thinking");
+    expect(useTurnStore.getState().phase).toBe("idle");
   });
 
   test("does not start a turn for a queued send (the in-flight turn's SSE drives it)", async () => {

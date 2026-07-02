@@ -14,7 +14,6 @@
  */
 
 import { postChatMessage } from "@/domains/chat/api/messages";
-import { useTurnStore } from "@/domains/chat/turn-store";
 import { captureError } from "@/lib/sentry/capture-error";
 import { useConversationStore } from "@/stores/conversation-store";
 import type { ChannelSetupPayload } from "@/stores/viewer-store";
@@ -62,20 +61,14 @@ export async function notifyChannelSetupClosed(
         ),
         { context: "channel_setup_close_notify" },
       );
-      return;
     }
-    // Only an immediately-processed message starts a turn now; a queued one
-    // is dequeued behind the in-flight turn, whose SSE events already drive
-    // the turn store. The turn store is a singleton scoped to the on-screen
-    // conversation, so also require the notified conversation to be the
-    // active one — if the user switched chats while the drawer was open, the
-    // active chat's SSE filter would drop the originating conversation's
-    // completion events and leave it stuck in "thinking".
-    const activeConversationId =
-      useConversationStore.getState().activeConversationId;
-    if (!result.queued && result.conversationId === activeConversationId) {
-      useTurnStore.getState().requestSend();
-    }
+    // Deliberately no local turn-store transition: this path has no
+    // per-send recovery (no poll fallback, no reconciliation kick), so an
+    // optimistic "thinking" set here could strand the UI if SSE drops in
+    // the send window. The reply is delivered like any daemon-initiated
+    // turn — the SSE `assistant_turn_start`/delta events move the turn
+    // store out of idle on their own, and the global reopen/watchdog
+    // reconcile machinery owns catch-up after a dropped stream.
   } catch (err) {
     captureError(err, { context: "channel_setup_close_notify" });
   }

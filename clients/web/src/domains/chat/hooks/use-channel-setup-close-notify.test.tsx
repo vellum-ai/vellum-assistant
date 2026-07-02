@@ -75,6 +75,30 @@ describe("useChannelSetupCloseNotify", () => {
     expect(notifyCalls).toHaveLength(0);
   });
 
+  test("treats another panel replacing the drawer as a close", () => {
+    // openToolDetail changes mainView but leaves activeChannelSetup set, and
+    // resolveViewBefore collapses overlay views so the wizard never returns —
+    // the drawer is gone for good and the assistant must still be notified.
+    render(<Harness />);
+
+    act(() => {
+      useViewerStore.getState().openChannelSetup(PAYLOAD);
+    });
+    act(() => {
+      useViewerStore.getState().openToolDetail({
+        toolCallId: "t1",
+        toolName: "bash",
+        title: "Running command",
+        activity: "",
+        input: {},
+        status: "completed",
+      });
+    });
+
+    expect(notifyCalls).toHaveLength(1);
+    expect(notifyCalls[0]).toEqual(PAYLOAD);
+  });
+
   test("fires again on a re-open → re-close cycle", () => {
     render(<Harness />);
 
