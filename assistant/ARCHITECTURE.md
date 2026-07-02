@@ -455,11 +455,12 @@ A complementary access-granting flow where the guardian proactively creates a sh
 │    • extractInboundToken(payload) → token | undefined        │
 │  Registered: Telegram  │  Deferred: Slack, Voice             │
 ├─────────────────────────────────────────────────────────────┤
-│  Core Redemption Engine (invite-redemption-service.ts)       │
-│  Channel-agnostic token validation, expiry, use-count,       │
-│  channel-match enforcement, contact activation/reactivation  │
+│  Core Redemption Engine (gateway-native)                     │
+│  gateway/src/verification/invite-redemption.ts               │
+│  Token/code validation, expiry, use-count, channel-match     │
+│  enforcement, atomic claim, gateway ACL activation           │
 │  Returns: InviteRedemptionOutcome (discriminated union)      │
-│  Reply templates: invite-redemption-templates.ts             │
+│  Daemon mirrors contact info via the invite_redeemed event   │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -470,13 +471,13 @@ A complementary access-granting flow where the guardian proactively creates a sh
 3. The skill calls the ingress HTTP API to create an invite token, then calls the Telegram transport adapter to build a deep link: `https://t.me/<bot>?start=iv_<token>`.
 4. Guardian shares the link with the invitee out-of-band.
 5. Invitee clicks the link, opening Telegram which sends `/start iv_<token>` to the bot.
-6. The gateway forwards the message to `/channels/inbound`. The inbound handler calls `getInviteAdapterRegistry().get('telegram').extractInboundToken()` to parse the `iv_` token.
-7. The token is redeemed via `invite-redemption-service.ts`, which validates, activates the contact, and returns a `redeemed` outcome.
+6. The gateway intercepts the `/start iv_<token>` message at ingress (before any daemon forwarding) and redeems the token against its canonical `ingress_invites` row.
+7. The gateway's redemption engine validates, activates the channel in the gateway ACL, and notifies the daemon (`invite_redeemed`) to mirror the contact info locally.
 8. A deterministic welcome message is delivered to the invitee (bypasses the LLM pipeline).
 
 **Token prefix convention:** The `iv_` prefix distinguishes invite tokens from `gv_` (guardian verification) tokens. Both use the same Telegram `/start` deep-link mechanism but are routed to different handlers.
 
-**Inbound intercept points:** Invite token extraction runs early in the inbound handler, before ACL denial, so valid invites short-circuit the contact check. Two intercept branches handle: (a) unknown contacts — the invite creates their first contact record; (b) inactive contacts (revoked/pending) — the invite reactivates them.
+**Inbound intercept points:** Invite token/code extraction runs at gateway ingress for non-member senders, before ACL denial, so valid invites short-circuit the contact check. The engine handles: (a) unknown contacts — the invite creates their first channel record; (b) inactive contacts (revoked) — the invite reactivates them; blocked channels are never reactivated.
 
 **Channel adapter status:**
 
@@ -502,7 +503,7 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 1. Unknown caller dials in. `relay-server.ts` resolves trust via `resolveActorTrust`. Caller is `unknown`, no pending guardian challenge.
 2. The relay checks `findActiveVoiceInvites` for invites bound to the caller's phone number.
 3. If active, non-expired invites exist, the relay enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
-4. `redeemVoiceInviteCode` validates: identity match, code hash match, expiry, use count. On success, the contact is activated and the call transitions to the normal call flow.
+4. The gateway's `redeem_voice_invite` engine validates: identity match, code hash match, expiry, use count. On success, the phone channel is activated in the gateway ACL and the call transitions to the normal call flow.
 5. On invalid/expired code, the caller hears deterministic failure copy: `Sorry, the code you provided is incorrect or has since expired. Please ask <guardian-name> for a new code. Goodbye.` and the call ends immediately.
 
 **Security invariants:**
@@ -516,8 +517,7 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 
 | File                                                | Purpose                                                                                                            |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `src/runtime/invite-redemption-service.ts`          | Core redemption engine — token validation, voice code redemption, contact activation, discriminated-union outcomes |
-| `src/runtime/invite-redemption-templates.ts`        | Deterministic reply templates for each redemption outcome                                                          |
+| `gateway/src/verification/invite-redemption.ts` (gateway) | Core redemption engine — token/code validation, atomic claim, ACL activation, discriminated-union outcomes  |
 | `src/runtime/channel-invite-transport.ts`           | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface                           |
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                        |
 | `src/runtime/channel-invite-transports/voice.ts`    | Voice transport adapter — code-based redemption metadata                                                           |

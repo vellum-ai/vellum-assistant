@@ -63,26 +63,10 @@ mock.module("../runtime/approval-message-composer.js", () => ({
   composeApprovalMessageGenerative: async () => "mock generative message",
 }));
 
-// Spy on the redemption service: the inbound text path must never attempt a
-// local redemption (interception happens at gateway ingress). The redemption
-// service is the only remaining invite-store lookup path on inbound text, so
-// zero calls here also proves no invite-store lookup occurred.
-const redemptionCalls: Array<{ fn: string }> = [];
-mock.module("../runtime/invite-redemption-service.js", () => ({
-  redeemInvite: async () => {
-    redemptionCalls.push({ fn: "redeemInvite" });
-    return { ok: false, reason: "invalid_token" };
-  },
-  redeemInviteByCode: async () => {
-    redemptionCalls.push({ fn: "redeemInviteByCode" });
-    return { ok: false, reason: "invalid_token" };
-  },
-  redeemVoiceInviteCode: async () => {
-    redemptionCalls.push({ fn: "redeemVoiceInviteCode" });
-    return { ok: false, reason: "invalid_code" };
-  },
-  resolveMemberGateStatus: async () => null,
-}));
+// There is no daemon-side redemption service to spy on — the daemon has no
+// local redemption code path at all (redemption is gateway-native). These
+// tests pin the observable behavior instead: the sender never becomes a
+// member and the invite row is never consumed.
 
 // Stub the gateway IPC so ACL reads resolve deterministically without a
 // running gateway socket.
@@ -128,7 +112,6 @@ function resetState(): void {
   db.run("DELETE FROM contacts");
   resetGatewayAclStore();
   deliverReplyCalls.length = 0;
-  redemptionCalls.length = 0;
   msgCounter = 0;
 }
 
@@ -200,9 +183,6 @@ describe("inbound invite messages — no daemon-side interception", () => {
     expect(json.inviteRedemption).toBeUndefined();
     expect(json.memberId).toBeUndefined();
 
-    // No local redemption attempt (and therefore no invite-store lookup).
-    expect(redemptionCalls.length).toBe(0);
-
     // The sender was NOT made a member and the invite was not consumed.
     expect(
       findContactChannel({
@@ -242,8 +222,7 @@ describe("inbound invite messages — no daemon-side interception", () => {
     expect(json.reason).toBe("not_a_member");
     expect(json.inviteRedemption).toBeUndefined();
 
-    // No local redemption attempt, no membership granted, invite untouched.
-    expect(redemptionCalls.length).toBe(0);
+    // No membership granted, invite untouched.
     expect(
       findContactChannel({
         channelType: "telegram",
@@ -267,7 +246,6 @@ describe("inbound invite messages — no daemon-side interception", () => {
 
     expect(json.denied).toBe(true);
     expect(json.reason).toBe("not_a_member");
-    expect(redemptionCalls.length).toBe(0);
   });
 
   test("existing active member sending a normal message is unaffected", async () => {
@@ -289,7 +267,6 @@ describe("inbound invite messages — no daemon-side interception", () => {
 
     expect(json.accepted).toBe(true);
     expect(json.denied).toBeUndefined();
-    expect(redemptionCalls.length).toBe(0);
   });
 
   test("active member sending a bare 6-digit message is processed as a normal message", async () => {
@@ -320,6 +297,5 @@ describe("inbound invite messages — no daemon-side interception", () => {
     expect(json.accepted).toBe(true);
     expect(json.denied).toBeUndefined();
     expect(json.inviteRedemption).toBeUndefined();
-    expect(redemptionCalls.length).toBe(0);
   });
 });

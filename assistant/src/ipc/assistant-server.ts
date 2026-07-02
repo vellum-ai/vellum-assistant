@@ -205,8 +205,8 @@ export class AssistantIpcServer {
     );
 
     // IPC-only invite methods (see ipc/routes/invite-ipc-routes.ts). The
-    // gateway calls these back over IPC to mint tokens / redeem voice + token
-    // invites (assistant-owned secrets). No HTTP surface; never in ROUTES.
+    // gateway calls these back over IPC to mirror redeemed-invite contact
+    // info locally. No HTTP surface; never in ROUTES.
     for (const [operationId, handler] of Object.entries(INVITE_IPC_METHODS)) {
       this.methods.set(operationId, handler);
     }

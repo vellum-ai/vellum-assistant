@@ -40,39 +40,28 @@ mock.module("../calls/call-domain.js", () => ({
   },
 }));
 
-// Model the gateway: the redemption claim (record_invite_redemption) and the
-// gateway-owned activation (upsert_verified_channel) are both relayed. The
-// activation write fails closed in production, so the mock must serve a
-// verified upsert for the legitimate-success redemption paths.
-const gatewayIpc = {
-  claim: { ok: true, updated: true, mirrored: true },
-  activationVerified: true,
-};
+// Model the gateway `invites_redeem` IPC: the daemon redeem route is a thin
+// relay (the gateway redemption engine owns validation, the atomic claim,
+// and the ACL write), so the mock captures the relayed params and serves a
+// scripted gateway response or a scripted relay failure.
+import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
+
+const redeemRelay: {
+  calls: Array<Record<string, unknown> | undefined>;
+  result: unknown;
+  error: Error | null;
+} = { calls: [], result: undefined, error: null };
 mock.module("../ipc/gateway-client.js", () => ({
   ipcCallPersistent: async (
     method: string,
     params?: Record<string, unknown>,
   ) => {
-    if (method === "record_invite_redemption") {
-      return gatewayIpc.claim;
-    }
-    if (method === "upsert_verified_channel") {
-      if (!gatewayIpc.activationVerified) {
-        return { ok: true, verified: false };
+    if (method === "invites_redeem") {
+      redeemRelay.calls.push(params);
+      if (redeemRelay.error) {
+        throw redeemRelay.error;
       }
-      return {
-        ok: true,
-        verified: true,
-        channel: {
-          id: "gw-channel-id",
-          contactId: (params?.contactId as string) ?? "gw-contact",
-          type: (params?.type as string) ?? "telegram",
-          address: (params?.address as string) ?? "gw-addr",
-          status: "active",
-          verifiedAt: 1,
-          verifiedVia: (params?.verifiedVia as string) ?? "invite",
-        },
-      };
+      return redeemRelay.result;
     }
     return undefined;
   },
@@ -81,7 +70,11 @@ mock.module("../ipc/gateway-client.js", () => ({
 import { upsertContact } from "../contacts/contact-store.js";
 import { getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { createInvite, revokeInvite } from "../persistence/invite-store.js";
+import {
+  createInvite,
+  findById,
+  revokeInvite,
+} from "../persistence/invite-store.js";
 import {
   composeInvitePresentation,
   triggerInviteCall,
@@ -91,12 +84,13 @@ import { RouteError } from "../runtime/routes/errors.js";
 import { generateVoiceCode, hashVoiceCode } from "../util/voice-code.js";
 
 /**
- * Invite create/list/revoke are gateway-native (the daemon route handlers
- * relay — see invite-relay-routes.test.ts; the gateway mint is exercised in
- * gateway/src/__tests__/contacts-control-plane-proxy.test.ts). What stays
- * daemon-local — token/voice redemption against the local invite table, the
- * outbound call trigger, and the presentation composition layered onto the
- * gateway's create payload — is exercised here.
+ * Invite create/list/revoke/redeem are gateway-native (the daemon route
+ * handlers relay; the gateway engine is exercised in
+ * gateway/src/__tests__/invite-redemption-engine*.test.ts and the gateway
+ * handlers in contacts-control-plane-proxy.test.ts +
+ * ipc-invite-routes.test.ts). What stays daemon-local — the redeem relay
+ * dispatch, the outbound call trigger, and the presentation composition
+ * layered onto the gateway's create payload — is exercised here.
  */
 function fakeResponse(body: unknown, status = 200) {
   return { status, json: async () => body };
@@ -134,7 +128,7 @@ function createTargetContact(displayName = "Test Contact"): string {
   return upsertContact({ displayName, role: "contact" }).id;
 }
 
-/** Seed a local voice invite row (redemption still reads the local table). */
+/** Seed a local voice invite row (legacy mirror data — never read on redeem). */
 function seedVoiceInvite(
   callerPhone = "+15551234567",
   opts: { contactId?: string; maxUses?: number } = {},
@@ -157,25 +151,34 @@ function resetTables() {
   getSqlite().run("DELETE FROM contacts");
 }
 
+function resetRedeemRelay() {
+  redeemRelay.calls.length = 0;
+  redeemRelay.result = undefined;
+  redeemRelay.error = null;
+}
+
 // ---------------------------------------------------------------------------
-// Token redemption (daemon-local)
+// Redeem relay (gateway-native redemption behind the daemon route)
 // ---------------------------------------------------------------------------
 
-describe("ingress invite redemption routes", () => {
-  beforeEach(resetTables);
+describe("invite redeem relay routes", () => {
+  beforeEach(() => {
+    resetTables();
+    resetRedeemRelay();
+  });
 
-  test("POST /v1/contacts/invites/redeem — redeems an invite", async () => {
-    const { rawToken } = createInvite({
-      sourceChannel: "telegram",
-      contactId: createTargetContact(),
-      maxUses: 1,
-    });
+  test("POST /v1/contacts/invites/redeem — token body relays to the gateway and returns its payload", async () => {
+    redeemRelay.result = {
+      ok: true,
+      invite: { id: "inv-gw-1", status: "redeemed", useCount: 1 },
+      type: "redeemed",
+    };
 
     const req = new Request("http://localhost/v1/contacts/invites/redeem", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        token: rawToken,
+        token: "raw-token-1",
         externalUserId: "redeemer-1",
         sourceChannel: "telegram",
       }),
@@ -186,13 +189,95 @@ describe("ingress invite redemption routes", () => {
 
     expect(res.status).toBe(200);
     expect(body.ok).toBe(true);
-    const invite = body.invite as Record<string, unknown>;
-    expect(invite.useCount).toBe(1);
-    // Single-use invite should be fully redeemed
-    expect(invite.status).toBe("redeemed");
+    expect((body.invite as Record<string, unknown>).id).toBe("inv-gw-1");
+    expect(body.type).toBe("redeemed");
+    // The relay forwarded the token fields (and nothing voice-shaped).
+    expect(redeemRelay.calls).toEqual([
+      {
+        token: "raw-token-1",
+        sourceChannel: "telegram",
+        externalUserId: "redeemer-1",
+      },
+    ]);
   });
 
-  test("POST /v1/contacts/invites/redeem — missing token returns 400", async () => {
+  test("POST /v1/contacts/invites/redeem — voice body relays code + caller and returns the voice shape", async () => {
+    redeemRelay.result = {
+      ok: true,
+      type: "redeemed",
+      memberId: "ct-target",
+      inviteId: "inv-gw-2",
+    };
+    const code = generateVoiceCode(6);
+
+    const req = new Request("http://localhost/v1/contacts/invites/redeem", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callerExternalUserId: "+15551234567", code }),
+    });
+
+    const res = await handleRedeemInvite(req);
+    const body = (await res.json()) as Record<string, unknown>;
+
+    expect(res.status).toBe(200);
+    expect(body).toEqual({
+      ok: true,
+      type: "redeemed",
+      memberId: "ct-target",
+      inviteId: "inv-gw-2",
+    });
+    expect(redeemRelay.calls).toEqual([
+      { code, callerExternalUserId: "+15551234567" },
+    ]);
+  });
+
+  test("POST /v1/contacts/invites/redeem — gateway 400 (engine reason) surfaces as 400", async () => {
+    redeemRelay.error = new IpcCallError("invalid_or_expired", {
+      statusCode: 400,
+      errorCode: "BAD_REQUEST",
+    });
+
+    const req = new Request("http://localhost/v1/contacts/invites/redeem", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        callerExternalUserId: "+15551234567",
+        code: "000000",
+      }),
+    });
+
+    const res = await handleRedeemInvite(req);
+    const body = (await res.json()) as { ok: boolean; error: string };
+
+    expect(res.status).toBe(400);
+    expect(body.ok).toBe(false);
+    expect(body.error).toBe("invalid_or_expired");
+  });
+
+  test("POST /v1/contacts/invites/redeem — gateway unreachable fails CLOSED (500, no local redemption)", async () => {
+    // A live local invite row exists, but the daemon never reads it — the
+    // gateway is the single redemption authority.
+    const { invite, code } = seedVoiceInvite("+15551234567");
+    redeemRelay.error = new IpcCallError("gateway unreachable");
+
+    const req = new Request("http://localhost/v1/contacts/invites/redeem", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ callerExternalUserId: "+15551234567", code }),
+    });
+
+    const res = await handleRedeemInvite(req);
+    expect(res.status).toBe(500);
+    // Fail-closed: the local invite row was never consumed.
+    expect(findById(invite.id)!.useCount).toBe(0);
+  });
+
+  test("POST /v1/contacts/invites/redeem — missing token returns 400 without relaying", async () => {
+    redeemRelay.error = new IpcCallError("token is required", {
+      statusCode: 400,
+      errorCode: "BAD_REQUEST",
+    });
+
     const req = new Request("http://localhost/v1/contacts/invites/redeem", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -202,23 +287,28 @@ describe("ingress invite redemption routes", () => {
     const res = await handleRedeemInvite(req);
     const body = (await res.json()) as { ok: boolean; error: string };
 
+    // No `code` and no `token` → token path; the gateway's shared validation
+    // rejects with a 400 the relay surfaces verbatim.
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
     expect(body.error).toContain("token");
   });
 
-  test("POST /v1/contacts/invites/redeem — invalid token returns 400", async () => {
+  test("POST /v1/contacts/invites/redeem — voice code without caller identity is rejected daemon-side", async () => {
     const req = new Request("http://localhost/v1/contacts/invites/redeem", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: "invalid-token" }),
+      body: JSON.stringify({ code: "123456" }),
     });
 
     const res = await handleRedeemInvite(req);
-    const body = (await res.json()) as Record<string, unknown>;
+    const body = (await res.json()) as { ok: boolean; error: string };
 
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
+    expect(body.error).toContain("callerExternalUserId");
+    // Rejected before any gateway round-trip.
+    expect(redeemRelay.calls.length).toBe(0);
   });
 
   test("create + revoke round-trip against the local store", async () => {
@@ -231,74 +321,6 @@ describe("ingress invite redemption routes", () => {
     const revoked = revokeInvite(invite.id);
     expect(revoked?.status).toBe("revoked");
     expect(revoked?.id).toBe(invite.id);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Voice invite redemption (daemon-local)
-// ---------------------------------------------------------------------------
-
-describe("voice invite redemption routes", () => {
-  beforeEach(resetTables);
-
-  test("POST /v1/contacts/invites/redeem — redeems a voice invite code via unified endpoint", async () => {
-    const { code } = seedVoiceInvite("+15551234567");
-
-    // Redeem the voice code via the unified /redeem endpoint
-    const redeemReq = new Request(
-      "http://localhost/v1/contacts/invites/redeem",
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          callerExternalUserId: "+15551234567",
-          code,
-        }),
-      },
-    );
-
-    const res = await handleRedeemInvite(redeemReq);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(200);
-    expect(body.ok).toBe(true);
-    expect(body.type).toBe("redeemed");
-    expect(typeof body.memberId).toBe("string");
-    expect(typeof body.inviteId).toBe("string");
-  });
-
-  test("POST /v1/contacts/invites/redeem — voice code missing fields returns 400", async () => {
-    const req = new Request("http://localhost/v1/contacts/invites/redeem", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ callerExternalUserId: "+15551234567" }),
-    });
-
-    const res = await handleRedeemInvite(req);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    // No `code` and no `token` → falls through to token-based path which requires token
-    expect(res.status).toBe(400);
-    expect(body.ok).toBe(false);
-  });
-
-  test("POST /v1/contacts/invites/redeem — wrong voice code returns 400", async () => {
-    seedVoiceInvite("+15551234567");
-
-    const req = new Request("http://localhost/v1/contacts/invites/redeem", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        callerExternalUserId: "+15551234567",
-        code: "000000",
-      }),
-    });
-
-    const res = await handleRedeemInvite(req);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(res.status).toBe(400);
-    expect(body.ok).toBe(false);
   });
 });
 

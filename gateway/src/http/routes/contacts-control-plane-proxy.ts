@@ -41,13 +41,19 @@ import {
   ipcCallAssistant,
 } from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
-import { resolveInviteeName } from "../../verification/invite-redemption.js";
+import {
+  notifyDaemonInviteRedeemed,
+  redeemInviteByToken,
+  redeemVoiceInvite,
+  resolveInviteeName,
+} from "../../verification/invite-redemption.js";
 import {
   parseCreateInviteBody,
   parseListInviteQuery,
   parseRedeemInviteBody,
   type CreateInviteInput,
   type ListInviteQuery,
+  type RedeemInviteInput,
 } from "./invite-validation.js";
 
 const log = getLogger("contacts-control-plane-proxy");
@@ -362,6 +368,86 @@ export async function revokeInviteNative(
 
   log.info({ inviteId }, "revoke_invite: handled natively");
   return { invite: sanitizeInviteRow(invite) };
+}
+
+/**
+ * Redeem an invite natively through the gateway redemption engine
+ * (verification/invite-redemption.ts): validation, membership gate, atomic
+ * claim, and the verified-channel ACL upsert all run inside the gateway. A
+ * successful redemption fires the best-effort `invite_redeemed` daemon
+ * info-mirror event (`already_member` consumes nothing, so there is nothing
+ * to mirror).
+ *
+ * Returns the transport-agnostic redeem payload:
+ *   - voice: `{ ok, type, memberId, inviteId? }` (memberId = the invite's
+ *     target contact id; inviteId only on a real redeem)
+ *   - token: `{ ok, invite, type }` (the sanitized post-claim gateway row)
+ *
+ * Every engine failure throws InviteNativeError(400, BAD_REQUEST) whose
+ * message is the engine reason — voice collapses to the single generic
+ * `invalid_or_expired` so callers probing codes learn nothing.
+ */
+export async function redeemInviteNative(
+  input: RedeemInviteInput,
+): Promise<Record<string, unknown>> {
+  const store = new ContactStore();
+
+  if (input.kind === "voice") {
+    const result = await redeemVoiceInvite({
+      callerExternalUserId: input.callerExternalUserId,
+      code: input.code,
+      store,
+    });
+    if (result.status === "failed") {
+      throw new InviteNativeError(result.reason, 400, "BAD_REQUEST");
+    }
+    if (result.status === "redeemed") {
+      notifyDaemonInviteRedeemed(result.outcome);
+    }
+    log.info(
+      { inviteId: result.outcome.inviteId, type: result.status },
+      "redeem_invite(voice): handled natively",
+    );
+    return {
+      ok: true,
+      type: result.status,
+      memberId: result.outcome.contactId,
+      ...(result.status === "redeemed"
+        ? { inviteId: result.outcome.inviteId }
+        : {}),
+    };
+  }
+
+  const result = await redeemInviteByToken({
+    rawToken: input.token,
+    sourceChannel: input.sourceChannel,
+    externalUserId: input.externalUserId,
+    externalChatId: input.externalChatId,
+    store,
+  });
+  if (result.status === "no_match" || result.status === "failed") {
+    // Token hashes are globally unique so the engine never yields no_match
+    // for a token; treat it as the same definitive invalid invite.
+    const reason = result.status === "failed" ? result.reason : "invalid_token";
+    throw new InviteNativeError(reason, 400, "BAD_REQUEST");
+  }
+  if (result.status === "redeemed") {
+    notifyDaemonInviteRedeemed(result.outcome);
+  }
+
+  const row = store.getInviteById(result.outcome.inviteId);
+  if (!row) {
+    throw new InviteNativeError(
+      "Invite not found after redemption",
+      400,
+      "BAD_REQUEST",
+    );
+  }
+  log.info(
+    { inviteId: row.id, type: result.status },
+    "redeem_invite(token): handled natively",
+  );
+  return { ok: true, invite: sanitizeInviteRow(row), type: result.status };
 }
 
 /**
@@ -1470,10 +1556,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     // ── Invite routes (gateway-native) ──
     //
     // The gateway DB's ingress_invites is the source of truth for invite
-    // lifecycle and secrets: mint is fully gateway-native. Voice/token
-    // redemption and outbound calls still relay to the assistant over IPC.
-    // None of these handlers fall back to `forward` on error — mutations 500
-    // instead.
+    // lifecycle and secrets: mint and redemption are fully gateway-native.
+    // Outbound calls validate the gateway row then relay the provider call
+    // to the assistant. None of these handlers fall back to `forward` on
+    // error — mutations 500 instead.
 
     /**
      * GET /v1/contacts/invites — gateway-native invite list.
@@ -1535,10 +1621,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     /**
      * POST /v1/contacts/invites/redeem — gateway-native invite redeem.
      *
-     * Voice and token redemption relay to the assistant (it owns the
-     * identity-bound voice code path + token hash lookup); the gateway mirrors
-     * the canonical redemption into its own DB (best-effort) so the invite
-     * lifecycle stays consistent.
+     * Voice-code and token redemption both run through the gateway
+     * redemption engine directly (redeemInviteNative); no assistant
+     * round-trip. Engine failures surface as 400 BAD_REQUEST with the
+     * engine reason; anything else is a 500.
      */
     async handleRedeemInvite(req: Request): Promise<Response> {
       let body: unknown;
@@ -1558,72 +1644,14 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           { status: 400 },
         );
       }
-      const input = parsed.value;
 
-      // Thin relay: the assistant redemption service now owns the authoritative
-      // gateway claim (record_invite_redemption, by id, caller-scoped) for ALL
-      // paths — including this HTTP one, since it relays into the same assistant
-      // redeem handlers. Re-claiming here would double-count uses, so the gateway
-      // handler just parses, relays, and returns.
       try {
-        if (input.kind === "voice") {
-          const result = (await ipcCallAssistant("invites_redeem_voice", {
-            body: {
-              code: input.code,
-              callerExternalUserId: input.callerExternalUserId,
-              ...(input.assistantId ? { assistantId: input.assistantId } : {}),
-            },
-          } as unknown as Record<string, unknown>)) as {
-            type: string;
-            memberId?: string;
-            inviteId?: string;
-          };
-
-          log.info(
-            { type: result.type, inviteId: result.inviteId },
-            "redeem_invite(voice): relayed to assistant",
-          );
-          return Response.json({
-            ok: true,
-            type: result.type,
-            memberId: result.memberId,
-            ...(result.inviteId ? { inviteId: result.inviteId } : {}),
-          });
-        }
-
-        const result = (await ipcCallAssistant("invites_redeem_token", {
-          body: {
-            token: input.token,
-            sourceChannel: input.sourceChannel,
-            ...(input.externalUserId
-              ? { externalUserId: input.externalUserId }
-              : {}),
-            ...(input.externalChatId
-              ? { externalChatId: input.externalChatId }
-              : {}),
-          },
-        } as unknown as Record<string, unknown>)) as {
-          invite: { id: string };
-          type?: string;
-        };
-
-        log.info(
-          { inviteId: result.invite.id },
-          "redeem_invite(token): relayed to assistant",
-        );
-        return Response.json({
-          ok: true,
-          invite: result.invite,
-          ...(result.type ? { type: result.type } : {}),
-        });
+        return Response.json(await redeemInviteNative(parsed.value));
       } catch (err) {
-        if (err instanceof IpcHandlerError) {
-          return Response.json(
-            { error: { code: err.code, message: err.message } },
-            { status: err.statusCode },
-          );
+        if (err instanceof InviteNativeError) {
+          return inviteErrorResponse(err);
         }
-        log.error({ err }, "redeem_invite: relay failed");
+        log.error({ err }, "redeem_invite: native redemption failed");
         return Response.json(
           {
             error: {

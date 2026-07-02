@@ -257,6 +257,28 @@ describe("redeemInviteByCode", () => {
     expect(inviteRow(inviteId).status).toBe("active");
   });
 
+  test("active channel under a DIFFERENT contact is not already_member: redeems bound to the invite's target contact", async () => {
+    // The invite binds the sender to ITS target contact; an existing active
+    // membership under another contact (e.g. the guardian) must not short-
+    // circuit to already_member or block the redemption.
+    seedContact("c1");
+    seedContact("c2");
+    seedChannel({
+      id: "ch-1",
+      contactId: "c2",
+      address: "U_SENDER",
+      status: "active",
+    });
+    const inviteId = seedInvite(); // targets c1
+
+    const result = await redeemInviteByCode({ code: CODE, ...IDENTITY });
+
+    expect(result.status).toBe("redeemed");
+    if (result.status !== "redeemed") throw new Error("unreachable");
+    expect(result.outcome.contactId).toBe("c1");
+    expect(inviteRow(inviteId).useCount).toBe(1);
+  });
+
   test("blocked gateway channel is NEVER reactivated: generic failure, no use consumed", async () => {
     seedContact("c1");
     seedChannel({
