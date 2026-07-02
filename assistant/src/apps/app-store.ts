@@ -986,6 +986,7 @@ export function backfillAppConversationIds(): void {
 
   try {
     const rows = rawAll<{ conversation_id: string; content: string }>(
+      "apps:backfillConversationIds",
       `SELECT conversation_id, content FROM messages WHERE content LIKE '%"type":"ui_surface"%'`,
     );
 

@@ -16,6 +16,7 @@ import type {
   UserMessageEchoEvent,
 } from "@vellumai/assistant-api";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 
 /**
  * Resolve the conversation id for SSE handlers — events that carry it on
@@ -265,18 +266,68 @@ export function handleMessageComplete(
  * doesn't double-render it next to the now-persisted server row.
  *
  * The common path correlates on `clientMessageId` (the nonce the daemon echoes
- * back). When the echo carries no nonce — the field is optional and pre-
- * idempotency daemons omit it — there's no shared key for the overlay to
- * collapse on, so fall back to retiring the most recent optimistic user send,
- * mirroring the legacy echo correlation. A no-op for echoes with no matching
- * optimistic row (other clients' sends, synthetic prompts).
+ * back) and removes the optimistic copy — with one exception: a send that
+ * carries attachments is kept. The echo event has no attachment payload, so
+ * the snapshot row the reducer folds is text-only; the optimistic row holds
+ * the only copy of the user's previews (blob URLs for pasted images) until
+ * the turn-end reseed pulls the hydrated server row. The kept row is upgraded
+ * to the server id (so id-keyed actions resolve and the overlay collapses it
+ * onto the folded snapshot row) and its queue fields are cleared; the reseed's
+ * `pruneConfirmedOptimisticSends` retires it once the authoritative snapshot
+ * carries the persisted row with attachment data.
+ *
+ * Retiring the optimistic row is gated on the snapshot being seeded. The fold
+ * that materializes the echoed server row (`applyEnvelopeToSnapshot`, dispatched
+ * from the same `sse.event` in `use-event-stream`) is itself a no-op until the
+ * snapshot exists — so on the FIRST message of a freshly server-minted
+ * conversation, whose history hasn't loaded yet, retiring the optimistic row
+ * here would drop the only rendered copy and blank the message out until
+ * `seedSnapshot` lands (the staging first-message flicker). When the snapshot is
+ * unseeded we leave the optimistic row in place and let
+ * `pruneConfirmedOptimisticSends` retire it atomically on the reseed — the
+ * persisted row carries the same `clientMessageId`, so it matches there.
+ *
+ * When the echo carries no nonce — the field is optional and pre-idempotency
+ * daemons omit it — there's no shared key for the overlay to collapse on, so
+ * fall back to retiring the most recent optimistic user send, mirroring the
+ * legacy echo correlation. A no-op for echoes with no matching optimistic row
+ * (other clients' sends, synthetic prompts).
  */
 export function handleUserMessageEcho(
   event: UserMessageEchoEvent,
   ctx: StreamHandlerContext,
 ): void {
   if (event.clientMessageId) {
-    ctx.clearOptimisticSend(event.clientMessageId);
+    // No snapshot yet → the paired fold can't materialize this row, so retiring
+    // the overlay now would leave a render gap (the staging first-message
+    // flicker). Defer to the reseed's `pruneConfirmedOptimisticSends`, which
+    // matches the persisted row on this same `clientMessageId`.
+    if (!useChatSessionStore.getState().snapshot) {
+      return;
+    }
+    const nonce = event.clientMessageId;
+    const serverId = event.messageId;
+    ctx.setOptimisticSends((prev) => {
+      const idx = prev.findIndex((m) => m.clientMessageId === nonce);
+      if (idx === -1) {
+        return prev;
+      }
+      const row = prev[idx]!;
+      // A synthetic echo (no messageId) leaves nothing to upgrade to, and an
+      // attachment-less send has no preview to preserve — remove either.
+      if (serverId === undefined || !row.attachments?.length) {
+        return [...prev.slice(0, idx), ...prev.slice(idx + 1)];
+      }
+      const next = [...prev];
+      next[idx] = {
+        ...row,
+        id: serverId,
+        isOptimistic: false,
+        queueStatus: undefined,
+        queuePosition: undefined,
+      };
+      return next;
+    });
     return;
   }
   ctx.setOptimisticSends((prev) => {

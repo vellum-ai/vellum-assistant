@@ -92,6 +92,10 @@ export const canonicalGuardianRequests = sqliteTable(
     riskLevel: text("risk_level"),
     activityText: text("activity_text"),
     executionTarget: text("execution_target"),
+    // JSON-encoded RequesterIdentitySignals ({isBot,isStranger,isRestricted})
+    // captured at creation so decision-time policy reads the same identity
+    // facts the introduction card was rendered from.
+    requesterSignals: text("requester_signals"),
     status: text("status").notNull().default("pending"),
     answerText: text("answer_text"),
     decidedByExternalUserId: text("decided_by_external_user_id"),

@@ -57,6 +57,7 @@ export function upsertCheckpoint(
 export function countActiveMemoryNodes(scopeId: string): number {
   return (
     rawGet<{ c: number }>(
+      "starters:countActiveMemoryNodes",
       `SELECT COUNT(*) AS c FROM memory_graph_nodes WHERE fidelity != 'gone' AND scope_id = ?`,
       scopeId,
     )?.c ?? 0

@@ -1061,6 +1061,35 @@ describe("applyUserMessageEcho", () => {
     });
   });
 
+  it("stamps the nonce on the appended row when the echo carries one", () => {
+    /**
+     * On the originating client the optimistic row lives in the overlay, not
+     * the snapshot, so the echo appends a fresh snapshot row. That row must
+     * carry the nonce so it shares the persisted server row's identity keys —
+     * the transcript overlay collapses the retained optimistic copy onto it
+     * and the reseed prune correlates on the same keys.
+     */
+    // GIVEN a snapshot with no matching user row (the optimistic copy is in
+    // the overlay)
+    const prev: DisplayMessage[] = [makeAssistantMsg()];
+
+    // WHEN the echo arrives with a nonce and a server id
+    const result = applyUserMessageEcho(prev, {
+      text: "hello",
+      messageId: "msg-server-n",
+      clientMessageId: "nonce-n",
+    });
+
+    // THEN the appended row carries both identity keys
+    expect(result).toHaveLength(2);
+    expect(result[1]).toMatchObject({
+      id: "msg-server-n",
+      clientMessageId: "nonce-n",
+      role: "user",
+    });
+    expect(result[1]!.isOptimistic).toBeUndefined();
+  });
+
   it("appends an optimistic row for a synthetic echo with no messageId", () => {
     /**
      * Surface-action prompts persist no distinct user row, so the echo

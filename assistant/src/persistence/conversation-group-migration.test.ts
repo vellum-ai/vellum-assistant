@@ -36,16 +36,19 @@ describe("ensureGroupMigration — reflections cleanup", () => {
     `);
     try {
       rawRun(
+        "test:addGroupIdColumn",
         "ALTER TABLE conversations ADD COLUMN group_id TEXT REFERENCES conversation_groups(id) ON DELETE SET NULL",
       );
     } catch {
       // column already present — ok
     }
     rawRun(
+      "test:seedReflectionsGroup",
       "INSERT OR IGNORE INTO conversation_groups (id, name, sort_position, is_system_group) VALUES ('system:reflections', 'Reflections', 100, TRUE)",
     );
     const now = Math.floor(Date.now() / 1000);
     rawRun(
+      "test:seedLegacyConv",
       "INSERT INTO conversations (id, created_at, updated_at, group_id) VALUES (?, ?, ?, ?)",
       "legacy-refl-1",
       now,
@@ -58,6 +61,7 @@ describe("ensureGroupMigration — reflections cleanup", () => {
 
   test("moves legacy system:reflections conversations to system:background", () => {
     const legacy = rawGet<{ group_id: string | null }>(
+      "test:getLegacyGroupId",
       "SELECT group_id FROM conversations WHERE id = 'legacy-refl-1'",
     );
     expect(legacy?.group_id).toBe("system:background");
@@ -65,6 +69,7 @@ describe("ensureGroupMigration — reflections cleanup", () => {
 
   test("deletes the orphaned system:reflections group row", () => {
     const refl = rawGet<{ id: string }>(
+      "test:getReflectionsGroup",
       "SELECT id FROM conversation_groups WHERE id = 'system:reflections'",
     );
     expect(refl).toBeNull();
@@ -72,6 +77,7 @@ describe("ensureGroupMigration — reflections cleanup", () => {
 
   test("seeds the current system groups without system:reflections", () => {
     const systemIds = rawAll<{ id: string }>(
+      "test:listSystemGroups",
       "SELECT id FROM conversation_groups WHERE id LIKE 'system:%' ORDER BY id",
     ).map((r) => r.id);
     expect(systemIds).toEqual([
@@ -84,6 +90,7 @@ describe("ensureGroupMigration — reflections cleanup", () => {
 
   test("records the cleanup sentinel so the step is idempotent", () => {
     const sentinel = rawGet<{ id: string }>(
+      "test:getSentinel",
       "SELECT id FROM conversation_groups WHERE id = '_reflections_group_deleted_complete'",
     );
     expect(sentinel?.id).toBe("_reflections_group_deleted_complete");
@@ -92,6 +99,7 @@ describe("ensureGroupMigration — reflections cleanup", () => {
   test("re-running ensureGroupMigration does not recreate the stale group", () => {
     expect(() => ensureGroupMigration()).not.toThrow();
     const refl = rawGet<{ id: string }>(
+      "test:getReflectionsGroup",
       "SELECT id FROM conversation_groups WHERE id = 'system:reflections'",
     );
     expect(refl).toBeNull();

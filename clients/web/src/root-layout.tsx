@@ -9,6 +9,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useChannelSetupCloseNotify } from "@/domains/chat/hooks/use-channel-setup-close-notify";
 import {
   useAuthStore,
   useIsSessionInitializing,
@@ -112,6 +113,11 @@ export function RootLayout() {
     sessionStatus,
     hasPlatformSession,
   });
+  // Channel-setup close auto-notify watcher. Mounted at this always-mounted
+  // layer (not the chat layout) so a wizard-visibility transition triggered
+  // from any route — including setMainView("chat") calls made while the chat
+  // layout is unmounted — still sends the close signal.
+  useChannelSetupCloseNotify();
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantVersion = useAssistantIdentityStore.use.version();

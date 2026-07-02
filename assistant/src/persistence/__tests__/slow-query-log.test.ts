@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 
 import {
+  callerFromStack,
   SLOW_QUERY_THRESHOLD_MS,
   type SlowQueryEvent,
   wrapSqliteForSlowQueryLogging,
@@ -179,12 +180,87 @@ describe("slow-query-log", () => {
     expect(events).toHaveLength(2);
     expect(events[0].label).toBe("schedule::claimDue");
     expect(events[1].label).toBe("schedule::complete");
-    // Unlabeled queries carry no label field.
+    // A curated label suppresses the auto-derived caller.
+    expect(events[0].caller).toBeUndefined();
     expect(events[0].sql).toContain("INSERT INTO t");
+  });
+
+  test("an unlabeled query derives a caller from the stack", () => {
+    const events: SlowQueryEvent[] = [];
+    const db = new Database(":memory:");
+    db.exec("CREATE TABLE t (id INTEGER PRIMARY KEY)");
+    wrapSqliteForSlowQueryLogging(db, {
+      thresholdMs: 100,
+      now: fakeClock(0, 500),
+      onSlowQuery: (e) => events.push(e),
+    });
+
+    // No `.label()` — mirrors a Drizzle query, which has no chokepoint to label.
+    db.query("SELECT * FROM t").all();
+
+    expect(events).toHaveLength(1);
+    expect(events[0].label).toBeUndefined();
+    // The caller points at this test file (the application frame that issued it),
+    // not at slow-query-log.ts or bun:sqlite internals.
+    expect(events[0].caller).toBeDefined();
+    expect(events[0].caller).toContain("slow-query-log.test.ts");
+    expect(events[0].caller).not.toContain("slow-query-log.ts");
   });
 
   test("wraps in place and returns the same Database instance", () => {
     const db = new Database(":memory:");
     expect(wrapSqliteForSlowQueryLogging(db)).toBe(db);
+  });
+});
+
+describe("callerFromStack", () => {
+  test("returns the first app frame in a source-tree run, skipping ORM/self", () => {
+    const stack = [
+      "Error",
+      "    at callerFromStack (/repo/assistant/src/persistence/slow-query-log.ts:110:20)",
+      "    at emit (/repo/assistant/src/persistence/slow-query-log.ts:192:5)",
+      "    at all (/root/.bun/install/cache/drizzle-orm@0.45.2@@@1/bun-sqlite/session.js:79:23)",
+      "    at insertMessageCore (/repo/assistant/src/persistence/conversation-crud.ts:474:10)",
+    ].join("\n");
+    expect(callerFromStack(stack)).toBe(
+      "persistence/conversation-crud.ts:insertMessageCore:474",
+    );
+  });
+
+  test("preserves the assistant's own src frames in a packaged install", () => {
+    // Local-runtime install: the daemon runs from
+    // node_modules/@vellumai/assistant/src, so app frames also contain
+    // node_modules. Third-party deps are still skipped; assistant src is not.
+    const stack = [
+      "Error",
+      "    at emit (/app/node_modules/@vellumai/assistant/src/persistence/slow-query-log.ts:192:5)",
+      "    at all (/app/node_modules/drizzle-orm/bun-sqlite/session.js:79:23)",
+      "    at claimDueSchedules (/app/node_modules/@vellumai/assistant/src/schedule/schedule-store.ts:88:12)",
+    ].join("\n");
+    expect(callerFromStack(stack)).toBe(
+      "schedule/schedule-store.ts:claimDueSchedules:88",
+    );
+  });
+
+  test("handles column-less frames (function omitted)", () => {
+    const stack = [
+      "Error",
+      "    at emit (/repo/assistant/src/persistence/slow-query-log.ts:192:5)",
+      "    at all (/root/.bun/install/cache/drizzle-orm@0.45.2/bun-sqlite/session.js:79:23)",
+      "    at /repo/assistant/src/plugins/defaults/memory/context-search/sources/conversations.ts:231",
+    ].join("\n");
+    expect(callerFromStack(stack)).toBe(
+      "plugins/defaults/memory/context-search/sources/conversations.ts:231",
+    );
+  });
+
+  test("returns undefined when no application frame is present", () => {
+    const stack = [
+      "Error",
+      "    at emit (/repo/assistant/src/persistence/slow-query-log.ts:192:5)",
+      "    at all (/root/.bun/install/cache/drizzle-orm@0.45.2/bun-sqlite/session.js:79:23)",
+      "    at processTicksAndRejections (native:7:39)",
+    ].join("\n");
+    expect(callerFromStack(stack)).toBeUndefined();
   });
 });

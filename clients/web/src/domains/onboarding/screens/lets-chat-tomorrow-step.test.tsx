@@ -101,11 +101,9 @@ describe("LetsChatTomorrowStep", () => {
   test("explains why calendar setup is disabled while the assistant starts", () => {
     renderStep({ assistantReady: false });
 
-    expect(screen.getByText("Almost ready")).toBeDefined();
+    expect(screen.getByText("Waking up")).toBeDefined();
     expect(
-      screen.getByText(
-        "Your assistant is still getting ready. Calendar setup will be available in a moment.",
-      ),
+      screen.getByText("Your assistant is getting ready"),
     ).toBeDefined();
     const button = screen.getByRole("button", {
       name: /Starting assistant/,
@@ -115,5 +113,25 @@ describe("LetsChatTomorrowStep", () => {
     fireEvent.click(button);
 
     expect(handleConnectMock).not.toHaveBeenCalled();
+
+    // No skip affordance while the assistant is still waking up.
+    expect(screen.queryByText("Skip for now")).toBeNull();
+  });
+
+  test("keeps a skip escape path when the hatch fails to become ready", () => {
+    const onSkip = mock(() => {});
+    renderStep({
+      assistantReady: false,
+      hatchError: "Setup timed out",
+      onSkip,
+    });
+
+    // The connect action can never enable, so skip must stay reachable rather
+    // than trapping the user behind a spinner that never resolves.
+    const skip = screen.getByText("Skip for now");
+    expect(skip).toBeDefined();
+
+    fireEvent.click(skip);
+    expect(onSkip).toHaveBeenCalledTimes(1);
   });
 });

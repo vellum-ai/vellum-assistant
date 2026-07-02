@@ -57,11 +57,18 @@ keeps replay, resync, and rebuild equivalent.
 
 `use-send-message` adds the user's row to `optimisticSends` (`addOptimisticSend`)
 the instant they hit send; the overlay renders it immediately. There is **no**
-id-swap against the server id — the assistant echoes the `clientMessageId` back on
-the persisted row, the overlay collapses the two on that nonce, and
-`user_message_echo` clears the optimistic copy (`clearOptimisticSend`). Queued
-sends live here too, with `queueStatus`/`queuePosition` maintained by the queue
-handlers via `setOptimisticSends`.
+id-swap against the server id on POST resolve — the assistant echoes the
+`clientMessageId` back on the persisted row and the overlay collapses the two on
+that nonce. `user_message_echo` retires the optimistic copy of a text-only send;
+a send that carries attachments is kept (upgraded to the server id, queue fields
+cleared) because the echo has no attachment payload — the optimistic row holds
+the only copy of the user's previews (blob URLs for pasted images) until the
+turn-end reseed pulls the hydrated server row and
+`pruneConfirmedOptimisticSends` retires it. While the snapshot is unseeded (the
+first message of a freshly minted conversation) the echo retires nothing — the
+paired fold has nowhere to land, so the reseed prune owns retirement there too.
+Queued sends live here too, with `queueStatus`/`queuePosition` maintained by
+the queue handlers via `setOptimisticSends`.
 
 Nonce-less echoes (the field is optional; pre-idempotency assistants omit it)
 have no shared key for the overlay to collapse on, so `handleUserMessageEcho`

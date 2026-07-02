@@ -60,9 +60,11 @@ export interface ChatSessionState {
   // (`applyEvent`). `null` until seeded. This is the single source the transcript
   // renders from, overlaid with `optimisticSends`.
   snapshot: PaginatedHistoryResult | null;
-  // Optimistic user sends not yet confirmed by their `user_message_echo`.
-  // Held apart from `snapshot` so it's clear they're unconfirmed until an event
-  // clears them; rebased onto a fresh `snapshot` on resync.
+  // Optimistic user sends overlaid on the snapshot. Held apart from `snapshot`
+  // so it's clear they're client-owned: the `user_message_echo` handler retires
+  // a text-only send (or upgrades an attachment-carrying one, whose blob-URL
+  // previews only this list holds), and the reseed prunes whatever the server
+  // snapshot already represents.
   optimisticSends: DisplayMessage[];
 
   error: ChatError | null;
@@ -133,10 +135,8 @@ export interface ChatSessionActions {
   /** Fold one live stream event into the snapshot (no-op until seeded; the
    *  seed's replay covers anything that arrived first). Idempotent by `seq`. */
   applyEnvelopeToSnapshot: (envelope: AssistantEventEnvelope) => void;
-  /** Add an optimistic user send; cleared when its echo lands. */
+  /** Add an optimistic user send; retired by its echo or the reseed prune. */
   addOptimisticSend: (message: DisplayMessage) => void;
-  /** Drop the optimistic send correlated by `clientMessageId`. */
-  clearOptimisticSend: (clientMessageId: string) => void;
   /** Mutate the optimistic-send list (queue status, id swap, removal). */
   setOptimisticSends: (
     updater: DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[]),
@@ -269,19 +269,43 @@ function applyUpdater<T>(current: T, updater: T | ((prev: T) => T)): T {
  * overlay lets optimistic rows win by identity, so a confirmed send would
  * otherwise stay rendered as optimistic/queued indefinitely. Pruning by the same
  * match keys `selectTranscriptMessages` overlays on keeps the two in lockstep.
+ *
+ * An attachment-carrying send is only pruned once its snapshot twin also
+ * carries attachments. The send holds the only copy of the user's previews
+ * (blob URLs for pasted images); a matching snapshot row without attachments
+ * is a tail-replayed text-only echo — e.g. a stale in-flight `/messages`
+ * fetch that committed after the echo — not the hydrated server row, and
+ * pruning against it would drop the previews until the next refetch. The
+ * overlay keeps rendering the retained copy over the unhydrated twin.
  */
 function pruneConfirmedOptimisticSends(
   optimisticSends: DisplayMessage[],
   snapshotMessages: DisplayMessage[],
 ): DisplayMessage[] {
-  if (optimisticSends.length === 0) return optimisticSends;
-  const snapshotKeys = new Set<string>();
-  for (const m of snapshotMessages) {
-    for (const k of messageMatchKeys(m)) snapshotKeys.add(k);
+  if (optimisticSends.length === 0) {
+    return optimisticSends;
   }
-  const kept = optimisticSends.filter(
-    (m) => !messageMatchKeys(m).some((k) => snapshotKeys.has(k)),
-  );
+  const snapshotByKey = new Map<string, DisplayMessage>();
+  for (const m of snapshotMessages) {
+    for (const k of messageMatchKeys(m)) {
+      if (!snapshotByKey.has(k)) {
+        snapshotByKey.set(k, m);
+      }
+    }
+  }
+  const kept = optimisticSends.filter((m) => {
+    let twin: DisplayMessage | undefined;
+    for (const k of messageMatchKeys(m)) {
+      twin = snapshotByKey.get(k);
+      if (twin) {
+        break;
+      }
+    }
+    if (!twin) {
+      return true;
+    }
+    return Boolean(m.attachments?.length) && !twin.attachments?.length;
+  });
   return kept.length === optimisticSends.length ? optimisticSends : kept;
 }
 
@@ -310,13 +334,6 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
 
   addOptimisticSend: (message) =>
     set((s) => ({ optimisticSends: [...s.optimisticSends, message] })),
-
-  clearOptimisticSend: (clientMessageId) =>
-    set((s) => ({
-      optimisticSends: s.optimisticSends.filter(
-        (m) => m.clientMessageId !== clientMessageId,
-      ),
-    })),
 
   setOptimisticSends: (updater) =>
     set((s) => ({ optimisticSends: applyUpdater(s.optimisticSends, updater) })),

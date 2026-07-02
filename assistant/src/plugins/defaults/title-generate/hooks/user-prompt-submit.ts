@@ -19,6 +19,11 @@ import { getConversation } from "../../../../persistence/conversation-crud.js";
 import { queueGenerateConversationTitle } from "../../../../persistence/conversation-title-service.js";
 
 const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
+  // Hidden machine signals (e.g. the channel-setup wizard-close marker) are
+  // not user speech — a title minted from one would surface invisible
+  // scaffolding text in the sidebar, and the LLM call is wasted.
+  if (ctx.isHiddenPrompt) return;
+
   // System conversations (background/scheduled) carry a deterministic title
   // from bootstrap. Their own job prompts arrive as non-interactive turns and
   // must not spend an LLM call on a title nobody reads — only a genuine user

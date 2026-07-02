@@ -64,6 +64,8 @@ export interface CanonicalGuardianRequest {
   riskLevel: string | null;
   activityText: string | null;
   executionTarget: string | null;
+  /** JSON-encoded requester identity signals (see introduction-policy.ts). */
+  requesterSignals: string | null;
   status: CanonicalRequestStatus;
   answerText: string | null;
   decidedByExternalUserId: string | null;
@@ -158,6 +160,7 @@ function rowToRequest(
     riskLevel: row.riskLevel,
     activityText: row.activityText,
     executionTarget: row.executionTarget,
+    requesterSignals: row.requesterSignals,
     status: row.status as CanonicalRequestStatus,
     answerText: row.answerText,
     decidedByExternalUserId: row.decidedByExternalUserId,
@@ -209,6 +212,7 @@ interface CreateCanonicalGuardianRequestParams {
   riskLevel?: string;
   activityText?: string;
   executionTarget?: string;
+  requesterSignals?: string;
   status?: CanonicalRequestStatus;
   answerText?: string;
   decidedByExternalUserId?: string;
@@ -267,6 +271,7 @@ export function createCanonicalGuardianRequest(
     riskLevel: params.riskLevel ?? null,
     activityText: params.activityText ?? null,
     executionTarget: params.executionTarget ?? null,
+    requesterSignals: params.requesterSignals ?? null,
     status: params.status ?? ("pending" as const),
     answerText: params.answerText ?? null,
     decidedByExternalUserId: params.decidedByExternalUserId ?? null,

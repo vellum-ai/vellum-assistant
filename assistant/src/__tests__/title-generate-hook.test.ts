@@ -185,6 +185,22 @@ describe("title-generate user-prompt-submit hook", () => {
     expect(call).not.toHaveProperty("onTitleUpdated");
   });
 
+  test("skips title generation for hidden machine-signal prompts", async () => {
+    // A hidden send (e.g. the channel-setup wizard-close marker) is not user
+    // speech — minting a title from it would surface invisible scaffolding
+    // text in the sidebar.
+    const ctx = makeCtx({
+      prompt:
+        "[User action on channel_setup surface: closed the slack setup wizard]",
+      isHiddenPrompt: true,
+    });
+
+    await userPromptSubmit(ctx);
+    await flushMacrotasks();
+
+    expect(queueGenerateConversationTitleMock).toHaveBeenCalledTimes(0);
+  });
+
   test("does not block: returns before the title job is scheduled", async () => {
     // GIVEN a fresh user prompt submission
     const ctx = makeCtx();

@@ -251,12 +251,18 @@ export const MemoryV3EntitySchema = z
 
 /**
  * Per-turn injection-gate tuning: thresholds the retrieval signals must clear
- * for the gate to open and run the selector. The gate's on/off is the
- * `memory-v3-injection-gate` feature flag (a separate concern), so this schema
- * carries no `enabled` field — only the tuning knobs.
+ * for the gate to open and run the selector. The gate runs only when the
+ * `memory-v3-injection-gate` feature flag (the rollout switch) AND the
+ * `enabled` kill-switch below are both on.
  */
 export const MemoryV3GateSchema = z
   .object({
+    enabled: z
+      .boolean({ error: "memory.v3.gate.enabled must be a boolean" })
+      .default(true)
+      .describe(
+        "Whether the injection gate may run at all. false forces the full selection process every turn regardless of the `memory-v3-injection-gate` feature flag; true (default) defers to the flag.",
+      ),
     denseThreshold: z
       .number({ error: "memory.v3.gate.denseThreshold must be a number" })
       .min(0)
@@ -321,7 +327,7 @@ export const MemoryV3GateSchema = z
       ),
   })
   .describe(
-    "Memory v3 per-turn injection gate tuning (thresholds; on/off is the `memory-v3-injection-gate` feature flag).",
+    "Memory v3 per-turn injection gate tuning (thresholds; the gate runs when the `memory-v3-injection-gate` feature flag AND `enabled` are both on).",
   );
 
 // NOTE: a retired `workingSet` sub-config (maxPages/evictWindow for the old

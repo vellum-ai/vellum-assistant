@@ -165,13 +165,13 @@ describe("enforceIngressAcl — verdict-sourced member resolution", () => {
     expect(findContactChannelCalls.length).toBe(0);
   });
 
-  test("member-less guardian verdict is admitted and never fires an access request", async () => {
-    // A guardian classified by principal reaches this channel with NO
-    // per-channel member row: trustClass is "guardian" but the verdict
-    // carries no contactId/channelId/status/policy. The guardian
-    // short-circuit must admit them instead of routing them into the
-    // stranger branch, which fires notifyGuardianOfAccessRequest at the
-    // guardian themselves.
+  test("member-less guardian verdict fails safe: denied with no stranger-lane side effects", async () => {
+    // ATL-958 regression: the gateway proves guardian identity via a
+    // same-channel member row, so every guardian verdict carries one. A
+    // guardian verdict with NO member row is contradictory (e.g. a forged
+    // cross-channel classification) and must not be admitted — but it must
+    // not be routed through the stranger lane either, which would fire an
+    // access request carrying the claimed guardian identity.
     const result = await enforceIngressAcl(
       makeParams({
         sourceMetadata: withVerdict({
@@ -182,10 +182,15 @@ describe("enforceIngressAcl — verdict-sourced member resolution", () => {
       }),
     );
 
-    expect(result.earlyResponse).toBeUndefined();
+    expect(result.earlyResponse).toMatchObject({
+      accepted: true,
+      denied: true,
+      reason: "not_a_member",
+    });
     expect(result.resolvedMember).toBeNull();
     expect(accessRequestCalls.length).toBe(0);
     expect(deliverReplyCalls.length).toBe(0);
+    expect(createOutboundSessionCalls.length).toBe(0);
   });
 
   test("guardian verdict with an inactive (pending) member row is still admitted", async () => {
@@ -694,5 +699,56 @@ describe("enforceIngressAcl — callback interactions never spawn stranger-lane 
     expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
     expect(createOutboundSessionCalls.length).toBe(1);
     expect(accessRequestCalls.length).toBe(1);
+  });
+
+  test("a Slack bot never receives the self-verify challenge — guardian is notified directly", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123BOT",
+        rawSenderId: "U123BOT",
+        sourceMetadata: {
+          ...withVerdict({
+            trustClass: "unknown",
+            canonicalSenderId: "U123BOT",
+          }),
+          isBot: true,
+        } as SourceMetadata,
+      }),
+    );
+
+    expect(result.earlyResponse).toBeDefined();
+    // No verification session is minted — a bot cannot return a code.
+    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(accessRequestCalls.length).toBe(1);
+  });
+
+  test("identity signals from sourceMetadata are forwarded to the access request", async () => {
+    await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123BOT",
+        rawSenderId: "U123BOT",
+        sourceMetadata: {
+          ...withVerdict({
+            trustClass: "unknown",
+            canonicalSenderId: "U123BOT",
+          }),
+          isBot: true,
+          isStranger: true,
+          isRestricted: true,
+        } as SourceMetadata,
+      }),
+    );
+
+    expect(accessRequestCalls.length).toBe(1);
+    const call = accessRequestCalls[0] as {
+      isBot?: boolean;
+      isStranger?: boolean;
+      isRestricted?: boolean;
+    };
+    expect(call.isBot).toBe(true);
+    expect(call.isStranger).toBe(true);
+    expect(call.isRestricted).toBe(true);
   });
 });

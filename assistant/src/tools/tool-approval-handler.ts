@@ -5,11 +5,15 @@ import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
 } from "../contacts/canonical-guardian-store.js";
+import type { AutoApproveThreshold } from "../permissions/approval-policy.js";
 import {
   isUnparseableToolArgs,
   unparseableToolArgsMessage,
 } from "../providers/unparseable-tool-args.js";
-import { resolveCapabilities } from "../runtime/capabilities.js";
+import {
+  resolveCapabilities,
+  type SensitiveToolApproval,
+} from "../runtime/capabilities.js";
 import { createOrReuseToolGrantRequest } from "../runtime/tool-grant-request-helper.js";
 import { redactSecrets } from "../security/secret-scanner.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
@@ -29,20 +33,27 @@ import { enforceVerificationControlPlanePolicy } from "./verification-control-pl
 
 const log = getLogger("tool-approval-handler");
 
+/**
+ * Compose the guardian-facing approval question. The question is about the
+ * tool — phrased with the same `Approve tool:` pattern the
+ * confirmation-request bridge uses — and the requester appears only as
+ * parenthetical context, never as the subject of the decision.
+ */
 function buildToolGrantQuestionText(
   toolName: string,
   input: Record<string, unknown>,
   context: ToolContext,
 ): string {
-  const senderLabel =
+  const requesterLabel =
     context.requesterDisplayName ||
     context.requesterIdentifier ||
-    context.requesterExternalUserId ||
-    "A trusted contact";
+    context.requesterExternalUserId;
+  const requesterNote = requesterLabel
+    ? ` (requested by ${requesterLabel})`
+    : "";
   const inputSummary = redactSecrets(summarizeToolInput(toolName, input));
-  return inputSummary
-    ? `${senderLabel} wants to use "${toolName}": ${inputSummary}`
-    : `${senderLabel} is requesting permission to use "${toolName}"`;
+  const summaryPart = inputSummary ? ` — ${inputSummary}` : "";
+  return `Approve tool: ${toolName}${summaryPart}${requesterNote}`;
 }
 
 /** Default polling interval for inline grant wait (ms). */
@@ -155,31 +166,94 @@ export async function waitForInlineGrant(
 
 const UI_SURFACE_TOOLS = new Set(["ui_show", "ui_update", "ui_dismiss"]);
 
-function requiresGuardianApprovalForActor(
+/**
+ * Tool-sensitivity predicate: does invoking this tool require an approval
+ * decision at all? This is purely about the tool and where it executes —
+ * actor identity never feeds in here (it enters the decision only through
+ * the `CapabilitySet` floor, see {@link resolveSensitiveToolDecision}).
+ */
+export function isSensitiveTool(
   toolName: string,
   executionTarget: ExecutionTarget,
 ): boolean {
   // UI surface tools are passive, user-visible operations (cards, forms,
-  // tables). User input is voluntary and user-controlled — skip the guardian
-  // gate so they work during fresh onboarding before trust is established.
+  // tables). User input is voluntary and user-controlled — they are not
+  // sensitive, so they work during fresh onboarding before trust is
+  // established.
   if (UI_SURFACE_TOOLS.has(toolName)) {
     return false;
   }
 
-  // Side-effect tools always require guardian approval for untrusted actors.
-  // Read-only host execution is also blocked because it can leak sensitive
-  // local information (e.g. shell/file reads).
+  // Side-effect tools are sensitive. Read-only host execution is too,
+  // because it can leak sensitive local information (e.g. shell/file reads).
   return isSideEffectTool(toolName) || executionTarget === "host";
 }
 
-function guardianApprovalDeniedMessage(
-  trustClass: ToolContext["trustClass"],
+/**
+ * Threshold for the approval cell governing an invocation — the matrix axis
+ * of the sensitive-tool composition. Shares the auto-approve threshold
+ * vocabulary defined in `permissions/approval-policy.ts`.
+ */
+export type ApprovalCellThreshold = AutoApproveThreshold;
+
+/**
+ * Outcome of the sensitive-tool composition:
+ * - `proceed`: no scoped grant needed (tool not sensitive, or the actor's
+ *   capability set self-approves; lane-B risk/threshold policy in
+ *   `permissions/approval-policy.ts` still applies downstream).
+ * - `escalate-and-wait`: a scoped grant is required; on a grant miss,
+ *   escalate to the guardian and wait inline.
+ * - `deny`: a scoped grant is required; on a grant miss, fail closed.
+ */
+export type SensitiveToolDecision = "proceed" | "escalate-and-wait" | "deny";
+
+/**
+ * Single composition point for the sensitive-tool approval decision:
+ * approval-cell threshold × tool risk level × `CapabilitySet` floor.
+ *
+ * The decision is about the tool; actor identity feeds in only through the
+ * already-resolved `sensitiveToolApproval` capability. That floor is
+ * deterministic and cannot be lifted by the other axes: when the capability
+ * is not `"self"`, a sensitive invocation without a grant always escalates
+ * or denies. `cellThreshold` and `riskLevel` are composition axes the
+ * decision does not consult — no threshold/risk combination may lift the
+ * outcome above the floor.
+ */
+export function resolveSensitiveToolDecision(input: {
+  sensitive: boolean;
+  /**
+   * Approval-matrix cell axis. The decision does not consult it — the floor
+   * alone resolves the outcome — so callers pass `undefined` rather than
+   * paying a threshold lookup to populate it.
+   */
+  cellThreshold: ApprovalCellThreshold | undefined;
+  /**
+   * Risk level as known at gate time. The full risk classification runs
+   * after this gate (in the permission checker), so callers may only have
+   * the pre-classification level here — composing decisions on this axis
+   * requires moving classification ahead of the gate first.
+   */
+  riskLevel: string;
+  sensitiveToolApproval: SensitiveToolApproval;
+}): SensitiveToolDecision {
+  if (!input.sensitive || input.sensitiveToolApproval === "self") {
+    return "proceed";
+  }
+  return input.sensitiveToolApproval;
+}
+
+/**
+ * Denial copy is about the tool (an action requiring guardian approval),
+ * never about who the requester is.
+ */
+function sensitiveToolDeniedMessage(
+  decision: SensitiveToolDecision,
   toolName: string,
 ): string {
-  if (resolveCapabilities(trustClass).sensitiveToolApproval === "deny") {
+  if (decision === "deny") {
     return `Permission denied for "${toolName}": this action requires guardian approval from a verified channel identity.`;
   }
-  return `Permission denied for "${toolName}": this action requires guardian approval and the current actor is not the guardian.`;
+  return `Permission denied for "${toolName}": this action requires guardian approval before it can run.`;
 }
 
 export type PreExecutionGateResult =
@@ -317,16 +391,20 @@ export class ToolApprovalHandler {
       | Parameters<typeof consumeGrantForInvocation>[0]
       | null = null;
 
-    const guardianApprovalRequired = requiresGuardianApprovalForActor(
-      name,
-      executionTarget,
-    );
+    const sensitive = isSensitiveTool(name, executionTarget);
+    const { sensitiveToolApproval } = resolveCapabilities(context.trustClass);
+    // cellThreshold stays unresolved: the decision does not consult it
+    // (the floor is deterministic), and resolving a live threshold here
+    // would block grant consumption — including already-approved calls and
+    // voice abort handling — on a gateway IPC read.
+    const sensitiveDecision = resolveSensitiveToolDecision({
+      sensitive,
+      cellThreshold: undefined,
+      riskLevel,
+      sensitiveToolApproval,
+    });
 
-    if (
-      resolveCapabilities(context.trustClass).sensitiveToolApproval !==
-        "self" &&
-      guardianApprovalRequired
-    ) {
+    if (sensitiveDecision !== "proceed") {
       const inputDigest = computeToolApprovalDigest(name, input);
       needsGrantConsumption = true;
       deferredConsumeParams = {
@@ -544,8 +622,7 @@ export class ToolApprovalHandler {
       // Actors with no identity (unknown) remain fail-closed with no
       // escalation or wait.
       if (
-        resolveCapabilities(context.trustClass).sensitiveToolApproval ===
-          "escalate-and-wait" &&
+        sensitiveDecision === "escalate-and-wait" &&
         context.assistantId &&
         context.executionChannel &&
         context.requesterExternalUserId
@@ -692,7 +769,7 @@ export class ToolApprovalHandler {
       }
 
       // Unknown/unverified actors or escalation failures - generic denial.
-      const reason = guardianApprovalDeniedMessage(context.trustClass, name);
+      const reason = sensitiveToolDeniedMessage(sensitiveDecision, name);
       log.warn(
         {
           toolName: name,

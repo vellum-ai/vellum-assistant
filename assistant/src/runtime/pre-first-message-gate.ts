@@ -52,6 +52,7 @@ export function hasReceivedUserMessage(): boolean {
 
   try {
     const row = rawGet<{ one: number }>(
+      "preFirstMsg:hasReceivedUserMessage",
       `SELECT 1 AS one FROM messages m
        JOIN conversations c ON m.conversation_id = c.id
        WHERE m.role = 'user'

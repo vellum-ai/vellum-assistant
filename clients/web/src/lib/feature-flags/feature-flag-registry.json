@@ -359,8 +359,8 @@
       "scope": "assistant",
       "key": "memory-v3-injection-gate",
       "label": "Memory v3 injection gate",
-      "description": "Per-turn injection gate for memory v3: after the BM25F needle + dense cosine finder lanes run, skip the selectPool LLM call (inject nothing) when finder-lane scores fall below the configured thresholds (memory.v3.gate). Default off.",
-      "defaultEnabled": false
+      "description": "Per-turn injection gate for memory v3: after the BM25F needle + dense cosine finder lanes run, skip the selectPool LLM call (inject nothing) when finder-lane scores fall below the configured thresholds (memory.v3.gate). Default on (flipped remotely July 2026); this registry value is the fallback when no platform snapshot is available.",
+      "defaultEnabled": true
     },
     {
       "id": "self-intro-greeting",
@@ -374,17 +374,17 @@
       "id": "research-onboarding",
       "scope": "client",
       "key": "research-onboarding",
-      "label": "Research onboarding (spike)",
-      "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. Off by default; enable locally via the feature-flags panel.",
-      "defaultEnabled": false
+      "label": "Research onboarding",
+      "description": "Replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including the \"Create my personality\" step and a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. On by default (GA); after consent, new web users (non-native, non-local-mode) are routed into this flow instead of the standard hatching path.",
+      "defaultEnabled": true
     },
     {
       "id": "personality-onboarding",
       "scope": "client",
       "key": "personality-onboarding",
-      "label": "Personality onboarding step (spike)",
-      "description": "Spike: show the \"Create my personality\" trait-slider step in the research-onboarding flow (between the pitch and the integration step). On continue it applies the sliders to the assistant's persona on a throwaway side conversation. When off, the step is skipped entirely. Off by default; enable locally via the feature-flags panel.",
-      "defaultEnabled": false
+      "label": "Personality onboarding step",
+      "description": "Show the \"Create my personality\" trait-slider step in the research-onboarding flow (between the pitch and the integration step). On continue it applies the sliders to the assistant's persona on a throwaway side conversation. When off, the step is skipped entirely. On by default (GA); only takes effect where the research-onboarding flow itself is enabled.",
+      "defaultEnabled": true
     },
     {
       "id": "channel-trust-floors",

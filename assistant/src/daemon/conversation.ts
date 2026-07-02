@@ -52,6 +52,7 @@ import {
   getConversation,
   getMessages,
   resolveOverrideProfile,
+  setConversationEnabledPlugins,
   setConversationHistoryStrippedAt,
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
@@ -334,9 +335,10 @@ export class Conversation {
   /**
    * Per-conversation plugin scope mirrored from the DB row. `null` means no
    * per-chat restriction (all globally-enabled plugins apply). Hydrated on load
-   * and kept in sync by {@link setEnabledPlugins} so the live instance is the
-   * source of truth; later tool/skill/hook filters intersect their candidate
-   * set against this via `getEffectiveEnabledPluginSet`.
+   * and kept in sync by {@link setEnabledPlugins}, which also persists the value
+   * back to the row, so the live instance is the source of truth; later
+   * tool/skill/hook filters intersect their candidate set against this via
+   * `getEffectiveEnabledPluginSet`.
    * @internal
    */
   enabledPlugins: string[] | null = null;
@@ -1378,7 +1380,17 @@ export class Conversation {
     this.subagentAllowedTools = tools;
   }
 
+  /**
+   * Set the conversation's per-chat plugin scope, updating both the persisted
+   * `enabled_plugins` row and the live instance (source of truth for the
+   * current turn). `null` clears the per-chat restriction. Callers do not
+   * persist separately.
+   *
+   * Persist first, then mutate the live instance: if the write throws, the
+   * live scope is left untouched rather than diverging from the row.
+   */
   setEnabledPlugins(plugins: string[] | null): void {
+    setConversationEnabledPlugins(this.conversationId, plugins);
     this.enabledPlugins = plugins;
   }
 
@@ -2105,6 +2117,8 @@ export class Conversation {
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
+      /** See {@link runAgentLoopImpl} — hidden machine-signal turn marker. */
+      isHiddenPrompt?: boolean;
       callSite?: LLMCallSite;
       /**
        * Optional ad-hoc inference-profile override applied to every LLM call

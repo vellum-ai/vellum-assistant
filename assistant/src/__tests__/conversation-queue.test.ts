@@ -3062,6 +3062,54 @@ describe("subagent notification user_message_echo suppression", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 
+  test("drained hidden message persists with hidden metadata and emits no user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const eventsHidden: ServerMessage[] = [];
+
+    // Occupy the conversation so the hidden send queues — e.g. the user
+    // closes the channel-setup wizard while the assistant is mid-turn.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // A hidden `POST /messages` send carries `hidden: true` metadata through
+    // the queue branch (see conversation-routes.ts).
+    conversation.enqueueMessage({
+      content:
+        "[User action on channel_setup surface: closed the slack setup wizard]",
+      onEvent: (e) => eventsHidden.push(e),
+      requestId: "req-hidden",
+      metadata: { hidden: true },
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Persisted with the hidden flag so the transcript filter keeps it out
+    // of the rendered history...
+    const persisted = capturedAddMessages.find((m) =>
+      m.content.includes("channel_setup"),
+    );
+    expect(persisted?.metadata?.hidden).toBe(true);
+    // ...the agent still wakes on it...
+    expect(pendingRuns.length).toBe(2);
+    // ...and no user_message_echo is broadcast, so no visible user bubble.
+    expect(eventsHidden.some((e) => e.type === "user_message_echo")).toBe(
+      false,
+    );
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
   test("drained acp-notification message persists and wakes the agent but emits no user_message_echo", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();

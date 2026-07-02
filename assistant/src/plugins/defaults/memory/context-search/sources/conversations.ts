@@ -229,6 +229,7 @@ function searchByIds(
 ): ConversationEvidenceRow[] {
   const placeholders = messageIds.map(() => "?").join(", ");
   return rawAll<ConversationEvidenceRow>(
+    "convSearch:searchByIds",
     `
     SELECT
       m.id AS message_id,

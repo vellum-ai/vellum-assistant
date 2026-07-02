@@ -5,7 +5,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 
 import { getSqliteFrom } from "../../db-connection.js";
 import * as schema from "../../schema.js";
-import { migrateDropContactChannelTelemetry } from "../317-drop-contact-channel-telemetry.js";
+import { migrateDropContactChannelTelemetry } from "../318-drop-contact-channel-telemetry.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -45,7 +45,7 @@ const TELEMETRY_COLUMNS = [
   "last_interaction",
 ];
 
-describe("migration 317 — drop contact_channels telemetry columns", () => {
+describe("migration 318 — drop contact_channels telemetry columns", () => {
   test("drops all three telemetry columns, preserving other channel data", () => {
     const db = createTestDb();
     const raw = getSqliteFrom(db);

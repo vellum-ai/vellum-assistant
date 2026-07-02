@@ -2,6 +2,8 @@ import { useState } from "react";
 
 import { Plug } from "lucide-react";
 
+import { Button } from "@vellumai/design-library";
+
 import { NewChatPluginsPicker } from "./new-chat-plugins-picker";
 import { useNewChatPlugins } from "./use-new-chat-plugins";
 
@@ -11,9 +13,9 @@ interface NewChatPluginsSectionProps {
 
 /**
  * Entry point for the new-chat plugin picker under the composer. Collapsed by
- * default to a single centered "Add Plugins to Chat" button; clicking it
- * reveals the full {@link NewChatPluginsPicker}. Renders nothing when no
- * plugins are installed.
+ * default to a single centered "Manage Plugins" button; clicking it reveals
+ * the full {@link NewChatPluginsPicker}. Renders nothing when no plugins are
+ * installed.
  */
 export function NewChatPluginsSection({
   assistantId,
@@ -26,14 +28,15 @@ export function NewChatPluginsSection({
   if (!revealed) {
     return (
       <div className="flex justify-center">
-        <button
-          type="button"
+        <Button
+          variant="ghost"
+          leftIcon={<Plug className="h-4 w-4 shrink-0" aria-hidden />}
           onClick={() => setRevealed(true)}
-          className="inline-flex h-[34px] cursor-pointer items-center gap-1 rounded-full border border-[var(--border-disabled)] bg-[var(--surface-base)] pl-2.5 pr-3 text-body-medium-default text-[var(--content-secondary)]"
+          tintColor="var(--content-secondary)"
+          className="h-[34px] rounded-full border border-[var(--border-disabled)] pl-2.5 pr-3"
         >
-          <Plug className="h-4 w-4 shrink-0" aria-hidden />
-          Add Plugins to Chat
-        </button>
+          Manage Plugins
+        </Button>
       </div>
     );
   }

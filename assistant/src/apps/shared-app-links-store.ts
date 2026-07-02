@@ -124,6 +124,7 @@ export function deleteSharedAppLinkByToken(shareToken: string): boolean {
 
 export function incrementDownloadCount(shareToken: string): void {
   rawRun(
+    "appLinks:incrementDownloadCount",
     `UPDATE shared_app_links SET download_count = download_count + 1 WHERE share_token = ?`,
     shareToken,
   );

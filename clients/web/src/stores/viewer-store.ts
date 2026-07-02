@@ -160,6 +160,13 @@ export interface ChannelSetupPayload {
   channel: ChannelSetupType;
   assistantId: string;
   assistantName: string;
+  /**
+   * Conversation that opened the wizard (from the `open_panel` event).
+   * Targets the close auto-notify at the originating conversation even if
+   * the user switches conversations while the drawer is open. Absent when
+   * the panel was opened outside an assistant conversation.
+   */
+  conversationId?: string;
 }
 
 export interface ToolDetailPayload {

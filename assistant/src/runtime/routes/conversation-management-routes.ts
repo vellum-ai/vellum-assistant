@@ -5,6 +5,7 @@
  * POST   /v1/conversations/switch         — switch to an existing conversation
  * POST   /v1/conversations/fork           — fork an existing conversation
  * PUT    /v1/conversations/:id/inference-profile — set per-conversation inference profile
+ * PUT    /v1/conversations/:id/enabledplugins — set per-conversation plugin scope
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
  * POST   /v1/conversations/:id/wipe       — wipe conversation and revert memory
@@ -20,6 +21,7 @@
 
 import { z } from "zod";
 
+import { findConversation } from "../../daemon/conversation-registry.js";
 import { destroyActiveConversation } from "../../daemon/conversation-store.js";
 import {
   cancelGeneration,
@@ -37,6 +39,7 @@ import {
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
+  setConversationEnabledPlugins,
   setConversationSurfaced,
   unarchiveConversation,
   updateConversationTitle,
@@ -54,6 +57,7 @@ import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
 import {
+  publishConversationEnabledPluginsChanged,
   publishConversationListAndMetadataChanged,
   publishConversationListChanged,
   publishConversationTitleChanged,
@@ -220,6 +224,49 @@ async function handleSetInferenceProfile({
   });
 
   return result;
+}
+
+async function handleUpdateConversationEnabledPlugins({
+  pathParams = {},
+  body = {},
+  headers,
+}: RouteHandlerArgs) {
+  const enabledPlugins = body.enabledPlugins as string[] | null | undefined;
+  // The field is required; `null` is the explicit "clear the scope" signal.
+  // A missing field (malformed/empty body) must not silently clear the scope.
+  if (enabledPlugins === undefined) {
+    throw new BadRequestError(
+      "enabledPlugins is required (use null to clear the scope)",
+    );
+  }
+  if (
+    enabledPlugins !== null &&
+    (!Array.isArray(enabledPlugins) ||
+      enabledPlugins.some((p) => typeof p !== "string"))
+  ) {
+    throw new BadRequestError(
+      "enabledPlugins must be an array of strings or null",
+    );
+  }
+
+  const resolvedId = resolveConversationId(pathParams.id!) ?? pathParams.id!;
+  const conversation = getConversation(resolvedId);
+  if (!conversation) {
+    throw new NotFoundError(`Conversation ${pathParams.id} not found`);
+  }
+
+  // `null` clears the per-chat scope back to the default (all enabled
+  // plugins); a `string[]` scopes the chat to those plugin ids.
+  const nextEnabledPlugins = enabledPlugins;
+  setConversationEnabledPlugins(resolvedId, nextEnabledPlugins);
+  findConversation(resolvedId)?.setEnabledPlugins(nextEnabledPlugins);
+
+  publishConversationEnabledPluginsChanged(
+    resolvedId,
+    headers?.["x-vellum-client-id"]?.trim() || undefined,
+  );
+
+  return { conversationId: resolvedId, enabledPlugins: nextEnabledPlugins };
 }
 
 function handleRenameConversation({
@@ -652,6 +699,30 @@ export const ROUTES: RouteDefinition[] = [
         .nullable(),
     }),
     handler: handleSetInferenceProfile,
+  },
+  {
+    operationId: "conversations_by_id_enabledplugins_put",
+    endpoint: "conversations/:id/enabledplugins",
+    method: "PUT",
+    policy: {
+      requiredScopes: ["chat.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    summary: "Set conversation enabled plugins",
+    description:
+      "Scope a single conversation to a subset of installed plugins " +
+      "(first-party defaults are always available). Pass null to clear the " +
+      "scope back to the default (all enabled plugins).",
+    tags: ["conversations"],
+    pathParams: [{ name: "id", type: "uuid" }],
+    requestBody: z.object({
+      enabledPlugins: z.array(z.string()).nullable(),
+    }),
+    responseBody: z.object({
+      conversationId: z.string(),
+      enabledPlugins: z.array(z.string()).nullable(),
+    }),
+    handler: handleUpdateConversationEnabledPlugins,
   },
   {
     operationId: "renameConversation",
