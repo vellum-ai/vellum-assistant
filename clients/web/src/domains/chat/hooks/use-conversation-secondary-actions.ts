@@ -15,9 +15,15 @@ import {
 } from "react";
 
 import { useNavigate } from "react-router";
+import { toast } from "@vellumai/design-library";
 
 import type { Conversation } from "@/types/conversation-types";
-import { conversationsByIdAnalyzePost, conversationsForkPost } from "@/generated/daemon/sdk.gen";
+import {
+  conversationsByIdAnalyzePost,
+  conversationsForkPost,
+  conversationsSummarizePost,
+} from "@/generated/daemon/sdk.gen";
+import { ApiError } from "@/utils/api-errors";
 import { isElectron } from "@/runtime/is-electron";
 import { openPopoutWindow } from "@/runtime/popout-window";
 import { routes } from "@/utils/routes";
@@ -47,6 +53,7 @@ export interface UseConversationSecondaryActionsParams {
 export interface UseConversationSecondaryActionsReturn {
   handleForkConversation: (throughMessageId: string) => Promise<void>;
   handleForkConversationFromMenu: () => void;
+  handleSummarizeUpToMessage: (beforeMessageId: string) => Promise<void>;
   handleAnalyzeConversation: (conversation: Conversation) => Promise<void>;
   handleOpenInNewWindow: (conversation: Conversation) => void;
   handleInspectConversation: (conversation: Conversation) => void;
@@ -122,6 +129,38 @@ export function useConversationSecondaryActions({
       }
     },
     [refreshConversations, navigate],
+  );
+
+  // Asks the daemon to summarize everything before `beforeMessageId` in the
+  // assistant's working memory. Fire-and-forget from the client's point of
+  // view: the daemon acknowledges with 202 and progress/result arrive through
+  // the existing turn SSE events, so there is no navigation, list refresh, or
+  // history invalidation here.
+  const handleSummarizeUpToMessage = useCallback(
+    async (beforeMessageId: string) => {
+      const assistantId = useResolvedAssistantsStore.getState().activeAssistantId;
+      const activeConversationId = useConversationStore.getState().activeConversationId;
+      if (!assistantId || !activeConversationId) {
+        return;
+      }
+      haptic.light();
+
+      try {
+        await conversationsSummarizePost({
+          path: { assistant_id: assistantId },
+          body: { conversationId: activeConversationId, beforeMessageId },
+          throwOnError: true,
+        });
+      } catch (err) {
+        captureError(err, { context: "summarize_up_to_here" });
+        toast.error(
+          err instanceof ApiError && err.status === 409
+            ? "The assistant is busy — try again when the current response finishes"
+            : "Couldn't summarize the conversation",
+        );
+      }
+    },
+    [],
   );
 
   const handleForkConversationFromMenu = useCallback(() => {
@@ -228,6 +267,7 @@ export function useConversationSecondaryActions({
   return {
     handleForkConversation,
     handleForkConversationFromMenu,
+    handleSummarizeUpToMessage,
     handleAnalyzeConversation,
     handleOpenInNewWindow,
     handleInspectConversation,
