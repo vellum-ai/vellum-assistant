@@ -76,7 +76,7 @@ After the user copies their restricted key, run the store script to securely col
 bun skills/stripe-app-setup/scripts/store-key.ts
 ```
 
-The script opens a secure credential prompt in the user's app, stores the key in the encrypted vault with the correct injection templates for `api.stripe.com`, and exits. If it exits 0, the key is stored.
+The script opens a secure credential prompt in the user's app, stores the key in the encrypted vault with the correct injection templates for `api.stripe.com`, and exits. If it exits 0, the key is stored. Exit code **130** means the user cancelled the prompt — nothing was stored; that's a valid choice, not an error, so ask whether they'd like to try again rather than treating it as a failure. Any other non-zero exit is a real failure.
 
 ### Step 3: Verify
 

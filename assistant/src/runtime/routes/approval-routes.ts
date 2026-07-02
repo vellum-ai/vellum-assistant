@@ -179,6 +179,10 @@ function handleSecret({ body }: RouteHandlerArgs) {
   (resolved?.rpcResolve as ((r: SecretPromptResult) => void) | undefined)?.({
     value: value ?? null,
     delivery: (effectiveDelivery as SecretDelivery) ?? "store",
+    // A missing value here is a deliberate user cancel (the client dismissed
+    // the prompt), distinct from the timeout path. Tag it so downstream callers
+    // can treat it as a valid outcome rather than a failure.
+    ...(value === undefined ? { reason: "cancelled" as const } : {}),
   });
   return { accepted: true };
 }

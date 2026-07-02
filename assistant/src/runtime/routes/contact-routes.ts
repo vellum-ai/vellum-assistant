@@ -9,6 +9,10 @@
  */
 
 import {
+  RedeemInviteByTokenRequestSchema,
+  RedeemVoiceInviteRequestSchema,
+} from "@vellumai/gateway-client";
+import {
   GetContactIpcResponseSchema,
   ListContactsIpcResponseSchema,
   UpdateContactChannelIpcResponseSchema,
@@ -26,10 +30,10 @@ import type { ContactRole, ContactType } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { getLogger } from "../../util/logger.js";
-import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import {
-  redeemIngressInvite,
-  redeemVoiceInviteCode,
+  composeInvitePresentation,
+  resolveInviteGuardianName,
   triggerInviteCall,
 } from "../invite-service.js";
 import { BadRequestError, NotFoundError, RouteError } from "./errors.js";
@@ -296,17 +300,10 @@ export async function handleGetContact(contactId: string) {
 // Invite handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
-// The gateway owns the canonical invite write path. These CLI handlers relay
-// to the gateway IPC methods via `ipcCallPersistent`; the assistant DB is
-// written only by the gateway. (Redemption stays daemon-local — see the redeem route.)
-
-// The invite-CREATE relay needs a generous timeout: the gateway's `invites_mint`
-// handler calls `createIngressInvite` → `generateInviteInstruction`, which can spend
-// up to GENERATION_TIMEOUT_MS (~5s) waiting on an LLM before falling back. The default
-// 5s persistent-IPC timeout can fire mid-mint, so the caller sees a spurious failure
-// even though the gateway is still writing the invite. 30s safely exceeds the inner
-// ~5s fallback plus IPC overhead on both nested hops. (List/revoke keep the default.)
-const INVITE_CREATE_RELAY_TIMEOUT_MS = 30_000;
+// The gateway owns the canonical invite lifecycle: mint, list, revoke, and
+// redemption. These CLI handlers relay via `ipcCallPersistent`; the daemon
+// then layers the presentation fields (share link, LLM guardian instruction,
+// channel handle) onto the gateway's one-time create payload.
 
 export async function handleListInvites({
   queryParams = {},
@@ -325,29 +322,41 @@ export async function handleListInvites({
 }
 
 export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
+  const contactId = body.contactId as string;
+  const sourceChannel = body.sourceChannel as string | undefined;
+  // The guardian display label on voice invites is daemon-resolved and passed
+  // through to the gateway, which stores it and never interprets it.
+  const guardianName =
+    sourceChannel === "phone" ? resolveInviteGuardianName() : undefined;
+  let result: { invite: Record<string, unknown>; rawToken?: string };
   try {
-    const result = (await ipcCallPersistent(
-      "invites_create",
-      {
-        contactId: body.contactId as string,
-        sourceChannel: body.sourceChannel as string | undefined,
-        note: body.note as string | undefined,
-        maxUses: body.maxUses as number | undefined,
-        expiresInMs: body.expiresInMs as number | undefined,
-        expectedExternalUserId: body.expectedExternalUserId as
-          | string
-          | undefined,
-      },
-      INVITE_CREATE_RELAY_TIMEOUT_MS,
-    )) as { invite: Record<string, unknown>; rawToken?: string };
-    return {
-      ok: true,
-      invite: result.invite,
-      ...(result.rawToken ? { rawToken: result.rawToken } : {}),
-    };
+    result = (await ipcCallPersistent("invites_create", {
+      contactId,
+      sourceChannel,
+      note: body.note as string | undefined,
+      maxUses: body.maxUses as number | undefined,
+      expiresInMs: body.expiresInMs as number | undefined,
+      expectedExternalUserId: body.expectedExternalUserId as
+        | string
+        | undefined,
+      ...(guardianName ? { guardianName } : {}),
+      ...(typeof body.sourceConversationId === "string"
+        ? { sourceConversationId: body.sourceConversationId }
+        : {}),
+    })) as { invite: Record<string, unknown>; rawToken?: string };
   } catch (err) {
     rethrowGatewayError(err);
   }
+  const invite = await composeInvitePresentation({
+    contactId,
+    invite: result.invite,
+    rawToken: result.rawToken,
+  });
+  return {
+    ok: true,
+    invite,
+    ...(result.rawToken ? { rawToken: result.rawToken } : {}),
+  };
 }
 
 export async function handleRevokeInvite({
@@ -366,58 +375,69 @@ export async function handleRevokeInvite({
 /**
  * Redeem a voice invite code.
  *
- * Backs the HTTP `invites_redeem` route (voice path) and the IPC-only
- * `invites_redeem_voice` method. Wraps the identity-bound
- * `redeemVoiceInviteCode` path.
+ * Backs the HTTP `invites_redeem` route (voice path). Parses the body with
+ * the shared `RedeemVoiceInviteRequestSchema` wire contract (plus the
+ * daemon-specific `assistantId` passthrough) and relays to the gateway's
+ * `invites_redeem` IPC — the gateway redemption engine owns validation, the
+ * atomic claim, and the ACL write. Fail-closed: a gateway relay failure
+ * surfaces as an error; there is no local redemption fallback.
  */
-export async function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
-  const callerExternalUserId = body.callerExternalUserId as string | undefined;
-  const code = body.code as string | undefined;
-
-  if (!callerExternalUserId || !code) {
+async function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
+  const parsed = RedeemVoiceInviteRequestSchema.safeParse(body);
+  if (!parsed.success) {
     throw new BadRequestError("callerExternalUserId and code are required");
   }
 
-  const result = await redeemVoiceInviteCode({
-    assistantId: body.assistantId as string | undefined,
-    callerExternalUserId,
-    sourceChannel: "phone",
-    code,
-  });
-
-  if (!result.ok) {
-    throw new BadRequestError(result.reason);
+  try {
+    return (await ipcCallPersistent("invites_redeem", {
+      ...parsed.data,
+      ...(typeof body.assistantId === "string"
+        ? { assistantId: body.assistantId }
+        : {}),
+    })) as { ok: true; type: string; memberId: string; inviteId?: string };
+  } catch (err) {
+    rethrowGatewayError(err);
   }
+}
 
-  return {
-    ok: true,
-    type: result.type,
-    memberId: result.memberId,
-    ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
-  };
+/** Map a token-branch schema failure to the stable redeem error messages. */
+function redeemTokenIssueMessage(error: z.ZodError): string {
+  for (const field of ["token", "sourceChannel"] as const) {
+    if (error.issues.some((issue) => issue.path[0] === field)) {
+      return `${field} is required`;
+    }
+  }
+  return error.issues[0]?.message ?? "Invalid redemption request";
 }
 
 /**
  * Redeem a token invite.
  *
- * Backs the HTTP `invites_redeem` route (token path) and the IPC-only
- * `invites_redeem_token` method. Wraps the generic `redeemIngressInvite`
- * token path.
+ * Backs the HTTP `invites_redeem` route (token path). Parses the body with
+ * the shared `RedeemInviteByTokenRequestSchema` wire contract and relays the
+ * parsed request verbatim — including the sender identity fields
+ * (`displayName` / `username`) the gateway engine stamps onto the new member —
+ * to the gateway's `invites_redeem` IPC. The gateway redemption engine owns
+ * validation, the atomic claim, and the ACL write. Fail-closed: a gateway
+ * relay failure surfaces as an error; there is no local redemption fallback.
  */
-export async function handleRedeemTokenInvite({ body = {} }: RouteHandlerArgs) {
-  const result = await redeemIngressInvite({
-    token: body.token as string | undefined,
-    externalUserId: body.externalUserId as string | undefined,
-    externalChatId: body.externalChatId as string | undefined,
-    sourceChannel: body.sourceChannel as string | undefined,
-  });
-
-  if (!result.ok) {
-    throw new BadRequestError(result.error);
+async function handleRedeemTokenInvite({ body = {} }: RouteHandlerArgs) {
+  const parsed = RedeemInviteByTokenRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(redeemTokenIssueMessage(parsed.error));
   }
-  // Surface the redemption `type` so the gateway can skip mirroring an
-  // `already_member` redeem (which consumes no invite use).
-  return { ok: true, invite: result.data.invite, type: result.data.type };
+
+  try {
+    // The `type` is surfaced so callers can tell a real redeem apart from an
+    // `already_member` no-op (which consumes no invite use).
+    return (await ipcCallPersistent("invites_redeem", parsed.data)) as {
+      ok: true;
+      invite: Record<string, unknown>;
+      type: string;
+    };
+  } catch (err) {
+    rethrowGatewayError(err);
+  }
 }
 
 export async function handleRedeemInvite(args: RouteHandlerArgs) {
@@ -428,14 +448,17 @@ export async function handleRedeemInvite(args: RouteHandlerArgs) {
   return handleRedeemTokenInvite(args);
 }
 
-// Stays daemon-local by design (like invites_redeem): the gateway's call path
-// validates its row then delegates the actual provider call to THIS handler via
-// ipcCallAssistant("invites_trigger_call"). Relaying back would loop
-// gateway→assistant→gateway. The provider call is a daemon capability.
-export async function handleTriggerInviteCall({
-  pathParams = {},
-}: RouteHandlerArgs) {
-  const result = await triggerInviteCall(pathParams.id);
+// Stays daemon-local by design (like invites_redeem): the gateway validates
+// its canonical invite row, then delegates the actual provider call to THIS
+// handler via ipcCallAssistant("invites_trigger_call") with the resolved call
+// fields in the body. Relaying back would loop gateway→assistant→gateway.
+// The provider call is a daemon capability.
+export async function handleTriggerInviteCall({ body = {} }: RouteHandlerArgs) {
+  const result = await triggerInviteCall({
+    phoneNumber: body.phoneNumber as string | undefined,
+    friendName: body.friendName as string | null | undefined,
+    guardianName: body.guardianName as string | null | undefined,
+  });
   if (!result.ok) {
     throw new BadRequestError(result.error);
   }
@@ -561,6 +584,10 @@ export const ROUTES: RouteDefinition[] = [
         .string()
         .describe("Expected user ID (E.164 for phone)")
         .optional(),
+      sourceConversationId: z
+        .string()
+        .describe("Conversation the invite was created from (opaque)")
+        .optional(),
     }),
     responseBody: z.object({
       ok: z.boolean(),
@@ -577,9 +604,9 @@ export const ROUTES: RouteDefinition[] = [
     },
   },
   {
-    // Stays daemon-local by design: redemption is an inbound-channel path (not
-    // a CLI ACL surface), and the assistant redemption service already claims
-    // the gateway row by id via record_invite_redemption — relaying would loop.
+    // Relays to the gateway `invites_redeem` IPC: the gateway redemption
+    // engine is the single lifecycle authority (validation, atomic claim,
+    // ACL upsert). Fail-closed when the gateway is unreachable.
     operationId: "invites_redeem",
     endpoint: "contacts/invites/redeem",
     method: "POST",
@@ -592,15 +619,33 @@ export const ROUTES: RouteDefinition[] = [
     description: "Redeem an invite by token or voice code.",
     tags: ["contacts"],
     requestBody: z.object({
-      token: z.string().describe("Invite token (token-based redemption)"),
-      code: z.string().describe("Voice code (voice-code redemption)"),
+      token: z
+        .string()
+        .optional()
+        .describe("Invite token (token-based redemption)"),
+      code: z.string().optional().describe("Voice code (voice-code redemption)"),
       callerExternalUserId: z
         .string()
+        .optional()
         .describe("Caller E.164 phone (voice-code)"),
-      externalUserId: z.string().describe("External user ID (token-based)"),
-      externalChatId: z.string().describe("External chat ID (token-based)"),
-      sourceChannel: z.string().describe("Source channel (token-based)"),
-      assistantId: z.string().describe("Assistant ID (voice-code)"),
+      externalUserId: z
+        .string()
+        .optional()
+        .describe("External user ID (token-based)"),
+      externalChatId: z
+        .string()
+        .optional()
+        .describe("External chat ID (token-based)"),
+      sourceChannel: z
+        .string()
+        .optional()
+        .describe("Source channel (token-based)"),
+      displayName: z
+        .string()
+        .optional()
+        .describe("Sender display name (token-based)"),
+      username: z.string().optional().describe("Sender username (token-based)"),
+      assistantId: z.string().optional().describe("Assistant ID (voice-code)"),
     }),
     responseBody: z.object({
       ok: z.boolean(),
@@ -639,14 +684,33 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "invites_trigger_call",
     endpoint: "contacts/invites/:id/call",
     method: "POST",
+    // Gateway-only: the handler dials whatever number is in the body — the
+    // invite validation in the gateway's triggerInviteCallNative is the sole
+    // gate, so an actor-reachable policy would be an arbitrary-dial primitive.
     policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
     },
     handler: handleTriggerInviteCall,
     summary: "Trigger invite call",
-    description: "Trigger an outbound call for a phone invite.",
+    description:
+      "Trigger an outbound call for a phone invite. Gateway-only: the gateway validates its canonical invite row and supplies the resolved call fields in the body.",
     tags: ["contacts"],
+    requestBody: z.object({
+      phoneNumber: z
+        .string()
+        .describe("E.164 number the invite call dials (invite's bound caller)"),
+      friendName: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Invitee display name for the call greeting"),
+      guardianName: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Guardian display label recorded on the invite"),
+    }),
     responseBody: z.object({
       ok: z.boolean(),
       callSid: z.string().describe("Call SID from the provider"),

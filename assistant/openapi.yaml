@@ -5615,6 +5615,9 @@ paths:
                 expectedExternalUserId:
                   type: string
                   description: Expected user ID (E.164 for phone)
+                sourceConversationId:
+                  type: string
+                  description: Conversation the invite was created from (opaque)
               required:
                 - contactId
       responses:
@@ -5663,7 +5666,9 @@ paths:
     post:
       operationId: contacts_invites_by_id_call_post
       summary: Trigger invite call
-      description: Trigger an outbound call for a phone invite.
+      description:
+        "Trigger an outbound call for a phone invite. Gateway-only: the gateway validates its canonical invite row
+        and supplies the resolved call fields in the body."
       tags:
         - contacts
       parameters:
@@ -5672,6 +5677,28 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phoneNumber:
+                  type: string
+                  description: E.164 number the invite call dials (invite's bound caller)
+                friendName:
+                  description: Invitee display name for the call greeting
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                guardianName:
+                  description: Guardian display label recorded on the invite
+                  anyOf:
+                    - type: string
+                    - type: "null"
+              required:
+                - phoneNumber
       responses:
         "200":
           description: Successful response
@@ -5706,34 +5733,32 @@ paths:
               type: object
               properties:
                 token:
-                  type: string
                   description: Invite token (token-based redemption)
+                  type: string
                 code:
-                  type: string
                   description: Voice code (voice-code redemption)
+                  type: string
                 callerExternalUserId:
-                  type: string
                   description: Caller E.164 phone (voice-code)
+                  type: string
                 externalUserId:
-                  type: string
                   description: External user ID (token-based)
+                  type: string
                 externalChatId:
-                  type: string
                   description: External chat ID (token-based)
+                  type: string
                 sourceChannel:
-                  type: string
                   description: Source channel (token-based)
-                assistantId:
                   type: string
+                displayName:
+                  description: Sender display name (token-based)
+                  type: string
+                username:
+                  description: Sender username (token-based)
+                  type: string
+                assistantId:
                   description: Assistant ID (voice-code)
-              required:
-                - token
-                - code
-                - callerExternalUserId
-                - externalUserId
-                - externalChatId
-                - sourceChannel
-                - assistantId
+                  type: string
       responses:
         "200":
           description: Successful response
@@ -9591,6 +9616,8 @@ paths:
                 type: object
                 properties:
                   ok:
+                    type: boolean
+                  cancelled:
                     type: boolean
                   error:
                     type: string

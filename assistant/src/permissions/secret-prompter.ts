@@ -18,6 +18,14 @@ export interface SecretPromptResult {
   delivery: SecretDelivery;
   /** When set, the prompt could not be delivered and the value is null due to a delivery failure (not user cancellation). */
   error?: "unsupported_channel";
+  /**
+   * Why `value` is null. `"cancelled"` = the user explicitly dismissed the
+   * prompt (a valid flow, not a failure); `"timed_out"` = no response within
+   * the permission-timeout window. Only meaningful when `value` is null and
+   * `error` is unset. Lets callers distinguish a deliberate cancel from a
+   * genuine failure instead of treating both as an error.
+   */
+  reason?: "cancelled" | "timed_out";
 }
 
 export interface SecretPrompterChannelContext {
@@ -149,9 +157,9 @@ export class SecretPrompter {
       value === undefined ? "cancelled" : "answered",
     );
     this.ownedIds.delete(requestId);
-    (interaction?.rpcResolve as ((v: SecretPromptResult) => void) | undefined)?.(
-      { value: value ?? null, delivery: delivery ?? "store" },
-    );
+    (
+      interaction?.rpcResolve as ((v: SecretPromptResult) => void) | undefined
+    )?.({ value: value ?? null, delivery: delivery ?? "store" });
   }
 
   dispose(): void {
