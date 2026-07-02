@@ -5,7 +5,16 @@
  * auth handling rather than falling through to the catch-all proxy.
  */
 
+import { randomUUID } from "node:crypto";
+
 import { proxyForward } from "@vellumai/assistant-client";
+import {
+  generateInviteCode,
+  generateInviteToken,
+  hashInviteCode,
+  hashInviteToken,
+  isValidE164,
+} from "@vellumai/gateway-client";
 import { eq } from "drizzle-orm";
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
@@ -19,9 +28,11 @@ import {
   ContactStore,
   CannotRevokeBlockedError,
   MergeContactsError,
+  NO_INVITE_CODE_HASH,
   type ChannelAcl,
   type ContactAcl,
   type ContactWithInfo,
+  type IngressInviteRow,
 } from "../../db/contact-store.js";
 import { contacts } from "../../db/schema.js";
 import { fetchImpl } from "../../fetch.js";
@@ -113,14 +124,25 @@ const VALID_CONTACT_TYPES = ["human", "assistant"] as const;
 
 /**
  * Strip code/token hashes from a gateway invite row before returning it over
- * HTTP. `inviteCodeHash` is the unsalted SHA-256 of a 6-digit code; returning
- * it lets any list-capable caller brute-force the ~10^6 keyspace offline and
- * redeem an active invite. All invite responses MUST go through this.
+ * HTTP. `inviteCodeHash` / `voiceCodeHash` are unsalted SHA-256 of 6-digit
+ * codes; returning either lets any list-capable caller brute-force the ~10^6
+ * keyspace offline and redeem an active invite. `tokenHash` is stripped for
+ * consistency (list/revoke responses never carry hashes). All invite
+ * responses MUST go through this.
  */
-function sanitizeInviteRow<T extends { inviteCodeHash?: unknown }>(
-  row: T,
-): Omit<T, "inviteCodeHash"> {
-  const { inviteCodeHash: _omit, ...rest } = row;
+function sanitizeInviteRow<
+  T extends {
+    inviteCodeHash?: unknown;
+    voiceCodeHash?: unknown;
+    tokenHash?: unknown;
+  },
+>(row: T): Omit<T, "inviteCodeHash" | "voiceCodeHash" | "tokenHash"> {
+  const {
+    inviteCodeHash: _omitCode,
+    voiceCodeHash: _omitVoice,
+    tokenHash: _omitToken,
+    ...rest
+  } = row;
   return rest;
 }
 
@@ -411,21 +433,30 @@ export async function listInvitesNative(
   return { invites };
 }
 
+/** Default invite lifetime when the caller supplies no `expiresInMs`. */
+const DEFAULT_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
 /**
- * Create an invite: verify the contact exists, relay to the assistant mint
- * (token/hash + voice fields), then write the canonical gateway lifecycle row.
- * Returns the assistant's minted one-time payload + rawToken. Throws
- * InviteNativeError(404) when the contact is unknown, InviteNativeError(500)
- * when the mint or gateway write fails, and propagates an assistant mint
- * IpcHandlerError unchanged so its status/code reach the caller.
+ * Create an invite natively: verify the contact exists, mint the secrets via
+ * the shared invite-contract helpers, and write the single canonical gateway
+ * row. Voice invites (`sourceChannel === "phone"`) get an identity-bound
+ * spoken code and NO link token; every other channel gets a link token plus a
+ * 6-digit code for guardian-mediated redemption. Plaintext secrets
+ * (`token` / `inviteCode` / `voiceCode`) are returned exactly once on the
+ * invite payload and never persisted — only their hashes reach the row.
+ * Presentation fields (share link, guardian instruction, channel handle) are
+ * daemon-owned and layered on by the daemon's create relay.
+ *
+ * Throws InviteNativeError(404) when the contact is unknown, (400) on invalid
+ * voice parameters, and (500) when the gateway write fails.
  */
 export async function createInviteNative(
   input: CreateInviteInput,
 ): Promise<{ invite: Record<string, unknown>; rawToken?: string }> {
   const store = new ContactStore();
 
-  // Verify the contact exists in the gateway DB before minting.
-  if (!store.getContact(input.contactId)) {
+  const contact = store.getContact(input.contactId);
+  if (!contact) {
     throw new InviteNativeError(
       `Contact "${input.contactId}" not found`,
       404,
@@ -433,53 +464,65 @@ export async function createInviteNative(
     );
   }
 
-  // ── Assistant mints (token/hash + voice fields) ──────────────────
-  let mint: {
-    invite: Record<string, unknown>;
-    rawToken?: string;
-    gateway: {
-      id: string;
-      inviteCodeHash: string;
-      sourceChannel: string;
-      contactId: string;
-      note: string | null;
-      maxUses: number;
-      expiresAt: number;
-    };
-  };
-  try {
-    mint = (await ipcCallAssistant("invites_mint", {
-      body: input,
-    } as unknown as Record<string, unknown>)) as typeof mint;
-  } catch (err) {
-    if (err instanceof IpcHandlerError) {
-      // Propagate the assistant's status/code unchanged.
-      throw err;
+  const isVoice = input.sourceChannel === "phone";
+
+  let rawToken: string | undefined;
+  let tokenHash: string | undefined;
+  let inviteCode: string | undefined;
+  let inviteCodeHash: string | undefined;
+  let voiceCode: string | undefined;
+  let voiceCodeHash: string | undefined;
+  let friendName: string | undefined;
+
+  if (isVoice) {
+    if (!input.expectedExternalUserId) {
+      throw new InviteNativeError(
+        "expectedExternalUserId is required for voice invites",
+        400,
+        "BAD_REQUEST",
+      );
     }
-    log.error(
-      { err, contactId: input.contactId },
-      "create_invite: mint failed",
-    );
-    throw new InviteNativeError("Failed to mint invite", 500, "INTERNAL_ERROR");
+    if (!isValidE164(input.expectedExternalUserId)) {
+      throw new InviteNativeError(
+        "expectedExternalUserId must be in E.164 format (e.g., +15551234567)",
+        400,
+        "BAD_REQUEST",
+      );
+    }
+    voiceCode = generateInviteCode(6);
+    voiceCodeHash = hashInviteCode(voiceCode);
+    // The invitee's canonical name is the bound contact's displayName —
+    // mirrored onto the row so voice greeting/call reads need no extra lookup.
+    friendName = contact.displayName?.trim() || undefined;
+  } else {
+    rawToken = generateInviteToken();
+    tokenHash = hashInviteToken(rawToken);
+    inviteCode = generateInviteCode(6);
+    inviteCodeHash = hashInviteCode(inviteCode);
   }
 
-  // ── Gateway DB write (source of truth) ───────────────────────────
-  const gw = mint.gateway;
-  let invite;
+  let row: IngressInviteRow;
   try {
-    invite = store.createInvite({
-      id: gw.id,
-      inviteCodeHash: gw.inviteCodeHash,
-      sourceChannel: gw.sourceChannel,
-      contactId: gw.contactId,
-      note: gw.note,
-      maxUses: gw.maxUses,
-      expiresAt: gw.expiresAt,
+    row = store.createInvite({
+      id: randomUUID(),
+      sourceChannel: input.sourceChannel,
+      contactId: input.contactId,
+      note: input.note ?? null,
+      maxUses: input.maxUses,
+      expiresAt: Date.now() + (input.expiresInMs ?? DEFAULT_INVITE_EXPIRY_MS),
+      inviteCodeHash: inviteCodeHash ?? NO_INVITE_CODE_HASH,
+      tokenHash: tokenHash ?? null,
+      voiceCodeHash: voiceCodeHash ?? null,
+      voiceCodeDigits: isVoice ? 6 : null,
+      expectedExternalUserId: isVoice ? input.expectedExternalUserId : null,
+      friendName: friendName ?? null,
+      guardianName: input.guardianName ?? null,
+      sourceConversationId: input.sourceConversationId ?? null,
     });
   } catch (err) {
     log.error(
-      { err, inviteId: gw?.id, contactId: input.contactId },
-      "create_invite: gateway DB write failed — assistant invite row is now orphaned (stale over lost)",
+      { err, contactId: input.contactId },
+      "create_invite: gateway DB write failed",
     );
     throw new InviteNativeError(
       "Failed to record invite",
@@ -494,14 +537,36 @@ export async function createInviteNative(
   } as unknown as Record<string, unknown>).catch(() => {});
 
   log.info(
-    { inviteId: invite.id, contactId: input.contactId },
+    { inviteId: row.id, contactId: input.contactId },
     "create_invite: handled natively",
   );
-  // The gateway row is the lifecycle source of truth, but the response must
-  // carry the assistant's minted one-time fields (voiceCode for phone;
-  // inviteCode/guardianInstruction/share/token for non-phone) — returned only
-  // at creation time and never fetchable later.
-  return { invite: mint.invite, rawToken: mint.rawToken };
+
+  // One-time create payload: row fields plus the plaintext secrets. tokenHash
+  // is included for response compatibility with the historical create shape;
+  // the brute-forceable code hashes never leave the DB.
+  const invite: Record<string, unknown> = {
+    id: row.id,
+    sourceChannel: row.sourceChannel,
+    ...(rawToken ? { token: rawToken } : {}),
+    ...(row.tokenHash ? { tokenHash: row.tokenHash } : {}),
+    maxUses: row.maxUses,
+    useCount: row.useCount,
+    expiresAt: row.expiresAt,
+    status: row.status,
+    ...(row.note ? { note: row.note } : {}),
+    ...(row.expectedExternalUserId
+      ? { expectedExternalUserId: row.expectedExternalUserId }
+      : {}),
+    ...(voiceCode ? { voiceCode } : {}),
+    ...(row.voiceCodeDigits != null
+      ? { voiceCodeDigits: row.voiceCodeDigits }
+      : {}),
+    ...(row.friendName ? { friendName: row.friendName } : {}),
+    ...(row.guardianName ? { guardianName: row.guardianName } : {}),
+    ...(inviteCode ? { inviteCode } : {}),
+    createdAt: row.createdAt,
+  };
+  return { invite, rawToken };
 }
 
 /**
@@ -1628,10 +1693,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     // ── Invite routes (gateway-native) ──
     //
     // The gateway DB's ingress_invites is the source of truth for invite
-    // lifecycle. Token mint, voice/token redemption, and outbound call relay
-    // to the assistant over IPC (token secrecy + voice UX are assistant-owned);
-    // the gateway records the canonical ACL-relevant lifecycle. None of these
-    // handlers fall back to `forward` on error — mutations 500 instead.
+    // lifecycle and secrets: mint is fully gateway-native. Voice/token
+    // redemption and outbound calls still relay to the assistant over IPC.
+    // None of these handlers fall back to `forward` on error — mutations 500
+    // instead.
 
     /**
      * GET /v1/contacts/invites — gateway-native invite list.
@@ -1655,11 +1720,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     /**
      * POST /v1/contacts/invites — gateway-native invite create.
      *
-     * Inverted dual-write vs contacts: the assistant mints first (it owns
-     * token secrecy + voice UX, writes voice fields, returns the raw token +
-     * projection), then the gateway records the canonical lifecycle row in its
-     * own DB (source of truth for ACL). If the gateway write throws → 500, no
-     * fallback: the assistant row already existing is stale-over-lost.
+     * The gateway mints the secrets and writes the single canonical invite
+     * row in its own DB (no assistant round-trip). The response carries the
+     * one-time plaintext secrets; daemon-owned presentation (share link,
+     * guardian instruction) is layered on by the daemon's create relay.
      */
     async handleCreateInvite(req: Request): Promise<Response> {
       let body: unknown;

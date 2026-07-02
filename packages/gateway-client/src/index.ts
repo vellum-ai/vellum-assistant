@@ -105,6 +105,7 @@ export {
   InviteRedeemedNotificationSchema,
   InviteRedemptionOutcomeSchema,
   isInviteCodeRedemptionEnabled,
+  isValidE164,
   RedeemInviteByCodeRequestSchema,
   RedeemInviteByTokenRequestSchema,
   RedeemVoiceInviteRequestSchema,

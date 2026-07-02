@@ -91,14 +91,9 @@ function richContactForId(contactId: string | undefined) {
 }
 
 import { getContact, upsertContact } from "../contacts/contact-store.js";
-import { handleMintInvite } from "../ipc/routes/invite-ipc-routes.js";
 import { getSqlite } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import {
-  createInvite,
-  findById,
-  hashToken,
-} from "../persistence/invite-store.js";
+import { createInvite } from "../persistence/invite-store.js";
 import {
   handleRedeemTokenInvite,
   handleRedeemVoiceInvite,
@@ -117,90 +112,6 @@ function resetTables() {
 function createTargetContact(displayName = "Target Contact"): string {
   return upsertContact({ displayName, role: "contact" }).id;
 }
-
-describe("handleMintInvite (invites_mint)", () => {
-  beforeEach(resetTables);
-
-  test("returns rawToken + gateway projection and persists the assistant row", async () => {
-    const contactId = createTargetContact();
-
-    const result = (await handleMintInvite({
-      body: { sourceChannel: "telegram", contactId, maxUses: 3 },
-    })) as {
-      ok: boolean;
-      invite: { id: string; token?: string };
-      rawToken?: string;
-      gateway: {
-        id: string;
-        inviteCodeHash: string;
-        sourceChannel: string;
-        contactId: string;
-        note: string | null;
-        maxUses: number;
-        expiresAt: number;
-      };
-    };
-
-    expect(result.ok).toBe(true);
-    expect(result.rawToken).toBeDefined();
-    expect(typeof result.rawToken).toBe("string");
-
-    // Gateway projection carries exactly the mirrored fields.
-    expect(result.gateway).toEqual({
-      id: result.invite.id,
-      inviteCodeHash: expect.any(String),
-      sourceChannel: "telegram",
-      contactId,
-      note: null,
-      maxUses: 3,
-      expiresAt: expect.any(Number),
-    });
-
-    // The assistant row is persisted and only the token hash is stored.
-    const row = findById(result.invite.id);
-    expect(row).not.toBeNull();
-    expect(row!.contactId).toBe(contactId);
-    expect(row!.tokenHash).toBe(hashToken(result.rawToken!));
-    expect(row!.inviteCodeHash).toBe(result.gateway.inviteCodeHash);
-  });
-
-  test("voice mint does not expose a raw token but persists voice fields", async () => {
-    const contactId = createTargetContact();
-
-    const result = (await handleMintInvite({
-      body: {
-        sourceChannel: "phone",
-        contactId,
-        expectedExternalUserId: "+12025550100",
-      },
-    })) as {
-      ok: boolean;
-      invite: { id: string; voiceCode?: string };
-      rawToken?: string;
-      gateway: { sourceChannel: string; inviteCodeHash: string };
-    };
-
-    expect(result.ok).toBe(true);
-    // Voice invites never expose the generic redemption token.
-    expect(result.rawToken).toBeUndefined();
-    expect(result.gateway.sourceChannel).toBe("phone");
-
-    const row = findById(result.invite.id);
-    expect(row).not.toBeNull();
-    expect(row!.expectedExternalUserId).toBe("+12025550100");
-    expect(row!.voiceCodeHash).toBeTruthy();
-    // Voice invites have no non-voice inviteCodeHash; the gateway projection
-    // mirrors the voice code hash instead so the NOT NULL mirror constraint holds.
-    expect(row!.inviteCodeHash).toBeNull();
-    expect(row!.voiceCodeHash).toBe(result.gateway.inviteCodeHash);
-  });
-
-  test("returns a 400 when required params are missing", async () => {
-    await expect(
-      handleMintInvite({ body: { contactId: createTargetContact() } }),
-    ).rejects.toThrow();
-  });
-});
 
 describe("handleRedeemTokenInvite (invites_redeem_token)", () => {
   beforeEach(resetTables);

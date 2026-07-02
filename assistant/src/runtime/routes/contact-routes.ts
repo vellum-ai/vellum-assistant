@@ -28,8 +28,10 @@ import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
+  composeInvitePresentation,
   redeemIngressInvite,
   redeemVoiceInviteCode,
+  resolveInviteGuardianName,
   triggerInviteCall,
 } from "../invite-service.js";
 import { BadRequestError, NotFoundError, RouteError } from "./errors.js";
@@ -296,17 +298,12 @@ export async function handleGetContact(contactId: string) {
 // Invite handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
-// The gateway owns the canonical invite write path. These CLI handlers relay
-// to the gateway IPC methods via `ipcCallPersistent`; the assistant DB is
-// written only by the gateway. (Redemption stays daemon-local — see the redeem route.)
-
-// The invite-CREATE relay needs a generous timeout: the gateway's `invites_mint`
-// handler calls `createIngressInvite` → `generateInviteInstruction`, which can spend
-// up to GENERATION_TIMEOUT_MS (~5s) waiting on an LLM before falling back. The default
-// 5s persistent-IPC timeout can fire mid-mint, so the caller sees a spurious failure
-// even though the gateway is still writing the invite. 30s safely exceeds the inner
-// ~5s fallback plus IPC overhead on both nested hops. (List/revoke keep the default.)
-const INVITE_CREATE_RELAY_TIMEOUT_MS = 30_000;
+// The gateway owns the canonical invite write path, including the mint: it
+// generates the secrets and writes the single gateway invite row. These CLI
+// handlers relay via `ipcCallPersistent`; the daemon then layers the
+// presentation fields (share link, LLM guardian instruction, channel handle)
+// onto the gateway's one-time create payload. (Redemption stays daemon-local
+// — see the redeem route.)
 
 export async function handleListInvites({
   queryParams = {},
@@ -325,29 +322,41 @@ export async function handleListInvites({
 }
 
 export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
+  const contactId = body.contactId as string;
+  const sourceChannel = body.sourceChannel as string | undefined;
+  // The guardian display label on voice invites is daemon-resolved and passed
+  // through to the gateway, which stores it and never interprets it.
+  const guardianName =
+    sourceChannel === "phone" ? resolveInviteGuardianName() : undefined;
+  let result: { invite: Record<string, unknown>; rawToken?: string };
   try {
-    const result = (await ipcCallPersistent(
-      "invites_create",
-      {
-        contactId: body.contactId as string,
-        sourceChannel: body.sourceChannel as string | undefined,
-        note: body.note as string | undefined,
-        maxUses: body.maxUses as number | undefined,
-        expiresInMs: body.expiresInMs as number | undefined,
-        expectedExternalUserId: body.expectedExternalUserId as
-          | string
-          | undefined,
-      },
-      INVITE_CREATE_RELAY_TIMEOUT_MS,
-    )) as { invite: Record<string, unknown>; rawToken?: string };
-    return {
-      ok: true,
-      invite: result.invite,
-      ...(result.rawToken ? { rawToken: result.rawToken } : {}),
-    };
+    result = (await ipcCallPersistent("invites_create", {
+      contactId,
+      sourceChannel,
+      note: body.note as string | undefined,
+      maxUses: body.maxUses as number | undefined,
+      expiresInMs: body.expiresInMs as number | undefined,
+      expectedExternalUserId: body.expectedExternalUserId as
+        | string
+        | undefined,
+      ...(guardianName ? { guardianName } : {}),
+      ...(typeof body.sourceConversationId === "string"
+        ? { sourceConversationId: body.sourceConversationId }
+        : {}),
+    })) as { invite: Record<string, unknown>; rawToken?: string };
   } catch (err) {
     rethrowGatewayError(err);
   }
+  const invite = await composeInvitePresentation({
+    contactId,
+    invite: result.invite,
+    rawToken: result.rawToken,
+  });
+  return {
+    ok: true,
+    invite,
+    ...(result.rawToken ? { rawToken: result.rawToken } : {}),
+  };
 }
 
 export async function handleRevokeInvite({
@@ -560,6 +569,10 @@ export const ROUTES: RouteDefinition[] = [
       expectedExternalUserId: z
         .string()
         .describe("Expected user ID (E.164 for phone)")
+        .optional(),
+      sourceConversationId: z
+        .string()
+        .describe("Conversation the invite was created from (opaque)")
         .optional(),
     }),
     responseBody: z.object({

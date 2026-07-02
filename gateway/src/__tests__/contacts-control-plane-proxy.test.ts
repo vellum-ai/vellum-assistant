@@ -7,6 +7,7 @@ import {
   beforeAll,
   afterAll,
 } from "bun:test";
+import { hashInviteCode, hashInviteToken } from "@vellumai/gateway-client";
 import type { GatewayConfig } from "../config.js";
 import { initSigningKey } from "../auth/token-service.js";
 
@@ -166,6 +167,15 @@ type InviteRow = {
   id: string;
   sourceChannel: string;
   inviteCodeHash: string;
+  // Secret/display columns are optional here so the legacy list/revoke
+  // fixtures stay minimal; the mint echo mock fills them all in.
+  tokenHash?: string | null;
+  voiceCodeHash?: string | null;
+  voiceCodeDigits?: number | null;
+  expectedExternalUserId?: string | null;
+  friendName?: string | null;
+  guardianName?: string | null;
+  sourceConversationId?: string | null;
   contactId: string;
   note: string | null;
   maxUses: number;
@@ -190,7 +200,9 @@ const DEFAULT_INVITE: InviteRow = {
   updatedAt: 1000000,
 };
 
-type GetContactFn = (contactId: string) => { id: string } | undefined;
+type GetContactFn = (
+  contactId: string,
+) => { id: string; displayName?: string } | undefined;
 let contactStoreGetContactMock: ReturnType<typeof mock<GetContactFn>> = mock(
   () => ({ id: "ct_1" }),
 );
@@ -203,6 +215,38 @@ let contactStoreListInvitesMock: ReturnType<typeof mock<ListInvitesFn>> = mock(
 type CreateInviteFn = (params: unknown) => InviteRow;
 let contactStoreCreateInviteMock: ReturnType<typeof mock<CreateInviteFn>> =
   mock(() => DEFAULT_INVITE);
+
+/**
+ * Echo store mock for the native mint: returns a row built from the exact
+ * params `createInviteNative` writes, so response/persistence assertions see
+ * what the store was actually asked to persist.
+ */
+function makeEchoCreateInviteMock() {
+  return mock((params: unknown): InviteRow => {
+    const p = params as Record<string, unknown>;
+    return {
+      id: p.id as string,
+      sourceChannel: p.sourceChannel as string,
+      inviteCodeHash: (p.inviteCodeHash as string) ?? "",
+      tokenHash: (p.tokenHash as string | null) ?? null,
+      voiceCodeHash: (p.voiceCodeHash as string | null) ?? null,
+      voiceCodeDigits: (p.voiceCodeDigits as number | null) ?? null,
+      expectedExternalUserId:
+        (p.expectedExternalUserId as string | null) ?? null,
+      friendName: (p.friendName as string | null) ?? null,
+      guardianName: (p.guardianName as string | null) ?? null,
+      sourceConversationId: (p.sourceConversationId as string | null) ?? null,
+      contactId: p.contactId as string,
+      note: (p.note as string | null) ?? null,
+      maxUses: (p.maxUses as number) ?? 1,
+      useCount: 0,
+      expiresAt: p.expiresAt as number,
+      status: "active",
+      createdAt: 1000000,
+      updatedAt: 1000000,
+    };
+  });
+}
 
 type RevokeInviteFn = (inviteId: string) => InviteRow | null;
 let contactStoreRevokeInviteMock: ReturnType<typeof mock<RevokeInviteFn>> =
@@ -221,6 +265,7 @@ let contactStoreGetInviteByIdMock: ReturnType<typeof mock<GetInviteByIdFn>> =
   mock(() => DEFAULT_INVITE);
 
 mock.module("../db/contact-store.js", () => ({
+  NO_INVITE_CODE_HASH: "",
   ContactStore: class MockContactStore {
     upsertContact(...args: Parameters<UpsertFn>) {
       return contactStoreUpsertMock(...args);
@@ -1964,108 +2009,68 @@ describe("handleDeleteContact (gateway-native)", () => {
   });
 });
 
-describe("handleCreateInvite (gateway-native)", () => {
-  test("returns the assistant's minted invite payload (one-time codes), not the gateway row", async () => {
-    // The minted payload carries creation-only fields (inviteCode/token/share)
-    // that the gateway row does NOT — these must reach the client.
-    const mintInvite = {
-      id: "inv_1",
-      sourceChannel: "telegram",
-      inviteCode: "123456",
-      guardianInstruction: "Share this code with them first.",
-      token: "raw-token-abc",
-      share: { url: "https://t.me/bot?start=abc", displayText: "Open invite" },
-      status: "active",
-    };
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_mint") {
-        return {
-          ok: true,
-          invite: mintInvite,
-          rawToken: "raw-token-abc",
-          gateway: {
-            id: "inv_1",
-            inviteCodeHash: "hash_1",
-            sourceChannel: "telegram",
-            contactId: "ct_1",
-            note: null,
-            maxUses: 1,
-            expiresAt: 2000000,
-          },
-        };
-      }
-      return {};
-    });
-    contactStoreCreateInviteMock = mock(() => DEFAULT_INVITE);
+describe("handleCreateInvite (gateway-native mint)", () => {
+  test("mints token + 6-digit code natively for non-voice invites; only hashes reach the store", async () => {
+    contactStoreCreateInviteMock = makeEchoCreateInviteMock();
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleCreateInvite(
       new Request("http://localhost:7830/v1/contacts/invites", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ contactId: "ct_1", sourceChannel: "telegram" }),
+        body: JSON.stringify({
+          contactId: "ct_1",
+          sourceChannel: "telegram",
+          note: "For Alice",
+          maxUses: 3,
+        }),
       }),
     );
 
     expect(res.status).toBe(201);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(body.rawToken).toBe("raw-token-abc");
-    expect(body.invite.id).toBe("inv_1");
-    // One-time creation fields must come from the mint payload — the gateway
-    // row (DEFAULT_INVITE) carries none of these.
-    expect(body.invite.inviteCode).toBe("123456");
-    expect(body.invite.token).toBe("raw-token-abc");
-    expect(body.invite.guardianInstruction).toBe(
-      "Share this code with them first.",
-    );
-    expect(body.invite.share).toEqual({
-      url: "https://t.me/bot?start=abc",
-      displayText: "Open invite",
-    });
-    // Gateway row is still written as the lifecycle source of truth.
+
+    // One-time plaintext secrets are returned exactly once.
+    expect(typeof body.rawToken).toBe("string");
+    expect(body.invite.token).toBe(body.rawToken);
+    expect(/^\d{6}$/.test(body.invite.inviteCode)).toBe(true);
+    expect(body.invite.voiceCode).toBeUndefined();
+    expect(body.invite.note).toBe("For Alice");
+    expect(body.invite.maxUses).toBe(3);
+    expect(body.invite.status).toBe("active");
+
+    // Exactly one gateway row write; only hashes persist — never plaintext.
     expect(contactStoreCreateInviteMock).toHaveBeenCalledTimes(1);
     const [createParams] = contactStoreCreateInviteMock.mock.calls[0] as [
       Record<string, unknown>,
     ];
-    expect(createParams.id).toBe("inv_1");
-    expect(createParams.inviteCodeHash).toBe("hash_1");
+    expect(createParams.tokenHash).toBe(hashInviteToken(body.rawToken));
+    expect(createParams.inviteCodeHash).toBe(
+      hashInviteCode(body.invite.inviteCode),
+    );
+    expect(createParams.voiceCodeHash).toBeNull();
+    expect(Object.values(createParams)).not.toContain(body.rawToken);
+    expect(Object.values(createParams)).not.toContain(body.invite.inviteCode);
+
+    // Brute-forceable hashes never reach the response.
+    expect(body.invite.inviteCodeHash).toBeUndefined();
+    expect(body.invite.voiceCodeHash).toBeUndefined();
+    // tokenHash is response-shape compatible (256-bit preimage, not guessable).
+    expect(body.invite.tokenHash).toBe(createParams.tokenHash);
+
+    // No assistant mint relay — only the contacts_changed notification.
+    const ipcMethods = ipcCallAssistantMock.mock.calls.map((c) => c[0]);
+    expect(ipcMethods).not.toContain("invites_mint");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("returns the minted voiceCode for phone invites", async () => {
-    const mintInvite = {
-      id: "inv_phone",
-      sourceChannel: "phone",
-      voiceCode: "987654",
-      voiceCodeDigits: 6,
-      status: "active",
-    };
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_mint") {
-        return {
-          ok: true,
-          invite: mintInvite,
-          // Voice invites never expose a token.
-          rawToken: undefined,
-          gateway: {
-            id: "inv_phone",
-            inviteCodeHash: "voicehash_1",
-            sourceChannel: "phone",
-            contactId: "ct_1",
-            note: null,
-            maxUses: 1,
-            expiresAt: 2000000,
-          },
-        };
-      }
-      return {};
-    });
-    contactStoreCreateInviteMock = mock(() => ({
-      ...DEFAULT_INVITE,
-      id: "inv_phone",
-      sourceChannel: "phone",
+  test("mints an identity-bound voiceCode for phone invites — no token, passthrough fields stored", async () => {
+    contactStoreGetContactMock = mock(() => ({
+      id: "ct_1",
+      displayName: "Sam Example",
     }));
+    contactStoreCreateInviteMock = makeEchoCreateInviteMock();
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleCreateInvite(
@@ -2076,15 +2081,73 @@ describe("handleCreateInvite (gateway-native)", () => {
           contactId: "ct_1",
           sourceChannel: "phone",
           expectedExternalUserId: "+15551234567",
-          friendName: "Sam",
+          guardianName: "Guardian Example",
+          sourceConversationId: "conv-9",
         }),
       }),
     );
 
     expect(res.status).toBe(201);
     const body = await res.json();
-    expect(body.invite.voiceCode).toBe("987654");
-    expect(body.invite.id).toBe("inv_phone");
+
+    // Voice invites never expose a token; the spoken code is the credential.
+    expect(body.rawToken).toBeUndefined();
+    expect(body.invite.token).toBeUndefined();
+    expect(body.invite.tokenHash).toBeUndefined();
+    expect(/^\d{6}$/.test(body.invite.voiceCode)).toBe(true);
+    expect(body.invite.voiceCodeDigits).toBe(6);
+    expect(body.invite.expectedExternalUserId).toBe("+15551234567");
+    // friendName resolves from the gateway contact's displayName.
+    expect(body.invite.friendName).toBe("Sam Example");
+    // guardianName is a stored passthrough (daemon-supplied, never interpreted).
+    expect(body.invite.guardianName).toBe("Guardian Example");
+
+    const [createParams] = contactStoreCreateInviteMock.mock.calls[0] as [
+      Record<string, unknown>,
+    ];
+    expect(createParams.voiceCodeHash).toBe(
+      hashInviteCode(body.invite.voiceCode),
+    );
+    expect(createParams.tokenHash).toBeNull();
+    // No 6-digit channel code for voice — the sentinel keeps NOT NULL happy.
+    expect(createParams.inviteCodeHash).toBe("");
+    expect(createParams.guardianName).toBe("Guardian Example");
+    expect(createParams.sourceConversationId).toBe("conv-9");
+    expect(Object.values(createParams)).not.toContain(body.invite.voiceCode);
+  });
+
+  test("returns 400 when expectedExternalUserId is missing for phone invites", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleCreateInvite(
+      new Request("http://localhost:7830/v1/contacts/invites", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ contactId: "ct_1", sourceChannel: "phone" }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toMatch(/expectedExternalUserId/);
+    expect(contactStoreCreateInviteMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 400 for a non-E.164 expectedExternalUserId", async () => {
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleCreateInvite(
+      new Request("http://localhost:7830/v1/contacts/invites", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          contactId: "ct_1",
+          sourceChannel: "phone",
+          expectedExternalUserId: "not-a-phone-number",
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error.message).toMatch(/E\.164/);
+    expect(contactStoreCreateInviteMock).not.toHaveBeenCalled();
   });
 
   test("returns 400 for invalid JSON body", async () => {
@@ -2135,28 +2198,10 @@ describe("handleCreateInvite (gateway-native)", () => {
     expect(res.status).toBe(404);
     expect((await res.json()).error.code).toBe("NOT_FOUND");
     expect(ipcCallAssistantMock).not.toHaveBeenCalled();
+    expect(contactStoreCreateInviteMock).not.toHaveBeenCalled();
   });
 
   test("returns 500 when gateway DB write fails (no proxy fallback)", async () => {
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_mint") {
-        return {
-          ok: true,
-          invite: { id: "inv_1" },
-          rawToken: "raw",
-          gateway: {
-            id: "inv_1",
-            inviteCodeHash: "hash_1",
-            sourceChannel: "telegram",
-            contactId: "ct_1",
-            note: null,
-            maxUses: 1,
-            expiresAt: 2000000,
-          },
-        };
-      }
-      return {};
-    });
     contactStoreCreateInviteMock = mock(() => {
       throw new Error("gateway DB unavailable");
     });
@@ -2173,32 +2218,6 @@ describe("handleCreateInvite (gateway-native)", () => {
     expect(res.status).toBe(500);
     expect((await res.json()).error.code).toBe("INTERNAL_ERROR");
     expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test("maps assistant mint 400 (IpcHandlerError) to a 400 response", async () => {
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_mint") {
-        throw new IpcHandlerError(
-          "expectedExternalUserId is required for voice invites",
-          400,
-          "BAD_REQUEST",
-        );
-      }
-      return {};
-    });
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleCreateInvite(
-      new Request("http://localhost:7830/v1/contacts/invites", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ contactId: "ct_1", sourceChannel: "phone" }),
-      }),
-    );
-
-    expect(res.status).toBe(400);
-    expect((await res.json()).error.message).toMatch(/expectedExternalUserId/);
-    expect(contactStoreCreateInviteMock).not.toHaveBeenCalled();
   });
 });
 
