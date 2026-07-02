@@ -1205,6 +1205,41 @@ export function getSlackCompactionWatermarkForPrefix(
   );
 }
 
+/**
+ * Highest Slack `channelTs` carried by the persisted rows
+ * `rows[0..endExclusive)`, or `null` when it would not advance past
+ * `existingWatermarkTs`. Backs fixed-boundary summarization ("summarize up
+ * to here"), which compacts the in-memory history rather than the Slack
+ * chronological projection: the watermark is derived in row-space — the same
+ * space the boundary was resolved in — so the next turn's Slack projection
+ * excludes exactly the rows the new summary covers. The advance-only check
+ * keeps the watermark monotonic: a summarize range whose Slack rows all sit
+ * at or before the existing watermark is already excluded from the
+ * projection, so persisting nothing is correct.
+ */
+export function getSlackWatermarkAdvanceForRowPrefix(
+  rows: MessageRow[],
+  endExclusive: number,
+  existingWatermarkTs: string | null,
+): string | null {
+  const ts = maxSlackTs(
+    rows.slice(0, endExclusive).map(
+      (row) =>
+        readSlackMetadataFromMessageMetadata(row.metadata, {
+          allowFlatLegacy: true,
+        })?.channelTs ?? null,
+    ),
+  );
+  if (ts === null) return null;
+  if (
+    existingWatermarkTs !== null &&
+    !isSlackTsAfter(ts, existingWatermarkTs)
+  ) {
+    return null;
+  }
+  return ts;
+}
+
 function assembleSlackChronologicalContext(
   rows: SlackTranscriptInputRow[],
   capabilities: ChannelCapabilities,

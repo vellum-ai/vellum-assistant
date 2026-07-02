@@ -291,6 +291,7 @@ mock.module("../contacts/canonical-guardian-store.js", () => ({
 // ---------------------------------------------------------------------------
 
 import { Conversation } from "../daemon/conversation.js";
+import { formatSummarizeUpToResult } from "../daemon/conversation-process.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../daemon/trust-context.js";
 
 // ---------------------------------------------------------------------------
@@ -561,7 +562,7 @@ describe("Conversation.summarizeUpToMessage", () => {
     expect(compactCalls[0].messages).toHaveLength(6);
   });
 
-  test("Slack: a fixed-boundary run persists no watermark; forced compaction still does", async () => {
+  test("Slack: a fixed-boundary run persists the watermark derived from the summarized rows; forced compaction still derives its own", async () => {
     mockDbMessages = slackThreeTurnRows();
     const conversation = makeConversation();
     conversation.setChannelCapabilities(slackCapabilities);
@@ -575,18 +576,81 @@ describe("Conversation.summarizeUpToMessage", () => {
 
     await conversation.summarizeUpToMessage("m4");
 
-    // The compacted prefix came from `this.messages`, not the Slack
-    // projection, so no Slack watermark can be derived from it.
-    expect(slackWatermarkCalls).toHaveLength(0);
+    // The watermark is the highest channelTs among the summarized rows
+    // rows[0..4) (m0..m3) — the next turn's Slack projection must exclude
+    // exactly the rows the new summary covers.
+    expect(slackWatermarkCalls).toHaveLength(1);
+    expect(slackWatermarkCalls[0][0]).toBe("conv-1");
+    expect(slackWatermarkCalls[0][1]).toBe("1000.000400");
 
-    // Contrast: the forced/auto path keeps its Slack behavior — it compacts
-    // the projection and persists a watermark derived from the compacted
+    // The forced/auto path keeps its Slack behavior — it compacts the
+    // projection and persists a watermark derived from the compacted
     // prefix's channelTs values.
     await conversation.forceCompact();
 
+    expect(slackWatermarkCalls).toHaveLength(2);
+    expect(slackWatermarkCalls[1][0]).toBe("conv-1");
+    expect(typeof slackWatermarkCalls[1][1]).toBe("string");
+  });
+
+  test("Slack: a fixed boundary advances an existing older watermark", async () => {
+    mockDbMessages = slackThreeTurnRows();
+    // A prior Slack auto-compaction left a watermark at m1's channelTs.
+    // Without an advance, rows m2/m3 would be injected twice on the next
+    // turn: once in the new summary and once verbatim in the projection.
+    mockConversation.slackContextCompactionWatermarkTs = "1000.000200";
+    const conversation = makeConversation();
+    conversation.setChannelCapabilities(slackCapabilities);
+    mockCompactResult = {
+      ...makeNoopResult(),
+      compacted: true,
+      compactedMessages: 4,
+      compactedPersistedMessages: 4,
+      summaryText: "slack summary",
+    };
+
+    await conversation.summarizeUpToMessage("m4");
+
     expect(slackWatermarkCalls).toHaveLength(1);
-    expect(slackWatermarkCalls[0][0]).toBe("conv-1");
-    expect(typeof slackWatermarkCalls[0][1]).toBe("string");
+    expect(slackWatermarkCalls[0][1]).toBe("1000.000400");
+    expect(conversation.slackContextCompactionWatermarkTs).toBe("1000.000400");
+  });
+
+  test("Slack: a boundary at or before the existing watermark leaves it untouched", async () => {
+    mockDbMessages = slackThreeTurnRows();
+    // The existing watermark already covers every row in the summarize range
+    // (rows[0..4) top out at m3's 1000.000400), so those rows are already
+    // excluded from the projection — the watermark must never move backwards.
+    mockConversation.slackContextCompactionWatermarkTs = "1000.000400";
+    const conversation = makeConversation();
+    conversation.setChannelCapabilities(slackCapabilities);
+    mockCompactResult = {
+      ...makeNoopResult(),
+      compacted: true,
+      compactedMessages: 4,
+      compactedPersistedMessages: 4,
+      summaryText: "slack summary",
+    };
+
+    await conversation.summarizeUpToMessage("m4");
+
+    expect(slackWatermarkCalls).toHaveLength(0);
+    expect(conversation.slackContextCompactionWatermarkTs).toBe("1000.000400");
+  });
+
+  test("non-Slack conversations persist no watermark on a fixed-boundary run", async () => {
+    mockCompactResult = {
+      ...makeNoopResult(),
+      compacted: true,
+      compactedMessages: 4,
+      compactedPersistedMessages: 4,
+      summaryText: "plain summary",
+    };
+    const conversation = makeConversation();
+
+    await conversation.summarizeUpToMessage("m4");
+
+    expect(slackWatermarkCalls).toHaveLength(0);
   });
 
   test("throws the retryable UserError and skips compaction when the mapping cannot be verified", async () => {
@@ -619,5 +683,24 @@ describe("Conversation.summarizeUpToMessage", () => {
       "Conversation history is being reorganized — try again in a moment",
     );
     expect(compactCalls).toHaveLength(0);
+  });
+});
+
+describe("formatSummarizeUpToResult", () => {
+  test("renders row-space counts — the synthetic summary head is not a user-visible message", () => {
+    // A repeat summarize compacts the prior synthetic summary head along
+    // with 12 persisted rows, so the history-space count runs one ahead.
+    const card = formatSummarizeUpToResult({
+      ...makeNoopResult(),
+      compacted: true,
+      compactedMessages: 13,
+      compactedPersistedMessages: 12,
+      preservedTailMessages: 4,
+      previousEstimatedInputTokens: 12_000,
+      estimatedInputTokens: 4_000,
+    });
+
+    expect(card).toContain("Summarized 12 earlier messages.");
+    expect(card).toContain("4 recent messages kept in full.");
   });
 });
