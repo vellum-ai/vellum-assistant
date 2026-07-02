@@ -92,6 +92,19 @@ function createFlow(overrides?: Partial<CallSetupFlowDeps>) {
       results.push(result);
     },
     ttsPlaybackDelayMs: 0,
+    attemptInviteCodeRedemption: async () => ({
+      outcome: "failure" as const,
+      ttsMessage: "unused",
+    }),
+    resolveGuardianLabel: () => "Bob",
+    resolveAssistantLabel: () => null,
+    getCallSession: () => ({ conversationId: "conv-1" }),
+    finalizeCall: () => {},
+    fireCallTranscriptNotifier: () => {},
+    resolveMidCallTrustContext: async () => ({
+      sourceChannel: "phone" as const,
+      trustClass: "trusted_contact" as const,
+    }),
     ...overrides,
   };
 
