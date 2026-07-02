@@ -18,6 +18,7 @@ import { getLogger } from "../../../util/logger.js";
 import { truncate } from "../../../util/truncate.js";
 import {
   isAccessRequestDenied,
+  isApprovalHandshakeInProgress,
   notifyGuardianOfAccessRequest,
 } from "../../access-request-helper.js";
 import { resolveAnchoredGuardian } from "../../anchored-guardian.js";
@@ -53,6 +54,32 @@ async function resolveGuardianLabel(sourceChannel: ChannelId): Promise<string> {
   return resolveGuardianName(anchored?.displayName);
 }
 
+/**
+ * Compose the requester-facing reply for a denied inbound, keyed on the
+ * access-request outcome. Single source for this copy — the not_a_member,
+ * inactive-member, and admission-floor deny lanes all route through it.
+ *
+ * - Handshake in progress: the guardian already approved and a verification
+ *   code is live; tell the sender their next step. The code is DM'd directly
+ *   to the requester on Slack but relayed via the guardian elsewhere, so the
+ *   copy covers both.
+ * - Guardian notified: the standard "I'll let <guardian> know" copy.
+ * - Otherwise: the plain not-approved copy.
+ */
+export async function composeAccessDenialReply(params: {
+  sourceChannel: ChannelId;
+  guardianNotified: boolean;
+  handshakeInProgress: boolean;
+}): Promise<string> {
+  if (params.handshakeInProgress) {
+    return `Your access request was approved! Reply here with the 6-digit verification code to finish connecting — if you don't have it, ask ${await resolveGuardianLabel(params.sourceChannel)} for it.`;
+  }
+  if (params.guardianNotified) {
+    return `Hmm looks like you don't have access to talk to me. I'll let ${await resolveGuardianLabel(params.sourceChannel)} know you tried talking to me and get back to you.`;
+  }
+  return "Sorry, you haven't been approved to message this assistant.";
+}
+
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
@@ -82,6 +109,18 @@ export interface AclEnforcementParams {
    * replies for senders who will be admitted by the floor stage anyway.
    */
   effectiveAdmissionPolicy?: AdmissionPolicy;
+  /**
+   * True when the inbound event is an interaction callback (e.g. a Slack
+   * Block Kit button press or a message_deleted sentinel) rather than a
+   * message the sender composed. Callbacks are decision attempts / lifecycle
+   * events, not access attempts: a denied callback must never mint a
+   * verification challenge or create an access request — a stale button
+   * press from an unrecognized sender would otherwise spawn a fresh
+   * Approve/Reject card the guardian already dealt with (LUM-2673). The
+   * deny itself (and its canned reply) still applies. Required so every
+   * caller makes the classification explicitly.
+   */
+  isCallbackInteraction: boolean;
 }
 
 /**
@@ -135,6 +174,7 @@ export async function enforceIngressAcl(
     replyCallbackUrl,
     assistantId,
     effectiveAdmissionPolicy,
+    isCallbackInteraction,
   } = params;
 
   let isValidatedBootstrap = false;
@@ -338,7 +378,8 @@ export async function enforceIngressAcl(
         if (
           sourceChannel === "slack" &&
           (canonicalSenderId ?? rawSenderId) &&
-          !terminallyDenied
+          !terminallyDenied &&
+          !isCallbackInteraction
         ) {
           const slackVerifyResult = initiateSlackVerificationChallenge({
             sourceChannel,
@@ -418,7 +459,8 @@ export async function enforceIngressAcl(
         if (
           sourceChannel === "email" &&
           (canonicalSenderId ?? rawSenderId) &&
-          !terminallyDenied
+          !terminallyDenied &&
+          !isCallbackInteraction
         ) {
           const emailVerifyResult = initiateEmailVerificationChallenge({
             sourceChannel,
@@ -464,34 +506,51 @@ export async function enforceIngressAcl(
         // Notify the guardian about the access request so they can approve/deny.
         // Uses the shared helper which handles guardian binding lookup,
         // deduplication, canonical request creation, and notification emission.
+        // Skipped for callback interactions — a button press must not create
+        // an access request — but the handshake window is still probed so the
+        // reply doesn't tell a just-approved sender they lack access.
         let guardianNotified = false;
-        try {
-          const accessResult = await notifyGuardianOfAccessRequest({
+        let handshakeInProgress = false;
+        if (isCallbackInteraction) {
+          handshakeInProgress = isApprovalHandshakeInProgress({
             canonicalAssistantId,
             sourceChannel,
-            conversationExternalId,
-            actorExternalId: canonicalSenderId ?? rawSenderId,
-            actorDisplayName,
-            actorUsername,
-            messagePreview: truncate(
-              trimmedContent,
-              MESSAGE_PREVIEW_MAX_LENGTH,
-            ),
-            isStranger,
-            isRestricted,
-            messageTs,
+            actorExternalId: (canonicalSenderId ?? rawSenderId)!,
           });
-          guardianNotified = accessResult.notified;
-        } catch (err) {
-          log.error(
-            { err, sourceChannel, conversationExternalId },
-            "Failed to notify guardian of access request",
-          );
+        } else {
+          try {
+            const accessResult = await notifyGuardianOfAccessRequest({
+              canonicalAssistantId,
+              sourceChannel,
+              conversationExternalId,
+              actorExternalId: canonicalSenderId ?? rawSenderId,
+              actorDisplayName,
+              actorUsername,
+              messagePreview: truncate(
+                trimmedContent,
+                MESSAGE_PREVIEW_MAX_LENGTH,
+              ),
+              isStranger,
+              isRestricted,
+              messageTs,
+            });
+            guardianNotified = accessResult.notified;
+            handshakeInProgress =
+              !accessResult.notified &&
+              accessResult.reason === "approval_pending_verification";
+          } catch (err) {
+            log.error(
+              { err, sourceChannel, conversationExternalId },
+              "Failed to notify guardian of access request",
+            );
+          }
         }
 
-        const replyText = guardianNotified
-          ? `Hmm looks like you don't have access to talk to me. I'll let ${await resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
-          : "Sorry, you haven't been approved to message this assistant.";
+        const replyText = await composeAccessDenialReply({
+          sourceChannel,
+          guardianNotified,
+          handshakeInProgress,
+        });
         let replyDelivered = false;
         if (replyCallbackUrl) {
           const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
@@ -626,7 +685,8 @@ export async function enforceIngressAcl(
             sourceChannel === "slack" &&
             resolvedMember.status !== "blocked" &&
             (canonicalSenderId ?? rawSenderId) &&
-            !terminallyDenied
+            !terminallyDenied &&
+            !isCallbackInteraction
           ) {
             const slackVerifyResult = initiateSlackVerificationChallenge({
               sourceChannel,
@@ -700,39 +760,55 @@ export async function enforceIngressAcl(
           // For revoked/pending members, notify the guardian so they can
           // re-approve. Blocked members are intentionally excluded — the
           // guardian already made an explicit decision to block them.
+          // Callback interactions never create an access request; the
+          // handshake window is still probed for reply copy.
           let guardianNotified = false;
+          let handshakeInProgress = false;
           if (resolvedMember.status !== "blocked") {
-            try {
-              const accessResult = await notifyGuardianOfAccessRequest({
+            if (isCallbackInteraction) {
+              handshakeInProgress = isApprovalHandshakeInProgress({
                 canonicalAssistantId,
                 sourceChannel,
-                conversationExternalId,
-                actorExternalId: canonicalSenderId ?? rawSenderId,
-                actorDisplayName,
-                actorUsername,
-                previousMemberStatus: channelStatusToMemberStatus(
-                  resolvedMember.status,
-                ),
-                messagePreview: truncate(
-                  trimmedContent,
-                  MESSAGE_PREVIEW_MAX_LENGTH,
-                ),
-                isStranger,
-                isRestricted,
-                messageTs,
+                actorExternalId: (canonicalSenderId ?? rawSenderId)!,
               });
-              guardianNotified = accessResult.notified;
-            } catch (err) {
-              log.error(
-                { err, sourceChannel, conversationExternalId },
-                "Failed to notify guardian of access request",
-              );
+            } else {
+              try {
+                const accessResult = await notifyGuardianOfAccessRequest({
+                  canonicalAssistantId,
+                  sourceChannel,
+                  conversationExternalId,
+                  actorExternalId: canonicalSenderId ?? rawSenderId,
+                  actorDisplayName,
+                  actorUsername,
+                  previousMemberStatus: channelStatusToMemberStatus(
+                    resolvedMember.status,
+                  ),
+                  messagePreview: truncate(
+                    trimmedContent,
+                    MESSAGE_PREVIEW_MAX_LENGTH,
+                  ),
+                  isStranger,
+                  isRestricted,
+                  messageTs,
+                });
+                guardianNotified = accessResult.notified;
+                handshakeInProgress =
+                  !accessResult.notified &&
+                  accessResult.reason === "approval_pending_verification";
+              } catch (err) {
+                log.error(
+                  { err, sourceChannel, conversationExternalId },
+                  "Failed to notify guardian of access request",
+                );
+              }
             }
           }
 
-          const inactiveReplyText = guardianNotified
-            ? `Hmm looks like you don't have access to talk to me. I'll let ${await resolveGuardianLabel(sourceChannel)} know you tried talking to me and get back to you.`
-            : "Sorry, you haven't been approved to message this assistant.";
+          const inactiveReplyText = await composeAccessDenialReply({
+            sourceChannel,
+            guardianNotified,
+            handshakeInProgress,
+          });
           let inactiveReplyDelivered = false;
           if (replyCallbackUrl) {
             const inactiveReplyPayload: Parameters<

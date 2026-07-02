@@ -3,11 +3,11 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
 import type { MessageLexicalSearchResult } from "../persistence/embeddings/messages-lexical-index.js";
 
-// Mutable stand-in for the Qdrant lexical candidate helper. The default
-// throws so any qdrant-path test that forgets to set an implementation fails
-// loudly rather than silently exercising an empty candidate set. FTS-path
-// tests never reach it (fts5 is used until the backfill completes), so its
-// value is irrelevant there.
+// Mutable stand-in for the Qdrant lexical candidate helper. The source treats
+// a thrown lookup as "no candidates" (logged, empty evidence), so the throwing
+// default cannot fail a forgetful test loudly — tests that assert evidence
+// must configure an implementation, and tests that assert the helper is never
+// consulted check `lexicalCalls` instead.
 let lexicalMockImpl: (
   query: string,
   limit: number,
@@ -17,7 +17,7 @@ let lexicalMockImpl: (
 };
 
 // Records the arguments of every mock invocation so tests can assert the
-// candidate over-fetch count the qdrant branch requests.
+// candidate over-fetch count and that gated paths never consult the index.
 let lexicalCalls: Array<{
   query: string;
   limit: number;
@@ -35,22 +35,6 @@ mock.module("../persistence/conversation-search-lexical.js", () => ({
   },
 }));
 
-// Drives the real recall backend gate: when true the source must fall back to
-// FTS regardless of the flag, because the lexical index write path is
-// suppressed and Qdrant is never populated. Defaults false so every other test
-// exercises its intended backend. Spread the real module so the other 9 exports
-// (job handlers, enqueue helpers) stay intact for transitive importers.
-let suppressIndexing = false;
-const realLexicalModule =
-  await import("../plugins/defaults/memory/job-handlers/index-message-lexical.js");
-mock.module(
-  "../plugins/defaults/memory/job-handlers/index-message-lexical.js",
-  () => ({
-    ...realLexicalModule,
-    isMemoryIndexingSuppressed: () => suppressIndexing,
-  }),
-);
-
 import {
   deleteMemoryCheckpoint,
   LEXICAL_BACKFILL_COMPLETE_KEY,
@@ -65,17 +49,33 @@ await initializeDb();
 
 let seedId = 0;
 
-describe("searchConversationSource", () => {
+describe("searchConversationSource (qdrant lexical index)", () => {
   beforeEach(() => {
     getDb().run("DELETE FROM messages");
     getDb().run("DELETE FROM conversations");
+    lexicalCalls = [];
+    // Content evidence is available once the index is populated (backfill
+    // complete). Most tests exercise that path, so mark the backfill
+    // complete; the gate is covered by its own test.
+    setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
   });
 
-  test("returns matching message evidence through the FTS path", async () => {
+  afterEach(() => {
+    deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
+    lexicalMockImpl = () => {
+      throw new Error(
+        "searchMessageIdsLexical mock not configured for this test",
+      );
+    };
+  });
+
+  test("returns matching message evidence for lexical candidates", async () => {
     const { conversation, message } = await seedConversation({
       title: "Launch notes",
       content: "The alpha launch checklist includes database backups.",
     });
+
+    lexicalMockImpl = async () => [{ messageId: message.id, score: 0.9 }];
 
     const result = await searchConversationSource(
       "alpha launch",
@@ -99,9 +99,10 @@ describe("searchConversationSource", () => {
   });
 
   test("returns no evidence for short and non-ASCII queries (content matching is index-only)", async () => {
-    // Short/punctuation-only and CJK queries produce no usable ≥2-char match
-    // shape. There is no content-scan fallback, so such queries yield no
-    // conversation evidence even when an exact substring exists.
+    // Short/punctuation-only and CJK queries produce no usable ≥2-char token.
+    // There is no content-scan fallback, so such queries yield no conversation
+    // evidence even when an exact substring exists — and the index is never
+    // consulted (the sparse encoder would emit noisy 1-char tokens).
     await seedConversation({
       title: "C++ notes",
       role: "user",
@@ -119,324 +120,21 @@ describe("searchConversationSource", () => {
       5,
     );
 
+    expect(lexicalCalls).toHaveLength(0);
     expect(shortResult.evidence).toEqual([]);
     expect(unicodeResult.evidence).toEqual([]);
   });
 
-  test("does not return derived subagent, auto-analysis, or notification conversations", async () => {
-    const visible = await seedConversation({
-      title: "User conversation",
-      content: "derivedtoken belongs to a user-authored conversation.",
-    });
+  test("returns no evidence until the backfill completion checkpoint is set", async () => {
     await seedConversation({
-      title: "Subagent conversation",
-      source: "subagent",
-      content: "derivedtoken should not include subagent output.",
-    });
-    await seedConversation({
-      title: "Auto-analysis conversation",
-      source: "auto-analysis",
-      content: "derivedtoken should not include auto-analysis output.",
-    });
-    await seedConversation({
-      title: "Notification conversation",
-      source: "notification",
-      content: "derivedtoken should not include notification seed output.",
-    });
-
-    const result = await searchConversationSource(
-      "derivedtoken",
-      makeContext(),
-      10,
-    );
-
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${visible.conversation.id}#${visible.message.id}`,
-    ]);
-  });
-
-  test("excludes the current conversation from recall results", async () => {
-    const other = await seedConversation({
-      title: "Other conversation",
-      content: "currenttoken appears in another conversation.",
-    });
-    const current = await seedConversation({
-      title: "Current conversation",
-      content: "currenttoken appears in the active conversation.",
-    });
-
-    const result = await searchConversationSource(
-      "currenttoken",
-      makeContext({ conversationId: current.conversation.id }),
-      10,
-    );
-
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${other.conversation.id}#${other.message.id}`,
-    ]);
-  });
-
-  test("excludes legacy private conversations as defense-in-depth", async () => {
-    const visible = await seedConversation({
-      title: "Visible conversation",
-      content: "privatetoken belongs to a normal conversation.",
-    });
-    const legacyPrivate = await seedConversation({
-      title: "Legacy private conversation",
-      content: "privatetoken belongs to legacy private history.",
-    });
-    rawRun(
-      "UPDATE conversations SET conversation_type = 'private' WHERE id = ?",
-      legacyPrivate.conversation.id,
-    );
-
-    const result = await searchConversationSource(
-      "privatetoken",
-      makeContext(),
-      10,
-    );
-
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${visible.conversation.id}#${visible.message.id}`,
-    ]);
-  });
-
-  test("includes archived, scheduled, and background conversations", async () => {
-    const archived = await seedConversation({
-      title: "Archived conversation",
-      content: "includetoken appears in archived history.",
-    });
-    rawRun(
-      "UPDATE conversations SET archived_at = ? WHERE id = ?",
-      Date.now(),
-      archived.conversation.id,
-    );
-    const scheduled = await seedConversation({
-      title: "Scheduled conversation",
-      conversationType: "scheduled",
-      content: "includetoken appears in scheduled history.",
-    });
-    const background = await seedConversation({
-      title: "Background conversation",
-      conversationType: "background",
-      content: "includetoken appears in background history.",
-    });
-
-    const result = await searchConversationSource(
-      "includetoken",
-      makeContext(),
-      10,
-    );
-
-    expect(new Set(result.evidence.map((item) => item.locator))).toEqual(
-      new Set([
-        `${archived.conversation.id}#${archived.message.id}`,
-        `${scheduled.conversation.id}#${scheduled.message.id}`,
-        `${background.conversation.id}#${background.message.id}`,
-      ]),
-    );
-  });
-
-  test("formats fallback title and excerpts from message content blocks", async () => {
-    const content = JSON.stringify([
-      {
-        type: "text",
-        text: "Before the needle marker, the useful text is inside a content block.",
-      },
-    ]);
-    const { conversation, message } = await seedConversation({
-      title: undefined,
-      content,
-    });
-
-    const result = await searchConversationSource("needle", makeContext(), 1);
-
-    expect(result.evidence).toHaveLength(1);
-    expect(result.evidence[0].title).toBe("Untitled conversation");
-    expect(result.evidence[0].locator).toBe(`${conversation.id}#${message.id}`);
-    expect(result.evidence[0].excerpt).toBe(
-      "Before the needle marker, the useful text is inside a content block.",
-    );
-  });
-
-  test("preserves external_content boundaries in recall evidence", async () => {
-    const { conversation, message } = await seedConversation({
-      title: "Slack recall",
-      content:
-        '<external_content source="slack" origin="@alice">\nThe recalltoken decision came from Slack.\n</external_content>',
-    });
-
-    const result = await searchConversationSource(
-      "recalltoken",
-      makeContext(),
-      1,
-    );
-
-    expect(result.evidence).toHaveLength(1);
-    expect(result.evidence[0]).toMatchObject({
-      locator: `${conversation.id}#${message.id}`,
-      excerpt:
-        '<external_content source="slack" origin="@alice">\nThe recalltoken decision came from Slack.\n</external_content>',
-    });
-  });
-
-  test("wraps raw non-guardian Slack recall evidence from metadata", async () => {
-    const { conversation, message } = await seedConversation({
-      title: "Raw Slack recall",
-      role: "user",
-      content: "The rawrecalltoken decision came from Slack.",
-      metadata: slackMetadata("1700000100.000000", {
-        provenanceTrustClass: "unknown",
-      }),
-    });
-
-    const result = await searchConversationSource(
-      "rawrecalltoken",
-      makeContext(),
-      1,
-    );
-
-    expect(result.evidence).toHaveLength(1);
-    expect(result.evidence[0]).toMatchObject({
-      locator: `${conversation.id}#${message.id}`,
-      excerpt:
-        '<external_content source="slack" origin="@alice">\nThe rawrecalltoken decision came from Slack.\n</external_content>',
-    });
-  });
-
-  test("wraps raw non-guardian Slack recall evidence that mentions external_content", async () => {
-    const { conversation, message } = await seedConversation({
-      title: "Raw Slack tag mention recall",
-      role: "user",
-      content:
-        "The tagmentionrecalltoken text mentions <external_content but is raw Slack content.",
-      metadata: slackMetadata("1700000102.000000", {
-        provenanceTrustClass: "unknown",
-      }),
-    });
-
-    const result = await searchConversationSource(
-      "tagmentionrecalltoken",
-      makeContext(),
-      1,
-    );
-
-    expect(result.evidence).toHaveLength(1);
-    expect(result.evidence[0]).toMatchObject({
-      locator: `${conversation.id}#${message.id}`,
-      excerpt:
-        '<external_content source="slack" origin="@alice">\nThe tagmentionrecalltoken text mentions <external_content but is raw Slack content.\n</external_content>',
-    });
-  });
-
-  test("does not wrap guardian Slack recall evidence", async () => {
-    const { conversation, message } = await seedConversation({
-      title: "Guardian Slack recall",
-      role: "user",
-      content: "The guardianrecalltoken decision came from Slack.",
-      metadata: slackMetadata("1700000101.000000", {
-        provenanceTrustClass: "guardian",
-      }),
-    });
-
-    const result = await searchConversationSource(
-      "guardianrecalltoken",
-      makeContext(),
-      1,
-    );
-
-    expect(result.evidence).toHaveLength(1);
-    expect(result.evidence[0]).toMatchObject({
-      locator: `${conversation.id}#${message.id}`,
-      excerpt: "The guardianrecalltoken decision came from Slack.",
-    });
-  });
-
-  test("broadens overconstrained recall queries to salient terms", async () => {
-    const specific = await seedConversation({
-      title: "Birthday cake plan",
-      content:
-        "The birthday cake was vanilla with raspberry filling and had the message Happy birthday Alice Love Example Assistant.",
-    });
-    await seedConversation({
-      title: "Decoration notes",
-      content: "The decoration and flavor notes for the launch party are open.",
-    });
-
-    const result = await searchConversationSource(
-      "birthday cake flavor decoration message recipient",
-      makeContext(),
-      5,
-    );
-
-    expect(result.evidence[0]).toMatchObject({
-      locator: `${specific.conversation.id}#${specific.message.id}`,
-      title: "Birthday cake plan",
-    });
-    expect(result.evidence[0]?.excerpt).toContain("vanilla with raspberry");
-    expect(result.evidence[0]?.score).toBeGreaterThan(0);
-  });
-});
-
-describe("searchConversationSource with the qdrant backend", () => {
-  beforeEach(() => {
-    getDb().run("DELETE FROM messages");
-    getDb().run("DELETE FROM conversations");
-    lexicalCalls = [];
-    suppressIndexing = false;
-    // The qdrant backend is selected once the index is populated: not suppressed
-    // + backfill complete. These tests exercise that post-backfill path, so mark
-    // the backfill complete. The completion gate is covered by its own test.
-    setMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY, "1");
-  });
-
-  afterEach(() => {
-    suppressIndexing = false;
-    deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
-    lexicalMockImpl = () => {
-      throw new Error(
-        "searchMessageIdsLexical mock not configured for this test",
-      );
-    };
-  });
-
-  test("falls back to FTS when memory indexing is suppressed", async () => {
-    const match = await seedConversation({
-      title: "Suppressed indexing notes",
-      content: "The suppressedtoken decision is recorded here.",
-    });
-
-    // The lexical index is not populated while indexing is suppressed, so the
-    // source must NOT query Qdrant — it must use the FTS path.
-    suppressIndexing = true;
-    lexicalMockImpl = async () => {
-      throw new Error("searchMessageIdsLexical must not run while suppressed");
-    };
-
-    const result = await searchConversationSource(
-      "suppressedtoken",
-      makeContext(),
-      5,
-    );
-
-    // FTS path found the row (proves the backend fell back), and the Qdrant
-    // candidate helper was never called.
-    expect(lexicalCalls).toHaveLength(0);
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${match.conversation.id}#${match.message.id}`,
-    ]);
-  });
-
-  test("falls back to FTS until the backfill completion checkpoint is set", async () => {
-    const match = await seedConversation({
       title: "Pre-backfill notes",
       content: "The prebackfilltoken decision is recorded here.",
     });
 
     // On an upgraded instance the historical messages are still being indexed
     // by the background backfill, so the lexical collection is only partially
-    // populated. Until the completion checkpoint is set, the source must use
-    // the FTS path and never query Qdrant.
+    // populated. Until the completion checkpoint is set, the source must
+    // yield no evidence without consulting Qdrant.
     deleteMemoryCheckpoint(LEXICAL_BACKFILL_COMPLETE_KEY);
     lexicalMockImpl = async () => {
       throw new Error(
@@ -451,33 +149,10 @@ describe("searchConversationSource with the qdrant backend", () => {
     );
 
     expect(lexicalCalls).toHaveLength(0);
-    expect(result.evidence.map((item) => item.locator)).toEqual([
-      `${match.conversation.id}#${match.message.id}`,
-    ]);
-  });
-
-  test("short/punctuation-only queries return no evidence and never hit Qdrant", async () => {
-    await seedConversation({
-      title: "C++ notes",
-      role: "user",
-      content: "Use C++ when the example needs deterministic lifetime notes.",
-    });
-
-    // `C++` produces no usable ≥2-char FTS match shape. The sparse encoder
-    // would still emit a noisy 1-char `c` token, so the source must return no
-    // evidence WITHOUT querying the index. The mock throws to prove it never
-    // runs.
-    lexicalMockImpl = async () => {
-      throw new Error("searchMessageIdsLexical must not run for a short query");
-    };
-
-    const result = await searchConversationSource("C++", makeContext(), 5);
-
-    expect(lexicalCalls).toHaveLength(0);
     expect(result.evidence).toEqual([]);
   });
 
-  test("over-fetches a wide candidate pool from Qdrant, not the FTS prefetch window", async () => {
+  test("over-fetches a wide candidate pool from Qdrant", async () => {
     const match = await seedConversation({
       title: "Launch notes",
       content: "The widecandidatetoken launch checklist is recorded here.",
@@ -485,9 +160,9 @@ describe("searchConversationSource with the qdrant backend", () => {
 
     lexicalMockImpl = async () => [{ messageId: match.message.id, score: 0.9 }];
 
-    // limit = 5 → FTS would prefetch 5 × 5 = 25. The qdrant branch instead
-    // over-fetches max(5 × 20, 200) = 200 candidates so post-filter yield stays
-    // healthy when top lexical hits are excluded by the SQL predicates.
+    // limit = 5 → the source over-fetches max(5 × 20, 200) = 200 candidates so
+    // post-filter yield stays healthy when top lexical hits are excluded by
+    // the SQL predicates.
     const result = await searchConversationSource(
       "widecandidatetoken",
       makeContext(),
@@ -595,6 +270,173 @@ describe("searchConversationSource with the qdrant backend", () => {
     expect(result.evidence.map((item) => item.locator)).toEqual([
       `${visible.conversation.id}#${visible.message.id}`,
     ]);
+  });
+
+  test("includes archived, scheduled, and background conversations", async () => {
+    const archived = await seedConversation({
+      title: "Archived conversation",
+      content: "includetoken appears in archived history.",
+    });
+    rawRun(
+      "UPDATE conversations SET archived_at = ? WHERE id = ?",
+      Date.now(),
+      archived.conversation.id,
+    );
+    const scheduled = await seedConversation({
+      title: "Scheduled conversation",
+      conversationType: "scheduled",
+      content: "includetoken appears in scheduled history.",
+    });
+    const background = await seedConversation({
+      title: "Background conversation",
+      conversationType: "background",
+      content: "includetoken appears in background history.",
+    });
+
+    lexicalMockImpl = async () => [
+      { messageId: archived.message.id, score: 0.9 },
+      { messageId: scheduled.message.id, score: 0.85 },
+      { messageId: background.message.id, score: 0.8 },
+    ];
+
+    const result = await searchConversationSource(
+      "includetoken",
+      makeContext(),
+      10,
+    );
+
+    expect(new Set(result.evidence.map((item) => item.locator))).toEqual(
+      new Set([
+        `${archived.conversation.id}#${archived.message.id}`,
+        `${scheduled.conversation.id}#${scheduled.message.id}`,
+        `${background.conversation.id}#${background.message.id}`,
+      ]),
+    );
+  });
+
+  test("formats fallback title and excerpts from message content blocks", async () => {
+    const content = JSON.stringify([
+      {
+        type: "text",
+        text: "Before the needle marker, the useful text is inside a content block.",
+      },
+    ]);
+    const { conversation, message } = await seedConversation({
+      title: undefined,
+      content,
+    });
+
+    lexicalMockImpl = async () => [{ messageId: message.id, score: 0.9 }];
+
+    const result = await searchConversationSource("needle", makeContext(), 1);
+
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0].title).toBe("Untitled conversation");
+    expect(result.evidence[0].locator).toBe(`${conversation.id}#${message.id}`);
+    expect(result.evidence[0].excerpt).toBe(
+      "Before the needle marker, the useful text is inside a content block.",
+    );
+  });
+
+  test("preserves external_content boundaries in recall evidence", async () => {
+    const { conversation, message } = await seedConversation({
+      title: "Slack recall",
+      content:
+        '<external_content source="slack" origin="@alice">\nThe recalltoken decision came from Slack.\n</external_content>',
+    });
+
+    lexicalMockImpl = async () => [{ messageId: message.id, score: 0.9 }];
+
+    const result = await searchConversationSource(
+      "recalltoken",
+      makeContext(),
+      1,
+    );
+
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0]).toMatchObject({
+      locator: `${conversation.id}#${message.id}`,
+      excerpt:
+        '<external_content source="slack" origin="@alice">\nThe recalltoken decision came from Slack.\n</external_content>',
+    });
+  });
+
+  test("wraps raw non-guardian Slack recall evidence from metadata", async () => {
+    const { conversation, message } = await seedConversation({
+      title: "Raw Slack recall",
+      role: "user",
+      content: "The rawrecalltoken decision came from Slack.",
+      metadata: slackMetadata("1700000100.000000", {
+        provenanceTrustClass: "unknown",
+      }),
+    });
+
+    lexicalMockImpl = async () => [{ messageId: message.id, score: 0.9 }];
+
+    const result = await searchConversationSource(
+      "rawrecalltoken",
+      makeContext(),
+      1,
+    );
+
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0]).toMatchObject({
+      locator: `${conversation.id}#${message.id}`,
+      excerpt:
+        '<external_content source="slack" origin="@alice">\nThe rawrecalltoken decision came from Slack.\n</external_content>',
+    });
+  });
+
+  test("wraps raw non-guardian Slack recall evidence that mentions external_content", async () => {
+    const { conversation, message } = await seedConversation({
+      title: "Raw Slack tag mention recall",
+      role: "user",
+      content:
+        "The tagmentionrecalltoken text mentions <external_content but is raw Slack content.",
+      metadata: slackMetadata("1700000102.000000", {
+        provenanceTrustClass: "unknown",
+      }),
+    });
+
+    lexicalMockImpl = async () => [{ messageId: message.id, score: 0.9 }];
+
+    const result = await searchConversationSource(
+      "tagmentionrecalltoken",
+      makeContext(),
+      1,
+    );
+
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0]).toMatchObject({
+      locator: `${conversation.id}#${message.id}`,
+      excerpt:
+        '<external_content source="slack" origin="@alice">\nThe tagmentionrecalltoken text mentions <external_content but is raw Slack content.\n</external_content>',
+    });
+  });
+
+  test("does not wrap guardian Slack recall evidence", async () => {
+    const { conversation, message } = await seedConversation({
+      title: "Guardian Slack recall",
+      role: "user",
+      content: "The guardianrecalltoken decision came from Slack.",
+      metadata: slackMetadata("1700000101.000000", {
+        provenanceTrustClass: "guardian",
+      }),
+    });
+
+    lexicalMockImpl = async () => [{ messageId: message.id, score: 0.9 }];
+
+    const result = await searchConversationSource(
+      "guardianrecalltoken",
+      makeContext(),
+      1,
+    );
+
+    expect(result.evidence).toHaveLength(1);
+    expect(result.evidence[0]).toMatchObject({
+      locator: `${conversation.id}#${message.id}`,
+      excerpt: "The guardianrecalltoken decision came from Slack.",
+    });
   });
 
   test("returns no evidence when the Qdrant lookup throws", async () => {

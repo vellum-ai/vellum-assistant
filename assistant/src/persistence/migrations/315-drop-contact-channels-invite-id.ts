@@ -2,7 +2,7 @@ import { getLogger } from "../../util/logger.js";
 import { type DrizzleDb, getSqliteFrom } from "../db-connection.js";
 import { tableHasColumn } from "./schema-introspection.js";
 
-const log = getLogger("migration-314");
+const log = getLogger("migration-315");
 
 /**
  * Drops the `contact_channels.invite_id` column.

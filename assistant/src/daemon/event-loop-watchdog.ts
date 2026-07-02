@@ -20,11 +20,12 @@
  * What it does NOT do: capture the JS stack of the blocking operation. JS is
  * single-threaded, so while the loop is blocked no callback — including this one
  * — can run; by the time the tick fires, the offending synchronous call has
- * returned and its stack is gone. The watchdog reports *that* and *how long* a
- * freeze happened, not *what* caused it. The report lands at unblock, so the
- * surrounding log lines (which job or turn was active) are the correlation
- * handle. For deterministic attribution of a specific subsystem, time that
- * subsystem's synchronous calls at their source.
+ * returned and its stack is gone. Instead, each freeze report carries the
+ * section trail (`persistence/slow-sync-log.ts`): the recent instrumented
+ * sections with their start/end ages relative to the report. The newest entry
+ * older than `blockedMs` that hadn't ended when the block began names — or
+ * brackets — the code that froze. For sub-threshold contributors, time the
+ * subsystem's synchronous calls at their source with `timeSyncSection`.
  *
  * A cumulative event-loop-delay histogram is separately exposed pull-based over
  * SSE diagnostics (`runtime/routes/events-routes.ts`); this watchdog is the
@@ -33,6 +34,10 @@
 
 import * as Sentry from "@sentry/node";
 
+import {
+  getSectionTrail,
+  type SectionTrailEntry,
+} from "../persistence/slow-sync-log.js";
 import { recordWatchdogEvent } from "../telemetry/watchdog-events-store.js";
 import { getLogger } from "../util/logger.js";
 
@@ -84,8 +89,17 @@ export function evaluateTick(
 export const EVENT_LOOP_BLOCKED_CHECK_NAME = "event_loop_blocked";
 
 function reportBlock(blockedMs: number, thresholdMs: number): void {
+  // Attribution breadcrumbs: the block began ~`blockedMs` before this report,
+  // so the newest trail entry started at least that long ago — and not yet
+  // ended by then — is the section that was running when the loop froze.
+  let sectionTrail: SectionTrailEntry[] = [];
+  try {
+    sectionTrail = getSectionTrail();
+  } catch {
+    // Diagnostics-only — never let it escape the timer callback.
+  }
   log.warn(
-    { blockedMs, thresholdMs, tickIntervalMs: TICK_INTERVAL_MS },
+    { blockedMs, thresholdMs, tickIntervalMs: TICK_INTERVAL_MS, sectionTrail },
     "event loop blocked",
   );
   // Persist a `watchdog` telemetry event so the platform can surface
@@ -101,6 +115,7 @@ function reportBlock(blockedMs: number, thresholdMs: number): void {
       detail: {
         threshold_ms: thresholdMs,
         tick_interval_ms: TICK_INTERVAL_MS,
+        section_trail: sectionTrail,
       },
     });
   } catch {
@@ -114,6 +129,7 @@ function reportBlock(blockedMs: number, thresholdMs: number): void {
         blocked_ms: blockedMs,
         threshold_ms: thresholdMs,
         tick_interval_ms: TICK_INTERVAL_MS,
+        section_trail: sectionTrail,
       });
       Sentry.captureMessage(EVENT_LOOP_BLOCKED_CHECK_NAME);
     });

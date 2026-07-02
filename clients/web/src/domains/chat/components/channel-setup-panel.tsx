@@ -103,7 +103,6 @@ export function ChannelSetupPanel({ payload, onClose }: ChannelSetupPanelProps) 
       ) : payload.channel === "slack" ? (
         <SlackSetupWizard
           assistantName={payload.assistantName}
-          compact
           onSave={(bot, app) => saveSlack.mutate({ botToken: bot, appToken: app })}
           saveStatus={saveSlack.status}
           saveError={saveSlack.error?.message ?? null}

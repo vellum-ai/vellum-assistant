@@ -7,6 +7,12 @@ import {
   pruneOldToolInvocationsJob,
   pruneOldTraceEventsJob,
 } from "../persistence/job-handlers/cleanup.js";
+import {
+  deleteMessageLexicalJob,
+  indexMessageLexicalJob,
+  purgeConversationLexicalJob,
+} from "../persistence/job-handlers/message-lexical.js";
+import { backfillLexicalIndexJob } from "../persistence/job-handlers/message-lexical-backfill.js";
 import { registerJobHandler } from "../persistence/jobs-worker.js";
 import {
   registerDefaultPluginJobHandlers,
@@ -51,6 +57,21 @@ export function registerMemoryJobHandlers(): void {
   registerJobHandler("prune_old_conversations", (job, config) =>
     pruneOldConversationsJob(job, config),
   );
+  // Message-content lexical indexing powers regular message search — host
+  // infrastructure, not a memory-plugin feature (the jobs merely share the
+  // background job queue).
+  registerJobHandler("index_message_lexical", (job, config) =>
+    indexMessageLexicalJob(job, config),
+  );
+  registerJobHandler("purge_conversation_lexical", (job, config) =>
+    purgeConversationLexicalJob(job, config),
+  );
+  registerJobHandler("delete_message_lexical", (job, config) =>
+    deleteMessageLexicalJob(job, config),
+  );
+  registerJobHandler("backfill_lexical_index", (job, config) =>
+    backfillLexicalIndexJob(job, config),
+  );
   registerJobHandler("prune_old_llm_request_logs", (job, config) =>
     pruneOldLlmRequestLogsJob(job, config),
   );
@@ -65,7 +86,9 @@ export function registerMemoryJobHandlers(): void {
     // `conversationSummarization` LLM budget — v2 readers do not consume
     // `memorySummaries`, mirroring the `graph_extract` gate in the memory
     // plugin's job handlers.
-    if (config.memory.v2.enabled) return;
+    if (config.memory.v2.enabled) {
+      return;
+    }
     await buildConversationSummaryJob(job, config);
   });
   registerJobHandler("media_processing", (job) => mediaProcessingJob(job));

@@ -39,7 +39,6 @@ interface NativeAuthPlugin {
   startAuth(options: {
     baseURL: string;
     loginHint?: string;
-    providerHint?: string;
     intent?: string;
   }): Promise<{ sessionToken: string }>;
 }

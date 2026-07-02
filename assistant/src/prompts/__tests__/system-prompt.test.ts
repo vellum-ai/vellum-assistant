@@ -235,6 +235,44 @@ describe("buildSystemPrompt — default persona trust-class guardrail", () => {
     expect(result).toContain(STRANGER_GREETING);
   });
 
+  test("boundary survives a per-contact persona file replacing default.md", () => {
+    // Every contact already has a `users/<slug>.md` filename reserved on
+    // their contact record; the moment that file exists with content it
+    // replaces `default.md` in the `10-user-persona` section. The privacy
+    // boundary must render regardless — it lives in the always-on
+    // `10a-non-guardian-boundary` section, not in the fallback file.
+    writeFileSync(
+      join(TEST_DIR, "users", "jane.md"),
+      "# Jane\n\nJane likes concise answers.\n",
+      "utf-8",
+    );
+    const result = buildSystemPrompt({
+      trustContext: { sourceChannel: "slack", trustClass: "trusted_contact" },
+      personaOverride: { userSlug: "jane" },
+    });
+
+    // The contact's own persona replaced the default greetings...
+    expect(result).toContain("Jane likes concise answers.");
+    expect(result).not.toContain(TRUSTED_GREETING);
+    // ...but the boundary still renders.
+    expect(result).toContain(GUARDRAIL);
+  });
+
+  test("boundary is omitted for a guardian rendering their own persona file", () => {
+    writeFileSync(
+      join(TEST_DIR, "users", "owner.md"),
+      "# Owner\n\nThe guardian's own profile.\n",
+      "utf-8",
+    );
+    const result = buildSystemPrompt({
+      trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+      personaOverride: { userSlug: "owner" },
+    });
+
+    expect(result).toContain("The guardian's own profile.");
+    expect(result).not.toContain(GUARDRAIL);
+  });
+
   test("never leaks literal mustache tags or comment lines", () => {
     for (const trustClass of [
       "unknown",

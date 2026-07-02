@@ -27,6 +27,7 @@ import {
   isAutoResizableImage,
   prepareImageAttachmentForUpload,
 } from "@/domains/chat/components/chat-attachments/attachment-image-resize";
+import { fetchAttachmentContentBlob } from "@/domains/chat/components/chat-attachments/download-attachment";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -406,9 +407,29 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
             return;
           }
 
+          const localMime = uploadFile.type || "application/octet-stream";
+          const storedFilename = result.filename ?? (uploadFile.name || "attachment");
+          const storedMime = result.mimeType ?? localMime;
+          const storedSize = result.sizeBytes ?? uploadFile.size;
+
+          // When the assistant stores a different image format than the local
+          // file (HEIC normalized to JPEG), the local bytes may not be
+          // decodable by this renderer — preview the stored bytes instead.
+          let previewSource: Blob = uploadFile;
+          if (storedMime.startsWith("image/") && storedMime !== localMime) {
+            const storedBlob = await fetchAttachmentContentBlob(assistantId, result.id);
+            if (cancelledUploads.has(pending.localId)) {
+              cancelledUploads.delete(pending.localId);
+              return;
+            }
+            if (storedBlob) {
+              previewSource = storedBlob;
+            }
+          }
+
           let previewUrl: string | null = null;
           try {
-            previewUrl = URL.createObjectURL(uploadFile);
+            previewUrl = URL.createObjectURL(previewSource);
             previewUrls.set(pending.localId, previewUrl);
           } catch {
             previewUrl = null;
@@ -421,9 +442,9 @@ const useComposerStoreBase = create<ComposerStore>()((set, get) => ({
                     kind: "uploaded",
                     localId: pending.localId,
                     id: result.id,
-                    filename: uploadFile.name || "attachment",
-                    mimeType: uploadFile.type || "application/octet-stream",
-                    sizeBytes: uploadFile.size,
+                    filename: storedFilename,
+                    mimeType: storedMime,
+                    sizeBytes: storedSize,
                     previewUrl,
                   } satisfies UploadedAttachment)
                 : att,

@@ -108,4 +108,24 @@ describe("BubbleAttachments", () => {
     const { container } = render(<BubbleAttachments attachments={[]} />);
     expect(container.innerHTML).toBe("");
   });
+
+  test("falls back to the square chip when the inline image fails to decode", () => {
+    const undecodable: DisplayAttachment = {
+      id: "img-3",
+      filename: "IMG_5487.HEIC",
+      mimeType: "image/heic",
+      sizeBytes: 1_024,
+      previewUrl: "blob:undecodable-heic",
+    };
+    const { container, getByRole, getByText } = render(
+      <BubbleAttachments attachments={[undecodable]} />,
+    );
+
+    fireEvent.error(getByRole("button", { name: "IMG_5487.HEIC" }));
+
+    // The browser's broken-image glyph is replaced by the chip: the filename
+    // becomes visible and no <img> remains mounted.
+    expect(getByText("IMG_5487.HEIC")).toBeTruthy();
+    expect(container.querySelector("img")).toBeNull();
+  });
 });

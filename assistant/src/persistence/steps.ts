@@ -420,8 +420,9 @@ import { migrateDropRedundantIndexes } from "./migrations/309-drop-redundant-ind
 import { migrateLlmRequestLogLatencyBreakdown } from "./migrations/310-llm-request-log-latency-breakdown.js";
 import { migrateCreateSubagentsTable } from "./migrations/311-create-subagents-table.js";
 import { migrateDropInboxConversationStateTable } from "./migrations/312-drop-inbox-conversation-state-table.js";
-import { migrateCreateA2aInvitesTable } from "./migrations/313-create-a2a-invites.js";
-import { migrateDropContactChannelInviteId } from "./migrations/314-drop-contact-channels-invite-id.js";
+import { migrateDropMessagesFts } from "./migrations/313-drop-messages-fts.js";
+import { migrateCreateA2aInvitesTable } from "./migrations/314-create-a2a-invites.js";
+import { migrateDropContactChannelInviteId } from "./migrations/315-drop-contact-channels-invite-id.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1313,6 +1314,7 @@ export const migrationSteps: MigrationStep[] = [
   migrateLlmRequestLogLatencyBreakdown,
   migrateCreateSubagentsTable,
   migrateDropInboxConversationStateTable,
+  migrateDropMessagesFts,
   migrateCreateA2aInvitesTable,
   migrateDropContactChannelInviteId,
 ];

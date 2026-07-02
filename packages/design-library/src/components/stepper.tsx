@@ -22,8 +22,6 @@ export type StepperProps = ComponentProps<"nav"> & {
    * changing the completed / active / upcoming styling.
    */
   disabled?: boolean;
-  /** Compact reduces text size and spacing for constrained containers. */
-  compact?: boolean;
 };
 
 // Color is keyed on the step's position (`status`); the `navigable` variant adds
@@ -32,7 +30,7 @@ export type StepperProps = ComponentProps<"nav"> & {
 // when navigation is locked (e.g. while submitting), since color is independent
 // of interactivity.
 export const stepVariants = cva(
-  "-mb-px inline-flex items-center whitespace-nowrap border-b-2 border-transparent pb-2 transition-colors",
+  "-mb-px inline-flex items-center whitespace-nowrap border-b-2 border-transparent pb-2 text-body-medium-default transition-colors",
   {
     variants: {
       status: {
@@ -44,12 +42,8 @@ export const stepVariants = cva(
         true: "cursor-pointer outline-none hover:text-[var(--content-strong)] keyboard-focus:ring-2 keyboard-focus:ring-[var(--ring)] keyboard-focus:ring-offset-0",
         false: "cursor-default",
       },
-      compact: {
-        true: "text-body-small-default",
-        false: "text-body-medium-default",
-      },
     },
-    defaultVariants: { status: "upcoming", navigable: false, compact: false },
+    defaultVariants: { status: "upcoming", navigable: false },
   },
 );
 
@@ -74,7 +68,6 @@ export function Stepper({
   current,
   onStepSelect,
   disabled = false,
-  compact = false,
   className,
   ...rest
 }: StepperProps) {
@@ -82,8 +75,7 @@ export function Stepper({
     <nav
       data-slot="stepper"
       className={cn(
-        "flex items-center border-b border-[var(--border-base)]",
-        compact ? "gap-2" : "gap-4",
+        "flex items-center gap-4 border-b border-[var(--border-base)]",
         className,
       )}
       {...rest}
@@ -105,7 +97,7 @@ export function Stepper({
               type="button"
               data-slot="stepper-step"
               onClick={() => onStepSelect?.(index)}
-              className={stepVariants({ status, navigable: true, compact })}
+              className={stepVariants({ status, navigable: true })}
             >
               {step.label}
             </button>
@@ -117,7 +109,7 @@ export function Stepper({
             key={step.id}
             data-slot="stepper-step"
             aria-current={status === "active" ? "step" : undefined}
-            className={stepVariants({ status, compact })}
+            className={stepVariants({ status })}
           >
             {step.label}
           </span>
