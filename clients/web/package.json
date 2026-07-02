@@ -62,9 +62,9 @@
     "@tiptap/pm": "3.23.5",
     "@tiptap/react": "3.23.5",
     "@tiptap/starter-kit": "3.23.5",
-    "@vellumai/design-library": "file:../../packages/design-library",
-    "@vellumai/ipc-contract": "file:../../packages/ipc-contract",
-    "@vellumai/local-mode": "file:../../packages/local-mode",
+    "@vellumai/design-library": "workspace:*",
+    "@vellumai/ipc-contract": "workspace:*",
+    "@vellumai/local-mode": "workspace:*",
     "capacitor-plugin-safe-area": "5.0.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
@@ -120,12 +120,5 @@
     "typescript": "5.9.3",
     "typescript-eslint": "8.58.1",
     "vite": "8.0.11"
-  },
-  "overrides": {
-    "es-toolkit": "1.46.1",
-    "@radix-ui/react-dismissable-layer": "1.1.13"
-  },
-  "patchedDependencies": {
-    "@radix-ui/react-dismissable-layer@1.1.13": "patches/@radix-ui%2Freact-dismissable-layer@1.1.13.patch"
   }
 }

@@ -1,0 +1,18 @@
+{
+  "name": "vellum-web-workspace",
+  "private": true,
+  "workspaces": [
+    "clients/web",
+    "packages/design-library",
+    "packages/ipc-contract",
+    "packages/local-mode",
+    "packages/environments"
+  ],
+  "overrides": {
+    "es-toolkit": "1.46.1",
+    "@radix-ui/react-dismissable-layer": "1.1.13"
+  },
+  "patchedDependencies": {
+    "@radix-ui/react-dismissable-layer@1.1.13": "clients/web/patches/@radix-ui%2Freact-dismissable-layer@1.1.13.patch"
+  }
+}
