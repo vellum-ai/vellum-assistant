@@ -6,6 +6,10 @@
  * design-library toast and `captureError` are mocked to observe the failure
  * path. The conversation store is the real module — reset per test.
  *
+ * A draft is modelled as the detail query settling to an `ApiError(404)` (what
+ * the daemon error interceptor produces), so the hook can distinguish a
+ * confirmed draft from a still-loading existing row.
+ *
  * Mocks are registered before the hook is dynamically imported so the
  * generated TanStack Query factories bind to the mocked SDK.
  */
@@ -20,6 +24,7 @@ import type {
   PluginsGetResponse,
 } from "@/generated/daemon/types.gen";
 import { useConversationStore } from "@/stores/conversation-store";
+import { ApiError } from "@/utils/api-errors";
 
 const ASSISTANT_ID = "asst-1";
 const CONVERSATION_ID = "conv-1";
@@ -29,6 +34,12 @@ type InstalledPlugin = PluginsGetResponse["plugins"][number];
 interface InstalledResult {
   data?: PluginsGetResponse;
   response: { ok: boolean; status: number };
+}
+
+interface Deferred<T> {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (reason: unknown) => void;
 }
 
 // Per-test holders the SDK mocks read.
@@ -70,7 +81,7 @@ const PLUGINS_KEY = pluginsGetQueryKey({
   query: { q: undefined },
 });
 
-function deferred<T>() {
+function deferred<T>(): Deferred<T> {
   let resolve!: (value: T) => void;
   let reject!: (reason: unknown) => void;
   const promise = new Promise<T>((res, rej) => {
@@ -99,9 +110,26 @@ function conversationWith(
   };
 }
 
-/** Default conversation read: reject, standing in for a draft with no server row. */
+/** Default conversation read: settle to a 404, standing in for a confirmed draft. */
 function noServerRow(): Promise<{ data: ConversationsByIdGetResponse }> {
-  return Promise.reject(new Error("404 — no server row"));
+  return Promise.reject(new ApiError(404, "no server row"));
+}
+
+/** Read the enabledPlugins scope from the conversation query cache. */
+function enabledInCache(client: QueryClient): string[] | null | undefined {
+  const data =
+    client.getQueryData<ConversationsByIdGetResponse>(CONVERSATION_KEY);
+  return data?.conversation.enabledPlugins;
+}
+
+/** Body (enabledPlugins) each PUT was called with, in order. */
+function putBodies(): (string[] | null)[] {
+  return enabledPluginsPutSpy.mock.calls.map(
+    (call) =>
+      (call as unknown[])[0] as {
+        body: { enabledPlugins: string[] | null };
+      },
+  ).map((opts) => opts.body.enabledPlugins);
 }
 
 function renderSetHook(conversationId: string | undefined = CONVERSATION_ID) {
@@ -118,11 +146,6 @@ function renderSetHook(conversationId: string | undefined = CONVERSATION_ID) {
     { wrapper },
   );
   return { ...view, client };
-}
-
-function enabledInCache(client: QueryClient): string[] | null | undefined {
-  const data = client.getQueryData<ConversationsByIdGetResponse>(CONVERSATION_KEY);
-  return data?.conversation.enabledPlugins;
 }
 
 beforeEach(() => {
@@ -154,11 +177,11 @@ describe("useSetChatPlugins", () => {
 
     const { result, client } = renderSetHook();
 
-    // Both reads must resolve so the row is loaded (existing path) and the
-    // installed list is present (toggle materializes from it).
+    // Row state must be known (existing) and the installed list present before
+    // toggling — the toggle materializes from it.
     await waitFor(() => {
+      expect(result.current.canWrite).toBe(true);
       expect(client.getQueryData(PLUGINS_KEY)).toBeTruthy();
-      expect(enabledInCache(client)).toBeNull();
     });
 
     act(() => {
@@ -183,11 +206,14 @@ describe("useSetChatPlugins", () => {
   });
 
   test("draft toggle → store action only, no network", async () => {
-    // Conversation read rejects → no server row → draft path.
+    // Detail read settles to a 404 → confirmed draft → draft path.
     conversationImpl = noServerRow;
     const { result, client } = renderSetHook();
 
-    await waitFor(() => expect(client.getQueryData(PLUGINS_KEY)).toBeTruthy());
+    await waitFor(() => {
+      expect(result.current.canWrite).toBe(true);
+      expect(client.getQueryData(PLUGINS_KEY)).toBeTruthy();
+    });
 
     act(() => {
       result.current.toggle("b");
@@ -216,7 +242,7 @@ describe("useSetChatPlugins", () => {
     const { result, client } = renderSetHook();
 
     await waitFor(() => {
-      expect(client.getQueryData(PLUGINS_KEY)).toBeTruthy();
+      expect(result.current.canWrite).toBe(true);
       expect(enabledInCache(client)).toEqual(["a"]);
     });
 
@@ -234,5 +260,78 @@ describe("useSetChatPlugins", () => {
     await waitFor(() => expect(toastErrorSpy).toHaveBeenCalled());
     await waitFor(() => expect(enabledInCache(client)).toEqual(["a"]));
     expect(captureErrorSpy).toHaveBeenCalled();
+  });
+
+  test("existing chat whose detail query is still pending → no write, canWrite false", async () => {
+    // Detail query never resolves — row state stays unknown.
+    conversationImpl = () => new Promise(() => {});
+    const { result, client } = renderSetHook();
+
+    // Installed list loads, but the row state is unknown → not writable.
+    await waitFor(() => expect(client.getQueryData(PLUGINS_KEY)).toBeTruthy());
+    expect(result.current.canWrite).toBe(false);
+
+    act(() => {
+      result.current.toggle("b");
+    });
+    act(() => {
+      result.current.setPlugins(["a"]);
+    });
+
+    // Neither the daemon nor the draft stash was touched.
+    expect(enabledPluginsPutSpy).not.toHaveBeenCalled();
+    expect(
+      useConversationStore.getState().pendingDraftPlugins.has(CONVERSATION_ID),
+    ).toBe(false);
+    expect(result.current.canWrite).toBe(false);
+  });
+
+  test("rapid double-toggle before the first PUT resolves → last selection persists", async () => {
+    conversationImpl = () => Promise.resolve(conversationWith(null));
+    // Hand each PUT a deferred so the first stays in flight during the 2nd toggle.
+    const putDeferreds: Deferred<{ data: unknown }>[] = [];
+    putImpl = () => {
+      const d = deferred<{ data: unknown }>();
+      putDeferreds.push(d);
+      return d.promise;
+    };
+
+    const { result, client } = renderSetHook();
+
+    await waitFor(() => {
+      expect(result.current.canWrite).toBe(true);
+      expect(client.getQueryData(PLUGINS_KEY)).toBeTruthy();
+    });
+
+    // Toggle 'a' off → PUT #1 (['b','c']) starts and stays pending.
+    act(() => {
+      result.current.toggle("a");
+    });
+    await waitFor(() => expect(enabledPluginsPutSpy).toHaveBeenCalledTimes(1));
+
+    // Toggle 'b' off before #1 resolves → desired becomes ['c']; the in-flight
+    // loop is coalesced, so no second PUT fires yet.
+    act(() => {
+      result.current.toggle("b");
+    });
+    expect(enabledPluginsPutSpy).toHaveBeenCalledTimes(1);
+
+    // Resolve #1 → the loop re-sends the newer desired set as PUT #2 (['c']).
+    await act(async () => {
+      putDeferreds[0]!.resolve({ data: {} });
+    });
+    await waitFor(() => expect(enabledPluginsPutSpy).toHaveBeenCalledTimes(2));
+
+    // Resolve #2 → the loop settles; desired hasn't changed, so it stops.
+    await act(async () => {
+      putDeferreds[1]!.resolve({ data: {} });
+    });
+
+    // Serialized, in order, ending on the user's last selection ['c'].
+    const bodies = putBodies();
+    expect(bodies).toHaveLength(2);
+    expect(new Set(bodies[0])).toEqual(new Set(["b", "c"]));
+    expect(new Set(bodies[1])).toEqual(new Set(["c"]));
+    await waitFor(() => expect(enabledPluginsPutSpy).toHaveBeenCalledTimes(2));
   });
 });
