@@ -76,6 +76,13 @@ mock.module("../skills/catalog-install.js", () => ({
   resolveCatalog: (_skillId?: string) => Promise.resolve([]),
 }));
 
+// Stub the load path's refresh call (tests exercise load, not refresh) so the
+// real catalog-refresh → catalog-cache → catalog-install chain does not load
+// against the partial catalog-install mock above.
+mock.module("../skills/catalog-refresh.js", () => ({
+  refreshInstalledSkillIfStale: () => Promise.resolve("fresh"),
+}));
+
 interface TestConfig {
   permissions: { autoApproveUpTo?: "none" | "low" | "medium" | "high" };
   skills: { load: { extraDirs: string[] } };

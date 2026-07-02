@@ -24,7 +24,10 @@ import { join } from "node:path";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 import { getCatalog } from "./catalog-cache.js";
-import { installSkillLocally } from "./catalog-install.js";
+import {
+  ConcurrentSkillModificationError,
+  installSkillLocally,
+} from "./catalog-install.js";
 import {
   computeSkillHash,
   readInstallMeta,
@@ -100,7 +103,18 @@ async function doRefresh(skillId: string): Promise<SkillRefreshOutcome> {
       return "fresh";
     }
 
-    await installSkillLocally(skillId, entry, true);
+    // Pin the hash checked above: the overwrite proceeds only if the on-disk
+    // copy is still identical at swap time. A user edit landing during the
+    // catalog fetch / staged download (the swap can complete in the
+    // background after the load-path timeout) aborts the swap and preserves
+    // their copy instead of silently discarding it.
+    await installSkillLocally(
+      skillId,
+      entry,
+      true,
+      undefined,
+      meta.contentHash,
+    );
     log.info(
       {
         skillId,
@@ -112,6 +126,14 @@ async function doRefresh(skillId: string): Promise<SkillRefreshOutcome> {
     );
     return "refreshed";
   } catch (err) {
+    if (err instanceof ConcurrentSkillModificationError) {
+      // The user edited the skill mid-refresh; their copy was preserved.
+      log.info(
+        { skillId },
+        "Skill modified during refresh; kept the local copy",
+      );
+      return "skipped_locally_modified";
+    }
     log.warn({ err, skillId }, "Failed to refresh catalog skill install");
     return "failed";
   }

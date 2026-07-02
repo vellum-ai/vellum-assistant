@@ -200,6 +200,39 @@ describe("refreshInstalledSkillIfStale", () => {
     );
   });
 
+  test("preserves a user edit made mid-refresh (during the fetch/stage window)", async () => {
+    const skillDir = writeInstalledSkill("Old body.");
+    const archive = gzipSync(
+      makeTar([{ name: "SKILL.md", content: skillMarkdown("New body.") }]),
+    );
+    // Simulate a user editing the skill after the pristineness check passes
+    // but before the swap: mutate the on-disk copy when the tarball is fetched.
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = String(input instanceof Request ? input.url : input);
+      if (url.endsWith("/v1/skills/")) {
+        return Response.json({
+          skills: [{ id: "demo-skill", updatedAt: NEW_STAMP }],
+        });
+      }
+      if (url.includes("/v1/skills/demo-skill")) {
+        writeFileSync(
+          join(skillDir, "SKILL.md"),
+          skillMarkdown("User edit during refresh."),
+        );
+        return new Response(archive);
+      }
+      return new Response("not found", { status: 404 });
+    }) as unknown as typeof fetch;
+
+    expect(await refreshInstalledSkillIfStale("demo-skill")).toBe(
+      "skipped_locally_modified",
+    );
+    // The user's mid-flight edit survives; the refresh did not clobber it.
+    expect(readFileSync(join(skillDir, "SKILL.md"), "utf-8")).toContain(
+      "User edit during refresh.",
+    );
+  });
+
   test("falls back to installedAt for installs that predate catalogUpdatedAt", async () => {
     const skillDir = writeInstalledSkill("Old body.", {
       catalogUpdatedAt: undefined,

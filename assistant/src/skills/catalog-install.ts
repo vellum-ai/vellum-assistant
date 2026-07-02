@@ -449,13 +449,43 @@ function snapshotExistingSkillDir(skillId: string): string | null {
   return backupDir;
 }
 
+/**
+ * Thrown when `expectedContentHash` is supplied to a commit/install but the
+ * live on-disk skill no longer matches it — i.e. the copy was modified after
+ * the caller checked pristineness. Lets the caller (skill refresh) distinguish
+ * "user edited mid-refresh, preserve their copy" from a genuine failure.
+ */
+export class ConcurrentSkillModificationError extends Error {
+  constructor(skillId: string) {
+    super(
+      `Skill "${skillId}" changed on disk during install; overwrite aborted.`,
+    );
+    this.name = "ConcurrentSkillModificationError";
+  }
+}
+
 export function commitStagedSkillInstall(
   skillId: string,
   stagedDir: string,
+  expectedContentHash?: string,
 ): void {
   assertStagedSkillRoot(skillId, stagedDir);
 
   const skillDir = join(getWorkspaceSkillsDir(), skillId);
+
+  // Final pristineness gate: when the caller pinned an expected hash, verify
+  // the live copy still matches it immediately before the swap. This closes
+  // the check-then-overwrite window — a user edit made any time after the
+  // caller's initial check (including during the catalog fetch and staged
+  // download, which can run in the background after the load-path timeout)
+  // aborts the swap instead of discarding their change.
+  if (expectedContentHash !== undefined && existsSync(skillDir)) {
+    if (computeSkillHash(skillDir) !== expectedContentHash) {
+      rmSync(stagedDir, { recursive: true, force: true });
+      throw new ConcurrentSkillModificationError(skillId);
+    }
+  }
+
   let backupDir: string | null = null;
   let stagedMovedToFinal = false;
 
@@ -494,6 +524,11 @@ export async function installSkillLocally(
   catalogEntry: CatalogSkill,
   overwrite: boolean,
   contactId?: string,
+  // When set, the final swap only proceeds if the live on-disk copy still
+  // hashes to this value — guards a refresh against clobbering a user edit
+  // made while the new content was being fetched/staged. Throws
+  // ConcurrentSkillModificationError otherwise.
+  expectedContentHash?: string,
 ): Promise<void> {
   const skillDir = join(getWorkspaceSkillsDir(), skillId);
   const skillFilePath = join(skillDir, "SKILL.md");
@@ -574,7 +609,7 @@ export async function installSkillLocally(
     });
 
     installSkillDependenciesIfPresent(stagedDir);
-    commitStagedSkillInstall(skillId, stagedDir);
+    commitStagedSkillInstall(skillId, stagedDir, expectedContentHash);
 
     log.info(
       { skillId, source: installSource },
