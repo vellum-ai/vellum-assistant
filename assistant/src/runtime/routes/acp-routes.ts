@@ -392,9 +392,9 @@ async function cancelSession({ pathParams }: RouteHandlerArgs) {
   try {
     await manager.cancel(id);
   } catch (err) {
-    // Only a genuinely unknown session is a 404. cancel() now rethrows when
-    // the protocol cancel fails on a still-live session (it rolls back to
-    // running), so mapping that to not-found would lie; surface it as a 500.
+    // Only a genuinely unknown session is a 404. A protocol-cancel failure on a
+    // still-live session is a real error, not a missing session, so it surfaces
+    // as a 500 rather than a misleading not-found.
     if (err instanceof AcpSessionNotFoundError) {
       throw new NotFoundError("ACP session not found");
     }
