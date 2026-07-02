@@ -3083,7 +3083,7 @@ describe("subagent notification user_message_echo suppression", () => {
     // the queue branch (see conversation-routes.ts).
     conversation.enqueueMessage({
       content:
-        "[User action on channel_setup panel: closed the slack setup wizard]",
+        "[User action on channel_setup surface: closed the slack setup wizard]",
       onEvent: (e) => eventsHidden.push(e),
       requestId: "req-hidden",
       metadata: { hidden: true },

@@ -106,6 +106,7 @@ import {
   getMessagesPaginated,
   hasMessages,
   isConversationProcessing,
+  isHiddenMessageMetadata,
   type MessageRow,
   provenanceFromTrustContext,
   setConversationEnabledPlugins,
@@ -349,8 +350,9 @@ function emitCannedMessageComplete(
 function isHiddenMessage(metadata: string | null): boolean {
   if (!metadata) return false;
   try {
-    const meta = JSON.parse(metadata) as { hidden?: unknown };
-    return meta?.hidden === true;
+    return isHiddenMessageMetadata(
+      JSON.parse(metadata) as Record<string, unknown>,
+    );
   } catch {
     return false;
   }
@@ -638,7 +640,7 @@ function buildQueuedMessagePayloads(
   // while the item still awaits drain must not surface it as a queued bubble.
   return conversation
     .snapshotQueuedMessages()
-    .filter((item) => item.metadata?.hidden !== true)
+    .filter((item) => !isHiddenMessageMetadata(item.metadata))
     .map((item, index) => {
       const text = item.displayContent ?? item.content;
       const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
@@ -2021,21 +2023,34 @@ export async function handleSendMessage(
     // here must not turn the 202 response into a 500 — that would leave
     // the client showing "Failed to send" for a message the daemon will
     // process from the queue.
-    try {
-      // Supersede interactions left pending by the in-flight turn: auto-deny
-      // confirmations (with canonical/client sync) and steer to the enqueued
-      // message if an ask_question is parked. Centralized so the CLI signal
-      // path (signals/user-message.ts) gets identical handling.
-      supersedePendingInteractionsOnEnqueue(mapping.conversationId, requestId);
+    //
+    // Supersede encodes user intent — a typed message while a prompt is open
+    // means the user chose to move on. A hidden send is a machine signal
+    // (e.g. the channel-setup wizard-close marker), not a user decision: it
+    // must not auto-deny live approval prompts or steer a parked
+    // ask_question to a message the user never typed. Daemon-injected
+    // synthetic messages (subagent/ACP notifications) skip this path the
+    // same way by enqueuing directly.
+    if (body.hidden !== true) {
+      try {
+        // Supersede interactions left pending by the in-flight turn: auto-deny
+        // confirmations (with canonical/client sync) and steer to the enqueued
+        // message if an ask_question is parked. Centralized so the CLI signal
+        // path (signals/user-message.ts) gets identical handling.
+        supersedePendingInteractionsOnEnqueue(
+          mapping.conversationId,
+          requestId,
+        );
 
-      // Expire any orphaned canonical requests that survived without a
-      // matching in-memory pending interaction (e.g. prompter timeouts).
-      expireOrphanedCanonicalRequests(mapping.conversationId);
-    } catch (err) {
-      log.warn(
-        { err, conversationId: mapping.conversationId },
-        "Post-enqueue auto-deny failed — queued message unaffected",
-      );
+        // Expire any orphaned canonical requests that survived without a
+        // matching in-memory pending interaction (e.g. prompter timeouts).
+        expireOrphanedCanonicalRequests(mapping.conversationId);
+      } catch (err) {
+        log.warn(
+          { err, conversationId: mapping.conversationId },
+          "Post-enqueue auto-deny failed — queued message unaffected",
+        );
+      }
     }
 
     return {
@@ -2965,7 +2980,7 @@ export const ROUTES: RouteDefinition[] = [
         .boolean()
         .optional()
         .describe(
-          "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history and still drives the turn). Used to prime a proactive assistant greeting without showing the triggering user message. Honored on the standard send path only.",
+          "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history and still drives the turn). Used for machine signals the user never typed (proactive-greeting priming, channel-setup wizard close). Suppression covers the queued path too: a hidden send that lands mid-turn returns { queued: true, requestId } but never appears in list-messages queued snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send path only — slash-command content bypasses it.",
         ),
       onboarding: z
         .object({

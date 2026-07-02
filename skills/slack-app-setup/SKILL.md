@@ -48,7 +48,11 @@ After `ui_show` returns success, tell the user:
 
 > I've opened the Slack setup wizard in the side panel. It will walk you through creating a Slack app, generating tokens, and connecting — complete the steps there. The wizard will auto-notify me when you close it. If you run into issues along the way, ask me in chat.
 
-**Mobile clients cannot auto-notify.** When the per-turn `client_os` context is `ios` or `android` (or the user says they're on a phone), the wizard opens on the Contacts page instead of a side drawer and sends no close notification. In that case swap the last two sentences of the announcement for: _"When you've finished the steps, come back here and tell me — I'll verify the connection."_ and rely on the user's confirmation to trigger Step 3.
+**Hand-off notification (phones and narrow windows).** On phone-sized clients the setup opens on the Contacts page instead of a side drawer, and completing it there cannot auto-notify. The client signals this with a hidden message like `[User action on channel_setup surface: moved the slack setup to the Contacts page]`. When you receive that hand-off notification, tell the user:
+
+> It looks like the setup opened on your Contacts page rather than a side panel — same steps, different spot. When you've finished, come back here and tell me, and I'll verify the connection.
+
+and rely on their confirmation to trigger Step 3 (no wizard-closed notification will arrive).
 
 If the `ui_show` call fails, do NOT send that message — tell the user the wizard could not be opened and troubleshoot (e.g. no connected client) before retrying.
 
@@ -60,7 +64,7 @@ The wizard handles the entire flow: manifest URL generation, app-level token cre
 
 ## Step 3 — Verify completion
 
-When you receive the wizard-closed notification (or the user asks you to check), verify the connection. The notification arrives as a message like `[User action on channel_setup panel: closed the slack setup wizard]` — closing the wizard drawer sends it automatically, so do not wait for the user to type a confirmation. If the user manually says they're done or asks you to check, proceed with the same verification.
+When you receive the wizard-closed notification (or the user says they're done, or asks you to check), verify the connection. The notification arrives as a message like `[User action on channel_setup surface: closed the slack setup wizard]` — closing the wizard drawer sends it automatically, so do not wait for the user to type a confirmation. If the user manually says they're done or asks you to check, proceed with the same verification.
 
 1. Run `assistant credentials list --search slack_channel` (via the bash tool). Confirm both `app_token` and `bot_token` are present.
 
@@ -77,7 +81,7 @@ When you receive the wizard-closed notification (or the user asks you to check),
 
    Extract `user` → botUsername, `team` → workspace from the JSON response. If `ok: false` or the call errors, fall back to `your bot` / `your workspace`.
 
-3. If either token is missing, tell the user which one is missing and offer to re-open the wizard so they can complete that step (the wizard-closed notification means the side panel is no longer open — re-run Step 2's `ui_show` call if they accept).
+3. If either token is missing, tell the user which one is missing. When verification was triggered by the wizard-closed notification, the side panel is no longer open — offer to re-open it and re-run Step 2's `ui_show` call if they accept. When the user asked manually, the wizard may still be open in the side panel — point them back to it instead of re-opening (a second `ui_show` over a live wizard resets their progress).
 
 ## Step 4 — Verify identity (optional)
 

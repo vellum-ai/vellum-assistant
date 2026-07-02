@@ -1,44 +1,56 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 
 import { notifyChannelSetupClosed } from "@/domains/chat/channel-setup-close-notify";
-import { useIsMobile } from "@/hooks/use-is-mobile";
+import { MOBILE_MEDIA_QUERY } from "@/hooks/use-is-mobile";
 import type { ChannelSetupPayload } from "@/stores/viewer-store";
 import { useViewerStore } from "@/stores/viewer-store";
 
 /**
- * Fires the channel-setup close auto-notify when the setup drawer closes.
+ * Fires the channel-setup close auto-notify when the setup drawer goes away.
  *
- * Watches wizard *visibility* — `mainView === "channel-setup"` with a
- * payload set — not just the payload. Every explicit close affordance (the
- * DetailShell X, the connected-state Close button, Escape, the Slack
- * save-success auto-close) funnels through `closeChannelSetup`, which clears
- * the payload; but opening another right-hand panel (e.g. tool detail)
- * replaces `mainView` while leaving the payload intact, and the wizard does
- * not return when that panel closes (`resolveViewBefore` collapses overlay
- * views). Both count as the wizard going away, so both notify. The
- * standalone Contacts/Settings setup flow never touches the viewer store, so
- * it can't trigger a notify.
+ * Watches wizard *visibility* — `mainView === "channel-setup"` with a payload
+ * set — via a direct store subscription rather than render-path selectors, so
+ * every store transition is observed no matter which React tree (or route)
+ * triggered it: the DetailShell X / Close button / Escape / save-success
+ * auto-close (all funnel through `closeChannelSetup`), another right-hand
+ * panel replacing the drawer, and the `setMainView("chat")` calls made from
+ * non-chat routes while the drawer is still open. Mount once from an
+ * always-mounted layer (RootLayout). The standalone Contacts/Settings setup
+ * flow never touches the viewer store, so it can't trigger a notify.
  *
- * Mobile is excluded: there the drawer is closed immediately in favor of a
- * redirect to the Contacts setup page, so the close is a hand-off, not a
- * dismissal.
+ * Narrow viewports are excluded here: there the drawer close is a hand-off —
+ * ChatContentLayout's mobile fallback redirects to the Contacts setup page
+ * and sends the distinct hand-off signal itself (see
+ * `notifyChannelSetupHandedOff`), so a dismissal notify would be wrong.
  */
 export function useChannelSetupCloseNotify(): void {
-  const mainView = useViewerStore.use.mainView();
-  const activeChannelSetup = useViewerStore.use.activeChannelSetup();
-  const isMobile = useIsMobile();
-
-  const visiblePayload =
-    mainView === "channel-setup" ? activeChannelSetup : null;
-  const prevVisiblePayloadRef = useRef<ChannelSetupPayload | null>(
-    visiblePayload,
-  );
-
   useEffect(() => {
-    const prev = prevVisiblePayloadRef.current;
-    prevVisiblePayloadRef.current = visiblePayload;
-    if (prev && visiblePayload === null && !isMobile) {
+    return useViewerStore.subscribe((state, prevState) => {
+      const prev = visibleWizard(prevState);
+      const now = visibleWizard(state);
+      if (!prev || prev === now) {
+        return;
+      }
+      // Same wizard re-shown (e.g. the assistant re-issued ui_show for the
+      // channel it already has open): a fresh payload object, not a close.
+      if (
+        now &&
+        now.channel === prev.channel &&
+        now.conversationId === prev.conversationId
+      ) {
+        return;
+      }
+      if (window.matchMedia(MOBILE_MEDIA_QUERY).matches) {
+        return;
+      }
       void notifyChannelSetupClosed(prev);
-    }
-  }, [visiblePayload, isMobile]);
+    });
+  }, []);
+}
+
+function visibleWizard(state: {
+  mainView: string;
+  activeChannelSetup: ChannelSetupPayload | null;
+}): ChannelSetupPayload | null {
+  return state.mainView === "channel-setup" ? state.activeChannelSetup : null;
 }

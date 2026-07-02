@@ -584,9 +584,10 @@ export async function postChatMessage(
   if (enabledPlugins != null) {
     body.enabledPlugins = enabledPlugins;
   }
-  // Persist the message but suppress it from the transcript (it still drives the
-  // turn LLM-side). Used by the research-onboarding "Let's chat" handoff to
-  // prime a proactive assistant greeting without showing the triggering message.
+  // Persist the message but suppress it from the transcript (it still drives
+  // the turn LLM-side). Used for client-initiated machine signals the user
+  // never typed: the research-onboarding "Let's chat" greeting kickoff and
+  // the channel-setup wizard close/hand-off notifications.
   if (hidden) {
     body.hidden = true;
   }

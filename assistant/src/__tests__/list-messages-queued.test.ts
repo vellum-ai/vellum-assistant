@@ -187,7 +187,7 @@ describe("handleListMessages in-memory queue", () => {
       makeQueued({
         requestId: "req-hidden",
         content:
-          "[User action on channel_setup panel: closed the slack setup wizard]",
+          "[User action on channel_setup surface: closed the slack setup wizard]",
         metadata: { hidden: true },
       }),
       makeQueued({ requestId: "req-visible", content: "a real message" }),

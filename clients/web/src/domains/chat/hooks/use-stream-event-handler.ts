@@ -265,7 +265,7 @@ export function useStreamEventHandler(
           handleNavigateSettings(event, ctx);
           break;
         case "open_panel":
-          handleOpenPanel(event);
+          handleOpenPanel(event, ctx);
           break;
         case "assistant_turn_start":
           handleAssistantTurnStart(event, ctx);

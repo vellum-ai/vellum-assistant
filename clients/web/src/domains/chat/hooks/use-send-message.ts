@@ -793,7 +793,7 @@ export function useSendMessage({
             assistantId,
             activeConversationId,
             content,
-            { attachmentIds, clientMessageId },
+            { attachmentIds, clientMessageId, hidden: isHidden },
           );
           if (!postResult.ok) {
             revertQueuedMessage(userMessage.id);

@@ -23,6 +23,7 @@ import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import {
   addMessage,
+  isHiddenMessageMetadata,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
@@ -80,7 +81,7 @@ function isEchoSuppressedUserMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
   return (
-    metadata?.hidden === true ||
+    isHiddenMessageMetadata(metadata) ||
     metadata?.subagentNotification != null ||
     metadata?.acpNotification != null ||
     metadata?.backgroundEventSource === "background-tool"
@@ -905,7 +906,10 @@ async function drainSingleMessage(
 
   // Fire-and-forget: detect notification preferences in the queued message
   // and persist any that are found, mirroring the logic in processMessage.
-  if (conversation.assistantId) {
+  // Hidden rows are machine signals, not user speech — running the detector
+  // on them burns an LLM call per signal and risks persisting a bogus
+  // preference from text the user never typed.
+  if (conversation.assistantId && !isHiddenMessageMetadata(next.metadata)) {
     extractPreferences(resolvedContent)
       .then((result) => {
         if (!result.detected) return;
@@ -940,11 +944,14 @@ async function drainSingleMessage(
     isInteractive?: boolean;
     isUserMessage?: boolean;
     titleText?: string;
+    isHiddenPrompt?: boolean;
   } = { isUserMessage: true };
   if (next.isInteractive !== undefined)
     drainLoopOptions.isInteractive = next.isInteractive;
   if (agentLoopContent !== resolvedContent)
     drainLoopOptions.titleText = resolvedContent;
+  if (isHiddenMessageMetadata(next.metadata))
+    drainLoopOptions.isHiddenPrompt = true;
 
   conversation
     .runAgentLoop(agentLoopContent, userMessageId, {
@@ -1262,8 +1269,9 @@ async function drainBatch(
     successfulBatch.push(qm);
 
     // Fire-and-forget: detect notification preferences in each batched user
-    // message and persist any that are found, mirroring drainSingleMessage.
-    if (conversation.assistantId) {
+    // message and persist any that are found, mirroring drainSingleMessage
+    // (including its hidden-row exclusion).
+    if (conversation.assistantId && !isHiddenMessageMetadata(qm.metadata)) {
       extractPreferences(qmContent)
         .then((result) => {
           if (!result.detected) return;
@@ -1350,6 +1358,7 @@ async function drainBatch(
     isInteractive?: boolean;
     isUserMessage?: boolean;
     titleText?: string;
+    isHiddenPrompt?: boolean;
   } = { isUserMessage: true };
   // Source interactive flag from the last successfully-persisted sibling so
   // a trailing failed tail doesn't flip the agent loop's interactivity.
@@ -1359,6 +1368,14 @@ async function drainBatch(
       : undefined;
   if (lastSuccessfulBatchEntry?.isInteractive !== undefined)
     drainLoopOptions.isInteractive = lastSuccessfulBatchEntry.isInteractive;
+  // A batch counts as a hidden turn only when every message in it is a
+  // hidden machine signal — one genuine user prompt justifies the
+  // prompt-as-user-speech consumers (title generation).
+  if (
+    successfulBatch.length > 0 &&
+    successfulBatch.every((qm) => isHiddenMessageMetadata(qm.metadata))
+  )
+    drainLoopOptions.isHiddenPrompt = true;
 
   // Fire-and-forget: runAgentLoop's finally block recursively calls drainQueue
   // when this run completes. Mirrors drainSingleMessage.

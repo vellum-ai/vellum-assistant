@@ -44,11 +44,16 @@ describe("slack-app-setup skill regression", () => {
     // `clients/web/src/domains/chat/channel-setup-close-notify.ts`).
     expect(skillContent).toContain("wizard-closed notification");
     expect(skillContent).toContain(
-      "[User action on channel_setup panel: closed the slack setup wizard]",
+      "[User action on channel_setup surface: closed the slack setup wizard]",
     );
-    // Mobile clients open the wizard on the Contacts page and never notify —
-    // the skill must not promise an auto-notification there.
-    expect(skillContent).toContain("Mobile clients cannot auto-notify");
+    // Phone-sized clients open the setup on the Contacts page, which cannot
+    // auto-notify on completion — the client signals the relocation with a
+    // hand-off marker and the skill must react by asking the user to report
+    // back instead of waiting for a wizard-closed notification.
+    expect(skillContent).toContain(
+      "[User action on channel_setup surface: moved the slack setup to the Contacts page]",
+    );
+    expect(skillContent).toContain("Hand-off notification");
   });
 
   test("retains the Settings clearing path", () => {

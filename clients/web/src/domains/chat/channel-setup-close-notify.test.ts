@@ -1,12 +1,13 @@
 /**
- * Tests for the channel-setup close auto-notify helper.
+ * Tests for the channel-setup close/hand-off notify helpers.
  *
- * `buildChannelSetupClosedMessage` is pure and covers the marker shape the
- * slack-app-setup skill keys off. `notifyChannelSetupClosed` must send a
- * hidden user message to the originating conversation, fall back to the
- * active conversation, skip when no conversation resolves, and swallow every
- * failure — a lost notification only restores the manual "ask me to check"
- * fallback.
+ * `buildChannelSetupClosedMessage` / `buildChannelSetupHandedOffMessage` are
+ * pure and cover the marker shapes the slack-app-setup skill keys off.
+ * `notifyChannelSetupClosed` must send a hidden user message to the
+ * originating conversation, fail closed when the payload has none, skip
+ * daemons that predate end-to-end hidden-send handling, leave the turn store
+ * untouched, and swallow every failure — a lost notification only means the
+ * user reports back themselves (the skill keeps its manual fallback).
  *
  * NOTE: `bun mock.module` can leak across files — run this file singly:
  *   bun test src/domains/chat/channel-setup-close-notify.test.ts
@@ -25,7 +26,7 @@ type MessagesPostCall = Pick<MessagesPostData, "path" | "body"> & {
 
 let postCalls: MessagesPostCall[] = [];
 let postShouldThrow = false;
-let postQueued = false;
+let gateSupportsNotify = true;
 
 mock.module("@/generated/daemon/sdk.gen", () => ({
   ...sdkGen,
@@ -41,7 +42,7 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
         // daemon does.
         conversationId:
           opts.body.conversationId ?? opts.body.conversationKey ?? "c-minted",
-        ...(postQueued ? { queued: true, requestId: "r1" } : { messageId: "m1" }),
+        messageId: "m1",
       },
       error: undefined,
       response: { ok: true, status: 200 },
@@ -49,29 +50,46 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
   },
 }));
 
-const { buildChannelSetupClosedMessage, notifyChannelSetupClosed } =
-  await import("./channel-setup-close-notify");
-const { useConversationStore } = await import("@/stores/conversation-store");
+mock.module("@/lib/backwards-compat/channel-setup-close-notify", () => ({
+  MIN_VERSION: "0.10.4",
+  resolveSupportsChannelSetupCloseNotify: () =>
+    Promise.resolve(gateSupportsNotify),
+}));
+
+const {
+  buildChannelSetupClosedMessage,
+  buildChannelSetupHandedOffMessage,
+  notifyChannelSetupClosed,
+  notifyChannelSetupHandedOff,
+} = await import("./channel-setup-close-notify");
 const { useTurnStore } = await import("@/domains/chat/turn-store");
 
 afterEach(() => {
   postCalls = [];
   postShouldThrow = false;
-  postQueued = false;
-  useConversationStore.getState().setActiveConversationId(null);
+  gateSupportsNotify = true;
   useTurnStore.getState().resetTurn();
 });
 
-describe("buildChannelSetupClosedMessage", () => {
-  test("follows the daemon's synthetic user-action marker convention", () => {
+describe("marker builders", () => {
+  test("closed marker follows the daemon's synthetic user-action surface convention", () => {
     expect(buildChannelSetupClosedMessage("slack")).toBe(
-      "[User action on channel_setup panel: closed the slack setup wizard]",
+      "[User action on channel_setup surface: closed the slack setup wizard]",
     );
   });
 
-  test("is channel-agnostic for future setup wizards", () => {
-    expect(buildChannelSetupClosedMessage("telegram")).toBe(
-      "[User action on channel_setup panel: closed the telegram setup wizard]",
+  test("hand-off marker shares the same grammar", () => {
+    expect(buildChannelSetupHandedOffMessage("slack")).toBe(
+      "[User action on channel_setup surface: moved the slack setup to the Contacts page]",
+    );
+  });
+
+  test("markers are channel-agnostic for future setup wizards", () => {
+    expect(buildChannelSetupClosedMessage("telegram")).toContain(
+      "closed the telegram setup wizard",
+    );
+    expect(buildChannelSetupHandedOffMessage("telegram")).toContain(
+      "moved the telegram setup to the Contacts page",
     );
   });
 });
@@ -88,7 +106,7 @@ describe("notifyChannelSetupClosed", () => {
     expect(postCalls).toHaveLength(1);
     expect(postCalls[0]?.path).toEqual({ assistant_id: "a1" });
     expect(postCalls[0]?.body.content).toBe(
-      "[User action on channel_setup panel: closed the slack setup wizard]",
+      "[User action on channel_setup surface: closed the slack setup wizard]",
     );
     // Hidden: persisted and LLM-visible, but suppressed from the transcript.
     expect(postCalls[0]?.body.hidden).toBe(true);
@@ -99,22 +117,9 @@ describe("notifyChannelSetupClosed", () => {
     ).toBe("c1");
   });
 
-  test("falls back to the active conversation when the payload has none", async () => {
-    useConversationStore.getState().setActiveConversationId("c-active");
-
-    await notifyChannelSetupClosed({
-      channel: "slack",
-      assistantId: "a1",
-      assistantName: "Vellum",
-    });
-
-    expect(postCalls).toHaveLength(1);
-    expect(
-      postCalls[0]?.body.conversationId ?? postCalls[0]?.body.conversationKey,
-    ).toBe("c-active");
-  });
-
-  test("skips silently when no conversation can be resolved", async () => {
+  test("fails closed when the payload has no originating conversation", async () => {
+    // Guessing a target (e.g. the close-time active conversation) could wake
+    // an unrelated chat or mint a phantom conversation — skip instead.
     await notifyChannelSetupClosed({
       channel: "slack",
       assistantId: "a1",
@@ -124,12 +129,24 @@ describe("notifyChannelSetupClosed", () => {
     expect(postCalls).toHaveLength(0);
   });
 
-  test("never starts a local turn — turn state is SSE-driven for this path", async () => {
+  test("skips daemons that predate end-to-end hidden-send handling", async () => {
+    gateSupportsNotify = false;
+
+    await notifyChannelSetupClosed({
+      channel: "slack",
+      assistantId: "a1",
+      assistantName: "Vellum",
+      conversationId: "c1",
+    });
+
+    expect(postCalls).toHaveLength(0);
+  });
+
+  test("never starts a local turn — turn UI for this path is daemon-driven", async () => {
     // No per-send recovery exists here (no poll fallback, no reconciliation
     // kick), so an optimistic "thinking" could strand the UI on an SSE drop.
-    // The daemon's turn events move the turn store out of idle on their own.
-    useConversationStore.getState().setActiveConversationId("c1");
-
+    // Activity renders via the conversation isProcessing patch and the
+    // snapshot reducer instead.
     await notifyChannelSetupClosed({
       channel: "slack",
       assistantId: "a1",
@@ -139,37 +156,6 @@ describe("notifyChannelSetupClosed", () => {
 
     expect(postCalls).toHaveLength(1);
     expect(useTurnStore.getState().phase).toBe("idle");
-  });
-
-  test("still targets the originating conversation after the user switched chats", async () => {
-    useConversationStore.getState().setActiveConversationId("c-other");
-
-    await notifyChannelSetupClosed({
-      channel: "slack",
-      assistantId: "a1",
-      assistantName: "Vellum",
-      conversationId: "c1",
-    });
-
-    expect(postCalls).toHaveLength(1);
-    expect(
-      postCalls[0]?.body.conversationId ?? postCalls[0]?.body.conversationKey,
-    ).toBe("c1");
-    expect(useTurnStore.getState().phase).toBe("idle");
-  });
-
-  test("does not start a turn for a queued send (the in-flight turn's SSE drives it)", async () => {
-    postQueued = true;
-
-    await notifyChannelSetupClosed({
-      channel: "slack",
-      assistantId: "a1",
-      assistantName: "Vellum",
-      conversationId: "c1",
-    });
-
-    expect(postCalls).toHaveLength(1);
-    expect(useTurnStore.getState().phase).not.toBe("thinking");
   });
 
   test("swallows a thrown post (best-effort — manual fallback still applies)", async () => {
@@ -183,6 +169,22 @@ describe("notifyChannelSetupClosed", () => {
         conversationId: "c1",
       }),
     ).resolves.toBeUndefined();
-    expect(useTurnStore.getState().phase).not.toBe("thinking");
+  });
+});
+
+describe("notifyChannelSetupHandedOff", () => {
+  test("sends the hidden hand-off marker to the originating conversation", async () => {
+    await notifyChannelSetupHandedOff({
+      channel: "slack",
+      assistantId: "a1",
+      assistantName: "Vellum",
+      conversationId: "c1",
+    });
+
+    expect(postCalls).toHaveLength(1);
+    expect(postCalls[0]?.body.content).toBe(
+      "[User action on channel_setup surface: moved the slack setup to the Contacts page]",
+    );
+    expect(postCalls[0]?.body.hidden).toBe(true);
   });
 });
