@@ -507,21 +507,22 @@ function useAssistantBannerConfig(): BannerConfig | null {
       (assistant) =>
         assistant.isPlatformHosted === true && assistant.isLocal === false,
     );
-    // Prefer the selected assistant when it is a platform assistant, else
-    // fall back to the org's first platform assistant. The unconditional
-    // fallback is deliberate: during claim/migration windows the selection can
-    // legitimately fail to match the platform list (lifecycle unresolved,
-    // selection pointing at a local instance) and the banner must still
-    // surface the migrating platform assistant. Accepted tradeoff: in a
-    // multi-assistant org this can briefly poll a platform assistant the user
-    // is not using while lifecycle is unresolved.
-    return (
+    const selectedPlatformAssistantId =
       platformAssistants.find(
         (assistant) => assistant.id === selectedAssistantId,
-      )?.id ??
-      platformAssistants[0]?.id ??
-      null
-    );
+      )?.id ?? null;
+    if (selectedPlatformAssistantId) {
+      return selectedPlatformAssistantId;
+    }
+    // Fall back to the org's platform assistant only when nothing is selected
+    // yet (early boot, before selection hydrates). When the user has
+    // explicitly selected a local/self-hosted assistant, the banner must not
+    // re-point itself — and its background polling — at an unrelated platform
+    // assistant that happens to exist in the same org.
+    if (selectedAssistantId != null) {
+      return null;
+    }
+    return platformAssistants[0]?.id ?? null;
   }, [assistants, currentOrganizationId, selectedAssistantId]);
   const assistantId =
     operationalStatusAssistantId ??
