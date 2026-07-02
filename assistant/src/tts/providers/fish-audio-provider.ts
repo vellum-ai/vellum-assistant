@@ -23,6 +23,13 @@ import type {
 
 const log = getLogger("tts:fish-audio");
 
+/**
+ * Sample rate requested when the caller wants PCM (the phone path).
+ * Twilio media streams consume 8 kHz; without this Fish defaults WAV
+ * to 44.1 kHz, which the media-stream transcoder would play ~5.5x slow.
+ */
+const TELEPHONY_SAMPLE_RATE_HZ = 8000;
+
 // ---------------------------------------------------------------------------
 // Error types
 // ---------------------------------------------------------------------------
@@ -92,11 +99,12 @@ export function createFishAudioProvider(): TtsProvider {
       const config = getConfig().services.tts.providers["fish-audio"];
       const referenceId = resolveReferenceId(request, config);
 
-      // When PCM output is requested, override to WAV. Fish Audio
-      // doesn't support raw PCM, but WAV gives us PCM in a container
-      // that audioBufferToFrames can extract.
-      const effectiveFormat =
-        request.outputFormat === "pcm" ? "wav" : config.format;
+      // When PCM output is requested, override to WAV at 8 kHz. Fish Audio
+      // doesn't support raw PCM, but WAV gives us PCM in a container that
+      // audioBufferToFrames can extract; the explicit sample rate avoids
+      // Fish's 44.1 kHz WAV default.
+      const pcmRequested = request.outputFormat === "pcm";
+      const effectiveFormat = pcmRequested ? "wav" : config.format;
 
       // Build an effective config with the resolved reference ID
       // and the potentially overridden format.
@@ -119,6 +127,7 @@ export function createFishAudioProvider(): TtsProvider {
       try {
         audio = await synthesizeWithFishAudio(request.text, effectiveConfig, {
           signal: request.signal,
+          sampleRate: pcmRequested ? TELEPHONY_SAMPLE_RATE_HZ : undefined,
         });
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") throw err;
@@ -140,11 +149,10 @@ export function createFishAudioProvider(): TtsProvider {
       const config = getConfig().services.tts.providers["fish-audio"];
       const referenceId = resolveReferenceId(request, config);
 
-      // When PCM output is requested, override to WAV. Fish Audio
-      // doesn't support raw PCM, but WAV gives us PCM in a container
-      // that audioBufferToFrames can extract.
-      const effectiveFormat =
-        request.outputFormat === "pcm" ? "wav" : config.format;
+      // When PCM output is requested, override to WAV at 8 kHz (see
+      // synthesize above).
+      const pcmRequested = request.outputFormat === "pcm";
+      const effectiveFormat = pcmRequested ? "wav" : config.format;
 
       const effectiveConfig: TtsFishAudioProviderConfig = {
         ...config,
@@ -166,6 +174,7 @@ export function createFishAudioProvider(): TtsProvider {
         audio = await synthesizeWithFishAudio(request.text, effectiveConfig, {
           onChunk,
           signal: request.signal,
+          sampleRate: pcmRequested ? TELEPHONY_SAMPLE_RATE_HZ : undefined,
         });
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") throw err;

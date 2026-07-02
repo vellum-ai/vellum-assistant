@@ -29,6 +29,7 @@ mock.module("../calls/resolve-call-tts-provider.js", () => ({
   })),
 }));
 
+import { mulawToPcm16 } from "../calls/media-stream-audio-transcode.js";
 import { MediaStreamOutput } from "../calls/media-stream-output.js";
 import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
 
@@ -84,7 +85,12 @@ async function drain(): Promise<void> {
 }
 
 /** Generate a minimal valid WAV buffer with PCM data. */
-function makeWavBuffer(pcmSamples: number[]): Buffer {
+function makeWavBuffer(
+  pcmSamples: number[],
+  opts?: { sampleRate?: number; channels?: number },
+): Buffer {
+  const sampleRate = opts?.sampleRate ?? 8000;
+  const channels = opts?.channels ?? 1;
   const pcmData = Buffer.alloc(pcmSamples.length * 2);
   for (let i = 0; i < pcmSamples.length; i++) {
     pcmData.writeInt16LE(pcmSamples[i], i * 2);
@@ -97,14 +103,58 @@ function makeWavBuffer(pcmSamples: number[]): Buffer {
   header.write("fmt ", 12);
   header.writeUInt32LE(16, 16); // subchunk1 size
   header.writeUInt16LE(1, 20); // PCM
-  header.writeUInt16LE(1, 22); // mono
-  header.writeUInt32LE(8000, 24); // sample rate
-  header.writeUInt32LE(16000, 28); // byte rate
-  header.writeUInt16LE(2, 32); // block align
+  header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24);
+  header.writeUInt32LE(sampleRate * channels * 2, 28); // byte rate
+  header.writeUInt16LE(channels * 2, 32); // block align
   header.writeUInt16LE(16, 34); // bits per sample
   header.write("data", 36);
   header.writeUInt32LE(pcmData.length, 40);
   return Buffer.concat([header, pcmData]);
+}
+
+/** Generate `count` samples of a sine tone at `freqHz` for a given rate. */
+function sineSamples(
+  count: number,
+  freqHz: number,
+  sampleRate: number,
+): number[] {
+  return Array.from({ length: count }, (_, i) =>
+    Math.round(Math.sin((2 * Math.PI * freqHz * i) / sampleRate) * 10000),
+  );
+}
+
+/** Total decoded mu-law byte count across all sent media frames. */
+function totalMulawBytes(sent: string[]): number {
+  return sent
+    .filter((s) => JSON.parse(s).event === "media")
+    .reduce(
+      (sum, s) =>
+        sum + Buffer.from(JSON.parse(s).media.payload, "base64").length,
+      0,
+    );
+}
+
+/** Concatenate the decoded mu-law payloads of all sent media frames. */
+function concatMulawPayloads(sent: string[]): Buffer {
+  return Buffer.concat(
+    sent
+      .filter((s) => JSON.parse(s).event === "media")
+      .map((s) => Buffer.from(JSON.parse(s).media.payload, "base64")),
+  );
+}
+
+/** Count sign changes in a PCM16 LE buffer (proxy for tone frequency). */
+function countZeroCrossings(pcm: Buffer): number {
+  const samples = Math.floor(pcm.length / 2);
+  let crossings = 0;
+  let prev = pcm.readInt16LE(0);
+  for (let i = 1; i < samples; i++) {
+    const s = pcm.readInt16LE(i * 2);
+    if ((prev < 0 && s >= 0) || (prev >= 0 && s < 0)) crossings++;
+    prev = s;
+  }
+  return crossings;
 }
 
 // ---------------------------------------------------------------------------
@@ -678,6 +728,83 @@ describe("MediaStreamOutput", () => {
         expect(typeof parsed.media.payload).toBe("string");
         expect(parsed.media.payload.length).toBeGreaterThan(0);
       }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Regression: WAV sample-rate handling (Fish Audio defaults WAV to 44.1 kHz)
+  // ---------------------------------------------------------------------------
+
+  describe("WAV sample-rate handling", () => {
+    async function synthesizeWav(wav: Buffer): Promise<string[]> {
+      mockSynthesize.mockResolvedValue({
+        audio: wav,
+        contentType: "audio/wav",
+      });
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("test", true);
+      await drain();
+      return sent;
+    }
+
+    test("8 kHz WAV passes through without rate conversion", async () => {
+      const wav = makeWavBuffer(sineSamples(400, 440, 8000), {
+        sampleRate: 8000,
+      });
+      const sent = await synthesizeWav(wav);
+      // 400 samples at 8 kHz -> 400 mu-law bytes, unchanged.
+      expect(totalMulawBytes(sent)).toBe(400);
+    });
+
+    test("16 kHz WAV is downsampled by 2 to 8 kHz", async () => {
+      const wav = makeWavBuffer(sineSamples(800, 440, 16000), {
+        sampleRate: 16000,
+      });
+      const sent = await synthesizeWav(wav);
+      // 800 samples at 16 kHz -> 400 mu-law bytes after decimation.
+      expect(totalMulawBytes(sent)).toBe(400);
+    });
+
+    test("44.1 kHz WAV is resampled to 8 kHz preserving pitch", async () => {
+      // 4410 samples = 100 ms of a 440 Hz tone at Fish Audio's WAV default.
+      const wav = makeWavBuffer(sineSamples(4410, 440, 44100), {
+        sampleRate: 44100,
+      });
+      const sent = await synthesizeWav(wav);
+
+      // 100 ms at 8 kHz = 800 mu-law bytes (allow ±1 frame of tolerance).
+      const total = totalMulawBytes(sent);
+      expect(Math.abs(total - 800)).toBeLessThanOrEqual(160);
+
+      // Quality check: decode back to PCM and verify the tone frequency
+      // survived. A 440 Hz tone over 100 ms has ~88 zero crossings; a
+      // 5.5x-slow playback bug would show ~16 instead.
+      const decoded = mulawToPcm16(concatMulawPayloads(sent));
+      const crossings = countZeroCrossings(decoded);
+      expect(Math.abs(crossings - 88)).toBeLessThanOrEqual(4);
+    });
+
+    test("unparseable (zero) sample rate falls back to the 8 kHz assumption", async () => {
+      const wav = makeWavBuffer(sineSamples(400, 440, 8000), {
+        sampleRate: 0,
+      });
+      const sent = await synthesizeWav(wav);
+      // Falls back to current behavior: samples pass through 1:1.
+      expect(totalMulawBytes(sent)).toBe(400);
+    });
+
+    test("stereo WAV keeps one channel", async () => {
+      // 400 interleaved L/R sample pairs (800 samples total) at 8 kHz.
+      const left = sineSamples(400, 440, 8000);
+      const interleaved: number[] = [];
+      for (const s of left) {
+        interleaved.push(s, -s);
+      }
+      const wav = makeWavBuffer(interleaved, { sampleRate: 8000, channels: 2 });
+      const sent = await synthesizeWav(wav);
+      // One channel of 400 samples -> 400 mu-law bytes.
+      expect(totalMulawBytes(sent)).toBe(400);
     });
   });
 });
