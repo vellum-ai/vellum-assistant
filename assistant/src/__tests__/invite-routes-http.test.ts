@@ -156,7 +156,11 @@ describe("invite redeem relay routes", () => {
       body: JSON.stringify({
         token: "raw-token-1",
         externalUserId: "redeemer-1",
+        externalChatId: "chat-9",
         sourceChannel: "telegram",
+        displayName: "Alice Example",
+        username: "alice",
+        notAContractField: "dropped",
       }),
     });
 
@@ -167,12 +171,17 @@ describe("invite redeem relay routes", () => {
     expect(body.ok).toBe(true);
     expect((body.invite as Record<string, unknown>).id).toBe("inv-gw-1");
     expect(body.type).toBe("redeemed");
-    // The relay forwarded the token fields (and nothing voice-shaped).
+    // The relay forwards every shared-contract field — including the sender
+    // identity fields (displayName/username) the gateway engine stamps onto
+    // the new member — and nothing voice-shaped or off-contract.
     expect(redeemRelay.calls).toEqual([
       {
         token: "raw-token-1",
         sourceChannel: "telegram",
         externalUserId: "redeemer-1",
+        externalChatId: "chat-9",
+        displayName: "Alice Example",
+        username: "alice",
       },
     ]);
   });
@@ -189,7 +198,11 @@ describe("invite redeem relay routes", () => {
     const req = new Request("http://localhost/v1/contacts/invites/redeem", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ callerExternalUserId: "+15551234567", code }),
+      body: JSON.stringify({
+        callerExternalUserId: "+15551234567",
+        code,
+        assistantId: "asst-1",
+      }),
     });
 
     const res = await handleRedeemInvite(req);
@@ -203,7 +216,7 @@ describe("invite redeem relay routes", () => {
       inviteId: "inv-gw-2",
     });
     expect(redeemRelay.calls).toEqual([
-      { code, callerExternalUserId: "+15551234567" },
+      { code, callerExternalUserId: "+15551234567", assistantId: "asst-1" },
     ]);
   });
 
@@ -249,11 +262,6 @@ describe("invite redeem relay routes", () => {
   });
 
   test("POST /v1/contacts/invites/redeem — missing token returns 400 without relaying", async () => {
-    redeemRelay.error = new IpcCallError("token is required", {
-      statusCode: 400,
-      errorCode: "BAD_REQUEST",
-    });
-
     const req = new Request("http://localhost/v1/contacts/invites/redeem", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -263,11 +271,12 @@ describe("invite redeem relay routes", () => {
     const res = await handleRedeemInvite(req);
     const body = (await res.json()) as { ok: boolean; error: string };
 
-    // No `code` and no `token` → token path; the gateway's shared validation
-    // rejects with a 400 the relay surfaces verbatim.
+    // No `code` and no `token` → token path; the shared contract schema
+    // rejects daemon-side before any gateway round-trip.
     expect(res.status).toBe(400);
     expect(body.ok).toBe(false);
     expect(body.error).toContain("token");
+    expect(redeemRelay.calls.length).toBe(0);
   });
 
   test("POST /v1/contacts/invites/redeem — voice code without caller identity is rejected daemon-side", async () => {
