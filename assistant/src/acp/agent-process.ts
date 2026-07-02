@@ -31,6 +31,12 @@ const log = getLogger("acp");
 const AUTH_REQUIRED_CODE = -32000;
 
 /**
+ * Rough byte cap for retained stderr. Oldest lines are evicted once the sum of
+ * retained line lengths exceeds this, so recentStderr() stays bounded.
+ */
+const STDERR_RETENTION_BYTES = 4096;
+
+/**
  * Detects the ACP auth-required error. Checks the `code` property rather than
  * `instanceof acp.RequestError` so plain JSON-RPC error objects are also
  * recognized.
@@ -68,6 +74,13 @@ export class AcpAgentProcess {
    * afterwards.
    */
   private spawnedEnv: NodeJS.ProcessEnv | null = null;
+
+  /**
+   * Ring of the most recent stderr lines, bounded to ~STDERR_RETENTION_BYTES.
+   * Read once on the failure path to surface the real adapter error.
+   */
+  private stderrRing: string[] = [];
+  private stderrRingBytes = 0;
 
   constructor(
     public readonly agentId: string,
@@ -108,6 +121,7 @@ export class AcpAgentProcess {
       const text = chunk.toString().trim();
       if (text) {
         log.error({ agentId: this.agentId, stderr: text }, "ACP agent stderr");
+        this.retainStderr(text);
       }
     });
 
@@ -122,6 +136,31 @@ export class AcpAgentProcess {
         "ACP agent process error",
       );
     });
+  }
+
+  /**
+   * Appends a stderr line to the ring, evicting oldest lines once the retained
+   * total exceeds STDERR_RETENTION_BYTES. Always keeps at least the newest line
+   * so a single oversized line is not fully dropped.
+   */
+  private retainStderr(text: string): void {
+    this.stderrRing.push(text);
+    this.stderrRingBytes += Buffer.byteLength(text);
+    while (
+      this.stderrRingBytes > STDERR_RETENTION_BYTES &&
+      this.stderrRing.length > 1
+    ) {
+      const evicted = this.stderrRing.shift()!;
+      this.stderrRingBytes -= Buffer.byteLength(evicted);
+    }
+  }
+
+  /**
+   * Returns the retained recent stderr lines joined by newlines. Pure: reading
+   * it does not mutate or clear the buffer.
+   */
+  recentStderr(): string {
+    return this.stderrRing.join("\n");
   }
 
   /**
