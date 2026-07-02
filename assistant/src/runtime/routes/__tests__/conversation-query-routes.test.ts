@@ -1017,31 +1017,8 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       expect(savedProfile.status).toBe("disabled");
     });
 
-    test("rejects label edit on an invariant default profile at commit time", async () => {
-      await expect(
-        replaceProfileRoute.handler({
-          pathParams: { name: "balanced" },
-          body: { label: "My Balanced" },
-        }),
-      ).rejects.toThrow(
-        'Cannot edit default profile "balanced" fields [label]',
-      );
-      expect(savedRawConfig).toBeNull();
-      expect(initializeProvidersCalls).toBe(0);
-      expect(invalidateConfigCacheCalls).toBe(0);
-    });
-
-    test("rejects disabling an invariant default profile at commit time", async () => {
-      await expect(
-        replaceProfileRoute.handler({
-          pathParams: { name: "balanced" },
-          body: { status: "disabled" },
-        }),
-      ).rejects.toThrow('Cannot disable default profile "balanced".');
-      expect(savedRawConfig).toBeNull();
-      expect(initializeProvidersCalls).toBe(0);
-      expect(invalidateConfigCacheCalls).toBe(0);
-    });
+    // Commit-time rejection coverage for invariant default profiles lives in
+    // src/__tests__/managed-profile-guard.test.ts.
 
     test("rejects provider edit on managed profile with disallowed-keys error", async () => {
       // The handler is `async`, so synchronous BadRequest throws still

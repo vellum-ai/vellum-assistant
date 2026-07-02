@@ -174,8 +174,9 @@ export const INVARIANT_PROFILE_NAMES = new Set(
 
 // Membership here marks a name as managed. The route layer applies managed
 // restrictions (blocking model/provider edits and deletion) only to entries
-// whose on-disk `source` is `managed`, so a user-owned profile sharing one of
-// these names is not locked. `OS_BETA_PROFILE_KEY` is flag-gated: it is
+// whose on-disk `source` is `managed`; `INVARIANT_PROFILE_NAMES` entries are
+// additionally frozen by name at the `commitConfigWrite` choke point,
+// regardless of `source`. `OS_BETA_PROFILE_KEY` is flag-gated: it is
 // materialized by the flag-gated profile reconcile, which refuses to touch a
 // same-named user profile.
 export const MANAGED_PROFILE_NAMES = new Set([

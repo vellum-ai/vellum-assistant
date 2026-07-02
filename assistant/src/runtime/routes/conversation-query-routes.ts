@@ -795,8 +795,39 @@ function handleGetConfig() {
 }
 
 /**
- * Annotate each profile in `config.llm.profiles` with wire-only flags — never
- * persisted to disk:
+ * Per-profile keys that exist only on the wire — stamped onto config
+ * responses by {@link enrichProfilesForWire}, never persisted to disk.
+ * {@link stripWireOnlyProfileKeys} removes them from incoming writes so a
+ * `config get` → `config set`/PATCH round-trip isn't rejected for phantom
+ * fields; keep the stamp and strip lists in lock-step.
+ */
+const WIRE_ONLY_PROFILE_KEYS = new Set(["invariant", "supportsVision"]);
+
+/**
+ * Delete the wire-only keys ({@link WIRE_ONLY_PROFILE_KEYS}) from every
+ * profile entry in a config-write fragment, in place.
+ */
+function stripWireOnlyProfileKeys(patch: unknown): void {
+  const root = readPlainObject(patch);
+  const llm = readPlainObject(root?.llm);
+  const profiles = readPlainObject(llm?.profiles);
+  if (!profiles) {
+    return;
+  }
+  for (const profile of Object.values(profiles)) {
+    const entry = readPlainObject(profile);
+    if (!entry) {
+      continue;
+    }
+    for (const key of WIRE_ONLY_PROFILE_KEYS) {
+      delete entry[key];
+    }
+  }
+}
+
+/**
+ * Annotate each profile in `config.llm.profiles` with wire-only flags
+ * (`WIRE_ONLY_PROFILE_KEYS`) — never persisted to disk:
  *
  * - `supportsVision`: resolved from the model catalog. Unknown (provider,
  *   model) pairs default to `true` (fail-open) so image upload remains
@@ -900,8 +931,8 @@ function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
  *   rejected by this single check, regardless of route.
  * - `status` is one-directional: effective status is
  *   `entry.status !== "disabled"` (absence/null = active). An active default
- *   can never be disabled; re-enabling a disabled default (including
- *   clearing `status` to null/absent) is allowed.
+ *   can never be disabled; a changed `status` must be `"active"`, `null`, or
+ *   absent — re-enabling a disabled default. Any other value is rejected.
  * - Every other field is frozen: any changed, added, or removed key across
  *   the union of both entries' keys (except `status`) is rejected. A
  *   pre-existing on-disk override (e.g. `topP`) is preserved but frozen —
@@ -936,10 +967,16 @@ function assertInvariantProfilesPreserved(
       );
     }
 
-    const oldActive = oldEntry.status !== "disabled";
-    const newActive = newEntry.status !== "disabled";
-    if (oldActive && !newActive) {
-      throw new BadRequestError(`Cannot disable default profile "${name}".`);
+    if (!isDeepStrictEqual(oldEntry.status, newEntry.status)) {
+      if (newEntry.status === "disabled") {
+        throw new BadRequestError(`Cannot disable default profile "${name}".`);
+      }
+      if (newEntry.status !== "active" && newEntry.status != null) {
+        throw new BadRequestError(
+          `Cannot set status ${JSON.stringify(newEntry.status)} on default profile "${name}". ` +
+            `Only re-enabling (status "active") is allowed.`,
+        );
+      }
     }
 
     const changedKeys = [
@@ -1024,6 +1061,7 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
   ) {
     throw new BadRequestError("Body must be a non-empty JSON object");
   }
+  stripWireOnlyProfileKeys(body);
   rejectManagedProfileDeletion(body as Record<string, unknown>);
   rejectMcpTransportHeaderWrite(body);
 
@@ -1074,10 +1112,25 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
       "`value` is required (use `null` to clear a key)",
     );
   }
+  // A leaf-path SET targeting a wire-only profile key is dropped without
+  // writing — the same treatment PATCH gives wire-only keys embedded in a
+  // profile fragment.
+  const pathSegments = path.split(".");
+  if (
+    pathSegments[0] === "llm" &&
+    pathSegments[1] === "profiles" &&
+    pathSegments.length >= 4 &&
+    WIRE_ONLY_PROFILE_KEYS.has(pathSegments[3]!)
+  ) {
+    return { ok: true };
+  }
   // Build the equivalent patch shape so the managed-profile guard can
-  // inspect the touched subtree.
+  // inspect the touched subtree. `setNestedValue` places `value` into
+  // `patchShape` by reference, so stripping wire-only profile keys here
+  // also strips the object written to `raw` below.
   const patchShape: Record<string, unknown> = {};
   setNestedValue(patchShape, path, value);
+  stripWireOnlyProfileKeys(patchShape);
   rejectManagedProfileDeletion(patchShape);
   rejectMcpTransportHeaderWrite(patchShape);
 
@@ -1155,9 +1208,11 @@ async function handleReplaceInferenceProfile({
     // Managed profiles are daemon-seeded — provider, model, and the
     // connection binding all belong to the seed contract and can't be
     // reshaped by the user. The fields that ARE user policy (display label,
-    // enabled status, and the topP sampling knob) are allowed through so
-    // users can rename a managed profile, temporarily disable it, or tune
-    // top_p without duplicating it.
+    // enabled status, and the topP sampling knob) pass this allowlist so
+    // non-invariant managed profiles (os-beta) can be renamed, temporarily
+    // disabled, or tuned. Invariant default profiles are further locked by
+    // `assertInvariantProfilesPreserved` at commit time — for them the only
+    // writable transition is re-enabling a disabled profile.
     const requestedKeys = Object.keys(parsed.data);
     const disallowed = requestedKeys.filter(
       (k) => !MANAGED_PROFILE_EDITABLE_KEYS.has(k),
@@ -1219,9 +1274,17 @@ async function handleReplaceInferenceProfile({
 
   // When the UI sends provider but no provider_connection, derive the connection
   // now so the config deep-merge doesn't inherit a stale connection from the
-  // default layer.
+  // default layer. Invariant names are excluded: commitConfigWrite rejects
+  // every write to them except a pure status re-enable (which derives no
+  // connection), so creating a connection here would leave an orphaned DB
+  // row behind a guaranteed 400.
   const fragment = parsed.data as Record<string, unknown>;
-  if (!isManaged && fragment.provider && !fragment.provider_connection) {
+  if (
+    !isManaged &&
+    !INVARIANT_PROFILE_NAMES.has(name) &&
+    fragment.provider &&
+    !fragment.provider_connection
+  ) {
     const provider = fragment.provider as string;
     const db = getDb();
     const [active] = listConnections(db, { provider });
