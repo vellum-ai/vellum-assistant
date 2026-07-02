@@ -166,6 +166,8 @@ type InviteRow = {
   id: string;
   sourceChannel: string;
   inviteCodeHash: string;
+  tokenHash?: string | null;
+  voiceCodeHash?: string | null;
   contactId: string;
   note: string | null;
   maxUses: number;
@@ -2236,6 +2238,33 @@ describe("handleListInvites (gateway-native)", () => {
       status: "active",
     });
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("strips tokenHash and voiceCodeHash (not just inviteCodeHash) from list responses", async () => {
+    contactStoreListInvitesMock = mock(() => [
+      {
+        ...DEFAULT_INVITE,
+        id: "inv_1",
+        sourceChannel: "phone",
+        tokenHash: "secret-token-hash",
+        voiceCodeHash: "secret-voice-hash",
+      },
+    ]);
+    assistantDbQueryMock = mock(async () => []);
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleListInvites(
+      new Request("http://localhost:7830/v1/contacts/invites"),
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.invites).toHaveLength(1);
+    expect(body.invites[0].id).toBe("inv_1");
+    // No secret hash field may ever reach the wire.
+    expect(body.invites[0]).not.toHaveProperty("inviteCodeHash");
+    expect(body.invites[0]).not.toHaveProperty("tokenHash");
+    expect(body.invites[0]).not.toHaveProperty("voiceCodeHash");
   });
 
   test("degrades gracefully when the assistant voice-field join throws", async () => {
