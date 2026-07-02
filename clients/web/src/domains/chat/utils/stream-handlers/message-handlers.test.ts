@@ -353,24 +353,24 @@ describe("handleUserMessageEcho", () => {
     useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
   });
 
-  it("clears the optimistic send correlated by clientMessageId when the snapshot is seeded", () => {
+  /** Seed the snapshot, run the handler, and apply the captured
+   *  setOptimisticSends updater. */
+  function applyEcho(
+    event: Parameters<typeof handleUserMessageEcho>[0],
+    prev: DisplayMessage[],
+  ): DisplayMessage[] {
     useChatSessionStore.setState({ snapshot: seededSnapshot });
     const ctx = makeCtx();
-    handleUserMessageEcho(
-      {
-        type: "user_message_echo",
-        text: "Hello",
-        messageId: "msg-1",
-        clientMessageId: "client-1",
-      },
-      ctx,
-    );
-    expect(ctx.clearOptimisticSend).toHaveBeenCalledWith("client-1");
-  });
+    handleUserMessageEcho(event, ctx);
+    expect(ctx.setOptimisticSends).toHaveBeenCalled();
+    const updater = (ctx.setOptimisticSends as unknown as ReturnType<typeof Object>)
+      .mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
+    return updater(prev);
+  }
 
-  it("does NOT clear the optimistic send when the snapshot is unseeded (first-message flicker guard)", () => {
+  it("does NOT retire the optimistic send when the snapshot is unseeded (first-message flicker guard)", () => {
     // Regression: the first message of a freshly server-minted conversation has
-    // no history snapshot yet, so `applyEnvelopeToSnapshot` no-ops. Clearing the
+    // no history snapshot yet, so `applyEnvelopeToSnapshot` no-ops. Retiring the
     // overlay here would blank the message out until `seedSnapshot` lands. The
     // reseed's `pruneConfirmedOptimisticSends` retires it instead.
     expect(useChatSessionStore.getState().snapshot).toBeNull();
@@ -384,26 +384,133 @@ describe("handleUserMessageEcho", () => {
       },
       ctx,
     );
-    expect(ctx.clearOptimisticSend).not.toHaveBeenCalled();
+    expect(ctx.setOptimisticSends).not.toHaveBeenCalled();
+  });
+
+  it("removes the attachment-less optimistic send correlated by clientMessageId", () => {
+    const next = applyEcho(
+      {
+        type: "user_message_echo",
+        text: "Hello",
+        messageId: "msg-1",
+        clientMessageId: "client-1",
+      },
+      [
+        {
+          id: "client-1",
+          clientMessageId: "client-1",
+          role: "user",
+          isOptimistic: true,
+        } as DisplayMessage,
+        {
+          id: "client-2",
+          clientMessageId: "client-2",
+          role: "user",
+          isOptimistic: true,
+        } as DisplayMessage,
+      ],
+    );
+    expect(next.map((m) => m.id)).toEqual(["client-2"]);
+  });
+
+  it("keeps an attachment-carrying send, upgraded to the server id", () => {
+    // The echo event has no attachment payload, so the snapshot row it folds
+    // is text-only — the optimistic row holds the only copy of the previews
+    // and must survive until the reseed carries the hydrated server row.
+    const next = applyEcho(
+      {
+        type: "user_message_echo",
+        text: "look at this",
+        messageId: "msg-1",
+        clientMessageId: "client-1",
+      },
+      [
+        {
+          id: "client-1",
+          clientMessageId: "client-1",
+          role: "user",
+          isOptimistic: true,
+          queueStatus: "queued",
+          queuePosition: 1,
+          attachments: [
+            {
+              id: "att-1",
+              filename: "shot.png",
+              mimeType: "image/png",
+              sizeBytes: 10,
+              previewUrl: "blob:preview",
+            },
+          ],
+        } as DisplayMessage,
+      ],
+    );
+    expect(next).toHaveLength(1);
+    expect(next[0]).toMatchObject({
+      id: "msg-1",
+      clientMessageId: "client-1",
+      isOptimistic: false,
+    });
+    expect(next[0]!.queueStatus).toBeUndefined();
+    expect(next[0]!.queuePosition).toBeUndefined();
+    expect(next[0]!.attachments?.[0]?.previewUrl).toBe("blob:preview");
+  });
+
+  it("removes an attachment-carrying send on a synthetic echo with no messageId", () => {
+    // With no server id there is no snapshot row to collapse onto, so keeping
+    // the row would double-render once the reducer appends its own copy.
+    const next = applyEcho(
+      {
+        type: "user_message_echo",
+        text: "look at this",
+        clientMessageId: "client-1",
+      },
+      [
+        {
+          id: "client-1",
+          clientMessageId: "client-1",
+          role: "user",
+          isOptimistic: true,
+          attachments: [
+            {
+              id: "att-1",
+              filename: "shot.png",
+              mimeType: "image/png",
+              sizeBytes: 10,
+              previewUrl: "blob:preview",
+            },
+          ],
+        } as DisplayMessage,
+      ],
+    );
+    expect(next).toEqual([]);
+  });
+
+  it("leaves the list unchanged when no optimistic send matches the nonce", () => {
+    const prev = [
+      { id: "other", clientMessageId: "other", role: "user" } as DisplayMessage,
+    ];
+    const next = applyEcho(
+      {
+        type: "user_message_echo",
+        text: "Hello",
+        messageId: "msg-1",
+        clientMessageId: "client-1",
+      },
+      prev,
+    );
+    expect(next).toBe(prev);
   });
 
   it("retires the most recent optimistic user send when the echo carries no nonce", () => {
-    const ctx = makeCtx();
-    handleUserMessageEcho(
+    // No nonce to correlate on — the updater drops the last optimistic user
+    // row, leaving others intact.
+    const next = applyEcho(
       { type: "user_message_echo", text: "Hello", messageId: "msg-1" },
-      ctx,
+      [
+        { id: "keep", role: "assistant" } as DisplayMessage,
+        { id: "opt-1", role: "user", isOptimistic: true } as DisplayMessage,
+      ],
     );
-    // No nonce to correlate on — falls back to setOptimisticSends rather than
-    // clearOptimisticSend.
-    expect(ctx.clearOptimisticSend).not.toHaveBeenCalled();
-    expect(ctx.setOptimisticSends).toHaveBeenCalled();
-    // The updater drops the last optimistic user row, leaving others intact.
-    const updater = (ctx.setOptimisticSends as unknown as ReturnType<typeof Object>)
-      .mock.calls[0][0] as (prev: DisplayMessage[]) => DisplayMessage[];
-    const next = updater([
-      { id: "keep", role: "assistant" } as DisplayMessage,
-      { id: "opt-1", role: "user", isOptimistic: true } as DisplayMessage,
-    ]);
     expect(next.map((m) => m.id)).toEqual(["keep"]);
   });
 });

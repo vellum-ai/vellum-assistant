@@ -489,6 +489,12 @@ export function applyUserMessageEcho(
     {
       id: serverId ?? crypto.randomUUID(),
       ...(serverId === undefined ? { isOptimistic: true } : {}),
+      // Carry the nonce so the folded row shares the persisted server row's
+      // identity keys — the transcript overlay and the reseed prune both
+      // correlate on it (see `messageMatchKeys`).
+      ...(event.clientMessageId
+        ? { clientMessageId: event.clientMessageId }
+        : {}),
       role: "user",
       textSegments: [event.text],
       contentOrder: [{ type: "text", id: "0" }],
