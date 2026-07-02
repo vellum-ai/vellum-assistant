@@ -215,6 +215,11 @@ export function serializeConversationSummary(params: {
     ...(conversation.inferenceProfile != null
       ? { inferenceProfile: conversation.inferenceProfile }
       : {}),
+    // Include when non-null so an explicit `[]` (user cleared all plugins) is
+    // preserved; `null`/default is omitted.
+    ...(conversation.enabledPlugins != null
+      ? { enabledPlugins: conversation.enabledPlugins }
+      : {}),
     isProcessing,
   };
 }
