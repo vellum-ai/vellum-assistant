@@ -4,8 +4,9 @@
  *   - ContactStore.listContactsWithInfo / getContactWithInfo (join + soft-fail)
  *
  * The gateway DB is a real (file-backed) DB seeded per test; the assistant DB
- * proxy is mocked behind `fakeAssistantDb` so no daemon is required. Mirrors
- * the pattern in contact-store-mark-channel-verified.test.ts.
+ * info read now goes over typed IPC (`contacts_info_batch`), so we mock
+ * `ipcCallAssistant` behind `fakeAssistantDb` — the daemon applies the
+ * metadata gating + JSON parse, so this fake returns already-shaped infos.
  */
 
 import {
@@ -20,9 +21,9 @@ import {
 
 import "./test-preload.js";
 
-// ── Fake assistant DB ───────────────────────────────────────────────────────
-// Honors the info-join query (SELECT ... FROM contacts LEFT JOIN
-// assistant_contact_metadata WHERE c.id IN (...)) and throws on demand.
+// ── Fake daemon IPC (contacts_info_batch) ────────────────────────────────────
+// Honors the typed info-batch read (already-gated infos) and throws on demand
+// so the caller's soft-fail path can be exercised.
 
 type FakeInfoRow = {
   id: string;
@@ -36,7 +37,7 @@ type FakeInfoRow = {
 const fakeAssistantDb = {
   info: new Map<string, FakeInfoRow>(),
   throwOnQuery: false as boolean,
-  queryCalls: [] as { sql: string; bind?: unknown[] }[],
+  queryCalls: [] as { method: string; params?: unknown }[],
   reset(): void {
     this.info.clear();
     this.throwOnQuery = false;
@@ -44,45 +45,55 @@ const fakeAssistantDb = {
   },
 };
 
-mock.module("../db/assistant-db-proxy.js", () => ({
-  assistantDbQuery: mock(async (sql: string, bind?: unknown[]) => {
-    fakeAssistantDb.queryCalls.push({ sql, bind });
-    if (fakeAssistantDb.throwOnQuery) {
-      throw new Error("simulated assistant DB outage");
-    }
-    const lower = sql.toLowerCase();
-    if (lower.includes("from contacts") && lower.includes("in (")) {
-      // Batched info query: bind is the list of contact IDs.
-      // Return rows aliased to match the SQL SELECT (camelCase), which is
-      // what AssistantInfoRow / contacts-info-joiner reads.
-      const ids = (bind ?? []) as string[];
-      const out: Array<{
-        id: string;
-        notes: string | null;
-        userFile: string | null;
-        contactType: string | null;
-        species: string | null;
-        metadata: string | null;
-      }> = [];
-      for (const id of ids) {
-        const row = fakeAssistantDb.info.get(id);
-        if (row) {
-          out.push({
-            id: row.id,
-            notes: row.notes,
-            userFile: row.user_file,
-            contactType: row.contact_type,
-            species: row.species,
-            metadata: row.metadata,
-          });
-        }
+function shapeInfo(row: FakeInfoRow) {
+  let assistantMetadata: {
+    species: string;
+    metadata: Record<string, unknown> | null;
+  } | null = null;
+  if (row.contact_type === "assistant" && row.species != null) {
+    let metadata: Record<string, unknown> | null = null;
+    if (row.metadata) {
+      try {
+        metadata = JSON.parse(row.metadata) as Record<string, unknown>;
+      } catch {
+        metadata = null;
       }
-      return out;
     }
-    return [];
-  }),
-  assistantDbRun: mock(async () => ({ changes: 1, lastInsertRowid: 0 })),
-  assistantDbExec: mock(async () => undefined),
+    assistantMetadata = { species: row.species, metadata };
+  }
+  return {
+    contactId: row.id,
+    notes: row.notes,
+    userFile: row.user_file,
+    contactType: row.contact_type,
+    assistantMetadata,
+  };
+}
+
+class FakeIpcHandlerError extends Error {}
+class FakeIpcTransportError extends Error {}
+
+mock.module("../ipc/assistant-client.js", () => ({
+  IpcHandlerError: FakeIpcHandlerError,
+  IpcTransportError: FakeIpcTransportError,
+  ipcCallAssistant: mock(
+    async (method: string, params?: Record<string, unknown>) => {
+      fakeAssistantDb.queryCalls.push({ method, params });
+      if (fakeAssistantDb.throwOnQuery) {
+        throw new Error("simulated assistant DB outage");
+      }
+      if (method === "contacts_info_batch") {
+        const contactIds = ((params?.body as { contactIds?: string[] })
+          ?.contactIds ?? []) as string[];
+        const infos = contactIds
+          .map((id) => fakeAssistantDb.info.get(id))
+          .filter((r): r is FakeInfoRow => r != null)
+          .map(shapeInfo);
+        return { infos };
+      }
+      return {};
+    },
+  ),
 }));
 
 import { ContactStore } from "../db/contact-store.js";

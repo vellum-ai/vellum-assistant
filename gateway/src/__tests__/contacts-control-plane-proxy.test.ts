@@ -2018,7 +2018,9 @@ describe("handleDeleteContact (gateway-native)", () => {
     // No gateway row (a dual-write gap on inbound seeding), but the assistant
     // mirror holds the contact — the list can surface it, so delete must clean
     // it up instead of 404ing and leaving it stuck in the UI.
-    assistantDbQueryMock = mock(async () => [{ id: "ct_orphan" }]);
+    ipcCallAssistantMock = mock(async (method: string) =>
+      method === "contact_mirror_probe" ? { exists: true } : {},
+    );
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleDeleteContact("ct_orphan");
@@ -2047,10 +2049,13 @@ describe("handleDeleteContact (gateway-native)", () => {
 
   test("still deletes a gateway contact when the assistant mirror is unavailable", async () => {
     seedGatewayContact("ct_mirror_down", "contact");
-    // The mirror lookup AND delete both throw (assistant DB unavailable). The
+    // The mirror probe AND delete both throw (assistant DB unavailable). The
     // delete must degrade to gateway-only rather than 500ing on the mirror.
-    assistantDbQueryMock = mock(async () => {
-      throw new Error("assistant DB unavailable");
+    ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "contact_mirror_probe") {
+        throw new Error("assistant DB unavailable");
+      }
+      return {};
     });
     ipcCallAssistantMock = mock(async (method: string) => {
       if (method === "contacts_mirror_delete_contact") {

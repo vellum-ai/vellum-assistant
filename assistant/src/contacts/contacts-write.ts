@@ -1,9 +1,9 @@
 /**
  * Contacts write module.
  *
- * All mutations (member upserts, guardian bindings, revocations) write
- * directly to the contacts table, the single authoritative source for
- * identity and access-control state.
+ * Best-effort local mirror of contact identity/INFO fields. The gateway owns
+ * the ACL verdict (status, policy, verification); these writes never carry or
+ * mutate ACL state.
  */
 
 import {
@@ -14,17 +14,6 @@ import {
   upsertContact,
 } from "./contact-store.js";
 import type { ContactType, ContactWriteResult } from "./types.js";
-
-// ── Guardian operations ──────────────────────────────────────────────
-
-/**
- * No-op shim: the guardian channel ACL revoke is gateway-owned (relayed via
- * mark_channel_revoked). Retained while callers still invoke it; the return is
- * discarded.
- */
-export function revokeGuardianBinding(_channel: string): boolean {
-  return false;
-}
 
 // ── Member operations ────────────────────────────────────────────────
 

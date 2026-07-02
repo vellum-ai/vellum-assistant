@@ -21,7 +21,6 @@ import { eq } from "drizzle-orm";
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
-import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../../db/connection.js";
 import {
   ContactStore,
@@ -39,6 +38,7 @@ import {
   IpcHandlerError,
   ipcCallAssistant,
 } from "../../ipc/assistant-client.js";
+import { probeContactMirror } from "../../ipc/contacts-info-client.js";
 import { getLogger } from "../../logger.js";
 import { ensureInviteLive } from "../../verification/invite-liveness.js";
 import {
@@ -1325,11 +1325,8 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       // DB is the source of truth; the mirror is only a cleanup target.
       let inMirror = false;
       try {
-        const mirrorRows = await assistantDbQuery<{ id: string }>(
-          "SELECT id FROM contacts WHERE id = ? LIMIT 1",
-          [contactId],
-        );
-        inMirror = mirrorRows.length > 0;
+        const probe = await probeContactMirror(contactId);
+        inMirror = probe.exists;
       } catch (err) {
         log.warn(
           { err, contactId },

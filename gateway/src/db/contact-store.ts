@@ -19,6 +19,11 @@ import {
   emptyContactInfo,
   fetchInfoForContacts,
 } from "./contacts-info-joiner.js";
+import {
+  fetchContactsInfoBatch,
+  lookupContactChannelIdentity,
+  listContactUserFileSlugs,
+} from "../ipc/contacts-info-client.js";
 import { getLogger } from "../logger.js";
 import { canonicalizeInboundIdentity } from "../verification/identity.js";
 
@@ -505,6 +510,42 @@ export class ContactStore {
   }
 
   /**
+   * Resolve a channel id by its logical (type, address) key, falling back to
+   * (type, externalChatId) for legacy/imported contacts. Gateway DB only.
+   */
+  findChannelIdByAddress(
+    type: string,
+    address: string,
+    externalChatId?: string | null,
+  ): string | undefined {
+    const byAddress = this.db
+      .select({ id: contactChannels.id })
+      .from(contactChannels)
+      .where(
+        and(
+          eq(contactChannels.type, type),
+          sql`${contactChannels.address} = ${address} COLLATE NOCASE`,
+        ),
+      )
+      .limit(1)
+      .get();
+    if (byAddress) return byAddress.id;
+
+    if (externalChatId == null) return undefined;
+    return this.db
+      .select({ id: contactChannels.id })
+      .from(contactChannels)
+      .where(
+        and(
+          eq(contactChannels.type, type),
+          eq(contactChannels.externalChatId, externalChatId),
+        ),
+      )
+      .limit(1)
+      .get()?.id;
+  }
+
+  /**
    * Set lastSeenAt to now for a channel (gateway DB only).
    */
   touchChannelLastSeen(channelId: string): void {
@@ -517,10 +558,9 @@ export class ContactStore {
   }
 
   /**
-   * Update a channel's status and/or policy in the gateway DB, then
-   * best-effort dual-write to the assistant DB.
+   * Update a channel's status and/or policy in the gateway DB.
    *
-   * Returns the updated channel, or null if not found in either DB.
+   * Returns the updated channel, or null if not found.
    * Throws if a blocked channel is being revoked (caller maps to 409).
    *
    * `revokedReason` / `blockedReason` are set based on the new status:
@@ -621,17 +661,14 @@ export class ContactStore {
       .get();
     if (byId) return byId;
 
-    const assistantChannel = await assistantDbQuery<{
-      type: string;
-      address: string;
-    }>("SELECT type, address FROM contact_channels WHERE id = ?", [channelId]);
-    if (assistantChannel.length === 0) return undefined;
+    const assistantChannel = await lookupContactChannelIdentity({ channelId });
+    if (!assistantChannel) return undefined;
 
     // Resolve by the gateway's unique key (type, address). The gateway row may
     // live under a different contact than the assistant mirror — m0006 reconcile
     // skips mirroring when (type, address) already exists under any contact — so
     // contactId is not part of the lookup; the resolved row's contact is trusted.
-    const { type, address } = assistantChannel[0];
+    const { type, address } = assistantChannel;
     return this.db
       .select()
       .from(contactChannels)
@@ -1771,17 +1808,10 @@ export class ContactStore {
         .all()
         .map((r) => r.id);
       if (siblingIds.length) {
-        const placeholders = siblingIds.map(() => "?").join(", ");
-        const sibling = await assistantDbQuery<{ userFile: string | null }>(
-          `SELECT user_file AS userFile
-             FROM contacts
-            WHERE id IN (${placeholders})
-              AND user_file IS NOT NULL
-            LIMIT 1`,
-          siblingIds,
-        );
-        if (sibling.length && sibling[0].userFile) {
-          return sibling[0].userFile;
+        const infos = await fetchContactsInfoBatch(siblingIds);
+        const siblingFile = infos.find((i) => i.userFile != null)?.userFile;
+        if (siblingFile) {
+          return siblingFile;
         }
       }
     }
@@ -1793,13 +1823,8 @@ export class ContactStore {
         .replace(/^-+|-+$/g, "")
         .slice(0, 100) || "user";
 
-    const rows = await assistantDbQuery<{ userFile: string | null }>(
-      "SELECT user_file AS userFile FROM contacts WHERE user_file LIKE ?",
-      [`${slug}%`],
-    );
-    const taken = new Set(
-      rows.map((r) => r.userFile?.toLowerCase()).filter(Boolean),
-    );
+    const userFiles = await listContactUserFileSlugs(slug);
+    const taken = new Set(userFiles.map((f) => f.toLowerCase()));
 
     const base = `${slug}.md`;
     if (!taken.has(base)) return base;

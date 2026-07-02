@@ -92,7 +92,6 @@ mock.module("../../../ipc/gateway-client.js", () => ({
 
 mock.module("../../../runtime/channel-verification-service.js", () => ({
   getGuardianBinding: () => mockBinding,
-  revokeBinding: () => true,
   revokePendingSessions: () => {},
   createOutboundSession: () => ({
     sessionId: "sess",

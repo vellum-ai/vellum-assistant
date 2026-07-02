@@ -82,6 +82,56 @@ mock.module("../ipc/assistant-client.js", () => ({
   },
 }));
 
+// The orphan-GC mirror inspection now goes through typed IPC instead of raw
+// SELECTs; serve it from the same in-memory assistant DB.
+mock.module("../ipc/contacts-info-client.js", () => ({
+  async probeContactMirror(contactId: string) {
+    const contactRow = db()
+      .prepare(
+        "SELECT notes, user_file AS userFile, contact_type AS contactType FROM contacts WHERE id = ?",
+      )
+      .get(contactId) as
+      | { notes: string | null; userFile: string | null; contactType: string }
+      | undefined;
+    const channelRow = db()
+      .prepare("SELECT id FROM contact_channels WHERE contact_id = ? LIMIT 1")
+      .get(contactId);
+    const metaRow = db()
+      .prepare(
+        "SELECT contact_id FROM assistant_contact_metadata WHERE contact_id = ? LIMIT 1",
+      )
+      .get(contactId);
+    return {
+      exists: contactRow != null,
+      hasChannels: channelRow != null,
+      notes: contactRow?.notes ?? null,
+      userFile: contactRow?.userFile ?? null,
+      contactType: contactRow?.contactType ?? null,
+      hasMetadata: metaRow != null,
+    };
+  },
+  async lookupContactChannelIdentity(selector: {
+    channelId?: string;
+    type?: string;
+    address?: string;
+  }) {
+    const row = (
+      selector.channelId != null
+        ? db()
+            .prepare(
+              "SELECT cc.id AS id, cc.contact_id AS contactId, cc.type AS type, cc.address AS address, cc.external_chat_id AS externalChatId, c.display_name AS displayName FROM contact_channels cc JOIN contacts c ON c.id = cc.contact_id WHERE cc.id = ?",
+            )
+            .get(selector.channelId)
+        : db()
+            .prepare(
+              "SELECT cc.id AS id, cc.contact_id AS contactId, cc.type AS type, cc.address AS address, cc.external_chat_id AS externalChatId, c.display_name AS displayName FROM contact_channels cc JOIN contacts c ON c.id = cc.contact_id WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE LIMIT 1",
+            )
+            .get(String(selector.type), String(selector.address))
+    ) as Record<string, unknown> | undefined;
+    return row ?? null;
+  },
+}));
+
 import { eq } from "drizzle-orm";
 
 import { createGuardianBinding } from "../auth/guardian-bootstrap.js";

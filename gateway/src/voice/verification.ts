@@ -29,6 +29,7 @@ import {
 import { getGatewayDb } from "../db/connection.js";
 import { channelGuardianRateLimits as gwRateLimits } from "../db/schema.js";
 import { getLogger } from "../logger.js";
+import { consumeSession } from "../verification/session-helpers.js";
 
 const log = getLogger("voice-verification");
 
@@ -95,6 +96,10 @@ function hashSecret(secret: string): string {
 /**
  * Check if there is a pending phone verification session.
  * Reads from the assistant's channel_verification_sessions table.
+ *
+ * Narrower status set than the shared INTERCEPTABLE_STATUSES: phone
+ * sessions never use 'awaiting_response' (that status is created only by
+ * outbound text verification), so it is deliberately excluded here.
  */
 export async function findPendingPhoneSession(): Promise<PendingSession | null> {
   const now = Date.now();
@@ -253,26 +258,6 @@ async function resetRateLimit(fromNumber: string): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Session consumption
-// ---------------------------------------------------------------------------
-
-async function consumeSession(
-  sessionId: string,
-  fromNumber: string,
-): Promise<void> {
-  const now = Date.now();
-  await assistantDbRun(
-    `UPDATE channel_verification_sessions
-     SET status = 'consumed',
-         consumed_by_external_user_id = ?,
-         consumed_by_chat_id = ?,
-         updated_at = ?
-     WHERE id = ?`,
-    [fromNumber, fromNumber, now, sessionId],
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Code validation
 // ---------------------------------------------------------------------------
 
@@ -390,8 +375,21 @@ export async function validateVerificationCode(
     }
   }
 
-  // Success — consume session and reset rate limits
-  await consumeSession(session.id, fromNumber);
+  // Success — consume session via the shared status-guarded helper. A
+  // false return means a concurrent request already consumed it; preserve
+  // one-time-code semantics by treating that as verification failure.
+  const consumed = await consumeSession(session.id, fromNumber, fromNumber);
+  if (!consumed) {
+    log.warn(
+      { sessionId: session.id },
+      "Session already consumed by concurrent request",
+    );
+    return {
+      success: false,
+      failureMessage: "Verification failed. Goodbye.",
+      exhausted: true,
+    };
+  }
   await resetRateLimit(fromNumber);
 
   const verificationType: "guardian" | "trusted_contact" =

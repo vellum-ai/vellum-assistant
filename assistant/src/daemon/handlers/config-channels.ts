@@ -34,7 +34,6 @@ import {
   getGuardianBinding,
   getPendingSession,
   isGuardianBoundForChannel,
-  revokeBinding,
   revokePendingSessions,
   updateSessionDelivery,
 } from "../../runtime/channel-verification-service.js";
@@ -263,18 +262,11 @@ export async function revokeVerificationForChannel(
       if (!parsed.ok) {
         throw new Error("mark_channel_revoked relay returned ok: false");
       }
-      // The gateway dual-write already set the assistant channel to "revoked",
-      // so the later revokeGuardianBinding lookup (active-only) finds nothing
-      // and won't fire the invalidation. Emit it here so open client views
-      // stop showing the channel as active.
+      // Emit the invalidation so open client views stop showing the channel
+      // as active after the gateway dual-writes it to "revoked".
       notifyContactsChanged();
     }
   }
-
-  // The guardian binding is assistant-owned state the gateway relay does not
-  // manage; tear it down here. The contact-change invalidation is emitted
-  // explicitly above on relay success.
-  revokeBinding(assistantId, resolvedChannel);
 
   return {
     success: true,
