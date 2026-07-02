@@ -406,33 +406,33 @@ describe("resolveTelephonySttCapability", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Tests — telephony routing alignment with provider catalog
+// Tests — telephony capability alignment with provider catalog
 // ---------------------------------------------------------------------------
 
 import { getProviderEntry, listProviderIds } from "../provider-catalog.js";
 
-describe("telephony routing catalog alignment", () => {
+describe("telephony capability catalog alignment", () => {
   /**
    * These tests verify that the assumptions made by the telephony STT
-   * routing resolver (telephony-stt-routing.ts) remain consistent with
-   * the provider catalog entries. If a catalog entry changes its
-   * telephonyMode, routing metadata, or a new provider is added, these
-   * tests will catch misalignment early.
+   * capability resolver (resolveTelephonySttCapability) remain consistent
+   * with the provider catalog entries. If a catalog entry changes its
+   * telephonyMode or a new provider is added, these tests will catch
+   * misalignment early.
    */
 
-  test("deepgram catalog entry has realtime-ws telephonyMode (Twilio-native eligible)", () => {
+  test("deepgram catalog entry has realtime-ws telephonyMode", () => {
     const entry = getProviderEntry("deepgram");
     expect(entry).toBeDefined();
     expect(entry!.telephonyMode).toBe("realtime-ws");
   });
 
-  test("google-gemini catalog entry has batch-only telephonyMode (Twilio-native eligible)", () => {
+  test("google-gemini catalog entry has batch-only telephonyMode", () => {
     const entry = getProviderEntry("google-gemini");
     expect(entry).toBeDefined();
     expect(entry!.telephonyMode).toBe("batch-only");
   });
 
-  test("openai-whisper catalog entry has batch-only telephonyMode (media-stream path)", () => {
+  test("openai-whisper catalog entry has batch-only telephonyMode", () => {
     const entry = getProviderEntry("openai-whisper");
     expect(entry).toBeDefined();
     expect(entry!.telephonyMode).toBe("batch-only");
@@ -454,81 +454,15 @@ describe("telephony routing catalog alignment", () => {
   });
 
   test("every catalog provider has a non-none telephonyMode", () => {
-    // The telephony routing resolver assumes all known providers
-    // participate in some telephony path (native or media-stream).
-    // If a provider with telephonyMode: "none" is added, the routing
-    // resolver would need to handle it explicitly.
+    // The telephony capability resolver assumes all known providers
+    // participate in telephony over the media-stream transport. If a
+    // provider with telephonyMode: "none" is added, the resolver reports
+    // it as unsupported.
     for (const id of listProviderIds()) {
       const entry = getProviderEntry(id);
       expect(entry).toBeDefined();
       expect(entry!.telephonyMode).not.toBe("none");
     }
-  });
-
-  // -----------------------------------------------------------------------
-  // Telephony routing metadata invariants
-  // -----------------------------------------------------------------------
-
-  test("every catalog provider has telephonyRouting metadata", () => {
-    for (const id of listProviderIds()) {
-      const entry = getProviderEntry(id);
-      expect(entry).toBeDefined();
-      expect(entry!.telephonyRouting).toBeDefined();
-      expect(["conversation-relay-native", "media-stream-custom"]).toContain(
-        entry!.telephonyRouting.strategyKind,
-      );
-    }
-  });
-
-  test("conversation-relay-native providers have twilioNativeMapping with non-empty provider name", () => {
-    for (const id of listProviderIds()) {
-      const entry = getProviderEntry(id)!;
-      if (entry.telephonyRouting.strategyKind === "conversation-relay-native") {
-        expect(entry.telephonyRouting.twilioNativeMapping).toBeDefined();
-        expect(
-          entry.telephonyRouting.twilioNativeMapping!.provider.length,
-        ).toBeGreaterThan(0);
-      }
-    }
-  });
-
-  test("media-stream-custom providers do not have twilioNativeMapping", () => {
-    for (const id of listProviderIds()) {
-      const entry = getProviderEntry(id)!;
-      if (entry.telephonyRouting.strategyKind === "media-stream-custom") {
-        expect(entry.telephonyRouting.twilioNativeMapping).toBeUndefined();
-      }
-    }
-  });
-
-  test("deepgram routing metadata maps to Twilio-native Deepgram with nova-3 speech model", () => {
-    const entry = getProviderEntry("deepgram")!;
-    expect(entry.telephonyRouting.strategyKind).toBe(
-      "conversation-relay-native",
-    );
-    expect(entry.telephonyRouting.twilioNativeMapping?.provider).toBe(
-      "Deepgram",
-    );
-    expect(entry.telephonyRouting.twilioNativeMapping?.defaultSpeechModel).toBe(
-      "nova-3",
-    );
-  });
-
-  test("google-gemini routing metadata maps to Twilio-native Google with no default speech model", () => {
-    const entry = getProviderEntry("google-gemini")!;
-    expect(entry.telephonyRouting.strategyKind).toBe(
-      "conversation-relay-native",
-    );
-    expect(entry.telephonyRouting.twilioNativeMapping?.provider).toBe("Google");
-    expect(
-      entry.telephonyRouting.twilioNativeMapping?.defaultSpeechModel,
-    ).toBeUndefined();
-  });
-
-  test("openai-whisper routing metadata uses media-stream-custom without Twilio mapping", () => {
-    const entry = getProviderEntry("openai-whisper")!;
-    expect(entry.telephonyRouting.strategyKind).toBe("media-stream-custom");
-    expect(entry.telephonyRouting.twilioNativeMapping).toBeUndefined();
   });
 
   // -----------------------------------------------------------------------

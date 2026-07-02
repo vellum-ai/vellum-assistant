@@ -17,7 +17,7 @@ export interface VoiceQualityProfile {
 /**
  * Build a Twilio-compatible ElevenLabs voice string.
  *
- * Twilio ConversationRelay accepts:
+ * Twilio's native TTS voice attribute accepts:
  *   - bare voiceId
  *   - voiceId-model-speed_stability_similarity
  *
@@ -47,7 +47,7 @@ export function buildElevenLabsVoiceSpec(config: {
 }
 
 /**
- * Resolve a valid native Twilio voice for the ConversationRelay TwiML.
+ * Resolve a valid native Twilio voice for the configured TTS provider.
  *
  * Returns the registered {@link NativeTwilioVoiceSpec} for `providerId` when one
  * exists; otherwise — no builder registered (e.g. a synthesized-play provider
@@ -81,23 +81,20 @@ function resolveNativeTwilioVoice(
 /**
  * Resolve the effective voice quality profile from config.
  *
- * The TwiML always carries a valid, non-empty native Twilio voice:
+ * The profile always carries a valid, non-empty native Twilio voice:
  *
- * - **native-twilio** providers (e.g. ElevenLabs): Twilio drives TTS with this
- *   voice directly, built from the provider's registered
- *   {@link NativeTwilioVoiceSpec} builder.
- * - **synthesized-play** providers (e.g. Fish Audio): audio is delivered via
- *   `play` messages, so Twilio's native TTS is unused on the happy path. The
- *   voice still matters as a fallback — if synthesis fails mid-call the
- *   controller falls back to native token TTS, and an empty voice makes Twilio
- *   reject the turn with error 64106 ("TTS provider rejected the request due to
- *   invalid parameters") and drop the call. These providers have no registered
- *   native builder, so they resolve to the ElevenLabs fallback voice.
+ * - **native-twilio** providers (e.g. ElevenLabs): the voice is built from
+ *   the provider's registered {@link NativeTwilioVoiceSpec} builder.
+ * - **synthesized-play** providers (e.g. Fish Audio): the daemon synthesizes
+ *   audio itself, so the native voice is a fallback only — an empty voice
+ *   makes Twilio reject a native-TTS turn with error 64106 ("TTS provider
+ *   rejected the request due to invalid parameters") and drop the call.
+ *   These providers have no registered native builder, so they resolve to
+ *   the ElevenLabs fallback voice.
  *
  * NOTE: STT provider and speech model are intentionally NOT part of this
- * profile. STT resolution is handled once in the voice webhook route
- * (`twilio-routes.ts`) via `resolveTelephonySttRouting()` to maintain a
- * single point of ownership.
+ * profile — the daemon owns STT on the media-stream transport (see
+ * `resolveTelephonySttCapability` in providers/speech-to-text/resolve.ts).
  */
 export function resolveVoiceQualityProfile(
   config?: ReturnType<typeof loadConfig>,
