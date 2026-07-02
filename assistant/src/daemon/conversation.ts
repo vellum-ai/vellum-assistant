@@ -18,7 +18,6 @@
 import type { AgentLoopConfig } from "../agent/loop.js";
 import { AgentLoop } from "../agent/loop.js";
 import type { AssistantActivityStateEvent } from "../api/events/assistant-activity-state.js";
-import type { commitAppTurnChanges } from "../apps/app-git-service.js";
 import type {
   ChannelId,
   InterfaceId,
@@ -427,7 +426,6 @@ export class Conversation {
     workspaceDir: string,
   ) => Pick<WorkspaceGitService, "ensureInitialized">;
   /** @internal */ commitTurnChanges?: typeof commitTurnChanges;
-  /** @internal */ commitAppTurnChanges?: typeof commitAppTurnChanges;
   /**
    * Abort-watchdog timeout (ms) for the agent loop's bounded-unwind backstop.
    * Overridable in tests to fire the watchdog quickly; defaults to the

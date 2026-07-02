@@ -15,7 +15,6 @@ import type {
   CheckpointDecision,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
-import { commitAppTurnChanges } from "../apps/app-git-service.js";
 import type {
   ChannelId,
   InterfaceId,
@@ -1539,28 +1538,6 @@ export async function runAgentLoopImpl(
       const config = getConfig();
       const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
       const deadlineMs = Date.now() + maxWait;
-
-      // Commit app changes first, scoped to the apps subtree, so app edits keep
-      // their own per-app commit message. The workspace turn commit below then
-      // captures everything else. Both target the same workspace repo, so this
-      // must land before the workspace commit's `git add -A` would otherwise
-      // sweep the app files up under the generic turn message.
-      const commitAppTurnChangesFn =
-        ctx.commitAppTurnChanges ?? commitAppTurnChanges;
-      const appOutcome = await raceWithTimeout(
-        commitAppTurnChangesFn(ctx.conversationId, ctx.turnCount),
-        maxWait,
-      );
-      if (appOutcome === "timed_out") {
-        rlog.warn(
-          {
-            turnNumber: ctx.turnCount,
-            maxWaitMs: maxWait,
-            conversationId: ctx.conversationId,
-          },
-          "App turn commit timed out — continuing without waiting (commit still runs in background)",
-        );
-      }
 
       const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
       const commitPromise = commitTurnChangesFn(
