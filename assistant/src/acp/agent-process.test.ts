@@ -20,9 +20,9 @@ function feed(proc: AcpAgentProcess, line: string): void {
   (proc as unknown as { retainStderr(text: string): void }).retainStderr(line);
 }
 
-describe("AcpAgentProcess.recentStderr", () => {
+describe("AcpAgentProcess.stderrSince(0)", () => {
   test("returns empty string before any stderr is captured", () => {
-    expect(newProcess().recentStderr()).toBe("");
+    expect(newProcess().stderrSince(0)).toBe("");
   });
 
   test("retains captured lines joined by newlines, in order", () => {
@@ -31,7 +31,7 @@ describe("AcpAgentProcess.recentStderr", () => {
     feed(proc, "line 2");
     feed(proc, "line 3");
 
-    expect(proc.recentStderr()).toBe("line 1\nline 2\nline 3");
+    expect(proc.stderrSince(0)).toBe("line 1\nline 2\nline 3");
   });
 
   test("evicts oldest lines once the byte cap is exceeded", () => {
@@ -43,11 +43,11 @@ describe("AcpAgentProcess.recentStderr", () => {
       feed(proc, `${i}:${kb}`);
     }
 
-    const retained = proc.recentStderr().split("\n");
+    const retained = proc.stderrSince(0).split("\n");
     // Oldest ("0:") evicted, newest ("7:") retained, still in insertion order.
     expect(retained.at(0)).not.toContain("0:");
     expect(retained.at(-1)).toContain("7:");
-    expect(Buffer.byteLength(proc.recentStderr())).toBeLessThanOrEqual(
+    expect(Buffer.byteLength(proc.stderrSince(0))).toBeLessThanOrEqual(
       4096 + kb.length,
     );
 
@@ -63,17 +63,17 @@ describe("AcpAgentProcess.recentStderr", () => {
     const huge = "H".repeat(6000) + "TAIL_DIAGNOSTIC";
     feed(proc, huge);
 
-    const retained = proc.recentStderr();
+    const retained = proc.stderrSince(0);
     expect(retained.length).toBe(4096);
     expect(retained.endsWith("TAIL_DIAGNOSTIC")).toBe(true);
   });
 
-  test("recentStderr is pure: repeated reads do not clear the buffer", () => {
+  test("stderrSince(0) is pure: repeated reads do not clear the buffer", () => {
     const proc = newProcess();
     feed(proc, "only line");
 
-    expect(proc.recentStderr()).toBe("only line");
-    expect(proc.recentStderr()).toBe("only line");
+    expect(proc.stderrSince(0)).toBe("only line");
+    expect(proc.stderrSince(0)).toBe("only line");
   });
 });
 
@@ -97,14 +97,6 @@ describe("AcpAgentProcess.markStderr / stderrSince", () => {
 
     const mark = proc.markStderr();
     expect(proc.stderrSince(mark)).toBe("");
-  });
-
-  test("stderrSince(0) returns all retained lines, like recentStderr", () => {
-    const proc = newProcess();
-    feed(proc, "line 1");
-    feed(proc, "line 2");
-
-    expect(proc.stderrSince(0)).toBe(proc.recentStderr());
   });
 
   test("mark is monotonic across eviction: seq keeps counting evicted lines", () => {

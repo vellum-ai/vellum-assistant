@@ -32,7 +32,8 @@ const AUTH_REQUIRED_CODE = -32000;
 
 /**
  * Rough byte cap for retained stderr. Oldest lines are evicted once the sum of
- * retained line lengths exceeds this, so recentStderr() stays bounded.
+ * retained line lengths exceeds this, so the stderr ring (read via stderrSince)
+ * stays bounded.
  */
 const STDERR_RETENTION_BYTES = 4096;
 
@@ -170,14 +171,6 @@ export class AcpAgentProcess {
       const evicted = this.stderrRing.shift()!;
       this.stderrRingBytes -= Buffer.byteLength(evicted.text);
     }
-  }
-
-  /**
-   * Returns the retained recent stderr lines joined by newlines. Pure: reading
-   * it does not mutate or clear the buffer.
-   */
-  recentStderr(): string {
-    return this.stderrSince(0);
   }
 
   /**

@@ -16,11 +16,9 @@ const ANSI_ESCAPE = /\u001B\[[0-?]*[ -/]*[@-~]/g;
 export function deriveFailureError(ackMessage: string, stderr: string): string {
   const clean = stderr.replace(ANSI_ESCAPE, "").trim();
 
-  // Most precise: a structured adapter error. Prefer it even over a specific
-  // ack, but when it merely duplicates the ack, return the clean ack rather
-  // than falling through to echo the raw JSON blob as a stderr line.
+  // Most precise: a structured adapter error — prefer it over the ack.
   const jsonMessage = lastJsonErrorMessage(clean);
-  if (jsonMessage) return jsonMessage !== ackMessage ? jsonMessage : ackMessage;
+  if (jsonMessage) return jsonMessage;
 
   // An already-specific ack is preserved when stderr has no better detail.
   if (ackMessage.length > 0 && ackMessage !== "Internal error")
