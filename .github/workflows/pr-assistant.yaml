@@ -4,6 +4,9 @@ on:
   pull_request:
     types: [labeled, synchronize, opened, reopened]
     paths:
+      - 'package.json'
+      - 'bun.lock'
+      - 'patches/**'
       - 'assistant/**'
       - 'credential-executor/**'
       - 'gateway/**'
