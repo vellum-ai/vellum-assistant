@@ -1,4 +1,9 @@
+import { createAssistantMessage } from "../../agent/message-types.js";
 import type { ServerMessage } from "../../daemon/message-protocol.js";
+import { addMessage } from "../../persistence/conversation-crud.js";
+import type { Message } from "../../providers/types.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
+import { publishConversationMessagesChanged } from "../sync/resource-sync-events.js";
 
 // ---------------------------------------------------------------------------
 // Temporary fix — remove when #31994 lands
@@ -27,4 +32,45 @@ export function emitCannedMessageComplete(
     conversationId,
     messageId: persistedAssistantId,
   });
+}
+
+/**
+ * Persist a canned assistant "card" — a pre-composed reply that bypasses the
+ * agent loop (the /compact, /clean, and summarize-up-to result cards) — and
+ * emit the turn-style events clients expect for it: the full text as a single
+ * `assistant_text_delta`, `message_complete` with the persisted assistant id,
+ * and the messages-changed sync invalidation.
+ *
+ * Callers that interleave other broadcasts between the persist and the
+ * delta (the canned greeting and unknown-slash-command paths defer their
+ * broadcasts behind the HTTP response with a `user_message_echo` in
+ * between) cannot use this helper without reordering their events.
+ */
+export async function persistCannedAssistantCard(opts: {
+  conversation: { getMessages(): Message[] };
+  conversationId: string;
+  text: string;
+  metadata: Record<string, unknown>;
+  originClientId?: string;
+}): Promise<void> {
+  const { conversation, conversationId, text, metadata, originClientId } = opts;
+  const assistantMsg = createAssistantMessage(text);
+  const persistedAssistant = await addMessage(
+    conversationId,
+    "assistant",
+    JSON.stringify(assistantMsg.content),
+    { metadata },
+  );
+  conversation.getMessages().push(assistantMsg);
+  broadcastMessage({
+    type: "assistant_text_delta",
+    text,
+    conversationId,
+  });
+  emitCannedMessageComplete(
+    broadcastMessage,
+    conversationId,
+    persistedAssistant.id,
+  );
+  publishConversationMessagesChanged(conversationId, originClientId);
 }

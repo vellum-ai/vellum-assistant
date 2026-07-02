@@ -21,7 +21,6 @@
 
 import { z } from "zod";
 
-import { createAssistantMessage } from "../../agent/message-types.js";
 import { formatSummarizeUpToResult } from "../../daemon/conversation-process.js";
 import {
   destroyActiveConversation,
@@ -37,14 +36,12 @@ import {
 import { normalizeConversationType } from "../../daemon/message-types/shared.js";
 import { stripConversationIds } from "../../home/feed-writer.js";
 import {
-  addMessage,
   archiveConversation,
   batchSetDisplayOrders,
   countConversationsByScheduleJobId,
   deleteConversation,
   forkConversation as forkConversationInStore,
   getConversation,
-  provenanceFromTrustContext,
   setConversationSurfaced,
   unarchiveConversation,
   updateConversationTitle,
@@ -66,10 +63,10 @@ import { buildConversationDetailResponse } from "../services/conversation-serial
 import {
   publishConversationListAndMetadataChanged,
   publishConversationListChanged,
-  publishConversationMessagesChanged,
   publishConversationTitleChanged,
 } from "../sync/resource-sync-events.js";
-import { emitCannedMessageComplete } from "./canned-message-complete.js";
+import { persistCannedAssistantCard } from "./canned-message-complete.js";
+import { buildChannelMetadata } from "./channel-metadata.js";
 import { conversationSummarySchema } from "./conversation-list-routes.js";
 import {
   BadRequestError,
@@ -227,32 +224,20 @@ async function handleSummarizeConversation({
 
   const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
 
-  const persistCard = async (text: string) => {
-    const assistantMsg = createAssistantMessage(text);
-    const persistedAssistant = await addMessage(
+  // The summarize action only ships from the vellum web/desktop client; the
+  // interface id is omitted because this management route (unlike the send
+  // path) does not receive one from the client.
+  const channelMeta = buildChannelMetadata("vellum", undefined, {
+    trustContext: conversation.trustContext,
+  });
+  const persistCard = (text: string) =>
+    persistCannedAssistantCard({
+      conversation,
       conversationId,
-      "assistant",
-      JSON.stringify(assistantMsg.content),
-      {
-        metadata: {
-          ...provenanceFromTrustContext(conversation.trustContext),
-          assistantMessageChannel: "vellum",
-        },
-      },
-    );
-    conversation.getMessages().push(assistantMsg);
-    broadcastMessage({
-      type: "assistant_text_delta",
       text,
-      conversationId,
+      metadata: channelMeta,
+      originClientId,
     });
-    emitCannedMessageComplete(
-      broadcastMessage,
-      conversationId,
-      persistedAssistant.id,
-    );
-    publishConversationMessagesChanged(conversationId, originClientId);
-  };
 
   // Fire-and-forget: return 202 immediately, run summarization async. The
   // summary LLM call can exceed the client's HTTP timeout on large contexts.
