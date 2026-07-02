@@ -48,6 +48,7 @@ import {
   recordRequestLog,
   setAgentLoopExitReasonOnLatestLog,
 } from "../persistence/llm-request-log-store.js";
+import { endSection, markSection } from "../persistence/slow-sync-log.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import { backfillMemoryRecallLogMessageId } from "../plugins/defaults/memory/memory-recall-log-store.js";
@@ -2399,6 +2400,11 @@ export async function dispatchAgentEvent(
   deps: EventHandlerDeps,
   event: AgentEvent,
 ): Promise<void> {
+  // Section-trail breadcrumb for event-loop freeze attribution: the dispatch
+  // is the single choke point for per-turn persistence work (message writes,
+  // usage/request-log rows, SSE fan-out), so a watchdog report during a
+  // handler names the event type that was being processed.
+  const sectionMark = markSection(`agent-event:${event.type}`);
   try {
     switch (event.type) {
       case "llm_call_started":
@@ -2706,5 +2712,7 @@ export async function dispatchAgentEvent(
     ) {
       throw err;
     }
+  } finally {
+    endSection(sectionMark);
   }
 }
