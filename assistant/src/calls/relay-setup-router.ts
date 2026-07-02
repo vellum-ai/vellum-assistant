@@ -9,8 +9,6 @@
 import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 
 import { getConfig } from "../config/loader.js";
-import { getContact } from "../contacts/contact-store.js";
-import { findActiveVoiceInvites } from "../persistence/invite-store.js";
 import {
   type ActorTrustContext,
   resolveActorTrust,
@@ -26,6 +24,7 @@ import {
   verdictMemberUnresolvable,
 } from "../runtime/trust-verdict-consumer.js";
 import { getLogger } from "../util/logger.js";
+import { getActiveVoiceInvite } from "./gateway-invite-reader.js";
 import type { CallSession } from "./types.js";
 
 const log = getLogger("relay-setup-router");
@@ -76,9 +75,9 @@ type SetupOutcome =
       assistantId: string;
       fromNumber: string;
       /**
-       * Display name of the invitee. For inbound redemptions, resolved from the
-       * bound contact's `displayName`; falls back to the legacy `friend_name`
-       * column for pre-contact-binding invites. For outbound invite calls,
+       * Display name of the invitee. For inbound redemptions, supplied by the
+       * gateway's active-voice-invite read (bound contact `displayName`
+       * preferred, invite `friendName` fallback). For outbound invite calls,
        * carries the session-recorded `inviteFriendName`. When null/empty, the
        * relay uses a neutral "Hi there" greeting instead of substituting the
        * channel address.
@@ -109,15 +108,16 @@ export interface SetupResolved {
 /**
  * Determine the setup outcome for an incoming relay connection.
  *
- * This function is pure routing logic — it reads state but performs no
- * side effects (no call-session mutations, no event recording, no WS
- * messages). The caller (`RelayConnection.handleSetup`) is responsible
- * for acting on the returned outcome.
+ * This function is pure routing logic — it reads state (including the
+ * gateway's active-voice-invite view) but performs no side effects (no
+ * call-session mutations, no event recording, no WS messages). The caller
+ * (`RelayConnection.handleSetup`) is responsible for acting on the
+ * returned outcome.
  */
-export function routeSetup(ctx: SetupContext): {
+export async function routeSetup(ctx: SetupContext): Promise<{
   outcome: SetupOutcome;
   resolved: SetupResolved;
-} {
+}> {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const isInbound = ctx.session?.initiatedFromConversationId == null;
   const otherPartyNumber = isInbound ? ctx.from : ctx.to;
@@ -302,44 +302,23 @@ export function routeSetup(ctx: SetupContext): {
       };
     }
 
-    // Check for active voice invites
-    let voiceInvites: ReturnType<typeof findActiveVoiceInvites> = [];
-    try {
-      voiceInvites = findActiveVoiceInvites({
-        expectedExternalUserId: ctx.from,
-      });
-    } catch (err) {
-      log.warn(
-        { err, callSessionId: ctx.callSessionId },
-        "Failed to check voice invites for unknown caller",
-      );
-    }
+    // Check for an active voice invite. The gateway row is the lifecycle
+    // authority; the reader fails soft to `null` on any gateway failure, so a
+    // gateway blip falls through to the unverified-caller flows below instead
+    // of stalling setup.
+    const voiceInvite = await getActiveVoiceInvite(ctx.from);
 
-    const now = Date.now();
-    const nonExpiredInvites = voiceInvites.filter(
-      (i) => !i.expiresAt || i.expiresAt > now,
-    );
-
-    if (nonExpiredInvites.length > 0) {
-      const matchedInvite = nonExpiredInvites[0];
+    if (voiceInvite) {
       log.info(
         { callSessionId: ctx.callSessionId, from: ctx.from },
         "Inbound voice ACL: unknown caller has active voice invite — entering redemption flow",
       );
-      // Resolve the invitee's name from the bound contact's displayName so
-      // the post-redemption greeting matches what the guardian sees in the
-      // contact graph. `contact_id` is NOT NULL on the invite row, so every
-      // invite is bound — when the contact has no displayName the greeting
-      // falls through to the neutral "Hi there" copy in relay-server.ts
-      // rather than a stale free-text `friend_name` label.
-      const boundContact = getContact(matchedInvite.contactId);
-      const inviteeName = boundContact?.displayName?.trim() || null;
       return {
         outcome: {
           action: "invite_redemption",
           assistantId,
           fromNumber: ctx.from,
-          inviteeName: inviteeName ?? null,
+          inviteeName: voiceInvite.inviteeName,
         },
         resolved,
       };

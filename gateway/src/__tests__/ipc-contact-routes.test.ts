@@ -39,10 +39,13 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbRun: (...args: Parameters<DbRunFn>) => assistantDbRunMock(...args),
 }));
 
+// Spread the actual module so the real IpcHandlerError/IpcTransportError
+// classes (and untouched exports like ipcSuggestTrustRule) stay importable by
+// later-loaded files when suites share a bun process.
+const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
+  ...actualAssistantClient,
   ipcCallAssistant: mock(async () => ({})),
-  IpcHandlerError: class IpcHandlerError extends Error {},
-  IpcTransportError: class IpcTransportError extends Error {},
 }));
 
 import { GatewayIpcServer } from "../ipc/server.js";

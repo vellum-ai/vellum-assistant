@@ -23,6 +23,7 @@ import { Database } from "bun:sqlite";
 import { getGatewayDb } from "../connection.js";
 import { getLogger } from "../../logger.js";
 import { assistantDbQuery } from "../assistant-db-proxy.js";
+import { assistantInviteIdSelect } from "./assistant-invite-id-column.js";
 
 import type { MigrationResult } from "./index.js";
 
@@ -84,7 +85,8 @@ export async function up(): Promise<MigrationResult> {
     );
     const assistantChannels = await assistantDbQuery<AssistantChannelRow>(
       `SELECT id, contact_id, type, address, is_primary, external_chat_id,
-              status, policy, verified_at, verified_via, invite_id,
+              status, policy, verified_at, verified_via,
+              ${await assistantInviteIdSelect()},
               revoked_reason, blocked_reason, created_at, updated_at
          FROM contact_channels`,
     );

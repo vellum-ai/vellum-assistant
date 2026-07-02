@@ -117,7 +117,6 @@ describe("activateMemberChannel gateway-first relay", () => {
       externalChatId: "chat-1",
       displayName: "Mom",
       contactId: "target-mom",
-      inviteId: "inv-1",
       verifiedVia: "invite",
     });
 
@@ -152,7 +151,6 @@ describe("activateMemberChannel gateway-first relay", () => {
       externalChatId: "chat-1",
       displayName: "Mom",
       username: undefined,
-      inviteId: "inv-1",
       contactId: "target-mom",
     });
     for (const aclKey of [

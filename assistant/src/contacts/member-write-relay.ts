@@ -27,7 +27,6 @@ export interface ActivateMemberChannelParams {
   contactId?: string;
   displayName?: string;
   username?: string;
-  inviteId?: string;
   verifiedAt?: number;
   verifiedVia?: string;
   policy?: string;
@@ -132,7 +131,6 @@ function mirrorLocalActivation(
       externalChatId: params.externalChatId,
       displayName: params.displayName,
       username: params.username,
-      inviteId: params.inviteId,
       contactId: params.contactId,
     });
   } catch (err) {

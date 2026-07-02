@@ -19,6 +19,7 @@ import {
 } from "../../routing/resolve-assistant.js";
 import {
   handleCircuitBreakerError,
+  interceptedReply,
   processInboundResult,
 } from "../../webhook-pipeline.js";
 
@@ -171,17 +172,18 @@ export function createEmailWebhookHandler(
         },
       });
 
-      // Verification reply — short-circuit before processInboundResult
-      if (result.verificationIntercepted && result.verificationReplyText) {
+      // Verification / invite reply — short-circuit before processInboundResult
+      const intercept = interceptedReply(result);
+      if (intercept) {
         dedupCache.mark(eventId);
         tlog.info(
           { from: event.actor.actorExternalId, to: recipientAddress },
-          "Verification intercepted — returning reply text to platform",
+          "Gateway intercept — returning reply text to platform",
         );
         return Response.json({
           ok: true,
-          verificationIntercepted: true,
-          replyText: result.verificationReplyText,
+          [intercept.flag]: true,
+          replyText: intercept.text,
         });
       }
 

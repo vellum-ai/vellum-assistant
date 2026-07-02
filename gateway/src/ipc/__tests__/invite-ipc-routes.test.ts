@@ -40,23 +40,40 @@ let revokeInviteNativeMock: ReturnType<typeof mock<RevokeFn>> = mock(
   async () => ({ invite: { id: "inv_1", status: "revoked" } }),
 );
 
+type RedeemFn = (input: unknown) => Promise<Record<string, unknown>>;
+let redeemInviteNativeMock: ReturnType<typeof mock<RedeemFn>> = mock(
+  async () => ({ ok: true, type: "redeemed", memberId: "ct_1" }),
+);
+
+// Mirrors the real InviteNativeError (statusCode + code) so the invites_redeem
+// route's parse rejection carries a 400 over the IPC wire.
+class MockInviteNativeError extends Error {
+  readonly statusCode: number;
+  readonly code: string;
+  constructor(message: string, statusCode: number, code: string) {
+    super(message);
+    this.name = "InviteNativeError";
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
 mock.module("../../http/routes/contacts-control-plane-proxy.js", () => ({
+  InviteNativeError: MockInviteNativeError,
   listInvitesNative: (...args: Parameters<ListFn>) =>
     listInvitesNativeMock(...args),
   createInviteNative: (...args: Parameters<CreateFn>) =>
     createInviteNativeMock(...args),
   revokeInviteNative: (...args: Parameters<RevokeFn>) =>
     revokeInviteNativeMock(...args),
+  redeemInviteNative: (...args: Parameters<RedeemFn>) =>
+    redeemInviteNativeMock(...args),
 }));
 
-// ContactStore is only touched by the record_invite_redemption route; stub it
-// so importing the module never opens a real DB.
+// ContactStore backs the voice-invite routes; stub it so importing the module
+// never opens a real DB.
 mock.module("../db/contact-store.js", () => ({
-  ContactStore: class MockContactStore {
-    recordInviteRedemption() {
-      return { updated: true, row: null };
-    }
-  },
+  ContactStore: class MockContactStore {},
 }));
 
 const { inviteRoutes } = await import("../invite-handlers.js");
@@ -77,6 +94,11 @@ beforeEach(() => {
   }));
   revokeInviteNativeMock = mock(async () => ({
     invite: { id: "inv_1", status: "revoked" },
+  }));
+  redeemInviteNativeMock = mock(async () => ({
+    ok: true,
+    type: "redeemed",
+    memberId: "ct_1",
   }));
 });
 
@@ -273,24 +295,121 @@ describe("GatewayIpcServer — protocol/validation errors carry status codes", (
 });
 
 describe("invite CRUD IPC routes registration", () => {
-  test("registers the three CRUD methods alongside record_invite_redemption", () => {
+  test("registers the CRUD, redeem, and voice-invite methods", () => {
     const methods = inviteRoutes.map((r) => r.method);
-    expect(methods).toContain("record_invite_redemption");
+    expect(methods).toContain("invites_redeem");
     expect(methods).toContain("invites_list");
     expect(methods).toContain("invites_create");
     expect(methods).toContain("invites_revoke");
-    // No redeem IPC method — redemption stays on record_invite_redemption.
-    expect(methods).not.toContain("invites_redeem");
+    expect(methods).toContain("get_active_voice_invite");
+    expect(methods).toContain("redeem_voice_invite");
+    // The redemption engine claims its own rows internally — there is no
+    // standalone claim IPC method for the daemon to call.
+    expect(methods).not.toContain("record_invite_redemption");
     // invites_trigger_call stays daemon-local on the assistant; relaying it
     // here would loop gateway→assistant→gateway.
     expect(methods).not.toContain("invites_trigger_call");
-    expect(inviteRoutes).toHaveLength(4);
+    expect(inviteRoutes).toHaveLength(6);
   });
 
-  test("every CRUD route carries a Zod param schema", () => {
-    for (const m of ["invites_list", "invites_create", "invites_revoke"]) {
+  test("every route carries a Zod param schema", () => {
+    for (const m of [
+      "invites_redeem",
+      "invites_list",
+      "invites_create",
+      "invites_revoke",
+      "get_active_voice_invite",
+      "redeem_voice_invite",
+    ]) {
       expect(route(m).schema).toBeDefined();
     }
+  });
+});
+
+describe("invites_redeem", () => {
+  test("token params dispatch to redeemInviteNative with the parsed token input", async () => {
+    redeemInviteNativeMock = mock(async () => ({
+      ok: true,
+      invite: { id: "inv_1" },
+      type: "redeemed",
+    }));
+    const result = await route("invites_redeem").handler({
+      token: "raw-token",
+      sourceChannel: "telegram",
+      externalUserId: "u_1",
+    });
+    expect(result).toEqual({
+      ok: true,
+      invite: { id: "inv_1" },
+      type: "redeemed",
+    });
+    expect(redeemInviteNativeMock.mock.calls[0][0]).toEqual({
+      kind: "token",
+      token: "raw-token",
+      sourceChannel: "telegram",
+      externalUserId: "u_1",
+      externalChatId: undefined,
+    });
+  });
+
+  test("voice params dispatch to redeemInviteNative with the parsed voice input", async () => {
+    redeemInviteNativeMock = mock(async () => ({
+      ok: true,
+      type: "redeemed",
+      memberId: "ct_1",
+      inviteId: "inv_1",
+    }));
+    const result = await route("invites_redeem").handler({
+      code: "123456",
+      callerExternalUserId: "+15550100001",
+    });
+    expect(result).toEqual({
+      ok: true,
+      type: "redeemed",
+      memberId: "ct_1",
+      inviteId: "inv_1",
+    });
+    expect(redeemInviteNativeMock.mock.calls[0][0]).toEqual({
+      kind: "voice",
+      code: "123456",
+      callerExternalUserId: "+15550100001",
+      assistantId: undefined,
+    });
+  });
+
+  test("invalid params throw a 400 typed error without calling the engine", async () => {
+    let thrown: unknown;
+    try {
+      // Token path without sourceChannel — shared validation rejects.
+      await route("invites_redeem").handler({ token: "raw-token" });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(MockInviteNativeError);
+    expect((thrown as MockInviteNativeError).statusCode).toBe(400);
+    expect((thrown as MockInviteNativeError).message).toContain(
+      "sourceChannel",
+    );
+    expect(redeemInviteNativeMock).not.toHaveBeenCalled();
+  });
+
+  test("omitted params throw the token-required 400 (no engine call)", async () => {
+    await expect(route("invites_redeem").handler(undefined)).rejects.toThrow(
+      /token is required/,
+    );
+    expect(redeemInviteNativeMock).not.toHaveBeenCalled();
+  });
+
+  test("propagates an engine failure (e.g. invalid_or_expired)", async () => {
+    redeemInviteNativeMock = mock(async () => {
+      throw new MockInviteNativeError("invalid_or_expired", 400, "BAD_REQUEST");
+    });
+    await expect(
+      route("invites_redeem").handler({
+        code: "000000",
+        callerExternalUserId: "+15550100001",
+      }),
+    ).rejects.toThrow(/invalid_or_expired/);
   });
 });
 

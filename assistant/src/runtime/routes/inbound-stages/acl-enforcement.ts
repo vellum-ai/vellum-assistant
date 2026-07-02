@@ -1,36 +1,27 @@
 /**
  * Ingress ACL enforcement stage: resolves the inbound actor to a member
- * record, enforces allow/deny/escalate policies, handles invite token
- * intercepts, and notifies the guardian of denied access requests.
+ * record, enforces allow/deny/escalate policies, and notifies the guardian
+ * of denied access requests.
+ *
+ * Invite code/token redemption is intercepted at gateway ingress; redeemed
+ * messages never reach this stage.
  */
 import type { AdmissionPolicy, SourceMetadata } from "@vellumai/gateway-client";
 import { isTrustClass } from "@vellumai/gateway-client";
 
-import { isInviteCodeRedemptionEnabled } from "../../../channels/config.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { getGuardianDelivery } from "../../../contacts/guardian-delivery-reader.js";
 import { channelStatusToMemberStatus } from "../../../contacts/member-status.js";
 import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../../notifications/notification-utils.js";
-import {
-  deleteInbound,
-  recordInbound,
-} from "../../../persistence/delivery-crud.js";
-import { markProcessed } from "../../../persistence/delivery-status.js";
-import {
-  findByInviteCodeHash,
-  findByInviteCodeHashAnyChannel,
-} from "../../../persistence/invite-store.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
 import { truncate } from "../../../util/truncate.js";
-import { hashVoiceCode } from "../../../util/voice-code.js";
 import {
   isAccessRequestDenied,
   isApprovalHandshakeInProgress,
   notifyGuardianOfAccessRequest,
 } from "../../access-request-helper.js";
 import { resolveAnchoredGuardian } from "../../anchored-guardian.js";
-import { getInviteAdapterRegistry } from "../../channel-invite-transport.js";
 import {
   createOutboundSession,
   findActiveSession,
@@ -38,11 +29,6 @@ import {
   resolveBootstrapToken,
 } from "../../channel-verification-service.js";
 import { deliverChannelReply } from "../../gateway-client.js";
-import {
-  redeemInvite,
-  redeemInviteByCode,
-} from "../../invite-redemption-service.js";
-import { getInviteRedemptionReply } from "../../invite-redemption-templates.js";
 import type { VerdictMember } from "../../trust-verdict-consumer.js";
 import { verdictMemberFromVerdict } from "../../trust-verdict-consumer.js";
 
@@ -111,7 +97,6 @@ export interface AclEnforcementParams {
   actorUsername: string | undefined;
   replyCallbackUrl: string | undefined;
   assistantId: string;
-  externalMessageId: string;
   /**
    * Effective admission policy for this request (gateway floor resolved with
    * any per-conversation override). When set, ACL skips its hard-deny paths
@@ -169,8 +154,8 @@ export interface AclResult {
 
 /**
  * Enforce ingress ACL rules: member lookup, non-member/inactive denial,
- * policy enforcement (allow/deny/escalate bypass), invite token intercepts,
- * and guardian notification for denied access.
+ * policy enforcement (allow/deny/escalate bypass), and guardian
+ * notification for denied access.
  */
 export async function enforceIngressAcl(
   params: AclEnforcementParams,
@@ -188,7 +173,6 @@ export async function enforceIngressAcl(
     actorUsername,
     replyCallbackUrl,
     assistantId,
-    externalMessageId,
     effectiveAdmissionPolicy,
     isCallbackInteraction,
   } = params;
@@ -206,7 +190,7 @@ export async function enforceIngressAcl(
 
   // Absent verdict = gateway could not vouch for this actor → fail-closed deny.
   // A PRESENT verdict with no member (stranger) still flows through the
-  // intercepts below; only a missing verdict short-circuits here.
+  // stranger lane below; only a missing verdict short-circuits here.
   const verdict = sourceMetadata?.trustVerdict;
   if (verdict == null) {
     log.info(
@@ -228,7 +212,7 @@ export async function enforceIngressAcl(
   }
 
   // Member resolved from the gateway verdict (ACL + identity only); null for a
-  // stranger verdict, which falls through to the non-member intercepts.
+  // stranger verdict, which falls through to the non-member deny lane.
   const resolvedMember: VerdictMember | null =
     verdictMemberFromVerdict(verdict);
 
@@ -319,12 +303,6 @@ export async function enforceIngressAcl(
     commandIntentForAcl?.type === "start" &&
     typeof commandIntentForAcl.payload === "string" &&
     commandIntentForAcl.payload.startsWith("gv_");
-  const inviteAdapter = getInviteAdapterRegistry().get(sourceChannel);
-  const inviteToken = inviteAdapter?.extractInboundToken?.({
-    commandIntent: commandIntentForAcl,
-    content: trimmedContent,
-    sourceMetadata,
-  });
 
   if (canonicalSenderId || hasSenderIdentityClaim) {
     if (!resolvedMember) {
@@ -355,60 +333,6 @@ export async function enforceIngressAcl(
         }
       }
 
-      // ── Invite token intercept (non-member) ──
-      // /start invite deep links grant access without guardian approval.
-      // Runs BEFORE the policy-aware bypass so a valid /start iv_<token>
-      // always redeems and creates a member record — even when the
-      // admission policy is `strangers` (which would otherwise admit the
-      // sender as a non-member before the token is consumed).
-      if (inviteToken && denyNonMember) {
-        const inviteResult = await handleInviteTokenIntercept({
-          rawToken: inviteToken,
-          sourceChannel,
-          externalChatId: conversationExternalId,
-          externalMessageId,
-          senderExternalUserId: canonicalSenderId ?? rawSenderId,
-          senderName: actorDisplayName,
-          senderUsername: actorUsername,
-          replyCallbackUrl,
-          assistantId,
-          canonicalAssistantId,
-        });
-        if (inviteResult) {
-          return {
-            resolvedMember: null,
-            earlyResponse: inviteResult,
-          };
-        }
-      }
-
-      // ── 6-digit invite code intercept (non-member) ──
-      // On channels with codeRedemptionEnabled, a bare 6-digit message may be
-      // an invite code. Attempt redemption; on failure (no matching code) fall
-      // through to normal processing — the number may be a regular message.
-      // Runs before the policy-aware bypass for the same reason as the token
-      // intercept above.
-      if (denyNonMember && /^\d{6}$/.test(trimmedContent)) {
-        const codeInterceptResult = await handleInviteCodeIntercept({
-          code: trimmedContent,
-          sourceChannel,
-          externalChatId: conversationExternalId,
-          externalMessageId,
-          senderExternalUserId: canonicalSenderId ?? rawSenderId,
-          senderName: actorDisplayName,
-          senderUsername: actorUsername,
-          replyCallbackUrl,
-          assistantId,
-          canonicalAssistantId,
-        });
-        if (codeInterceptResult) {
-          return {
-            resolvedMember: null,
-            earlyResponse: codeInterceptResult,
-          };
-        }
-      }
-
       // ── Policy-aware non-member bypass ──
       // Skip the ACL deny gate so the admission floor stage emits the final
       // verdict instead of the ACL prematurely firing guardian notifications,
@@ -422,7 +346,6 @@ export async function enforceIngressAcl(
       //    stranger there still can't reach the floor, but suppressing its
       //    self-verify challenge is a default-onboarding behavior change left
       //    for a separate §8.2 decision.
-      // Runs AFTER invite intercepts so valid tokens redeem first.
       if (
         denyNonMember &&
         (effectiveAdmissionPolicy === "strangers" ||
@@ -704,65 +627,6 @@ export async function enforceIngressAcl(
           }
         }
 
-        // ── Invite token intercept (inactive member) ──
-        // Invite tokens can reactivate revoked/pending members without
-        // requiring guardian approval, but blocked members are excluded so
-        // they are short-circuited at the ACL layer rather than entering the
-        // redemption path. Runs BEFORE the policy-aware bypass so a valid
-        // invite always redeems and reactivates the member record, rather
-        // than the bypass admitting the sender in their inactive state.
-        if (!isBlockedMember && inviteToken && denyInactiveMember) {
-          const inviteResult = await handleInviteTokenIntercept({
-            rawToken: inviteToken,
-            sourceChannel,
-            externalChatId: conversationExternalId,
-            externalMessageId,
-            senderExternalUserId: canonicalSenderId ?? rawSenderId,
-            senderName: actorDisplayName,
-            senderUsername: actorUsername,
-            replyCallbackUrl,
-            assistantId,
-            canonicalAssistantId,
-          });
-          if (inviteResult) {
-            return {
-              resolvedMember: null,
-              earlyResponse: inviteResult,
-            };
-          }
-        }
-
-        // ── 6-digit invite code intercept (inactive member) ──
-        // Codes can reactivate revoked/pending members; non-matching codes
-        // fall through. Blocked members are excluded here for consistency —
-        // the redemption service would reject them anyway, but early exit
-        // avoids unnecessary work. Runs before the policy-aware bypass for
-        // the same reason as the token intercept above.
-        if (
-          !isBlockedMember &&
-          denyInactiveMember &&
-          /^\d{6}$/.test(trimmedContent)
-        ) {
-          const codeInterceptResult = await handleInviteCodeIntercept({
-            code: trimmedContent,
-            sourceChannel,
-            externalChatId: conversationExternalId,
-            externalMessageId,
-            senderExternalUserId: canonicalSenderId ?? rawSenderId,
-            senderName: actorDisplayName,
-            senderUsername: actorUsername,
-            replyCallbackUrl,
-            assistantId,
-            canonicalAssistantId,
-          });
-          if (codeInterceptResult) {
-            return {
-              resolvedMember: null,
-              earlyResponse: codeInterceptResult,
-            };
-          }
-        }
-
         // ── Policy-aware inactive-member bypass ──
         // `strangers` (floor 1): admit non-blocked, non-revoked senders
         //   (pending/unverified bypass the inactive-member deny gate).
@@ -779,7 +643,6 @@ export async function enforceIngressAcl(
         //   there, verifying reaches `trusted_contact` (rank 3 ≥ floor 3), so
         //   the challenge legitimately upgrades the sender into access.
         // In every case skip the deny gate so the admission stage decides.
-        // Runs AFTER invite intercepts so valid tokens redeem first.
         //
         // A guardian-denied sender is persisted as an unverified contact and is
         // admitted here on the same rank-vs-floor terms as any other unverified
@@ -1041,359 +904,6 @@ export async function enforceIngressAcl(
   return {
     resolvedMember,
     ...(isValidatedBootstrap && { isValidatedBootstrap }),
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Invite token intercept
-// ---------------------------------------------------------------------------
-
-/**
- * Handle an inbound invite token for a non-member or inactive member.
- *
- * Redeems the invite, delivers a deterministic reply, and returns a Response
- * to short-circuit the handler. Returns `null` when the intercept should not
- * fire (e.g. already_member outcome — let normal flow handle it).
- */
-async function handleInviteTokenIntercept(params: {
-  rawToken: string;
-  sourceChannel: ChannelId;
-  externalChatId: string;
-  externalMessageId: string;
-  senderExternalUserId?: string;
-  senderName?: string;
-  senderUsername?: string;
-  replyCallbackUrl?: string;
-  assistantId?: string;
-  canonicalAssistantId: string;
-}): Promise<Record<string, unknown> | null> {
-  const {
-    rawToken,
-    sourceChannel,
-    externalChatId,
-    externalMessageId,
-    senderExternalUserId,
-    senderName,
-    senderUsername,
-    replyCallbackUrl,
-    assistantId,
-    canonicalAssistantId,
-  } = params;
-
-  // Record the inbound event for dedup tracking BEFORE performing redemption.
-  // Without this, duplicate webhook deliveries (common with Telegram) would
-  // not be tracked: the first delivery redeems the invite and returns early,
-  // then the retry finds an active member, passes ACL, and the raw
-  // /start iv_<token> message leaks into the agent pipeline.
-  const dedupResult = recordInbound(
-    sourceChannel,
-    externalChatId,
-    externalMessageId,
-    { assistantId: canonicalAssistantId },
-  );
-
-  if (dedupResult.duplicate) {
-    return {
-      accepted: true,
-      duplicate: true,
-      eventId: dedupResult.eventId,
-    };
-  }
-
-  const outcome = await redeemInvite({
-    rawToken,
-    sourceChannel,
-    externalUserId: senderExternalUserId,
-    externalChatId,
-    displayName: senderName,
-    username: senderUsername,
-    assistantId: canonicalAssistantId,
-  });
-
-  log.info(
-    {
-      sourceChannel,
-      externalChatId: params.externalChatId,
-      ok: outcome.ok,
-      type: outcome.ok ? outcome.type : undefined,
-      reason: !outcome.ok ? outcome.reason : undefined,
-    },
-    "Invite token intercept: redemption result",
-  );
-
-  // already_member means the user has an active record — let the normal
-  // flow handle them (they passed ACL or the member is active).
-  if (outcome.ok && outcome.type === "already_member") {
-    // Deliver a quick acknowledgement and short-circuit so the user
-    // does not trigger the deny gate or a duplicate agent loop.
-    const replyText = getInviteRedemptionReply(outcome);
-    if (replyCallbackUrl) {
-      try {
-        await deliverChannelReply(replyCallbackUrl, {
-          chatId: externalChatId,
-          text: replyText,
-          assistantId,
-        });
-      } catch (err) {
-        log.error(
-          { err, externalChatId },
-          "Failed to deliver invite already-member reply",
-        );
-      }
-    }
-    markProcessed(dedupResult.eventId);
-    return {
-      accepted: true,
-      eventId: dedupResult.eventId,
-      inviteRedemption: "already_member",
-    };
-  }
-
-  const replyText = getInviteRedemptionReply(outcome);
-
-  if (replyCallbackUrl) {
-    try {
-      await deliverChannelReply(replyCallbackUrl, {
-        chatId: externalChatId,
-        text: replyText,
-        assistantId,
-      });
-    } catch (err) {
-      log.error(
-        { err, externalChatId },
-        "Failed to deliver invite redemption reply",
-      );
-    }
-  }
-
-  if (outcome.ok && outcome.type === "redeemed") {
-    markProcessed(dedupResult.eventId);
-    return {
-      accepted: true,
-      eventId: dedupResult.eventId,
-      inviteRedemption: "redeemed",
-      memberId: outcome.memberId,
-    };
-  }
-
-  // Failed redemption — inform the user and deny
-  markProcessed(dedupResult.eventId);
-  return {
-    accepted: true,
-    eventId: dedupResult.eventId,
-    denied: true,
-    inviteRedemption: outcome.reason,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// 6-digit invite code intercept
-// ---------------------------------------------------------------------------
-
-/**
- * Handle a bare 6-digit message as a potential invite code redemption.
- *
- * Checks channel policy (codeRedemptionEnabled), attempts redemption via
- * `redeemInviteByCode`, and returns a Response to short-circuit the handler
- * on success. Returns `null` when the code does not match any active invite,
- * allowing the message to fall through to normal processing.
- */
-async function handleInviteCodeIntercept(params: {
-  code: string;
-  sourceChannel: ChannelId;
-  externalChatId: string;
-  externalMessageId: string;
-  senderExternalUserId?: string;
-  senderName?: string;
-  senderUsername?: string;
-  replyCallbackUrl?: string;
-  assistantId?: string;
-  canonicalAssistantId: string;
-}): Promise<Record<string, unknown> | null> {
-  const {
-    code,
-    sourceChannel,
-    externalChatId,
-    externalMessageId,
-    senderExternalUserId,
-    senderName,
-    senderUsername,
-    replyCallbackUrl,
-    assistantId,
-    canonicalAssistantId,
-  } = params;
-
-  // Skip channels that don't support code redemption
-  if (!isInviteCodeRedemptionEnabled(sourceChannel)) {
-    return null;
-  }
-
-  // Pre-check: verify a matching invite exists before committing to handle
-  // this message. A bare 6-digit number may be a regular message, so we
-  // must not record inbound dedup until we know the code maps to an invite.
-  const codeHash = hashVoiceCode(code);
-  const candidateInvite = findByInviteCodeHash(codeHash, sourceChannel);
-  if (!candidateInvite) {
-    // The code doesn't match any invite on this channel. Before falling
-    // through to normal processing, check if it matches on a different
-    // channel — if so, inform the user instead of silently ignoring it.
-    const crossChannelInvite = findByInviteCodeHashAnyChannel(codeHash);
-    if (crossChannelInvite) {
-      // Record inbound for dedup tracking — without this, duplicate webhook
-      // deliveries would re-enter ACL and send the mismatch reply again.
-      const dedupResult = recordInbound(
-        sourceChannel,
-        externalChatId,
-        externalMessageId,
-        { assistantId: canonicalAssistantId },
-      );
-
-      if (dedupResult.duplicate) {
-        return {
-          accepted: true,
-          duplicate: true,
-          eventId: dedupResult.eventId,
-        };
-      }
-
-      const mismatchReply = "This invite is not valid for this channel.";
-      if (replyCallbackUrl) {
-        try {
-          await deliverChannelReply(replyCallbackUrl, {
-            chatId: externalChatId,
-            text: mismatchReply,
-            assistantId,
-          });
-        } catch (err) {
-          log.error(
-            { err, externalChatId },
-            "Failed to deliver invite code channel-mismatch reply",
-          );
-        }
-      }
-      markProcessed(dedupResult.eventId);
-      return {
-        accepted: true,
-        eventId: dedupResult.eventId,
-        denied: true,
-        inviteRedemption: "channel_mismatch",
-      };
-    }
-    return null;
-  }
-
-  // Record the inbound event for dedup tracking BEFORE performing redemption,
-  // matching the token intercept path. Without this, duplicate webhook
-  // deliveries could slip through: the first delivery redeems the invite and
-  // activates membership, then a retry finds an active member, passes ACL,
-  // and the raw 6-digit message leaks into the agent pipeline.
-  const dedupResult = recordInbound(
-    sourceChannel,
-    externalChatId,
-    externalMessageId,
-    { assistantId: canonicalAssistantId },
-  );
-
-  if (dedupResult.duplicate) {
-    return {
-      accepted: true,
-      duplicate: true,
-      eventId: dedupResult.eventId,
-    };
-  }
-
-  let outcome: Awaited<ReturnType<typeof redeemInviteByCode>>;
-  try {
-    outcome = await redeemInviteByCode({
-      code,
-      sourceChannel,
-      externalUserId: senderExternalUserId,
-      externalChatId,
-      displayName: senderName,
-      username: senderUsername,
-      assistantId: canonicalAssistantId,
-    });
-  } catch (err) {
-    // Redemption threw — roll back the dedup record so webhook retries
-    // can re-attempt instead of short-circuiting as duplicates.
-    log.error(
-      { err, sourceChannel, externalChatId },
-      "Invite code intercept: redemption threw, rolling back dedup record",
-    );
-    deleteInbound(dedupResult.eventId);
-    throw err;
-  }
-
-  log.info(
-    {
-      sourceChannel,
-      externalChatId,
-      ok: outcome.ok,
-      type: outcome.ok ? outcome.type : undefined,
-      reason: !outcome.ok ? outcome.reason : undefined,
-    },
-    "Invite code intercept: redemption result",
-  );
-
-  // already_member: deliver acknowledgement and short-circuit
-  if (outcome.ok && outcome.type === "already_member") {
-    const replyText = getInviteRedemptionReply(outcome);
-    if (replyCallbackUrl) {
-      try {
-        await deliverChannelReply(replyCallbackUrl, {
-          chatId: externalChatId,
-          text: replyText,
-          assistantId,
-        });
-      } catch (err) {
-        log.error(
-          { err, externalChatId },
-          "Failed to deliver invite code already-member reply",
-        );
-      }
-    }
-    markProcessed(dedupResult.eventId);
-    return {
-      accepted: true,
-      eventId: dedupResult.eventId,
-      inviteRedemption: "already_member",
-    };
-  }
-
-  const replyText = getInviteRedemptionReply(outcome);
-
-  if (replyCallbackUrl) {
-    try {
-      await deliverChannelReply(replyCallbackUrl, {
-        chatId: externalChatId,
-        text: replyText,
-        assistantId,
-      });
-    } catch (err) {
-      log.error(
-        { err, externalChatId },
-        "Failed to deliver invite code redemption reply",
-      );
-    }
-  }
-
-  if (outcome.ok && outcome.type === "redeemed") {
-    markProcessed(dedupResult.eventId);
-    return {
-      accepted: true,
-      eventId: dedupResult.eventId,
-      inviteRedemption: "redeemed",
-      memberId: outcome.memberId,
-    };
-  }
-
-  // Failed redemption (expired, revoked, etc.) — inform and deny
-  markProcessed(dedupResult.eventId);
-  return {
-    accepted: true,
-    eventId: dedupResult.eventId,
-    denied: true,
-    inviteRedemption: !outcome.ok ? outcome.reason : undefined,
   };
 }
 
