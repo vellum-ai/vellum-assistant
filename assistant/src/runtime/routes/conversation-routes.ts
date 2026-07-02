@@ -108,7 +108,6 @@ import {
   isConversationProcessing,
   type MessageRow,
   provenanceFromTrustContext,
-  setConversationEnabledPlugins,
   setConversationInferenceProfile,
 } from "../../persistence/conversation-crud.js";
 import {
@@ -1605,10 +1604,6 @@ export async function handleSendMessage(
   }
 
   if (requestedEnabledPlugins !== undefined) {
-    setConversationEnabledPlugins(
-      mapping.conversationId,
-      requestedEnabledPlugins,
-    );
     conversation.setEnabledPlugins(requestedEnabledPlugins);
   }
 
