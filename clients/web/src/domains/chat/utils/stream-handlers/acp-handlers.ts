@@ -67,12 +67,7 @@ export function handleAcpSessionUsage(event: AcpSessionUsageEvent): void {
 export function handleAcpSessionCompleted(
   event: AcpSessionCompletedEvent,
 ): void {
-  const store = useAcpRunStore.getState();
-  // A run already marked cancelled (by the Stop action) must not regress to
-  // completed if its prompt resolved during the cancel window. Mirror the error
-  // handler and the daemon, which persist a stopped run as `cancelled`.
-  if (store.byId[event.acpSessionId]?.status === "cancelled") return;
-  store.setTerminal({
+  useAcpRunStore.getState().setTerminal({
     acpSessionId: event.acpSessionId,
     status: "completed",
     stopReason: event.stopReason,

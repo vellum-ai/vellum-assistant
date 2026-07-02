@@ -184,21 +184,6 @@ describe("handleAcpSessionCompleted", () => {
     expect(entry?.completedAt).toBeGreaterThan(0);
   });
 
-  it("preserves a cancelled run instead of regressing it to completed", () => {
-    spawn();
-    // The Stop action marks the run cancelled; a prompt that resolves during
-    // the cancel window still emits acp_session_completed.
-    getState().cancelRun({ acpSessionId: "acp-1", completedAt: Date.now() });
-    handleAcpSessionCompleted({
-      type: "acp_session_completed",
-      acpSessionId: "acp-1",
-      stopReason: "end_turn",
-    });
-    const entry = getState().byId["acp-1"];
-    expect(entry?.status).toBe("cancelled");
-    expect(entry?.stopReason).toBeUndefined();
-  });
-
   it("resumes a completed run when respawned for the same id", () => {
     spawn();
     handleAcpSessionUpdate({
