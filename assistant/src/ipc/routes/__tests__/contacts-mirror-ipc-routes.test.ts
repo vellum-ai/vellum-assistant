@@ -155,6 +155,40 @@ describe("contacts_mirror_upsert_channel", () => {
     expect(call.userFileOnCreate).toBe(null);
   });
 
+  test("threads reassignConflictingChannels through to the primitive (seed=false, invite=true)", () => {
+    upsertContactChannelCalls.length = 0;
+    handleContactsMirrorUpsertChannel({
+      body: {
+        contactId: "co-seed",
+        type: "slack",
+        address: "USEED",
+        reassignConflictingChannels: false,
+      },
+    });
+    handleContactsMirrorUpsertChannel({
+      body: {
+        contactId: "co-invite",
+        type: "slack",
+        address: "UINV",
+        reassignConflictingChannels: true,
+      },
+    });
+
+    const seedCall = upsertContactChannelCalls[0] as Record<string, unknown>;
+    const inviteCall = upsertContactChannelCalls[1] as Record<string, unknown>;
+    expect(seedCall.reassignConflictingChannels).toBe(false);
+    expect(inviteCall.reassignConflictingChannels).toBe(true);
+  });
+
+  test("leaves reassignConflictingChannels undefined when the wire omits it (primitive defaults)", () => {
+    upsertContactChannelCalls.length = 0;
+    handleContactsMirrorUpsertChannel({
+      body: { contactId: "co-x", type: "slack", address: "UX" },
+    });
+    const call = upsertContactChannelCalls[0] as Record<string, unknown>;
+    expect(call.reassignConflictingChannels).toBeUndefined();
+  });
+
   test("omits externalChatId when absent (COALESCE-preserving seed update)", () => {
     upsertContactChannelCalls.length = 0;
     handleContactsMirrorUpsertChannel({

@@ -30,6 +30,22 @@ function resetContactTables(): void {
   sqlite.run("DELETE FROM contacts");
 }
 
+function channelOwnerById(channelId: string): string | undefined {
+  const row = getSqlite()
+    .query("SELECT contact_id AS contactId FROM contact_channels WHERE id = ?")
+    .get(channelId) as { contactId?: string } | undefined;
+  return row?.contactId;
+}
+
+function channelCount(type: string, address: string): number {
+  const row = getSqlite()
+    .query(
+      "SELECT COUNT(*) AS n FROM contact_channels WHERE type = ? AND address = ? COLLATE NOCASE",
+    )
+    .get(type, address) as { n: number };
+  return row.n;
+}
+
 function workspaceDir(): string {
   const dir = process.env.VELLUM_WORKSPACE_DIR;
   if (!dir) {
@@ -165,5 +181,78 @@ describe("identity-mirror faithful-replica semantics", () => {
     });
 
     expect(bound?.contact.displayName).toBe("Curated Name");
+  });
+});
+
+// The inbound-seed mirror must match the gateway insert's onConflictDoNothing:
+// when a first-seen race lands a second contact for the same (type,address), the
+// mirror must NOT reparent the channel to the second contact (that would leave
+// the mirror pointing at contact #2 while the gateway ACL row keeps contact #1).
+// Only the invite-binding path may reparent.
+describe("mirror channel-reparenting race semantics", () => {
+  beforeEach(() => {
+    resetContactTables();
+  });
+
+  test("SEED path (reassignConflictingChannels:false) does NOT reparent a conflicting channel", () => {
+    // Contact #1 wins the create race — gateway keeps this via onConflictDoNothing.
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "URACE",
+      externalChatId: "DRACE",
+      displayName: "First",
+      contactId: "co-race-1",
+      channelId: "gw-ch-race-1",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+
+    // Contact #2: a second first-seen seed event with a fresh contact id for the
+    // SAME (type,address). Seed semantics: must leave the channel with contact #1.
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "URACE",
+      externalChatId: "DRACE",
+      displayName: "Second",
+      contactId: "co-race-2",
+      channelId: "gw-ch-race-2",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+
+    // Original channel stays under contact #1; no duplicate channel was created.
+    expect(channelOwnerById("gw-ch-race-1")).toBe("co-race-1");
+    expect(channelOwnerById("gw-ch-race-2")).toBeUndefined();
+    expect(channelCount("slack", "URACE")).toBe(1);
+  });
+
+  test("INVITE-binding path (reassignConflictingChannels:true) DOES reparent", () => {
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UBIND",
+      externalChatId: "DBIND",
+      displayName: "Seed Owner",
+      contactId: "co-bind-seed",
+      channelId: "gw-ch-bind",
+      refreshDisplayName: true,
+      userFileOnCreate: null,
+      reassignConflictingChannels: false,
+    });
+
+    // Invite binds the redeemer's existing channel to the invite's target
+    // contact — the legitimate reparent.
+    upsertContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "UBIND",
+      externalChatId: "DBIND",
+      displayName: "Target Contact",
+      contactId: "co-bind-target",
+      reassignConflictingChannels: true,
+    });
+
+    expect(channelOwnerById("gw-ch-bind")).toBe("co-bind-target");
+    expect(channelCount("slack", "UBIND")).toBe(1);
   });
 });

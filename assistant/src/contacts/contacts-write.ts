@@ -45,6 +45,13 @@ export function upsertContactChannel(params: {
    *  is to keep the mirror name in sync with the platform profile. Defaults to
    *  false: the invite-binding path preserves the guardian-curated name. */
   refreshDisplayName?: boolean;
+  /** Reparent a conflicting existing channel (same (type,address) owned by a
+   *  DIFFERENT contact) to this contact. Invite-binding only. The inbound
+   *  identity-seed mirror must pass false so it matches the gateway insert's
+   *  onConflictDoNothing and never steals a channel from its existing contact.
+   *  Defaults to `!!contactId` to preserve the invite-binding callers that
+   *  don't set it explicitly. */
+  reassignConflictingChannels?: boolean;
 }): ContactWriteResult | null {
   let address: string;
 
@@ -87,10 +94,13 @@ export function upsertContactChannel(params: {
         externalChatId: params.externalChatId,
       },
     ],
-    // When a specific contactId is provided, reassign conflicting channels from
-    // other contacts. This enables invite redemption to bind a redeemer's
-    // existing channel identity to the invite's target contact.
-    reassignConflictingChannels: !!params.contactId,
+    // Reassign a conflicting channel from another contact only when the caller
+    // explicitly asks (invite redemption binding a redeemer's existing channel
+    // to the invite's target). Defaults to `!!contactId` for legacy callers;
+    // the inbound-seed mirror passes false so a first-seen race does not steal
+    // the channel from the contact the gateway insert kept.
+    reassignConflictingChannels:
+      params.reassignConflictingChannels ?? !!params.contactId,
   });
 
   // NOTE: We intentionally do NOT seed `users/<slug>.md` here. This is the

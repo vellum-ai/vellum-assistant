@@ -635,8 +635,9 @@ export async function upsertVerifiedContactChannel(params: {
     }
 
     // Activate the assistant mirror. ACL columns are gateway-owned; only
-    // identity/info columns are written here. The upsert re-parents the
-    // (type,address) channel to boundContactId when it moved.
+    // identity/info columns are written here. reassignConflictingChannels: the
+    // gateway already re-parented the (type,address) row to boundContactId, so
+    // the mirror must follow (invite/verified binding).
     await runMirror(
       () =>
         ipcCallAssistant("contacts_mirror_upsert_channel", {
@@ -646,6 +647,7 @@ export async function upsertVerifiedContactChannel(params: {
             address,
             externalChatId,
             displayName: contactDisplayName,
+            reassignConflictingChannels: true,
           },
         }),
       "update",
@@ -742,8 +744,11 @@ export async function upsertVerifiedContactChannel(params: {
           channelId,
           type: sourceChannel,
           address,
-          externalChatId,
           displayName: contactDisplayName,
+          externalChatId,
+          // Invite/verified binding: reparent a conflicting (type,address) row
+          // to this contact if one exists (matches the gateway reassign above).
+          reassignConflictingChannels: true,
         },
       }),
     "create",
@@ -825,6 +830,10 @@ export async function upsertContactChannel(params: {
         externalChatId,
         displayName: contactDisplayName,
         refreshDisplayName: true,
+        // Inbound seed: never reparent a conflicting channel. Match the gateway
+        // insert's onConflictDoNothing so a first-seen race keeps the channel
+        // under the contact the gateway kept.
+        reassignConflictingChannels: false,
       },
     });
 
@@ -867,6 +876,12 @@ export async function upsertContactChannel(params: {
       contactType: params.contactType ?? "human",
       notes: params.notes,
       refreshDisplayName: true,
+      // Inbound seed: never reparent a conflicting channel. Two first-seen
+      // events for the same (type,address) both reach this create path with
+      // different fresh contact ids; the gateway insert uses onConflictDoNothing
+      // and keeps the FIRST, so the mirror must not reparent to the second or
+      // the two stores would disagree about the channel's contact.
+      reassignConflictingChannels: false,
     },
   });
 

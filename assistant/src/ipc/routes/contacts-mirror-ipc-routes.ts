@@ -37,12 +37,20 @@ const UpsertChannelParamsSchema = z.object({
   // refreshes the mirror; invite-binding callers omit it to preserve a curated
   // name.
   refreshDisplayName: z.boolean().optional(),
+  // Reparent a conflicting (type,address) channel owned by another contact to
+  // this one. Invite/verified binding sets true; the inbound identity-seed
+  // mirror sets false to match the gateway insert's onConflictDoNothing (a
+  // first-seen race must not steal the channel from the contact the gateway
+  // kept). Omitted → the primitive defaults to `!!contactId`.
+  reassignConflictingChannels: z.boolean().optional(),
 });
 
 /**
  * Upsert a contact + channel identity row, faithfully replicating gateway
  * identity: it reuses the gateway-minted channel id for a new channel,
- * re-parents a channel whose (type,address) belongs to another contact,
+ * optionally re-parents a channel whose (type,address) belongs to another
+ * contact (`reassignConflictingChannels`; invite/verified binding only —
+ * inbound seeds pass false to match the gateway insert's onConflictDoNothing),
  * refreshes external_chat_id, and — for a mirror-created contact — leaves
  * user_file NULL (never a generated persona-file stub). The display name is
  * refreshed for inbound seeds (`refreshDisplayName`) and preserved for the
@@ -62,6 +70,7 @@ export function handleContactsMirrorUpsertChannel({
     contactType: params.contactType,
     notes: params.notes,
     refreshDisplayName: params.refreshDisplayName,
+    reassignConflictingChannels: params.reassignConflictingChannels,
     // The mirror never seeds a persona file: a mirror-created contact keeps
     // user_file NULL, matching the gateway's former raw INSERT.
     userFileOnCreate: null,
