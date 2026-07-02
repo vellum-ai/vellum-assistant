@@ -24,6 +24,9 @@ const MAX_ICON_BYTES = 32 * 1024;
 const MAX_ICON_DIMENSION = 128;
 /** PNG signature: the first 8 bytes of every PNG file. */
 const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+/** The first chunk of a valid PNG is always IHDR with a 13-byte payload. */
+const PNG_IHDR_LENGTH = 13;
+const PNG_IHDR_TYPE = Buffer.from("IHDR", "ascii");
 /** Smallest prefix we need: 8-byte magic + 8-byte chunk header + IHDR w/h. */
 const MIN_HEADER_BYTES = 24;
 
@@ -65,6 +68,16 @@ export function readValidatedPluginIcon(
     return { hasIcon: false };
   }
   if (!bytes.subarray(0, PNG_MAGIC.length).equals(PNG_MAGIC)) {
+    return { hasIcon: false };
+  }
+
+  // The first chunk must be IHDR (length 13, type "IHDR") before its bytes
+  // can be read as dimensions — otherwise a non-PNG with the signature and
+  // small integers at offsets 16/20 would be accepted.
+  if (
+    bytes.readUInt32BE(8) !== PNG_IHDR_LENGTH ||
+    !bytes.subarray(12, 16).equals(PNG_IHDR_TYPE)
+  ) {
     return { hasIcon: false };
   }
 

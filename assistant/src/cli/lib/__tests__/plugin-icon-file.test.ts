@@ -122,6 +122,15 @@ describe("readValidatedPluginIcon", () => {
     expect(readValidatedPluginIcon(pluginDir)).toEqual({ hasIcon: false });
   });
 
+  test("rejects a signature-prefixed file whose first chunk is not IHDR", () => {
+    // Valid signature + in-range integers at offsets 16/20, but the first
+    // chunk type is IDAT — must not be treated as dimensions.
+    const buf = makePng(64, 64);
+    buf.write("IDAT", 12, "ascii");
+    writeIcon(buf);
+    expect(readValidatedPluginIcon(pluginDir)).toEqual({ hasIcon: false });
+  });
+
   test("returns hasIcon:false when no icon.png exists", () => {
     expect(readValidatedPluginIcon(pluginDir)).toEqual({ hasIcon: false });
   });
