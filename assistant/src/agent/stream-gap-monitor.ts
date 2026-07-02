@@ -123,11 +123,12 @@ function defaultReport(
   context: Record<string, string | undefined>,
 ): (report: StreamGapReport) => void {
   return (report) => {
-    const detail = { ...context, ...report };
-    log.warn(
-      { ...detail, sectionTrail: getSectionTrail() },
-      "Gap between consecutive streamed deltas",
-    );
+    // The trail is the "why": it names the instrumented sections that ran
+    // between the two deltas. Attached to the telemetry detail as well as
+    // the log line so aggregate views carry attribution, not just counts.
+    // Trail entries are static labels + ages — never content.
+    const detail = { ...context, ...report, sectionTrail: getSectionTrail() };
+    log.warn(detail, "Gap between consecutive streamed deltas");
     // Lazy dynamic import for the same reason as `reportSlowSync`: keeping
     // the telemetry → consent-cache → config chain off this module's static
     // graph. Best-effort; a failure must never surface into the stream.
