@@ -15,7 +15,6 @@ on:
       # introduces drift.
       - 'meta/llm-provider-catalog.json'
       - '.github/workflows/pr-assistant.yaml'
-      - '.github/actions/install-shared-packages/**'
 
 concurrency:
   group: pr-assistant-${{ github.event.pull_request.number }}
@@ -47,12 +46,7 @@ jobs:
             bun-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client gateway
+        run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -88,12 +82,7 @@ jobs:
             bun-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client gateway
+        run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -126,12 +115,7 @@ jobs:
             bun-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client gateway
+        run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
@@ -216,12 +200,7 @@ jobs:
             bun-${{ runner.os }}-
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client gateway
+        run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
 
       - name: Sync feature flag registry
         run: cd .. && bun run meta/feature-flags/sync-bundled-copies.ts
