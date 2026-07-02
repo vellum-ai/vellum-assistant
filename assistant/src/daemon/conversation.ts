@@ -111,7 +111,7 @@ import {
   runAgentLoopImpl,
 } from "./conversation-agent-loop.js";
 import type { HistoryConversationContext } from "./conversation-history.js";
-import { isToolResultBlock, undo as undoImpl } from "./conversation-history.js";
+import { undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
   disposeConversation,
@@ -178,40 +178,13 @@ import type { ConversationTransportMetadata } from "./message-types/conversation
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
-import { resolveSummarizeBoundary } from "./summarize-boundary.js";
+import {
+  resolveSummarizeBoundary,
+  startsNewTurn,
+} from "./summarize-boundary.js";
 import { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation");
-
-/**
- * Whether a persisted message starts a new conversation turn. A turn is
- * delimited by a "real" user message; a user message whose content is entirely
- * tool_result blocks is a continuation within the current turn, and assistant
- * messages never start one. Mirrors the turn-boundary definition used by
- * `getAssistantMessageIdsInTurn`/`getTurnTimeBounds` and the agent loop's
- * per-turn `turnCount++`, so counting these reconstructs `turnCount` on load.
- */
-export function startsNewTurn(role: string, content: string): boolean {
-  if (role !== "user") return false;
-  try {
-    const parsed = JSON.parse(content);
-    if (
-      Array.isArray(parsed) &&
-      parsed.length > 0 &&
-      parsed.every(
-        (block: unknown) =>
-          block != null &&
-          typeof block === "object" &&
-          isToolResultBlock(block as Record<string, unknown>),
-      )
-    ) {
-      return false;
-    }
-  } catch {
-    // Non-JSON content is a plain user message — a turn boundary.
-  }
-  return true;
-}
 
 /**
  * First text block of a persisted message row's content, mirroring
@@ -1969,7 +1942,14 @@ export class Conversation {
         effectiveContextWindow,
       ),
     );
+    // A caller-fixed tail boundary is computed and verified against
+    // `this.messages`; the Slack chronological projection is a different
+    // array (watermark-sliced, actor-filtered, re-rendered) whose indices
+    // don't correspond. Fixed-boundary runs therefore always compact
+    // `this.messages` and skip the Slack watermark (a null context makes
+    // `getSlackCompactionWatermarkForPrefix` return null below).
     const slackChronologicalContext =
+      opts?.fixedTailStartIndex == null &&
       this.channelCapabilities?.channel === "slack"
         ? loadSlackChronologicalContext(
             this.conversationId,

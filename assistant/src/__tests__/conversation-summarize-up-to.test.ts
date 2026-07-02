@@ -84,6 +84,7 @@ mock.module("../config/loader.js", () => ({
     timeouts: { permissionTimeoutSec: 1 },
     skills: { entries: {}, allowBundled: true },
     permissions: { mode: "workspace" },
+    slack: { botUserId: "" },
   }),
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
@@ -130,6 +131,8 @@ interface MockRow {
 }
 let mockDbMessages: MockRow[] = [];
 let mockConversation: Record<string, unknown> = {};
+// Captured Slack watermark persists (conversationId, watermarkTs, compactedAt).
+let slackWatermarkCalls: unknown[][] = [];
 
 mock.module("../persistence/conversation-crud.js", () => ({
   setConversationProcessingStartedAt: () => {},
@@ -146,6 +149,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
     mockConversation.contextSummary = contextSummary;
     mockConversation.contextCompactedMessageCount =
       contextCompactedMessageCount;
+  },
+  updateConversationSlackContextWatermark: (...args: unknown[]) => {
+    slackWatermarkCalls.push(args);
   },
   setConversationHistoryStrippedAt: () => {},
   deleteMessageById: () => {},
@@ -346,6 +352,45 @@ function threeTurnRows(): MockRow[] {
   ];
 }
 
+/** A Slack-tagged row whose metadata carries a real `slackMeta.channelTs`. */
+function slackRow(
+  id: string,
+  role: string,
+  text: string,
+  channelTs: string,
+): MockRow {
+  return {
+    ...row(id, role, text),
+    metadata: JSON.stringify({
+      slackMeta: JSON.stringify({
+        source: "slack",
+        channelId: "C123",
+        channelTs,
+        eventKind: "message",
+      }),
+    }),
+  };
+}
+
+/** The three-turn history as Slack-tagged rows with increasing channelTs. */
+function slackThreeTurnRows(): MockRow[] {
+  return [
+    slackRow("m0", "user", "u1", "1000.000100"),
+    slackRow("m1", "assistant", "a1", "1000.000200"),
+    slackRow("m2", "user", "u2", "1000.000300"),
+    slackRow("m3", "assistant", "a2", "1000.000400"),
+    slackRow("m4", "user", "u3", "1000.000500"),
+    slackRow("m5", "assistant", "a3", "1000.000600"),
+  ];
+}
+
+const slackCapabilities = {
+  channel: "slack",
+  dashboardCapable: false,
+  supportsDynamicUi: false,
+  supportsVoiceInput: false,
+};
+
 function baseConversationRow(): Record<string, unknown> {
   return {
     id: "conv-1",
@@ -364,6 +409,7 @@ function baseConversationRow(): Record<string, unknown> {
 describe("Conversation.summarizeUpToMessage", () => {
   beforeEach(() => {
     compactCalls = [];
+    slackWatermarkCalls = [];
     mockCompactResult = makeNoopResult();
     mockDbMessages = threeTurnRows();
     mockConversation = baseConversationRow();
@@ -496,6 +542,51 @@ describe("Conversation.summarizeUpToMessage", () => {
       "Nothing to summarize before this message",
     );
     expect(compactCalls).toHaveLength(0);
+  });
+
+  test("Slack: a fixed boundary compacts this.messages, never the Slack chronological projection", async () => {
+    mockDbMessages = slackThreeTurnRows();
+    const conversation = makeConversation();
+    conversation.setChannelCapabilities(slackCapabilities);
+
+    await conversation.summarizeUpToMessage("m4");
+
+    expect(compactCalls).toHaveLength(1);
+    expect(compactCalls[0].fixedTailStartIndex).toBe(4);
+    // The boundary index was computed and verified against `this.messages`,
+    // so that exact array must reach the compactor — the re-rendered Slack
+    // chronological projection is a different array whose indices don't
+    // correspond.
+    expect(compactCalls[0].messages).toBe(conversation.messages);
+    expect(compactCalls[0].messages).toHaveLength(6);
+  });
+
+  test("Slack: a fixed-boundary run persists no watermark; forced compaction still does", async () => {
+    mockDbMessages = slackThreeTurnRows();
+    const conversation = makeConversation();
+    conversation.setChannelCapabilities(slackCapabilities);
+    mockCompactResult = {
+      ...makeNoopResult(),
+      compacted: true,
+      compactedMessages: 4,
+      compactedPersistedMessages: 4,
+      summaryText: "slack summary",
+    };
+
+    await conversation.summarizeUpToMessage("m4");
+
+    // The compacted prefix came from `this.messages`, not the Slack
+    // projection, so no Slack watermark can be derived from it.
+    expect(slackWatermarkCalls).toHaveLength(0);
+
+    // Contrast: the forced/auto path keeps its Slack behavior — it compacts
+    // the projection and persists a watermark derived from the compacted
+    // prefix's channelTs values.
+    await conversation.forceCompact();
+
+    expect(slackWatermarkCalls).toHaveLength(1);
+    expect(slackWatermarkCalls[0][0]).toBe("conv-1");
+    expect(typeof slackWatermarkCalls[0][1]).toBe("string");
   });
 
   test("throws the retryable UserError and skips compaction when the mapping cannot be verified", async () => {
