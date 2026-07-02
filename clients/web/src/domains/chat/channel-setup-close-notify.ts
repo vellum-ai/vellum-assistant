@@ -53,12 +53,7 @@ export async function notifyChannelSetupClosed(
       payload.assistantId,
       conversationId,
       buildChannelSetupClosedMessage(payload.channel),
-      [],
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      /* isHidden */ true,
+      { hidden: true },
     );
     if (!result.ok) {
       captureError(

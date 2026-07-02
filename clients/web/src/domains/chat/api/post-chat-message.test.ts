@@ -99,13 +99,15 @@ describe("postChatMessage onboarding payload", () => {
   });
 
   test("includes normalized onboarding and seeds profile files concurrently with the message post", async () => {
-    await postChatMessage("asst-1", "K", "hello", [], {
-      tools: ["github", "linear"],
-      tasks: ["code-building", "writing"],
-      tone: "friendly",
-      userName: "Ada",
-      occupation: "Software Engineer",
-      assistantName: "Vel",
+    await postChatMessage("asst-1", "K", "hello", {
+      onboarding: {
+        tools: ["github", "linear"],
+        tasks: ["code-building", "writing"],
+        tone: "friendly",
+        userName: "Ada",
+        occupation: "Software Engineer",
+        assistantName: "Vel",
+      },
     });
     // Profile seeding is fire-and-forget — flush the microtask queue so
     // the concurrent writes settle before we assert.
@@ -138,12 +140,14 @@ describe("postChatMessage onboarding payload", () => {
   });
 
   test("excludes userName when undefined (matches macOS `if let userName`)", async () => {
-    await postChatMessage("asst-1", "K", "hello", [], {
-      tools: ["github"],
-      tasks: ["plan"],
-      tone: "concise",
-      // userName intentionally omitted
-      assistantName: "Vel",
+    await postChatMessage("asst-1", "K", "hello", {
+      onboarding: {
+        tools: ["github"],
+        tasks: ["plan"],
+        tone: "concise",
+        // userName intentionally omitted
+        assistantName: "Vel",
+      },
     });
 
     const body = getRequestBody();
@@ -161,12 +165,14 @@ describe("postChatMessage onboarding payload", () => {
     // Codex P2 regression guard: a caller that intentionally sends "" to
     // represent a blank-but-present name must reach the wire untouched —
     // truthy checks would silently drop these and diverge from macOS.
-    await postChatMessage("asst-1", "K", "hello", [], {
-      tools: ["github"],
-      tasks: ["plan"],
-      tone: "concise",
-      userName: "",
-      assistantName: "",
+    await postChatMessage("asst-1", "K", "hello", {
+      onboarding: {
+        tools: ["github"],
+        tasks: ["plan"],
+        tone: "concise",
+        userName: "",
+        assistantName: "",
+      },
     });
 
     const body = getRequestBody();
@@ -180,10 +186,12 @@ describe("postChatMessage onboarding payload", () => {
   });
 
   test("includes empty tools/tasks arrays as valid wire payload", async () => {
-    await postChatMessage("asst-1", "K", "hello", [], {
-      tools: [],
-      tasks: [],
-      tone: "neutral",
+    await postChatMessage("asst-1", "K", "hello", {
+      onboarding: {
+        tools: [],
+        tasks: [],
+        tone: "neutral",
+      },
     });
 
     const body = getRequestBody();
