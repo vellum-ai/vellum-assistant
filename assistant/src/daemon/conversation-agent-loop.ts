@@ -34,10 +34,6 @@ import {
 } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import {
-  derefToolResultReReads,
-  postTurnTruncateToolResults,
-} from "../context/post-turn-tool-result-truncation.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
 import {
   clearSentryConversationContext,
@@ -56,8 +52,6 @@ import {
   updateConversationContextWindow,
   updateConversationSlackContextWatermark,
 } from "../persistence/conversation-crud.js";
-import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
-import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
 import { isReplaceableTitle } from "../persistence/conversation-title-service.js";
 import {
   backfillMessageIdOnLogs,
@@ -81,6 +75,7 @@ import { timeAgo } from "../util/time.js";
 import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
+import { ABORT_WATCHDOG_MS } from "./abort-watchdog.js";
 import { cleanAssistantContent } from "./assistant-attachments.js";
 import { conversationSupportsDynamicUi } from "./channel-ui-capability.js";
 import type { Conversation } from "./conversation.js";
@@ -114,6 +109,7 @@ import {
 } from "./conversation-runtime-assembly.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
 import { getEffectiveEnabledPluginSet } from "./conversation-tool-setup.js";
+import { runDeferredTurnTail } from "./conversation-turn-finalize.js";
 import { recordUsage } from "./conversation-usage.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
 import { getDiskPressureStatus } from "./disk-pressure-guard.js";
@@ -198,28 +194,25 @@ export interface AssistantSurface {
 // ── abort watchdog ───────────────────────────────────────────────────
 
 /**
- * Backstop that drives an aborted turn to its `finally` even if some awaited
- * operation fails to observe the abort signal.
+ * Race `work` against an abort watchdog. The watchdog is a backstop that drives
+ * an aborted turn to its `finally` even if some awaited operation fails to
+ * observe the abort signal. Abort is otherwise cooperative and already wired
+ * into the slow paths: the provider call forwards the signal to its
+ * HTTP/streaming fetch, and tool execution races the signal so a stuck tool
+ * can't block cancellation. The watchdog only fires when a future code path
+ * silently ignores abort — without it, such a path would hang the loop forever
+ * and latch the conversation's `processing` flag true (the wedged "Thinking…"
+ * indicator). It is defense-in-depth, not the primary mechanism: in the common
+ * case abort settles in-flight work in well under a second, so ABORT_WATCHDOG_MS
+ * is ample headroom for a cooperative unwind while still releasing a genuinely
+ * wedged turn promptly.
  *
- * Abort is otherwise cooperative and already wired into the slow paths: the
- * provider call forwards the signal to its HTTP/streaming fetch, and tool
- * execution races the signal so a stuck tool can't block cancellation. This
- * watchdog only fires when a future code path silently ignores abort — without
- * it, such a path would hang the loop forever and latch the conversation's
- * `processing` flag true (the wedged "Thinking…" indicator). It is
- * defense-in-depth, not the primary mechanism: in the common case abort settles
- * in-flight work in well under a second, so a few seconds is ample headroom for
- * a cooperative unwind while still releasing a genuinely wedged turn promptly.
- */
-const ABORT_WATCHDOG_MS = 5_000;
-
-/**
- * Race `work` against an abort watchdog. The watchdog stays disarmed until the
- * signal fires; once it does, the turn has `timeoutMs` to settle before the
- * watchdog rejects with the signal's own abort reason so the caller unwinds to
- * its `finally` and the reason classifies as a user cancellation downstream.
- * The abandoned `work` promise keeps running detached — its eventual rejection
- * is swallowed so it can't surface as an unhandled rejection.
+ * The watchdog stays disarmed until the signal fires; once it does, the turn has
+ * `timeoutMs` to settle before the watchdog rejects with the signal's own abort
+ * reason so the caller unwinds to its `finally` and the reason classifies as a
+ * user cancellation downstream. The abandoned `work` promise keeps running
+ * detached — its eventual rejection is swallowed so it can't surface as an
+ * unhandled rejection.
  */
 async function withAbortWatchdog<T>(
   work: Promise<T>,
@@ -1047,6 +1040,10 @@ export async function runAgentLoopImpl(
     };
 
     const updatedHistory = await runAgentLoop(runMessages, true);
+    // Generation is done streaming. Anything awaited between here and the
+    // terminal SSE is what the user perceives as the gap between the last
+    // token and the composer re-enabling, so keep that window minimal.
+    const generationCompletedAt = Date.now();
 
     rlog.info(
       { resultMessageCount: updatedHistory.length },
@@ -1306,39 +1303,18 @@ export async function runAgentLoopImpl(
       0,
       updatedHistory.length - lastRunNewMessages.length,
     );
-    let restoredHistory = [...loopBase, ...newMessages];
-
-    // Post-turn tool result truncation: save large results to disk and
-    // replace in-context content with a prefix/suffix stub + file pointer.
-    try {
-      const conv = getConversation(ctx.conversationId);
-      if (conv) {
-        const convDir = getResolvedConversationDirPath(
-          ctx.conversationId,
-          conv.createdAt,
-        );
-        const { messages: derefMessages, dereferencedCount } =
-          derefToolResultReReads(restoredHistory);
-        const { messages: truncatedMessages, truncatedCount } =
-          postTurnTruncateToolResults(derefMessages, {
-            conversationDir: convDir,
-          });
-        if (truncatedCount > 0 || dereferencedCount > 0) {
-          rlog.info(
-            { truncatedCount, dereferencedCount },
-            "Post-turn tool result truncation applied",
-          );
-        }
-        restoredHistory = truncatedMessages;
-      }
-    } catch (err) {
-      rlog.warn({ err }, "Post-turn tool result truncation failed (non-fatal)");
-    }
+    const restoredHistory = [...loopBase, ...newMessages];
 
     // Persist injections in history: runtime-injected context stays on
     // historical user messages so the conversation prefix is stable for
     // Anthropic's prefix caching.  Stripping only happens during
     // compaction/overflow recovery (where a cache miss is expected).
+    //
+    // Post-turn tool-result truncation (spooling large results to disk and
+    // shrinking the next turn's context) is deferred to `runDeferredTurnTail`
+    // below. It only rewrites the in-memory history the NEXT turn is built
+    // from — never the just-delivered reply — so it must not sit on the
+    // critical path to the terminal SSE that re-enables the composer.
     ctx.messages = restoredHistory;
 
     emitUsage(
@@ -1365,21 +1341,11 @@ export async function runAgentLoopImpl(
       turnCronRunId,
     );
 
-    const syncLastAssistantMessageToDisk = (): void => {
-      if (!state.lastAssistantMessageId) return;
-      const convForDisk = getConversation(ctx.conversationId);
-      if (!convForDisk) return;
-      syncMessageToDisk(
-        ctx.conversationId,
-        state.lastAssistantMessageId,
-        convForDisk.createdAt,
-      );
-    };
     // Fast-path: when the user cancelled, skip expensive post-loop work
     // (attachment resolution) and emit the cancellation event immediately
-    // so the client can re-enable the UI without delay.
+    // so the client can re-enable the UI without delay. Disk sync and the rest
+    // of the bookkeeping run in `runDeferredTurnTail` after this SSE.
     if (abortController.signal.aborted) {
-      syncLastAssistantMessageToDisk();
       ctx.emitActivityState("idle", "generation_cancelled", {
         anchor: "global",
         requestId: reqId,
@@ -1419,7 +1385,6 @@ export async function runAgentLoopImpl(
 
       ctx.lastAssistantAttachments = assistantAttachments;
       ctx.lastAttachmentWarnings = attachmentResult.directiveWarnings;
-      syncLastAssistantMessageToDisk();
 
       // Re-check: the user may have cancelled during attachment resolution
       if (abortController.signal.aborted) {
@@ -1500,6 +1465,12 @@ export async function runAgentLoopImpl(
         publishLoopMessagesChanged();
       }
     }
+
+    // The terminal SSE for this turn has now been emitted (message_complete,
+    // generation_handoff, or generation_cancelled), so the composer is already
+    // re-enabling. Drain the deferred bookkeeping now — after the SSE, before
+    // the `finally` commits and drains the queue for the next turn.
+    await runDeferredTurnTail({ ctx, state, rlog, generationCompletedAt });
   } catch (err) {
     clearConversationNotices(ctx.conversationId);
     const errorCtx = {

@@ -1,9 +1,7 @@
 import { useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { useLocation } from "react-router";
 
 import { PROVIDER_ID } from "@/domains/account/login-flow";
-import { isPlatformLocal } from "@/lib/auth/loopback-auth";
-import { isLocalMode } from "@/lib/local-mode";
 import { buildNavigationState } from "@/lib/navigation/build-state";
 import { resolveLoginReturnTo } from "@/lib/navigation/navigation-resolver";
 import { isElectron } from "@/runtime/is-electron";
@@ -11,7 +9,6 @@ import { startAuthFlow } from "@/runtime/native-auth";
 import { routes } from "@/utils/routes";
 
 export function useOnboardingLogin(returnToOverride?: string) {
-  const navigate = useNavigate();
   const location = useLocation();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -25,12 +22,6 @@ export function useOnboardingLogin(returnToOverride?: string) {
         location.pathname,
       );
 
-    if (isLocalMode() && isPlatformLocal()) {
-      void navigate(
-        `${routes.account.login}?returnTo=${encodeURIComponent(returnTo)}`,
-      );
-      return;
-    }
     const flowId = ++flowIdRef.current;
     setError(null);
     setLoading(true);

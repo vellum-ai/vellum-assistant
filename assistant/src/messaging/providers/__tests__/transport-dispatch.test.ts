@@ -9,14 +9,14 @@ const slack = {
     Promise.resolve({ ts: "slack-ts" }),
   ),
   sendSlackReaction: mock((..._args: unknown[]) => Promise.resolve()),
-  sendSlackTypingIndicator: mock((..._args: unknown[]) =>
-    Promise.resolve("typing-ts"),
-  ),
   sendSlackAssistantThreadStatus: mock((..._args: unknown[]) =>
     Promise.resolve(),
   ),
   sendSlackAttachments: mock((..._args: unknown[]) =>
     Promise.resolve({ allFailed: false, failureCount: 0 }),
+  ),
+  sendSlackStreamOp: mock((..._args: unknown[]) =>
+    Promise.resolve({ ok: true, ts: "stream-ts" }),
   ),
 };
 const telegram = {
@@ -144,13 +144,29 @@ describe("Slack sub-operation selection", () => {
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
   });
 
-  test("typing routes to sendSlackTypingIndicator", async () => {
+  test("a typing payload to Slack falls through to deliver (no typing capability)", async () => {
     await deliverDirect(
       `${BASE}/deliver/slack`,
-      payload({ chatAction: "typing" }),
+      payload({ chatAction: "typing", text: "hi" }),
     );
-    expect(slack.sendSlackTypingIndicator).toHaveBeenCalledTimes(1);
+    expect(slack.sendSlackReply).toHaveBeenCalledTimes(1);
+  });
+
+  test("slackStream routes to sendSlackStreamOp ahead of the text path", async () => {
+    const result = await deliverDirect(
+      `${BASE}/deliver/slack?threadTs=1700.5`,
+      payload({
+        text: "ignored while streaming",
+        slackStream: { action: "start", threadTs: "1700.5" },
+      }),
+    );
+    expect(slack.sendSlackStreamOp).toHaveBeenCalledTimes(1);
+    expect(slack.sendSlackStreamOp.mock.calls[0]).toEqual([
+      "C1",
+      { action: "start", threadTs: "1700.5" },
+    ]);
     expect(slack.sendSlackReply).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, ts: "stream-ts" });
   });
 });
 

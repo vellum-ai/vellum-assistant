@@ -1,23 +1,20 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { buildEmailTransportMetadata } from "../../channels/transport-hints.js";
+import type { Logger } from "pino";
 import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
-import { recordDenialReplyIfAllowed } from "../../db/denial-reply-rate-limiter.js";
+import {
+  resolveCredentialWithRefresh,
+  verifySecretWithRefresh,
+} from "../../credential-refresh.js";
 import { StringDedupCache } from "../../dedup-cache.js";
+import type { EmailReplySender } from "../../email/inbound-pipeline.js";
+import { runEmailInboundPipeline } from "../../email/inbound-pipeline.js";
 import type { VellumEmailPayload } from "../../email/normalize.js";
-import { normalizeEmailWebhook } from "../../email/normalize.js";
-import { handleInbound } from "../../handlers/handle-inbound.js";
+import { parseEmailAddress } from "../../email/normalize.js";
 import { getLogger } from "../../logger.js";
-import {
-  resolveAssistant,
-  isRejection,
-} from "../../routing/resolve-assistant.js";
-import {
-  handleCircuitBreakerError,
-  processInboundResult,
-} from "../../webhook-pipeline.js";
+import { readLimitedBodyBytes } from "../read-limited-body.js";
 
 const log = getLogger("mailgun-webhook");
 
@@ -67,35 +64,24 @@ function verifyMailgunSignature(
 // ── Mailgun inbound payload parsing ─────────────────────────────────
 
 /**
- * Parse an RFC 5322 address like `"Alice <alice@example.com>"` into its
- * components. Returns the raw email address and optional display name.
- */
-function parseEmailAddress(raw: string): {
-  address: string;
-  displayName?: string;
-} {
-  const match = raw.match(/^(.+?)\s*<([^>]+)>$/);
-  if (match) {
-    const name = match[1].trim().replace(/^["']|["']$/g, "");
-    return { address: match[2].trim(), displayName: name || undefined };
-  }
-  return { address: raw.trim() };
-}
-
-/**
- * Parse form-encoded or JSON body into a flat field map.
+ * Parse form-encoded or JSON body into a flat field map. Takes already-read
+ * bytes (size-capped upstream) and the content-type rather than the live
+ * request, so the body is never buffered a second time and the payload cap is
+ * enforced before parsing. Bytes are re-wrapped in a `Response` to reuse the
+ * platform's multipart/form parser without losing binary fidelity.
  */
 async function parseMailgunBody(
-  req: Request,
+  bytes: Uint8Array<ArrayBuffer>,
+  contentType: string,
 ): Promise<Record<string, string> | null> {
-  const contentType = req.headers.get("content-type") ?? "";
-
   if (
     contentType.includes("application/x-www-form-urlencoded") ||
     contentType.includes("multipart/form-data")
   ) {
     try {
-      const formData = await req.formData();
+      const formData = await new Response(bytes, {
+        headers: { "content-type": contentType },
+      }).formData();
       const fields: Record<string, string> = {};
       for (const [key, value] of formData.entries()) {
         if (typeof value === "string") {
@@ -110,7 +96,10 @@ async function parseMailgunBody(
 
   if (contentType.includes("application/json")) {
     try {
-      const json = (await req.json()) as Record<string, unknown>;
+      const json = (await new Response(bytes).json()) as Record<
+        string,
+        unknown
+      >;
       const fields: Record<string, string> = {};
       for (const [key, value] of Object.entries(json)) {
         if (typeof value === "string") {
@@ -169,6 +158,55 @@ function normalizeMailgunToVellumPayload(
   };
 }
 
+// ── Reply delivery ──────────────────────────────────────────────────
+
+/**
+ * Reply sender using the Mailgun Messages API. The sending domain is
+ * derived from the inbound recipient address (`from` side of the reply).
+ */
+function buildMailgunReplySender(
+  apiKey: string,
+  log: Logger,
+): EmailReplySender {
+  return async ({ kind, from, to, subject, text, inReplyTo }) => {
+    const domain = from.split("@")[1];
+    if (!domain) {
+      return;
+    }
+    try {
+      const form = new URLSearchParams();
+      form.set("from", from);
+      form.set("to", to);
+      form.set("subject", subject);
+      form.set("text", text);
+      if (inReplyTo) {
+        form.set("h:In-Reply-To", inReplyTo);
+      }
+
+      const sendResponse = await fetch(
+        `https://api.mailgun.net/v3/${domain}/messages`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Basic ${Buffer.from(`api:${apiKey}`).toString("base64")}`,
+          },
+          body: form,
+        },
+      );
+      if (sendResponse.ok) {
+        log.info({ from, to }, `Sent ${kind} reply via Mailgun`);
+      } else {
+        log.warn(
+          { status: sendResponse.status, from, to },
+          `Failed to send ${kind} reply via Mailgun`,
+        );
+      }
+    } catch (err) {
+      log.error({ err, from, to }, `Error sending ${kind} reply via Mailgun`);
+    }
+  };
+}
+
 // ── Webhook handler factory ─────────────────────────────────────────
 
 export function createMailgunWebhookHandler(
@@ -186,38 +224,35 @@ export function createMailgunWebhookHandler(
       return Response.json({ error: "Method not allowed" }, { status: 405 });
     }
 
-    // Payload size guard
-    const contentLength = req.headers.get("content-length");
-    if (
-      contentLength &&
-      Number(contentLength) > config.maxWebhookPayloadBytes
-    ) {
-      tlog.warn({ contentLength }, "Mailgun webhook payload too large");
+    // Cap body buffering before the (unauthenticated) signature check; a
+    // header-only guard is bypassable via chunked / absent Content-Length.
+    const bodyResult = await readLimitedBodyBytes(
+      req,
+      config.maxWebhookPayloadBytes,
+    );
+    if (bodyResult.status === "too_large") {
+      tlog.warn("Mailgun webhook payload too large");
       return Response.json({ error: "Payload too large" }, { status: 413 });
+    }
+    if (bodyResult.status === "unreadable") {
+      return Response.json({ error: "Failed to read body" }, { status: 400 });
     }
 
     // ── Parse body ──────────────────────────────────────────────────
     // Mailgun inbound routes POST form-encoded data, not JSON.
 
-    const fields = await parseMailgunBody(req);
+    const fields = await parseMailgunBody(
+      bodyResult.bytes,
+      req.headers.get("content-type") ?? "",
+    );
     if (!fields) {
       return Response.json({ error: "Failed to parse body" }, { status: 400 });
     }
 
     // ── Credential resolution ───────────────────────────────────────
 
-    const resolveCredential = async (
-      key: string,
-    ): Promise<string | undefined> => {
-      if (!caches?.credentials) return undefined;
-      let value = await caches.credentials.get(key);
-      if (!value) {
-        value = await caches.credentials.get(key, { force: true });
-      }
-      return value;
-    };
-
-    const signingKey = await resolveCredential(
+    const signingKey = await resolveCredentialWithRefresh(
+      caches?.credentials,
       credentialKey("mailgun", "webhook_signing_key"),
     );
 
@@ -237,33 +272,13 @@ export function createMailgunWebhookHandler(
     const token = fields["token"] ?? "";
     const signature = fields["signature"] ?? "";
 
-    let signatureValid = verifyMailgunSignature(
-      signingKey,
-      timestamp,
-      token,
-      signature,
-    );
-
-    // One-shot force retry on verification failure
-    if (!signatureValid && caches?.credentials) {
-      const freshKey = await caches.credentials.get(
-        credentialKey("mailgun", "webhook_signing_key"),
-        { force: true },
-      );
-      if (freshKey) {
-        signatureValid = verifyMailgunSignature(
-          freshKey,
-          timestamp,
-          token,
-          signature,
-        );
-        if (signatureValid) {
-          tlog.info(
-            "Mailgun webhook signature verified after forced credential refresh",
-          );
-        }
-      }
-    }
+    const signatureValid = await verifySecretWithRefresh({
+      credentials: caches?.credentials,
+      key: credentialKey("mailgun", "webhook_signing_key"),
+      verify: (key) => verifyMailgunSignature(key, timestamp, token, signature),
+      log: tlog,
+      label: "Mailgun webhook signature",
+    });
 
     if (!signatureValid) {
       tlog.warn("Mailgun webhook signature verification failed");
@@ -288,248 +303,27 @@ export function createMailgunWebhookHandler(
       return Response.json({ ok: true });
     }
 
-    const normalized = normalizeEmailWebhook(
-      vellumPayload as unknown as Record<string, unknown>,
+    // ── Forward through the shared email pipeline ───────────────────
+
+    const apiKey = await resolveCredentialWithRefresh(
+      caches?.credentials,
+      credentialKey("mailgun", "api_key"),
     );
-    if (!normalized) {
-      tlog.debug(
-        "normalizeEmailWebhook returned null for Mailgun event, acknowledging",
-      );
-      if (token) dedupCache.mark(token);
-      return Response.json({ ok: true });
+    if (!apiKey) {
+      tlog.debug("Mailgun API key not configured — replies disabled");
     }
 
-    const { event: gatewayEvent, eventId, recipientAddress } = normalized;
-
-    tlog.info(
-      {
-        source: "mailgun",
-        eventId,
-        from: gatewayEvent.actor.actorExternalId,
-        to: recipientAddress,
-      },
-      "Mailgun webhook received",
-    );
-
-    // ── Routing ─────────────────────────────────────────────────────
-
-    const routing = resolveAssistant(
+    return runEmailInboundPipeline({
       config,
-      gatewayEvent.message.conversationExternalId,
-      gatewayEvent.actor.actorExternalId,
-    );
-
-    if (isRejection(routing)) {
-      tlog.warn(
-        {
-          from: gatewayEvent.actor.actorExternalId,
-          to: recipientAddress,
-          reason: routing.reason,
-        },
-        "Routing rejected inbound Mailgun email",
-      );
-      if (token) dedupCache.mark(token);
-      return Response.json({ ok: true });
-    }
-
-    // ── Forward to runtime ──────────────────────────────────────────
-
-    try {
-      const result = await handleInbound(config, gatewayEvent, {
-        transportMetadata: buildEmailTransportMetadata({
-          senderAddress: gatewayEvent.actor.actorExternalId,
-          recipientAddress,
-          subject: vellumPayload.subject,
-          inReplyTo: vellumPayload.inReplyTo,
-        }),
-        replyCallbackUrl: undefined,
-        traceId,
-        routingOverride: routing,
-        sourceMetadata: {
-          emailSubject: vellumPayload.subject ?? undefined,
-          emailRecipient: recipientAddress,
-          ...(vellumPayload.inReplyTo
-            ? { emailInReplyTo: vellumPayload.inReplyTo }
-            : {}),
-          ...(vellumPayload.references
-            ? { emailReferences: vellumPayload.references }
-            : {}),
-        },
-      });
-
-      const processed = processInboundResult(
-        result,
-        dedupCache,
-        token,
-        () => {
-          tlog.warn(
-            { from: gatewayEvent.actor.actorExternalId, to: recipientAddress },
-            "Mailgun email routing rejected after forwarding attempt",
-          );
-        },
-        tlog,
-      );
-
-      if (!processed.ok) {
-        return Response.json({ error: "Internal error" }, { status: 500 });
-      }
-
-      // ── Verification reply ──────────────────────────────────────
-      // Not gated by recordDenialReplyIfAllowed — verification success
-      // confirmations must always be delivered regardless of prior denial
-      // replies to this sender.
-      if (result.verificationIntercepted && result.verificationReplyText) {
-        const mailgunApiKeyForVerify = await resolveCredential(
-          credentialKey("mailgun", "api_key"),
-        );
-        if (mailgunApiKeyForVerify) {
-          const senderAddress = gatewayEvent.actor.actorExternalId;
-          const mailgunDomainForVerify = recipientAddress.split("@")[1];
-          if (mailgunDomainForVerify) {
-            try {
-              const form = new URLSearchParams();
-              form.set("from", recipientAddress);
-              form.set("to", senderAddress);
-              form.set(
-                "subject",
-                `Re: ${vellumPayload.subject ?? "(no subject)"}`,
-              );
-              form.set("text", result.verificationReplyText);
-              if (vellumPayload.messageId) {
-                form.set("h:In-Reply-To", vellumPayload.messageId);
-              }
-
-              const sendResponse = await fetch(
-                `https://api.mailgun.net/v3/${mailgunDomainForVerify}/messages`,
-                {
-                  method: "POST",
-                  headers: {
-                    Authorization: `Basic ${Buffer.from(`api:${mailgunApiKeyForVerify}`).toString("base64")}`,
-                  },
-                  body: form,
-                },
-              );
-              if (sendResponse.ok) {
-                tlog.info(
-                  { from: recipientAddress, to: senderAddress },
-                  "Sent verification reply via Mailgun",
-                );
-              } else {
-                tlog.warn(
-                  {
-                    status: sendResponse.status,
-                    from: recipientAddress,
-                    to: senderAddress,
-                  },
-                  "Failed to send verification reply via Mailgun",
-                );
-              }
-            } catch (err) {
-              tlog.error(
-                { err, from: recipientAddress, to: senderAddress },
-                "Error sending verification reply via Mailgun",
-              );
-            }
-          }
-        }
-        dedupCache.mark(token);
-        return Response.json({ ok: true, verificationIntercepted: true });
-      }
-
-      dedupCache.mark(token);
-
-      if (!result.rejected) {
-        tlog.info(
-          { status: "forwarded", eventId },
-          "Mailgun email message forwarded to runtime",
-        );
-      }
-
-      // ── Denial reply ────────────────────────────────────────────
-      // When the runtime denies the message (ACL rejection) and provides
-      // replyText, send a reply email so the unknown sender knows why
-      // their message was rejected. The runtime can't send email directly
-      // (no replyCallbackUrl for email), so the gateway handles it.
-      const runtimeBody = result.runtimeResponse ?? {};
-      if (result.runtimeResponse?.denied && result.runtimeResponse.replyText) {
-        const mailgunApiKey = await resolveCredential(
-          credentialKey("mailgun", "api_key"),
-        );
-        if (mailgunApiKey) {
-          const senderAddress = gatewayEvent.actor.actorExternalId;
-          const mailgunDomain = recipientAddress.split("@")[1];
-          if (mailgunDomain) {
-            if (recordDenialReplyIfAllowed("email", senderAddress)) {
-              try {
-                const form = new URLSearchParams();
-                form.set("from", recipientAddress);
-                form.set("to", senderAddress);
-                form.set(
-                  "subject",
-                  `Re: ${vellumPayload.subject ?? "(no subject)"}`,
-                );
-                form.set("text", result.runtimeResponse.replyText);
-                if (vellumPayload.messageId) {
-                  form.set("h:In-Reply-To", vellumPayload.messageId);
-                }
-
-                const sendResponse = await fetch(
-                  `https://api.mailgun.net/v3/${mailgunDomain}/messages`,
-                  {
-                    method: "POST",
-                    headers: {
-                      Authorization: `Basic ${Buffer.from(`api:${mailgunApiKey}`).toString("base64")}`,
-                    },
-                    body: form,
-                  },
-                );
-                if (sendResponse.ok) {
-                  tlog.info(
-                    { from: recipientAddress, to: senderAddress },
-                    "Sent denial reply via Mailgun",
-                  );
-                } else {
-                  tlog.warn(
-                    {
-                      status: sendResponse.status,
-                      from: recipientAddress,
-                      to: senderAddress,
-                    },
-                    "Failed to send denial reply via Mailgun",
-                  );
-                }
-              } catch (err) {
-                tlog.error(
-                  { err, from: recipientAddress, to: senderAddress },
-                  "Error sending denial reply via Mailgun",
-                );
-              }
-            } else {
-              tlog.info(
-                { from: recipientAddress, to: senderAddress },
-                "Denial reply rate-limited, skipping Mailgun send",
-              );
-            }
-          }
-        } else {
-          tlog.debug("Mailgun API key not configured — skipping denial reply");
-        }
-      }
-
-      return Response.json({ ok: true, ...runtimeBody });
-    } catch (err) {
-      const cbResponse = handleCircuitBreakerError(
-        err,
-        dedupCache,
-        token,
-        tlog,
-      );
-      if (cbResponse) return cbResponse;
-
-      tlog.error({ err, eventId }, "Failed to process inbound Mailgun email");
-      dedupCache.unreserve(token);
-      return Response.json({ error: "Internal error" }, { status: 500 });
-    }
+      log: tlog,
+      label: "Mailgun",
+      source: "mailgun",
+      dedupCache,
+      dedupKey: token,
+      vellumPayload,
+      traceId,
+      sendReply: apiKey ? buildMailgunReplySender(apiKey, tlog) : undefined,
+    });
   };
 
   return { handler, dedupCache };

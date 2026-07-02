@@ -11,6 +11,7 @@ import { ensureDataDir, getDbPath } from "../util/platform.js";
 import { getTelemetryDbPath } from "../util/telemetry-db-path.js";
 import { clearStoredDb, getStoredDb, setStoredDb } from "./db-singleton.js";
 import * as schema from "./schema/index.js";
+import { wrapSqliteForSlowQueryLogging } from "./slow-query-log.js";
 
 export type DrizzleDb = ReturnType<typeof drizzle<typeof schema>>;
 
@@ -113,9 +114,20 @@ export function getDb(): DrizzleDb {
   ensureDataDir();
   const sqlite = new Database(getDbPath());
   applyConnectionPragmas(sqlite);
+  wrapSqliteForSlowQueryLogging(sqlite);
   const db = drizzle(sqlite, { schema });
   setStoredDb("main", db, () => sqlite.close());
   return db;
+}
+
+/**
+ * Whether the main assistant DB connection is currently open. Lets exit paths
+ * decide between DB teardown work and skipping it entirely — `getDb()` /
+ * `getSqlite()` lazily open the connection, so probing with those would
+ * create the very state being checked for.
+ */
+export function isDbOpen(): boolean {
+  return getStoredDb<DrizzleDb>("main") !== null;
 }
 
 /**
@@ -159,6 +171,7 @@ function openDedicatedDb(
   try {
     const sqlite = new Database(dbPath);
     applyConnectionPragmas(sqlite);
+    wrapSqliteForSlowQueryLogging(sqlite);
     const db = drizzle(sqlite, { schema });
     setStoredDb(key, db, () => sqlite.close());
     return db;

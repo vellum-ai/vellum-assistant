@@ -12,6 +12,10 @@ const eslintConfig = defineConfig([
       "simple-import-sort": simpleImportSort,
     },
     rules: {
+      // Require braces on every control-statement body (if/else/for/
+      // while/do). A braceless body is a maintenance hazard: a second
+      // line added under the condition reads as guarded but always runs.
+      curly: ["warn", "all"],
       "simple-import-sort/imports": [
         "error",
         {
@@ -52,7 +56,9 @@ const eslintConfig = defineConfig([
   {
     files: ["src/cli/commands/**/*.ts"],
     ignores: ["src/cli/commands/**/__tests__/**"],
-    plugins: { cli: { rules: { "no-daemon-internals": cliNoDaemonInternals } } },
+    plugins: {
+      cli: { rules: { "no-daemon-internals": cliNoDaemonInternals } },
+    },
     rules: { "cli/no-daemon-internals": "error" },
   },
 ]);

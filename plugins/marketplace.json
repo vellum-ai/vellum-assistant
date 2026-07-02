@@ -70,7 +70,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/marketing-expert",
-        "ref": "15d1f38c2e3c82b8f206ea8009fb158c5ba4746f"
+        "ref": "6a85ee33e184c2be56ed63cd5681d1287a941eff"
       },
       "description": "Acts as a full-stack marketing expert for any business (B2B or B2C): an on-demand persona plus playbook skills (positioning, demand planning, launches, content & copywriting, brand voice, email sequences, SEO & GEO, competitive teardown, board reporting) and deterministic funnel/positioning/GTM/competitive tools.",
       "category": "marketing",
@@ -106,7 +106,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/git-workflow",
-        "ref": "6a8a8df108615c3fdae2bb5c512c2b6632047dd6"
+        "ref": "829407aa93b63b8bca4717624533f2fc7f702a5d"
       },
       "description": "Git workflow tools and multi-perspective code review: branch management, push, stash, PR creation/review/merge/checkout, diffs, logs, changelog generation, and parallel subagent code review with confidence scoring.",
       "category": "developer",
@@ -118,7 +118,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/reading-pal",
-        "ref": "5226ff8ae6ae3636e695791b07dbae1f34e2217a"
+        "ref": "5219474719e67db7ea64848f6bd2a0b7312e4f27"
       },
       "description": "Your reading life in one plugin. Track your TBR pile, get guilt-tripped about your backlog, find your next read, and sync from Goodreads.",
       "category": "hobby",
@@ -142,7 +142,7 @@
       "source": {
         "source": "github",
         "repo": "vellum-ai/fitness-companion",
-        "ref": "e1aae9dd527f30cb897dd4a04c14f35950d263d2"
+        "ref": "fe4e02e2b514207a37f2a7e9f9c500ec8a73edcb"
       },
       "description": "Fitness and nutrition companion. Logs meals, workouts, and weight; looks up nutrition data from OpenFoodFacts; calculates macro targets; and injects daily fitness context into every conversation.",
       "category": "health",

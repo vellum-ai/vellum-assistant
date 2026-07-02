@@ -1160,7 +1160,7 @@ describe("POST /schedules — create", () => {
   async function postCreate(body: Record<string, unknown>) {
     const route = findRoute("schedules", "POST");
     return (await route.handler({ body })) as {
-      schedules: Array<{ id: string; inferenceProfile: string | null }>;
+      schedule: { id: string; inferenceProfile: string | null };
     };
   }
 
@@ -1171,7 +1171,7 @@ describe("POST /schedules — create", () => {
       expression: "0 9 * * *",
       message: "good morning",
     });
-    expect(result.schedules).toHaveLength(1);
+    expect(result.schedule.id).toBeDefined();
     const job = listSchedules()[0];
     expect(job.name).toBe("Morning ping");
     expect(job.mode).toBe("execute");
@@ -1329,7 +1329,7 @@ describe("POST /schedules — create", () => {
       message: "write the digest",
       inferenceProfile: "cost-optimized",
     });
-    expect(result.schedules[0].inferenceProfile).toBe("cost-optimized");
+    expect(result.schedule.inferenceProfile).toBe("cost-optimized");
     expect(listSchedules()[0].inferenceProfile).toBe("cost-optimized");
   });
 
@@ -1340,7 +1340,7 @@ describe("POST /schedules — create", () => {
       expression: "0 9 * * *",
       message: "hi",
     });
-    expect(result.schedules[0].inferenceProfile).toBeNull();
+    expect(result.schedule.inferenceProfile).toBeNull();
   });
 
   test("rejects an unknown inferenceProfile", async () => {

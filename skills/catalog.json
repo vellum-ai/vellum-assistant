@@ -116,7 +116,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-01T10:25:23.000Z"
+      "updatedAt": "2026-07-01T10:52:10.000Z"
     },
     {
       "id": "deploy-fullstack-vercel",
@@ -269,6 +269,20 @@
       },
       "compatibility": "Designed for Vellum personal assistants",
       "updatedAt": "2026-06-03T03:10:07.000Z"
+    },
+    {
+      "id": "github-watcher",
+      "name": "github-watcher",
+      "description": "Install a recurring GitHub watcher — a scheduled poll of GitHub notifications (review requests, mentions, assignments) that only spends an LLM call when there's something new. Use for ongoing, hands-off GitHub monitoring (e.g. \"keep an eye on my repos\", \"ping me about review requests\", \"watch my GitHub notifications\").",
+      "metadata": {
+        "emoji": "👀",
+        "vellum": {
+          "category": "development",
+          "display-name": "GitHub Watcher"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-02T00:38:07.000Z"
     },
     {
       "id": "gmail",
@@ -760,7 +774,7 @@
     {
       "id": "slack-app-setup",
       "name": "slack-app-setup",
-      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — the skill generates a one-click manifest URL so they only have to name, save, and copy two tokens.",
+      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — opens a guided setup wizard in the side panel so the user can create the app, generate tokens, and connect in one flow.",
       "metadata": {
         "emoji": "💬",
         "vellum": {
@@ -781,7 +795,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-26T19:45:08.000Z"
+      "updatedAt": "2026-07-02T00:41:12.000Z"
     },
     {
       "id": "start-the-day",

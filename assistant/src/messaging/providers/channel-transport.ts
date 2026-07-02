@@ -52,4 +52,10 @@ export interface ChannelTransport {
     ctx: CallbackContext,
     payload: ChannelReplyPayload,
   ): Promise<ChannelDeliveryResult>;
+
+  /** Perform one streaming operation. Routed when `payload.slackStream` is set. */
+  streamReply?(
+    ctx: CallbackContext,
+    payload: ChannelReplyPayload,
+  ): Promise<ChannelDeliveryResult>;
 }

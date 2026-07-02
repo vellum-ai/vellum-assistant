@@ -5,9 +5,10 @@
  *
  * The personality step collects five 0–100 trait sliders. On continue we hand
  * them to the real hatched assistant as a system-message that asks it to
- * rewrite its identity files (IDENTITY.md / SOUL.md / users/guardian.md) in a
- * voice matching the new personality — the durable way to reshape its persona,
- * since those files feed every future conversation's system prompt.
+ * rewrite its own identity files (IDENTITY.md / SOUL.md) in a voice matching
+ * the new personality — the durable way to reshape its persona, since those
+ * files feed every future conversation's system prompt. The user's profile
+ * (users/guardian.md) is left untouched.
  *
  * Like the research turn (`research-runner.ts`) and the check-in
  * (`checkin-scheduler.ts`), this runs on a dedicated throwaway side
@@ -85,7 +86,13 @@ Seriousness (0 - 100): ${playfulSerious}
 Politeness (0 - 100): ${100 - politeUnfiltered}
 Unfiltered Rawness/Crassness (0 - 100): ${politeUnfiltered}
 
-Rewrite your identity files (IDENTITY.md, SOUL.md, users/guardian.md) to reflect your new personality. Write them in first person in a voice and style that matches your new personality.
+Rewrite your own identity files (IDENTITY.md and SOUL.md) to reflect your new personality — first person, in a voice and style that matches it. Do not touch users/guardian.md or anything else under users/: that is your user's profile (their name, work, preferences), not your identity.
+
+Overwrite each file completely with file_write: write the whole file fresh in one pass. This is a from-scratch rewrite, not an edit — do not append to what's already there, do not patch individual lines, and leave none of the current default wording behind. Fill in every IDENTITY.md placeholder (the _(not yet chosen)_ / _(not yet established)_ fields).
+
+Keep your existing name exactly as it is — this changes your personality, not who you are. Do not rename yourself, and if your name is already set, carry it through verbatim (don't treat it as a placeholder to fill).
+
+Each rewritten file must still be complete: SOUL.md keeps everything you operate by — how you use memory, your boundaries, your compliance stance — re-expressed in your new voice rather than dropped. When you finish, both files should read top-to-bottom as this new personality, with nothing left in the generic default voice.
 </system-message>`;
 }
 

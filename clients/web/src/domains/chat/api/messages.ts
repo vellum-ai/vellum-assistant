@@ -400,7 +400,15 @@ export type PostMessageResult =
   | { ok: false; status: number; error: { code?: string; detail?: string } };
 
 export type UploadAttachmentResult =
-  | { ok: true; id: string }
+  | {
+      ok: true;
+      id: string;
+      /** Stored metadata — may differ from the uploaded file when the
+       *  assistant normalizes the format (e.g. HEIC stored as JPEG). */
+      filename?: string;
+      mimeType?: string;
+      sizeBytes?: number;
+    }
   | { ok: false; status: number; error: { detail?: string } };
 
 /**
@@ -446,7 +454,13 @@ export async function uploadChatAttachment(
       error: { detail: "Upload response did not include an attachment id." },
     };
   }
-  return { ok: true, id };
+  return {
+    ok: true,
+    id,
+    ...(typeof data.filename === "string" ? { filename: data.filename } : {}),
+    ...(typeof data.mimeType === "string" ? { mimeType: data.mimeType } : {}),
+    ...(typeof data.sizeBytes === "number" ? { sizeBytes: data.sizeBytes } : {}),
+  };
 }
 
 /**

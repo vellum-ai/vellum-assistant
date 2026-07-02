@@ -4068,6 +4068,8 @@ paths:
                       type: boolean
                     account:
                       type: string
+                    actorTeamId:
+                      type: string
                     admissionPolicy:
                       type: string
                       enum:
@@ -4131,6 +4133,8 @@ paths:
                       required:
                         - trustClass
                         - canonicalSenderId
+                    emailProvider:
+                      type: string
                     emailSubject:
                       type: string
                     emailRecipient:
@@ -12834,6 +12838,68 @@ paths:
           description: Feed item or action not found
         "500":
           description: Failed to create conversation
+  /v1/home/feed/mark-all:
+    post:
+      operationId: home_feed_markall_post
+      summary: Bulk update home feed item statuses
+      description:
+        Flip every home feed item currently at one of the `from` statuses to the single `to` status. Returns the
+        count of items whose status actually changed (items already at `to`, or outside `from`, are left untouched).
+        Used to implement 'Mark all as read' (from=['new'], to='seen') and 'Clear all' (from=['new','seen','acted_on'],
+        to='dismissed').
+      tags:
+        - home
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                from:
+                  minItems: 1
+                  type: array
+                  items:
+                    type: string
+                    enum:
+                      - new
+                      - seen
+                      - acted_on
+                      - dismissed
+                to:
+                  type: string
+                  enum:
+                    - new
+                    - seen
+                    - acted_on
+                    - dismissed
+                ids:
+                  type: array
+                  items:
+                    type: string
+              required:
+                - from
+                - to
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  updatedCount:
+                    type: integer
+                    minimum: 0
+                    maximum: 9007199254740991
+                  updatedAt:
+                    type: string
+                required:
+                  - updatedCount
+                  - updatedAt
+                additionalProperties: false
+        "500":
+          description: Failed to persist bulk status update
   /v1/home/feed/query:
     post:
       operationId: home_feed_query_post
@@ -19307,6 +19373,175 @@ paths:
       responses:
         "200":
           description: Successful response
+  /v1/monitoring/start:
+    post:
+      operationId: monitoring_start_post
+      summary: Start the resource monitor
+      description: Spawns (or reuses) the resource monitor process as a child of the daemon and enables monitoring.enabled.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pid:
+                    type: number
+                  alreadyRunning:
+                    type: boolean
+                  monitoringEnabled:
+                    type: boolean
+                    const: true
+                  pidPath:
+                    type: string
+                required:
+                  - pid
+                  - alreadyRunning
+                  - monitoringEnabled
+                  - pidPath
+                additionalProperties: false
+  /v1/monitoring/status:
+    get:
+      operationId: monitoring_status_get
+      summary: Resource monitor status
+      description:
+        Reports the resource monitor process state, monitoring.enabled, the forensics data directory, and the most
+        recent persisted memory/disk sample.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    enum:
+                      - running
+                      - not_running
+                  pid:
+                    type: number
+                  monitoringEnabled:
+                    type: boolean
+                  dataDir:
+                    type: string
+                  latestSample:
+                    anyOf:
+                      - type: object
+                        properties:
+                          ts:
+                            type: number
+                          memory:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  currentBytes:
+                                    type: number
+                                  limitBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  peakBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  ratio:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                required:
+                                  - currentBytes
+                                  - limitBytes
+                                  - peakBytes
+                                  - ratio
+                                additionalProperties: false
+                              - type: "null"
+                          events:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  low:
+                                    type: number
+                                  high:
+                                    type: number
+                                  max:
+                                    type: number
+                                  oom:
+                                    type: number
+                                  oomKill:
+                                    type: number
+                                required:
+                                  - low
+                                  - high
+                                  - max
+                                  - oom
+                                  - oomKill
+                                additionalProperties: false
+                              - type: "null"
+                          disk:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  path:
+                                    type: string
+                                  usedMb:
+                                    type: number
+                                  totalMb:
+                                    type: number
+                                  freeMb:
+                                    type: number
+                                required:
+                                  - path
+                                  - usedMb
+                                  - totalMb
+                                  - freeMb
+                                additionalProperties: false
+                              - type: "null"
+                        required:
+                          - ts
+                          - memory
+                          - events
+                          - disk
+                        additionalProperties: false
+                      - type: "null"
+                required:
+                  - status
+                  - monitoringEnabled
+                  - dataDir
+                  - latestSample
+                additionalProperties: false
+  /v1/monitoring/stop:
+    post:
+      operationId: monitoring_stop_post
+      summary: Stop the resource monitor
+      description: Disables monitoring.enabled and SIGTERMs the resource monitor process if it is running.
+      tags:
+        - system
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  monitoringWasRunning:
+                    type: boolean
+                  pid:
+                    type: number
+                  monitoringEnabled:
+                    type: boolean
+                    const: false
+                required:
+                  - monitoringWasRunning
+                  - monitoringEnabled
+                additionalProperties: false
   /v1/notification-intent-result:
     post:
       operationId: notificationintentresult_post
@@ -20897,6 +21132,11 @@ paths:
                         name:
                           type: string
                           description: Display name. Equal to `id` today.
+                        enabled:
+                          type: boolean
+                          description:
+                            Whether the plugin is active in this workspace. `false` when a `.disabled` sentinel is present under its
+                            directory; `true` otherwise.
                         description:
                           anyOf:
                             - type: string
@@ -20925,6 +21165,7 @@ paths:
                       required:
                         - id
                         - name
+                        - enabled
                         - description
                         - version
                       additionalProperties: false
@@ -21208,6 +21449,80 @@ paths:
           description: The install recorded no commit or no fingerprint to re-materialize and verify a baseline from.
         "503":
           description: The plugin source (GitHub) was temporarily unavailable; the diff is retryable.
+  /v1/plugins/{name}/disable:
+    post:
+      operationId: plugins_by_name_disable_post
+      summary: Disable a plugin
+      description:
+        Disable a plugin in this workspace by dropping a `.disabled` sentinel, mirroring the CLI's `assistant
+        plugins disable <name>`. The change is honored live at read time by every tool / injector / hook gate — no
+        restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients
+        refetch `GET /v1/plugins`. An already-disabled plugin returns 409; a user plugin with no directory returns 404
+        (default plugins are stubbed on demand via the `default-` prefix); a malformed name returns 400.
+      tags:
+        - plugins
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+        "400":
+          description: The plugin name failed validation (not kebab-case alphanumerics).
+        "404":
+          description: No plugin directory exists with the given name (user plugins must already be installed).
+        "409":
+          description: The plugin is already disabled.
+  /v1/plugins/{name}/enable:
+    post:
+      operationId: plugins_by_name_enable_post
+      summary: Enable a plugin
+      description:
+        Enable a plugin in this workspace by removing its `.disabled` sentinel, mirroring the CLI's `assistant
+        plugins enable <name>`. The change is honored live at read time by every tool / injector / hook gate — no
+        restart required. Broadcasts a `sync_changed` invalidation carrying the `plugins:list` tag so other clients
+        refetch `GET /v1/plugins`. An already-enabled plugin returns 409; a name with no plugin directory returns 404
+        (prefix a default plugin with `default-`); a malformed name returns 400.
+      tags:
+        - plugins
+      parameters:
+        - name: name
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                required:
+                  - ok
+                additionalProperties: false
+        "400":
+          description: The plugin name failed validation (not kebab-case alphanumerics).
+        "404":
+          description: No plugin directory exists with the given name.
+        "409":
+          description: The plugin is already enabled.
   /v1/plugins/{name}/inspect:
     get:
       operationId: plugins_by_name_inspect_get
@@ -22807,145 +23122,143 @@ paths:
               schema:
                 type: object
                 properties:
-                  schedules:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        id:
-                          type: string
-                        name:
-                          type: string
-                        enabled:
-                          type: boolean
-                        syntax:
-                          type: string
-                          enum:
-                            - cron
-                            - rrule
-                        expression:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        cronExpression:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        timezone:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        message:
-                          type: string
-                        script:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        nextRunAt:
-                          type: number
-                        lastRunAt:
-                          anyOf:
-                            - type: number
-                            - type: "null"
-                        lastStatus:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        retryCount:
-                          type: number
-                        maxRetries:
-                          type: number
-                        retryBackoffMs:
-                          type: number
-                        timeoutMs:
-                          anyOf:
-                            - type: number
-                            - type: "null"
-                        inferenceProfile:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        createdFromConversationId:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        createdFromConversationExists:
-                          type: boolean
-                        createdFromConversationArchivedAt:
-                          anyOf:
-                            - type: number
-                            - type: "null"
-                        description:
-                          type: string
-                        cadenceDescription:
-                          type: string
-                        mode:
-                          type: string
-                          enum:
-                            - notify
-                            - execute
-                            - script
-                            - wake
-                            - workflow
-                        status:
-                          type: string
-                          enum:
-                            - active
-                            - firing
-                            - fired
-                            - cancelled
-                        routingIntent:
-                          type: string
-                          enum:
-                            - single_channel
-                            - multi_channel
-                            - all_channels
-                        reuseConversation:
-                          type: boolean
-                        wakeConversationId:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        workflowName:
-                          anyOf:
-                            - type: string
-                            - type: "null"
-                        isOneShot:
-                          type: boolean
-                      required:
-                        - id
-                        - name
-                        - enabled
-                        - syntax
-                        - expression
-                        - cronExpression
-                        - timezone
-                        - message
-                        - script
-                        - nextRunAt
-                        - lastRunAt
-                        - lastStatus
-                        - retryCount
-                        - maxRetries
-                        - retryBackoffMs
-                        - timeoutMs
-                        - inferenceProfile
-                        - createdFromConversationId
-                        - createdFromConversationExists
-                        - createdFromConversationArchivedAt
-                        - description
-                        - cadenceDescription
-                        - mode
-                        - status
-                        - routingIntent
-                        - reuseConversation
-                        - wakeConversationId
-                        - workflowName
-                        - isOneShot
-                      additionalProperties: false
-                    description: Updated schedule list
+                  schedule:
+                    type: object
+                    properties:
+                      id:
+                        type: string
+                      name:
+                        type: string
+                      enabled:
+                        type: boolean
+                      syntax:
+                        type: string
+                        enum:
+                          - cron
+                          - rrule
+                      expression:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      cronExpression:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      timezone:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      message:
+                        type: string
+                      script:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      nextRunAt:
+                        type: number
+                      lastRunAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      lastStatus:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      retryCount:
+                        type: number
+                      maxRetries:
+                        type: number
+                      retryBackoffMs:
+                        type: number
+                      timeoutMs:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      inferenceProfile:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      createdFromConversationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      createdFromConversationExists:
+                        type: boolean
+                      createdFromConversationArchivedAt:
+                        anyOf:
+                          - type: number
+                          - type: "null"
+                      description:
+                        type: string
+                      cadenceDescription:
+                        type: string
+                      mode:
+                        type: string
+                        enum:
+                          - notify
+                          - execute
+                          - script
+                          - wake
+                          - workflow
+                      status:
+                        type: string
+                        enum:
+                          - active
+                          - firing
+                          - fired
+                          - cancelled
+                      routingIntent:
+                        type: string
+                        enum:
+                          - single_channel
+                          - multi_channel
+                          - all_channels
+                      reuseConversation:
+                        type: boolean
+                      wakeConversationId:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      workflowName:
+                        anyOf:
+                          - type: string
+                          - type: "null"
+                      isOneShot:
+                        type: boolean
+                    required:
+                      - id
+                      - name
+                      - enabled
+                      - syntax
+                      - expression
+                      - cronExpression
+                      - timezone
+                      - message
+                      - script
+                      - nextRunAt
+                      - lastRunAt
+                      - lastStatus
+                      - retryCount
+                      - maxRetries
+                      - retryBackoffMs
+                      - timeoutMs
+                      - inferenceProfile
+                      - createdFromConversationId
+                      - createdFromConversationExists
+                      - createdFromConversationArchivedAt
+                      - description
+                      - cadenceDescription
+                      - mode
+                      - status
+                      - routingIntent
+                      - reuseConversation
+                      - wakeConversationId
+                      - workflowName
+                      - isOneShot
+                    additionalProperties: false
+                    description: The created schedule
                 required:
-                  - schedules
+                  - schedule
                 additionalProperties: false
   /v1/schedules/{id}:
     delete:

@@ -27,6 +27,8 @@ export {
   ChannelDeliveryResultSchema,
   ChannelReplyPayloadSchema,
   PermissionRequestDetailsSchema,
+  SlackStreamOpSchema,
+  SlackStreamTaskSchema,
 } from "./outbound-contract.js";
 
 export type {
@@ -36,6 +38,8 @@ export type {
   ChannelDeliveryResult,
   ChannelReplyPayload,
   PermissionRequestDetails,
+  SlackStreamOp,
+  SlackStreamTask,
 } from "./outbound-contract.js";
 
 // Inbound contract (gateway → daemon) — Zod schemas + derived types
@@ -73,7 +77,9 @@ export type { AdmissionPolicy } from "./admission-policy-contract.js";
 
 // Trust verdict contract (gateway → daemon) — Zod schemas + derived types
 export {
+  isTrustClass,
   makeResolutionFailedVerdict,
+  makeUnauthenticatedSenderVerdict,
   ResolveInboundTrustRequestSchema,
   TRUST_CLASS_VALUES,
   TrustClassSchema,

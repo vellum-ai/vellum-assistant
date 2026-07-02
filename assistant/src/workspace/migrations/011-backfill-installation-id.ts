@@ -2,13 +2,70 @@ import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 
-import {
-  deleteMemoryCheckpoint,
-  getMemoryCheckpoint,
-} from "../../persistence/checkpoints.js";
-import { getExternalAssistantId } from "../../runtime/auth/external-assistant-id.js";
 import type { WorkspaceMigration } from "./types.js";
+
+const INSTALLATION_ID_CHECKPOINT_KEY = "telemetry:installation_id";
+
+/**
+ * Open the assistant SQLite database read-write, or return null when it does
+ * not exist yet (fresh install) or cannot be opened. The path mirrors
+ * getDbPath(): `<workspace>/data/db/assistant.db`.
+ */
+function openAssistantDb(workspaceDir: string): Database | null {
+  const dbPath = join(workspaceDir, "data", "db", "assistant.db");
+  if (!existsSync(dbPath)) {
+    return null;
+  }
+  try {
+    return new Database(dbPath);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Read the persisted installation ID from the `memory_checkpoints` table.
+ * Returns null when the database, table, or row is absent — a fresh install
+ * has no prior ID to recover. Never throws.
+ */
+function readInstallationIdCheckpoint(workspaceDir: string): string | null {
+  const db = openAssistantDb(workspaceDir);
+  if (!db) {
+    return null;
+  }
+  try {
+    const row = db
+      .query(`SELECT value FROM memory_checkpoints WHERE key = ?`)
+      .get(INSTALLATION_ID_CHECKPOINT_KEY) as { value: string } | null;
+    return row?.value ?? null;
+  } catch {
+    return null;
+  } finally {
+    db.close();
+  }
+}
+
+/**
+ * Delete the installation-ID checkpoint row. Idempotent and never throws — a
+ * missing table or row is a successful no-op.
+ */
+function deleteInstallationIdCheckpoint(workspaceDir: string): void {
+  const db = openAssistantDb(workspaceDir);
+  if (!db) {
+    return;
+  }
+  try {
+    db.query(`DELETE FROM memory_checkpoints WHERE key = ?`).run(
+      INSTALLATION_ID_CHECKPOINT_KEY,
+    );
+  } catch {
+    // Table doesn't exist — nothing to clean up.
+  } finally {
+    db.close();
+  }
+}
 
 export const backfillInstallationIdMigration: WorkspaceMigration = {
   id: "011-backfill-installation-id",
@@ -25,17 +82,10 @@ export const backfillInstallationIdMigration: WorkspaceMigration = {
     // No-op: leaving installationId in the lockfile is safe and non-disruptive.
   },
 
-  run(_workspaceDir: string): void {
+  run(workspaceDir: string): void {
     // a. Read existing installation ID from SQLite, or generate a new one.
-    //    On fresh installs the memory_checkpoints table may not exist yet,
-    //    so treat errors as null.
-    let existingId: string | null = null;
-    try {
-      existingId = getMemoryCheckpoint("telemetry:installation_id");
-    } catch {
-      // Table doesn't exist yet — fresh install, no prior ID to recover.
-    }
-    const installationId = existingId || randomUUID();
+    const installationId =
+      readInstallationIdCheckpoint(workspaceDir) || randomUUID();
 
     // b. Read the lockfile — check both the current and legacy lockfile paths
     //    to support installs that haven't migrated the filename yet.
@@ -50,7 +100,9 @@ export const backfillInstallationIdMigration: WorkspaceMigration = {
     let lockPath: string | undefined;
     let lockData: Record<string, unknown> | undefined;
     for (const candidate of lockCandidates) {
-      if (!existsSync(candidate)) continue;
+      if (!existsSync(candidate)) {
+        continue;
+      }
       try {
         const raw = JSON.parse(readFileSync(candidate, "utf-8"));
         if (raw && typeof raw === "object" && !Array.isArray(raw)) {
@@ -62,26 +114,30 @@ export const backfillInstallationIdMigration: WorkspaceMigration = {
         // Malformed — try next candidate.
       }
     }
-    if (!lockPath || !lockData) return;
+    if (!lockPath || !lockData) {
+      return;
+    }
 
-    // c. Find the assistant entry that corresponds to this daemon instance
+    // c. Find the assistant entry that corresponds to this daemon instance.
+    //    The external assistant ID comes from the VELLUM_ASSISTANT_NAME env
+    //    var, set by CLI hatch and Docker setup.
     const assistants = lockData.assistants as
       | Array<Record<string, unknown>>
       | undefined;
-    if (!Array.isArray(assistants)) return;
+    if (!Array.isArray(assistants)) {
+      return;
+    }
 
-    const externalId = getExternalAssistantId();
+    const externalId = process.env.VELLUM_ASSISTANT_NAME || undefined;
     const entry = assistants.find((a) => a.assistantId === externalId);
-    if (!entry) return;
+    if (!entry) {
+      return;
+    }
 
     // d. If already has a truthy installationId, skip lockfile write (idempotent)
     if (entry.installationId) {
       // e is skipped for lockfile write, but still clean up SQLite
-      try {
-        deleteMemoryCheckpoint("telemetry:installation_id");
-      } catch {
-        // Table doesn't exist — nothing to clean up.
-      }
+      deleteInstallationIdCheckpoint(workspaceDir);
       return;
     }
 
@@ -90,10 +146,6 @@ export const backfillInstallationIdMigration: WorkspaceMigration = {
     writeFileSync(lockPath, JSON.stringify(lockData, null, 2) + "\n");
 
     // f. Delete the stale SQLite row
-    try {
-      deleteMemoryCheckpoint("telemetry:installation_id");
-    } catch {
-      // Table doesn't exist — nothing to clean up.
-    }
+    deleteInstallationIdCheckpoint(workspaceDir);
   },
 };

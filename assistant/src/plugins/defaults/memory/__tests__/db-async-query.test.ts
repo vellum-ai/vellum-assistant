@@ -16,13 +16,15 @@
  *   4. Errors from sqlite3 surface as `ok: false` with the stderr
  *      preserved in `error`.
  */
+import { statSync } from "node:fs";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 const { getSqlite } = await import("../../../../persistence/db-connection.js");
 const { initializeDb } = await import("../../../../persistence/db-init.js");
-const { runAsyncSqlite, _resetFallbackWarning } =
+const { runAsyncSqlite, _resetFallbackWarning, spawnDetachedWalCheckpoint } =
   await import("../../../../persistence/db-async-query.js");
 const { findSqlite3 } = await import("../../../../util/sqlite3-runtime.js");
+const { getDbPath } = await import("../../../../util/platform.js");
 
 await initializeDb();
 
@@ -168,5 +170,38 @@ describe("runAsyncSqlite", () => {
       expect(tickCount).toBeGreaterThanOrEqual(1);
     },
     60_000,
+  );
+});
+
+describe("spawnDetachedWalCheckpoint", () => {
+  test.if(sqlite3Available)(
+    "folds and truncates the WAL from a detached subprocess",
+    async () => {
+      const sqlite = getSqlite();
+      const walPath = `${getDbPath()}-wal`;
+
+      // Grow the WAL past zero without checkpointing.
+      sqlite.exec("CREATE TABLE IF NOT EXISTS detached_ckpt_probe (x TEXT)");
+      sqlite.exec("INSERT INTO detached_ckpt_probe VALUES ('row')");
+      expect(statSync(walPath).size).toBeGreaterThan(0);
+
+      expect(spawnDetachedWalCheckpoint()).toBe(true);
+
+      // The child is detached with no inherited stdio, so the only
+      // observable effect is the WAL file itself — poll for the truncate.
+      const deadline = Date.now() + 10_000;
+      let walSize = -1;
+      while (Date.now() < deadline) {
+        walSize = statSync(walPath).size;
+        if (walSize === 0) {
+          break;
+        }
+        await Bun.sleep(50);
+      }
+      expect(walSize).toBe(0);
+
+      sqlite.exec("DROP TABLE detached_ckpt_probe");
+    },
+    30_000,
   );
 });

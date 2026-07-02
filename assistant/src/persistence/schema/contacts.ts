@@ -1,7 +1,5 @@
 import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 
-import { conversations } from "./conversations.js";
-
 export const contacts = sqliteTable("contacts", {
   id: text("id").primaryKey(),
   displayName: text("display_name").notNull(),
@@ -78,32 +76,6 @@ export const assistantIngressInvites = sqliteTable(
     friendName: text("friend_name"),
     guardianName: text("guardian_name"),
     contactId: text("contact_id").notNull(),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-);
-
-export const assistantInboxConversationState = sqliteTable(
-  "assistant_inbox_conversation_state",
-  {
-    conversationId: text("conversation_id")
-      .primaryKey()
-      .references(() => conversations.id, { onDelete: "cascade" }),
-    sourceChannel: text("source_channel").notNull(),
-    externalChatId: text("external_chat_id").notNull(),
-    externalUserId: text("external_user_id"),
-    displayName: text("display_name"),
-    username: text("username"),
-    lastInboundAt: integer("last_inbound_at"),
-    lastOutboundAt: integer("last_outbound_at"),
-    lastMessageAt: integer("last_message_at"),
-    unreadCount: integer("unread_count").notNull().default(0),
-    pendingEscalationCount: integer("pending_escalation_count")
-      .notNull()
-      .default(0),
-    hasPendingEscalation: integer("has_pending_escalation")
-      .notNull()
-      .default(0),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },

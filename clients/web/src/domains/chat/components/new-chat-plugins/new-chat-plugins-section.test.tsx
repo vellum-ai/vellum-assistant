@@ -23,7 +23,7 @@ const ASSISTANT_ID = "asst-1";
 type InstalledPlugin = PluginsGetResponse["plugins"][number];
 
 function installed(name: string): InstalledPlugin {
-  return { id: name, name, description: null, version: null };
+  return { id: name, name, enabled: true, description: null, version: null };
 }
 
 /** Query client with the installed list pre-seeded so the hook resolves sync. */

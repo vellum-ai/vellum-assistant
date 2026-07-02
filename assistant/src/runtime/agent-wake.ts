@@ -619,6 +619,18 @@ export async function wakeAgentForOpportunity(
   const startedAt = nowFn();
 
   return runSingleFlight(conversationId, async () => {
+    // Snapshot the conversation's resting trust before the resolver runs, so
+    // it can be restored after. The resolver leaves the wake's trust on the
+    // conversation, and a following no-trust wake would otherwise read it via
+    // tool setup's `currentTurnTrustContext ?? trustContext` fallback. Null
+    // when the conversation isn't resident yet (a fresh hydrate or a fork).
+    let priorPersistentTrust: TrustContext | null = null;
+    if (opts.trustContext) {
+      const { findConversation } =
+        await import("../daemon/conversation-registry.js");
+      priorPersistentTrust =
+        findConversation(conversationId)?.trustContext ?? null;
+    }
     const resolved = await resolveTarget(opts);
     if (resolved === "archived") {
       log.info(
@@ -640,6 +652,18 @@ export async function wakeAgentForOpportunity(
     }
     const conversation = resolved;
 
+    // Put the resting trust back on exit. The guard restores only our own
+    // elevation, so a trust re-set by another turn is left alone; it's also
+    // idempotent, so the several call sites below are safe.
+    const restorePersistentWakeTrust = (): void => {
+      if (
+        opts.trustContext &&
+        conversation.trustContext === opts.trustContext
+      ) {
+        conversation.setTrustContext(priorPersistentTrust);
+      }
+    };
+
     const { decision: diskPressureDecision, status: diskPressureStatus } =
       classifyWakeDiskPressurePolicy(opts);
     if (diskPressureDecision.action === "block") {
@@ -657,6 +681,7 @@ export async function wakeAgentForOpportunity(
         },
         "agent-wake: blocked by disk pressure cleanup mode",
       );
+      restorePersistentWakeTrust();
       return {
         invoked: false,
         producedToolCalls: false,
@@ -670,6 +695,7 @@ export async function wakeAgentForOpportunity(
         { conversationId, source },
         "agent-wake: conversation still processing after timeout; skipping",
       );
+      restorePersistentWakeTrust();
       return { invoked: false, producedToolCalls: false, reason: "timeout" };
     }
 
@@ -1424,6 +1450,8 @@ export async function wakeAgentForOpportunity(
 
       return { invoked: true, producedToolCalls };
     } finally {
+      // Put the conversation's resting trust back on every exit path.
+      restorePersistentWakeTrust();
       // The success path (above) already called setProcessing(false)
       // + drainQueue after tail persist. This catch-all handles the
       // error and early-return paths where no tail was produced — those

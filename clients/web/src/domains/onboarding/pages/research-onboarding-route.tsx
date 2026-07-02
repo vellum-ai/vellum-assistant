@@ -87,7 +87,9 @@ import {
  * but renders no user bubble, so the chat opens with the assistant proactively
  * greeting the user in the persona they just configured.
  */
-const LETS_CHAT_KICKOFF_MESSAGE = "Wake up, I'm excited to chat!";
+const LETS_CHAT_KICKOFF_MESSAGE = `You're about to begin your first conversation.
+Respond with a warm and engaging greeting. Be interesting, be real. This is your chance to get to know and impress the user.
+Keep it short! For this opening greeting only, don't use \`recall\` or read any files — just say hello. (This applies to the greeting alone; use your tools normally for everything the user asks afterward.)`;
 
 /** Build the research subject from the collected form values. */
 function researchSubjectFrom(values: ResearchOnboardingValues): ResearchSubject {
@@ -243,6 +245,16 @@ export function ResearchOnboardingRoute() {
   // minted — otherwise the rejected facts could still be pulled into its context.
   // Resolves immediately when nothing was corrected (never rejects).
   const researchCorrectionRef = useRef<Promise<void>>(Promise.resolve());
+  // In-flight personality rewrite (if any), fired from the personality step. The
+  // chat handoff awaits it (alongside the plugin installs + removal correction)
+  // so the assistant's persona is fully rewritten BEFORE the first real chat is
+  // minted — otherwise the greeting could land in the old, unshaped voice.
+  // Resolves immediately when personality was never applied (never rejects).
+  const personalityAppliedRef = useRef<Promise<void>>(Promise.resolve());
+  // Mirrors the ref as render state so the looking-you-up loading stage can hold
+  // its "ready" reveal until the personality rewrite settles too — the carousel
+  // keeps cycling while this is true, same as an unsettled research turn.
+  const [personalityPending, setPersonalityPending] = useState(false);
   const researchLoading =
     research.status === "idle" || research.status === "running";
   // The research turn settled with nothing to show — skip the "this is what I
@@ -604,16 +616,19 @@ export function ResearchOnboardingRoute() {
               // First continue applies the sliders to the assistant's persona on
               // a throwaway side thread (awaits hatch readiness internally, then
               // archives) and locks them — the prompt has been sent, so a later
-              // step-back can't silently diverge. Fire-and-forget: the rewrite
-              // turn finishes during the later steps, well before the chat
-              // handoff. Best-effort; never blocks the flow. A continue while
+              // step-back can't silently diverge. The rewrite turn runs during
+              // the later steps; we track its promise (and pending flag) so the
+              // looking-you-up loader holds until it settles and the chat handoff
+              // awaits it, guaranteeing the persona is reshaped before the first
+              // real chat. Best-effort; it never rejects. A continue while
               // already locked just advances.
               if (!personalityLocked) {
-                void applyPersonality({
+                setPersonalityPending(true);
+                personalityAppliedRef.current = applyPersonality({
                   awaitAssistantId: awaitHatchReady,
                   values: personalityValues,
                   userName: formValues?.firstName?.trim() || undefined,
-                });
+                }).finally(() => setPersonalityPending(false));
                 setPersonalityLocked(true);
               }
               goForwardTo("integration");
@@ -662,7 +677,13 @@ export function ResearchOnboardingRoute() {
             onBack={() => goBackTo("letschat")}
             onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
             onForward={onForward}
-            ready={!researchLoading}
+            // Hold the loader until BOTH the research turn and the personality
+            // rewrite have settled, so the results/chat never open on a persona
+            // that's still being written.
+            ready={!researchLoading && !personalityPending}
+            // Weave the persona lines into the carousel when a personality was
+            // configured this session (locked on the personality step's continue).
+            applyingPersonality={personalityLocked}
           />
         )}
         {step === "results" && (
@@ -713,11 +734,14 @@ export function ResearchOnboardingRoute() {
                 { userId, outcome: "completed" },
               );
               // Wait out any background capability installs so the primed chat
-              // can discover their skills, and any removal correction so rejected
-              // claims can't leak into it — same gating as the suggestion click.
+              // can discover their skills, any removal correction so rejected
+              // claims can't leak into it, and the personality rewrite so the
+              // greeting lands in the persona the user just configured — same
+              // gating as the suggestion click, plus the persona.
               await Promise.all([
                 research.awaitPluginInstalls(),
                 researchCorrectionRef.current,
+                personalityAppliedRef.current,
               ]);
               // Drop into a fresh chat with the hidden kickoff so the assistant
               // opens by greeting the user in the persona they configured.

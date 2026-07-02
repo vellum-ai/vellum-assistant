@@ -7,7 +7,7 @@ import {
   sendSlackAttachments,
   sendSlackReaction,
   sendSlackReply,
-  sendSlackTypingIndicator,
+  sendSlackStreamOp,
 } from "./send.js";
 
 const log = getLogger("slack-transport");
@@ -54,18 +54,6 @@ export const slackTransport: ChannelTransport = {
     return { ok: true, ts: sentTs };
   },
 
-  async sendTyping(ctx, payload) {
-    const placeholderTs = await sendSlackTypingIndicator(
-      payload.chatId,
-      ctx.params.threadTs,
-    );
-    log.debug(
-      { chatId: payload.chatId },
-      "Slack typing indicator delivered (direct)",
-    );
-    return { ok: true, ts: placeholderTs };
-  },
-
   async sendReaction(_ctx, payload) {
     const reaction = payload.reaction;
     if (!reaction) return { ok: true };
@@ -88,5 +76,11 @@ export const slackTransport: ChannelTransport = {
       status.loadingMessages,
     );
     return { ok: true };
+  },
+
+  async streamReply(_ctx, payload) {
+    const op = payload.slackStream;
+    if (!op) return { ok: true };
+    return sendSlackStreamOp(payload.chatId, op);
   },
 };

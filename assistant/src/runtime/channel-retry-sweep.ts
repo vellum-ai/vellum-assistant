@@ -11,11 +11,7 @@ import { getDiskPressureStatus } from "../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../daemon/disk-pressure-policy.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import {
-  addSlackDmLiveDeliveredTextResponseIndex,
-  getSlackDmLiveDeliveredTextResponseIndexes,
-  updateDeliveredSegmentCount,
-} from "../persistence/delivery-channels.js";
+import { updateDeliveredSegmentCount } from "../persistence/delivery-channels.js";
 import {
   clearPayload,
   linkMessage,
@@ -38,7 +34,6 @@ import {
 import { finalizeEventDelivery } from "./finalize-event-delivery.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { MessageProcessor } from "./http-types.js";
-import { createSlackDmTextDeliveryController } from "./slack-dm-text-delivery.js";
 import { resolveRoutingStateFromRuntime } from "./trust-context-resolver.js";
 
 const log = getLogger("runtime-http");
@@ -293,19 +288,13 @@ export async function sweepFailedEvents(
       typeof payload.externalChatId === "string"
         ? payload.externalChatId
         : undefined;
-    const slackDmTextDelivery = externalChatId
-      ? createSlackDmTextDeliveryController({
-          sourceChannel,
-          chatType: metadataChatType,
-          replyCallbackUrl,
-          chatId: externalChatId,
-          assistantId,
-          deliveredTextResponseIndexes:
-            getSlackDmLiveDeliveredTextResponseIndexes(event.id),
-          onTextResponseDelivered: (responseIndex) =>
-            addSlackDmLiveDeliveredTextResponseIndex(event.id, responseIndex),
-        })
-      : undefined;
+    // A retry never opens a new stream: a prior attempt may already have
+    // streamed a message, so re-streaming would duplicate the reply. The
+    // durable delivery below edits that message in place when one exists.
+    const priorStreamMessageTs =
+      typeof payload.slackStreamMessageTs === "string"
+        ? payload.slackStreamMessageTs
+        : undefined;
     let replyMessageId: string | undefined;
     const observeAgentEvent = (msg: ServerMessage): void => {
       if (
@@ -315,7 +304,6 @@ export async function sweepFailedEvents(
       ) {
         replyMessageId = msg.messageId;
       }
-      slackDmTextDelivery?.observeEvent(msg);
     };
 
     let userMessageId: string | undefined;
@@ -349,9 +337,6 @@ export async function sweepFailedEvents(
       );
     } catch (err) {
       log.error({ err, eventId: event.id }, "Retry failed for channel event");
-      if (slackDmTextDelivery) {
-        await slackDmTextDelivery.waitForPendingDeliveries();
-      }
       recordProcessingFailure(event.id, err);
       continue;
     }
@@ -366,7 +351,8 @@ export async function sweepFailedEvents(
           assistantId,
           replyMessageId,
           userMessageId,
-          slackDmTextDelivery,
+          slackReplySession: undefined,
+          priorStreamMessageTs,
         });
       } catch (err) {
         log.error(
@@ -411,6 +397,13 @@ export async function sweepFailedEvents(
         : undefined;
     const assistantId =
       typeof payload.assistantId === "string" ? payload.assistantId : undefined;
+    // A prior attempt may already have streamed a message; its first
+    // undelivered segment edits that message in place rather than posting a
+    // duplicate reply beside it.
+    const priorStreamMessageTs =
+      typeof payload.slackStreamMessageTs === "string"
+        ? payload.slackStreamMessageTs
+        : undefined;
     if (!replyCallbackUrl || !externalChatId) {
       recordDeliveryFailure(
         event.id,
@@ -444,6 +437,7 @@ export async function sweepFailedEvents(
         {
           messageId: replyMessageId,
           startFromSegment: event.deliveredSegmentCount,
+          ...(priorStreamMessageTs ? { messageTs: priorStreamMessageTs } : {}),
           onSegmentDelivered: (count) =>
             updateDeliveredSegmentCount(event.id, count),
         },

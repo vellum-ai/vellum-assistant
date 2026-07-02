@@ -41,6 +41,7 @@ import {
   MEMORY_V2_CONSOLIDATION_JOB_TRIGGERS,
   type MemoryJob,
   type MemoryJobType,
+  MESSAGE_LEXICAL_JOB_TYPES,
   resetRunningJobsToPending,
   SLOW_LLM_JOB_TYPES,
 } from "./jobs-store.js";
@@ -203,7 +204,9 @@ export function startMemoryJobsWorker(): MemoryJobsWorker {
  * stopMemoryWorkerProcess() in worker-control.ts.
  */
 export function stopMemoryJobsWorker(): void {
-  if (!instance) return;
+  if (!instance) {
+    return;
+  }
   instance.stop();
   instance = null;
 }
@@ -248,7 +251,9 @@ export function startInProcessMemoryJobsWorker(
   let currentIntervalMs = POLL_INTERVAL_MIN_MS;
 
   const tick = async () => {
-    if (stopped || tickRunning) return;
+    if (stopped || tickRunning) {
+      return;
+    }
     tickRunning = true;
     try {
       if (
@@ -293,17 +298,23 @@ export function startInProcessMemoryJobsWorker(
   };
 
   const scheduleTick = () => {
-    if (stopped) return;
+    if (stopped) {
+      return;
+    }
     timer = setTimeout(() => {
       void tick().then(() => {
-        if (!stopped) scheduleTick();
+        if (!stopped) {
+          scheduleTick();
+        }
       });
     }, currentIntervalMs);
     (timer as NodeJS.Timeout).unref?.();
   };
 
   void tick().then(() => {
-    if (!stopped) scheduleTick();
+    if (!stopped) {
+      scheduleTick();
+    }
   });
 
   return {
@@ -323,8 +334,13 @@ export async function runMemoryJobsOnce(
   options: { enableScheduledCleanup?: boolean } = {},
 ): Promise<number> {
   const config = getConfig();
-  if (config.memory.enabled === false) return 0;
-  const enableScheduledCleanup = options.enableScheduledCleanup === true;
+  // While memory is disabled the queue still drains the MESSAGE-LEXICAL job
+  // types — host-owned message-search indexing that shares this queue but is
+  // not a memory feature. Every memory lane and every maintenance enqueue
+  // stays idle in that state; only the lexical types are claimable.
+  const memoryEnabled = config.memory.enabled !== false;
+  const enableScheduledCleanup =
+    options.enableScheduledCleanup === true && memoryEnabled;
 
   const diskPressureGate = checkDiskPressureBackgroundGate("background-work");
   if (diskPressureGate.action === "skip") {
@@ -352,19 +368,26 @@ export async function runMemoryJobsOnce(
 
   // Claim per-lane budgets so a backlog of slow LLM jobs cannot starve fast
   // jobs (and vice versa). The Qdrant circuit breaker still gates only the
-  // embed lane inside `claimMemoryJobs`.
-  const claimed = claimMemoryJobs({
-    slowLlm: cfgSlow,
-    fast: cfgFast,
-    embed: cfgEmbed,
-  });
+  // embed lane inside `claimMemoryJobs`. With memory disabled, the slow and
+  // embed lanes get no budget and the fast lane is restricted to the
+  // message-lexical types (they ride the fast lane).
+  const claimed = claimMemoryJobs(
+    {
+      slowLlm: memoryEnabled ? cfgSlow : 0,
+      fast: cfgFast,
+      embed: memoryEnabled ? cfgEmbed : 0,
+    },
+    memoryEnabled ? undefined : MESSAGE_LEXICAL_JOB_TYPES,
+  );
 
   if (claimed.length === 0) {
     if (enableScheduledCleanup) {
       maybeEnqueueScheduledCleanupJobs(config);
     }
     maybeEnqueueGraphMaintenanceJobs(config);
-    await maybeRunDbMaintenance();
+    if (memoryEnabled) {
+      await maybeRunDbMaintenance();
+    }
     return 0;
   }
 
@@ -448,7 +471,9 @@ async function runLanePool(
   concurrency: number,
   processGroup: ProcessGroup,
 ): Promise<number> {
-  if (jobs.length === 0) return 0;
+  if (jobs.length === 0) {
+    return 0;
+  }
 
   const groups = new Map<string, MemoryJob[]>();
   for (const job of jobs) {
@@ -487,7 +512,9 @@ async function runLanePool(
   // starts the instant any slot frees up.
   let nextIdx = 0;
   const startNext = (): Promise<void> | undefined => {
-    if (nextIdx >= typeGroups.length) return undefined;
+    if (nextIdx >= typeGroups.length) {
+      return undefined;
+    }
     const group = typeGroups[nextIdx++]!;
     return processGroup(group)
       .then(
@@ -631,9 +658,12 @@ function maybeEnqueueScheduledCleanupJobs(
   nowMs = Date.now(),
 ): boolean {
   const cleanup = config.memory.cleanup;
-  if (!cleanup.enabled) return false;
-  if (nowMs - getLastScheduledCleanupEnqueueMs() < cleanup.enqueueIntervalMs)
+  if (!cleanup.enabled) {
     return false;
+  }
+  if (nowMs - getLastScheduledCleanupEnqueueMs() < cleanup.enqueueIntervalMs) {
+    return false;
+  }
 
   const pruneConversationsJobId =
     cleanup.conversationRetentionDays > 0
@@ -726,7 +756,9 @@ export function maybeEnqueueGraphMaintenanceJobs(
   nowMs = Date.now(),
 ): void {
   const memoryEnabled = config.memory.enabled !== false;
-  if (!memoryEnabled) return;
+  if (!memoryEnabled) {
+    return;
+  }
 
   const v2Active = config.memory.v2.enabled;
 
@@ -809,7 +841,9 @@ export function maybeEnqueueGraphMaintenanceJobs(
           : {};
       enqueueMemoryJob(jobType, payload);
       setMemoryCheckpoint(key, String(nowMs));
-      if (jobType === consolidateEntry.jobType) enqueuedConsolidate = true;
+      if (jobType === consolidateEntry.jobType) {
+        enqueuedConsolidate = true;
+      }
     }
   }
 

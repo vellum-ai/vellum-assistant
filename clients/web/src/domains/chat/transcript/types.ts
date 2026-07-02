@@ -9,6 +9,7 @@ import type {
 } from "@/domains/chat/types/types";
 import type { RuntimeSubagentNotification } from "@/domains/chat/api/messages";
 import type { BackgroundTaskEntry } from "@/domains/chat/background-task-store";
+import type { MessagesGetResponse } from "@/generated/daemon/types.gen";
 
 export type TranscriptItemKind =
   | "message"
@@ -93,14 +94,24 @@ export interface LatestTurnPartition {
   responseItems: TranscriptItem[];
 }
 
-/** Result shape returned by the paginated history fetchers in
- *  `../history.ts`. Lives here so the transcript-state machine and the
- *  fetchers share a single source-of-truth definition. */
-export interface PaginatedHistoryResult {
+/** Result shape returned by the paginated history fetchers in `../history.ts`.
+ *  Lives here so the transcript-state machine and the fetchers share a single
+ *  source-of-truth definition.
+ *
+ *  The server-sourced page metadata (`hasMore`, the `oldest*` cursor, `seq`,
+ *  the authoritative `processing` flag) is inherited straight from the wire
+ *  contract so it can never drift from `/messages` — the fetcher fills the
+ *  three cursor fields defensively (so they are `Required` here), while `seq`
+ *  and `processing` keep the wire's optionality (`undefined` = an older daemon
+ *  that omits the field; consult the generated type for their full semantics).
+ *  Only `messages` genuinely differs: rendered `DisplayMessage`s, not the wire
+ *  rows — plus the two client-derived extraction fields. */
+export interface PaginatedHistoryResult
+  extends Required<
+      Pick<MessagesGetResponse, "hasMore" | "oldestTimestamp" | "oldestMessageId">
+    >,
+    Pick<MessagesGetResponse, "seq" | "processing"> {
   messages: DisplayMessage[];
-  hasMore: boolean;
-  oldestTimestamp: number | null;
-  oldestMessageId: string | null;
   /** Subagent notifications extracted from history messages for state reconstruction. */
   subagentNotifications?: RuntimeSubagentNotification[];
   /** Background-task completion records extracted from history messages, used to
@@ -109,12 +120,6 @@ export interface PaginatedHistoryResult {
    *  completion); it is optional so other constructors (snapshot spreads, tests)
    *  need not restate it. */
   backgroundToolCompletions?: BackgroundTaskEntry[];
-  /** Global SSE `seq` this snapshot is durably persisted through for the
-   *  conversation, or `null` when the daemon reports no honest position
-   *  (cold conversation, post-restart, aged-out map, or an older daemon
-   *  that omits the field). Used to align the snapshot with the `/events`
-   *  stream. */
-  seq?: number | null;
 }
 
 /** Snapshot of the transcript pagination state held by the scroll

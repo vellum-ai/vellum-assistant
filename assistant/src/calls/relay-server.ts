@@ -19,7 +19,6 @@ import {
   voiceGuardianDisplayName,
 } from "../contacts/guardian-delivery-reader.js";
 import { getAssistantName } from "../daemon/identity-helpers.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { addMessage } from "../persistence/conversation-crud.js";
 import { resolveGuardianName } from "../prompts/user-reference.js";
@@ -28,6 +27,7 @@ import {
   resolveActorTrust,
   toTrustContext,
 } from "../runtime/actor-trust-resolver.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import {
   trustContextFromVerdict,
   verdictHasMemberIdentity,
@@ -178,14 +178,6 @@ export interface RelayWebSocketData {
 
 /** Active relay connections keyed by callSessionId. */
 export const activeRelayConnections = new Map<string, RelayConnection>();
-
-/** Module-level broadcast function, set by the HTTP server during startup. */
-let globalBroadcast: ((msg: ServerMessage) => void) | undefined;
-
-/** Register a broadcast function so RelayConnection can forward events to connected clients. */
-export function setRelayBroadcast(fn: (msg: ServerMessage) => void): void {
-  globalBroadcast = fn;
-}
 
 // ── RelayConnection ──────────────────────────────────────────────────
 
@@ -679,7 +671,7 @@ export class RelayConnection {
       transport,
       session?.task ?? null,
       {
-        broadcast: globalBroadcast,
+        broadcast: broadcastMessage,
         assistantId: resolved.assistantId,
         trustContext: initialTrustContext,
       },
@@ -1458,6 +1450,16 @@ export class RelayConnection {
           },
           "Guardian notified of voice access request with caller name",
         );
+      } else if (accessResult.reason === "already_denied") {
+        // The guardian already denied this caller; they are intentionally not
+        // re-notified. Deliver the denial copy rather than the "I'll let them
+        // know" timeout copy, which would falsely promise a notification.
+        log.info(
+          { callSessionId: this.callSessionId },
+          "Voice caller previously denied — suppressing re-notification, delivering denial",
+        );
+        void this.handleAccessRequestDenied();
+        return;
       } else {
         log.warn(
           { callSessionId: this.callSessionId },

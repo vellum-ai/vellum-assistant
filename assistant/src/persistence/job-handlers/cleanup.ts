@@ -197,10 +197,9 @@ function parseDeletedCount(stdout: string | undefined): number {
  *
  * Tables with onDelete cascade on conversation FK (memory_segments,
  * conversation_keys, channel_inbound_events, message_runs, call_sessions,
- * external_conversation_bindings, assistant_inbox_conversation_state) are handled
- * automatically. Tables without cascade (messages, tool_invocations,
- * llm_request_logs, skill_loaded_events) are deleted explicitly before
- * removing the conversation row.
+ * external_conversation_bindings) are handled automatically. Tables without
+ * cascade (messages, tool_invocations, llm_request_logs, skill_loaded_events)
+ * are deleted explicitly before removing the conversation row.
  */
 export function pruneOldConversationsJob(
   job: MemoryJob,

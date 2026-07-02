@@ -16,7 +16,7 @@ import { NewChatPluginsPicker } from "./new-chat-plugins-picker";
 type InstalledPlugin = PluginsGetResponse["plugins"][number];
 
 function installed(name: string): InstalledPlugin {
-  return { id: name, name, description: null, version: null };
+  return { id: name, name, enabled: true, description: null, version: null };
 }
 
 function renderPicker(plugins: InstalledPlugin[]): string {

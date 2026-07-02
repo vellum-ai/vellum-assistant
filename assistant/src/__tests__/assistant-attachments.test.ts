@@ -9,6 +9,7 @@ import {
   drainDirectiveDisplayBuffer,
   estimateBase64Bytes,
   extractVellumLinks,
+  incompleteVellumLinkSuffixLength,
   inferMimeType,
   MAX_ASSISTANT_ATTACHMENT_BYTES,
   stripVellumLinks,
@@ -386,8 +387,7 @@ describe("extractVellumLinks", () => {
   });
 
   test("decodes URL-encoded spaces in host paths", () => {
-    const text =
-      "[my file.pdf](vellum://host/Users/me/my%20file.pdf)";
+    const text = "[my file.pdf](vellum://host/Users/me/my%20file.pdf)";
     const result = extractVellumLinks(text);
 
     expect(result.directiveRequests).toHaveLength(1);
@@ -406,8 +406,7 @@ describe("extractVellumLinks", () => {
   });
 
   test("warns on malformed percent-encoding and skips the link", () => {
-    const text =
-      "[bad file](vellum://workspace/scratch/100%complete.txt)";
+    const text = "[bad file](vellum://workspace/scratch/100%complete.txt)";
     const result = extractVellumLinks(text);
 
     expect(result.directiveRequests).toHaveLength(0);
@@ -481,6 +480,65 @@ describe("stripVellumLinks", () => {
   test("handles link text that differs from path basename", () => {
     const text = "[Quarterly Report](vellum://workspace/scratch/report.pdf)";
     expect(stripVellumLinks(text)).toBe("Quarterly Report");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// incompleteVellumLinkSuffixLength
+// ---------------------------------------------------------------------------
+
+describe("incompleteVellumLinkSuffixLength", () => {
+  const suffix = (text: string) =>
+    text.slice(text.length - incompleteVellumLinkSuffixLength(text));
+
+  test("returns 0 for text with no trailing link", () => {
+    expect(incompleteVellumLinkSuffixLength("all done, no links here")).toBe(0);
+  });
+
+  test("returns 0 for a completed vellum link", () => {
+    expect(
+      incompleteVellumLinkSuffixLength(
+        "see [report.pdf](vellum://workspace/scratch/report.pdf)",
+      ),
+    ).toBe(0);
+  });
+
+  test("returns 0 for a completed link followed by trailing text", () => {
+    expect(
+      incompleteVellumLinkSuffixLength(
+        "[a.pdf](vellum://host/tmp/a.pdf) and more",
+      ),
+    ).toBe(0);
+  });
+
+  test.each([
+    ["mid path", "grab [a.pdf](vellum://host/tmp/a"],
+    ["at slash", "grab [a.pdf](vellum://host/"],
+    ["at authority", "grab [a.pdf](vellum://host"],
+    ["partial authority", "grab [a.pdf](vellum://ho"],
+    ["partial scheme", "grab [a.pdf](vel"],
+    ["open paren", "grab [a.pdf]("],
+    ["closed label", "grab [a.pdf]"],
+    ["open label", "grab [a.pd"],
+  ])("withholds an in-progress vellum link (%s)", (_name, text) => {
+    expect(suffix(text).startsWith("[")).toBe(true);
+    expect(
+      stripVellumLinks(
+        text.slice(0, text.length - incompleteVellumLinkSuffixLength(text)),
+      ),
+    ).not.toContain("vellum://");
+  });
+
+  test("withholds only the trailing in-progress link, not an earlier complete one", () => {
+    const text =
+      "[done.pdf](vellum://host/tmp/done.pdf) then [next](vellum://workspace/scratch/n";
+    expect(suffix(text)).toBe("[next](vellum://workspace/scratch/n");
+  });
+
+  test("stops withholding once the URL diverges from the vellum scheme", () => {
+    expect(
+      incompleteVellumLinkSuffixLength("see [site](https://example.com"),
+    ).toBe(0);
   });
 });
 

@@ -15,6 +15,10 @@ import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
+import {
+  timeSyncSection,
+  traceAsyncSection,
+} from "../persistence/slow-sync-log.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
   AgentLoopExitReason,
@@ -1532,15 +1536,20 @@ export class AgentLoop {
         // the existing correction) so the calibrator learns the true
         // bias against provider ground truth instead of ratcheting a
         // feedback loop against its own corrected output.
-        const toolTokenBudget =
-          currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
-        const preSendEstimatedTokens = estimatePromptTokensRaw(
-          history,
-          runSystemPrompt,
-          {
-            providerName: getCalibrationProviderKey(this.provider),
-            toolTokenBudget,
+        const preSendEstimatedTokens = timeSyncSection(
+          "agent-loop:estimate-prompt-tokens",
+          () => {
+            const toolTokenBudget =
+              currentTools.length > 0 ? estimateToolsTokens(currentTools) : 0;
+            return estimatePromptTokensRaw(history, runSystemPrompt, {
+              providerName: getCalibrationProviderKey(this.provider),
+              toolTokenBudget,
+            });
           },
+          (estimatedTokens) => ({
+            estimatedTokens,
+            messageCount: history.length,
+          }),
         );
         lastPreSendEstimatedTokens = preSendEstimatedTokens;
         rlog.info({ turn: toolUseTurns }, "LLM call start");
@@ -1548,7 +1557,11 @@ export class AgentLoop {
         // Sanitize the outbound history right before sending: drop accumulated
         // media, collapse old AX-tree snapshots, and convert historical
         // web-search results to text. See {@link preModelCallSanitize}.
-        const providerHistory = preModelCallSanitize(history);
+        const providerHistory = timeSyncSection(
+          "agent-loop:pre-model-call-sanitize",
+          () => preModelCallSanitize(history),
+          (sanitized) => ({ messageCount: sanitized.length }),
+        );
 
         // A `pre-model-call` hook (below) can defer this turn's assistant
         // output; when set, the live text stream is held so an
@@ -1659,10 +1672,14 @@ export class AgentLoop {
             deferAssistantOutput: false,
             logger: rlog,
           };
-          const finalPreModelCtx = await runHook(
-            HOOKS.PRE_MODEL_CALL,
-            preModelCtx,
-            this.effectiveEnabledPlugins(),
+          const finalPreModelCtx = await traceAsyncSection(
+            "agent-loop:pre-model-call-hook",
+            () =>
+              runHook(
+                HOOKS.PRE_MODEL_CALL,
+                preModelCtx,
+                this.effectiveEnabledPlugins(),
+              ),
           );
           // Emit a changed event when the hook mutated the prompt. Compare
           // against the pre-hook value from providerOptions, not
@@ -1731,9 +1748,8 @@ export class AgentLoop {
         latencyTracker?.mark("request_sent");
         let response: ProviderResponse;
         try {
-          response = await this.provider.sendMessage(
-            providerHistory,
-            providerOptions,
+          response = await traceAsyncSection("agent-loop:provider-send", () =>
+            this.provider.sendMessage(providerHistory, providerOptions),
           );
         } catch (llmCallError) {
           // Skip recording on abort — the user cancelled the request and
@@ -1829,10 +1845,14 @@ export class AgentLoop {
               decision: "stop",
               logger: rlog,
             };
-            const result = await runHook(
-              HOOKS.POST_MODEL_CALL,
-              ctx,
-              this.effectiveEnabledPlugins(),
+            const result = await traceAsyncSection(
+              "agent-loop:post-model-call-hook",
+              () =>
+                runHook(
+                  HOOKS.POST_MODEL_CALL,
+                  ctx,
+                  this.effectiveEnabledPlugins(),
+                ),
             );
             return {
               finalized: { role: "assistant", content: result.content },

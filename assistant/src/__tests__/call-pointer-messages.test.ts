@@ -7,11 +7,40 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+// Stand in for the daemon conversation-turn path so these tests can drive its
+// behavior (success / throw) without pulling in the real conversation pipeline.
+// `runPointerTurnImpl` is swapped per-test via setProcessor/resetProcessor.
+let runPointerTurnImpl: (
+  conversationId: string,
+  instruction: string,
+  requiredFacts?: string[],
+) => Promise<void> = async () => {};
+
+mock.module("../daemon/pointer-turn-runner.js", () => ({
+  runPointerMessageTurn: (
+    conversationId: string,
+    instruction: string,
+    requiredFacts?: string[],
+  ) => runPointerTurnImpl(conversationId, instruction, requiredFacts),
+}));
+
+function setProcessor(
+  fn: (
+    conversationId: string,
+    instruction: string,
+    requiredFacts?: string[],
+  ) => Promise<void>,
+): void {
+  runPointerTurnImpl = fn;
+}
+
+function resetProcessor(): void {
+  runPointerTurnImpl = async () => {};
+}
+
 import {
   addPointerMessage,
   formatDuration,
-  resetPointerMessageProcessor,
-  setPointerMessageProcessor,
 } from "../calls/call-pointer-messages.js";
 import { addMessage, getMessages } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
@@ -97,7 +126,7 @@ describe("addPointerMessage", () => {
   });
 
   afterEach(() => {
-    resetPointerMessageProcessor();
+    resetProcessor();
   });
 
   test("adds a started pointer message", () => {
@@ -204,7 +233,7 @@ describe("addPointerMessage", () => {
     ensureConversation(convId);
 
     const processorCalled = { value: false };
-    setPointerMessageProcessor(async () => {
+    setProcessor(async () => {
       processorCalled.value = true;
     });
 
@@ -220,7 +249,7 @@ describe("addPointerMessage", () => {
     ensureConversation(convId, { originChannel: "vellum" });
 
     const processorCalled = { value: false };
-    setPointerMessageProcessor(async () => {
+    setProcessor(async () => {
       processorCalled.value = true;
     });
 
@@ -242,7 +271,7 @@ describe("addPointerMessage", () => {
 
     let capturedInstruction = "";
     let capturedFacts: string[] = [];
-    setPointerMessageProcessor(async (_convId, instruction, requiredFacts) => {
+    setProcessor(async (_convId, instruction, requiredFacts) => {
       capturedInstruction = instruction;
       capturedFacts = requiredFacts ?? [];
     });
@@ -265,7 +294,7 @@ describe("addPointerMessage", () => {
     const convId = "conv-ptr-processor-fail";
     ensureConversation(convId, { originChannel: "vellum" });
 
-    setPointerMessageProcessor(async () => {
+    setProcessor(async () => {
       throw new Error("Daemon unavailable");
     });
 
@@ -282,7 +311,7 @@ describe("addPointerMessage", () => {
     ensureConversation(convId, { originChannel: "vellum" });
 
     let processorCalled = false;
-    setPointerMessageProcessor(async () => {
+    setProcessor(async () => {
       processorCalled = true;
     });
 
@@ -297,7 +326,7 @@ describe("addPointerMessage", () => {
     ensureConversation(convId);
 
     const processorCalled = { value: false };
-    setPointerMessageProcessor(async () => {
+    setProcessor(async () => {
       processorCalled.value = true;
     });
 
@@ -318,7 +347,7 @@ describe("addPointerMessage", () => {
     });
 
     let processorCalled = false;
-    setPointerMessageProcessor(async () => {
+    setProcessor(async () => {
       processorCalled = true;
     });
 
@@ -326,7 +355,7 @@ describe("addPointerMessage", () => {
     expect(processorCalled).toBe(true);
   });
 
-  test("trusted_contact provenance trust class is detected as trusted audience", async () => {
+  test("trusted_contact provenance uses the deterministic fallback, not the daemon turn", async () => {
     const convId = "conv-ptr-tc-provenance";
     ensureConversation(convId);
     // Add a user message with trusted_contact provenance metadata
@@ -335,17 +364,22 @@ describe("addPointerMessage", () => {
     });
 
     let processorCalled = false;
-    setPointerMessageProcessor(async () => {
+    setProcessor(async () => {
       processorCalled = true;
     });
 
     await addPointerMessage(convId, "completed", "+15559876543");
-    expect(processorCalled).toBe(true);
+    // A known contact is not the owner: routing through the daemon turn would
+    // run it under the internal guardian context and leak guardian-only history
+    // into the contact's conversation, so the deterministic fallback is used.
+    expect(processorCalled).toBe(false);
+    const text = getLatestAssistantText(convId);
+    expect(text).toContain("Call to +15559876543 completed");
   });
 
-  test("unverified_contact provenance round-trips through the metadata schema and is treated as trusted audience", async () => {
+  test("unverified_contact provenance round-trips through the metadata schema and uses the deterministic fallback", async () => {
     // Persisted unverified_contact metadata must survive the schema parse so
-    // downstream consumers (e.g. memory write gate, pointer audience trust)
+    // downstream consumers (e.g. memory write gate, pointer audience resolution)
     // see the durable trust snapshot rather than a silently-dropped undefined.
     const convId = "conv-ptr-uvc-provenance";
     ensureConversation(convId);
@@ -360,14 +394,18 @@ describe("addPointerMessage", () => {
       "unverified_contact",
     );
 
-    // And that pointer-audience trust treats it identically to trusted_contact.
+    // And that pointer-audience resolution treats it identically to
+    // trusted_contact: a non-owner audience that takes the deterministic
+    // fallback rather than the guardian-elevated daemon turn.
     let processorCalled = false;
-    setPointerMessageProcessor(async () => {
+    setProcessor(async () => {
       processorCalled = true;
     });
 
     await addPointerMessage(convId, "completed", "+15559876543");
-    expect(processorCalled).toBe(true);
+    expect(processorCalled).toBe(false);
+    const text = getLatestAssistantText(convId);
+    expect(text).toContain("Call to +15559876543 completed");
   });
 
   test("unknown provenance trust class does not grant trusted audience", () => {
@@ -378,7 +416,7 @@ describe("addPointerMessage", () => {
     });
 
     const processorCalled = { value: false };
-    setPointerMessageProcessor(async () => {
+    setProcessor(async () => {
       processorCalled.value = true;
     });
 

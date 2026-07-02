@@ -547,6 +547,13 @@ export function ChatMainPanel({
     !!activeConversationId &&
     !isLoadingHistory &&
     messages.length === 0 &&
+    // A turn already in flight (e.g. the onboarding auto-greet, or any send whose
+    // first token hasn't landed) is NOT an empty conversation — showing the
+    // "start a conversation" empty state here flashes it for a beat before the
+    // streaming reply materializes (notably across the onboarding draft→real
+    // conversation switch, which resets the snapshot mid-turn).
+    !activeConversationIsProcessing &&
+    !isAssistantStreaming &&
     !(assistantState.kind === "active" && assistantState.maintenanceMode?.enabled);
 
   const showDoctorAction =

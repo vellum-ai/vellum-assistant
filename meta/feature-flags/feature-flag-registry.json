@@ -355,6 +355,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "memory-v3-injection-gate",
+      "scope": "assistant",
+      "key": "memory-v3-injection-gate",
+      "label": "Memory v3 injection gate",
+      "description": "Per-turn injection gate for memory v3: after the BM25F needle + dense cosine finder lanes run, skip the selectPool LLM call (inject nothing) when finder-lane scores fall below the configured thresholds (memory.v3.gate). Default off.",
+      "defaultEnabled": false
+    },
+    {
       "id": "self-intro-greeting",
       "scope": "both",
       "key": "self-intro-greeting",
@@ -408,14 +416,6 @@
       "key": "new-thread-suggestions",
       "label": "New-thread suggestions library",
       "description": "Replace the empty-state conversation-starter chips with the scrollable, categorized suggestions library and detail drawer (currently mocked data).",
-      "defaultEnabled": false
-    },
-    {
-      "id": "messages-search-backend",
-      "scope": "assistant",
-      "key": "messages-search-backend",
-      "label": "Messages Search Backend",
-      "description": "When disabled (default), message content search uses SQLite FTS5. When enabled, it uses the sparse Qdrant lexical index.",
       "defaultEnabled": false
     }
   ]

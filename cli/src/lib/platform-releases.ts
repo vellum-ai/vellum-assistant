@@ -9,6 +9,25 @@ export interface ResolvedImageRefs {
   source: "platform" | "dockerhub";
 }
 
+/**
+ * Release channel to resolve images from. `stable` is the default and maps
+ * to the server's `stable=true` filter (unchanged behavior). `preview` opts
+ * into the platform's preview channel — the newest release regardless of
+ * stability — used by callers (e.g. evals) that want to always hatch the
+ * latest preview image instead of latest-stable.
+ */
+export type ReleaseChannel = "stable" | "preview";
+
+/**
+ * Map a channel to `fetchReleases` options. `stable` passes no `channel`
+ * param so the server keeps its `stable=true` default (we don't rely on an
+ * unverified `channel=stable` filter); `preview` requests the preview
+ * channel explicitly.
+ */
+function releasesOptsFor(channel: ReleaseChannel): { channel?: "preview" } {
+  return channel === "preview" ? { channel: "preview" } : {};
+}
+
 export interface ReleaseListItem {
   version: string;
   is_stable?: boolean;
@@ -51,13 +70,24 @@ export async function fetchReleases(opts?: {
 }
 
 /**
- * Fetch the latest stable release version from the platform API.
+ * Fetch the latest release version for a channel from the platform API.
  * Returns the version string (e.g. "0.7.0") or null if unavailable.
- * The releases endpoint returns entries ordered newest-first.
+ * The releases endpoint returns entries ordered newest-first, so the first
+ * entry is the latest for the requested channel.
+ */
+export async function fetchLatestVersion(
+  channel: ReleaseChannel = "stable",
+): Promise<string | null> {
+  const releases = await fetchReleases(releasesOptsFor(channel));
+  return releases?.[0]?.version ?? null;
+}
+
+/**
+ * Fetch the latest stable release version. Thin back-compat wrapper around
+ * {@link fetchLatestVersion} for existing callers.
  */
 export async function fetchLatestStableVersion(): Promise<string | null> {
-  const releases = await fetchReleases();
-  return releases?.[0]?.version ?? null;
+  return fetchLatestVersion("stable");
 }
 
 export type ImageRefResolution =
@@ -87,10 +117,11 @@ function dockerhubImageTags(version: string): Record<ServiceName, string> {
 export async function resolveImageRefsDetailed(
   version: string,
   log?: (msg: string) => void,
+  channel: ReleaseChannel = "stable",
 ): Promise<ImageRefResolution> {
   log?.("Resolving image references...");
 
-  const releases = await fetchReleases();
+  const releases = await fetchReleases(releasesOptsFor(channel));
   if (releases === null) {
     log?.("Platform unreachable — falling back to DockerHub tags");
     return {
@@ -151,8 +182,9 @@ export async function resolveImageRefsDetailed(
 export async function resolveImageRefs(
   version: string,
   log?: (msg: string) => void,
+  channel: ReleaseChannel = "stable",
 ): Promise<ResolvedImageRefs> {
-  const resolution = await resolveImageRefsDetailed(version, log);
+  const resolution = await resolveImageRefsDetailed(version, log, channel);
   if (resolution.status === "platform") {
     log?.("Resolved image refs from platform API");
     return { imageTags: resolution.imageTags, source: "platform" };

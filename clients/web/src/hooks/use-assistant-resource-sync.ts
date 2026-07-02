@@ -2,7 +2,7 @@
  * Bus consumer for assistant-level resource cache invalidation.
  *
  * Routes `sync_changed` tags (avatar, identity, config, sounds, schedules,
- * apps) and discrete SSE events (`home_feed_updated`,
+ * apps, plugins) and discrete SSE events (`home_feed_updated`,
  * `relationship_state_updated`, `identity_changed`, `avatar_updated`) into
  * TanStack Query cache invalidations.
  *
@@ -29,6 +29,7 @@
 
 import { useQueryClient } from "@tanstack/react-query";
 
+import { invalidatePluginQueries } from "@/domains/intelligence/plugins/invalidate-plugin-queries";
 import {
   configGetQueryKey,
   identityGetQueryKey,
@@ -105,6 +106,9 @@ export function useAssistantResourceSync(
                 predicate: (query) => isGeneratedQueryKey(query.queryKey, "appsGet"),
               });
               break;
+            case SYNC_TAGS.pluginsList:
+              invalidatePluginQueries(queryClient, assistantId);
+              break;
           }
         }
         return;
@@ -170,6 +174,7 @@ export function useAssistantResourceSync(
     void queryClient.invalidateQueries({
       predicate: (query) => isGeneratedQueryKey(query.queryKey, "appsGet"),
     });
+    invalidatePluginQueries(queryClient, assistantId);
     void queryClient.invalidateQueries({
       predicate: (query) => isGeneratedQueryKey(query.queryKey, "homeFeedGet"),
     });

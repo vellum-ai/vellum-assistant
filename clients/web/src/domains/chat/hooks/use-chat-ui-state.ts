@@ -12,6 +12,7 @@
 
 import { useMemo } from "react";
 
+import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useTurnStore } from "@/domains/chat/turn-store";
 import {
@@ -79,6 +80,9 @@ export function useChatUIState(): ChatUIState {
   // while a turn is in flight.
   const transcript = useTranscriptMessages();
 
+  // Authoritative processing flag off the rolling snapshot; narrow selector so it re-renders only when the flag flips.
+  const snapshotProcessing = useChatSessionStore((s) => s.snapshot?.processing);
+
   // TanStack Query — deduped with any other call for the same conversation.
   const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
 
@@ -133,6 +137,7 @@ export function useChatUIState(): ChatUIState {
       hasUncompletedVisibleSurface,
       activeConversationIsProcessing,
       hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
+      snapshotProcessing,
     }),
     [
       hasStreamingAssistantMessage,
@@ -144,6 +149,7 @@ export function useChatUIState(): ChatUIState {
       hasUncompletedVisibleSurface,
       activeConversationIsProcessing,
       activeConversationHasPendingAssistantResponse,
+      snapshotProcessing,
     ],
   );
 

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import {
   makeResolutionFailedVerdict,
+  makeUnauthenticatedSenderVerdict,
   type SourceMetadata,
   type TrustVerdict,
 } from "@vellumai/gateway-client";
@@ -51,6 +52,16 @@ export type HandleInboundOptions = {
   routingOverride?: RouteResult;
   /** Extra fields merged into sourceMetadata (e.g. commandIntent). */
   sourceMetadata?: Partial<SourceMetadata>;
+  /**
+   * Result of the ingress channel's sender-authentication check (email
+   * SPF/DKIM/DMARC). `false` means the sender's identity (e.g. the `From:`
+   * address) could not be authenticated and is spoofable — the resolved
+   * verdict is downgraded to a plain stranger so it cannot inherit
+   * guardian/trusted_contact trust from a matching address. `undefined` means
+   * the channel does not authenticate senders, or the provider carried no
+   * result, and preserves the resolved verdict.
+   */
+  senderAuthenticated?: boolean;
 };
 
 function normalizeTransportHints(hints: string[] | undefined): string[] {
@@ -181,6 +192,31 @@ export async function handleInbound(
     );
   }
 
+  // ── Sender-authentication downgrade ──
+  // Trust is keyed on the actor's channel address, which some channels (email)
+  // carry from a spoofable `From:` header. When the ingress reports the sender
+  // failed channel authentication (SPF/DKIM/DMARC), never let a forged address
+  // that happens to match a guardian/contact record inherit that trust —
+  // collapse the verdict to a plain stranger so the admission floor and
+  // verification lane treat it as unknown. `undefined` means "not evaluated"
+  // (non-authenticating channel, or a payload with no result) and is a no-op.
+  if (options?.senderAuthenticated === false && trustVerdict) {
+    const priorClass = trustVerdict.trustClass;
+    trustVerdict = makeUnauthenticatedSenderVerdict(
+      trustVerdict.canonicalSenderId,
+    );
+    if (priorClass !== "unknown") {
+      log.warn(
+        {
+          sourceChannel: event.sourceChannel,
+          actorExternalId: event.actor.actorExternalId,
+          resolvedTrustClass: priorClass,
+        },
+        "Inbound sender failed channel authentication — downgrading trust to stranger",
+      );
+    }
+  }
+
   try {
     const response = await forwardToRuntime(
       config,
@@ -213,6 +249,7 @@ export async function handleInbound(
           timezoneOffsetSeconds: event.actor.timezoneOffsetSeconds,
           isStranger: event.actor.isStranger,
           isRestricted: event.actor.isRestricted,
+          ...(event.actor.teamId ? { actorTeamId: event.actor.teamId } : {}),
           ...(transportHints.length > 0 ? { hints: transportHints } : {}),
           ...(transportUxBrief ? { uxBrief: transportUxBrief } : {}),
           // Floor for the runtime admission stage. Exempt channels send no
