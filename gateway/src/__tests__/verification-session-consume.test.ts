@@ -10,11 +10,14 @@
  *   under concurrent attempts, and never yields two bindings;
  * - anti-oracle failures: lockout, wrong code, expiry, identity mismatch,
  *   and blocked actors all return the same machine-readable reason;
- * - guardian phone binding happens synchronously at consume time (no
- *   poller), with the ATL-514 recency guard and deliberate-rebind
- *   semantics ported from outbound-voice-verification-sync;
- * - trusted-contact consume upserts the verified channel idempotently and
- *   fails closed on a blocked authoritative gateway row.
+ * - guardian phone binding happens synchronously at consume time, with the
+ *   ATL-514 recency guard and deliberate-rebind semantics;
+ * - consume + binding atomicity: a failed binding write rolls back the
+ *   consume, so the one-time code stays redeemable (no spent-code-without-
+ *   binding state);
+ * - trusted-contact consume upserts the verified channel idempotently,
+ *   fails closed on a blocked authoritative gateway row, and restores the
+ *   session for retry when the side effect throws.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -36,13 +39,13 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   async assistantDbQuery(sql: string, bind?: unknown[]) {
     if (!testAssistantDb) throw new Error("test assistant DB not initialized");
     const stmt = testAssistantDb.prepare(sql);
-     
+
     return bind ? stmt.all(...(bind as any[])) : stmt.all();
   },
   async assistantDbRun(sql: string, bind?: unknown[]) {
     if (!testAssistantDb) throw new Error("test assistant DB not initialized");
     const stmt = testAssistantDb.prepare(sql);
-     
+
     const result = bind ? stmt.run(...(bind as any[])) : stmt.run();
     return {
       changes: result.changes,
@@ -80,9 +83,8 @@ mock.module("../ipc/socket-path.js", () => ({
   }),
 }));
 
-const { getGatewayDb, initGatewayDb, resetGatewayDb } = await import(
-  "../db/connection.js"
-);
+const { getGatewayDb, initGatewayDb, resetGatewayDb } =
+  await import("../db/connection.js");
 const {
   channelGuardianRateLimits,
   channelVerificationSessions,
@@ -95,9 +97,8 @@ const {
   createPhoneGuardianBinding,
   validateAndConsumeSession,
 } = await import("../verification/session-service.js");
-const { consumeSession: storeConsumeSession } = await import(
-  "../db/session-store.js"
-);
+const { consumeSession: storeConsumeSession } =
+  await import("../db/session-store.js");
 const { getRateLimit } = await import("../verification/rate-limit-helpers.js");
 
 // ---------------------------------------------------------------------------
@@ -277,8 +278,8 @@ describe("guardian consume — synchronous phone binding", () => {
     expect(row?.consumedByExternalUserId).toBe(PHONE);
     expect(row?.consumedByChatId).toBe(PHONE);
 
-    // The binding exists immediately after the call returns — the poller's
-    // job happened in-engine, synchronously.
+    // The binding exists immediately after the call returns — applied
+    // in-engine, synchronously.
     expect(activeGuardianPhoneBindings()).toEqual([{ address: PHONE }]);
   });
 
@@ -349,8 +350,8 @@ describe("guardian consume — synchronous phone binding", () => {
 
   test("ATL-514: a binding event newer than the consume blocks the (stale) binding", async () => {
     // A guardian binding for this number was revoked AFTER this session will
-    // be consumed (clock-skewed future timestamp models the poller-lookback /
-    // retry replay shape). The consume itself succeeds — the session is
+    // be consumed (clock-skewed future timestamp models the IPC-retry
+    // replay shape). The consume itself succeeds — the session is
     // legitimately spent — but the stale side effect must not reactivate the
     // revoked binding.
     seedGuardianPhoneBinding({
@@ -457,6 +458,38 @@ describe("guardian consume — synchronous phone binding", () => {
       .get();
     expect(channel?.status).toBe("blocked");
     expect(channel?.policy).toBe("deny");
+  });
+
+  test("binding write failure rolls back the consume: the code stays redeemable", async () => {
+    const { sessionId, secret } = createPhoneGuardianSession();
+
+    // Induce a real gateway write failure inside the consume transaction.
+    const raw = (getGatewayDb() as unknown as { $client: Database }).$client;
+    raw.exec(
+      `CREATE TRIGGER induce_binding_failure BEFORE INSERT ON contact_channels
+       BEGIN SELECT RAISE(ABORT, 'induced binding failure'); END;`,
+    );
+
+    await expect(
+      validateAndConsumeSession("phone", secret, PHONE, PHONE),
+    ).rejects.toThrow("induced binding failure");
+
+    // Atomicity: the consume rolled back with the binding — the one-time
+    // code was NOT spent and no partial trust-graph write exists.
+    expect(sessionRow(sessionId)?.status).toBe("awaiting_response");
+    expect(guardianPhoneBindings()).toEqual([]);
+
+    // After recovery the same code redeems normally.
+    raw.exec("DROP TRIGGER induce_binding_failure");
+    const retry = await validateAndConsumeSession(
+      "phone",
+      secret,
+      PHONE,
+      PHONE,
+    );
+    expect(retry).toEqual({ success: true, verificationType: "guardian" });
+    expect(sessionRow(sessionId)?.status).toBe("consumed");
+    expect(activeGuardianPhoneBindings()).toEqual([{ address: PHONE }]);
   });
 
   test("guardian consume on a non-phone channel applies no side effect", async () => {
@@ -643,6 +676,46 @@ describe("trusted-contact consume — verified channel upsert", () => {
       .all();
     expect(rows).toHaveLength(1);
     expect(rows[0].status).toBe("active");
+  });
+
+  test("side-effect failure restores the session: the code stays redeemable", async () => {
+    const { sessionId, secret } = createPhoneTrustedContactSession();
+
+    // Induce an assistant-IPC failure in the upsert's decision path (the
+    // trusted-contact side effect spans real IO, so it compensates by
+    // restoring the session instead of sharing the consume's transaction).
+    const saved = testAssistantDb;
+    testAssistantDb = null;
+    await expect(
+      validateAndConsumeSession("phone", secret, PHONE, PHONE),
+    ).rejects.toThrow("test assistant DB not initialized");
+    testAssistantDb = saved;
+
+    expect(sessionRow(sessionId)?.status).toBe("awaiting_response");
+
+    // After recovery the same code redeems normally.
+    const retry = await validateAndConsumeSession(
+      "phone",
+      secret,
+      PHONE,
+      PHONE,
+    );
+    expect(retry).toEqual({
+      success: true,
+      verificationType: "trusted_contact",
+    });
+    expect(sessionRow(sessionId)?.status).toBe("consumed");
+    const channel = getGatewayDb()
+      .select()
+      .from(contactChannels)
+      .where(
+        and(
+          eq(contactChannels.type, "phone"),
+          eq(contactChannels.address, PHONE),
+        ),
+      )
+      .get();
+    expect(channel?.status).toBe("active");
   });
 
   test("blocked actor: correct code fails closed, channel stays blocked", async () => {

@@ -178,6 +178,29 @@ mock.module("../ipc/gateway-client.js", () => ({
     method: string,
     params?: Record<string, unknown>,
   ) => {
+    // Gateway-native verification sessions: model the gateway engine with the
+    // daemon's local service over the same seeded test DB (identical
+    // semantics — the gateway service is a port of it).
+    if (method === "verification_sessions_get_pending") {
+      const { getPendingSession } = await import(
+        "../runtime/channel-verification-service.js"
+      );
+      return getPendingSession(params?.channel as string);
+    }
+    if (method === "verification_sessions_validate_consume") {
+      const { validateAndConsumeVerification } = await import(
+        "../runtime/channel-verification-service.js"
+      );
+      const result = validateAndConsumeVerification(
+        params?.channel as string,
+        params?.secret as string,
+        params?.actorExternalUserId as string,
+        params?.actorChatId as string,
+      );
+      return result.success
+        ? { success: true, verificationType: result.verificationType }
+        : { success: false, reason: "invalid_or_expired" };
+    }
     // The gateway owns the ACL verdict; activation fails closed when the relay
     // does not land, so model a verified upsert for the redemption paths.
     if (method === "upsert_verified_channel") {
@@ -630,6 +653,14 @@ async function waitFor(
     }
     await new Promise((resolve) => setTimeout(resolve, 2));
   }
+}
+
+/** Tokens of all text messages sent so far (waitFor-friendly TTS probe). */
+function sentTextTokens(ws: MockWs): string[] {
+  return ws.sentMessages
+    .map((raw) => JSON.parse(raw) as { type: string; token?: string })
+    .filter((m) => m.type === "text")
+    .map((m) => m.token ?? "");
 }
 
 let ensuredConvIds = new Set<string>();
@@ -1908,11 +1939,14 @@ describe("relay-server", () => {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // The consume is an async gateway round trip — poll for the transition.
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "verification success",
+    );
 
     // Verification should have succeeded
     expect(relay.isVerificationSessionActive()).toBe(false);
-    expect(relay.getConnectionState()).toBe("connected");
 
     // Guardian binding is NOT created by the assistant — the gateway owns
     // binding creation for inbound voice verification. The assistant only
@@ -1921,12 +1955,10 @@ describe("relay-server", () => {
     expect(binding).toBeNull();
 
     // Orchestrator greeting should have fired
-    const textMessages = ws.sentMessages
-      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
-      .filter((m) => m.type === "text");
-    expect(
-      textMessages.some((m) => (m.token ?? "").includes("how can I help")),
-    ).toBe(true);
+    await waitFor(
+      () => sentTextTokens(ws).some((t) => t.includes("how can I help")),
+      "post-verification greeting",
+    );
 
     // Verify events recorded
     const guardianEvents = getCallEvents(session.id);
@@ -1981,23 +2013,24 @@ describe("relay-server", () => {
       }),
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // The consume is an async gateway round trip — poll for the transition.
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "verification success",
+    );
 
     // Verification should have succeeded
     expect(relay.isVerificationSessionActive()).toBe(false);
-    expect(relay.getConnectionState()).toBe("connected");
 
     // Binding is NOT created by the assistant — gateway owns this.
     const binding = await getGuardianBinding("self", "phone");
     expect(binding).toBeNull();
 
     // Greeting should have started
-    const textMessages = ws.sentMessages
-      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
-      .filter((m) => m.type === "text");
-    expect(
-      textMessages.some((m) => (m.token ?? "").includes("verified caller")),
-    ).toBe(true);
+    await waitFor(
+      () => sentTextTokens(ws).some((t) => t.includes("verified caller")),
+      "post-verification greeting",
+    );
 
     relay.destroy();
   });
@@ -2241,7 +2274,10 @@ describe("relay-server", () => {
       }),
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "verification success",
+    );
 
     // The gateway creates the guardian binding before the ConversationRelay
     // WebSocket is established, so resolveActorTrust() would find it in
@@ -2293,17 +2329,15 @@ describe("relay-server", () => {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
 
+    // The consume is an async gateway round trip — poll for the retry prompt.
+    await waitFor(
+      () => sentTextTokens(ws).some((t) => t.includes("incorrect")),
+      "retry prompt",
+    );
+
     // Should still be in verification-pending state (retry allowed)
     expect(relay.isVerificationSessionActive()).toBe(true);
     expect(relay.getConnectionState()).toBe("verification_pending");
-
-    // Should have sent a retry prompt
-    const textMessages = ws.sentMessages
-      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
-      .filter((m) => m.type === "text");
-    expect(
-      textMessages.some((m) => (m.token ?? "").includes("incorrect")),
-    ).toBe(true);
 
     relay.destroy();
   });
@@ -2332,11 +2366,20 @@ describe("relay-server", () => {
 
     expect(relay.isVerificationSessionActive()).toBe(true);
 
-    // Enter wrong codes 3 times (max attempts = 3)
+    // Enter wrong codes 3 times (max attempts = 3). Each consume is an async
+    // gateway round trip — wait for each attempt's outcome prompt so the
+    // attempt counter advances deterministically.
     for (let attempt = 0; attempt < 3; attempt++) {
       for (const digit of "000000") {
         await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
       }
+      await waitFor(
+        () =>
+          sentTextTokens(ws).filter(
+            (t) => t.includes("incorrect") || t.includes("Verification failed"),
+          ).length >= attempt + 1,
+        `attempt ${attempt + 1} outcome`,
+      );
     }
 
     // Call should be marked as failed
@@ -2401,19 +2444,15 @@ describe("relay-server", () => {
       }),
     );
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
     // Should NOT be in guardian verification state
     expect(relay.isVerificationSessionActive()).toBe(false);
     expect(relay.getConnectionState()).toBe("connected");
 
     // Should have started normal greeting
-    const textMessages = ws.sentMessages
-      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
-      .filter((m) => m.type === "text");
-    expect(
-      textMessages.some((m) => (m.token ?? "").includes("Welcome to the line")),
-    ).toBe(true);
+    await waitFor(
+      () => sentTextTokens(ws).some((t) => t.includes("Welcome to the line")),
+      "normal-call greeting",
+    );
 
     relay.destroy();
   });
@@ -2510,18 +2549,24 @@ describe("relay-server", () => {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
 
-    // Let the fire-and-forget verification result handler flush
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // The fire-and-forget verification result handler crosses the async
+    // gateway consume — poll for the transition instead of sleeping.
+    await waitFor(
+      () => !relay.isVerificationSessionActive(),
+      "verification success",
+    );
 
-    // Verification should have succeeded
-    expect(relay.isVerificationSessionActive()).toBe(false);
-
-    // Origin conversation should have a pointer message
+    // Origin conversation should have a pointer message (async write)
+    await waitFor(
+      () =>
+        (
+          getLatestAssistantText("conv-gv-pointer-success-origin") ?? ""
+        ).includes("succeeded"),
+      "success pointer message",
+    );
     const originText = getLatestAssistantText("conv-gv-pointer-success-origin");
-    expect(originText).not.toBeNull();
     expect(originText).toContain("Guardian verification");
     expect(originText).toContain("+15559999999");
-    expect(originText).toContain("succeeded");
 
     // Let the delayed endSession callback flush
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -2544,7 +2589,7 @@ describe("relay-server", () => {
 
     createVoiceVerificationSession("+15559999999", "gv-session-ptr-fail");
 
-    const { relay } = createMockWs(session.id);
+    const { ws, relay } = createMockWs(session.id);
 
     await relay.handleMessage(
       JSON.stringify({
@@ -2560,11 +2605,19 @@ describe("relay-server", () => {
 
     expect(relay.isVerificationSessionActive()).toBe(true);
 
-    // Enter wrong codes 3 times (max attempts = 3)
+    // Enter wrong codes 3 times (max attempts = 3). Each consume is an async
+    // gateway round trip — wait for each attempt's outcome prompt so the
+    // attempt counter advances deterministically.
     for (let attempt = 0; attempt < 3; attempt++) {
       for (const digit of "000000") {
         await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
       }
+      await waitFor(
+        () =>
+          sentTextTokens(ws).filter((t) => t.includes("incorrect")).length >=
+          attempt + 1,
+        `attempt ${attempt + 1} outcome`,
+      );
     }
 
     // Call should be marked as failed
@@ -2572,12 +2625,17 @@ describe("relay-server", () => {
     expect(updated).not.toBeNull();
     expect(updated!.status).toBe("failed");
 
-    // Origin conversation should have a failure pointer message
+    // Origin conversation should have a failure pointer message (async write)
+    await waitFor(
+      () =>
+        (getLatestAssistantText("conv-gv-pointer-fail-origin") ?? "").includes(
+          "failed",
+        ),
+      "failure pointer message",
+    );
     const originText = getLatestAssistantText("conv-gv-pointer-fail-origin");
-    expect(originText).not.toBeNull();
     expect(originText).toContain("Guardian verification");
     expect(originText).toContain("+15559999999");
-    expect(originText).toContain("failed");
 
     // Let the delayed endSession callback flush
     await new Promise((resolve) => setTimeout(resolve, 10));
@@ -5007,21 +5065,21 @@ describe("relay-server", () => {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // The consume is an async gateway round trip — poll for the transition.
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "verification success",
+    );
 
     // Verification should have succeeded — call remains connected
     expect(relay.isVerificationSessionActive()).toBe(false);
-    expect(relay.getConnectionState()).toBe("connected");
 
     // Deterministic handoff copy should have been sent (not a fresh greeting)
-    const textMessages = ws.sentMessages
-      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
-      .filter((m) => m.type === "text");
-    expect(
-      textMessages.some((m) =>
-        (m.token ?? "").includes("said I can speak with you"),
-      ),
-    ).toBe(true);
+    await waitFor(
+      () =>
+        sentTextTokens(ws).some((t) => t.includes("said I can speak with you")),
+      "trusted-contact handoff copy",
+    );
 
     // No end message should have been sent — call stays alive
     const endMessages = ws.sentMessages
@@ -5075,23 +5133,24 @@ describe("relay-server", () => {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
 
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // The consume is an async gateway round trip — poll for the transition.
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "verification success",
+    );
 
     // Should have transitioned to connected with normal greeting (not handoff copy)
     expect(relay.isVerificationSessionActive()).toBe(false);
-    expect(relay.getConnectionState()).toBe("connected");
 
     // Guardian binding is NOT created by the assistant — gateway owns this.
     const binding = await getGuardianBinding("self", "phone");
     expect(binding).toBeNull();
 
     // Normal greeting should fire (from mockSendMessage), not the handoff copy
-    const textMessages = ws.sentMessages
-      .map((raw) => JSON.parse(raw) as { type: string; token?: string })
-      .filter((m) => m.type === "text");
-    expect(
-      textMessages.some((m) => (m.token ?? "").includes("how can I help")),
-    ).toBe(true);
+    await waitFor(
+      () => sentTextTokens(ws).some((t) => t.includes("how can I help")),
+      "post-verification greeting",
+    );
 
     relay.destroy();
   });
@@ -5904,11 +5963,16 @@ describe("relay-server", () => {
     for (const digit of secret) {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    expect(relay.getConnectionState()).toBe("connected");
-    // Controller trust reflects the gateway verdict's upgraded class.
-    expect(readControllerTrustClass(relay)).toBe("guardian");
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "verification success",
+    );
+    // Controller trust reflects the gateway verdict's upgraded class once the
+    // re-resolution lands.
+    await waitFor(
+      () => readControllerTrustClass(relay) === "guardian",
+      "verdict re-resolution",
+    );
 
     relay.destroy();
   });
@@ -5949,11 +6013,13 @@ describe("relay-server", () => {
     for (const digit of secret) {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
     // Fail-soft: verification still completes and the call connects.
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "verification success",
+    );
+
     expect(relay.isVerificationSessionActive()).toBe(false);
-    expect(relay.getConnectionState()).toBe("connected");
     expect(readControllerTrustClass(relay)).toBeDefined();
 
     relay.destroy();
@@ -5997,10 +6063,12 @@ describe("relay-server", () => {
     for (const digit of secret) {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
     // Fail-soft: unusable verdict does not drop the call; local fallback fires.
-    expect(relay.getConnectionState()).toBe("connected");
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "verification success",
+    );
+
     expect(readControllerTrustClass(relay)).toBeDefined();
 
     relay.destroy();
@@ -6042,10 +6110,21 @@ describe("relay-server", () => {
       }),
     );
 
+    const preTrust = (
+      relay.getController() as unknown as { trustContext?: unknown }
+    )?.trustContext;
+
     for (const digit of secret) {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // The re-resolved context replaces the setup-time one once the async
+    // consume + fallback resolution land.
+    await waitFor(
+      () =>
+        (relay.getController() as unknown as { trustContext?: unknown })
+          ?.trustContext !== preTrust,
+      "trust re-resolution",
+    );
 
     expect(relay.getConnectionState()).toBe("connected");
     // Local resolver produced the final context; the unknown verdict was not
@@ -6110,12 +6189,15 @@ describe("relay-server", () => {
     for (const digit of secret) {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    // Verdict path consumed the memberful unknown verdict; blocked status
+    // lands once the async consume + re-resolution complete.
+    await waitFor(
+      () => readControllerMemberStatus(relay) === "blocked",
+      "blocked member status",
+    );
 
     expect(relay.getConnectionState()).toBe("connected");
-    // Verdict path consumed the memberful unknown verdict; blocked status lands.
     expect(trustVerdictMapperUsed).toBe(true);
-    expect(readControllerMemberStatus(relay)).toBe("blocked");
 
     relay.destroy();
   });
@@ -6158,11 +6240,13 @@ describe("relay-server", () => {
     for (const digit of secret) {
       await relay.handleMessage(JSON.stringify({ type: "dtmf", digit }));
     }
-    await new Promise((resolve) => setTimeout(resolve, 10));
+    await waitFor(
+      () => readControllerMemberStatus(relay) === "revoked",
+      "revoked member status",
+    );
 
     expect(relay.getConnectionState()).toBe("connected");
     expect(trustVerdictMapperUsed).toBe(true);
-    expect(readControllerMemberStatus(relay)).toBe("revoked");
 
     relay.destroy();
   });
@@ -6224,9 +6308,12 @@ describe("relay-server", () => {
     const verificationDone = relay.handleMessage(
       JSON.stringify({ type: "dtmf", digit: digits[digits.length - 1] }),
     );
-    // Let the verdict await begin (connectionState is now "connected", guard set).
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    expect(relay.getConnectionState()).toBe("connected");
+    // Let the async consume land and the verdict await begin (connectionState
+    // flips to "connected" before the gated re-resolution).
+    await waitFor(
+      () => relay.getConnectionState() === "connected",
+      "gated re-resolution entry",
+    );
     // Trust is still stale (verdict gated) — caller is not yet guardian.
     expect(readControllerTrustClass(relay)).not.toBe("guardian");
 
@@ -6246,10 +6333,9 @@ describe("relay-server", () => {
     // deferred prompt is flushed and its turn runs under guardian trust.
     releaseVerdict();
     await verificationDone;
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    await waitFor(() => trustClassAtTurn.length > 0, "deferred prompt turn");
 
     expect(readControllerTrustClass(relay)).toBe("guardian");
-    expect(trustClassAtTurn.length).toBeGreaterThan(0);
     expect(trustClassAtTurn.every((c) => c === "guardian")).toBe(true);
 
     relay.destroy();

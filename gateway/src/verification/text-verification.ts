@@ -315,7 +315,7 @@ async function applyGuardianSideEffects(params: {
   } = params;
 
   // Check for binding conflict — another user already holds guardian
-  const existing = await getExistingGuardianBinding(sourceChannel);
+  const existing = getExistingGuardianBinding(sourceChannel);
   if (existing?.address && existing.address !== canonicalUserId) {
     log.warn(
       {
@@ -352,10 +352,10 @@ async function applyGuardianSideEffects(params: {
   }
 
   // Revoke existing binding (same-user re-verification)
-  await revokeExistingChannelGuardian(sourceChannel);
+  revokeExistingChannelGuardian(sourceChannel);
 
   // Resolve canonical principal — unify all channel bindings
-  const canonicalPrincipal = await resolveCanonicalPrincipal(canonicalUserId);
+  const canonicalPrincipal = resolveCanonicalPrincipal(canonicalUserId);
 
   // Determine display name — preserve existing if user is re-verifying
   const existingContact = await findContactChannelByAddress(
