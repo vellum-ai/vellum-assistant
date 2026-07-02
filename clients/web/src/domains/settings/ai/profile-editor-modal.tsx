@@ -170,6 +170,13 @@ function ProfileEditorModalInner({
     "create" | "edit" | "view"
   >(mode);
   const isReadOnly = effectiveMode === "view";
+  // Invariant (default) profiles are fully read-only in view mode: no label
+  // rename, no Top P override, no disabling — the only interactive control is
+  // the enable-only status toggle when the profile is disabled. Customization
+  // goes through "Save As New", which switches `effectiveMode` to "create" and
+  // therefore drops the invariant lock on the duplicate.
+  const isInvariant =
+    initialValues?.invariant === true && effectiveMode === "view";
   const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
 
   // Managed profiles open the editor in view mode (mode === "view") so they
@@ -257,13 +264,15 @@ function ProfileEditorModalInner({
   // view mode permits editing (label, status, Top P). Drives the view-mode
   // Save button's enabled state and the partial-update save path. Top P is
   // compared on both the enabled flag and the value so flipping the toggle or
-  // dragging the slider both arm Save.
+  // dragging the slider both arm Save. Invariant profiles only permit the
+  // status flip (disabled → active), so label and Top P never arm Save there.
   const hasViewModeChanges =
     isReadOnly &&
-    (label !== initialLabel ||
-      status !== initialStatus ||
-      topPEnabled !== initialTopPEnabled ||
-      (topPEnabled && topP !== initialTopP));
+    (status !== initialStatus ||
+      (!isInvariant &&
+        (label !== initialLabel ||
+          topPEnabled !== initialTopPEnabled ||
+          (topPEnabled && topP !== initialTopP))));
 
   // Advanced params — thinking
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(
@@ -514,16 +523,21 @@ function ProfileEditorModalInner({
       setSaving(true);
       setSaveError(null);
       try {
-        const entry: ProfileEntry = {
-          label: label.trim() || null,
-          status,
-        };
-        // Top P is the one advanced param managed profiles may override.
-        // Mirror the create/edit build-entry logic: enabled → number,
-        // cleared → null. Only when the selected provider/model surfaces the
-        // control. `mode: "merge"` means sending just this changed subset
-        // leaves the seed-owned fields intact.
-        if (visibility.topP) {
+        // Invariant profiles reach Save only via the enable flip, and the
+        // daemon rejects any other mutation on them — send exactly
+        // `{status: "active"}`, never label or topP.
+        const entry: ProfileEntry = isInvariant
+          ? { status: "active" }
+          : {
+              label: label.trim() || null,
+              status,
+            };
+        // Top P is the one advanced param non-invariant managed profiles may
+        // override. Mirror the create/edit build-entry logic: enabled →
+        // number, cleared → null. Only when the selected provider/model
+        // surfaces the control. `mode: "merge"` means sending just this
+        // changed subset leaves the seed-owned fields intact.
+        if (!isInvariant && visibility.topP) {
           entry.topP = topPEnabled ? topP : null;
         }
         await onSave(keyTrimmed, entry, { mode: "merge" });
@@ -654,6 +668,7 @@ function ProfileEditorModalInner({
         value={label}
         onChange={(e) => handleLabelChange(e.target.value)}
         placeholder="e.g. Fast & Cheap"
+        disabled={isInvariant}
         fullWidth
       />
     </div>
@@ -702,21 +717,32 @@ function ProfileEditorModalInner({
     </div>
   );
 
-  const activeToggle = (
-    <Toggle
-      checked={status === "active"}
-      onChange={(v) => setStatus(v ? "active" : "disabled")}
-      label="Active"
-    />
-  );
+  // An active invariant profile shows no status toggle (it cannot be
+  // disabled); a disabled one keeps an enable-only toggle, mirroring the
+  // manage-profiles list item and the daemon's one-directional status rule.
+  const activeToggle =
+    !isInvariant || status !== "active" ? (
+      <Toggle
+        checked={status === "active"}
+        onChange={(v) => {
+          if (isInvariant && v !== true) {
+            return;
+          }
+          setStatus(v ? "active" : "disabled");
+        }}
+        label="Active"
+      />
+    ) : null;
 
   const advancedParamsNode = (
     <ProfileAdvancedParams
       visibility={visibility}
       isReadOnly={isReadOnly}
-      // Top P is user policy on managed profiles too, so it stays editable in
-      // view mode while the other advanced params remain locked by isReadOnly.
-      topPReadOnly={false}
+      // Top P is user policy on non-invariant managed profiles, so it stays
+      // editable in view mode while the other advanced params remain locked
+      // by isReadOnly. Invariant (default) profiles lock it too — users
+      // customize via "Save As New".
+      topPReadOnly={isInvariant}
       model={model}
       selectedModel={selectedModel}
       defaultMaxOutputTokens={defaultMaxOutputTokens}

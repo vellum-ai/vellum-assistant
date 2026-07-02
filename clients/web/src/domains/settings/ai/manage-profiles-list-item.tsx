@@ -98,6 +98,7 @@ export function ProfileListItem({
   onStatusToggle,
 }: ProfileListItemProps) {
   const isManaged = profile.source === "managed";
+  const isInvariant = profile.invariant === true;
   const isActive = profile.status !== "disabled";
 
   return (
@@ -132,7 +133,11 @@ export function ProfileListItem({
             {isManaged && (
               <Tag
                 tone="positive"
-                title="Managed by Platform — auth is locked, but you can rename or disable this profile."
+                title={
+                  isInvariant
+                    ? "Managed by Platform — this default profile cannot be disabled, deleted, or renamed."
+                    : "Managed by Platform — auth is locked, but you can rename or disable this profile."
+                }
               >
                 Platform
               </Tag>
@@ -151,21 +156,26 @@ export function ProfileListItem({
 
         {/* Actions */}
         <div className="flex shrink-0 items-center gap-2">
-          <div
-            className="flex shrink-0 items-center"
-            title={
-              isActive
-                ? "Active — toggle to hide from pickers"
-                : "Disabled — toggle to show in pickers"
-            }
-          >
-            <Toggle
-              checked={isActive}
-              onChange={(next) => onStatusToggle(next)}
-              disabled={isToggling}
-              aria-label={`${isActive ? "Disable" : "Enable"} ${profile.label ?? profile.name}`}
-            />
-          </div>
+          {/* Invariant (default) profiles cannot be disabled, so an active one
+              gets no toggle. A disabled one keeps it so it can be re-enabled —
+              the daemon accepts the enable direction. */}
+          {(!isInvariant || !isActive) && (
+            <div
+              className="flex shrink-0 items-center"
+              title={
+                isActive
+                  ? "Active — toggle to hide from pickers"
+                  : "Disabled — toggle to show in pickers"
+              }
+            >
+              <Toggle
+                checked={isActive}
+                onChange={(next) => onStatusToggle(next)}
+                disabled={isToggling}
+                aria-label={`${isActive ? "Disable" : "Enable"} ${profile.label ?? profile.name}`}
+              />
+            </div>
+          )}
           <div className="flex w-[92px] items-center justify-end gap-2">
             <Button variant="ghost" size="compact" onClick={onEditClick}>
               {isManaged ? "View" : "Edit"}
