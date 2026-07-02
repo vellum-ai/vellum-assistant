@@ -345,7 +345,7 @@ describe("base_url SSRF bypass for self-hosted daemons (create)", () => {
       body: {
         name: "local-lmstudio",
         provider: "openai-compatible",
-        auth: { type: "none" },
+        auth: { type: "api_key", credential: "cred-lmstudio" },
         base_url: "http://localhost:1234/v1",
         models: [{ id: "local-model" }],
       },
@@ -393,7 +393,7 @@ describe("base_url SSRF bypass for self-hosted daemons (create)", () => {
       body: {
         name: "loopback-model",
         provider: "openai-compatible",
-        auth: { type: "none" },
+        auth: { type: "api_key", credential: "cred-loopback" },
         base_url: "http://127.0.0.1:8080/v1",
         models: [{ id: "model-a" }],
       },

@@ -50,8 +50,9 @@ export function ApiKeyScreen() {
   const requiresKey = entry.requiresKey;
   const requiresModel = models.length > 0;
   const isOpenAICompatible = provider === "openai-compatible";
+  const keyRequired = requiresKey && !isOpenAICompatible;
   const canContinue =
-    (!requiresKey || apiKey.trim().length > 0) &&
+    (!keyRequired || apiKey.trim().length > 0) &&
     (!requiresModel || model.trim().length > 0) &&
     (!isOpenAICompatible ||
       (baseUrl.trim().length > 0 && customModels.trim().length > 0));
@@ -62,7 +63,7 @@ export function ApiKeyScreen() {
       model.trim() || defaultModelForOnboardingProvider(provider);
     setPendingProviderKey({
       provider,
-      key: requiresKey ? apiKey.trim() : "",
+      key: apiKey.trim(),
       ...(selectedModel ? { model: selectedModel } : {}),
       ...(isOpenAICompatible
         ? {

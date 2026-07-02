@@ -105,11 +105,12 @@ async function createProviderConnection(
   hasKey: boolean,
   options?: { baseUrl?: string; customModels?: string },
 ): Promise<void> {
-  const auth = hasKey
+  const isOpenAICompatible = provider === "openai-compatible";
+  const useApiKeyAuth = hasKey || isOpenAICompatible;
+  const auth = useApiKeyAuth
     ? { type: "api_key" as const, credential: `credential/${provider}/api_key` }
     : { type: "none" as const };
 
-  const isOpenAICompatible = provider === "openai-compatible";
   const baseUrl = isOpenAICompatible && options?.baseUrl
     ? options.baseUrl
     : undefined;
@@ -212,7 +213,8 @@ export async function applyPendingProviderKey(
   if (!pending) return;
   const trimmed = pending.key.trim();
   const hasKey = trimmed.length > 0;
-  if (hasKey) {
+  const isOpenAICompatible = pending.provider === "openai-compatible";
+  if (hasKey || isOpenAICompatible) {
     await writeApiKeySecret(assistantId, pending.provider, trimmed);
   }
   await createProviderConnection(assistantId, pending.provider, hasKey, {
