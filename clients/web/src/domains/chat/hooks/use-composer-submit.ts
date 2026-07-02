@@ -12,7 +12,12 @@
 
 import { type FormEvent, type RefObject, useCallback, useEffect, useRef } from "react";
 
-import { useComposerStore, selectUploadingCount, selectUploadedIds } from "@/domains/chat/composer-store";
+import {
+  selectPathReferencePaths,
+  selectUploadedIds,
+  selectUploadingCount,
+  useComposerStore,
+} from "@/domains/chat/composer-store";
 import { useQuoteReplyStore, type StagedQuote } from "@/domains/chat/quote-reply-store";
 import { conversationsByIdUndoPost } from "@/generated/daemon/sdk.gen";
 import { haptic } from "@/utils/haptics";
@@ -78,11 +83,19 @@ export function useComposerSubmit({
     const chatAttachments = useComposerStore.getState().attachments;
     const uploadingCount = selectUploadingCount(chatAttachments);
     const uploadedIds = selectUploadedIds(chatAttachments);
+    const pathReferences = selectPathReferencePaths(chatAttachments);
 
     const stagedQuotes = useQuoteReplyStore.getState().stagedQuotes;
     const trimmed = (inputOverride ?? input).trim();
     if (sendDisabled) return;
-    if (!trimmed && uploadedIds.length === 0 && stagedQuotes.length === 0) return;
+    if (
+      !trimmed &&
+      uploadedIds.length === 0 &&
+      pathReferences.length === 0 &&
+      stagedQuotes.length === 0
+    ) {
+      return;
+    }
     if (uploadingCount > 0) return;
 
     const attachmentsToSend: DisplayAttachment[] = chatAttachments
@@ -126,7 +139,8 @@ export function useComposerSubmit({
       }
     }
     const contentWithQuotes = buildContentWithQuotes(stagedQuotes, trimmed);
-    await sendMessage(contentWithQuotes, attachmentsToSend);
+    const finalContent = appendPathReferences(contentWithQuotes, pathReferences);
+    await sendMessage(finalContent, attachmentsToSend);
   }, [sendDisabled, activeConversationId, inputRef, scrollToLatest, isEditing, editingMessageId, assistantId, cancelEditing, canUndoEdit, sendMessage]);
 
   const handleFormSubmit = useCallback((e: FormEvent) => {
@@ -163,4 +177,19 @@ function buildContentWithQuotes(
     parts.push(freeformText);
   }
   return parts.join("\n\n");
+}
+
+/**
+ * Appends folder/file path references to the outgoing message so the assistant
+ * receives them as text context. Paths render inline as code so the assistant
+ * can lift them verbatim without whitespace or Markdown surprises.
+ */
+function appendPathReferences(content: string, paths: string[]): string {
+  if (paths.length === 0) {
+    return content;
+  }
+  const label = paths.length === 1 ? "Path" : "Paths";
+  const lines = paths.map((path) => `- \`${path}\``).join("\n");
+  const block = `${label}:\n${lines}`;
+  return content ? `${content}\n\n${block}` : block;
 }
