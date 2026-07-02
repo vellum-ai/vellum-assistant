@@ -33,14 +33,14 @@
  */
 
 import type { Message } from "@vellumai/plugin-api";
-import { getConfiguredProvider } from "@vellumai/plugin-api";
+import {
+  getAssistantName,
+  getConfiguredProvider,
+  resolveUserName,
+} from "@vellumai/plugin-api";
 import { z } from "zod";
 
 import type { AssistantConfig } from "../../../../config/types.js";
-import {
-  getAssistantName,
-  resolveUserName,
-} from "../../../../daemon/identity-helpers.js";
 import type { DrizzleDb } from "../../../../persistence/db-connection.js";
 import { getLogger } from "../../../../util/logger.js";
 import {

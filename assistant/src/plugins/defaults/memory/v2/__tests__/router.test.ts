@@ -105,16 +105,18 @@ interface ProviderCall {
 }
 const providerCalls: ProviderCall[] = [];
 
-// The router imports `getConfiguredProvider` from `@vellumai/plugin-api`; the
-// pure `extractToolUse` helper runs for real from the plugin's `llm-helpers`.
+// The router imports `getConfiguredProvider` plus the identity reads
+// (`getAssistantName`/`resolveUserName`) from `@vellumai/plugin-api`. Spread the
+// real contract so the identity reads run for real — they return null on a
+// missing IDENTITY.md / users/default.md in the temp workspace, so the router
+// uses neutral labels we don't assert on — and override only
+// `getConfiguredProvider` with the per-test stub. The pure `extractToolUse`
+// helper runs for real from the plugin's `llm-helpers`.
+const realPluginApi = await import("@vellumai/plugin-api");
 mock.module("@vellumai/plugin-api", () => ({
+  ...realPluginApi,
   getConfiguredProvider: async () => providerStub,
 }));
-
-// IDENTITY.md / users/default.md aren't required for these tests — the
-// router falls back to neutral labels when missing, and we don't assert on
-// them. No mock needed for `daemon/identity-helpers.js`; it tolerates a
-// missing IDENTITY.md by returning null.
 
 const { runRouter, applyHistoricalCharBudget } = await import("../router.js");
 const { getPageIndex, invalidatePageIndex } = await import("../page-index.js");
