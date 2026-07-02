@@ -48,6 +48,8 @@ After `ui_show` returns success, tell the user:
 
 > I've opened the Slack setup wizard in the side panel. It will walk you through creating a Slack app, generating tokens, and connecting — complete the steps there. The wizard will auto-notify me when you close it. If you run into issues along the way, ask me in chat.
 
+**Mobile clients cannot auto-notify.** When the per-turn `client_os` context is `ios` or `android` (or the user says they're on a phone), the wizard opens on the Contacts page instead of a side drawer and sends no close notification. In that case swap the last two sentences of the announcement for: _"When you've finished the steps, come back here and tell me — I'll verify the connection."_ and rely on the user's confirmation to trigger Step 3.
+
 If the `ui_show` call fails, do NOT send that message — tell the user the wizard could not be opened and troubleshoot (e.g. no connected client) before retrying.
 
 > ✓ Checkpoint: The successful `ui_show` tool result appears earlier in this turn than your announcement. If it does not, the wizard is not open — make the call before claiming it is.

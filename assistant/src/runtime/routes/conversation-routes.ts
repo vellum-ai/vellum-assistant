@@ -633,43 +633,51 @@ function buildQueuedMessagePayloads(
   const conversation = findConversation(conversationId);
   if (!conversation) return [];
 
-  return conversation.snapshotQueuedMessages().map((item, index) => {
-    const text = item.displayContent ?? item.content;
-    const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
-      (a, idx) => ({
-        id: a.id ?? `${item.requestId}:attachment:${idx}`,
-        filename: a.filename,
-        mimeType: a.mimeType,
-        sizeBytes:
-          a.sizeBytes ?? (a.data ? Math.floor((a.data.length * 3) / 4) : 0),
-        kind: classifyKind(a.mimeType),
-        ...(a.mimeType.startsWith("image/") && a.data ? { data: a.data } : {}),
-        ...(a.thumbnailData ? { thumbnailData: a.thumbnailData } : {}),
-      }),
-    );
+  // Hidden sends are suppressed from the transcript at every stage — echo,
+  // persisted row, and here the in-memory queue window: a latest-page fetch
+  // while the item still awaits drain must not surface it as a queued bubble.
+  return conversation
+    .snapshotQueuedMessages()
+    .filter((item) => item.metadata?.hidden !== true)
+    .map((item, index) => {
+      const text = item.displayContent ?? item.content;
+      const attachments: RuntimeAttachmentMetadata[] = item.attachments.map(
+        (a, idx) => ({
+          id: a.id ?? `${item.requestId}:attachment:${idx}`,
+          filename: a.filename,
+          mimeType: a.mimeType,
+          sizeBytes:
+            a.sizeBytes ?? (a.data ? Math.floor((a.data.length * 3) / 4) : 0),
+          kind: classifyKind(a.mimeType),
+          ...(a.mimeType.startsWith("image/") && a.data
+            ? { data: a.data }
+            : {}),
+          ...(a.thumbnailData ? { thumbnailData: a.thumbnailData } : {}),
+        }),
+      );
 
-    const contentBlocks: ConversationContentBlock[] = [];
-    if (text.length > 0) contentBlocks.push({ type: "text", text });
-    for (const attachment of attachments) {
-      contentBlocks.push({ type: "attachment", attachment });
-    }
+      const contentBlocks: ConversationContentBlock[] = [];
+      if (text.length > 0) contentBlocks.push({ type: "text", text });
+      for (const attachment of attachments) {
+        contentBlocks.push({ type: "attachment", attachment });
+      }
 
-    return {
-      // The queued message has no DB row yet; its requestId is the stable
-      // identifier the queued-message delete/steer endpoints key on.
-      id: item.requestId,
-      role: "user" as const,
-      content: text,
-      timestamp: new Date(item.sentAt).toISOString(),
-      attachments,
-      ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
-      ...(item.clientMessageId
-        ? { clientMessageId: item.clientMessageId }
-        : {}),
-      queueStatus: "queued" as const,
-      queuePosition: index + 1,
-    };
-  });
+      return {
+        // The queued message has no DB row yet; its requestId is the stable
+        // identifier the queued-message delete/steer endpoints key on.
+        id: item.requestId,
+        role: "user" as const,
+        content: text,
+        timestamp: new Date(item.sentAt).toISOString(),
+        attachments,
+        ...(contentBlocks.length > 0 ? { contentBlocks } : {}),
+        ...(item.clientMessageId
+          ? { clientMessageId: item.clientMessageId }
+          : {}),
+        queueStatus: "queued" as const,
+        queuePosition: index + 1,
+      };
+    });
 }
 
 export function handleListMessages({

@@ -46,6 +46,9 @@ describe("slack-app-setup skill regression", () => {
     expect(skillContent).toContain(
       "[User action on channel_setup panel: closed the slack setup wizard]",
     );
+    // Mobile clients open the wizard on the Contacts page and never notify —
+    // the skill must not promise an auto-notification there.
+    expect(skillContent).toContain("Mobile clients cannot auto-notify");
   });
 
   test("retains the Settings clearing path", () => {
