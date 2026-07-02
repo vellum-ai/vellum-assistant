@@ -345,6 +345,7 @@ export function PluginsTab({ assistantId }: PluginsTabProps) {
                 />
               ) : (
                 <PluginListRow
+                  assistantId={assistantId}
                   item={item}
                   onSelect={() => handleSelect(item)}
                   onInstall={() => handleInstall(item)}
@@ -537,6 +538,7 @@ function InstalledPluginRow({
 
   return (
     <PluginListRow
+      assistantId={assistantId}
       item={item}
       drift={drift}
       onSelect={onSelect}

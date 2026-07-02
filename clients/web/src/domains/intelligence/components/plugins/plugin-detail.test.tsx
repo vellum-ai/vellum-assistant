@@ -29,6 +29,8 @@ import type {
 } from "@/generated/daemon/types.gen";
 
 import { PluginDetail } from "@/domains/intelligence/components/plugins/plugin-detail";
+import { MIN_VERSION } from "@/lib/backwards-compat/use-supports-plugin-icons";
+import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const ASSISTANT_ID = "asst-1";
 const LOCAL_COMMIT = "60a392b0000000000000000000000000000000aa";
@@ -42,6 +44,8 @@ const realFetch = globalThis.fetch;
 afterEach(() => {
   cleanup();
   globalThis.fetch = realFetch;
+  // Reset the version gate PluginDetail reads for the bundled icon.
+  useAssistantIdentityStore.setState({ version: null });
 });
 
 /**
@@ -354,6 +358,66 @@ describe("PluginDetail", () => {
     expect(container.textContent).toContain(AUTHOR_EMOJI);
     expect(container.textContent).not.toContain(PACKAGE);
     expect(container.textContent).not.toContain(PUZZLE);
+  });
+
+  test("supporting daemon + hasIcon renders the bundled-icon <img>", () => {
+    useAssistantIdentityStore.setState({ version: MIN_VERSION });
+
+    const { container } = renderDetail(
+      "simple-memory",
+      {
+        name: "simple-memory",
+        installed: true,
+        description: null,
+        homepage: null,
+        license: null,
+        version: "0.1.0",
+        source: null,
+        readme: null,
+        ref: "main",
+        artifact: null,
+        icon: null,
+        hasIcon: true,
+        iconVersion: "v9",
+      },
+      upToDateInspect("simple-memory", true),
+    );
+
+    const img = container.querySelector("img");
+    expect(img).not.toBeNull();
+    expect(img?.getAttribute("src")).toBe(
+      `/v1/assistants/${ASSISTANT_ID}/plugins/simple-memory/icon?v=v9`,
+    );
+    // With the image showing, neither origin glyph is rendered.
+    expect(container.textContent).not.toContain(PUZZLE);
+    expect(container.textContent).not.toContain(PACKAGE);
+  });
+
+  test("gate off (older daemon) renders no <img> even with hasIcon", () => {
+    // Version stays null (default) — the daemon doesn't serve the icon endpoint.
+    const { container } = renderDetail(
+      "simple-memory",
+      {
+        name: "simple-memory",
+        installed: true,
+        description: null,
+        homepage: null,
+        license: null,
+        version: "0.1.0",
+        source: null,
+        readme: null,
+        ref: "main",
+        artifact: null,
+        icon: null,
+        hasIcon: true,
+        iconVersion: "v9",
+      },
+      upToDateInspect("simple-memory", true),
+    );
+
+    expect(container.querySelector("img")).toBeNull();
+    // Falls back to the local origin glyph.
+    expect(container.textContent).toContain(PUZZLE);
   });
 
   test("invokes onBack when the back button is clicked", () => {

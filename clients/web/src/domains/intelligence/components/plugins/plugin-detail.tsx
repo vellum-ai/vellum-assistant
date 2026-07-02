@@ -12,6 +12,7 @@ import {
 import { PluginOriginBadge } from "@/domains/intelligence/components/plugins/plugin-origin-badge";
 import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
 import { usePluginDetail } from "@/domains/intelligence/plugins/use-plugin-detail";
+import { usePluginIconSrc } from "@/domains/intelligence/plugins/use-plugin-icon-src";
 import { usePluginToggle } from "@/domains/intelligence/plugins/use-plugin-toggle";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import type { PluginsByNameGetResponse } from "@/generated/daemon/types.gen";
@@ -72,6 +73,13 @@ export function PluginDetail({
 
   const { toggle, togglingName } = usePluginToggle(assistantId);
 
+  const iconSrc = usePluginIconSrc(
+    assistantId,
+    name,
+    plugin?.hasIcon,
+    plugin?.iconVersion,
+  );
+
   return (
     <div className="flex h-full min-h-0 flex-1 flex-col">
       <div className="mb-4 flex items-start gap-3">
@@ -86,6 +94,7 @@ export function PluginDetail({
           name={name}
           plugin={plugin}
           externalHint={externalHint}
+          iconSrc={iconSrc}
           drift={drift}
           onInstall={install}
           onRemove={remove}
@@ -142,6 +151,8 @@ interface HeaderProps {
   name: string;
   plugin: PluginsByNameGetResponse | null;
   externalHint?: boolean;
+  /** Bundled-icon URL, gated + built by the parent; `undefined` → emoji/glyph. */
+  iconSrc?: string;
   drift: PluginDrift | undefined;
   onInstall: () => void;
   onRemove: () => void;
@@ -159,6 +170,7 @@ function Header({
   name,
   plugin,
   externalHint,
+  iconSrc,
   drift,
   onInstall,
   onRemove,
@@ -189,6 +201,7 @@ function Header({
           <PluginIcon
             external={resolvedExternal}
             icon={plugin?.icon ?? undefined}
+            iconSrc={iconSrc}
             size="md"
           />
         )}

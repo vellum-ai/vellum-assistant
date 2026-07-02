@@ -14,6 +14,7 @@ import {
 import { PluginOriginBadge } from "@/domains/intelligence/components/plugins/plugin-origin-badge";
 import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
 import { usePluginDetail } from "@/domains/intelligence/plugins/use-plugin-detail";
+import { usePluginIconSrc } from "@/domains/intelligence/plugins/use-plugin-icon-src";
 import { usePluginToggle } from "@/domains/intelligence/plugins/use-plugin-toggle";
 import { Button, Card } from "@vellumai/design-library";
 
@@ -91,6 +92,13 @@ export function PluginDetailMobile({
   const updateAvailable = drift?.status === "update-available";
   const title = plugin?.name ?? name;
 
+  const iconSrc = usePluginIconSrc(
+    assistantId,
+    name,
+    plugin?.hasIcon,
+    plugin?.iconVersion,
+  );
+
   const overlay = (
     <div
       className="fixed inset-0 z-40 flex flex-col overflow-hidden bg-[var(--surface-overlay)]"
@@ -138,6 +146,7 @@ export function PluginDetailMobile({
               <PluginIcon
                 external={resolvedExternal}
                 icon={plugin?.icon ?? undefined}
+                iconSrc={iconSrc}
                 size="md"
               />
             )}
