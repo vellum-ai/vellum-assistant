@@ -1,15 +1,26 @@
 /**
  * Shared outbound verification action logic.
  *
- * These pure functions encapsulate the business logic for starting, resending,
+ * These functions encapsulate the business logic for starting, resending,
  * and cancelling outbound verification flows (Telegram, voice, Slack, email).
  * They return transport-agnostic result objects and are consumed by both the
  * message handler (config-channels.ts) and the HTTP route layer (channel-verification-routes.ts).
+ *
+ * Session state is gateway-owned: lifecycle calls go through the gateway
+ * session client and fail loudly when the gateway is unreachable (no local
+ * fallback writes). Message composition and delivery stay daemon-side.
  */
 
 import { createHash, randomBytes } from "node:crypto";
 
 import { startVerificationCall } from "../calls/call-domain.js";
+import {
+  countRecentSendsToDestination,
+  createOutboundSession,
+  findActiveSession,
+  updateSessionDelivery,
+  updateSessionStatus,
+} from "../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../channels/types.js";
 import { sendSlackReply } from "../messaging/providers/slack/send.js";
 import { sendTelegramReply } from "../messaging/providers/telegram-bot/send.js";
@@ -17,14 +28,7 @@ import { getTelegramBotUsername } from "../telegram/bot-username.js";
 import { getLogger } from "../util/logger.js";
 import { normalizePhoneNumber } from "../util/phone.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "./assistant-scope.js";
-import {
-  countRecentSendsToDestination,
-  createOutboundSession,
-  findActiveSession,
-  isGuardianBoundForChannel,
-  updateSessionDelivery,
-  updateSessionStatus,
-} from "./channel-verification-service.js";
+import { isGuardianBoundForChannel } from "./channel-verification-service.js";
 import {
   composeVerificationEmail,
   composeVerificationSlack,
@@ -287,7 +291,7 @@ async function startOutboundTelegram(
 
   const normalizedDestination = normalizeTelegramDestination(destination);
 
-  const recentSendCount = countRecentSendsToDestination(
+  const recentSendCount = await countRecentSendsToDestination(
     channel,
     normalizedDestination,
     DESTINATION_RATE_WINDOW_MS,
@@ -314,7 +318,7 @@ async function startOutboundTelegram(
       };
     }
 
-    const sessionResult = createOutboundSession({
+    const sessionResult = await createOutboundSession({
       channel,
       expectedChatId: destination,
       identityBindingStatus: "bound",
@@ -334,7 +338,7 @@ async function startOutboundTelegram(
     const nextResendAt = now + RESEND_COOLDOWN_MS;
     const sendCount = 1;
 
-    updateSessionDelivery(
+    await updateSessionDelivery(
       sessionResult.sessionId,
       now,
       sendCount,
@@ -374,7 +378,7 @@ async function startOutboundTelegram(
     .update(bootstrapToken)
     .digest("hex");
 
-  const sessionResult = createOutboundSession({
+  const sessionResult = await createOutboundSession({
     channel,
     identityBindingStatus: "pending_bootstrap",
     destinationAddress: normalizedDestination,
@@ -433,7 +437,7 @@ async function startOutboundVoice(
     };
   }
 
-  const recentSendCount = countRecentSendsToDestination(
+  const recentSendCount = await countRecentSendsToDestination(
     channel,
     destination,
     DESTINATION_RATE_WINDOW_MS,
@@ -448,7 +452,7 @@ async function startOutboundVoice(
     };
   }
 
-  const sessionResult = createOutboundSession({
+  const sessionResult = await createOutboundSession({
     channel,
     expectedPhoneE164: destination,
     expectedExternalUserId: destination,
@@ -461,7 +465,12 @@ async function startOutboundVoice(
   const nextResendAt = now + RESEND_COOLDOWN_MS;
   const sendCount = 1;
 
-  updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);
+  await updateSessionDelivery(
+    sessionResult.sessionId,
+    now,
+    sendCount,
+    nextResendAt,
+  );
   initiateGuardianVoiceCall(
     destination,
     sessionResult.sessionId,
@@ -618,7 +627,7 @@ async function startOutboundSlack(
     };
   }
 
-  const recentSendCount = countRecentSendsToDestination(
+  const recentSendCount = await countRecentSendsToDestination(
     channel,
     destination,
     DESTINATION_RATE_WINDOW_MS,
@@ -633,7 +642,7 @@ async function startOutboundSlack(
     };
   }
 
-  const sessionResult = createOutboundSession({
+  const sessionResult = await createOutboundSession({
     channel,
     expectedExternalUserId: destination,
     expectedChatId: destination,
@@ -654,7 +663,12 @@ async function startOutboundSlack(
   const nextResendAt = now + RESEND_COOLDOWN_MS;
   const sendCount = 1;
 
-  updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);
+  await updateSessionDelivery(
+    sessionResult.sessionId,
+    now,
+    sendCount,
+    nextResendAt,
+  );
 
   return {
     success: true,
@@ -699,7 +713,7 @@ async function startOutboundEmail(
     };
   }
 
-  const recentSendCount = countRecentSendsToDestination(
+  const recentSendCount = await countRecentSendsToDestination(
     channel,
     normalizedEmail,
     DESTINATION_RATE_WINDOW_MS,
@@ -714,7 +728,7 @@ async function startOutboundEmail(
     };
   }
 
-  const sessionResult = createOutboundSession({
+  const sessionResult = await createOutboundSession({
     channel,
     expectedExternalUserId: normalizedEmail,
     expectedChatId: normalizedEmail,
@@ -735,7 +749,12 @@ async function startOutboundEmail(
   const nextResendAt = now + RESEND_COOLDOWN_MS;
   const sendCount = 1;
 
-  updateSessionDelivery(sessionResult.sessionId, now, sendCount, nextResendAt);
+  await updateSessionDelivery(
+    sessionResult.sessionId,
+    now,
+    sendCount,
+    nextResendAt,
+  );
 
   return {
     success: true,
@@ -759,14 +778,14 @@ async function startOutboundEmail(
 // Resend outbound
 // ---------------------------------------------------------------------------
 
-export function resendOutbound(
+export async function resendOutbound(
   params: ResendOutboundParams,
-): OutboundActionResult {
+): Promise<OutboundActionResult> {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const channel = params.channel;
   const originConversationId = params.originConversationId;
 
-  const session = findActiveSession(channel);
+  const session = await findActiveSession(channel);
   if (!session) {
     return {
       success: false,
@@ -810,7 +829,7 @@ export function resendOutbound(
     session.expectedPhoneE164 ??
     session.expectedChatId;
   if (resendDestination) {
-    const recentDestSends = countRecentSendsToDestination(
+    const recentDestSends = await countRecentSendsToDestination(
       channel,
       resendDestination,
       DESTINATION_RATE_WINDOW_MS,
@@ -840,7 +859,7 @@ export function resendOutbound(
   }
 
   if (channel === "telegram") {
-    const newSession = createOutboundSession({
+    const newSession = await createOutboundSession({
       channel,
       expectedChatId: destination,
       identityBindingStatus: "bound",
@@ -860,7 +879,7 @@ export function resendOutbound(
     const newSendCount = currentSendCount + 1;
     const nextResendAt = now + RESEND_COOLDOWN_MS;
 
-    updateSessionDelivery(
+    await updateSessionDelivery(
       newSession.sessionId,
       now,
       newSendCount,
@@ -878,7 +897,7 @@ export function resendOutbound(
       originConversationId,
     };
   } else if (channel === "phone") {
-    const newSession = createOutboundSession({
+    const newSession = await createOutboundSession({
       channel,
       expectedPhoneE164: destination,
       expectedExternalUserId: destination,
@@ -891,7 +910,7 @@ export function resendOutbound(
     const newSendCount = currentSendCount + 1;
     const nextResendAt = now + RESEND_COOLDOWN_MS;
 
-    updateSessionDelivery(
+    await updateSessionDelivery(
       newSession.sessionId,
       now,
       newSendCount,
@@ -914,7 +933,7 @@ export function resendOutbound(
       originConversationId,
     };
   } else if (channel === "slack") {
-    const newSession = createOutboundSession({
+    const newSession = await createOutboundSession({
       channel,
       expectedExternalUserId: destination,
       expectedChatId: destination,
@@ -935,7 +954,7 @@ export function resendOutbound(
     const newSendCount = currentSendCount + 1;
     const nextResendAt = now + RESEND_COOLDOWN_MS;
 
-    updateSessionDelivery(
+    await updateSessionDelivery(
       newSession.sessionId,
       now,
       newSendCount,
@@ -953,7 +972,7 @@ export function resendOutbound(
       _pendingSlackDm: { userId: destination, text: slackBody, assistantId },
     };
   } else if (channel === "email") {
-    const newSession = createOutboundSession({
+    const newSession = await createOutboundSession({
       channel,
       expectedExternalUserId: destination,
       expectedChatId: destination,
@@ -974,7 +993,7 @@ export function resendOutbound(
     const newSendCount = currentSendCount + 1;
     const nextResendAt = now + RESEND_COOLDOWN_MS;
 
-    updateSessionDelivery(
+    await updateSessionDelivery(
       newSession.sessionId,
       now,
       newSendCount,
@@ -1010,12 +1029,12 @@ export function resendOutbound(
 // Cancel outbound
 // ---------------------------------------------------------------------------
 
-export function cancelOutbound(
+export async function cancelOutbound(
   params: CancelOutboundParams,
-): OutboundActionResult {
+): Promise<OutboundActionResult> {
   const channel = params.channel;
 
-  const session = findActiveSession(channel);
+  const session = await findActiveSession(channel);
   if (!session) {
     return {
       success: false,
@@ -1025,7 +1044,7 @@ export function cancelOutbound(
     };
   }
 
-  updateSessionStatus(session.id, "revoked");
+  await updateSessionStatus(session.id, "revoked");
 
   return {
     success: true,

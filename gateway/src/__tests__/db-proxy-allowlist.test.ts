@@ -28,7 +28,6 @@ const ALLOWLIST = new Set<string>([
   // Verification-session + rate-limit group. Retired with the session-SoT move.
   "verification/session-helpers.ts",
   "verification/rate-limit-helpers.ts",
-  "verification/outbound-voice-verification-sync.ts",
   "voice/verification.ts",
   // Residual raw-SQL (type,address) lookup in the verification intercept flow;
   // identity/info reads and mirror writes are already typed IPC.
