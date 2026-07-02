@@ -107,7 +107,7 @@ describe("contacts_mirror_apply", () => {
       .run("existing-co", "Existing", 1, 1);
     sqlite
       .prepare(
-        "INSERT INTO contact_channels (id, contact_id, type, address, is_primary, interaction_count, created_at) VALUES (?, ?, ?, ?, 0, 0, ?)",
+        "INSERT INTO contact_channels (id, contact_id, type, address, is_primary, created_at) VALUES (?, ?, ?, ?, 0, ?)",
       )
       .run("dup-ch", "existing-co", "slack", "U-existing", 1);
 
