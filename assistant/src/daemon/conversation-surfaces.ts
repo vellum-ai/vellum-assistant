@@ -1894,6 +1894,20 @@ export async function handleSurfaceAction(
       summary,
     };
 
+    // channel_setup pendings are protocol-level acknowledgments for the
+    // `open_panel` command, not user-facing surfaces: nothing was rendered
+    // in the transcript, so there is no completion to broadcast, persist,
+    // or count as an activation commit. Resolve and clean up only.
+    if (standalone.surfaceType === "channel_setup") {
+      cleanupStandaloneSurface(ctx, surfaceId);
+      standalone.resolve(result);
+      log.info(
+        { conversationId: ctx.conversationId, surfaceId, actionId, status },
+        "open_panel acknowledgment resolved",
+      );
+      return { accepted: true, conversationId: ctx.conversationId };
+    }
+
     broadcastMessage({
       type: "ui_surface_complete",
       conversationId: ctx.conversationId,
