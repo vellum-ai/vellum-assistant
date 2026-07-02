@@ -1355,6 +1355,113 @@ export function cleanupStandaloneSurface(
 }
 
 /**
+ * How long to wait for a client to acknowledge an `open_panel` command
+ * before reporting failure to the model. The ack round-trip is one SSE
+ * delivery plus one HTTP POST, so this is generous — it only elapses when
+ * no connected client rendered the panel (event dropped, no client
+ * listening, or a client build that predates panel acknowledgment).
+ */
+const OPEN_PANEL_ACK_TIMEOUT_MS = 10_000;
+
+/**
+ * Open the channel-setup drawer on a connected client and wait for the
+ * client's acknowledgment.
+ *
+ * `open_panel` is a side-effect-only command: it is never persisted to the
+ * transcript, so a dropped event is unrecoverable by reload. The ack is what
+ * makes the emitting tool result truthful — "displayed" must mean a client
+ * actually rendered the drawer, not merely that the event was emitted.
+ *
+ * Reuses the standalone-surface pending machinery: the client responds via
+ * the existing surface-action route (`actionId: "ack"` on success, `"nack"`
+ * with `data.reason` when it received the event but could not open the
+ * panel), which `handleSurfaceAction` intercepts and resolves without an
+ * LLM turn. The surface-state entry exists only so the surface-action route
+ * can resolve the owning conversation by `surfaceId`; `cleanupStandaloneSurface`
+ * removes it on every outcome.
+ */
+export function openChannelSetupPanel(
+  ctx: SurfaceConversationContext,
+  surfaceId: string,
+  data: Record<string, unknown>,
+  options?: { signal?: AbortSignal; timeoutMs?: number },
+): Promise<InteractiveUiResult> {
+  if (!canShowInteractiveUi(ctx) || !ctx.pendingStandaloneSurfaces) {
+    log.warn(
+      {
+        conversationId: ctx.conversationId,
+        hasNoClient: ctx.hasNoClient,
+        channel: ctx.channelCapabilities?.channel,
+      },
+      "channel_setup panel: no interactive UI capability; failing closed",
+    );
+    return Promise.resolve({
+      status: "cancelled" as const,
+      surfaceId,
+      cancellationReason: "no_interactive_surface" as const,
+    });
+  }
+  const pendingMap = ctx.pendingStandaloneSurfaces;
+  const signal = options?.signal;
+  const timeoutMs = options?.timeoutMs ?? OPEN_PANEL_ACK_TIMEOUT_MS;
+
+  if (signal?.aborted) {
+    return Promise.resolve({
+      status: "cancelled" as const,
+      surfaceId,
+      cancellationReason: "resolver_unavailable" as const,
+    });
+  }
+
+  return new Promise<InteractiveUiResult>((resolve) => {
+    const settle = (result: InteractiveUiResult) => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      cleanupStandaloneSurface(ctx, surfaceId);
+      log.warn(
+        { conversationId: ctx.conversationId, surfaceId, timeoutMs },
+        "channel_setup panel: no client acknowledged open_panel",
+      );
+      settle({ status: "timed_out", surfaceId });
+    }, timeoutMs);
+
+    const onAbort = () => {
+      cleanupStandaloneSurface(ctx, surfaceId);
+      settle({
+        status: "cancelled",
+        surfaceId,
+        cancellationReason: "resolver_unavailable",
+      });
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    pendingMap.set(surfaceId, {
+      resolve: settle,
+      timer,
+      surfaceType: "channel_setup",
+    });
+    // Registered so the surface-action route's by-surfaceId conversation
+    // lookup finds this conversation when the ack arrives without a
+    // conversationId. Cleared by cleanupStandaloneSurface on all outcomes.
+    ctx.surfaceState.set(surfaceId, {
+      surfaceType: "channel_setup",
+      data: data as SurfaceData,
+    });
+
+    ctx.sendToClient({
+      type: "open_panel",
+      panelType: "channel_setup",
+      data,
+      conversationId: ctx.conversationId,
+      surfaceId,
+    });
+  });
+}
+
+/**
  * Handle content_changed action from document editor.
  * Auto-saves the document content to the app store.
  */
@@ -2929,16 +3036,49 @@ export async function surfaceProxyResolver(
     // channel_setup is a side-effect-only command: it opens the channel setup
     // drawer on the client. Emitted as `open_panel` (not `ui_surface_show`)
     // so the rolling-snapshot reducer never folds it into the transcript.
+    // Because the event is never persisted, success is gated on a client
+    // acknowledgment — "displayed" must mean a client actually rendered the
+    // drawer, otherwise the model announces a panel the user cannot see.
     if (surfaceType === "channel_setup") {
-      ctx.sendToClient({
-        type: "open_panel",
-        panelType: "channel_setup",
-        data: rawData as Record<string, unknown>,
-        conversationId: ctx.conversationId,
-      });
+      const ack = await openChannelSetupPanel(
+        ctx,
+        surfaceId,
+        rawData as Record<string, unknown>,
+        { signal },
+      );
+
+      if (ack.status === "submitted" && ack.actionId === "ack") {
+        return {
+          content: JSON.stringify({ surfaceId, status: "displayed" }),
+          isError: false,
+        };
+      }
+
+      if (ack.status === "submitted") {
+        // Client received the event but could not open the panel (nack).
+        const reason =
+          typeof ack.submittedData?.reason === "string"
+            ? ack.submittedData.reason
+            : "unknown";
+        return {
+          content: `The channel setup panel could not be opened by the connected client (reason: ${reason}). Do NOT tell the user the panel is open. Troubleshoot with the user (e.g. ask them to reopen or refresh the Vellum app), then retry ui_show.`,
+          isError: true,
+        };
+      }
+
+      if (ack.status === "timed_out") {
+        return {
+          content:
+            "No connected client confirmed opening the channel setup panel. Do NOT tell the user the panel is open. The user's app may be closed, viewing a different conversation, or running a version that cannot show this panel. Ask the user to open this conversation in the Vellum app (web or desktop), then retry ui_show.",
+          isError: true,
+        };
+      }
+
+      // cancelled — no interactive client, or the turn was aborted.
       return {
-        content: JSON.stringify({ surfaceId, status: "displayed" }),
-        isError: false,
+        content:
+          "The channel setup panel could not be opened — no connected client can render interactive UI. Do NOT tell the user the panel is open. Ask the user to open the Vellum app (web or desktop), then retry ui_show.",
+        isError: true,
       };
     }
 
