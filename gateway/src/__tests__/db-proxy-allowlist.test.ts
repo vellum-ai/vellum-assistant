@@ -68,17 +68,29 @@ function relPosix(file: string): string {
 // A static/dynamic import of the proxy module, or a direct db_proxy IPC call.
 const IMPORTS_PROXY =
   /(?:from|import)\s*\(?\s*["'][^"']*assistant-db-proxy(?:\.js)?["']/;
-// Matches an IPC call to either raw-SQL bridge method (`db_proxy` /
-// `db_proxy_transaction`) by the quoted method name itself, independent of the
-// callee identifier — so aliasing `ipcCallAssistant` or stashing it in a local
-// cannot slip a new raw-SQL caller past the guard. The method-name string only
-// appears at these call sites (verified: no bare-mention false positives in the
-// scanned tree).
-const CALLS_DB_PROXY = /["']db_proxy(?:_transaction)?["']/;
+// Matches either raw-SQL bridge method (`db_proxy` / `db_proxy_transaction`) by
+// the quoted method name itself — single, double, OR backtick quotes —
+// independent of the callee identifier, so aliasing `ipcCallAssistant`, stashing
+// it in a local, or a template-literal method string cannot slip a new raw-SQL
+// caller past the guard. The method-name string only appears at these call sites
+// (verified: no bare-mention false positives in the scanned tree). A regex scan
+// cannot catch a fully dynamic name (e.g. "db_" + "proxy"); that residual is
+// accepted — the surface can still only shrink, never grow, for realistic code.
+const CALLS_DB_PROXY = /["'`]db_proxy(?:_transaction)?["'`]/;
+
+// Strip `//` line and `/* */` block comments so a doc-comment mention of the
+// method name (markdown code spans use backticks) can't trip the matcher — only
+// real code is scanned.
+function stripComments(src: string): string {
+  return src
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|[^:])\/\/.*$/gm, "$1");
+}
 
 /** True if `src` reaches the assistant-DB proxy (import or direct IPC call). */
 function usesDbProxy(src: string): boolean {
-  return IMPORTS_PROXY.test(src) || CALLS_DB_PROXY.test(src);
+  const code = stripComments(src);
+  return IMPORTS_PROXY.test(code) || CALLS_DB_PROXY.test(code);
 }
 
 describe("db_proxy caller allowlist guard", () => {
@@ -117,11 +129,22 @@ describe("db_proxy caller allowlist guard", () => {
     expect(
       usesDbProxy(`const M = "db_proxy_transaction";\nawait send(M, { steps });`),
     ).toBe(true);
+    // Template-literal method strings (backtick-quoted) are caught too.
+    expect(usesDbProxy("await ipcCallAssistant(`db_proxy`, { sql });")).toBe(
+      true,
+    );
     // Unrelated IPC methods and identifiers must NOT match.
     expect(
       usesDbProxy(`await ipcCallAssistant("contacts_mirror_upsert_channel", {});`),
     ).toBe(false);
     expect(usesDbProxy(`import { getGatewayDb } from "../db/connection.js";`)).toBe(
+      false,
+    );
+    // A doc-comment mention of the method name must NOT count as a caller.
+    expect(usesDbProxy("/**\n * `db_proxy` SELECTs the gateway used to run.\n */")).toBe(
+      false,
+    );
+    expect(usesDbProxy(`// legacy db_proxy("db_proxy") note\nconst x = 1;`)).toBe(
       false,
     );
   });
