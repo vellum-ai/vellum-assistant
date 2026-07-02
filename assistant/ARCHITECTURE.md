@@ -429,9 +429,8 @@ External users who are not the guardian can gain access to the assistant through
 | `src/runtime/routes/access-request-decision.ts`        | Guardian decision → verification session creation                             |
 | `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler |
 | `src/runtime/channel-verification-service.ts`          | Verification session lifecycle, identity binding, rate limiting               |
-| `src/runtime/routes/contact-routes.ts`                 | HTTP API handlers for contact and channel management                          |
-| `src/runtime/routes/invite-routes.ts`                  | HTTP API handlers for invite management                                       |
-| `src/runtime/invite-service.ts`                        | Business logic for invite operations                                          |
+| `src/runtime/routes/contact-routes.ts`                 | HTTP/IPC handlers for contacts, channels, and invites (invite ops relay to gateway IPC) |
+| `src/runtime/invite-service.ts`                        | Daemon-owned invite presentation (share link, guardian instruction) over gateway-minted invites |
 | `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations           |
 | `src/memory/guardian-approvals.ts`                     | Approval request persistence                                                  |
 | `src/channels/channel-verification-sessions.ts`        | Verification challenge persistence                                            |
@@ -468,7 +467,7 @@ A complementary access-granting flow where the guardian proactively creates a sh
 
 1. Guardian asks the assistant to create an invite via desktop chat.
 2. `guardian-invite-intent.ts` detects the intent and rewrites the message to force-load the `contacts` skill.
-3. The skill calls the ingress HTTP API to create an invite token, then calls the Telegram transport adapter to build a deep link: `https://t.me/<bot>?start=iv_<token>`.
+3. The skill calls the invites HTTP API; the daemon relays the mint to the gateway (`invites_create` IPC), which writes the canonical `ingress_invites` row, then the daemon's Telegram transport adapter builds a deep link: `https://t.me/<bot>?start=iv_<token>`.
 4. Guardian shares the link with the invitee out-of-band.
 5. Invitee clicks the link, opening Telegram which sends `/start iv_<token>` to the bot.
 6. The gateway intercepts the `/start iv_<token>` message at ingress (before any daemon forwarding) and redeems the token against its canonical `ingress_invites` row.
@@ -489,20 +488,20 @@ A complementary access-granting flow where the guardian proactively creates a sh
 
 ### Voice Invite Flow (invite_redemption_pending)
 
-Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL token. The guardian creates an invite bound to the invitee's E.164 phone number; the invitee redeems it by entering the code during an inbound voice call.
+Voice invites use a short numeric code (6 digits) instead of a URL token. The guardian creates an invite bound to the invitee's E.164 phone number; the invitee redeems it by entering the code during an inbound voice call.
 
 **Creation flow:**
 
 1. Guardian creates a voice invite via `POST /v1/contacts/invites` with `sourceChannel: "phone"` and `expectedExternalUserId` (E.164 phone).
-2. `invite-service.ts` generates a cryptographically random numeric code (`generateVoiceCode`), hashes it with SHA-256 (`hashVoiceCode`), and stores only the hash.
+2. The daemon relays the mint to the gateway (`invites_create` IPC), which generates a cryptographically random numeric code and stores only its SHA-256 hash on the canonical `ingress_invites` row.
 3. The one-time plaintext `voiceCode` is returned in the creation response. The raw token is NOT returned for voice invites — redemption uses the identity-bound code flow exclusively.
 4. Guardian communicates the code to the invitee out-of-band.
 
 **Call-time redemption subflow (`invite_redemption_pending`):**
 
 1. Unknown caller dials in. `relay-server.ts` resolves trust via `resolveActorTrust`. Caller is `unknown`, no pending guardian challenge.
-2. The relay checks `findActiveVoiceInvites` for invites bound to the caller's phone number.
-3. If active, non-expired invites exist, the relay enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
+2. The relay asks the gateway for the active voice invite bound to the caller's phone number (`get_active_voice_invite` IPC via `calls/gateway-invite-reader.ts`; fail-soft — any gateway failure falls through to the unverified path).
+3. If an active, non-expired invite exists, the relay enters the `invite_redemption_pending` state (reuses the `verification_pending` connection state) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
 4. The gateway's `redeem_voice_invite` engine validates: identity match, code hash match, expiry, use count. On success, the phone channel is activated in the gateway ACL and the call transitions to the normal call flow.
 5. On invalid/expired code, the caller hears deterministic failure copy: `Sorry, the code you provided is incorrect or has since expired. Please ask <guardian-name> for a new code. Goodbye.` and the call ends immediately.
 
@@ -522,8 +521,8 @@ Voice invites use a short numeric code (4-10 digits, default 6) instead of a URL
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                        |
 | `src/runtime/channel-invite-transports/voice.ts`    | Voice transport adapter — code-based redemption metadata                                                           |
 | `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes create/list/revoke requests into the contacts skill                                      |
-| `src/runtime/invite-service.ts`                     | Shared business logic for invite operations (used by HTTP routes)                                                  |
-| `src/runtime/routes/invite-routes.ts`               | HTTP API handlers for invite management including voice invite creation and redemption                             |
+| `src/runtime/invite-service.ts`                     | Daemon-owned invite presentation (share link, guardian instruction, channel handle) over gateway-minted invites    |
+| `src/runtime/routes/contact-routes.ts`              | HTTP/IPC invite handlers — relay mint/list/revoke/redeem to the gateway's invite IPC routes                        |
 | `src/runtime/routes/inbound-message-handler.ts`     | Invite token intercept in the inbound flow (unknown-contact and inactive-contact branches)                         |
 | `src/calls/relay-server.ts`                         | Voice relay state machine — `invite_redemption_pending` subflow (always-on canonical behavior)                     |
 | `src/calls/gateway-invite-reader.ts`                | Gateway IPC read of the active voice invite for a caller identity                                                  |
@@ -549,7 +548,7 @@ resolveActorTrust() → trustClass
                                    |
               ┌────────────────────┼──────────────────────┐
               |                    |                       |
-    pendingChallenge?     activeVoiceInvites?      no invite, no challenge
+    pendingChallenge?     activeVoiceInvite?       no invite, no challenge
               |                    |                       |
               v                    v                       v
     Guardian verification   Invite redemption     Name capture +

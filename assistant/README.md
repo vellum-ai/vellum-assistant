@@ -422,13 +422,13 @@ If no guardian binding exists, escalation fails closed — the message is denied
 | File                                                | Purpose                                                                                                          |
 | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | `src/contacts/contact-store.ts`                     | Contact + channel CRUD with policy enforcement                                                                   |
-| `src/daemon/handlers/config-inbox.ts`               | HTTP handlers for invite operations                                                                              |
-| `src/runtime/routes/channel-routes.ts`              | ACL enforcement point — member lookup, policy check, escalation creation                                         |
+| `src/runtime/routes/contact-routes.ts`              | HTTP/IPC invite handlers — relay mint/list/revoke/redeem to the gateway's invite IPC routes                      |
+| `src/runtime/routes/inbound-message-handler.ts`     | ACL enforcement point — member lookup, policy check, escalation creation                                         |
 | `gateway/src/verification/invite-redemption.ts` (gateway) | Core redemption engine — token/code validation, atomic claim, ACL activation, discriminated-union outcomes |
 | `src/runtime/channel-invite-transport.ts`           | Transport adapter registry — `buildShareableInvite` / `extractInboundToken` per channel                          |
 | `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — builds `t.me/<bot>?start=iv_<token>` deep links, extracts `iv_` tokens from `/start` commands |
 | `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes guardian invite management requests into the `contacts` skill                          |
-| `src/runtime/invite-service.ts`                     | Shared business logic for invite and contact operations                                                          |
+| `src/runtime/invite-service.ts`                     | Daemon-owned invite presentation (share link, guardian instruction) over gateway-minted invites                  |
 
 ## Database
 
