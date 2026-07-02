@@ -386,6 +386,82 @@ describe("MediaStreamOutput", () => {
     });
   });
 
+  describe("clearBufferedAudio — rejected barge-in", () => {
+    test("sends a clear command to Twilio", () => {
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+      output.clearBufferedAudio();
+
+      expect(sent).toHaveLength(1);
+      expect(JSON.parse(sent[0])).toEqual({
+        event: "clear",
+        streamSid: "MZ-stream-1",
+      });
+    });
+
+    test("preserves in-flight synthesis — queued speech still plays", async () => {
+      const wav = makeWavBuffer([1000, 2000, 3000, 4000]);
+      // Slow synthesis so the clear lands while the item is in flight
+      mockSynthesize.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () => resolve({ audio: wav, contentType: "audio/wav" }),
+              20,
+            ),
+          ),
+      );
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+
+      output.sendTextToken("hello world", true);
+      output.clearBufferedAudio();
+
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      // Unlike clearAudio, the in-flight synthesis is not aborted:
+      // its frames go out once ready.
+      const mediaMessages = sent.filter((s) => JSON.parse(s).event === "media");
+      expect(mediaMessages.length).toBeGreaterThan(0);
+    });
+
+    test("keeps the audio-start signal armed", async () => {
+      const wav = makeWavBuffer([1000, 2000, 3000, 4000]);
+      mockSynthesize.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () => resolve({ audio: wav, contentType: "audio/wav" }),
+              20,
+            ),
+          ),
+      );
+
+      const { ws } = createMockWs();
+      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+
+      let fired = 0;
+      output.setAudioStartCallback(() => {
+        fired++;
+      });
+      output.sendTextToken("hello world", true);
+      output.clearBufferedAudio();
+
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      expect(fired).toBe(1);
+    });
+
+    test("does not send when closed", () => {
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "MZ-stream-1");
+      output.endSession();
+      output.clearBufferedAudio();
+      expect(sent).toHaveLength(0);
+    });
+  });
+
   describe("audio-start signal", () => {
     function makePlayableWav(): Buffer {
       const samples = Array.from({ length: 400 }, (_, i) =>

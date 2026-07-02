@@ -1227,12 +1227,14 @@ describe("media-stream setup outcome scenarios", () => {
       expect(mockHandleBargeIn).toHaveBeenCalled();
       expect(mockHandleInterrupt).not.toHaveBeenCalled();
 
-      // An ignored barge-in must NOT flush outbound audio — the queued
-      // greeting would be lost and the caller would hear silence.
+      // An ignored barge-in flushes only Twilio's buffered audio (to
+      // stop a completed turn's tail talking over the caller). The
+      // internal playback queue is untouched, so the queued greeting
+      // still plays — handleInterrupt must not have run.
       const clearCommands = mockWs.sent.filter(
         (s) => JSON.parse(s).event === "clear",
       );
-      expect(clearCommands.length).toBe(0);
+      expect(clearCommands.length).toBeGreaterThan(0);
 
       // voice_session_aborted should NOT appear in recorded events
       const abortEvents = mockEvents.filter(

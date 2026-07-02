@@ -289,6 +289,25 @@ export class MediaStreamOutput implements CallTransport {
     this.flushPlaybackQueue();
 
     // Send the Twilio clear command to flush Twilio's outbound buffer.
+    this.sendClearCommand();
+  }
+
+  /**
+   * Flush only Twilio's outbound audio buffer, leaving the internal
+   * playback queue and any in-flight synthesis untouched.
+   *
+   * Used for rejected barge-ins (no turn to abort): frames are pushed
+   * to Twilio as fast as they are produced, so a completed turn's tail
+   * can still be playing long after the controller went idle — this
+   * stops that talk-over, while speech that has not reached Twilio yet
+   * (initial greeting, setup handoff prompt) survives to play after.
+   */
+  clearBufferedAudio(): void {
+    if (this.state === "closed") return;
+    this.sendClearCommand();
+  }
+
+  private sendClearCommand(): void {
     const command: MediaStreamClearCommand = {
       event: "clear",
       streamSid: this.streamSid,

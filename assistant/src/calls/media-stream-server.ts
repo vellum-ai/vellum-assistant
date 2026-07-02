@@ -687,6 +687,11 @@ export class MediaStreamCallSession {
           "Media-stream barge-in accepted — cleared outbound audio",
         );
       } else {
+        // No turn to abort, but a completed turn's tail can still be
+        // playing from Twilio's buffer — flush only that buffer so the
+        // caller isn't talked over. Queued speech that hasn't reached
+        // Twilio yet (greeting, handoff prompt) is preserved.
+        output.clearBufferedAudio();
         this.bargeInIgnored++;
         log.debug(
           { callSessionId: this.callSessionId },
