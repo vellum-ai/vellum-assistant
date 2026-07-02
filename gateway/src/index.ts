@@ -782,35 +782,42 @@ async function main() {
         contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
     },
     // ── Contacts/invites control plane ──
+    // Scopes mirror the pre-gateway-native runtime route policies
+    // (invites_list → settings.read; create/redeem/revoke/call → settings.write).
     {
       path: "/v1/contacts/invites",
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => contactsControlPlaneProxy.handleListInvites(req),
     },
     {
       path: "/v1/contacts/invites",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => contactsControlPlaneProxy.handleCreateInvite(req),
     },
     {
       path: "/v1/contacts/invites/redeem",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => contactsControlPlaneProxy.handleRedeemInvite(req),
     },
     {
       path: /^\/v1\/contacts\/invites\/([^/]+)\/call$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) =>
         contactsControlPlaneProxy.handleCallInvite(req, params[0]),
     },
     {
       path: /^\/v1\/contacts\/invites\/([^/]+)$/,
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) =>
         contactsControlPlaneProxy.handleRevokeInvite(req, params[0]),
     },
