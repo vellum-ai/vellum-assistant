@@ -36,8 +36,7 @@ import { deliverVerificationReply } from "./reply-delivery.js";
 const log = getLogger("invite-redemption");
 
 // ---------------------------------------------------------------------------
-// Reply copy — ported verbatim from the daemon's invite-redemption-templates
-// so user-visible text is identical across redemption paths.
+// Reply copy — the canonical user-visible text for invite redemption outcomes.
 // ---------------------------------------------------------------------------
 
 const INVITE_REPLY_TEMPLATES = {
