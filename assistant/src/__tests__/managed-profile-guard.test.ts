@@ -8,10 +8,16 @@
  *   ("quality-optimized", "balanced", "cost-optimized") are fully read-only
  *   across PATCH/SET/PUT — the only writable transition is re-enabling a
  *   disabled default.
+ *
+ * Plus the wire-only profile keys (`invariant`, `supportsVision`) stamped on
+ * config reads: PATCH/SET strip them so a GET → write round-trip succeeds.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+// Imported before the `mock.module` below so the mock can pass the real
+// implementation through instead of hand-copying it.
+import { setNestedValue } from "../config/loader.js";
 import { makeMockLogger } from "./helpers/mock-logger.js";
 
 mock.module("../util/logger.js", () => ({
@@ -90,22 +96,7 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {
     invalidateConfigCacheCalls += 1;
   },
-  setNestedValue: (
-    obj: Record<string, unknown>,
-    path: string,
-    value: unknown,
-  ) => {
-    const keys = path.split(".");
-    let current = obj;
-    for (let i = 0; i < keys.length - 1; i++) {
-      const key = keys[i]!;
-      if (current[key] == null || typeof current[key] !== "object") {
-        current[key] = {};
-      }
-      current = current[key] as Record<string, unknown>;
-    }
-    current[keys[keys.length - 1]!] = value;
-  },
+  setNestedValue,
   withSuppressedConfigDiskWrites: async (fn: () => unknown) => fn(),
   withSuppressedConfigDiskWritesSync: (fn: () => unknown) => fn(),
 }));
@@ -683,6 +674,9 @@ describe("default-profile invariant guard — rejected writes", () => {
     expectNothingCommitted();
   });
 
+  // PUT and SET flow through the same commitConfigWrite guard as PATCH, so
+  // the per-field matrix above isn't repeated per route — one rejection per
+  // route proves the wiring.
   test("PUT { status: 'disabled' } on balanced is rejected", async () => {
     await expect(
       replaceRoute.handler({
@@ -690,26 +684,6 @@ describe("default-profile invariant guard — rejected writes", () => {
         body: { status: "disabled" },
       }),
     ).rejects.toThrow('Cannot disable default profile "balanced".');
-    expectNothingCommitted();
-  });
-
-  test("PUT { label: 'Renamed' } on balanced is rejected", async () => {
-    await expect(
-      replaceRoute.handler({
-        pathParams: { name: "balanced" },
-        body: { label: "Renamed" },
-      }),
-    ).rejects.toThrow('Cannot edit default profile "balanced" fields [label]');
-    expectNothingCommitted();
-  });
-
-  test("PUT { topP: 0.8 } on balanced is rejected", async () => {
-    await expect(
-      replaceRoute.handler({
-        pathParams: { name: "balanced" },
-        body: { topP: 0.8 },
-      }),
-    ).rejects.toThrow('Cannot edit default profile "balanced" fields [topP]');
     expectNothingCommitted();
   });
 
@@ -722,26 +696,31 @@ describe("default-profile invariant guard — rejected writes", () => {
     expectNothingCommitted();
   });
 
-  test("SET llm.profiles.balanced.topP = 0.8 is rejected", async () => {
-    await expect(
-      setRoute.handler({
-        body: { path: "llm.profiles.balanced.topP", value: 0.8 },
-      }),
-    ).rejects.toThrow('Cannot edit default profile "balanced" fields [topP]');
-    expectNothingCommitted();
-  });
-
-  test("SET llm.profiles = {} is rejected (would drop all defaults)", async () => {
-    await expect(
-      setRoute.handler({ body: { path: "llm.profiles", value: {} } }),
-    ).rejects.toThrow(/Cannot delete or replace default profile/);
-    expectNothingCommitted();
-  });
-
   test("SET llm = {} is rejected (would drop all defaults)", async () => {
     await expect(
       setRoute.handler({ body: { path: "llm", value: {} } }),
     ).rejects.toThrow(/Cannot delete or replace default profile/);
+    expectNothingCommitted();
+  });
+
+  test("PATCH { status: 'weird' } on balanced is rejected (junk status)", async () => {
+    await expect(
+      patchRoute.handler({
+        body: { llm: { profiles: { balanced: { status: "weird" } } } },
+      }),
+    ).rejects.toThrow(
+      'Cannot set status "weird" on default profile "balanced". ' +
+        'Only re-enabling (status "active") is allowed.',
+    );
+    expectNothingCommitted();
+  });
+
+  test("SET llm.profiles.balanced.status = 123 is rejected (junk status)", async () => {
+    await expect(
+      setRoute.handler({
+        body: { path: "llm.profiles.balanced.status", value: 123 },
+      }),
+    ).rejects.toThrow('Cannot set status 123 on default profile "balanced"');
     expectNothingCommitted();
   });
 });
@@ -852,5 +831,79 @@ describe("default-profile invariant guard — allowed writes", () => {
     expect(savedProfile("balanced")).toEqual(
       (makeDefaultRawConfig() as Record<string, any>).llm.profiles.balanced,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Wire-only profile keys (`invariant`, `supportsVision`) are stamped onto
+// config GET/PATCH responses but never persisted. Writes carrying them —
+// e.g. a `config get` → `config set` round-trip — must succeed with the
+// wire keys stripped, not 400 on phantom fields.
+// ---------------------------------------------------------------------------
+
+describe("wire-only profile keys are stripped from writes", () => {
+  test("PATCH re-enable carrying wire keys succeeds and persists neither key", async () => {
+    (rawConfig as Record<string, any>).llm.profiles.balanced.status =
+      "disabled";
+    const result = await patchRoute.handler({
+      body: {
+        llm: {
+          profiles: {
+            balanced: {
+              status: "active",
+              invariant: true,
+              supportsVision: true,
+            },
+          },
+        },
+      },
+    });
+    expect(result).toHaveProperty("llm");
+    expectOneCommitCycle();
+    const profile = savedProfile("balanced");
+    expect(profile.status).toBe("active");
+    expect("invariant" in profile).toBe(false);
+    expect("supportsVision" in profile).toBe(false);
+  });
+
+  test("SET llm.profiles.balanced with a wire-shaped entry (GET round-trip) succeeds", async () => {
+    const entry = structuredClone(
+      (rawConfig as Record<string, any>).llm.profiles.balanced,
+    ) as Record<string, unknown>;
+    entry.invariant = true;
+    entry.supportsVision = true;
+    const result = await setRoute.handler({
+      body: { path: "llm.profiles.balanced", value: entry },
+    });
+    expect(result).toEqual({ ok: true });
+    expectOneCommitCycle();
+    const profile = savedProfile("balanced");
+    expect("invariant" in profile).toBe(false);
+    expect("supportsVision" in profile).toBe(false);
+    expect(profile.provider).toBe("anthropic");
+    expect(profile.model).toBe("claude-sonnet");
+  });
+
+  test("SET of a wire-only leaf path is dropped without writing", async () => {
+    const result = await setRoute.handler({
+      body: { path: "llm.profiles.balanced.supportsVision", value: true },
+    });
+    expect(result).toEqual({ ok: true });
+    expectNothingCommitted();
+  });
+
+  test("PATCH with supportsVision on a custom profile does not persist it", async () => {
+    const result = await patchRoute.handler({
+      body: {
+        llm: {
+          profiles: { "my-custom": { supportsVision: false, maxTokens: 2048 } },
+        },
+      },
+    });
+    expect(result).toHaveProperty("llm");
+    expectOneCommitCycle();
+    const profile = savedProfile("my-custom");
+    expect("supportsVision" in profile).toBe(false);
+    expect(profile.maxTokens).toBe(2048);
   });
 });
