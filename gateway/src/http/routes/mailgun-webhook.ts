@@ -16,6 +16,7 @@ import {
 } from "../../routing/resolve-assistant.js";
 import {
   handleCircuitBreakerError,
+  interceptedReply,
   processInboundResult,
 } from "../../webhook-pipeline.js";
 
@@ -374,11 +375,12 @@ export function createMailgunWebhookHandler(
         return Response.json({ error: "Internal error" }, { status: 500 });
       }
 
-      // ── Verification reply ──────────────────────────────────────
-      // Not gated by recordDenialReplyIfAllowed — verification success
-      // confirmations must always be delivered regardless of prior denial
-      // replies to this sender.
-      if (result.verificationIntercepted && result.verificationReplyText) {
+      // ── Verification / invite reply ─────────────────────────────
+      // Not gated by recordDenialReplyIfAllowed — verification and invite
+      // redemption confirmations must always be delivered regardless of
+      // prior denial replies to this sender.
+      const intercept = interceptedReply(result);
+      if (intercept) {
         const mailgunApiKeyForVerify = await resolveCredential(
           credentialKey("mailgun", "api_key"),
         );
@@ -394,7 +396,7 @@ export function createMailgunWebhookHandler(
                 "subject",
                 `Re: ${vellumPayload.subject ?? "(no subject)"}`,
               );
-              form.set("text", result.verificationReplyText);
+              form.set("text", intercept.text);
               if (vellumPayload.messageId) {
                 form.set("h:In-Reply-To", vellumPayload.messageId);
               }
@@ -412,7 +414,7 @@ export function createMailgunWebhookHandler(
               if (sendResponse.ok) {
                 tlog.info(
                   { from: recipientAddress, to: senderAddress },
-                  "Sent verification reply via Mailgun",
+                  "Sent intercept reply via Mailgun",
                 );
               } else {
                 tlog.warn(
@@ -421,19 +423,19 @@ export function createMailgunWebhookHandler(
                     from: recipientAddress,
                     to: senderAddress,
                   },
-                  "Failed to send verification reply via Mailgun",
+                  "Failed to send intercept reply via Mailgun",
                 );
               }
             } catch (err) {
               tlog.error(
                 { err, from: recipientAddress, to: senderAddress },
-                "Error sending verification reply via Mailgun",
+                "Error sending intercept reply via Mailgun",
               );
             }
           }
         }
         dedupCache.mark(token);
-        return Response.json({ ok: true, verificationIntercepted: true });
+        return Response.json({ ok: true, [intercept.flag]: true });
       }
 
       dedupCache.mark(token);

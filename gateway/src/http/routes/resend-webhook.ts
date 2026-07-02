@@ -16,6 +16,7 @@ import {
 } from "../../routing/resolve-assistant.js";
 import {
   handleCircuitBreakerError,
+  interceptedReply,
   processInboundResult,
 } from "../../webhook-pipeline.js";
 
@@ -446,15 +447,12 @@ export function createResendWebhookHandler(
         },
       });
 
-      // ── Verification reply ──────────────────────────────────────
-      // Not gated by recordDenialReplyIfAllowed — verification success
-      // confirmations must always be delivered regardless of prior denial
-      // replies to this sender.
-      if (
-        result.verificationIntercepted &&
-        result.verificationReplyText &&
-        apiKey
-      ) {
+      // ── Verification / invite reply ─────────────────────────────
+      // Not gated by recordDenialReplyIfAllowed — verification and invite
+      // redemption confirmations must always be delivered regardless of
+      // prior denial replies to this sender.
+      const intercept = interceptedReply(result);
+      if (intercept && apiKey) {
         const senderAddress = gatewayEvent.actor.actorExternalId;
         try {
           const sendResponse = await fetch("https://api.resend.com/emails", {
@@ -467,7 +465,7 @@ export function createResendWebhookHandler(
               from: recipientAddress,
               to: [senderAddress],
               subject: `Re: ${vellumPayload.subject ?? "(no subject)"}`,
-              text: result.verificationReplyText,
+              text: intercept.text,
               ...(vellumPayload.messageId
                 ? {
                     headers: {
@@ -480,7 +478,7 @@ export function createResendWebhookHandler(
           if (sendResponse.ok) {
             tlog.info(
               { from: recipientAddress, to: senderAddress },
-              "Sent verification reply via Resend",
+              "Sent intercept reply via Resend",
             );
           } else {
             tlog.warn(
@@ -489,17 +487,17 @@ export function createResendWebhookHandler(
                 from: recipientAddress,
                 to: senderAddress,
               },
-              "Failed to send verification reply via Resend",
+              "Failed to send intercept reply via Resend",
             );
           }
         } catch (err) {
           tlog.error(
             { err, from: recipientAddress, to: senderAddress },
-            "Error sending verification reply via Resend",
+            "Error sending intercept reply via Resend",
           );
         }
         dedupCache.mark(messageId);
-        return Response.json({ ok: true, verificationIntercepted: true });
+        return Response.json({ ok: true, [intercept.flag]: true });
       }
 
       const processed = processInboundResult(
