@@ -11,7 +11,6 @@ on:
       - "packages/local-mode/**"
       - "packages/environments/**"
       - ".github/workflows/ci-main-storybook.yaml"
-      - ".github/actions/install-shared-packages/**"
 
 # Serialize per branch and cancel superseded runs so only the newest main
 # commit's Storybook publishes.
@@ -133,14 +132,6 @@ jobs:
 
       - name: Generate API clients
         run: bun run openapi-ts
-
-      # clients/web pulls in @vellumai/local-mode and its transitive
-      # @vellumai/environments file: dep; both need their own node_modules so
-      # vite.config.ts loads at build time.
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
 
       - name: Build Storybook
         run: STORYBOOK_BASE_PATH=/web/main/ bun run build-storybook

@@ -1675,11 +1675,7 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-      - name: Install design-library dependencies
-        working-directory: packages/design-library
-        run: bun install --frozen-lockfile
-      - name: Install web dependencies
-        working-directory: clients/web
+      - name: Install dependencies
         run: |
           if ! bun install --frozen-lockfile; then
             rm -f bun.lock && rm -rf node_modules && bun install
@@ -1687,10 +1683,6 @@ jobs:
       - name: Generate API clients
         working-directory: clients/web
         run: bun run openapi-ts
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
       - name: Build
         working-directory: clients/web
         env:
@@ -1853,12 +1845,7 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: Install design-library dependencies
-        working-directory: packages/design-library
-        run: bun install --frozen-lockfile
-
-      - name: Install web dependencies
-        working-directory: clients/web
+      - name: Install dependencies
         run: |
           if ! bun install --frozen-lockfile; then
             echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
@@ -1870,11 +1857,6 @@ jobs:
       - name: Generate API clients
         working-directory: clients/web
         run: bun run openapi-ts
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
 
       - name: Build
         working-directory: clients/web
