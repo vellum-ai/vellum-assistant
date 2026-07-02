@@ -7,6 +7,7 @@ import { stopCliIpcServer } from "../ipc/assistant-server.js";
 import { stopGatewayFlagListener } from "../ipc/gateway-flag-listener.js";
 import { stopMcpServerManager } from "../mcp/manager.js";
 import { stopMonitoring } from "../monitoring/control.js";
+import { runAsyncSqlite } from "../persistence/db-async-query.js";
 import { getSqlite, resetDb } from "../persistence/db-connection.js";
 import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
 import { stopMemoryJobsWorker } from "../persistence/jobs-worker.js";
@@ -190,8 +191,33 @@ async function shutdown(): Promise<void> {
   } catch (err) {
     log.warn({ err }, "PRAGMA optimize at shutdown failed (non-fatal)");
   }
+  // Fold the WAL back into the main database so the next boot opens a small
+  // WAL instead of paying a multi-minute recovery (see
+  // `checkpointWalBeforeOpen` in db-init.ts). Runs through `runAsyncSqlite`
+  // (sqlite3 subprocess when available) because a synchronous checkpoint of a
+  // WAL at its high-water mark blocks the event loop, which keeps the
+  // force-exit timer above from ever firing. Off the loop, the timer stays
+  // armed — and if it fires mid-checkpoint, the subprocess survives
+  // `process.exit` and finishes the fold in the background.
   try {
-    getSqlite().exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    const checkpointResult = await runAsyncSqlite(
+      "PRAGMA wal_checkpoint(TRUNCATE)",
+      "shutdown:wal-checkpoint-truncate",
+    );
+    if (checkpointResult.ok) {
+      log.info(
+        {
+          backend: checkpointResult.backend,
+          elapsedMs: checkpointResult.elapsedMs,
+        },
+        "Shutdown WAL checkpoint complete",
+      );
+    } else {
+      log.warn(
+        { error: checkpointResult.error, backend: checkpointResult.backend },
+        "WAL checkpoint failed (non-fatal)",
+      );
+    }
   } catch (err) {
     log.warn({ err }, "WAL checkpoint failed (non-fatal)");
   }
