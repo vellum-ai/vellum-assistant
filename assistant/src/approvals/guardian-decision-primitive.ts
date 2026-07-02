@@ -378,10 +378,13 @@ export async function applyCanonicalGuardianDecision(
         },
         `Resolver for kind '${request.kind}' failed: ${resolverResult.reason}`,
       );
-      // The canonical request is already resolved (CAS succeeded), so we don't
-      // roll back.  Flag the failure and fall through to grant minting so that
-      // callers see applied: true (reflecting the committed DB state) while
-      // still being informed that the resolver had an issue.
+      // The CAS commit stands; the primitive itself never rolls back. A
+      // resolver MAY CAS-reopen the request to `pending` when its gateway
+      // persist did not land (the access-request trust/block branches do) —
+      // grant minting is skipped on failure either way, and the card
+      // withdrawal below re-reads the row so a reopened request keeps its
+      // live cards. Callers see applied: true (the decision was committed)
+      // plus the resolverFailed flag.
       resolverFailed = true;
       resolverFailureReason = resolverResult.reason;
     } else {
