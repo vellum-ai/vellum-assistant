@@ -135,19 +135,30 @@ export function useMessageReconciliation({
       );
 
       // Adopt the daemon's authoritative `processing` flag when it reports the
-      // conversation idle but our rolling snapshot still shows it processing.
-      // This is the sole path that samples the flag independently of the SSE
-      // stream, so it's the only place that learns a turn ended when the
+      // conversation idle but our rolling snapshot does not already reflect
+      // that. This is the sole path that samples the flag independently of the
+      // SSE stream, so it's the only place that learns a turn ended when the
       // terminal event (`message_complete` / `assistant_activity_state(idle)`)
       // was dropped on a disconnect. Propagating it lets the existing
       // authoritative CLOSE-gate in `shouldShowThinkingIndicator` /
       // `canStopGeneration` (`snapshotProcessing === false`) settle the turn —
-      // no client-side stuck-turn heuristic. `undefined` (older daemons) does
-      // nothing, preserving prior behavior.
+      // no client-side stuck-turn heuristic.
+      //
+      // The condition covers two stale-local states, both of which leave the
+      // close-gate starved on a value that is not `false`:
+      //   - `true`: a delta folded the flag on but the terminal event that
+      //     would fold it back off never arrived.
+      //   - `undefined`: the version sentinel. `nextProcessingState` returns
+      //     `undefined` forever once the snapshot seed lacked the flag, so no
+      //     amount of delta folding can ever lift it to a boolean — the reseed
+      //     is the only way to plant an authoritative `false` (which also cures
+      //     the sentinel so subsequent folds track the turn). A genuinely old
+      //     daemon can't reach here: it never emits a defined `serverProcessing
+      //     === false`, so the guard stays closed and prior behavior holds.
       const localSnapshotProcessing =
         useChatSessionStore.getState().snapshot?.processing;
       const serverClearedProcessing =
-        serverProcessing === false && localSnapshotProcessing === true;
+        serverProcessing === false && localSnapshotProcessing !== false;
 
       // Refresh the single source — history flows into the query cache and the
       // transcript (its union with the live turn) re-renders. No client-side

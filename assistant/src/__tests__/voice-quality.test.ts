@@ -429,8 +429,8 @@ describe("resolveVoiceQualityProfile", () => {
     };
     const profile = resolveVoiceQualityProfile();
     expect(profile.language).toBe("ja-JP");
-    // STT fields (transcriptionProvider, speechModel) are resolved separately
-    // in twilio-routes.ts via resolveTelephonySttRouting() — not on this profile.
+    // STT fields (transcriptionProvider, speechModel) are not part of the
+    // profile — the daemon resolves STT via resolveTelephonySttCapability().
   });
 
   // -- Canonical-only behavior (no legacy fallback) -----------------------

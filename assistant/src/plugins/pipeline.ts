@@ -107,22 +107,25 @@ function cloneHookValue<T>(value: T, seen = new WeakMap<object, unknown>()): T {
  * successfully committed context. The final context after the chain settles is
  * returned.
  *
+ * When `initialCtx` carries a `conversationId`, it is passed to
+ * {@link getHooksFor}, which resolves the conversation's per-chat plugin scope
+ * (memory, then DB) and skips a hook whose contributing plugin is outside the
+ * effective set. Contexts without a `conversationId` impose no restriction —
+ * every globally-enabled plugin's hook runs.
+ *
  * @param name        The hook identifier — pick one from {@link HOOKS}.
  * @param initialCtx  Context the first hook receives.
- * @param effectiveEnabledPlugins  Per-chat plugin scope (see
- *        {@link getHooksFor}): when non-null, only hooks contributed by a
- *        plugin in the set run. `null`/omitted means no per-chat restriction.
  * @returns The final context after the chain settles. Same reference as
  *          `initialCtx` when no plugin registers `name`.
  */
 export async function runHook<TCtx>(
   name: HookName,
   initialCtx: TCtx,
-  effectiveEnabledPlugins?: Set<string> | null,
 ): Promise<TCtx> {
+  const conversationId = extractConversationId(initialCtx);
   let hooks: HookFunction<TCtx>[];
   try {
-    hooks = await getHooksFor<TCtx>(name, effectiveEnabledPlugins);
+    hooks = await getHooksFor<TCtx>(name, { conversationId });
   } catch (err) {
     log.error(
       { err, hookName: name },
@@ -149,4 +152,11 @@ export async function runHook<TCtx>(
     }
   }
   return active;
+}
+
+/** The `conversationId` off a hook context, when it carries one as a string. */
+function extractConversationId(ctx: unknown): string | undefined {
+  const conversationId = (ctx as { conversationId?: unknown } | null)
+    ?.conversationId;
+  return typeof conversationId === "string" ? conversationId : undefined;
 }

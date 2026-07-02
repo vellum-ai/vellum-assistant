@@ -2,9 +2,9 @@
  * Transport interface consumed by CallController for sending voice output
  * and controlling call lifecycle.
  *
- * Decouples the controller from any specific wire protocol (e.g.
- * ConversationRelay) so that alternative transports (media-stream, etc.)
- * can be introduced without modifying controller logic.
+ * Decouples the controller from any specific wire protocol (e.g. Twilio
+ * Media Streams) so that alternative transports can be introduced without
+ * modifying controller logic.
  */
 
 // ── Transport interface ──────────────────────────────────────────────
@@ -31,12 +31,6 @@ export interface CallTransport {
   endSession(reason?: string): void;
 
   /**
-   * Return the current connection-level state. The controller uses this
-   * to suppress silence nudges during guardian wait states.
-   */
-  getConnectionState(): string;
-
-  /**
    * When true, the transport requires WAV (PCM) audio for playback.
    *
    * The media-stream transport sets this because its mu-law transcoder
@@ -45,33 +39,25 @@ export interface CallTransport {
    * WAV from TTS providers and the audio store.
    */
   readonly requiresWavAudio?: boolean;
-}
 
-// ── ConversationRelay adapter ────────────────────────────────────────
+  /**
+   * Arm a one-shot callback invoked when the transport sends the first
+   * audio frame of queued playback to the caller.
+   *
+   * Transports that buffer text and synthesize asynchronously (e.g.
+   * media-stream) implement this so the controller can flip to the
+   * `speaking` state only when real outbound audio starts, rather than
+   * when tokens are merely buffered. Passing `null` disarms the signal.
+   * Transports that emit audio immediately may omit this.
+   */
+  setAudioStartCallback?(cb: (() => void) | null): void;
 
-import type { RelayConnection } from "./relay-server.js";
-
-/**
- * Adapts a RelayConnection (Twilio ConversationRelay WebSocket) to the
- * CallTransport interface. All calls are forwarded 1:1 — no behavioral
- * changes from the pre-abstraction path.
- */
-export class ConversationRelayTransport implements CallTransport {
-  constructor(private relay: RelayConnection) {}
-
-  sendTextToken(token: string, last: boolean): void {
-    this.relay.sendTextToken(token, last);
-  }
-
-  sendPlayUrl(url: string): void {
-    this.relay.sendPlayUrl(url);
-  }
-
-  endSession(reason?: string): void {
-    this.relay.endSession(reason);
-  }
-
-  getConnectionState(): string {
-    return this.relay.getConnectionState();
-  }
+  /**
+   * Discard any buffered, not-yet-queued text held by the transport.
+   *
+   * Called by the controller when it aborts an in-flight turn so the
+   * aborted turn's unsent text cannot leak into the next turn's
+   * synthesis. Transports that don't buffer text may omit this.
+   */
+  discardPendingText?(): void;
 }

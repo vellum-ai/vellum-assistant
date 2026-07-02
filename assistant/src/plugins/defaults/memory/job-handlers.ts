@@ -3,10 +3,9 @@
  *
  * Each entry pairs a job-queue `type` with the handler that processes it,
  * sourcing the implementation from the memory feature (`src/memory/*`) and the
- * v3 engine (`./v3/`). `defaultMemoryPlugin` exposes this array via its
- * `jobHandlers` field; bootstrap registers it into the global job-handler
- * registry, and the general job worker (`jobs/register-job-handlers.ts`)
- * forwards it into the worker dispatch table.
+ * v3 engine (`./v3/`). The memory plugin registers this array directly into the
+ * worker dispatch table from its `init` hook — see `job-handler-registration.ts`
+ * (and the standalone worker process, which self-registers it).
  *
  * Each handler is wrapped in an arrow that reads the imported binding at
  * dispatch time rather than capturing it eagerly, so a per-test `mock.module` of
@@ -110,8 +109,8 @@ async function graphNarrativeRefineJob(
 }
 
 /**
- * The memory feature's per-job-type handlers, contributed to the general job
- * worker via the `default-memory` plugin's `jobHandlers` field.
+ * The memory feature's per-job-type handlers, registered directly into the
+ * worker dispatch table by the memory plugin's `init` hook.
  */
 export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {

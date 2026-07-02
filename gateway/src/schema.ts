@@ -1,8 +1,6 @@
 import packageJson from "../package.json" with { type: "json" };
 import {
-  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
-  TWILIO_RELAY_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
@@ -423,68 +421,11 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
-      [TWILIO_CONNECT_ACTION_WEBHOOK_PATH]: {
-        post: {
-          summary: "Twilio connect-action webhook",
-          description:
-            "Receives Twilio ConversationRelay connect-action callbacks, validates the X-Twilio-Signature, and forwards to the assistant runtime.",
-          operationId: "twilioConnectActionWebhook",
-          security: [{ TwilioSignature: [] }],
-          requestBody: {
-            required: true,
-            content: {
-              "application/x-www-form-urlencoded": {
-                schema: {
-                  type: "object",
-                  additionalProperties: { type: "string" },
-                },
-              },
-            },
-          },
-          responses: {
-            "200": {
-              description: "Connect-action callback processed",
-            },
-            "403": {
-              description: "Twilio signature validation failed",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "405": {
-              description: "Method not allowed",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "413": {
-              description: "Webhook payload too large",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-            "502": {
-              description: "Failed to forward to runtime",
-              content: {
-                "application/json": {
-                  schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
       "/webhooks/twilio/voice-verify": {
         post: {
           summary: "Twilio voice verification callback",
           description:
-            "Receives DTMF digits from Twilio <Gather> during gateway-owned voice verification. Validates the verification code, creates the guardian binding on success, and returns TwiML to either re-prompt or forward to the assistant for ConversationRelay setup.",
+            "Receives DTMF digits from Twilio <Gather> during gateway-owned voice verification. Validates the verification code, creates the guardian binding on success, and returns TwiML to either re-prompt or forward to the assistant for media-stream setup.",
           operationId: "twilioVoiceVerifyCallback",
           security: [{ TwilioSignature: [] }],
           parameters: [
@@ -510,7 +451,7 @@ export function buildSchema(): Record<string, unknown> {
           responses: {
             "200": {
               description:
-                "TwiML response — either a re-prompt <Gather>, a failure <Say>, or forwarded ConversationRelay setup.",
+                "TwiML response — either a re-prompt <Gather>, a failure <Say>, or forwarded media-stream setup.",
               content: {
                 "text/xml": {
                   schema: { type: "string" },
@@ -964,46 +905,6 @@ export function buildSchema(): Record<string, unknown> {
               content: {
                 "application/json": {
                   schema: { $ref: "#/components/schemas/ErrorResponse" },
-                },
-              },
-            },
-          },
-        },
-      },
-      [TWILIO_RELAY_WEBHOOK_PATH]: {
-        get: {
-          summary: "Twilio ConversationRelay WebSocket",
-          description:
-            "Accepts a WebSocket upgrade from Twilio ConversationRelay and bidirectionally proxies frames to the assistant runtime's /v1/calls/relay endpoint. Requires a callSessionId query parameter.",
-          operationId: "twilioRelayWebsocket",
-          parameters: [
-            {
-              name: "callSessionId",
-              in: "query",
-              required: true,
-              schema: { type: "string" },
-              description:
-                "Call session identifier used to correlate the WebSocket connection with the runtime relay session.",
-            },
-          ],
-          responses: {
-            "101": {
-              description:
-                "WebSocket upgrade successful — bidirectional frame proxying begins.",
-            },
-            "400": {
-              description: "Missing callSessionId query parameter",
-              content: {
-                "text/plain": {
-                  schema: { type: "string" },
-                },
-              },
-            },
-            "500": {
-              description: "WebSocket upgrade failed",
-              content: {
-                "text/plain": {
-                  schema: { type: "string" },
                 },
               },
             },

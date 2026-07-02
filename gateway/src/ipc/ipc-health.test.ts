@@ -34,10 +34,10 @@ describe("ipc-health", () => {
     const err = new IpcTransportError("Call timed out after 30000ms");
 
     // First error => one WARN, caller told to stay silent.
-    expect(noteIpcTransportError(err, "voice-approval-sync")).toBe(true);
+    expect(noteIpcTransportError(err, "outbound-voice-verification-sync")).toBe(true);
     // Many subsequent errors => no further logs, still silent.
     for (let i = 0; i < 10; i++) {
-      expect(noteIpcTransportError(err, "voice-approval-sync")).toBe(true);
+      expect(noteIpcTransportError(err, "outbound-voice-verification-sync")).toBe(true);
     }
 
     expect(warnCalls).toHaveLength(1);
@@ -83,10 +83,8 @@ describe("ipc-health", () => {
     const err = new IpcTransportError("boom");
 
     // Loop A goes down (logs), Loop B sees it already down (silent).
-    expect(noteIpcTransportError(err, "voice-approval-sync")).toBe(true);
-    expect(noteIpcTransportError(err, "outbound-voice-verification-sync")).toBe(
-      true,
-    );
+    expect(noteIpcTransportError(err, "sync-loop-a")).toBe(true);
+    expect(noteIpcTransportError(err, "sync-loop-b")).toBe(true);
     expect(warnCalls).toHaveLength(1);
 
     // Either loop recovering clears the shared state once.

@@ -6,7 +6,6 @@
  */
 
 import {
-  handleInternalConnectAction,
   handleInternalStatusCallback,
   handleInternalVoiceWebhook,
 } from "../../calls/twilio-routes.js";
@@ -41,19 +40,5 @@ export const ROUTES: RouteDefinition[] = [
       "Gateway-to-runtime forwarding for Twilio call status updates. Accepts pre-parsed form params as JSON.",
     tags: ["internal"],
     handler: handleInternalStatusCallback,
-  },
-  {
-    operationId: "internal_twilio_connect_action",
-    endpoint: "internal/twilio/connect-action",
-    method: "POST",
-    policy: {
-      requiredScopes: ["internal.write"],
-      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
-    },
-    summary: "Internal Twilio connect-action",
-    description:
-      "Gateway-to-runtime forwarding for ConversationRelay connect-action callback.",
-    tags: ["internal"],
-    handler: handleInternalConnectAction,
   },
 ];

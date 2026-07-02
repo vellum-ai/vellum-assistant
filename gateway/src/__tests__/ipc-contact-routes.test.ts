@@ -10,8 +10,7 @@ import {
 } from "bun:test";
 import { existsSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
-import { createConnection, type Socket } from "node:net";
+import { type Socket } from "node:net";
 import { eq } from "drizzle-orm";
 
 // ── Assistant DB proxy + IPC mocks ──────────────────────────────────────────
@@ -41,17 +40,29 @@ mock.module("../db/assistant-db-proxy.js", () => ({
 
 // Spread the actual module so the real IpcHandlerError/IpcTransportError
 // classes (and untouched exports like ipcSuggestTrustRule) stay importable by
-// later-loaded files when suites share a bun process.
+// later-loaded files when suites share a bun process. `ipcCallAssistant` routes
+// through a mutable mock so a test can resolve an assistant-side channel via
+// `contact_channel_identity_lookup` (backward-compat path).
+type IpcCallFn = (
+  method: string,
+  params?: Record<string, unknown>,
+) => Promise<unknown>;
+let ipcCallAssistantMock: ReturnType<typeof mock<IpcCallFn>> = mock(
+  async () => ({}),
+);
+
 const actualAssistantClient = await import("../ipc/assistant-client.js");
 mock.module("../ipc/assistant-client.js", () => ({
   ...actualAssistantClient,
-  ipcCallAssistant: mock(async () => ({})),
+  ipcCallAssistant: (...args: Parameters<IpcCallFn>) =>
+    ipcCallAssistantMock(...args),
 }));
 
 import { GatewayIpcServer } from "../ipc/server.js";
 import { contactRoutes } from "../ipc/contact-handlers.js";
 import { ContactStore } from "../db/contact-store.js";
 import { contacts, contactChannels } from "../db/schema.js";
+import { connectClient, sendRequest } from "./helpers/ipc-newline-client.js";
 import {
   initGatewayDb,
   getGatewayDb,
@@ -73,6 +84,7 @@ beforeEach(() => {
   // channel resolution, dual-write succeeds.
   assistantDbQueryMock = mock(async () => []);
   assistantDbRunMock = mock(async () => ({ changes: 1, lastInsertRowid: 0 }));
+  ipcCallAssistantMock = mock(async () => ({}));
 });
 
 afterAll(() => {
@@ -82,49 +94,6 @@ afterAll(() => {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function connectClient(path: string): Promise<Socket> {
-  return new Promise((resolve, reject) => {
-    const client = createConnection(path, () => resolve(client));
-    client.on("error", reject);
-  });
-}
-
-function sendRequest(
-  client: Socket,
-  method: string,
-  params?: Record<string, unknown>,
-): Promise<{
-  id: string;
-  result?: unknown;
-  error?: string;
-  statusCode?: number;
-  errorCode?: string;
-}> {
-  return new Promise((resolve, reject) => {
-    const id = randomBytes(4).toString("hex");
-    let buffer = "";
-
-    const onData = (chunk: Buffer) => {
-      buffer += chunk.toString();
-      const newlineIdx = buffer.indexOf("\n");
-      if (newlineIdx !== -1) {
-        const line = buffer.slice(0, newlineIdx).trim();
-        buffer = buffer.slice(newlineIdx + 1);
-        client.off("data", onData);
-        try {
-          resolve(JSON.parse(line));
-        } catch (err) {
-          reject(err);
-        }
-      }
-    };
-
-    client.on("data", onData);
-    const msg = JSON.stringify({ id, method, params });
-    client.write(msg + "\n");
-  });
-}
 
 function seedTestData(): void {
   const db = getGatewayDb();
@@ -968,11 +937,23 @@ describe("IPC contact routes", () => {
     test("assistant-side channel ID resolves via backward-compat path", async () => {
       seedTestData();
       // The given ID is unknown to the gateway DB; the assistant DB resolves it
-      // to the logical key (contactId, type, address) of the existing gateway
-      // channel ch3, which updateChannelStatus then matches.
-      assistantDbQueryMock = mock(async () => [
-        { contactId: "c2", type: "email", address: "test@example.com" },
-      ]);
+      // via `contact_channel_identity_lookup` to the logical key (type, address)
+      // of the existing gateway channel ch3, which updateChannelStatus matches.
+      ipcCallAssistantMock = mock(async (method: string) => {
+        if (method === "contact_channel_identity_lookup") {
+          return {
+            channel: {
+              id: "assistant-side-id",
+              contactId: "c2",
+              type: "email",
+              address: "test@example.com",
+              externalChatId: null,
+              displayName: null,
+            },
+          };
+        }
+        return {};
+      });
       await startServerAndConnect();
 
       const res = await sendRequest(client, "update_contact_channel", {

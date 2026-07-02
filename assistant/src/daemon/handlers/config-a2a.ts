@@ -216,8 +216,6 @@ export function completeA2AInvite(params: {
       {
         type: "a2a",
         address: params.acceptor.assistantId.toLowerCase(),
-        status: "active",
-        policy: "allow",
       },
     ],
   });
@@ -280,8 +278,6 @@ export function redeemA2AInvite(params: {
       {
         type: "a2a",
         address: params.sender.assistantId.toLowerCase(),
-        status: "active",
-        policy: "allow",
       },
     ],
   });

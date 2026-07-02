@@ -43,11 +43,6 @@ mock.module("../auth/guardian-bootstrap.js", () => ({
   ensureVellumGuardianBinding: () => guardianBindingMock(),
 }));
 
-let voiceApprovalSyncMock = mock(() => {});
-mock.module("../verification/voice-approval-sync.js", () => ({
-  startVoiceApprovalSync: () => voiceApprovalSyncMock(),
-}));
-
 let outboundVoiceSyncMock = mock(() => {});
 mock.module("../verification/outbound-voice-verification-sync.js", () => ({
   startOutboundVoiceVerificationSync: () => outboundVoiceSyncMock(),
@@ -68,7 +63,6 @@ beforeEach(() => {
   healthResponder = () => READY_HEALTH;
   runDataMigrationsMock = mock(async () => {});
   guardianBindingMock = mock(async () => {});
-  voiceApprovalSyncMock = mock(() => {});
   outboundVoiceSyncMock = mock(() => {});
 });
 
@@ -81,7 +75,6 @@ describe("runDeferredTasksWhenAssistantReady", () => {
     expect(ipcCalls).toBeGreaterThanOrEqual(3);
     expect(runDataMigrationsMock).toHaveBeenCalledTimes(1);
     expect(guardianBindingMock).toHaveBeenCalledTimes(1);
-    expect(voiceApprovalSyncMock).toHaveBeenCalledTimes(1);
     expect(outboundVoiceSyncMock).toHaveBeenCalledTimes(1);
   });
 
@@ -94,7 +87,6 @@ describe("runDeferredTasksWhenAssistantReady", () => {
     await runDeferredTasksWhenAssistantReady(5);
 
     expect(runDataMigrationsMock).toHaveBeenCalledTimes(1);
-    expect(voiceApprovalSyncMock).toHaveBeenCalledTimes(1);
   });
 
   test("deferred tasks are one-shot per process", async () => {
@@ -103,7 +95,6 @@ describe("runDeferredTasksWhenAssistantReady", () => {
 
     expect(runDataMigrationsMock).toHaveBeenCalledTimes(1);
     expect(guardianBindingMock).toHaveBeenCalledTimes(1);
-    expect(voiceApprovalSyncMock).toHaveBeenCalledTimes(1);
     expect(outboundVoiceSyncMock).toHaveBeenCalledTimes(1);
   });
 });

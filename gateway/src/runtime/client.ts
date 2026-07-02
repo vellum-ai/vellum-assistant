@@ -693,46 +693,6 @@ export async function forwardTwilioStatusWebhook(
   return { status: response.status, body, headers };
 }
 
-/**
- * Forward a validated Twilio connect-action callback payload to the runtime.
- */
-export async function forwardTwilioConnectActionWebhook(
-  config: GatewayConfig,
-  params: Record<string, string>,
-): Promise<TwilioForwardResponse> {
-  cbBeforeRequest();
-
-  const url = buildUpstreamUrl(
-    config.assistantRuntimeBaseUrl,
-    "/v1/internal/twilio/connect-action",
-  );
-
-  let response: Response;
-  try {
-    response = await timedFetch(
-      url,
-      {
-        method: "POST",
-        headers: serviceHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({ params }),
-      },
-      config.runtimeTimeoutMs,
-    );
-  } catch (err) {
-    cbOnFailure();
-    throw err;
-  }
-
-  const body = await response.text();
-  const headers: Record<string, string> = {};
-  const contentType = response.headers.get("content-type");
-  if (contentType) headers["Content-Type"] = contentType;
-
-  if (response.status >= 500) cbOnFailure();
-  else cbOnSuccess();
-  return { status: response.status, body, headers };
-}
-
 export async function uploadAttachment(
   config: GatewayConfig,
   input: UploadAttachmentInput,

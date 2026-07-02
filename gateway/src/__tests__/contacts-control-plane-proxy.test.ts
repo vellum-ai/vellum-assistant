@@ -2006,7 +2006,11 @@ describe("handleDeleteContact (gateway-native)", () => {
     const res = await handler.handleDeleteContact("ct_regular");
 
     expect(res.status).toBe(204);
-    expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
+    const deleteCalls = ipcCallAssistantMock.mock.calls.filter(
+      (c) => c[0] === "contacts_mirror_delete_contact",
+    );
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0]![1]).toEqual({ body: { contactId: "ct_regular" } });
     expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
   });
 
@@ -2014,14 +2018,20 @@ describe("handleDeleteContact (gateway-native)", () => {
     // No gateway row (a dual-write gap on inbound seeding), but the assistant
     // mirror holds the contact — the list can surface it, so delete must clean
     // it up instead of 404ing and leaving it stuck in the UI.
-    assistantDbQueryMock = mock(async () => [{ id: "ct_orphan" }]);
+    ipcCallAssistantMock = mock(async (method: string) =>
+      method === "contact_mirror_probe" ? { exists: true } : {},
+    );
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleDeleteContact("ct_orphan");
 
     expect(res.status).toBe(204);
     // The mirror delete ran; the gateway delete is a harmless no-op.
-    expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
+    expect(
+      ipcCallAssistantMock.mock.calls.some(
+        (c) => c[0] === "contacts_mirror_delete_contact",
+      ),
+    ).toBe(true);
   });
 
   test("returns 404 only when the contact is absent from both DBs", async () => {
@@ -2039,13 +2049,19 @@ describe("handleDeleteContact (gateway-native)", () => {
 
   test("still deletes a gateway contact when the assistant mirror is unavailable", async () => {
     seedGatewayContact("ct_mirror_down", "contact");
-    // The mirror lookup AND delete both throw (assistant DB unavailable). The
+    // The mirror probe AND delete both throw (assistant DB unavailable). The
     // delete must degrade to gateway-only rather than 500ing on the mirror.
-    assistantDbQueryMock = mock(async () => {
-      throw new Error("assistant DB unavailable");
+    ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "contact_mirror_probe") {
+        throw new Error("assistant DB unavailable");
+      }
+      return {};
     });
-    assistantDbRunMock = mock(async () => {
-      throw new Error("assistant DB unavailable");
+    ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "contacts_mirror_delete_contact") {
+        throw new Error("assistant mirror unavailable");
+      }
+      return {};
     });
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());

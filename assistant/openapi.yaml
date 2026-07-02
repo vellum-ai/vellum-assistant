@@ -3434,6 +3434,9 @@ paths:
                 content:
                   type: string
                   description: User prompt content
+                clientTimezone:
+                  description: IANA timezone reported by the active client
+                  type: string
               required:
                 - conversationKey
                 - content
@@ -4164,6 +4167,12 @@ paths:
                             - type: "null"
                         memberDisplayName:
                           type: string
+                        interactionCount:
+                          type: number
+                        lastInteraction:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                       required:
                         - trustClass
                         - canonicalSenderId
@@ -5193,7 +5202,9 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
-                        type: number
+                        anyOf:
+                          - type: number
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5234,7 +5245,9 @@ paths:
                                 - type: number
                                 - type: "null"
                             interactionCount:
-                              type: number
+                              anyOf:
+                                - type: number
+                                - type: "null"
                             lastInteraction:
                               anyOf:
                                 - type: number
@@ -5353,7 +5366,9 @@ paths:
                             - type: number
                             - type: "null"
                         interactionCount:
-                          type: number
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         createdAt:
                           type: number
                         updatedAt:
@@ -5394,7 +5409,9 @@ paths:
                                   - type: number
                                   - type: "null"
                               interactionCount:
-                                type: number
+                                anyOf:
+                                  - type: number
+                                  - type: "null"
                               lastInteraction:
                                 anyOf:
                                   - type: number
@@ -5482,7 +5499,9 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
-                        type: number
+                        anyOf:
+                          - type: number
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5523,7 +5542,9 @@ paths:
                                 - type: number
                                 - type: "null"
                             interactionCount:
-                              type: number
+                              anyOf:
+                                - type: number
+                                - type: "null"
                             lastInteraction:
                               anyOf:
                                 - type: number
@@ -5881,7 +5902,9 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
-                        type: number
+                        anyOf:
+                          - type: number
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5922,7 +5945,9 @@ paths:
                                 - type: number
                                 - type: "null"
                             interactionCount:
-                              type: number
+                              anyOf:
+                                - type: number
+                                - type: "null"
                             lastInteraction:
                               anyOf:
                                 - type: number
@@ -6075,7 +6100,9 @@ paths:
                         - type: number
                         - type: "null"
                     interactionCount:
-                      type: number
+                      anyOf:
+                        - type: number
+                        - type: "null"
                     createdAt:
                       type: number
                     updatedAt:
@@ -6116,7 +6143,9 @@ paths:
                               - type: number
                               - type: "null"
                           interactionCount:
-                            type: number
+                            anyOf:
+                              - type: number
+                              - type: "null"
                           lastInteraction:
                             anyOf:
                               - type: number
@@ -15739,16 +15768,6 @@ paths:
                     required:
                       - skipped
                     additionalProperties: false
-  /v1/internal/twilio/connect-action:
-    post:
-      operationId: internal_twilio_connectaction_post
-      summary: Internal Twilio connect-action
-      description: Gateway-to-runtime forwarding for ConversationRelay connect-action callback.
-      tags:
-        - internal
-      responses:
-        "200":
-          description: Successful response
   /v1/internal/twilio/status:
     post:
       operationId: internal_twilio_status_post

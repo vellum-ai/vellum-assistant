@@ -11,13 +11,7 @@ import {
   activeMediaStreamSessions,
   MediaStreamCallSession,
 } from "../calls/media-stream-server.js";
-import type { RelayWebSocketData } from "../calls/relay-server.js";
 import {
-  activeRelayConnections,
-  RelayConnection,
-} from "../calls/relay-server.js";
-import {
-  handleConnectAction,
   handleStatusCallback,
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
@@ -131,7 +125,7 @@ function dbMigrationUnavailableForPath(path: string): Response | null {
 /**
  * WebSocket data attached to `/v1/calls/media-stream` connections.
  * The `wsType` discriminator routes frames to the media-stream call
- * session instead of the ConversationRelay handlers.
+ * session instead of the other WebSocket handlers.
  */
 interface MediaStreamWebSocketData {
   wsType: "media-stream";
@@ -202,7 +196,6 @@ export class RuntimeHttpServer {
 
   async start(): Promise<void> {
     type AllWebSocketData =
-      | RelayWebSocketData
       | MediaStreamWebSocketData
       | SttStreamWebSocketData
       | LiveVoiceWebSocketData;
@@ -215,8 +208,8 @@ export class RuntimeHttpServer {
       websocket: {
         open: (ws) => {
           const data = ws.data as AllWebSocketData;
-          if ("wsType" in data && data.wsType === "media-stream") {
-            const msData = data as MediaStreamWebSocketData;
+          if (data.wsType === "media-stream") {
+            const msData = data;
             log.info(
               { callSessionId: msData.callSessionId },
               "Media-stream WebSocket opened",
@@ -232,8 +225,8 @@ export class RuntimeHttpServer {
             msData.session = session;
             return;
           }
-          if ("wsType" in data && data.wsType === "stt-stream") {
-            const sttData = data as SttStreamWebSocketData;
+          if (data.wsType === "stt-stream") {
+            const sttData = data;
 
             // The runtime is config-authoritative: always resolve the
             // provider from `services.stt.provider` regardless of what
@@ -303,34 +296,25 @@ export class RuntimeHttpServer {
             );
             return;
           }
-          if ("wsType" in data && data.wsType === "live-voice") {
+          if (data.wsType === "live-voice") {
             log.info("Live voice WebSocket opened");
             return;
           }
-          const callSessionId = (data as RelayWebSocketData).callSessionId;
-          log.info({ callSessionId }, "ConversationRelay WebSocket opened");
-          if (callSessionId) {
-            const connection = new RelayConnection(
-              ws as ServerWebSocket<RelayWebSocketData>,
-              callSessionId,
-            );
-            activeRelayConnections.set(callSessionId, connection);
-          }
+          log.warn("WebSocket opened with unknown data type — closing");
+          ws.close(1008, "Unknown WebSocket type");
         },
         message: (ws, message) => {
           const data = ws.data as AllWebSocketData;
-          const raw =
-            typeof message === "string"
-              ? message
-              : new TextDecoder().decode(message);
-          if ("wsType" in data && data.wsType === "media-stream") {
-            const msData = data as MediaStreamWebSocketData;
-            msData.session?.handleMessage(raw);
+          if (data.wsType === "media-stream") {
+            const raw =
+              typeof message === "string"
+                ? message
+                : new TextDecoder().decode(message);
+            data.session?.handleMessage(raw);
             return;
           }
-          if ("wsType" in data && data.wsType === "stt-stream") {
-            const sttData = data as SttStreamWebSocketData;
-            const session = sttData.session;
+          if (data.wsType === "stt-stream") {
+            const session = data.session;
             if (!session) return;
 
             if (typeof message === "string") {
@@ -345,7 +329,7 @@ export class RuntimeHttpServer {
             }
             return;
           }
-          if ("wsType" in data && data.wsType === "live-voice") {
+          if (data.wsType === "live-voice") {
             void this.handleLiveVoiceMessage(
               ws as ServerWebSocket<LiveVoiceWebSocketData>,
               message,
@@ -364,16 +348,13 @@ export class RuntimeHttpServer {
             });
             return;
           }
-          const callSessionId = (data as RelayWebSocketData).callSessionId;
-          if (callSessionId) {
-            const connection = activeRelayConnections.get(callSessionId);
-            connection?.handleMessage(raw);
-          }
+          log.warn("WebSocket message on unknown data type — closing");
+          ws.close(1008, "Unknown WebSocket type");
         },
         close: (ws, code, reason) => {
           const data = ws.data as AllWebSocketData;
-          if ("wsType" in data && data.wsType === "media-stream") {
-            const msData = data as MediaStreamWebSocketData;
+          if (data.wsType === "media-stream") {
+            const msData = data;
             log.info(
               {
                 callSessionId: msData.callSessionId,
@@ -400,8 +381,8 @@ export class RuntimeHttpServer {
             }
             return;
           }
-          if ("wsType" in data && data.wsType === "stt-stream") {
-            const sttData = data as SttStreamWebSocketData;
+          if (data.wsType === "stt-stream") {
+            const sttData = data;
             log.info(
               {
                 provider: sttData.provider,
@@ -422,7 +403,7 @@ export class RuntimeHttpServer {
             }
             return;
           }
-          if ("wsType" in data && data.wsType === "live-voice") {
+          if (data.wsType === "live-voice") {
             log.info(
               {
                 sessionId: data.sessionId,
@@ -434,17 +415,10 @@ export class RuntimeHttpServer {
             this.releaseLiveVoiceSession(data, "websocket_close");
             return;
           }
-          const callSessionId = (data as RelayWebSocketData).callSessionId;
-          log.info(
-            { callSessionId, code, reason: reason?.toString() },
-            "ConversationRelay WebSocket closed",
+          log.warn(
+            { code, reason: reason?.toString() },
+            "WebSocket with unknown data type closed",
           );
-          if (callSessionId) {
-            const connection = activeRelayConnections.get(callSessionId);
-            connection?.handleTransportClosed(code, reason?.toString());
-            connection?.destroy();
-            activeRelayConnections.delete(callSessionId);
-          }
         },
       },
     });
@@ -605,17 +579,9 @@ export class RuntimeHttpServer {
     const migrationResponse = dbMigrationUnavailableForPath(path);
     if (migrationResponse) return migrationResponse;
 
-    // WebSocket upgrade for ConversationRelay — before auth check because
-    // Twilio WebSocket connections don't use bearer tokens.
-    if (
-      path.startsWith("/v1/calls/relay") &&
-      req.headers.get("upgrade")?.toLowerCase() === "websocket"
-    ) {
-      return this.handleRelayUpgrade(req, server);
-    }
-
-    // WebSocket upgrade for Twilio Media Streams — same private-network
-    // restrictions as relay upgrades.
+    // WebSocket upgrade for Twilio Media Streams — before auth check because
+    // Twilio WebSocket connections don't use bearer tokens; restricted to
+    // private-network peers with a gateway service token.
     if (
       path.startsWith("/v1/calls/media-stream") &&
       req.headers.get("upgrade")?.toLowerCase() === "websocket"
@@ -808,35 +774,6 @@ export class RuntimeHttpServer {
     return null;
   }
 
-  private handleRelayUpgrade(
-    req: Request,
-    server: ReturnType<typeof Bun.serve>,
-  ): Response {
-    if (!isPrivateNetworkPeer(server, req) || !isPrivateNetworkOrigin(req)) {
-      return httpError(
-        "FORBIDDEN",
-        "Direct relay access disabled — only private network peers allowed",
-        403,
-      );
-    }
-
-    // Verify the gateway service token before accepting the upgrade.
-    const tokenError = this.verifyGatewayServiceToken(req);
-    if (tokenError) return tokenError;
-
-    const wsUrl = new URL(req.url);
-    const callSessionId = wsUrl.searchParams.get("callSessionId");
-    if (!callSessionId) {
-      return new Response("Missing callSessionId", { status: 400 });
-    }
-    const upgraded = server.upgrade(req, { data: { callSessionId } });
-    if (!upgraded) {
-      return new Response("WebSocket upgrade failed", { status: 500 });
-    }
-    // Bun's WebSocket upgrade consumes the request — no Response is sent.
-    return undefined!;
-  }
-
   private handleMediaStreamUpgrade(
     req: Request,
     server: ReturnType<typeof Bun.serve>,
@@ -859,7 +796,7 @@ export class RuntimeHttpServer {
       return new Response("Missing callSessionId", { status: 400 });
     }
     // Media-stream connections use a distinct wsType so the open/message/close
-    // handlers route them to MediaStreamCallSession instead of RelayConnection.
+    // handlers route them to MediaStreamCallSession.
     const upgraded = server.upgrade(req, {
       data: {
         wsType: "media-stream",
@@ -876,7 +813,7 @@ export class RuntimeHttpServer {
   /**
    * Handle WebSocket upgrade for `/v1/stt/stream`.
    *
-   * Private-network restrictions apply (same as relay/media-stream) so the
+   * Private-network restrictions apply (same as media-stream) so the
    * runtime remains unreachable from the public internet. The gateway
    * authenticates the downstream client and proxies the upgrade with a
    * short-lived gateway service token.
@@ -1132,8 +1069,6 @@ export class RuntimeHttpServer {
       return await handleVoiceWebhook(validatedReq);
     if (twilioSubpath === "status")
       return await handleStatusCallback(validatedReq);
-    if (twilioSubpath === "connect-action")
-      return await handleConnectAction(validatedReq);
 
     return null;
   }

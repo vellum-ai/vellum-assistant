@@ -27,7 +27,6 @@ export interface ActivateMemberChannelParams {
   contactId?: string;
   displayName?: string;
   username?: string;
-  verifiedAt?: number;
   verifiedVia?: string;
   policy?: string;
 }
@@ -137,46 +136,6 @@ function mirrorLocalActivation(
     log.error(
       { err, sourceChannel: params.sourceChannel },
       "Local activation mirror failed after gateway activation; gateway outcome stands",
-    );
-    return null;
-  }
-}
-
-// ── Revoke ───────────────────────────────────────────────────────────
-
-/**
- * Revoke a member channel gateway-first. The gateway owns the ACL outcome; the
- * memberId may be a plain channel ID or the composite contactId:channelId form
- * revokeMember accepts.
- *
- * Returns the locally-resolved native contact/channel for the revoked id, or
- * null when no local row exists. The local read is best-effort and never gates
- * the gateway-owned downgrade.
- */
-export async function revokeMemberChannel(
-  memberId: string,
-  reason?: string,
-): Promise<ContactWriteResult | null> {
-  const channelId = memberId.includes(":") ? memberId.split(":")[1] : memberId;
-
-  // Always relay; the gateway owns the ACL outcome and mark_channel_revoked is
-  // idempotent (already-revoked → didWrite:false). Skipping on the local row
-  // status would suppress a needed revoke when the local read lags the gateway.
-  const result = await ipcCallPersistent("mark_channel_revoked", {
-    contactChannelId: channelId,
-    reason,
-  });
-  const parsed = MarkChannelRevokedIpcResponseSchema.parse(result);
-  if (!parsed.ok) {
-    throw new Error("mark_channel_revoked relay returned ok: false");
-  }
-
-  try {
-    return revokeMember(memberId);
-  } catch (err) {
-    log.error(
-      { err, memberId },
-      "Local revoke read failed after gateway revoke; gateway downgrade stands",
     );
     return null;
   }

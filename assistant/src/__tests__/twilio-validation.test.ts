@@ -20,7 +20,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 mock.module("../calls/twilio-provider.js", () => ({
-  TwilioConversationRelayProvider: class {
+  TwilioVoiceProvider: class {
     static getAuthToken() {
       return "test-auth-token";
     }

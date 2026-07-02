@@ -37,7 +37,6 @@ import { runDataMigrations } from "./db/data-migrations/index.js";
 import { IpcTransportError, ipcCallAssistant } from "./ipc/assistant-client.js";
 import { getLogger } from "./logger.js";
 import { startOutboundVoiceVerificationSync } from "./verification/outbound-voice-verification-sync.js";
-import { startVoiceApprovalSync } from "./verification/voice-approval-sync.js";
 
 const log = getLogger("post-assistant-ready");
 
@@ -138,9 +137,8 @@ async function runDeferredTasks(): Promise<void> {
     log.warn({ err }, "Post-ready guardian binding backfill failed");
   }
 
-  // 3. Voice verification syncs — these poll the assistant DB via IPC,
-  // so they must start after the assistant is confirmed ready.
-  startVoiceApprovalSync();
+  // 3. Outbound voice verification sync — polls the assistant DB via IPC,
+  // so it must start after the assistant is confirmed ready.
   startOutboundVoiceVerificationSync();
 }
 
@@ -149,9 +147,9 @@ async function runDeferredTasks(): Promise<void> {
  * tasks. Unbounded by design: it backs the post-timeout background path, where
  * giving up permanently is exactly the failure mode being fixed — a slow but
  * successful migration, or a failed one repaired by a later assistant
- * restart, must still get its data migrations, guardian backfill, and voice
- * syncs. All errors (including transport) are swallowed so the loop survives
- * an assistant that is down entirely.
+ * restart, must still get its data migrations, guardian backfill, and
+ * outbound voice verification sync. All errors (including transport) are
+ * swallowed so the loop survives an assistant that is down entirely.
  *
  * Exported for tests; production reaches it only via
  * {@link runPostAssistantReady}'s timeout path.
@@ -187,7 +185,7 @@ export async function runPostAssistantReady(): Promise<void> {
   if (!ready) {
     log.warn(
       { retryIntervalMs: DEFERRED_RETRY_INTERVAL_MS },
-      "Opening gateway traffic without the assistant ready — deferred tasks (data migrations, guardian backfill, voice syncs) will run in the background once it reports ready",
+      "Opening gateway traffic without the assistant ready — deferred tasks (data migrations, guardian backfill, outbound voice verification sync) will run in the background once it reports ready",
     );
     void runDeferredTasksWhenAssistantReady().catch((err) => {
       log.error({ err }, "Background deferred post-ready tasks failed");

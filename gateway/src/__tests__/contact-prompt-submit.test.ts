@@ -112,9 +112,6 @@ function initAssistantDb(): Database {
       invite_id TEXT,
       revoked_reason TEXT,
       blocked_reason TEXT,
-      last_seen_at INTEGER,
-      interaction_count INTEGER NOT NULL DEFAULT 0,
-      last_interaction INTEGER,
       updated_at INTEGER,
       created_at INTEGER NOT NULL
     )
@@ -504,6 +501,51 @@ describe("handleContactPromptSubmit", () => {
 
     // A successful non-guardian upsert invalidates the daemon contact caches.
     expectEmittedContactsChanged(ipcMock);
+  });
+
+  test("non-guardian prompt — mirrors the new channel into the post-317 assistant DB (no dropped-column write)", async () => {
+    // Regression: the assistant DB dropped interaction_count/last_seen_at/
+    // last_interaction (migration 317). The dual-write mirror INSERT must write
+    // only surviving columns; a dropped-column reference would throw and be
+    // swallowed by the best-effort catch, silently stranding the mirror row.
+    const res = await handleContactPromptSubmit(
+      makeRequest({
+        requestId: "req-mirror-317",
+        address: "carol@example.com",
+        channelType: "email",
+        role: "trusted-contact",
+        displayName: "Carol",
+      }),
+    );
+
+    expect(res.status).toBe(200);
+
+    const gwChannelRows = getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.address, "carol@example.com"))
+      .all();
+    expect(gwChannelRows).toHaveLength(1);
+
+    // The mirror INSERT succeeded against the post-317 schema: the assistant DB
+    // has the channel row under the same gateway contact + channel id.
+    const asChannels = testAssistantDb!
+      .prepare(
+        `SELECT id, contact_id AS contactId, type, address, is_primary AS isPrimary
+           FROM contact_channels WHERE address = ?`,
+      )
+      .all("carol@example.com") as {
+      id: string;
+      contactId: string;
+      type: string;
+      address: string;
+      isPrimary: number;
+    }[];
+    expect(asChannels).toHaveLength(1);
+    expect(asChannels[0].id).toBe(gwChannelRows[0].id);
+    expect(asChannels[0].contactId).toBe(gwChannelRows[0].contactId);
+    expect(asChannels[0].type).toBe("email");
+    expect(asChannels[0].isPrimary).toBe(1);
   });
 
   test("non-guardian prompt — accepted even when assistant-DB mirror throws (gateway-first)", async () => {

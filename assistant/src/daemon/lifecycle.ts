@@ -1,7 +1,7 @@
 import { config as dotenvConfig } from "dotenv";
 
 import { reconcileCallsOnStartup } from "../calls/call-recovery.js";
-import { TwilioConversationRelayProvider } from "../calls/twilio-provider.js";
+import { TwilioVoiceProvider } from "../calls/twilio-provider.js";
 import { initFeatureFlagOverrides } from "../config/assistant-feature-flags.js";
 import { setIngressPublicBaseUrl, validateEnv } from "../config/env.js";
 import { loadConfig, mergeDefaultWorkspaceConfig } from "../config/loader.js";
@@ -25,7 +25,6 @@ import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embeddin
 import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
-import { runMemoryStartup } from "../plugins/defaults/memory/startup.js";
 import { ensurePromptFiles } from "../prompts/system-prompt.js";
 import { runProviderConnectionsBackfill } from "../providers/inference/backfill.js";
 import { initializeProviders } from "../providers/registry.js";
@@ -443,7 +442,7 @@ export async function runDaemon(): Promise<void> {
     }
 
     try {
-      const twilioProvider = new TwilioConversationRelayProvider();
+      const twilioProvider = new TwilioVoiceProvider();
       await reconcileCallsOnStartup(twilioProvider, log);
     } catch (err) {
       log.warn({ err }, "Call recovery failed — continuing startup");
@@ -592,7 +591,9 @@ export async function runDaemon(): Promise<void> {
   // first-party defaults, load user plugins, and run every plugin's
   // `init()`. Ordering is load-bearing (defaults register ahead of user
   // plugins so they compose innermost) and plugin failures are contained so
-  // they can't block daemon startup.
+  // they can't block daemon startup. The memory plugin's `init` hook registers
+  // the job handlers (its own plus the host's non-plugin domain handlers) and
+  // starts the jobs worker here.
   await initializePlugins();
 
   // Initialize providers before Qdrant so HTTP routes can begin accepting
@@ -680,16 +681,6 @@ export async function runDaemon(): Promise<void> {
   }
 
   startScheduler();
-
-  // Fire-and-forget: Qdrant init and memory worker startup run concurrently
-  // with the rest of daemon boot. Must run AFTER `startRuntimeHttpServer()`
-  // so the analyze-deps singleton (populated inside `buildRouteTable()`) is
-  // available before the memory worker can claim leftover
-  // `conversation_analyze` jobs from a prior run. See the daemon-startup
-  // ordering test in `assistant/src/daemon/__tests__/`.
-  void runMemoryStartup(config).catch((err) =>
-    log.warn({ err }, "Background Qdrant init failed"),
-  );
 
   // One-time, self-healing backfill of existing messages into the Qdrant
   // lexical index (`messages_lexical`) on upgrade, so message-content search

@@ -62,6 +62,14 @@ const CallsVoiceConfigSchema = z
       .describe(
         "How aggressively the STT provider detects the start of caller speech — low reduces false interrupts from background noise",
       ),
+    telephonyStreaming: z
+      .boolean({
+        error: "calls.voice.telephonyStreaming must be a boolean",
+      })
+      .default(true)
+      .describe(
+        "Whether phone-call audio is streamed to the STT provider in real time; disable to fall back to per-turn batch transcription",
+      ),
   })
   .describe("Voice and speech settings for phone calls");
 

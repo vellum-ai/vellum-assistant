@@ -4,6 +4,7 @@ import { getConfig } from "../config/loader.js";
 import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { recordEstimate } from "../context/estimator-calibration.js";
+import { preModelCallSanitize } from "../context/outbound-sanitize.js";
 import {
   estimatePromptTokensRaw,
   estimatePromptTokensWithTools,
@@ -14,7 +15,6 @@ import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.j
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { stripHistoricalWebSearchResults } from "../daemon/web-search-history.js";
 import {
   timeSyncSection,
   traceAsyncSection,
@@ -767,17 +767,6 @@ export interface AgentLoopConstructorOptions {
    * result-time pass and the post-turn truncation covers the turn instead.
    */
   resolveConversationDir?: () => string | null;
-  /**
-   * Resolve the conversation's per-chat plugin scope as a membership set, read
-   * fresh on each lifecycle-hook gather so a mid-conversation change to the
-   * selection takes effect on the next turn. `null` (or an omitted resolver)
-   * means no per-chat restriction — every globally-enabled plugin's hooks run.
-   * Threaded into each `runHook` call so a deselected plugin's lifecycle hooks
-   * (post-compact, stop, pre/post-model-call, post-tool-use) do not fire for
-   * this conversation. Injected by the conversation wiring, which reads the
-   * live conversation; lightweight loops (workflows) omit it.
-   */
-  resolveEffectiveEnabledPlugins?: () => Set<string> | null;
 }
 
 export class AgentLoop {
@@ -800,11 +789,6 @@ export class AgentLoop {
   /** See {@link AgentLoopConstructorOptions.resolveConversationDir}. */
   private readonly resolveConversationDir: (() => string | null) | null;
 
-  /** See {@link AgentLoopConstructorOptions.resolveEffectiveEnabledPlugins}. */
-  private readonly resolveEffectiveEnabledPlugins:
-    | (() => Set<string> | null)
-    | null;
-
   /**
    * Loop-held compaction circuit breaker. The loop has a 1:1 lifetime with its
    * conversation, so it is the source of truth for the cross-turn failure
@@ -825,7 +809,6 @@ export class AgentLoop {
       isExclusiveTool,
       conversationId,
       resolveConversationDir,
-      resolveEffectiveEnabledPlugins,
     } = options;
     this.provider = provider;
     this.systemPrompt = systemPrompt;
@@ -836,14 +819,7 @@ export class AgentLoop {
     this.isExclusiveTool = isExclusiveTool ?? null;
     this.conversationId = conversationId;
     this.resolveConversationDir = resolveConversationDir ?? null;
-    this.resolveEffectiveEnabledPlugins =
-      resolveEffectiveEnabledPlugins ?? null;
     this.compactionCircuit = new CompactionCircuit(this.conversationId);
-  }
-
-  /** Per-chat plugin scope for the current gather; see the resolver option. */
-  private effectiveEnabledPlugins(): Set<string> | null {
-    return this.resolveEffectiveEnabledPlugins?.() ?? null;
   }
 
   /**
@@ -1037,7 +1013,6 @@ export class AgentLoop {
     const finalPostCompactCtx = await runHook(
       HOOKS.POST_COMPACT,
       postCompactCtx,
-      this.effectiveEnabledPlugins(),
     );
     return {
       history: finalPostCompactCtx.history,
@@ -1192,7 +1167,7 @@ export class AgentLoop {
         logger: rlog,
       };
       try {
-        await runHook(HOOKS.STOP, stopCtx, this.effectiveEnabledPlugins());
+        await runHook(HOOKS.STOP, stopCtx);
       } catch (stopHookError) {
         rlog.error(
           { err: stopHookError, exitReason: reason },
@@ -1674,12 +1649,7 @@ export class AgentLoop {
           };
           const finalPreModelCtx = await traceAsyncSection(
             "agent-loop:pre-model-call-hook",
-            () =>
-              runHook(
-                HOOKS.PRE_MODEL_CALL,
-                preModelCtx,
-                this.effectiveEnabledPlugins(),
-              ),
+            () => runHook(HOOKS.PRE_MODEL_CALL, preModelCtx),
           );
           // Emit a changed event when the hook mutated the prompt. Compare
           // against the pre-hook value from providerOptions, not
@@ -1847,12 +1817,7 @@ export class AgentLoop {
             };
             const result = await traceAsyncSection(
               "agent-loop:post-model-call-hook",
-              () =>
-                runHook(
-                  HOOKS.POST_MODEL_CALL,
-                  ctx,
-                  this.effectiveEnabledPlugins(),
-                ),
+              () => runHook(HOOKS.POST_MODEL_CALL, ctx),
             );
             return {
               finalized: { role: "assistant", content: result.content },
@@ -2291,11 +2256,7 @@ export class AgentLoop {
             supportsDynamicUi,
             logger: rlog,
           };
-          const finalCtx = await runHook(
-            HOOKS.POST_TOOL_USE,
-            postToolUseCtx,
-            this.effectiveEnabledPlugins(),
-          );
+          const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
           resultBlocks.push(finalCtx.toolResponse);
           if (finalCtx.additionalContext !== null) {
             additionalContextBlocks.push({
@@ -2505,7 +2466,6 @@ export class AgentLoop {
             errorOutcome = await runHook(
               HOOKS.POST_MODEL_CALL,
               errorOutcomeCtx,
-              this.effectiveEnabledPlugins(),
             );
           } catch (postModelCallError) {
             rlog.error(
@@ -2559,179 +2519,4 @@ export class AgentLoop {
       newMessages: history.slice(newMessagesStart),
     };
   }
-}
-
-/** Number of most-recent AX tree snapshots to keep in conversation history. */
-const MAX_AX_TREES_IN_HISTORY = 2;
-
-/** Regex that matches the `<ax-tree>...</ax-tree>` markers. */
-const AX_TREE_PATTERN = /<ax-tree>[\s\S]*?<\/ax-tree>/g;
-const AX_TREE_PLACEHOLDER = "<ax_tree_omitted />";
-
-/**
- * Escapes any literal `</ax-tree>` occurrences inside AX tree content so
- * that the non-greedy compaction regex (`AX_TREE_PATTERN`) does not stop
- * prematurely when the user happens to be viewing XML/HTML source that
- * contains the closing tag.  The escaped content does not need to be
- * unescaped because compaction replaces the entire block with a placeholder.
- */
-export function escapeAxTreeContent(content: string): string {
-  return content.replace(/<\/ax-tree>/gi, "&lt;/ax-tree&gt;");
-}
-
-/**
- * Returns a shallow copy of `messages` where all but the most recent
- * `MAX_AX_TREES_IN_HISTORY` `<ax-tree>` blocks have been replaced with a
- * short placeholder.  This keeps the conversation context small so that
- * TTFT does not grow linearly with step count in computer-use sessions.
- *
- * Counting is per-block, not per-message — a single user message can
- * contain multiple tool_result blocks each with their own AX tree snapshot.
- */
-export function compactAxTreeHistory(messages: Message[]): Message[] {
-  // Collect (messageIndex, blockIndex) for every tool_result block with <ax-tree>
-  const axBlocks: Array<{ msgIdx: number; blockIdx: number }> = [];
-  for (let i = 0; i < messages.length; i++) {
-    const msg = messages[i];
-    if (msg.role !== "user") continue;
-    for (let j = 0; j < msg.content.length; j++) {
-      const block = msg.content[j];
-      if (
-        block.type === "tool_result" &&
-        typeof block.content === "string" &&
-        block.content.includes("<ax-tree>")
-      ) {
-        axBlocks.push({ msgIdx: i, blockIdx: j });
-      }
-    }
-  }
-
-  if (axBlocks.length <= MAX_AX_TREES_IN_HISTORY) {
-    return messages;
-  }
-
-  // Build a set of "msgIdx:blockIdx" keys for blocks that should be stripped
-  const toStrip = new Set(
-    axBlocks
-      .slice(0, -MAX_AX_TREES_IN_HISTORY)
-      .map((b) => `${b.msgIdx}:${b.blockIdx}`),
-  );
-
-  return messages.map((msg, idx) => {
-    // Quick check: does this message have any blocks to strip?
-    const hasStripTarget = msg.content.some((_, j) =>
-      toStrip.has(`${idx}:${j}`),
-    );
-    if (!hasStripTarget) return msg;
-
-    return {
-      ...msg,
-      content: msg.content.map((block, j) => {
-        if (
-          toStrip.has(`${idx}:${j}`) &&
-          block.type === "tool_result" &&
-          typeof block.content === "string"
-        ) {
-          return {
-            ...block,
-            content: block.content.replace(
-              AX_TREE_PATTERN,
-              AX_TREE_PLACEHOLDER,
-            ),
-          };
-        }
-        return block;
-      }),
-    };
-  });
-}
-
-/**
- * Strip image contentBlocks from all tool_result blocks except those in the
- * most recent user message that contains tool_result blocks. This prevents
- * screenshots from accumulating in the context window — each image is seen
- * once by the LLM on the turn it was captured, then replaced with a text
- * placeholder on subsequent turns.
- *
- * We target the last user message with tool_results (not just the last user
- * message) because a plain-text user message may follow the tool-result
- * turn. Using the last user message unconditionally would leave the most
- * recent tool screenshots unprotected from stripping.
- */
-function stripOldMediaBlocks(history: Message[]): Message[] {
-  // Find the last user message that contains tool_result blocks.
-  let lastToolResultUserIdx = -1;
-  for (let i = history.length - 1; i >= 0; i--) {
-    if (
-      history[i].role === "user" &&
-      history[i].content.some((b) => b.type === "tool_result")
-    ) {
-      lastToolResultUserIdx = i;
-      break;
-    }
-  }
-
-  return history.map((msg, idx) => {
-    // Keep the most recent tool-result user message intact (current turn)
-    if (idx === lastToolResultUserIdx || msg.role !== "user") return msg;
-
-    // Check if any tool_result blocks carry embedded media (image or audio).
-    const isMedia = (cb: ContentBlock) =>
-      cb.type === "image" || cb.type === "file";
-    const hasMedia = msg.content.some(
-      (b) =>
-        b.type === "tool_result" &&
-        (b as ToolResultContent).contentBlocks?.some(isMedia),
-    );
-    if (!hasMedia) return msg;
-
-    // Strip media from tool_result blocks, replacing with a text marker. The
-    // model already saw/heard the media in the turn it was captured; resending
-    // the bytes every turn (a 12 MB audio clip isn't optimized like images)
-    // bloats the request until compaction.
-    return {
-      ...msg,
-      content: msg.content.map((b) => {
-        if (b.type !== "tool_result") return b;
-        const tr = b as ToolResultContent;
-        if (!tr.contentBlocks?.some(isMedia)) return b;
-        return {
-          ...tr,
-          contentBlocks: undefined,
-          content:
-            (tr.content || "") +
-            "\n[Media (image/audio) was captured and shown previously — binary data removed to save context.]",
-        };
-      }),
-    };
-  });
-}
-
-/**
- * Sanitize the outbound history immediately before a provider call, bundling
- * the pre-send transforms the loop applies to every request:
- * - {@link stripOldMediaBlocks} drops accumulated screenshot/audio bytes from
- *   older tool results — the model saw the media on the turn it was captured.
- * - {@link compactAxTreeHistory} collapses all but the most recent few
- *   `<ax-tree>` snapshots so TTFT does not grow linearly with step count.
- * - {@link stripHistoricalWebSearchResults} converts historical
- *   `web_search_tool_result` blocks to text summaries; Anthropic's opaque
- *   `encrypted_content` tokens expire / are route-scoped, and replaying a stale
- *   one is rejected with `Invalid encrypted_content in search_result block`.
- *
- * Transforms the outbound copy only — the durable history keeps the rich
- * originals and each send re-derives the sanitized projection (every transform
- * is idempotent). Because it runs unconditionally before every provider call,
- * it is the single place where oversized media and expired web-search tokens
- * are guaranteed to be removed from a request.
- *
- * This is outbound-request preparation and should eventually move to a default
- * `pre-model-call` plugin hook ({@link HOOKS.PRE_MODEL_CALL}) once that hook's
- * context carries the outbound message list; for now it lives inline next to
- * the provider call it guards.
- */
-export function preModelCallSanitize(history: Message[]): Message[] {
-  const mediaStripped = stripOldMediaBlocks(history);
-  const axCompacted = compactAxTreeHistory(mediaStripped);
-  return stripHistoricalWebSearchResults(axCompacted).messages;
 }
