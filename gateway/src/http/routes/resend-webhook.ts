@@ -4,6 +4,10 @@ import type { ConfigFileCache } from "../../config-file-cache.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
+import {
+  resolveCredentialWithRefresh,
+  verifySecretWithRefresh,
+} from "../../credential-refresh.js";
 import { recordDenialReplyIfAllowed } from "../../db/denial-reply-rate-limiter.js";
 import { StringDedupCache } from "../../dedup-cache.js";
 import type { VellumEmailPayload } from "../../email/normalize.js";
@@ -264,18 +268,8 @@ export function createResendWebhookHandler(
     //   resend/webhook_secret — for Svix signature verification
     //   resend/api_key        — for fetching email content from the API
 
-    const resolveCredential = async (
-      key: string,
-    ): Promise<string | undefined> => {
-      if (!caches?.credentials) return undefined;
-      let value = await caches.credentials.get(key);
-      if (!value) {
-        value = await caches.credentials.get(key, { force: true });
-      }
-      return value;
-    };
-
-    const webhookSecret = await resolveCredential(
+    const webhookSecret = await resolveCredentialWithRefresh(
+      caches?.credentials,
       credentialKey("resend", "webhook_secret"),
     );
 
@@ -289,27 +283,13 @@ export function createResendWebhookHandler(
 
     // ── Signature verification ──────────────────────────────────────
 
-    let signatureValid = verifySvixSignature(
-      req.headers,
-      rawBody,
-      webhookSecret,
-    );
-
-    // One-shot force retry on verification failure
-    if (!signatureValid && caches?.credentials) {
-      const freshSecret = await caches.credentials.get(
-        credentialKey("resend", "webhook_secret"),
-        { force: true },
-      );
-      if (freshSecret) {
-        signatureValid = verifySvixSignature(req.headers, rawBody, freshSecret);
-        if (signatureValid) {
-          tlog.info(
-            "Resend webhook signature verified after forced credential refresh",
-          );
-        }
-      }
-    }
+    const signatureValid = await verifySecretWithRefresh({
+      credentials: caches?.credentials,
+      key: credentialKey("resend", "webhook_secret"),
+      verify: (secret) => verifySvixSignature(req.headers, rawBody, secret),
+      log: tlog,
+      label: "Resend webhook signature",
+    });
 
     if (!signatureValid) {
       tlog.warn("Resend webhook signature verification failed");
@@ -349,7 +329,10 @@ export function createResendWebhookHandler(
     // The webhook payload only has metadata — we need the API to get
     // the actual email body and headers.
 
-    const apiKey = await resolveCredential(credentialKey("resend", "api_key"));
+    const apiKey = await resolveCredentialWithRefresh(
+      caches?.credentials,
+      credentialKey("resend", "api_key"),
+    );
 
     let emailContent: Awaited<ReturnType<typeof fetchResendEmailContent>> =
       null;
