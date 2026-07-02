@@ -78,6 +78,19 @@ describe("probeDaemonReadiness", () => {
     expect(await probeDaemonReadiness(port)).toBe("ready");
   });
 
+  test("classifies a legacy strict-503 startup body as migrating, not unreachable", async () => {
+    // Pre-migration-body daemons return 503 { status, ready, notReady }
+    // throughout startup. The daemon ANSWERED, so it is alive — classifying
+    // it unreachable would make callers treat a starting daemon as dead.
+    const port = serveReadyz(() =>
+      Response.json(
+        { status: "unready", ready: false, notReady: ["startup", "db"] },
+        { status: 503 },
+      ),
+    );
+    expect(await probeDaemonReadiness(port)).toBe("migrating");
+  });
+
   test("reports unreachable when nothing is listening", async () => {
     const port = serveReadyz(() => Response.json({ ready: true }));
     server?.stop(true);

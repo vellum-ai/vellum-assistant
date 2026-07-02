@@ -157,16 +157,31 @@ async function runDeferredTasks(): Promise<void> {
 export async function runDeferredTasksWhenAssistantReady(
   retryIntervalMs = DEFERRED_RETRY_INTERVAL_MS,
 ): Promise<void> {
+  let loggedHandlerError = false;
   for (;;) {
+    // Another path (or a concurrent poller) already ran the tasks — stop
+    // polling instead of spinning until the assistant reports ready.
+    if (deferredTasksRan) return;
     try {
       const health = (await ipcCallAssistant("health")) as AssistantHealth;
       if (assistantReportsMigrationsReady(health)) break;
-    } catch {
-      // Assistant unreachable — keep polling.
+    } catch (err) {
+      // Transport errors are expected while the assistant is down — keep
+      // polling silently. A handler-level error is a bug and must be
+      // observable (the foreground wait crashes the gateway on the same
+      // class); log the first occurrence, then keep polling.
+      if (!(err instanceof IpcTransportError) && !loggedHandlerError) {
+        loggedHandlerError = true;
+        log.warn(
+          { err },
+          "Assistant health call failed with a handler error while polling for deferred post-ready tasks — continuing to poll",
+        );
+      }
     }
     await new Promise((resolve) => setTimeout(resolve, retryIntervalMs));
   }
 
+  if (deferredTasksRan) return;
   log.info(
     "Assistant became ready after gateway startup — running deferred post-ready tasks",
   );

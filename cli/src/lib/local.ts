@@ -19,6 +19,7 @@ import { GATEWAY_PORT } from "./constants.js";
 import {
   type DaemonReadiness,
   httpHealthCheck,
+  probeDaemonReadiness,
   waitForDaemonMigrationsReady,
   waitForDaemonReady,
 } from "./http-client.js";
@@ -574,7 +575,7 @@ async function startDaemonFromSource(
   assistantIndex: string,
   resources: LocalInstanceResources,
   options?: DaemonStartOptions,
-): Promise<void> {
+): Promise<boolean> {
   const foreground = options?.foreground ?? false;
   const daemonMainPath = resolveDaemonMainPath(assistantIndex);
 
@@ -584,7 +585,7 @@ async function startDaemonFromSource(
   mkdirSync(dirname(pidFile), { recursive: true });
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
-  if (await awaitStartingSentinel(pidFile, resources.daemonPort)) return;
+  if (await awaitStartingSentinel(pidFile, resources.daemonPort)) return false;
 
   const daemonState = await resolveProcessState(
     pidFile,
@@ -595,10 +596,10 @@ async function startDaemonFromSource(
   );
   if (daemonState.status !== "needs_start") {
     logAssistantAlreadyRunning(daemonState.pid, daemonState.status);
-    return;
+    return false;
   }
 
-  if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) return;
+  if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) return false;
 
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -639,6 +640,7 @@ async function startDaemonFromSource(
       unlinkSync(pidFile);
     } catch {}
   }
+  return true;
 }
 
 // NOTE: startDaemonWatchFromSource() is the CLI-side watch-mode daemon
@@ -649,7 +651,7 @@ async function startDaemonWatchFromSource(
   assistantIndex: string,
   resources: LocalInstanceResources,
   options?: DaemonStartOptions,
-): Promise<void> {
+): Promise<boolean> {
   const mainPath = resolveDaemonMainPath(assistantIndex);
   if (!existsSync(mainPath)) {
     throw new Error(`Daemon main.ts not found at ${mainPath}`);
@@ -659,7 +661,7 @@ async function startDaemonWatchFromSource(
   mkdirSync(dirname(pidFile), { recursive: true });
 
   // --- Lifecycle guard: prevent split-brain daemon state ---
-  if (await awaitStartingSentinel(pidFile, resources.daemonPort)) return;
+  if (await awaitStartingSentinel(pidFile, resources.daemonPort)) return false;
 
   const daemonState = await resolveProcessState(
     pidFile,
@@ -670,10 +672,10 @@ async function startDaemonWatchFromSource(
   );
   if (daemonState.status !== "needs_start") {
     logAssistantAlreadyRunning(daemonState.pid, daemonState.status);
-    return;
+    return false;
   }
 
-  if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) return;
+  if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) return false;
 
   const env: Record<string, string | undefined> = {
     ...process.env,
@@ -707,6 +709,7 @@ async function startDaemonWatchFromSource(
   }
 
   console.log("   Assistant started in watch mode (bun --watch)");
+  return true;
 }
 
 function resolveGatewayDir(resources?: LocalInstanceResources): string {
@@ -1096,13 +1099,20 @@ export async function startLocalDaemon(
     : undefined;
   if (runtimeAssistantIndex) {
     console.log("🔨 Starting local assistant runtime...");
-    await startDaemonFromSource(runtimeAssistantIndex, resources, options);
-    logDaemonReadiness(
-      await waitForDaemonMigrationsReady(
-        resources.daemonPort,
-        Date.now() + 60000,
-      ),
-    );
+    // Wait for readiness only after an actual spawn — an attach to an
+    // already-running daemon was classified and logged inside
+    // startDaemonFromSource, and re-waiting would just block on a migration
+    // the user was already told about.
+    if (
+      await startDaemonFromSource(runtimeAssistantIndex, resources, options)
+    ) {
+      logDaemonReadiness(
+        await waitForDaemonMigrationsReady(
+          resources.daemonPort,
+          Date.now() + 60000,
+        ),
+      );
+    }
     return;
   }
 
@@ -1139,12 +1149,9 @@ export async function startLocalDaemon(
     if (!daemonAlive) {
       if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) {
         ensureBunInstalled();
-        logDaemonReadiness(
-          await waitForDaemonMigrationsReady(
-            resources.daemonPort,
-            Date.now() + 60000,
-          ),
-        );
+        // The orphan already answers health checks — a single readiness probe
+        // classifies it without blocking on an in-flight migration.
+        logDaemonReadiness(await probeDaemonReadiness(resources.daemonPort));
         return;
       }
 
@@ -1249,37 +1256,47 @@ export async function startLocalDaemon(
     // "migrating" and "failed" both mean the daemon is up and answering, so
     // they don't trigger the source fallback (a restart against the same DB
     // would reproduce the same migration state).
-    let readiness = await waitForDaemonMigrationsReady(
-      resources.daemonPort,
-      Date.now() + 60000,
-    );
-    const daemonHealthy =
-      readiness !== "unreachable" ||
-      (await httpHealthCheck(resources.daemonPort));
+    //
+    // Runs only after a fresh spawn: an attached daemon was already
+    // classified and logged by resolveProcessState above, and re-waiting on
+    // its in-flight migration would just double the reported diagnosis.
+    if (!daemonAlive) {
+      let readiness = await waitForDaemonMigrationsReady(
+        resources.daemonPort,
+        Date.now() + 60000,
+      );
+      const daemonHealthy =
+        readiness !== "unreachable" ||
+        (await httpHealthCheck(resources.daemonPort));
 
-    // Dev fallback: if the bundled daemon did not become healthy in time,
-    // fall back to source daemon startup so local source runs still work.
-    if (!daemonHealthy) {
-      const assistantIndex = resolveAssistantIndexPath(resources);
-      if (assistantIndex) {
-        console.log(
-          "   Bundled assistant not healthy after 60s — falling back to source assistant...",
-        );
-        // Kill the bundled daemon to avoid two processes competing for the same port
-        await stopProcessByPidFile(pidFile, "bundled daemon");
-        if (watch) {
-          await startDaemonWatchFromSource(assistantIndex, resources, options);
-        } else {
-          await startDaemonFromSource(assistantIndex, resources, options);
+      // Dev fallback: if the bundled daemon did not become healthy in time,
+      // fall back to source daemon startup so local source runs still work.
+      if (!daemonHealthy) {
+        const assistantIndex = resolveAssistantIndexPath(resources);
+        if (assistantIndex) {
+          console.log(
+            "   Bundled assistant not healthy after 60s — falling back to source assistant...",
+          );
+          // Kill the bundled daemon to avoid two processes competing for the same port
+          await stopProcessByPidFile(pidFile, "bundled daemon");
+          if (watch) {
+            await startDaemonWatchFromSource(
+              assistantIndex,
+              resources,
+              options,
+            );
+          } else {
+            await startDaemonFromSource(assistantIndex, resources, options);
+          }
+          readiness = await waitForDaemonMigrationsReady(
+            resources.daemonPort,
+            Date.now() + 60000,
+          );
         }
-        readiness = await waitForDaemonMigrationsReady(
-          resources.daemonPort,
-          Date.now() + 60000,
-        );
       }
-    }
 
-    logDaemonReadiness(readiness);
+      logDaemonReadiness(readiness);
+    }
   } else {
     console.log("🔨 Starting local assistant...");
 
@@ -1290,17 +1307,18 @@ export async function startLocalDaemon(
           "  Ensure the daemon binary is bundled alongside the CLI, or run from the source tree.",
       );
     }
-    if (watch) {
-      await startDaemonWatchFromSource(assistantIndex, resources, options);
-    } else {
-      await startDaemonFromSource(assistantIndex, resources, options);
+    const spawned = watch
+      ? await startDaemonWatchFromSource(assistantIndex, resources, options)
+      : await startDaemonFromSource(assistantIndex, resources, options);
+    // Attach case was classified and logged inside the start function.
+    if (spawned) {
+      logDaemonReadiness(
+        await waitForDaemonMigrationsReady(
+          resources.daemonPort,
+          Date.now() + 60000,
+        ),
+      );
     }
-    logDaemonReadiness(
-      await waitForDaemonMigrationsReady(
-        resources.daemonPort,
-        Date.now() + 60000,
-      ),
-    );
   }
 }
 

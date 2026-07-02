@@ -397,6 +397,8 @@ export type LockfileWriteResult =
 
 export type LocalAssistantRuntimeState =
   | "healthy"
+  /** Alive and serving, but DB migrations failed — restart to recover. */
+  | "unhealthy"
   | "upgrading"
   | "sleeping"
   | "starting"

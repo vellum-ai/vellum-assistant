@@ -407,6 +407,14 @@ function localHealthBannerConfig(
           <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
         ),
       };
+    case "migrating":
+      return {
+        tone: "info",
+        title: "Assistant is migrating",
+        icon: (
+          <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+        ),
+      };
     case "crashed":
       return {
         tone: "error",

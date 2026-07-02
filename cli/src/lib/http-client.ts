@@ -65,6 +65,33 @@ export async function waitForDaemonReady(
  */
 export type DaemonReadiness = "ready" | "migrating" | "failed" | "unreachable";
 
+/**
+ * Classify a `/readyz` response (daemon-direct or proxied through the
+ * gateway, which forwards the assistant's readiness body). Shared by the
+ * local daemon probe and the docker upgrade/hatch readiness waits so there is
+ * exactly one reader of the readiness wire shape.
+ *
+ * Any HTTP-answered response proves the daemon is alive, so a non-ready
+ * answer without a failed-migrations body classifies as "migrating" — this
+ * covers legacy daemons whose strict `/readyz` returns 503 with a `notReady`
+ * body throughout startup. "unreachable" is reserved for the no-answer case
+ * (the caller's fetch threw).
+ */
+export function classifyReadyzResponse(
+  ok: boolean,
+  body: unknown,
+): Exclude<DaemonReadiness, "unreachable"> {
+  const readiness = body as {
+    ready?: boolean;
+    dbMigrations?: { state?: string };
+  } | null;
+  if (readiness?.dbMigrations?.state === "failed") return "failed";
+  // A 200 with no explicit `ready: false` counts as ready — this also
+  // covers daemons that predate the migration-state body.
+  if (ok && readiness?.ready !== false) return "ready";
+  return "migrating";
+}
+
 /** Single `/readyz` probe, classified from the response body. */
 export async function probeDaemonReadiness(
   port: number,
@@ -74,15 +101,8 @@ export async function probeDaemonReadiness(
     const response = await loopbackSafeFetch(`${buildDaemonUrl(port)}/readyz`, {
       signal: AbortSignal.timeout(timeoutMs),
     });
-    const body = (await response.json().catch(() => null)) as {
-      ready?: boolean;
-      dbMigrations?: { state?: string };
-    } | null;
-    if (body?.dbMigrations?.state === "failed") return "failed";
-    // A 200 with no explicit `ready: false` counts as ready — this also
-    // covers daemons that predate the migration-state body.
-    if (response.ok && body?.ready !== false) return "ready";
-    return response.ok ? "migrating" : "unreachable";
+    const body = (await response.json().catch(() => null)) as unknown;
+    return classifyReadyzResponse(response.ok, body);
   } catch {
     return "unreachable";
   }

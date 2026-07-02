@@ -20,6 +20,7 @@ import {
 import { getStateDir } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { loadGuardianToken } from "./guardian-token.js";
+import { classifyReadyzResponse } from "./http-client.js";
 import { fetchReleases, resolveImageRefs } from "./platform-releases.js";
 import {
   getBuilderManagedEnvKeys,
@@ -364,8 +365,16 @@ export async function fetchPreviousVersion(
 }
 
 /**
- * Poll the gateway `/readyz` endpoint until it returns 200 or the timeout
- * elapses. Returns whether the assistant became ready.
+ * Poll the gateway `/readyz` endpoint until the assistant reports migrations
+ * ready or the timeout elapses. Returns whether the assistant became ready.
+ *
+ * Readiness is classified from the response BODY, not the status code: the
+ * assistant's `/readyz` (forwarded through the gateway proxy) returns 200
+ * with `ready: false` while DB migrations run — the k8s keep-the-pod contract
+ * — so `resp.ok` alone would declare an upgrade successful before its
+ * migrations settle and make the caller's rollback path unreachable. A
+ * terminally failed migration returns immediately so rollback/restore can run
+ * without burning the timeout.
  */
 export async function waitForReady(runtimeUrl: string): Promise<boolean> {
   const readyUrl = `${runtimeUrl}/readyz`;
@@ -376,21 +385,25 @@ export async function waitForReady(runtimeUrl: string): Promise<boolean> {
       const resp = await loopbackSafeFetch(readyUrl, {
         signal: AbortSignal.timeout(5000),
       });
-      if (resp.ok) {
+      const body = (await resp.json().catch(() => null)) as {
+        status?: string;
+        upstream?: number;
+      } | null;
+      const readiness = classifyReadyzResponse(resp.ok, body);
+      if (readiness === "ready") {
         const elapsedSec = ((Date.now() - start) / 1000).toFixed(1);
         console.log(`Assistant ready after ${elapsedSec}s`);
         return true;
       }
-      let detail = "";
-      try {
-        const body = await resp.text();
-        const json = JSON.parse(body);
-        const parts = [json.status];
-        if (json.upstream != null) parts.push(`upstream=${json.upstream}`);
-        detail = ` — ${parts.join(", ")}`;
-      } catch {
-        // ignore parse errors
+      if (readiness === "failed") {
+        console.log(
+          "Assistant database migrations FAILED — treating the assistant as not ready so recovery can run.",
+        );
+        return false;
       }
+      const parts = [body?.status].filter(Boolean);
+      if (body?.upstream != null) parts.push(`upstream=${body.upstream}`);
+      const detail = parts.length > 0 ? ` — ${parts.join(", ")}` : "";
       console.log(`Readiness check: ${resp.status}${detail} (retrying...)`);
     } catch {
       // Connection refused / timeout — not up yet
@@ -687,7 +700,8 @@ export async function performDockerRollback(
   }
 
   // Recover the assistant host port from the entry, fall back to default.
-  const assistantPort = entry.containerInfo?.assistantPort ?? ASSISTANT_INTERNAL_PORT;
+  const assistantPort =
+    entry.containerInfo?.assistantPort ?? ASSISTANT_INTERNAL_PORT;
 
   // Broadcast SSE "starting" event
   console.log("📢 Notifying connected clients...");

@@ -1774,24 +1774,37 @@ async function main() {
       }
       // Check that the upstream assistant is also reachable so callers
       // know the full stack is ready, not just the gateway process.
+      //
+      // The assistant's readiness body (`ready`, `dbMigrations`) is forwarded
+      // so programmatic callers — the upgrade/hatch CLI waits in particular —
+      // can distinguish "still migrating" (200, ready:false) from "ready" and
+      // detect terminally failed migrations. Status codes are unchanged: the
+      // orchestrator contract stays 200 while migrating, 503 on failure.
       try {
         const upstream = await fetch(
           `${config.assistantRuntimeBaseUrl}/readyz`,
           { signal: AbortSignal.timeout(3000) },
         );
+        const upstreamBody = (await upstream
+          .json()
+          .catch(() => null)) as Record<string, unknown> | null;
         if (!upstream.ok) {
           return Response.json(
-            { status: "upstream_unhealthy", upstream: upstream.status },
+            {
+              ...(upstreamBody ?? {}),
+              status: "upstream_unhealthy",
+              upstream: upstream.status,
+            },
             { status: 503 },
           );
         }
+        return Response.json(upstreamBody ?? { status: "ok" });
       } catch {
         return Response.json(
           { status: "upstream_unreachable" },
           { status: 503 },
         );
       }
-      return Response.json({ status: "ok" });
     }
 
     if (!postAssistantReadyComplete) {

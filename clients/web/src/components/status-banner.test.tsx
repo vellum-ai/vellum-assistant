@@ -60,6 +60,7 @@ let localHealthMock:
   | "healthy"
   | "unhealthy"
   | "unreachable"
+  | "migrating"
   | "sleeping"
   | "starting"
   | "crashed"
@@ -654,6 +655,18 @@ describe("StatusBanner", () => {
       const html = renderToStaticMarkup(<StatusBanner />);
 
       expect(html).toBe("");
+    });
+
+    test("renders an info migrating banner while local DB migrations run", () => {
+      localHealthMock = "migrating";
+
+      const html = renderToStaticMarkup(<StatusBanner />);
+
+      // In-progress info treatment, not the unhealthy warning — a migrating
+      // daemon must not invite a mid-migration restart.
+      expect(html).toContain("Assistant is migrating");
+      expect(html).toContain('data-tone="info"');
+      expect(html).not.toContain("Wake up");
     });
 
     test("renders an asleep banner with a wake action when the local assistant is sleeping", () => {

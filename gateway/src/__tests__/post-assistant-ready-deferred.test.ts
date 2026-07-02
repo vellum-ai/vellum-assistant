@@ -97,4 +97,19 @@ describe("runDeferredTasksWhenAssistantReady", () => {
     expect(guardianBindingMock).toHaveBeenCalledTimes(1);
     expect(outboundVoiceSyncMock).toHaveBeenCalledTimes(1);
   });
+
+  test("stops polling immediately once the tasks have run elsewhere", async () => {
+    await runDeferredTasksWhenAssistantReady(5);
+    const callsAfterFirstRun = ipcCalls;
+
+    // Even against an assistant that never reports ready, a redundant poller
+    // must exit via the latch instead of spinning forever.
+    healthResponder = () => {
+      throw new Error("assistant is down");
+    };
+    await runDeferredTasksWhenAssistantReady(5);
+
+    expect(ipcCalls).toBe(callsAfterFirstRun);
+    expect(runDataMigrationsMock).toHaveBeenCalledTimes(1);
+  });
 });
