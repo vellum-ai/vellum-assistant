@@ -6,7 +6,6 @@ import {
   updateCanonicalGuardianRequest,
 } from "../contacts/canonical-guardian-store.js";
 import type { AutoApproveThreshold } from "../permissions/approval-policy.js";
-import { getAutoApproveThreshold } from "../permissions/gateway-threshold-reader.js";
 import {
   isUnparseableToolArgs,
   unparseableToolArgsMessage,
@@ -191,10 +190,10 @@ export function isSensitiveTool(
 }
 
 /**
- * Threshold for the approval cell governing an invocation. Today the only
- * cell axis is the conversation-level auto-approve threshold; the
- * channel × contact-type matrix supplies per-cell values through this same
- * parameter when it lands.
+ * Threshold for the approval cell governing an invocation. The channel ×
+ * contact-type matrix supplies per-cell values through this parameter when
+ * it lands; until then the cell concept maps to the conversation-level
+ * auto-approve threshold.
  */
 export type ApprovalCellThreshold = AutoApproveThreshold;
 
@@ -223,7 +222,11 @@ export type SensitiveToolDecision = "proceed" | "escalate-and-wait" | "deny";
  */
 export function resolveSensitiveToolDecision(input: {
   sensitive: boolean;
-  /** Unconsulted (`undefined`) when the floor alone resolves the decision. */
+  /**
+   * Reserved axis for the approval-matrix cell. Callers pass `undefined`
+   * until the matrix logic consults it — the floor alone resolves the
+   * decision, so no caller should pay a threshold lookup to populate this.
+   */
   cellThreshold: ApprovalCellThreshold | undefined;
   /**
    * Risk level as known at gate time. The full risk classification runs
@@ -391,17 +394,13 @@ export class ToolApprovalHandler {
 
     const sensitive = isSensitiveTool(name, executionTarget);
     const { sensitiveToolApproval } = resolveCapabilities(context.trustClass);
-    // The cell threshold only bears on decisions past the "self" floor, so
-    // self-approving invocations skip the gateway read on the hot path.
-    // Until the channel × contact-type matrix lands, the cell is the
-    // conversation-level auto-approve threshold.
-    const cellThreshold =
-      sensitive && sensitiveToolApproval !== "self"
-        ? await getAutoApproveThreshold(context.conversationId, "conversation")
-        : undefined;
+    // cellThreshold stays unresolved: the decision cannot consult it yet
+    // (the floor is deterministic), and resolving a live threshold here
+    // would block grant consumption — including already-approved calls and
+    // voice abort handling — on a gateway IPC read.
     const sensitiveDecision = resolveSensitiveToolDecision({
       sensitive,
-      cellThreshold,
+      cellThreshold: undefined,
       riskLevel,
       sensitiveToolApproval,
     });
