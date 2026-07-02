@@ -12,10 +12,13 @@ import {
 // Module mocks — declared before imports of the module under test.
 // ---------------------------------------------------------------------------
 
-// Mock the STT resolve module (used by MediaStreamSttSession)
+// Mock the STT resolve module (used by MediaStreamSttSession).
+// resolveStreamingTranscriber yields no transcriber, so sessions settle on
+// the batch path regardless of the calls.voice.telephonyStreaming default.
 mock.module("../providers/speech-to-text/resolve.js", () => ({
   resolveTelephonySttCapability: jest.fn(),
   resolveBatchTranscriber: jest.fn(),
+  resolveStreamingTranscriber: jest.fn(async () => null),
 }));
 
 // Mock the logger to suppress output during tests
