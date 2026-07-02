@@ -1,8 +1,9 @@
 /**
  * STT session module for media-stream call ingestion.
  *
- * Transcribes inbound caller audio in one of two modes, selected once at
- * the `start` event and never mixed mid-session:
+ * Transcribes inbound caller audio in one of two modes, selected at the
+ * `start` event (streaming additionally falls back to batch if the
+ * provider closes the stream mid-call):
  *
  * - **Streaming** (default, `calls.voice.telephonyStreaming: true`) —
  *   inbound mu-law audio is decoded to 16 kHz PCM16 and fed to a
@@ -15,8 +16,9 @@
  *   oldest frames and is counted + logged at teardown).
  * - **Batch** — segmented audio turns (produced by
  *   {@link MediaTurnDetector}) are transcribed per turn via the batch
- *   transcriber. Used when the streaming flag is off or no streaming
- *   transcriber is available for the configured provider.
+ *   transcriber. Used when the streaming flag is off, no streaming
+ *   transcriber is available for the configured provider, or the
+ *   provider closed the streaming session unexpectedly mid-call.
  *
  * This module is **transport-neutral** — it exposes callback hooks
  * (`onSpeechStart`, `onTranscriptFinal`, `onDtmf`, `onStop`) rather than
@@ -95,11 +97,12 @@ const STREAMING_AUDIO_MIME_TYPE = `audio/pcm;rate=${STREAMING_SAMPLE_RATE}`;
 const DEFAULT_STREAMING_STARTUP_BUFFER_FRAMES = 500;
 
 /**
- * Transcription mode, selected once at the `start` event:
+ * Transcription mode, selected at the `start` event:
  * - `"batch"` — per-turn batch transcription via {@link MediaTurnDetector}.
  * - `"streaming-pending"` — streaming selected; provider session still
  *   starting, frames buffered.
- * - `"streaming"` — live streaming session active.
+ * - `"streaming"` — live streaming session active. Falls back to
+ *   `"batch"` if the provider closes the stream unexpectedly mid-call.
  */
 type SttSessionMode = "batch" | "streaming-pending" | "streaming";
 
@@ -175,6 +178,22 @@ export class MediaStreamSttSession {
   /** Live streaming transcriber (streaming mode only). */
   private streamingTranscriber: StreamingTranscriber | null = null;
 
+  /**
+   * Whether the session deliberately stopped the streaming transcriber
+   * (stream `stop` event or dispose). Distinguishes expected `closed`
+   * events from provider-initiated closes, which trigger batch fallback.
+   */
+  private deliberateStreamingStop = false;
+
+  /**
+   * Duration of a turn the local VAD completed while the mode was
+   * `streaming-pending`. Its audio stays in {@link currentTurnChunks};
+   * {@link enterBatchMode} transcribes it if streaming never
+   * materializes. Cleared when a new turn starts (which resets the
+   * chunk buffer) or when streaming settles.
+   */
+  private pendingCompletedTurnDurationMs: number | null = null;
+
   /** PCM16 frames buffered while the streaming transcriber starts up. */
   private startupFrames: Buffer[] = [];
 
@@ -207,6 +226,7 @@ export class MediaStreamSttSession {
         // Clear inter-turn silence that accumulated while idle so each
         // transcription request contains only speech-relevant chunks.
         this.currentTurnChunks = [];
+        this.pendingCompletedTurnDurationMs = null;
         this.callbacks.onSpeechStart?.();
       },
       onTurnEnd: (reason, durationMs) => {
@@ -254,6 +274,7 @@ export class MediaStreamSttSession {
    */
   dispose(): void {
     this.disposed = true;
+    this.deliberateStreamingStop = true;
     this.activeTranscriptionAbort?.abort();
     this.activeTranscriptionAbort = null;
     this.turnDetector.dispose();
@@ -353,6 +374,7 @@ export class MediaStreamSttSession {
     this.turnDetector.forceEnd();
     // Streaming: signal end-of-audio so the provider flushes any withheld
     // utterance text as a trailing final before closing.
+    this.deliberateStreamingStop = true;
     stopStreamingBestEffort(this.streamingTranscriber);
     this.logStartupDrops();
     this.callbacks.onStop?.();
@@ -421,17 +443,36 @@ export class MediaStreamSttSession {
 
     // The batch fallback is settled — drop its turn buffer.
     this.currentTurnChunks = [];
+    this.pendingCompletedTurnDurationMs = null;
   }
 
   /**
    * Settle on the batch path: clear streaming startup state and eagerly
    * resolve the telephony capability so it's cached by the time the
    * first turn completes.
+   *
+   * A turn that the local VAD already completed while streaming was
+   * pending is stranded — {@link handleTurnEnd} deferred it to streaming
+   * finals that will never arrive — so it is batch-transcribed here.
+   * (A turn still in progress needs no special handling: it ends later
+   * through the normal batch path with its buffered chunks intact.)
    */
   private enterBatchMode(): void {
     this.mode = "batch";
     this.startupFrames = [];
-    this.capabilityPromise = resolveTelephonySttCapability();
+    this.capabilityPromise ??= resolveTelephonySttCapability();
+
+    const durationMs = this.pendingCompletedTurnDurationMs;
+    this.pendingCompletedTurnDurationMs = null;
+    if (durationMs !== null && this.currentTurnChunks.length > 0) {
+      const chunks = this.currentTurnChunks;
+      this.currentTurnChunks = [];
+      log.info(
+        { streamSid: this.streamSid, chunkCount: chunks.length, durationMs },
+        "Transcribing turn completed during streaming startup via batch fallback",
+      );
+      void this.transcribeTurn(chunks, durationMs);
+    }
   }
 
   /**
@@ -463,6 +504,17 @@ export class MediaStreamSttSession {
         return;
       case "closed":
         this.streamingTranscriber = null;
+        // Provider-initiated close mid-call: without a live transcriber
+        // the streaming mode would silently drop all subsequent audio.
+        // Fall back to per-turn batch transcription (the local VAD/turn
+        // detector already runs in streaming mode).
+        if (this.mode === "streaming" && !this.deliberateStreamingStop) {
+          log.warn(
+            { streamSid: this.streamSid, callSid: this.callSid },
+            "Streaming transcriber closed unexpectedly mid-call — falling back to batch STT",
+          );
+          this.enterBatchMode();
+        }
         return;
     }
   }
@@ -501,8 +553,13 @@ export class MediaStreamSttSession {
     durationMs: number,
   ): Promise<void> {
     // Streaming modes take turn boundaries from the transcriber's
-    // utterance-boundary finals, not the local VAD.
+    // utterance-boundary finals, not the local VAD. A turn completed
+    // while streaming is still pending is recorded so a later batch
+    // fallback can transcribe its buffered audio.
     if (this.mode !== "batch") {
+      if (this.mode === "streaming-pending") {
+        this.pendingCompletedTurnDurationMs = durationMs;
+      }
       return;
     }
 
@@ -515,6 +572,14 @@ export class MediaStreamSttSession {
       return;
     }
 
+    await this.transcribeTurn(chunks, durationMs);
+  }
+
+  /** Batch-transcribe a completed turn's audio chunks. */
+  private async transcribeTurn(
+    chunks: string[],
+    durationMs: number,
+  ): Promise<void> {
     // Resolve telephony capability (cached after first call)
     if (!this.capabilityPromise) {
       this.capabilityPromise = resolveTelephonySttCapability();
