@@ -25,14 +25,22 @@
  * captured only on the slow path. Between the two, every slow query is
  * attributable to its call site with no per-query annotation of Drizzle code.
  *
+ * The same per-statement chokepoint also surfaces *failed* executions: when a
+ * statement throws, the error is handed to {@link observeSqliteStatementError}
+ * before it propagates unchanged. This is how the SQLite corruption watchdog
+ * notices `SQLITE_CORRUPT` / `SQLITE_NOTADB` on any query or write — read or
+ * write, Drizzle or raw — the moment the workload hits the damaged page.
+ *
  * This is pure instrumentation: return values, parameter binding, transactions,
  * savepoints, and error propagation are all preserved exactly. The fast path
- * adds only a `performance.now()` pair and a numeric compare — no allocation or
- * SQL slicing happens unless the threshold is exceeded.
+ * adds only a `performance.now()` pair and a numeric compare — no allocation,
+ * SQL slicing, or observer call happens unless the statement is slow or throws.
  */
 
+import { basename } from "node:path";
 import type { Database, Statement } from "bun:sqlite";
 
+import { observeSqliteStatementError } from "../daemon/sqlite-corruption-watchdog.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("slow-query");
@@ -159,6 +167,20 @@ export function reportSlowQuery(event: SlowQueryEvent): void {
   log.warn(event, "Slow SQLite query blocked the event loop");
 }
 
+/** Context handed to {@link observeSqliteStatementError} for a failed execution. */
+export interface StatementErrorContext {
+  /** SQL preview (first {@link SQL_PREVIEW_MAX} chars) of the failing statement. */
+  sql: string;
+  /**
+   * The database file's basename (e.g. `"assistant.db"` / `"assistant-logs.db"`),
+   * derived from the `Database`'s own `filename`. Always set by the wrapper;
+   * optional only for direct callers (tests) that construct a context by hand.
+   */
+  database?: string;
+  /** Caller-supplied `.label()` attribution tag, when present. */
+  label?: string;
+}
+
 /** Injectable seams so the wrapper is unit-testable with a fake clock/sink. */
 export interface SlowQueryWatcherOptions {
   thresholdMs?: number;
@@ -206,6 +228,27 @@ export function wrapSqliteForSlowQueryLogging(
   const thresholdMs = options.thresholdMs ?? SLOW_QUERY_THRESHOLD_MS;
   const now = options.now ?? (() => performance.now());
   const onSlowQuery = options.onSlowQuery ?? reportSlowQuery;
+  // Reuse the path this connection was opened with (`new Database(path)`) rather
+  // than a hand-passed key — its basename names the damaged file.
+  const database = basename(sqlite.filename);
+
+  // Slow path only (a statement threw). Surface it to the corruption watchdog;
+  // its failure must never escape into the query path.
+  const notifyError = (
+    err: unknown,
+    sql: string,
+    label: string | undefined,
+  ): void => {
+    try {
+      observeSqliteStatementError(err, {
+        sql: sql.slice(0, SQL_PREVIEW_MAX),
+        database,
+        ...(label === undefined ? {} : { label }),
+      });
+    } catch {
+      // The observer must never break the query path.
+    }
+  };
 
   // Re-entrancy guard. `bun:sqlite` implements `db.query(sql).run()` by
   // delegating through the (also-wrapped) `db.prepare(sql)`, so the outer
@@ -275,12 +318,17 @@ export function wrapSqliteForSlowQueryLogging(
               try {
                 result = call(...args);
                 return result;
+              } catch (err) {
+                // The failed op still blocked and still needs timing (below);
+                // surface it to the error observer before it propagates
+                // unchanged. Re-entrant inner calls short-circuit above
+                // (`if (timing)`), so a nested throw is observed once, here.
+                notifyError(err, sql, label);
+                throw err;
               } finally {
                 timing = false;
                 // Fast path: one subtraction + one compare. Nothing is
-                // allocated or sliced unless we cross the threshold. A thrown
-                // error still lands here (the failed op still blocked) and is
-                // reported before `finally` lets it propagate unchanged.
+                // allocated or sliced unless we cross the threshold.
                 const durationMs = now() - start;
                 if (durationMs >= thresholdMs) {
                   emit(sql, label, durationMs, result);
@@ -309,22 +357,47 @@ export function wrapSqliteForSlowQueryLogging(
   const originalPrepare = sqlite.prepare.bind(sqlite);
   const originalRun = sqlite.run.bind(sqlite);
 
+  // `.query()` / `.prepare()` compile the SQL, which reads the schema — on a
+  // file with a corrupt header ("file is not a database") that read throws
+  // *here*, before any execution method runs, so the error is surfaced to the
+  // observer at creation time too. (Malformed-*page* corruption instead
+  // surfaces at step time and is caught in the execution closures above.) A
+  // `query()` that delegates through the wrapped `prepare()` may notify twice;
+  // the observer's per-database debounce collapses that to one report.
+  const createStatement = (
+    create: (...a: unknown[]) => Statement,
+    sql: string,
+    label: string | undefined,
+    rest: unknown[],
+  ): Statement => {
+    let stmt: Statement;
+    try {
+      stmt = create(sql, ...rest);
+    } catch (err) {
+      notifyError(err, sql, label);
+      throw err;
+    }
+    return wrapStatement(stmt, sql, label);
+  };
+
   const makeQuery =
     (label: string | undefined) =>
     (sql: string, ...rest: unknown[]): Statement =>
-      wrapStatement(
-        (originalQuery as (...a: unknown[]) => Statement)(sql, ...rest),
+      createStatement(
+        originalQuery as (...a: unknown[]) => Statement,
         sql,
         label,
+        rest,
       );
 
   const makePrepare =
     (label: string | undefined) =>
     (sql: string, ...rest: unknown[]): Statement =>
-      wrapStatement(
-        (originalPrepare as (...a: unknown[]) => Statement)(sql, ...rest),
+      createStatement(
+        originalPrepare as (...a: unknown[]) => Statement,
         sql,
         label,
+        rest,
       );
 
   // `Database.run(sql, ...params)` is a native shortcut that does not route
@@ -341,6 +414,9 @@ export function wrapSqliteForSlowQueryLogging(
       try {
         result = call(sql, ...params);
         return result;
+      } catch (err) {
+        notifyError(err, sql, label);
+        throw err;
       } finally {
         timing = false;
         const durationMs = now() - start;
