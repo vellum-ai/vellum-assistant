@@ -670,12 +670,16 @@ export class MediaStreamCallSession {
     // handleBargeIn path so initial inbound audio frames do not cancel a
     // still-starting initial turn.
     //
-    // clearAudio runs BEFORE handleBargeIn so that the end-of-turn mark
-    // enqueued by handleInterrupt (called within handleBargeIn) is not
-    // wiped by the queue flush.
+    // clearAudio runs via the onAccepted hook so it only fires when the
+    // barge-in passes the speaking gate — an ignored barge-in (controller
+    // idle/processing) must not flush queued/in-flight TTS such as a
+    // buffered greeting. The hook runs before handleInterrupt so the
+    // end-of-turn mark it enqueues survives the queue flush.
     if (this.output && this.controller) {
-      this.output.clearAudio();
-      const accepted = this.controller.handleBargeIn();
+      const output = this.output;
+      const accepted = this.controller.handleBargeIn(() =>
+        output.clearAudio(),
+      );
       if (accepted) {
         this.bargeInAccepted++;
         log.info(
@@ -683,6 +687,11 @@ export class MediaStreamCallSession {
           "Media-stream barge-in accepted — cleared outbound audio",
         );
       } else {
+        // No turn to abort, but a completed turn's tail can still be
+        // playing from Twilio's buffer — flush only that buffer so the
+        // caller isn't talked over. Queued speech that hasn't reached
+        // Twilio yet (greeting, handoff prompt) is preserved.
+        output.clearBufferedAudio();
         this.bargeInIgnored++;
         log.debug(
           { callSessionId: this.callSessionId },

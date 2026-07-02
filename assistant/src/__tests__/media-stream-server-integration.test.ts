@@ -113,7 +113,9 @@ const mockHandleCallerUtterance = jest.fn(async () => {});
 const mockHandleInterrupt = jest.fn();
 const mockDestroy = jest.fn();
 
-const mockHandleBargeIn = jest.fn(() => false);
+// Mirrors CallController.handleBargeIn: invokes onAccepted only when the
+// barge-in passes the speaking gate.
+const mockHandleBargeIn = jest.fn((_onAccepted?: () => void) => false);
 
 mock.module("../calls/call-controller.js", () => ({
   CallController: jest.fn().mockImplementation(() => ({
@@ -1225,6 +1227,15 @@ describe("media-stream setup outcome scenarios", () => {
       expect(mockHandleBargeIn).toHaveBeenCalled();
       expect(mockHandleInterrupt).not.toHaveBeenCalled();
 
+      // An ignored barge-in flushes only Twilio's buffered audio (to
+      // stop a completed turn's tail talking over the caller). The
+      // internal playback queue is untouched, so the queued greeting
+      // still plays — handleInterrupt must not have run.
+      const clearCommands = mockWs.sent.filter(
+        (s) => JSON.parse(s).event === "clear",
+      );
+      expect(clearCommands.length).toBeGreaterThan(0);
+
       // voice_session_aborted should NOT appear in recorded events
       const abortEvents = mockEvents.filter(
         (e) =>
@@ -1237,8 +1248,12 @@ describe("media-stream setup outcome scenarios", () => {
     });
 
     test("barge-in is accepted when controller is speaking", async () => {
-      // Configure mock to indicate the controller is speaking
-      mockHandleBargeIn.mockReturnValue(true);
+      // Configure mock to indicate the controller is speaking; like the
+      // real controller, it fires onAccepted before interrupting.
+      mockHandleBargeIn.mockImplementation((onAccepted?: () => void) => {
+        onAccepted?.();
+        return true;
+      });
 
       const mockWs = createMockWs();
       mockSessions.set("call-bargein-2", {
@@ -1259,8 +1274,13 @@ describe("media-stream setup outcome scenarios", () => {
       const speechPayload = Buffer.alloc(160, 0x00).toString("base64");
       session.handleMessage(makeMediaMessage(speechPayload, "1"));
 
-      // handleBargeIn should have been called (returning true)
+      // handleBargeIn should have been called (returning true), and the
+      // accepted barge-in flushes outbound audio via the onAccepted hook.
       expect(mockHandleBargeIn).toHaveBeenCalled();
+      const clearCommands = mockWs.sent.filter(
+        (s) => JSON.parse(s).event === "clear",
+      );
+      expect(clearCommands.length).toBe(1);
 
       session.destroy();
     });

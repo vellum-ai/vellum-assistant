@@ -3135,9 +3135,11 @@ describe("call-controller", () => {
 
       // Controller starts idle after construction
       expect(controller.getState()).toBe("idle");
-      const result = controller.handleBargeIn();
+      const onAccepted = mock(() => {});
+      const result = controller.handleBargeIn(onAccepted);
 
       expect(result).toBe(false);
+      expect(onAccepted).not.toHaveBeenCalled();
       // No end-of-turn token should have been sent (no interruption)
       const endTokens = relay.sentTokens.filter(
         (t) => t.last === true && t.token === "",
@@ -3171,8 +3173,10 @@ describe("call-controller", () => {
       // No outbound audio/tokens yet → still processing.
       expect(controller.getState()).toBe("processing");
 
-      const bargeResult = controller.handleBargeIn();
+      const onAccepted = mock(() => {});
+      const bargeResult = controller.handleBargeIn(onAccepted);
       expect(bargeResult).toBe(false);
+      expect(onAccepted).not.toHaveBeenCalled();
       // Still processing (not aborted), and no interrupt/end-of-turn token sent.
       expect(controller.getState()).toBe("processing");
       const endTokens = relay.sentTokens.filter(
@@ -3410,7 +3414,7 @@ describe("call-controller", () => {
         },
       );
 
-      const { controller } = setupController();
+      const { relay, controller } = setupController();
       const turnPromise = controller.handleCallerUtterance("Hi");
 
       // Let microtasks settle so onTextDelta runs
@@ -3418,8 +3422,24 @@ describe("call-controller", () => {
 
       expect(controller.getState()).toBe("speaking");
 
-      const result = controller.handleBargeIn();
+      // onAccepted must fire after the speaking gate but BEFORE the
+      // end-of-turn token from handleInterrupt, so a transport's queue
+      // flush cannot wipe that mark.
+      const endTokensAtAccept: number[] = [];
+      const onAccepted = mock(() => {
+        endTokensAtAccept.push(
+          relay.sentTokens.filter((t) => t.last === true && t.token === "")
+            .length,
+        );
+      });
+      const result = controller.handleBargeIn(onAccepted);
       expect(result).toBe(true);
+      expect(onAccepted).toHaveBeenCalledTimes(1);
+      expect(endTokensAtAccept).toEqual([0]);
+      const endTokens = relay.sentTokens.filter(
+        (t) => t.last === true && t.token === "",
+      );
+      expect(endTokens.length).toBe(1);
 
       // After barge-in, controller should be idle
       expect(controller.getState()).toBe("idle");

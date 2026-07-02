@@ -364,10 +364,15 @@ export class CallController {
    * interruption on initial inbound media frames that arrive before
    * the assistant has had a chance to produce its first response.
    *
+   * @param onAccepted Invoked synchronously after the speaking gate
+   *   passes but before {@link handleInterrupt} runs. Transports use this
+   *   to flush queued outbound audio without wiping the end-of-turn mark
+   *   that handleInterrupt enqueues — and without flushing at all when
+   *   the barge-in is ignored.
    * @returns `true` if the barge-in was accepted (assistant was speaking),
    *   `false` if it was ignored (assistant idle or processing).
    */
-  handleBargeIn(): boolean {
+  handleBargeIn(onAccepted?: () => void): boolean {
     if (this.state !== "speaking") {
       log.debug(
         {
@@ -383,6 +388,7 @@ export class CallController {
       { callSessionId: this.callSessionId },
       "Barge-in accepted — interrupting assistant speech",
     );
+    onAccepted?.();
     this.handleInterrupt();
     return true;
   }
