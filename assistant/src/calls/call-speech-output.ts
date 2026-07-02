@@ -8,7 +8,8 @@
  *
  * Two output paths (determined by the catalog's `callMode`):
  * - **Native**: `callMode: "native-twilio"` — text is sent via
- *   `sendTextToken()` for Twilio's built-in TTS engine.
+ *   `sendTextToken()`, which the media-stream transport re-synthesizes
+ *   through daemon TTS.
  * - **Synthesized**: `callMode: "synthesized-play"` — text is synthesized
  *   via the provider API, streamed through the audio store, and played
  *   via `sendPlayUrl()`.
@@ -60,7 +61,7 @@ export async function speakSystemPrompt(
     });
 
   if (!useSynthesizedPath || !provider) {
-    // Native path — send text for Twilio's built-in TTS.
+    // Native path — send text tokens through the transport.
     relay.sendTextToken(text, true);
     return;
   }

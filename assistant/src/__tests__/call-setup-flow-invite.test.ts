@@ -362,11 +362,11 @@ describe("CallSetupFlow invite redemption", () => {
         resolveAssistantLabel: () => null,
       });
 
-      await flow.start(inviteOutcome("Grace Hopper"), makeResolved(true));
+      await flow.start(inviteOutcome("Alice Example"), makeResolved(true));
       await enterCode(flow);
 
       expect(spoken).toContain(
-        "Great, I've verified that you are Grace. It's nice to meet you! How can I help?",
+        "Great, I've verified that you are Alice. It's nice to meet you! How can I help?",
       );
     });
   });

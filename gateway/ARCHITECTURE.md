@@ -1129,7 +1129,7 @@ This makes ingress URL updates smoother in local tunnel workflows because Twilio
 | `call_status` | Retrieves the current status of a call session                                           |
 | `call_end`    | Terminates an active call                                                                |
 
-Both tools and HTTP routes delegate to the same domain functions in `call-domain.ts` (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`), ensuring consistent validation and behavior. Inbound calls do not use tools — they are initiated by the external caller and bootstrapped automatically by the voice webhook and relay server.
+Both tools and HTTP routes delegate to the same domain functions in `call-domain.ts` (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`), ensuring consistent validation and behavior. Inbound calls do not use tools — they are initiated by the external caller and bootstrapped automatically by the voice webhook and media-stream server.
 
 ### Control Markers
 
@@ -1189,7 +1189,7 @@ Voice and TTS settings are configurable via the `calls.voice` and `services.tts`
 
 The active TTS provider is determined by `services.tts.provider` (default: `"elevenlabs"`). Provider-specific settings (voice ID, model, tuning parameters) are read from `services.tts.providers.<id>`. The call mode (`native-twilio` or `synthesized-play`) is resolved from the canonical provider catalog via `resolveCallStrategy()` in `tts-call-strategy.ts` — it reads the provider's declared `callMode` rather than inferring behavior from runtime capabilities.
 
-For `native-twilio` providers (e.g. ElevenLabs), the voice quality profile looks up a registered `NativeTwilioVoiceSpecBuilder` to construct the provider-specific voice spec string for Twilio's TTS `voice` attribute. For `synthesized-play` providers (e.g. Fish Audio), the assistant synthesises audio via the provider's HTTP API and delivers it as `play` audio.
+For `native-twilio` providers (e.g. ElevenLabs), the voice quality profile looks up a registered `NativeTwilioVoiceSpecBuilder` to construct the provider-specific voice spec string; on the media-stream transport spoken text sent via `sendTextToken()` is re-synthesized through daemon TTS, so this mode no longer routes to Twilio's built-in TTS — collapsing the callMode split is a documented deferred follow-up. For `synthesized-play` providers (e.g. Fish Audio), the assistant synthesises audio via the provider's HTTP API and delivers it through the audio store / `sendPlayUrl()` path.
 
 On the media-stream transport, call playback requires audio the daemon can transcode to mu-law: each TTS catalog entry declares `mediaStreamPlayback.outputFormat`, `resolveTelephonyTtsCapability()` combines that with credential availability, and the call TTS resolver falls back to a credentialed playable provider rather than producing silence.
 

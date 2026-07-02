@@ -1,8 +1,8 @@
 /**
  * Gateway-side polling loop for voice access request approval activation.
  *
- * When a guardian approves an inbound phone access request, the relay server
- * detects the approval and continues the call. The gateway needs to independently
+ * When a guardian approves an inbound phone access request, the daemon's
+ * in-call wait loop detects the approval and continues the call. The gateway needs to independently
  * detect the same event and activate the caller as a trusted contact — without
  * relying on the assistant to signal it (the assistant is potentially
  * prompt-injected and must never trigger contact/trust-graph writes).

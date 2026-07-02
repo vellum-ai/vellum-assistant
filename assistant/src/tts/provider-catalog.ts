@@ -115,16 +115,15 @@ export interface TtsProviderCatalogEntry {
   readonly callMode: TtsCallMode;
 
   /**
-   * Whether the call path may fall back to native Twilio token-based
-   * TTS when synthesized audio fails.
+   * Whether the call path may fall back to the text-token path when
+   * synthesized audio fails.
    *
    * Providers with `callMode: "native-twilio"` always set this to `true`.
-   * Synthesized-play providers that also work through Twilio's built-in
-   * TTS (e.g. Fish Audio) set this to `true` so callers still hear
-   * a response if synthesis fails. Providers that have **no** native
-   * Twilio integration (e.g. Deepgram) set this to `false` — a synthesis
-   * failure must propagate so the outer error handler can surface a
-   * user-facing recovery message.
+   * Synthesized-play providers with a usable token fallback (e.g. Fish
+   * Audio) set this to `true` so callers still hear a response if
+   * synthesis fails. Providers without one (e.g. Deepgram) set this to
+   * `false` — a synthesis failure must propagate so the outer error
+   * handler can surface a user-facing recovery message.
    */
   readonly allowNativeFallback: boolean;
 

@@ -188,10 +188,14 @@ export function resamplePcm16(
   if (fromRate <= 0 || toRate <= 0) {
     throw new Error(`Invalid sample rates: ${fromRate} -> ${toRate}`);
   }
-  if (fromRate === toRate) return pcm;
+  if (fromRate === toRate) {
+    return pcm;
+  }
 
   const inputCount = Math.floor(pcm.length / 2);
-  if (inputCount === 0) return Buffer.alloc(0);
+  if (inputCount === 0) {
+    return Buffer.alloc(0);
+  }
 
   const outputCount = Math.floor((inputCount * toRate) / fromRate);
   const out = Buffer.alloc(outputCount * 2);

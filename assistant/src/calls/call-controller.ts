@@ -605,7 +605,8 @@ export class CallController {
     // The catalog's callMode determines the call path: synthesized-play
     // providers buffer text, synthesize via provider API, and stream
     // audio chunks to Twilio via play-URL. Native-twilio providers
-    // stream text tokens to the relay for Twilio's built-in TTS.
+    // stream text tokens through the transport, which re-synthesizes
+    // them via daemon TTS on media-stream.
     //
     // When the transport requires WAV (media-stream), request WAV so
     // the audio store entry and any downstream fetch/transcode receives
