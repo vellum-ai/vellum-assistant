@@ -914,14 +914,18 @@ function assertInvariantProfilesPreserved(
   const oldProfiles = asMutablePlainObject(
     asMutablePlainObject(oldRaw.llm)?.profiles,
   );
-  if (!oldProfiles) return;
+  if (!oldProfiles) {
+    return;
+  }
   const newProfiles = asMutablePlainObject(
     asMutablePlainObject(newRaw.llm)?.profiles,
   );
 
   for (const name of INVARIANT_PROFILE_NAMES) {
     const oldEntry = asMutablePlainObject(oldProfiles[name]);
-    if (!oldEntry) continue;
+    if (!oldEntry) {
+      continue;
+    }
 
     const newEntry = newProfiles
       ? asMutablePlainObject(newProfiles[name])
