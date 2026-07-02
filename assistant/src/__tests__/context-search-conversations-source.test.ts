@@ -42,14 +42,11 @@ mock.module("../persistence/conversation-search-lexical.js", () => ({
 // enqueue helpers) stay intact for transitive importers.
 let suppressIndexing = false;
 const realLexicalModule =
-  await import("../plugins/defaults/memory/job-handlers/index-message-lexical.js");
-mock.module(
-  "../plugins/defaults/memory/job-handlers/index-message-lexical.js",
-  () => ({
-    ...realLexicalModule,
-    isMemoryIndexingSuppressed: () => suppressIndexing,
-  }),
-);
+  await import("../persistence/job-handlers/message-lexical.js");
+mock.module("../persistence/job-handlers/message-lexical.js", () => ({
+  ...realLexicalModule,
+  isMemoryIndexingSuppressed: () => suppressIndexing,
+}));
 
 import {
   deleteMemoryCheckpoint,

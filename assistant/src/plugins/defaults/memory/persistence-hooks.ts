@@ -1,6 +1,12 @@
 import { join } from "node:path";
 
 import { getConfig } from "../../../config/loader.js";
+import {
+  clearMessagesLexicalIndex,
+  enqueueDeleteMessageLexical,
+  enqueueLexicalIndexForMessage,
+  enqueuePurgeConversationLexical,
+} from "../../../persistence/job-handlers/message-lexical.js";
 import type {
   ConversationForkedEvent,
   MemoryPersistenceHooks,
@@ -10,12 +16,6 @@ import { getWorkspaceDir } from "../../../util/platform.js";
 import { getMemoryConfig } from "./config.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
-import {
-  clearMessagesLexicalIndex,
-  enqueueDeleteMessageLexical,
-  enqueueLexicalIndexForMessage,
-  enqueuePurgeConversationLexical,
-} from "./job-handlers/index-message-lexical.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";

@@ -30,8 +30,8 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getResolvedConversationDirPath } from "../persistence/conversation-directories.js";
 import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
+import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
-import { enqueueLexicalIndexForMessage } from "../plugins/defaults/memory/job-handlers/index-message-lexical.js";
 import type { Message } from "../providers/types.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";

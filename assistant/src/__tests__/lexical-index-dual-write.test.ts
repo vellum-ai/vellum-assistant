@@ -31,7 +31,9 @@ let throwFromIndex = false;
 mock.module("../plugins/defaults/memory/indexer.js", () => ({
   MIN_SEGMENT_CHARS: 50,
   indexMessageNow: async () => {
-    if (throwFromIndex) throw new Error("simulated segment-indexing failure");
+    if (throwFromIndex) {
+      throw new Error("simulated segment-indexing failure");
+    }
     return { indexedSegments: 0, enqueuedJobs: 0 };
   },
   enqueueBackfillJob: () => "",
@@ -58,6 +60,7 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import type { MemoryJobType } from "../persistence/jobs-store.js";
 import {
   getMemoryPersistenceHooks,
@@ -66,7 +69,6 @@ import {
 } from "../persistence/memory-lifecycle-hooks.js";
 import { memoryJobs } from "../persistence/schema/index.js";
 import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
-import { enqueueLexicalIndexForMessage } from "../plugins/defaults/memory/job-handlers/index-message-lexical.js";
 
 await initializeDb();
 
@@ -76,7 +78,9 @@ function countJobs(type: MemoryJobType, conversationId?: string): number {
     .from(memoryJobs)
     .where(eq(memoryJobs.type, type))
     .all();
-  if (conversationId == null) return rows.length;
+  if (conversationId == null) {
+    return rows.length;
+  }
   return rows.filter((r) => {
     try {
       return (

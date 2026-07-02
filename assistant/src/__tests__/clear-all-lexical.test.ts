@@ -24,17 +24,14 @@ mock.module("../util/logger.js", () => ({
 // (`@qdrant/js-client-rest`, `uuid`, the local TF-IDF encoder) resolve in the
 // worktree.
 const actualLexical =
-  await import("../plugins/defaults/memory/job-handlers/index-message-lexical.js");
+  await import("../persistence/job-handlers/message-lexical.js");
 let clearCalls = 0;
-mock.module(
-  "../plugins/defaults/memory/job-handlers/index-message-lexical.js",
-  () => ({
-    ...actualLexical,
-    clearMessagesLexicalIndex: async () => {
-      clearCalls += 1;
-    },
-  }),
-);
+mock.module("../persistence/job-handlers/message-lexical.js", () => ({
+  ...actualLexical,
+  clearMessagesLexicalIndex: async () => {
+    clearCalls += 1;
+  },
+}));
 
 import { clearAll } from "../persistence/conversation-crud.js";
 import { initializeDb } from "../persistence/db-init.js";
