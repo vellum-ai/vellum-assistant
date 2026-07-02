@@ -17,6 +17,7 @@ import {
     ChatAttachmentsStrip,
 } from "@/domains/chat/components/chat-attachments/chat-attachments";
 import {
+    selectPathReferencePaths,
     selectUploadedIds,
     selectUploadingCount,
     useComposerStore,
@@ -185,7 +186,9 @@ export function ChatComposer({
   const removeAttachment = useComposerStore.use.removeAttachment();
   const attachmentsUploadingCount = selectUploadingCount(attachments);
   const canSendAttachments =
-    attachmentsUploadingCount === 0 && selectUploadedIds(attachments).length > 0;
+    attachmentsUploadingCount === 0 &&
+    (selectUploadedIds(attachments).length > 0 ||
+      selectPathReferencePaths(attachments).length > 0);
 
   const voicePhase = useVoiceRecordingStore.use.phase();
   const isVoiceActive = voicePhase === "recording" || voicePhase === "processing";
