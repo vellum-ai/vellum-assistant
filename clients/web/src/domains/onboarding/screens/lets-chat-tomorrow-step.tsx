@@ -41,6 +41,13 @@ interface LetsChatTomorrowStepProps {
   missingCalendarScope?: boolean;
   /** Clears the missing-scope re-prompt as the user starts a fresh attempt. */
   onRetry?: () => void;
+  /**
+   * Set when the background hatch hit a terminal failure or timeout. The hatch
+   * never reaches ready, so the connect action stays disabled — keep "Skip for
+   * now" visible so the user can continue without the check-in instead of being
+   * trapped behind a spinner that never resolves.
+   */
+  hatchError?: string | null;
 }
 
 export function LetsChatTomorrowStep({
@@ -52,6 +59,7 @@ export function LetsChatTomorrowStep({
   onForward,
   missingCalendarScope = false,
   onRetry,
+  hatchError = null,
 }: LetsChatTomorrowStepProps) {
   const tone = useOnboardingTone();
   const { handleConnect, oauthInProgress } = useGoogleCalendarConnect({
@@ -79,14 +87,14 @@ export function LetsChatTomorrowStep({
           style={{ fontFamily: "var(--font-serif)" }}
         >
           {waitingForAssistant
-            ? "Almost ready"
+            ? "Waking up"
             : missingCalendarScope
               ? "Access not enabled"
               : "Let me make this easy"}
         </h1>
         <p className="text-[16px]" style={{ color: tone.fgMuted }}>
           {waitingForAssistant
-            ? "Your assistant is still getting ready. Calendar setup will be available in a moment."
+            ? "Your assistant is getting ready"
             : missingCalendarScope
               ? "Check the box next to the Google Calendar permission so I can book the check-in."
               : "Connect your Google Calendar so I can find time to check in and start helping."}
@@ -119,16 +127,21 @@ export function LetsChatTomorrowStep({
               "Connect Calendar →"
             )}
           </button>
-          {/* Skip sits directly under the connect button. */}
-          <button
-            type="button"
-            onClick={onSkip}
-            disabled={oauthInProgress}
-            className="cursor-pointer text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
-            style={{ color: tone.fgMuted }}
-          >
-            Skip for now
-          </button>
+          {/* Skip sits directly under the connect button. Hidden while the
+              assistant is still waking up (nothing to skip yet), but kept
+              available when the hatch has failed so the user is never trapped
+              behind a connect button that can never enable. */}
+          {(!waitingForAssistant || hatchError) && (
+            <button
+              type="button"
+              onClick={onSkip}
+              disabled={oauthInProgress}
+              className="cursor-pointer text-body-small-default transition-opacity hover:opacity-100 disabled:opacity-60"
+              style={{ color: tone.fgMuted }}
+            >
+              Skip for now
+            </button>
+          )}
         </div>
       </div>
     </div>
