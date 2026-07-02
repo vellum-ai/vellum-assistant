@@ -411,7 +411,7 @@ export class MediaStreamCallSession {
       return;
     }
 
-    const { outcome, resolved } = routeSetup({
+    const { outcome, resolved } = await routeSetup({
       callSessionId: this.callSessionId,
       session: session ?? null,
       from,
@@ -420,6 +420,17 @@ export class MediaStreamCallSession {
       admissionPolicy,
       verdict,
     });
+
+    // routeSetup can yield the event loop (gateway voice-invite read); abort
+    // if the session was disposed meanwhile, matching the guards above.
+    if (this.disposed) {
+      log.info(
+        { callSessionId: this.callSessionId },
+        "Media-stream session disposed during setup routing — aborting setup",
+      );
+      this.setupRouting = false;
+      return;
+    }
 
     log.info(
       {

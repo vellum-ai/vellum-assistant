@@ -320,10 +320,24 @@ function sweepExpiredVoiceInvites(
 }
 
 /**
+ * Resolve a voice invite's invitee display name: the target contact's curated
+ * displayName preferred, the invite's free-text friendName as fallback.
+ */
+export function resolveInviteeName(
+  store: ContactStore,
+  invite: IngressInviteRow,
+): string | null {
+  return (
+    store.getContact(invite.contactId)?.displayName?.trim() ||
+    invite.friendName?.trim() ||
+    null
+  );
+}
+
+/**
  * Resolve the active voice invite awaiting a caller, projected to display
  * metadata for the personalized voice prompt (never the code or its hash).
- * The invitee name prefers the target contact's curated displayName over the
- * invite's free-text friendName. Expired stragglers are lazily swept.
+ * Expired stragglers are lazily swept.
  */
 export function getActiveVoiceInviteForCaller(
   callerExternalUserId: string,
@@ -336,13 +350,9 @@ export function getActiveVoiceInviteForCaller(
   const invite = candidates.find((candidate) => candidate.expiresAt > now);
   if (!invite) return null;
 
-  const inviteeName =
-    store.getContact(invite.contactId)?.displayName?.trim() ||
-    invite.friendName?.trim() ||
-    null;
   return {
     inviteId: invite.id,
-    inviteeName,
+    inviteeName: resolveInviteeName(store, invite),
     guardianName: invite.guardianName?.trim() || null,
     codeDigits: invite.voiceCodeDigits ?? DEFAULT_VOICE_CODE_DIGITS,
   };

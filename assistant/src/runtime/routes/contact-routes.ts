@@ -27,10 +27,10 @@ import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { redeemVoiceInviteCode } from "../invite-redemption-service.js";
 import {
   composeInvitePresentation,
   redeemIngressInvite,
-  redeemVoiceInviteCode,
   resolveInviteGuardianName,
   triggerInviteCall,
 } from "../invite-service.js";
@@ -437,14 +437,17 @@ export async function handleRedeemInvite(args: RouteHandlerArgs) {
   return handleRedeemTokenInvite(args);
 }
 
-// Stays daemon-local by design (like invites_redeem): the gateway's call path
-// validates its row then delegates the actual provider call to THIS handler via
-// ipcCallAssistant("invites_trigger_call"). Relaying back would loop
-// gateway→assistant→gateway. The provider call is a daemon capability.
-export async function handleTriggerInviteCall({
-  pathParams = {},
-}: RouteHandlerArgs) {
-  const result = await triggerInviteCall(pathParams.id);
+// Stays daemon-local by design (like invites_redeem): the gateway validates
+// its canonical invite row, then delegates the actual provider call to THIS
+// handler via ipcCallAssistant("invites_trigger_call") with the resolved call
+// fields in the body. Relaying back would loop gateway→assistant→gateway.
+// The provider call is a daemon capability.
+export async function handleTriggerInviteCall({ body = {} }: RouteHandlerArgs) {
+  const result = await triggerInviteCall({
+    phoneNumber: body.phoneNumber as string | undefined,
+    friendName: body.friendName as string | null | undefined,
+    guardianName: body.guardianName as string | null | undefined,
+  });
   if (!result.ok) {
     throw new BadRequestError(result.error);
   }
@@ -658,8 +661,24 @@ export const ROUTES: RouteDefinition[] = [
     },
     handler: handleTriggerInviteCall,
     summary: "Trigger invite call",
-    description: "Trigger an outbound call for a phone invite.",
+    description:
+      "Trigger an outbound call for a phone invite. The gateway validates its canonical invite row and supplies the resolved call fields in the body.",
     tags: ["contacts"],
+    requestBody: z.object({
+      phoneNumber: z
+        .string()
+        .describe("E.164 number the invite call dials (invite's bound caller)"),
+      friendName: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Invitee display name for the call greeting"),
+      guardianName: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Guardian display label recorded on the invite"),
+    }),
     responseBody: z.object({
       ok: z.boolean(),
       callSid: z.string().describe("Call SID from the provider"),

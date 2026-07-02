@@ -5664,7 +5664,9 @@ paths:
     post:
       operationId: contacts_invites_by_id_call_post
       summary: Trigger invite call
-      description: Trigger an outbound call for a phone invite.
+      description:
+        Trigger an outbound call for a phone invite. The gateway validates its canonical invite row and supplies
+        the resolved call fields in the body.
       tags:
         - contacts
       parameters:
@@ -5673,6 +5675,28 @@ paths:
           required: true
           schema:
             type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phoneNumber:
+                  type: string
+                  description: E.164 number the invite call dials (invite's bound caller)
+                friendName:
+                  description: Invitee display name for the call greeting
+                  anyOf:
+                    - type: string
+                    - type: "null"
+                guardianName:
+                  description: Guardian display label recorded on the invite
+                  anyOf:
+                    - type: string
+                    - type: "null"
+              required:
+                - phoneNumber
       responses:
         "200":
           description: Successful response

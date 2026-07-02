@@ -41,6 +41,7 @@ import {
   ipcCallAssistant,
 } from "../../ipc/assistant-client.js";
 import { getLogger } from "../../logger.js";
+import { resolveInviteeName } from "../../verification/invite-redemption.js";
 import {
   parseCreateInviteBody,
   parseListInviteQuery,
@@ -364,34 +365,68 @@ export async function revokeInviteNative(
 }
 
 /**
- * Trigger the provider-specific outbound call for an invite. When the gateway
- * row exists (lifecycle source of truth) it gates on `active`. When it's
- * absent — a legacy assistant-only invite — it falls through and lets the
- * daemon-local trigger validate its own row. Returns the provider call sid.
- * Throws InviteNativeError(400) when a present gateway row isn't active,
- * InviteNativeError(500) on relay failure, and propagates an assistant
- * IpcHandlerError unchanged.
+ * Trigger the provider-specific outbound call for an invite. The gateway row
+ * is the lifecycle source of truth: the invite must exist, be `active`,
+ * unexpired, and be a phone invite with a bound caller number. The resolved
+ * call fields (number + display names) are relayed to the daemon, which only
+ * places the provider call. Returns the provider call sid. Throws
+ * InviteNativeError(404) when the invite id is unknown, InviteNativeError(400)
+ * when the invite isn't callable, InviteNativeError(500) on relay failure, and
+ * propagates an assistant IpcHandlerError unchanged.
  */
 export async function triggerInviteCallNative(
   inviteId: string,
 ): Promise<{ callSid: string }> {
-  const invite = new ContactStore().getInviteById(inviteId);
-  // Absent gateway row → legacy assistant-only invite. Don't 404: fall through
-  // and relay; `handleTriggerInviteCall` validates its own local row
-  // (active/inactive) and places the call or surfaces its own error.
-  if (invite && invite.status !== "active") {
+  const store = new ContactStore();
+  const invite = store.getInviteById(inviteId);
+  if (!invite) {
+    throw new InviteNativeError(
+      `Invite "${inviteId}" not found`,
+      404,
+      "NOT_FOUND",
+    );
+  }
+  if (invite.status !== "active") {
     throw new InviteNativeError(
       `Invite "${inviteId}" is not active`,
       400,
       "BAD_REQUEST",
     );
   }
+  if (invite.expiresAt <= Date.now()) {
+    store.markInviteExpired(invite.id);
+    throw new InviteNativeError(
+      `Invite "${inviteId}" has expired`,
+      400,
+      "BAD_REQUEST",
+    );
+  }
+  if (invite.sourceChannel !== "phone") {
+    throw new InviteNativeError(
+      "Only phone invites support call triggering",
+      400,
+      "BAD_REQUEST",
+    );
+  }
+  if (!invite.expectedExternalUserId) {
+    throw new InviteNativeError(
+      "Invite is missing required voice metadata",
+      400,
+      "BAD_REQUEST",
+    );
+  }
 
   try {
-    // `invites_trigger_call` reads the id from pathParams.id (the assistant IPC
-    // server spreads params into RouteHandlerArgs) — send pathParams, not body.
+    // `invites_trigger_call` reads params from RouteHandlerArgs (the assistant
+    // IPC server spreads params): pathParams.id for the route path, body for
+    // the resolved call fields.
     const result = (await ipcCallAssistant("invites_trigger_call", {
       pathParams: { id: inviteId },
+      body: {
+        phoneNumber: invite.expectedExternalUserId,
+        friendName: resolveInviteeName(store, invite),
+        guardianName: invite.guardianName ?? null,
+      },
     } as unknown as Record<string, unknown>)) as { callSid: string };
     log.info(
       { inviteId, callSid: result.callSid },
