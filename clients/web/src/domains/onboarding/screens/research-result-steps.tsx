@@ -294,6 +294,79 @@ export function LookingYouUpStep({
 }
 
 // ---------------------------------------------------------------------------
+// Finishing up (personality-rewrite loading carousel)
+// ---------------------------------------------------------------------------
+
+const FINISHING_MESSAGES = [
+  "Updating my personality…",
+  "Finding my voice…",
+  "Getting into character…",
+  "Almost ready…",
+];
+
+/**
+ * Terminal loading carousel shown after "Let's chat" while the personality
+ * rewrite finishes in the background. The rewrite runs decoupled from the
+ * looking-you-up (web-search) carousel — it lands here at the very end so that
+ * quick step, and the results, aren't held hostage to the persona turn. Loops
+ * its lines until `ready` (the rewrite settled), then snaps to the closing line
+ * and hands off — so the user never drops into chat before the persona they
+ * configured is fully written. No nav: the user has already committed to
+ * entering the chat.
+ */
+export function FinishingUpStep({
+  onDone,
+  ready,
+}: {
+  onDone: () => void;
+  /** The personality rewrite has settled; hand off after the closing line. */
+  ready: boolean;
+}) {
+  const tone = DARK_TONE;
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const lastIndex = FINISHING_MESSAGES.length - 1;
+    if (ready) {
+      // Snap to the closing line first (so we don't hand off mid-list), hold a
+      // beat, then enter chat.
+      if (index !== lastIndex) {
+        setIndex(lastIndex);
+        return;
+      }
+      const done = setTimeout(onDone, LOOKING_MESSAGE_INTERVAL_MS);
+      return () => clearTimeout(done);
+    }
+    const next = setTimeout(
+      () => setIndex((i) => (i + 1) % FINISHING_MESSAGES.length),
+      LOOKING_MESSAGE_INTERVAL_MS,
+    );
+    return () => clearTimeout(next);
+  }, [index, ready, onDone]);
+
+  return (
+    <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
+      <div className="absolute left-1/2 top-[14%] sm:top-[26%] flex w-full max-w-xl -translate-x-1/2 items-start gap-3 px-6">
+        <MiniAssistant isStreaming />
+        <AnimatePresence mode="wait">
+          <motion.p
+            key={index}
+            className="text-[2.6rem] leading-none"
+            style={{ fontFamily: "var(--font-serif)" }}
+            initial={{ y: 12, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: -12, opacity: 0 }}
+            transition={{ duration: 0.35 }}
+          >
+            {FINISHING_MESSAGES[index]}
+          </motion.p>
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Research results ("Alright, this is what I got:")
 // ---------------------------------------------------------------------------
 
