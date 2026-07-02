@@ -1,14 +1,7 @@
 node_modules/
+resources/
 out/
 dist/
 build/
-resources/bun
-resources/hotkey-helper
-resources/vellum-mac-helper
-resources/vellum-mac-helper.app
-resources/web-dist
 native/hotkey-helper/.build/
 native/mac-helper/.build/
-resources/cli-lockfile
-resources/.vellum-mac-helper.source-hash
-resources/.vellum-mac-helper*.Info.plist
