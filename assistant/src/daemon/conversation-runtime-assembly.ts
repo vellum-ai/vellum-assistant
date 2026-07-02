@@ -166,9 +166,10 @@ export function inboundActorContextFromTrustContext(
  *
  * Returns `null` when there is no trust context and on guardian (owner) turns —
  * the actor section is suppressed for the owner. ACL fields (trust class,
- * member status/policy, guardian binding) come from the verdict-derived trust
- * context; INFO fields (contact notes, interaction count) are joined locally by
- * contact ID. Derives purely from the passed trust context, so callers
+ * member status/policy, guardian binding) and the gateway-owned interaction
+ * count come from the verdict-derived trust context; the INFO `notes` field is
+ * joined locally by contact ID. Derives purely from the passed trust context,
+ * so callers
  * self-resolve it from the live conversation rather than threading it.
  */
 export function resolveTurnInboundActorContext(
@@ -181,11 +182,13 @@ export function resolveTurnInboundActorContext(
   if (resolved.trustClass === "guardian") {
     return null;
   }
+  // Interaction count is gateway-owned telemetry, carried on the verdict-derived
+  // trust context; notes remain an INFO field joined locally by contact ID.
+  resolved.contactInteractionCount = trustContext.requesterInteractionCount;
   if (trustContext.requesterContactId) {
     const info = findContactInfoById(trustContext.requesterContactId);
     if (info) {
       resolved.contactNotes = info.notes ?? undefined;
-      resolved.contactInteractionCount = info.interactionCount;
     }
   }
   return resolved;

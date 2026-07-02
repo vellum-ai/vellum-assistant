@@ -48,6 +48,42 @@ describe("contact read contracts", () => {
     expect(parsed.updatedAt).toBe(1700000000);
   });
 
+  test("ContactReadSchema accepts null interactionCount (daemon-native gateway-telemetry outage fail-soft)", () => {
+    const contact = {
+      id: "c1",
+      displayName: "Example User",
+      role: "contact",
+      contactType: "human",
+      lastInteraction: null,
+      interactionCount: null,
+      createdAt: 1699000000,
+      updatedAt: 1700000000,
+      channels: [
+        {
+          id: "ch1",
+          contactId: "c1",
+          type: "imessage",
+          address: "+15555550100",
+          isPrimary: true,
+          externalUserId: null,
+          status: "active",
+          policy: "allow",
+          verifiedAt: null,
+          verifiedVia: null,
+          lastSeenAt: null,
+          interactionCount: null,
+          lastInteraction: null,
+          revokedReason: null,
+          blockedReason: null,
+        },
+      ],
+    };
+
+    const parsed = ContactReadSchema.parse(contact);
+    expect(parsed.interactionCount).toBeNull();
+    expect(parsed.channels[0].interactionCount).toBeNull();
+  });
+
   test("ContactReadSchema requires createdAt/updatedAt", () => {
     const withoutTimestamps = {
       id: "c1",

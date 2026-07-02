@@ -2,18 +2,13 @@
  * Verification session helpers for gateway-owned verification.
  *
  * Session lookup, consumption, and status checks — all via raw SQL
- * through the assistant DB IPC proxy. Dual-writes to gateway DB on
- * session consumption.
+ * through the assistant DB IPC proxy. The assistant DB owns session state.
  */
-
-import { eq } from "drizzle-orm";
 
 import {
   assistantDbQuery,
   assistantDbRun,
 } from "../db/assistant-db-proxy.js";
-import { getGatewayDb } from "../db/connection.js";
-import { channelVerificationSessions as gwSessions } from "../db/schema.js";
 import { getLogger } from "../logger.js";
 
 const log = getLogger("verification-sessions");
@@ -103,12 +98,12 @@ export async function findSessionByHash(
 }
 
 // ---------------------------------------------------------------------------
-// Session consumption (dual-write)
+// Session consumption
 // ---------------------------------------------------------------------------
 
 /**
- * Mark a verification session as consumed. Dual-writes to both assistant
- * and gateway DBs.
+ * Mark a verification session as consumed in the assistant DB, which owns
+ * session state.
  *
  * The UPDATE includes a status predicate so only the first concurrent
  * consumer wins — subsequent attempts see zero changes and return false,
@@ -121,7 +116,7 @@ export async function consumeSession(
 ): Promise<boolean> {
   const now = Date.now();
 
-  // Assistant DB (source of truth) — status guard ensures atomicity
+  // Status guard ensures atomicity under concurrent consumers.
   const result = await assistantDbRun(
     `UPDATE channel_verification_sessions
      SET status = 'consumed',
@@ -139,25 +134,6 @@ export async function consumeSession(
       "Session consume returned 0 changes — already consumed or status changed",
     );
     return false;
-  }
-
-  // Gateway DB dual-write
-  try {
-    const gwDb = getGatewayDb();
-    gwDb.update(gwSessions)
-      .set({
-        status: "consumed",
-        consumedByExternalUserId: actorExternalUserId,
-        consumedByChatId: actorChatId,
-        updatedAt: now,
-      })
-      .where(eq(gwSessions.id, sessionId))
-      .run();
-  } catch (gwErr) {
-    log.warn(
-      { err: gwErr, sessionId },
-      "Gateway DB session consume dual-write failed (best-effort)",
-    );
   }
 
   return true;

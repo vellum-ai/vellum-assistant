@@ -92,7 +92,6 @@ mock.module("../../../ipc/gateway-client.js", () => ({
 
 mock.module("../../../runtime/channel-verification-service.js", () => ({
   getGuardianBinding: () => mockBinding,
-  revokeBinding: () => true,
   revokePendingSessions: () => {},
   createOutboundSession: () => ({
     sessionId: "sess",
@@ -129,9 +128,6 @@ function channel(overrides: Partial<ContactChannel> = {}): ContactChannel {
     address: "user-123",
     isPrimary: true,
     externalChatId: "chat-123",
-    lastSeenAt: null,
-    interactionCount: 0,
-    lastInteraction: null,
     updatedAt: null,
     createdAt: 0,
     ...overrides,

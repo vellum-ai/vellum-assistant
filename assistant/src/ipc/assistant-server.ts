@@ -51,6 +51,8 @@ import {
   writeStreamChunk,
   writeStreamEnd,
 } from "./ipc-framing.js";
+import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
+import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
 import {
   type DbProxyTransactionParams,
@@ -211,9 +213,28 @@ export class AssistantIpcServer {
       this.methods.set(operationId, handler);
     }
 
+    // IPC-only contact INFO-READ methods (see ipc/routes/contacts-info-ipc-routes.ts).
+    // The gateway calls these to read assistant-owned info fields + channel
+    // identity, replacing raw db_proxy SELECTs. No HTTP surface; never in ROUTES.
+    for (const [operationId, handler] of Object.entries(
+      CONTACTS_INFO_IPC_METHODS,
+    )) {
+      this.methods.set(operationId, handler);
+    }
+
+    // IPC-only contact identity-mirror methods (see
+    // ipc/routes/contacts-mirror-ipc-routes.ts). The gateway calls these back
+    // over IPC to mirror single-row contact/channel identity locally after a
+    // gateway-owned ACL write. No HTTP surface; never in ROUTES.
+    for (const [operationId, handler] of Object.entries(
+      CONTACTS_MIRROR_IPC_METHODS,
+    )) {
+      this.methods.set(operationId, handler);
+    }
+
     this.methods.set("$cancel", (params) => {
       const targetId = (params as { targetId?: string }).targetId;
-      if (targetId) this.abortControllers.get(targetId)?.abort();
+      if (targetId) {this.abortControllers.get(targetId)?.abort();}
       return null;
     });
 
@@ -255,11 +276,11 @@ export class AssistantIpcServer {
   stop(): void {
     this.watchdog.stop();
 
-    for (const ctrl of this.abortControllers.values()) ctrl.abort();
+    for (const ctrl of this.abortControllers.values()) {ctrl.abort();}
     this.abortControllers.clear();
 
     for (const client of this.clients) {
-      if (!client.destroyed) client.destroy();
+      if (!client.destroyed) {client.destroy();}
     }
     this.clients.clear();
 
@@ -595,7 +616,7 @@ export class AssistantIpcServer {
     response: IpcResponse,
     binary?: Uint8Array,
   ): void {
-    if (socket.destroyed) return;
+    if (socket.destroyed) {return;}
     if (reader.isLegacy) {
       writeLegacyMessage(socket, response);
     } else {
@@ -643,7 +664,7 @@ export function injectLocalActorHeader(
   if (!headers["x-vellum-actor-principal-id"]) {
     try {
       const localActor = findLocalGuardianPrincipalIdFromStore();
-      if (localActor) headers["x-vellum-actor-principal-id"] = localActor;
+      if (localActor) {headers["x-vellum-actor-principal-id"] = localActor;}
     } catch (err) {
       log.debug(
         { err },

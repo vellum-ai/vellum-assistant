@@ -29,6 +29,8 @@ const fullVerdict: TrustVerdict = {
   policy: "allow",
   verifiedAt: 1699999999,
   verifiedVia: "voice",
+  interactionCount: 12,
+  lastInteraction: 1699999998,
   memberDisplayName: "Member Name",
 };
 
@@ -90,6 +92,26 @@ describe("TrustVerdictSchema", () => {
       trustClass: "unknown",
       canonicalSenderId: null,
     });
+  });
+
+  test("carries interaction telemetry and tolerates a null lastInteraction", () => {
+    const parsed = TrustVerdictSchema.parse({
+      trustClass: "trusted_contact",
+      canonicalSenderId: "+15555550100",
+      interactionCount: 0,
+      lastInteraction: null,
+    });
+    expect(parsed.interactionCount).toBe(0);
+    expect(parsed.lastInteraction).toBeNull();
+  });
+
+  test("leaves interaction telemetry undefined when absent", () => {
+    const parsed = TrustVerdictSchema.parse({
+      trustClass: "unknown",
+      canonicalSenderId: null,
+    });
+    expect(parsed.interactionCount).toBeUndefined();
+    expect(parsed.lastInteraction).toBeUndefined();
   });
 
   test("rejects an invalid trustClass", () => {

@@ -4130,6 +4130,12 @@ paths:
                             - type: "null"
                         memberDisplayName:
                           type: string
+                        interactionCount:
+                          type: number
+                        lastInteraction:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                       required:
                         - trustClass
                         - canonicalSenderId
@@ -5159,7 +5165,9 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
-                        type: number
+                        anyOf:
+                          - type: number
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5200,7 +5208,9 @@ paths:
                                 - type: number
                                 - type: "null"
                             interactionCount:
-                              type: number
+                              anyOf:
+                                - type: number
+                                - type: "null"
                             lastInteraction:
                               anyOf:
                                 - type: number
@@ -5319,7 +5329,9 @@ paths:
                             - type: number
                             - type: "null"
                         interactionCount:
-                          type: number
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         createdAt:
                           type: number
                         updatedAt:
@@ -5360,7 +5372,9 @@ paths:
                                   - type: number
                                   - type: "null"
                               interactionCount:
-                                type: number
+                                anyOf:
+                                  - type: number
+                                  - type: "null"
                               lastInteraction:
                                 anyOf:
                                   - type: number
@@ -5448,7 +5462,9 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
-                        type: number
+                        anyOf:
+                          - type: number
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5489,7 +5505,9 @@ paths:
                                 - type: number
                                 - type: "null"
                             interactionCount:
-                              type: number
+                              anyOf:
+                                - type: number
+                                - type: "null"
                             lastInteraction:
                               anyOf:
                                 - type: number
@@ -5847,7 +5865,9 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
-                        type: number
+                        anyOf:
+                          - type: number
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5888,7 +5908,9 @@ paths:
                                 - type: number
                                 - type: "null"
                             interactionCount:
-                              type: number
+                              anyOf:
+                                - type: number
+                                - type: "null"
                             lastInteraction:
                               anyOf:
                                 - type: number
@@ -6041,7 +6063,9 @@ paths:
                         - type: number
                         - type: "null"
                     interactionCount:
-                      type: number
+                      anyOf:
+                        - type: number
+                        - type: "null"
                     createdAt:
                       type: number
                     updatedAt:
@@ -6082,7 +6106,9 @@ paths:
                               - type: number
                               - type: "null"
                           interactionCount:
-                            type: number
+                            anyOf:
+                              - type: number
+                              - type: "null"
                           lastInteraction:
                             anyOf:
                               - type: number

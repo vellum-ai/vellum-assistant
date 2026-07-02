@@ -20,8 +20,6 @@ import {
   test,
 } from "bun:test";
 
-import { hashInviteCode } from "@vellumai/gateway-client";
-
 // The engine's ACL side effect (upsertVerifiedContactChannel) dual-writes an
 // assistant-DB info mirror over IPC; stub it so tests never touch a socket.
 // Spread the actual module so untouched exports (assistantDbExec,
@@ -54,9 +52,11 @@ const { initGatewayDb, getGatewayDb, resetGatewayDb } =
   await import("../db/connection.js");
 const { contacts, contactChannels, ingressInvites } =
   await import("../db/schema.js");
-const { ContactStore } = await import("../db/contact-store.js");
 const { getActiveVoiceInviteForCaller, redeemVoiceInvite } =
   await import("../verification/invite-redemption.js");
+const { inviteRow, seedVoiceInvite } = await import(
+  "./helpers/contact-fixtures.js"
+);
 
 const CALLER = "+15555550100";
 const OTHER_CALLER = "+15555550199";
@@ -113,33 +113,6 @@ function seedPhoneChannel(args: {
       createdAt: now,
     })
     .run();
-}
-
-function seedVoiceInvite(
-  overrides: Partial<
-    Parameters<InstanceType<typeof ContactStore>["createInvite"]>[0]
-  > = {},
-): string {
-  const store = new ContactStore();
-  const id = overrides.id ?? crypto.randomUUID();
-  store.createInvite({
-    id,
-    sourceChannel: "phone",
-    voiceCodeHash: hashInviteCode(CODE),
-    voiceCodeDigits: 6,
-    expectedExternalUserId: CALLER,
-    friendName: "Friend Name",
-    guardianName: "Guardian Name",
-    contactId: "c1",
-    maxUses: 1,
-    expiresAt: Date.now() + 60_000,
-    ...overrides,
-  });
-  return id;
-}
-
-function inviteRow(id: string) {
-  return new ContactStore().getInviteById(id)!;
 }
 
 function gwPhoneChannel(address: string) {

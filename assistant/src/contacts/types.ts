@@ -31,8 +31,6 @@ export interface Contact {
   /** Free-text notes about this contact (e.g. relationship, communication preferences). */
   notes: string | null;
   role: ContactRole;
-  lastInteraction: number | null;
-  interactionCount: number;
   createdAt: number;
   updatedAt: number;
   contactType: ContactType;
@@ -55,11 +53,6 @@ export interface ContactChannel {
   address: string;
   isPrimary: boolean;
   externalChatId: string | null;
-  // INFO telemetry (not ACL): interaction stats written locally by the gateway's
-  // handle-inbound mirror. Model-facing turn context reads these.
-  lastSeenAt: number | null;
-  interactionCount: number;
-  lastInteraction: number | null;
   updatedAt: number | null;
   createdAt: number;
 }
