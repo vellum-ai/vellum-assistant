@@ -326,9 +326,11 @@ describe("access-request instruction enforcement", () => {
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(true);
-    expect(decision.renderedCopy.vellum?.body).toContain("A1B2C3");
-    expect(decision.renderedCopy.vellum?.body).toContain("approve");
-    expect(decision.renderedCopy.vellum?.body).toContain("reject");
+    // Directive form, not prose mentions: the guardian must be able to reply
+    // with these exact code+verb tokens.
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 trust"');
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 reject"');
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 block"');
     expect(decision.renderedCopy.vellum?.body).toContain("open invite flow");
   });
 
@@ -359,9 +361,9 @@ describe("access-request instruction enforcement", () => {
     ] as NotificationChannel[]);
 
     expect(decision.fallbackUsed).toBe(false);
-    expect(decision.renderedCopy.vellum?.body).toContain("A1B2C3");
-    expect(decision.renderedCopy.vellum?.body).toContain("approve");
-    expect(decision.renderedCopy.vellum?.body).toContain("reject");
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 trust"');
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 reject"');
+    expect(decision.renderedCopy.vellum?.body).toContain('"A1B2C3 block"');
     expect(decision.renderedCopy.vellum?.body).toContain("open invite flow");
   });
 
@@ -397,7 +399,7 @@ describe("access-request instruction enforcement", () => {
 
   test("enforcement does not duplicate when LLM copy already has all required elements", async () => {
     const fullBody =
-      'Alice wants access.\nReply "A1B2C3 approve" to grant access or "A1B2C3 reject" to deny.\nReply "open invite flow" to start Trusted Contacts invite flow.';
+      'Alice wants access.\nReply "A1B2C3 verify" to send them a verification code, "A1B2C3 trust" to trust them without one, "A1B2C3 reject" to leave them unverified, or "A1B2C3 block" to block them.\nReply "open invite flow" to start Trusted Contacts invite flow.';
     configuredProvider = {
       sendMessage: async () => ({ content: [] }),
     };
@@ -495,7 +497,7 @@ describe("access-request instruction enforcement", () => {
     ] as NotificationChannel[]);
 
     // Must contain the proper contract instructions despite conflicting LLM copy
-    expect(decision.renderedCopy.vellum?.body).toContain("A1B2C3 approve");
+    expect(decision.renderedCopy.vellum?.body).toContain("A1B2C3 verify");
     expect(decision.renderedCopy.vellum?.body).toContain("A1B2C3 reject");
     expect(decision.renderedCopy.vellum?.body).toContain("open invite flow");
   });

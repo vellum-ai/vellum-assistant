@@ -503,6 +503,8 @@ describe("ensureCliInstalled", () => {
 
   test("a throwing locator write does not reject a fresh install", async () => {
     existsSyncDefault = false;
+    // package.json already anchored so the failing write is only the locator's.
+    existsSyncByPath[`${latestInstallDir}/package.json`] = true;
     writeFileSyncError = new Error("EACCES: permission denied");
 
     const promise = ensureCliInstalled();
@@ -647,12 +649,13 @@ describe("ensureCliInstalled", () => {
     lastChild.emit("close", 0);
     await promise;
 
-    // Written atomically: temp file first, then renamed into place.
-    const pkgWrite = writeFileSyncCalls.find(
+    // Written atomically: temp file first, then renamed into place. The last
+    // package.json write is the stamp (the first is the pre-install anchor).
+    const pkgWrites = writeFileSyncCalls.filter(
       ([p]) => p === `${latestInstallDir}/package.json.tmp`,
     );
-    expect(pkgWrite).toBeDefined();
-    const written = JSON.parse(pkgWrite![1]);
+    expect(pkgWrites.length).toBeGreaterThanOrEqual(1);
+    const written = JSON.parse(pkgWrites.at(-1)![1]);
     expect(written.packageManager).toBe(`bun@${mockBunVersion}`);
     // Existing fields are preserved.
     expect(written.dependencies).toEqual({ vellum: "latest" });
@@ -664,6 +667,7 @@ describe("ensureCliInstalled", () => {
 
   test("does not rewrite package.json when packageManager already matches", async () => {
     existsSyncDefault = false;
+    existsSyncByPath[`${latestInstallDir}/package.json`] = true;
     readFileSyncReturn = `{"packageManager":"bun@${mockBunVersion}","dependencies":{"vellum":"latest"}}`;
 
     const promise = ensureCliInstalled();
@@ -686,6 +690,45 @@ describe("ensureCliInstalled", () => {
     lastChild.emit("close", 0);
 
     await expect(promise).resolves.toBeUndefined();
+  });
+
+  test("anchors an empty install dir with a package.json before bun add", async () => {
+    // Without a package.json in the install dir, bun walks up to the nearest
+    // ancestor project (e.g. a stray ~/package.json) and installs into
+    // $HOME/node_modules — exit 0, install dir left empty.
+    existsSyncDefault = false;
+
+    const promise = ensureCliInstalled();
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+    await promise;
+
+    const anchorWrite = writeFileSyncCalls.find(
+      ([p]) => p === `${latestInstallDir}/package.json.tmp`,
+    );
+    expect(anchorWrite).toBeDefined();
+    expect(JSON.parse(anchorWrite![1])).toEqual({
+      name: "vellum-cli-install",
+      private: true,
+    });
+    // The anchor lands before the install spawns.
+    expect(fsCallOrder.indexOf(`writeFileSync:${latestInstallDir}/package.json.tmp`)).toBeGreaterThanOrEqual(0);
+  });
+
+  test("does not overwrite an existing package.json when anchoring", async () => {
+    existsSyncDefault = false;
+    existsSyncByPath[`${latestInstallDir}/package.json`] = true;
+    readFileSyncReturn = `{"packageManager":"bun@${mockBunVersion}","dependencies":{"vellum":"latest"}}`;
+
+    const promise = ensureCliInstalled();
+    existsSyncByPath[cliBinPath] = true;
+    lastChild.emit("close", 0);
+    await promise;
+
+    const pkgWrite = writeFileSyncCalls.find(
+      ([p]) => p === `${latestInstallDir}/package.json.tmp`,
+    );
+    expect(pkgWrite).toBeUndefined();
   });
 
   test("throws when the install completes but links no bin", async () => {

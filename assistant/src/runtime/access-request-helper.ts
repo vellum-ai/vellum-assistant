@@ -27,6 +27,7 @@ import type { GuardianResolutionSource } from "../notifications/signal.js";
 import { getLogger } from "../util/logger.js";
 import { resolveAnchoredGuardian } from "./anchored-guardian.js";
 import { CHALLENGE_TTL_MS } from "./channel-verification-service.js";
+import { serializeRequesterSignals } from "./introduction-policy.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
 const log = getLogger("access-request-helper");
@@ -45,6 +46,8 @@ export interface AccessRequestParams {
   previousMemberStatus?: Exclude<ChannelStatus, "unverified">;
   /** Preview of the requester's original message, shown to the guardian. */
   messagePreview?: string;
+  /** The sender is a bot / integration account (no verification handshake possible). */
+  isBot?: boolean;
   /** Slack-specific: user is from an external workspace (Slack Connect). */
   isStranger?: boolean;
   /** Slack-specific: user is a guest / restricted account. */
@@ -178,6 +181,7 @@ export async function notifyGuardianOfAccessRequest(
     actorUsername,
     previousMemberStatus,
     messagePreview,
+    isBot,
     isStranger,
     isRestricted,
     messageTs,
@@ -299,6 +303,11 @@ export async function notifyGuardianOfAccessRequest(
     guardianPrincipalId: guardianPrincipalId ?? undefined,
     toolName: "ingress_access_request",
     questionText: `${senderIdentifier} is requesting access to the assistant`,
+    requesterSignals: serializeRequesterSignals({
+      isBot,
+      isStranger,
+      isRestricted,
+    }),
     expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,
   });
 
@@ -344,14 +353,19 @@ export async function notifyGuardianOfAccessRequest(
       guardianResolutionSource,
       previousMemberStatus: previousMemberStatus ?? null,
       messagePreview: messagePreview ?? null,
+      ...(isBot !== undefined ? { isBot } : {}),
       ...(isStranger !== undefined ? { isStranger } : {}),
       ...(isRestricted !== undefined ? { isRestricted } : {}),
       ...(messageTs ? { messageTs } : {}),
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
     onConversationCreated: (info) => {
-      if (info.sourceEventName !== "ingress.access_request" || vellumDeliveryId)
+      if (
+        info.sourceEventName !== "ingress.access_request" ||
+        vellumDeliveryId
+      ) {
         return;
+      }
       vellumDeliveryId = recordApprovalCardDelivery({
         requestId: canonicalRequest.id,
         channel: "vellum",

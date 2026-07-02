@@ -63,13 +63,14 @@ const log = getLogger("conversation-process");
 
 /**
  * Daemon-injected run lifecycle notifications — subagent (`subagentNotification`),
- * ACP run (`acpNotification`), and backgrounded bash/host_bash completion (the
- * `<background_event source="background-tool">` wake) — are persisted into the
- * parent conversation so the orchestrator wakes and reads the run's result, but
- * they are internal scaffolding: the user sees the run through its inline
- * progress card, not a chat turn. Skip the `user_message_echo` broadcast for
- * these so they never render as a live user bubble; the persisted row is
- * filtered from the rendered transcript on the client.
+ * ACP run (`acpNotification`), and any wake trigger (the persisted
+ * `<background_event source="...">` row every wake reads) — are persisted into
+ * the parent conversation so the orchestrator wakes and reads the trigger, but
+ * they are internal scaffolding: the user sees the wake through its inline card
+ * ("Conversation Woke", or a terminal card for a backgrounded bash run), not a
+ * chat turn. Skip the `user_message_echo` broadcast for these so they never
+ * render as a live user bubble; the persisted row is filtered from the rendered
+ * transcript on the client.
  *
  * Messages explicitly flagged `hidden` (a hidden `POST /messages` send that
  * queued behind an in-flight turn, e.g. the channel-setup wizard-close
@@ -84,7 +85,7 @@ function isEchoSuppressedUserMessage(
     isHiddenMessageMetadata(metadata) ||
     metadata?.subagentNotification != null ||
     metadata?.acpNotification != null ||
-    metadata?.backgroundEventSource === "background-tool"
+    typeof metadata?.backgroundEventSource === "string"
   );
 }
 
