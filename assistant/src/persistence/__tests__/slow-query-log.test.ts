@@ -2,6 +2,7 @@ import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
 
 import {
+  callerFromStack,
   SLOW_QUERY_THRESHOLD_MS,
   type SlowQueryEvent,
   wrapSqliteForSlowQueryLogging,
@@ -209,5 +210,57 @@ describe("slow-query-log", () => {
   test("wraps in place and returns the same Database instance", () => {
     const db = new Database(":memory:");
     expect(wrapSqliteForSlowQueryLogging(db)).toBe(db);
+  });
+});
+
+describe("callerFromStack", () => {
+  test("returns the first app frame in a source-tree run, skipping ORM/self", () => {
+    const stack = [
+      "Error",
+      "    at callerFromStack (/repo/assistant/src/persistence/slow-query-log.ts:110:20)",
+      "    at emit (/repo/assistant/src/persistence/slow-query-log.ts:192:5)",
+      "    at all (/root/.bun/install/cache/drizzle-orm@0.45.2@@@1/bun-sqlite/session.js:79:23)",
+      "    at insertMessageCore (/repo/assistant/src/persistence/conversation-crud.ts:474:10)",
+    ].join("\n");
+    expect(callerFromStack(stack)).toBe(
+      "persistence/conversation-crud.ts:insertMessageCore:474",
+    );
+  });
+
+  test("preserves the assistant's own src frames in a packaged install", () => {
+    // Local-runtime install: the daemon runs from
+    // node_modules/@vellumai/assistant/src, so app frames also contain
+    // node_modules. Third-party deps are still skipped; assistant src is not.
+    const stack = [
+      "Error",
+      "    at emit (/app/node_modules/@vellumai/assistant/src/persistence/slow-query-log.ts:192:5)",
+      "    at all (/app/node_modules/drizzle-orm/bun-sqlite/session.js:79:23)",
+      "    at claimDueSchedules (/app/node_modules/@vellumai/assistant/src/schedule/schedule-store.ts:88:12)",
+    ].join("\n");
+    expect(callerFromStack(stack)).toBe(
+      "schedule/schedule-store.ts:claimDueSchedules:88",
+    );
+  });
+
+  test("handles column-less frames (function omitted)", () => {
+    const stack = [
+      "Error",
+      "    at emit (/repo/assistant/src/persistence/slow-query-log.ts:192:5)",
+      "    at all (/root/.bun/install/cache/drizzle-orm@0.45.2/bun-sqlite/session.js:79:23)",
+      "    at /repo/assistant/src/plugins/defaults/memory/context-search/sources/conversations.ts:231",
+    ].join("\n");
+    expect(callerFromStack(stack)).toBe(
+      "plugins/defaults/memory/context-search/sources/conversations.ts:231",
+    );
+  });
+
+  test("returns undefined when no application frame is present", () => {
+    const stack = [
+      "Error",
+      "    at emit (/repo/assistant/src/persistence/slow-query-log.ts:192:5)",
+      "    at all (/root/.bun/install/cache/drizzle-orm@0.45.2/bun-sqlite/session.js:79:23)",
+      "    at processTicksAndRejections (native:7:39)",
+    ].join("\n");
+    expect(callerFromStack(stack)).toBeUndefined();
   });
 });

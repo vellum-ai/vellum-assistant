@@ -77,20 +77,40 @@ export interface SlowQueryEvent {
   caller?: string;
 }
 
+/** This instrumentation module — never the query's call site. */
+const SELF_MODULE = "slow-query-log.ts";
+
 /**
- * Stack frames matching these substrings are instrumentation/ORM/runtime plumbing,
- * not the query's call site — skipped when deriving {@link SlowQueryEvent.caller}.
- * Dependency frames (Drizzle et al.) live under `node_modules` or Bun's global
- * install cache (`.bun/install/cache/drizzle-orm@x.y.z/…`), so both are skipped
- * to land on the first application (`src/`) frame that issued the query.
+ * Marks the assistant package's own source. In local-runtime installs the CLI
+ * runs the daemon from `<installDir>/node_modules/@vellumai/assistant/src/…`, so
+ * the assistant's own frames also contain `node_modules` — they must NOT be
+ * treated as third-party dependency frames when deriving the caller.
  */
-const CALLER_SKIP = [
-  "slow-query-log.ts",
-  "node_modules",
-  ".bun/install/cache",
-  "node:",
-  "bun:",
-];
+const ASSISTANT_SRC_MARKER = "@vellumai/assistant/src/";
+
+/**
+ * True for stack frames that are runtime/ORM/instrumentation plumbing rather
+ * than the application code that issued the query. Third-party dependency frames
+ * (Drizzle et al.) live under `node_modules/` or Bun's global install cache
+ * (`.bun/install/cache/drizzle-orm@x.y.z/…`) and are skipped — but the
+ * assistant's own packaged `src/` frames, which also live under `node_modules`,
+ * are preserved.
+ */
+function isPlumbingFrame(line: string): boolean {
+  // Runtime internals: `node:*` / `bun:*` modules and Bun's `native:` frames
+  // (moduleEvaluation, processTicksAndRejections, …).
+  if (
+    line.includes("node:") ||
+    line.includes("bun:") ||
+    line.includes("native:")
+  ) {
+    return true;
+  }
+  if (line.includes(SELF_MODULE)) return true;
+  const isDependency =
+    line.includes("node_modules/") || line.includes(".bun/install/cache/");
+  return isDependency && !line.includes(ASSISTANT_SRC_MARKER);
+}
 
 /** `src/`-relative path, or bare basename when the frame is outside `src/`. */
 function shortenStackFile(file: string): string {
@@ -101,19 +121,23 @@ function shortenStackFile(file: string): string {
 
 /**
  * Best-effort attribution for a query with no explicit label: the first stack
- * frame outside this module, Drizzle, and the runtime — i.e. the application
- * code that issued the query. Returns e.g. `persistence/conversation-crud.ts:insertMessageCore:474`.
- * Only called on the slow path (a query already past the threshold), so the
- * `Error().stack` cost is incurred rarely.
+ * frame outside this module, dependencies, and the runtime — i.e. the
+ * application code that issued the query. Returns e.g.
+ * `persistence/conversation-crud.ts:insertMessageCore:474`. Only called on the
+ * slow path (a query already past the threshold), so the `Error().stack` cost is
+ * incurred rarely. Accepts an explicit `stack` for testing.
+ *
+ * @internal exported only for unit tests.
  */
-function callerFromStack(): string | undefined {
-  const stack = new Error().stack;
+export function callerFromStack(
+  stack: string | undefined = new Error().stack,
+): string | undefined {
   if (!stack) return undefined;
   const lines = stack.split("\n");
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i];
     if (!line.includes("at ")) continue;
-    if (CALLER_SKIP.some((skip) => line.includes(skip))) continue;
+    if (isPlumbingFrame(line)) continue;
     // Bun renders frames as `at fn (file:line:col)`, `at file:line:col`, or
     // (for some optimized frames) `at file:line` with no function or column.
     const withFn = line.match(
