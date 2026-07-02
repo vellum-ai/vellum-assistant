@@ -26,7 +26,7 @@ import type { ContactRole, ContactType } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { getLogger } from "../../util/logger.js";
-import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import {
   composeInvitePresentation,
   resolveInviteGuardianName,
@@ -652,14 +652,17 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "invites_trigger_call",
     endpoint: "contacts/invites/:id/call",
     method: "POST",
+    // Gateway-only: the handler dials whatever number is in the body — the
+    // invite validation in the gateway's triggerInviteCallNative is the sole
+    // gate, so an actor-reachable policy would be an arbitrary-dial primitive.
     policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
     },
     handler: handleTriggerInviteCall,
     summary: "Trigger invite call",
     description:
-      "Trigger an outbound call for a phone invite. The gateway validates its canonical invite row and supplies the resolved call fields in the body.",
+      "Trigger an outbound call for a phone invite. Gateway-only: the gateway validates its canonical invite row and supplies the resolved call fields in the body.",
     tags: ["contacts"],
     requestBody: z.object({
       phoneNumber: z
