@@ -324,7 +324,7 @@ function buildMarkdownComponents(
     // emphasis render upright instead of skewed (see splitEmojiRuns).
     em: ({ children }) => <em>{renderUprightEmoji(children)}</em>,
     blockquote: ({ children }) => (
-      <blockquote className="mb-2 border-l-2 border-stone-300 pl-3 italic text-stone-600 last:mb-0 dark:border-stone-600 dark:text-stone-400">
+      <blockquote className="mb-3 rounded-md border-l-2 border-[var(--content-tertiary)] bg-[var(--surface-sunken)] px-3 py-1.5 text-body-small-default text-[var(--content-secondary)] last:mb-0 [&_p]:mb-0">
         {children}
       </blockquote>
     ),

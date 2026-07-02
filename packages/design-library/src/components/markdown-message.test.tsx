@@ -35,6 +35,18 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("text-body-medium-default");
   });
 
+  test("blockquotes render as compact quote previews", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "> This is quoted.\n\nReply text.",
+      }),
+    );
+
+    expect(html).toContain("rounded-md");
+    expect(html).toContain("bg-[var(--surface-sunken)]");
+    expect(html).not.toContain(" italic ");
+  });
+
   test("ordered list beginning at a non-1 number preserves its start", () => {
     // A terse "3." answer is parsed as a one-item ordered list starting at 3.
     // Without forwarding `start`, the <ol> defaults to 1 and renders "1.".

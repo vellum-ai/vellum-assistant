@@ -34,6 +34,20 @@ function installFinePointer() {
   };
 }
 
+function installCoarsePointer() {
+  const originalMatchMedia = window.matchMedia;
+  Object.defineProperty(window, "matchMedia", {
+    configurable: true,
+    value: () => ({ matches: true }),
+  });
+  return () => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: originalMatchMedia,
+    });
+  };
+}
+
 function installImmediateAnimationFrame() {
   const originalAnimationFrame = globalThis.requestAnimationFrame;
   globalThis.requestAnimationFrame = ((callback: FrameRequestCallback) => {
@@ -128,10 +142,49 @@ describe("TextSelectionPopover", () => {
       restorePointer();
     }
   });
+
+  test("shows Reply below coarse-pointer text selections", async () => {
+    const restorePointer = installCoarsePointer();
+    const restoreAnimationFrame = installImmediateAnimationFrame();
+    try {
+      const containerRef = createRef<HTMLDivElement | null>();
+      render(
+        <>
+          <div ref={containerRef}>
+            <div data-message-id="msg-1" data-message-role="assistant">
+              <span data-testid="selected-text">competitive research</span>
+            </div>
+          </div>
+          <TextSelectionPopover containerRef={containerRef} />
+        </>,
+      );
+
+      const selectedText = screen.getByTestId("selected-text");
+      const restoreSelection = installSelection(
+        selectedText.firstChild ?? selectedText,
+      );
+      try {
+        fireEvent.mouseUp(selectedText);
+      } finally {
+        restoreSelection();
+      }
+
+      await screen.findByRole("button", { name: "Reply" });
+      const popoverContent = document.body.querySelector(
+        '[data-slot="popover-content"]',
+      );
+      expect(popoverContent?.getAttribute("data-selection-placement")).toBe(
+        "bottom",
+      );
+    } finally {
+      restoreAnimationFrame();
+      restorePointer();
+    }
+  });
 });
 
 describe("QuoteReplyBubble", () => {
-  test("renders the reply editor with shared design-system primitives", async () => {
+  test("renders the reply editor with only Add to Chat", async () => {
     useQuoteReplyStore.setState({
       replyBubble: {
         quotedText:
@@ -141,7 +194,7 @@ describe("QuoteReplyBubble", () => {
       },
     });
 
-    render(<QuoteReplyBubble onSendNow={() => {}} />);
+    render(<QuoteReplyBubble />);
 
     await waitFor(() => {
       expect(
@@ -156,9 +209,41 @@ describe("QuoteReplyBubble", () => {
     expect(
       screen.getByRole("button", { name: "Add to Chat" }).getAttribute("data-slot"),
     ).toBe("button");
-    expect(
-      screen.getByRole("button", { name: "Send Now" }).getAttribute("data-slot"),
-    ).toBe("button");
+    expect(screen.queryByRole("button", { name: "Send Now" })).toBeNull();
+  });
+
+  test("Enter stages the reply, closes the bubble, and focuses the composer", async () => {
+    const composerInput = document.createElement("textarea");
+    document.body.appendChild(composerInput);
+    useQuoteReplyStore.setState({
+      replyBubble: {
+        quotedText: "quoted context",
+        sourceMessageId: "msg-1",
+        anchorRect: { top: 120, left: 180, width: 0, height: 0 },
+      },
+    });
+
+    render(
+      <QuoteReplyBubble
+        onAddToChat={() => composerInput.focus()}
+      />,
+    );
+
+    const replyInput = await screen.findByPlaceholderText("Type your reply…");
+    fireEvent.change(replyInput, { target: { value: "use this context" } });
+    fireEvent.keyDown(replyInput, { key: "Enter", shiftKey: false });
+
+    expect(useQuoteReplyStore.getState().stagedQuotes).toMatchObject([
+      {
+        quotedText: "quoted context",
+        replyText: "use this context",
+        sourceMessageId: "msg-1",
+      },
+    ]);
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText("Type your reply…")).toBeNull();
+    });
+    expect(document.activeElement).toBe(composerInput);
   });
 });
 

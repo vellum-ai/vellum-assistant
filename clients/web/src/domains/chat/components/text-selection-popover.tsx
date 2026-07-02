@@ -3,8 +3,8 @@
  * assistant message bubble. Offers a single reply action for the selected
  * passage.
  *
- * Desktop-only — `isPointerCoarse()` gates the entire listener so touch
- * devices never see the popover (OS text selection UX conflicts).
+ * On coarse pointers the chip renders below the selected text so native
+ * selection menus have room above the cursor.
  */
 
 import { MessageSquareQuote } from "lucide-react";
@@ -16,9 +16,9 @@ import { Button, Popover } from "@vellumai/design-library";
 
 /**
  * Selector: the transcript container ref whose descendants contain
- * assistant message text. The popover listens for `mouseup` on this
- * container and checks whether the selection falls inside an assistant
- * message element (identified by `data-message-id` + `data-message-role`).
+ * assistant message text. The popover checks whether the active selection
+ * falls inside an assistant message element, identified by
+ * `data-message-id` + `data-message-role`.
  */
 interface TextSelectionPopoverProps {
   containerRef: RefObject<HTMLElement | null>;
@@ -30,16 +30,13 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
     messageId: string;
     top: number;
     left: number;
+    placement: "top" | "bottom";
   } | null>(null);
 
   const openReplyBubble = useQuoteReplyStore.use.openReplyBubble();
 
-  const handleMouseUp = useCallback(() => {
-    if (isPointerCoarse()) {
-      return;
-    }
-
-    // Defer to next microtask so the browser has finalized the selection.
+  const updatePopoverFromSelection = useCallback(() => {
+    const coarsePointer = isPointerCoarse();
     requestAnimationFrame(() => {
       const selection = window.getSelection();
       if (!selection || selection.isCollapsed || !selection.rangeCount) {
@@ -61,6 +58,10 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
       if (!messageEl) {
         return;
       }
+      const container = containerRef.current;
+      if (!container || !container.contains(messageEl)) {
+        return;
+      }
 
       const role = messageEl.getAttribute("data-message-role");
       if (role !== "assistant") {
@@ -74,15 +75,17 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
 
       const range = selection.getRangeAt(0);
       const rect = range.getBoundingClientRect();
+      const placement = coarsePointer ? "bottom" : "top";
 
       setPopover({
         text,
         messageId,
-        top: rect.top,
+        top: placement === "bottom" ? rect.bottom : rect.top,
         left: rect.left + rect.width / 2,
+        placement,
       });
     });
-  }, []);
+  }, [containerRef]);
 
   // Dismiss the popover when the selection is cleared.
   useEffect(() => {
@@ -103,6 +106,19 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
     };
   }, [popover]);
 
+  useEffect(() => {
+    const handler = () => {
+      if (isPointerCoarse()) {
+        updatePopoverFromSelection();
+      }
+    };
+
+    document.addEventListener("selectionchange", handler);
+    return () => {
+      document.removeEventListener("selectionchange", handler);
+    };
+  }, [updatePopoverFromSelection]);
+
   // Listen for mouseup on the document and validate the selection target is
   // within the transcript container. Using document-level listeners avoids
   // the stale-ref problem where containerRef.current is null on initial
@@ -115,7 +131,7 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
       }
       const target = e.target as Node | null;
       if (target && container.contains(target)) {
-        handleMouseUp();
+        updatePopoverFromSelection();
       }
     };
 
@@ -123,7 +139,7 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
     return () => {
       document.removeEventListener("mouseup", handler);
     };
-  }, [containerRef, handleMouseUp]);
+  }, [containerRef, updatePopoverFromSelection]);
 
   if (!popover) {
     return null;
@@ -164,9 +180,10 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
         />
       </Popover.Anchor>
       <Popover.Content
-        side="top"
+        side={popover.placement}
         align="center"
         sideOffset={8}
+        data-selection-placement={popover.placement}
         onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => event.preventDefault()}
         className="rounded-lg p-0"
