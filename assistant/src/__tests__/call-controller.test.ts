@@ -290,7 +290,6 @@ interface MockTransport extends CallTransport {
   sentPlayUrls: string[];
   endCalled: boolean;
   endReason: string | undefined;
-  mockConnectionState: string;
 }
 
 function createMockTransport(): MockTransport {
@@ -299,7 +298,6 @@ function createMockTransport(): MockTransport {
     sentPlayUrls: [] as string[],
     _endCalled: false,
     _endReason: undefined as string | undefined,
-    _connectionState: "connected",
   };
 
   return {
@@ -315,12 +313,6 @@ function createMockTransport(): MockTransport {
     get endReason() {
       return state._endReason;
     },
-    get mockConnectionState() {
-      return state._connectionState;
-    },
-    set mockConnectionState(v: string) {
-      state._connectionState = v;
-    },
     sendTextToken(token: string, last: boolean) {
       state.sentTokens.push({ token, last });
     },
@@ -330,9 +322,6 @@ function createMockTransport(): MockTransport {
     endSession(reason?: string) {
       state._endCalled = true;
       state._endReason = reason;
-    },
-    getConnectionState() {
-      return state._connectionState;
     },
   } as MockTransport;
 }
@@ -2444,30 +2433,11 @@ describe("call-controller", () => {
 
   // ── Silence suppression during guardian wait ──────────────────────
 
-  test('silence timeout suppressed during guardian wait: does not say "Are you still there?"', async () => {
-    mockSilenceTimeoutMs = 20; // Short timeout for testing
-    const { relay, controller } = setupController();
-
-    // Simulate guardian wait state on the relay
-    relay.mockConnectionState = "awaiting_guardian_decision";
-
-    // Wait for the silence timeout to fire
-    await new Promise((r) => setTimeout(r, 30));
-
-    // "Are you still there?" should NOT have been sent
-    const silenceTokens = relay.sentTokens.filter((t) =>
-      t.token.includes("Are you still there?"),
-    );
-    expect(silenceTokens.length).toBe(0);
-
-    controller.destroy();
-  });
-
   test("silence timeout fires normally when not in guardian wait", async () => {
     mockSilenceTimeoutMs = 20; // Short timeout for testing
     const { relay, controller } = setupController();
 
-    // Default connection state is 'connected' (not guardian wait)
+    // No pending guardian consultation — the nudge should fire.
 
     // Wait for the silence timeout to fire
     await new Promise((r) => setTimeout(r, 30));
@@ -2500,8 +2470,6 @@ describe("call-controller", () => {
 
     // Verify a guardian input request is now pending
     expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
-    // Relay state is still 'connected' (not 'awaiting_guardian_decision')
-    expect(relay.mockConnectionState).toBe("connected");
 
     // Clear any tokens from the turn itself
     relay.sentTokens.length = 0;
@@ -2936,11 +2904,11 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test("Deepgram selected path resolves useSynthesizedPath to true", () => {
+  test("Deepgram selected path resolves useSynthesizedPath to true", async () => {
     const cfg = loadConfig();
     cfg.services.tts.provider = "deepgram";
 
-    const result = resolveCallTtsProvider();
+    const result = await resolveCallTtsProvider();
     expect(result.provider).not.toBeNull();
     expect(result.provider!.id).toBe("deepgram");
     expect(result.useSynthesizedPath).toBe(true);
@@ -3086,30 +3054,30 @@ describe("call-controller", () => {
   // ── Shared TTS provider resolution ──────────────────────────────────
 
   describe("resolveCallTtsProvider (shared helper)", () => {
-    test("returns native path with elevenlabs (non-streaming provider)", () => {
+    test("returns native path with elevenlabs (non-streaming provider)", async () => {
       // Default config has provider: "elevenlabs" which is registered as
       // non-streaming in registerTestTtsProviders()
-      const result = resolveCallTtsProvider();
+      const result = await resolveCallTtsProvider();
       expect(result.provider).not.toBeNull();
       expect(result.provider!.id).toBe("elevenlabs");
       expect(result.useSynthesizedPath).toBe(false);
       expect(result.audioFormat).toBe("mp3");
     });
 
-    test("returns fallback when provider registry is empty", () => {
+    test("returns fallback when provider registry is empty", async () => {
       _resetTtsProviderRegistry();
-      const result = resolveCallTtsProvider();
+      const result = await resolveCallTtsProvider();
       expect(result.provider).toBeNull();
       expect(result.useSynthesizedPath).toBe(false);
       expect(result.audioFormat).toBe("mp3");
     });
 
-    test("degrades fish-audio synthesized path when referenceId is missing", () => {
+    test("degrades fish-audio synthesized path when referenceId is missing", async () => {
       const cfg = loadConfig();
       cfg.services.tts.provider = "fish-audio";
       cfg.services.tts.providers["fish-audio"].referenceId = "";
 
-      const result = resolveCallTtsProvider();
+      const result = await resolveCallTtsProvider();
       expect(result.provider).toBeNull();
       expect(result.useSynthesizedPath).toBe(false);
       expect(result.audioFormat).toBe("mp3");
@@ -3133,18 +3101,18 @@ describe("call-controller", () => {
       controller.destroy();
     });
 
-    test("returns synthesized path with deepgram provider", () => {
+    test("returns synthesized path with deepgram provider", async () => {
       const cfg = loadConfig();
       cfg.services.tts.provider = "deepgram";
 
-      const result = resolveCallTtsProvider();
+      const result = await resolveCallTtsProvider();
       expect(result.provider).not.toBeNull();
       expect(result.provider!.id).toBe("deepgram");
       expect(result.useSynthesizedPath).toBe(true);
       expect(result.audioFormat).toBe("mp3");
     });
 
-    test("Deepgram does not apply fish-audio referenceId gate", () => {
+    test("Deepgram does not apply fish-audio referenceId gate", async () => {
       // Deepgram has no referenceId requirement. Verify the fish-audio
       // config gate does not apply to deepgram resolution.
       const cfg = loadConfig();
@@ -3152,7 +3120,7 @@ describe("call-controller", () => {
       // fish-audio referenceId left empty — should not affect deepgram.
       cfg.services.tts.providers["fish-audio"].referenceId = "";
 
-      const result = resolveCallTtsProvider();
+      const result = await resolveCallTtsProvider();
       expect(result.provider).not.toBeNull();
       expect(result.provider!.id).toBe("deepgram");
       expect(result.useSynthesizedPath).toBe(true);
@@ -3266,6 +3234,151 @@ describe("call-controller", () => {
 
       // Now barge-in is accepted and interrupts the turn.
       expect(controller.handleBargeIn()).toBe(true);
+      expect(controller.getState()).toBe("idle");
+
+      controller.destroy();
+      await turnPromise.catch(() => {});
+    });
+
+    test("buffering transport (media-stream): streamed tokens do not flip to speaking; barge-in is rejected and the turn still delivers", async () => {
+      // Simulates the media-stream transport: sendTextToken(.., false)
+      // only buffers; audio starts later. The controller must stay in
+      // `processing` until the transport's audio-start signal fires, so
+      // VAD speech-start during generation cannot abort a silent turn.
+      let releaseTurn!: () => void;
+      const completeGate = new Promise<void>((r) => {
+        releaseTurn = r;
+      });
+
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+          signal?: AbortSignal;
+        }) => {
+          opts.onTextDelta("Hello");
+          opts.onTextDelta(" caller");
+          opts.signal?.addEventListener("abort", () => releaseTurn());
+          await completeGate;
+          opts.onComplete();
+          return { turnId: "run-buffered", abort: () => releaseTurn() };
+        },
+      );
+
+      const { relay, controller } = setupController();
+      let audioStartCallback: (() => void) | null = null;
+      relay.setAudioStartCallback = (cb) => {
+        audioStartCallback = cb;
+      };
+
+      const turnPromise = controller.handleCallerUtterance("Hi");
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // Tokens were emitted (buffered by the transport) but no audio has
+      // started — the controller must still be processing.
+      expect(
+        relay.sentTokens.filter((t) => !t.last && t.token.length > 0).length,
+      ).toBeGreaterThan(0);
+      expect(controller.getState()).toBe("processing");
+      expect(audioStartCallback).not.toBeNull();
+
+      // VAD speech-start mid-generation → barge-in rejected, turn intact.
+      expect(controller.handleBargeIn()).toBe(false);
+      expect(controller.getState()).toBe("processing");
+
+      // The turn completes and delivers its end-of-turn signal.
+      releaseTurn();
+      await turnPromise;
+      const endTokens = relay.sentTokens.filter(
+        (t) => t.last === true && t.token === "",
+      );
+      expect(endTokens.length).toBe(1);
+
+      controller.destroy();
+    });
+
+    test("buffering transport: audio-start signal flips to speaking and barge-in is accepted", async () => {
+      let releaseTurn!: () => void;
+      const completeGate = new Promise<void>((r) => {
+        releaseTurn = r;
+      });
+
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+          signal?: AbortSignal;
+        }) => {
+          opts.onTextDelta("Hello");
+          opts.signal?.addEventListener("abort", () => releaseTurn());
+          await completeGate;
+          opts.onComplete();
+          return { turnId: "run-buffered-2", abort: () => releaseTurn() };
+        },
+      );
+
+      const { relay, controller } = setupController();
+      let audioStartCallback: (() => void) | null = null;
+      let discardedPendingText = 0;
+      relay.setAudioStartCallback = (cb) => {
+        audioStartCallback = cb;
+      };
+      relay.discardPendingText = () => {
+        discardedPendingText++;
+      };
+
+      const turnPromise = controller.handleCallerUtterance("Hi");
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(controller.getState()).toBe("processing");
+
+      // Transport reports real outbound audio started → speaking.
+      audioStartCallback!();
+      expect(controller.getState()).toBe("speaking");
+
+      // Barge-in now aborts the turn, discards the transport's buffered
+      // text, and returns the controller to idle.
+      expect(controller.handleBargeIn()).toBe(true);
+      expect(controller.getState()).toBe("idle");
+      expect(discardedPendingText).toBeGreaterThan(0);
+
+      controller.destroy();
+      await turnPromise.catch(() => {});
+    });
+
+    test("buffering transport: stale audio-start signal from a superseded run does not flip state", async () => {
+      let releaseTurn!: () => void;
+      const completeGate = new Promise<void>((r) => {
+        releaseTurn = r;
+      });
+
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+          signal?: AbortSignal;
+        }) => {
+          opts.onTextDelta("Hello");
+          opts.signal?.addEventListener("abort", () => releaseTurn());
+          await completeGate;
+          opts.onComplete();
+          return { turnId: "run-buffered-3", abort: () => releaseTurn() };
+        },
+      );
+
+      const { relay, controller } = setupController();
+      let audioStartCallback: (() => void) | null = null;
+      relay.setAudioStartCallback = (cb) => {
+        audioStartCallback = cb;
+      };
+
+      const turnPromise = controller.handleCallerUtterance("Hi");
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      const staleCallback = audioStartCallback!;
+
+      // Supersede the run (hard interrupt), then fire the stale signal.
+      controller.handleInterrupt();
+      expect(controller.getState()).toBe("idle");
+      staleCallback();
       expect(controller.getState()).toBe("idle");
 
       controller.destroy();

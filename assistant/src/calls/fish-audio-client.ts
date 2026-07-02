@@ -18,6 +18,8 @@ const IDLE_TIMEOUT_MS = 5_000;
 interface SynthesizeOptions {
   onChunk?: (chunk: Uint8Array) => void;
   signal?: AbortSignal;
+  /** PCM sample rate to request (Fish `sample_rate`). Omitted = API default. */
+  sampleRate?: number;
 }
 
 /**
@@ -47,6 +49,7 @@ export async function synthesizeWithFishAudio(
     reference_id: config.referenceId || undefined,
     model: "s2-pro",
     format: config.format,
+    sample_rate: options?.sampleRate,
     mp3_bitrate: 192,
     chunk_length: config.chunkLength,
     normalize: true,

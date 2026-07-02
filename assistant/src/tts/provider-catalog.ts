@@ -56,6 +56,27 @@ interface TtsProviderCatalogCapabilities {
 }
 
 /**
+ * Output format the provider's adapter produces when a caller requests
+ * PCM output (`outputFormat: "pcm"`) for media-stream playback.
+ *
+ * The media-stream transport can only transcode raw PCM or WAV
+ * (PCM-in-container) to mu-law — compressed formats (mp3, opus) produce
+ * garbled audio. Providers whose adapter honours the PCM hint declare
+ * `"pcm"`; providers that substitute WAV declare `"wav"`; providers that
+ * can only produce compressed audio declare `"none"` and are not playable
+ * over media-stream transports.
+ */
+export type TtsMediaStreamOutputFormat = "pcm" | "wav" | "none";
+
+/**
+ * How the provider's synthesized audio plays over media-stream transports.
+ */
+export interface TtsMediaStreamPlayback {
+  /** Format the adapter produces for media-stream (PCM-hinted) requests. */
+  readonly outputFormat: TtsMediaStreamOutputFormat;
+}
+
+/**
  * Link to a provider's API-key management page, shown in settings UI.
  */
 interface TtsCredentialsGuide {
@@ -71,7 +92,7 @@ interface TtsCredentialsGuide {
  * metadata level — identity, display name, telephony call mode,
  * capabilities, secret requirements, and client-facing display metadata.
  */
-interface TtsProviderCatalogEntry {
+export interface TtsProviderCatalogEntry {
   /** Unique provider identifier matching {@link TtsProviderId}. */
   readonly id: TtsProviderId;
 
@@ -94,21 +115,23 @@ interface TtsProviderCatalogEntry {
   readonly callMode: TtsCallMode;
 
   /**
-   * Whether the call path may fall back to native Twilio token-based
-   * TTS when synthesized audio fails.
+   * Whether the call path may fall back to the text-token path when
+   * synthesized audio fails.
    *
    * Providers with `callMode: "native-twilio"` always set this to `true`.
-   * Synthesized-play providers that also work through Twilio's built-in
-   * TTS (e.g. Fish Audio) set this to `true` so callers still hear
-   * a response if synthesis fails. Providers that have **no** native
-   * Twilio integration (e.g. Deepgram) set this to `false` — a synthesis
-   * failure must propagate so the outer error handler can surface a
-   * user-facing recovery message.
+   * Synthesized-play providers with a usable token fallback (e.g. Fish
+   * Audio) set this to `true` so callers still hear a response if
+   * synthesis fails. Providers without one (e.g. Deepgram) set this to
+   * `false` — a synthesis failure must propagate so the outer error
+   * handler can surface a user-facing recovery message.
    */
   readonly allowNativeFallback: boolean;
 
   /** Static provider-level capabilities. */
   readonly capabilities: Readonly<TtsProviderCatalogCapabilities>;
+
+  /** How the provider's audio plays over media-stream transports. */
+  readonly mediaStreamPlayback: Readonly<TtsMediaStreamPlayback>;
 
   /** Secrets the provider requires to function. */
   readonly secretRequirements: readonly Readonly<TtsProviderSecretRequirement>[];
@@ -143,6 +166,8 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
       supportsStreaming: false,
       supportedFormats: ["mp3"],
     },
+    // The adapter honours the PCM hint via `pcm_16000` output.
+    mediaStreamPlayback: { outputFormat: "pcm" },
     secretRequirements: [
       {
         credentialStoreKey: "credential/elevenlabs/api_key",
@@ -171,6 +196,8 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
       supportsStreaming: true,
       supportedFormats: ["mp3", "wav", "opus"],
     },
+    // The adapter substitutes WAV for the PCM hint (no raw PCM support).
+    mediaStreamPlayback: { outputFormat: "wav" },
     secretRequirements: [
       {
         credentialStoreKey: "credential/fish-audio/api_key",
@@ -199,6 +226,8 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
       supportsStreaming: false,
       supportedFormats: ["mp3", "wav", "opus"],
     },
+    // The adapter honours the PCM hint via `linear16` + `container=none`.
+    mediaStreamPlayback: { outputFormat: "pcm" },
     secretRequirements: [
       {
         credentialStoreKey: "credential/deepgram/api_key",
@@ -226,6 +255,8 @@ const CATALOG: readonly TtsProviderCatalogEntry[] = [
       supportsStreaming: false,
       supportedFormats: ["mp3", "wav"],
     },
+    // The adapter honours the PCM hint via the `pcm` codec.
+    mediaStreamPlayback: { outputFormat: "pcm" },
     secretRequirements: [
       {
         credentialStoreKey: "credential/xai/api_key",

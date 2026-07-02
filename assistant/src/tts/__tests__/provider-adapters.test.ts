@@ -537,6 +537,43 @@ describe("Fish Audio TTS provider adapter", () => {
     );
   });
 
+  test("pcm output request maps to wav format at 8 kHz", async () => {
+    const provider = createFishAudioProvider();
+    await provider.synthesize(makeRequest({ outputFormat: "pcm" }));
+
+    const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
+    expect((config as { format: string }).format).toBe("wav");
+    expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
+      8000,
+    );
+  });
+
+  test("synthesizeStream pcm output request maps to wav format at 8 kHz", async () => {
+    const provider = createFishAudioProvider();
+    await provider.synthesizeStream!(
+      makeRequest({ outputFormat: "pcm" }),
+      () => {},
+    );
+
+    const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
+    expect((config as { format: string }).format).toBe("wav");
+    expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
+      8000,
+    );
+  });
+
+  test("explicit format request does not set a sample rate", async () => {
+    mockFishAudioConfig.format = "wav";
+    const provider = createFishAudioProvider();
+    await provider.synthesize(makeRequest());
+
+    const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
+    expect((config as { format: string }).format).toBe("wav");
+    expect(
+      (options as { sampleRate?: number } | undefined)?.sampleRate,
+    ).toBeUndefined();
+  });
+
   // -- Streaming -----------------------------------------------------------
 
   test("synthesizeStream passes onChunk callback through", async () => {

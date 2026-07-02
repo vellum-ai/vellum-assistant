@@ -6,7 +6,7 @@
  * it returns <Gather> TwiML pointing to this endpoint. Twilio POSTs the
  * collected DTMF digits here. The gateway validates the code, creates
  * the guardian binding on success, and then forwards to the assistant
- * for ConversationRelay setup.
+ * for media-stream setup.
  *
  * The assistant is never involved in verification — it only receives
  * calls from callers whose identity the gateway has already confirmed.
@@ -196,7 +196,7 @@ export function createTwilioVoiceVerifyCallbackHandler(
       }
     }
 
-    // Forward to the assistant for ConversationRelay setup.
+    // Forward to the assistant for media-stream setup.
     // The assistant will see the caller as already verified.
     log.info(
       { callSid, fromNumber },

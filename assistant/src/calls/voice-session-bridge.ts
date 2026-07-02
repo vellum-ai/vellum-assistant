@@ -253,8 +253,8 @@ function buildVoiceCallControlPrompt(opts: {
  *   - event sink wired to the provided callbacks
  *   - abort propagated from the returned handle
  *
- * The caller (CallController via relay-server) can use the returned handle
- * to cancel the turn on barge-in.
+ * The caller (CallController) can use the returned handle to cancel the
+ * turn on barge-in.
  */
 export async function startVoiceTurn(
   opts: VoiceTurnOptions,
@@ -615,8 +615,8 @@ export async function startVoiceTurn(
     }
   };
 
-  // If the caller provided an external AbortSignal (e.g. from a
-  // RelayConnection's AbortController), wire it to the turn's abort.
+  // If the caller provided an external AbortSignal (e.g. from the call
+  // controller's AbortController), wire it to the turn's abort.
   if (opts.signal) {
     if (opts.signal.aborted) {
       abortFn();

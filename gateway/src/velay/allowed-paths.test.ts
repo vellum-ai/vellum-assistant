@@ -41,7 +41,6 @@ describe("VELAY_ALLOWED_PATHS", () => {
       "/webhooks/telegram": true,
       "/webhooks/twilio/voice": true,
       "/webhooks/twilio/status": true,
-      "/webhooks/twilio/connect-action": true,
       "/webhooks/twilio/voice-verify": true,
       "/webhooks/whatsapp": true,
       "/webhooks/email": true,

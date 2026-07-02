@@ -1,10 +1,10 @@
 /**
- * Extracted verification logic for the ConversationRelay voice pipeline.
+ * Verification logic for the voice call setup pipeline.
  *
  * These pure-ish functions encapsulate the decision-making for guardian code
- * verification and invite code redemption without directly mutating relay
- * connection state. They return structured result objects that the caller
- * (RelayConnection) interprets to drive side-effects (TTS, session updates,
+ * verification and invite code redemption without mutating call-session
+ * state. They return structured result objects that the caller
+ * (CallSetupFlow) interprets to drive side-effects (TTS, session updates,
  * timer scheduling, etc.).
  */
 

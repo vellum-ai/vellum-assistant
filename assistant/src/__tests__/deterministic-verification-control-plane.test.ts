@@ -5,8 +5,7 @@
  * 1. Verification control messages (code replies, /start gv_<token>) never invoke
  *    the normal message pipeline — they produce only template-driven copy.
  * 2. Call session mode metadata is persisted correctly for guardian verification calls.
- * 3. TwiML generation includes guardian verification parameters when relevant.
- * 4. Channel verification reply templates are non-empty and deterministic.
+ * 3. Channel verification reply templates are non-empty and deterministic.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -54,8 +53,6 @@ mock.module("../daemon/process-message.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import type { TwilioRelaySpeechConfig } from "../calls/twilio-routes.js";
-import { generateTwiML } from "../calls/twilio-routes.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { handleChannelInbound } from "../runtime/routes/inbound-message-handler.js";
 import {
@@ -107,64 +104,6 @@ describe("Channel verification reply templates", () => {
     );
     expect(typeof result).toBe("string");
     expect(result.length).toBeGreaterThan(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// TwiML generation: parameter propagation
-// ---------------------------------------------------------------------------
-
-describe("TwiML parameter propagation", () => {
-  const defaultProfile = {
-    language: "en-US",
-    ttsProvider: "google",
-    voice: "en-US-Standard-A",
-  };
-
-  const defaultSpeechConfig: TwilioRelaySpeechConfig = {
-    transcriptionProvider: "deepgram",
-    speechModel: undefined,
-    hints: undefined,
-    interruptSensitivity: "low",
-  };
-
-  test("includes verificationSessionId as Parameter when provided", () => {
-    const twiml = generateTwiML(
-      "session-123",
-      "wss://example.com/v1/calls/relay",
-      null,
-      defaultProfile,
-      defaultSpeechConfig,
-      undefined,
-      { verificationSessionId: "gv-session-456" },
-    );
-    expect(twiml).toContain('name="verificationSessionId"');
-    expect(twiml).toContain('value="gv-session-456"');
-    expect(twiml).toContain("<Parameter");
-  });
-
-  test("omits Parameter elements when no custom parameters", () => {
-    const twiml = generateTwiML(
-      "session-123",
-      "wss://example.com/v1/calls/relay",
-      null,
-      defaultProfile,
-      defaultSpeechConfig,
-    );
-    expect(twiml).not.toContain("<Parameter");
-  });
-
-  test("omits Parameter elements when custom parameters is undefined", () => {
-    const twiml = generateTwiML(
-      "session-123",
-      "wss://example.com/v1/calls/relay",
-      null,
-      defaultProfile,
-      defaultSpeechConfig,
-      "token123",
-      undefined,
-    );
-    expect(twiml).not.toContain("<Parameter");
   });
 });
 

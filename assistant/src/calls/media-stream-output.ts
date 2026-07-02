@@ -5,9 +5,7 @@
  * can send synthesized audio and lifecycle signals through a Twilio Media
  * Stream WebSocket connection.
  *
- * Unlike the ConversationRelay transport which sends text tokens for
- * Twilio's built-in TTS, the media-stream transport operates on raw
- * audio frames:
+ * The media-stream transport operates on raw audio frames:
  *
  * - `sendTextToken()` — Accumulates text tokens and, on `last: true`,
  *   synthesizes the accumulated text via the configured TTS provider,
@@ -39,6 +37,7 @@ import type { CallTransport } from "./call-transport.js";
 import {
   chunkMulawToBase64Frames,
   pcm16ToMulaw,
+  resamplePcm16,
 } from "./media-stream-audio-transcode.js";
 import type {
   MediaStreamClearCommand,
@@ -47,6 +46,25 @@ import type {
 } from "./media-stream-protocol.js";
 
 const log = getLogger("media-stream-output");
+
+/** Twilio media streams consume 8 kHz mono mu-law. */
+const TELEPHONY_SAMPLE_RATE_HZ = 8000;
+
+/**
+ * Keep every `factor`-th 16-bit LE sample. Cheap decimation (no anti-alias
+ * filter) for rates that are integer multiples of the telephony rate; also
+ * extracts the left channel from interleaved stereo when factor is 2.
+ */
+function decimatePcm16(pcm: Buffer, factor: number): Buffer {
+  const sampleCount = Math.floor(pcm.length / 2);
+  const outCount = Math.floor(sampleCount / factor);
+  const out = Buffer.alloc(outCount * 2);
+  for (let i = 0; i < outCount; i++) {
+    out[i * 2] = pcm[i * factor * 2];
+    out[i * 2 + 1] = pcm[i * factor * 2 + 1];
+  }
+  return out;
+}
 
 // ---------------------------------------------------------------------------
 // Connection state
@@ -94,6 +112,15 @@ export class MediaStreamOutput implements CallTransport {
   private playbackVersion = 0;
 
   /**
+   * One-shot callback fired when the next batch of audio frames is
+   * actually sent to Twilio. Armed by the call controller so it can
+   * flip to `speaking` only when real outbound audio starts. Cleared
+   * by the playback flush (barge-in) so a wiped queue never fires a
+   * stale signal.
+   */
+  private audioStartCallback: (() => void) | null = null;
+
+  /**
    * The media-stream transport requires WAV (PCM) audio because its
    * mu-law transcoder cannot decode compressed formats (mp3, opus).
    */
@@ -110,10 +137,9 @@ export class MediaStreamOutput implements CallTransport {
    * Accumulate text tokens for TTS synthesis. When `last` is true, the
    * accumulated text is queued for synthesis and delivery as media frames.
    *
-   * An empty token with `last: true` signals end-of-turn without TTS.
-   * This mirrors ConversationRelay semantics where an empty last token
-   * transitions the relay from "assistant speaking" to "caller speaking".
-   * On the media-stream transport we send a mark instead.
+   * An empty token with `last: true` signals end-of-turn without TTS:
+   * a mark is sent so the session transitions from "assistant speaking"
+   * to "caller speaking".
    */
   sendTextToken(token: string, last: boolean): void {
     if (this.state === "closed") return;
@@ -130,8 +156,7 @@ export class MediaStreamOutput implements CallTransport {
       }
 
       // Always send an end-of-turn mark so the media-stream server
-      // can detect turn boundaries (analogous to ConversationRelay's
-      // empty last token).
+      // can detect turn boundaries.
       this.enqueuePlayback({ type: "mark", name: "end-of-turn" });
     }
   }
@@ -146,6 +171,24 @@ export class MediaStreamOutput implements CallTransport {
   sendPlayUrl(url: string): void {
     if (this.state === "closed") return;
     this.enqueuePlayback({ type: "fetch-url", url });
+  }
+
+  /**
+   * Arm a one-shot audio-start signal. The callback fires when the next
+   * batch of audio frames is sent to Twilio, then disarms. Pass `null`
+   * to disarm.
+   */
+  setAudioStartCallback(cb: (() => void) | null): void {
+    this.audioStartCallback = cb;
+  }
+
+  /**
+   * Discard accumulated text that has not yet been queued for synthesis.
+   * The call controller invokes this when it aborts an in-flight turn so
+   * the aborted turn's unsent text cannot leak into the next turn.
+   */
+  discardPendingText(): void {
+    this.textBuffer = "";
   }
 
   /**
@@ -173,14 +216,6 @@ export class MediaStreamOutput implements CallTransport {
         "Failed to close media-stream WebSocket",
       );
     }
-  }
-
-  /**
-   * Return the current connection-level state. The controller uses this
-   * to suppress silence nudges during guardian wait states.
-   */
-  getConnectionState(): string {
-    return this.state;
   }
 
   // ── Media-stream specific methods ───────────────────────────────────
@@ -240,6 +275,12 @@ export class MediaStreamOutput implements CallTransport {
    * 1. Sends a Twilio `clear` command to flush Twilio's outbound buffer.
    * 2. Aborts any in-flight TTS synthesis or URL fetch.
    * 3. Drains the internal playback queue so no further frames are sent.
+   *
+   * Text still accumulating for an in-flight LLM turn (`textBuffer`) is
+   * preserved: a barge-in signal that the controller ignores (turn still
+   * processing, no audio yet) must not truncate the pending response.
+   * The controller discards that text via {@link discardPendingText}
+   * when it actually aborts the turn.
    */
   clearAudio(): void {
     if (this.state === "closed") return;
@@ -314,12 +355,17 @@ export class MediaStreamOutput implements CallTransport {
 
   /**
    * Flush the playback queue and abort in-flight work. Increments the
-   * playback version so any stale async work is discarded.
+   * playback version so any stale async work is discarded, and disarms
+   * the pending audio-start signal so flushed items never fire it.
+   *
+   * Deliberately preserves `textBuffer`: text still accumulating for an
+   * in-flight LLM turn is owned by the call controller, which discards
+   * it via {@link discardPendingText} only when the turn is aborted.
    */
   private flushPlaybackQueue(): void {
     this.playbackQueue.length = 0;
-    this.textBuffer = "";
     this.playbackVersion++;
+    this.audioStartCallback = null;
     if (this.activePlaybackAbort) {
       this.activePlaybackAbort.abort();
       this.activePlaybackAbort = null;
@@ -374,9 +420,16 @@ export class MediaStreamOutput implements CallTransport {
   }
 
   /**
-   * Send an array of pre-encoded base64 audio frames to Twilio.
+   * Send an array of pre-encoded base64 audio frames to Twilio. Fires
+   * the one-shot audio-start signal before the first frame goes out.
    */
   private sendFrames(frames: string[]): void {
+    if (frames.length === 0) return;
+    const audioStartCallback = this.audioStartCallback;
+    if (audioStartCallback) {
+      this.audioStartCallback = null;
+      audioStartCallback();
+    }
     for (const frame of frames) {
       this.sendAudioPayload(frame);
     }
@@ -399,7 +452,7 @@ export class MediaStreamOutput implements CallTransport {
       // Request WAV so audioBufferToFrames gets PCM it can transcode
       // to mu-law. Compressed formats (mp3, opus) would be sent as raw
       // bytes and produce garbled audio.
-      const { provider, audioFormat } = resolveCallTtsProvider({
+      const { provider, audioFormat } = await resolveCallTtsProvider({
         preferWav: true,
       });
       if (!provider) {
@@ -534,7 +587,8 @@ export class MediaStreamOutput implements CallTransport {
    * real format:
    *
    * - **WAV** (`RIFF` header, bytes `0x52 0x49 0x46 0x46`): extracts
-   *   raw PCM data from the WAV container and converts to mu-law.
+   *   raw PCM data from the WAV container, converts it to 8 kHz using the
+   *   fmt-chunk sample rate, and converts to mu-law.
    * - **PCM** (raw 16-bit signed LE at a known sample rate): converts
    *   directly to mu-law, downsampling from 16 kHz to 8 kHz if needed.
    * - **Compressed formats** (mp3, opus): cannot be decoded in this
@@ -556,11 +610,29 @@ export class MediaStreamOutput implements CallTransport {
       audio[3] === 0x46; // F
 
     if (isWav) {
-      // Extract raw PCM from WAV container. Standard WAV has a 44-byte
-      // header; the rest is PCM data (assuming 16-bit signed LE, 8 kHz).
-      const pcmData = audio.subarray(44);
+      // Extract raw PCM from the WAV container, honoring the fmt-chunk
+      // sample rate. Assumes the canonical 44-byte header (fmt chunk at
+      // fixed offsets) — non-canonical RIFF layouts are not walked.
+      const channels = audio.readUInt16LE(22);
+      const sampleRate = audio.readUInt32LE(24);
+      const bitsPerSample = audio.readUInt16LE(34);
+      let pcmData: Buffer = audio.subarray(44);
       if (pcmData.length < 2) return [];
-      const mulawBuffer = pcm16ToMulaw(pcmData);
+
+      if (bitsPerSample !== 16 || channels > 2 || channels === 0) {
+        // Limitation: only 16-bit mono/stereo PCM is decoded here.
+        log.warn(
+          { streamSid: this.streamSid, channels, bitsPerSample },
+          "WAV is not 16-bit mono/stereo PCM — playback may be degraded",
+        );
+      }
+      if (channels === 2) {
+        // Interleaved stereo: keep the left channel.
+        pcmData = decimatePcm16(pcmData, 2);
+      }
+
+      const pcm8k = this.pcm16ToTelephonyRate(pcmData, sampleRate);
+      const mulawBuffer = pcm16ToMulaw(pcm8k);
       return chunkMulawToBase64Frames(mulawBuffer);
     }
 
@@ -611,16 +683,9 @@ export class MediaStreamOutput implements CallTransport {
     // needs 8 kHz mu-law, so we downsample by taking every other sample.
     if (format === "pcm" || format === "wav") {
       if (audio.length < 2) return [];
-      // Downsample 16 kHz -> 8 kHz by taking every other sample.
-      // Each sample is 2 bytes (16-bit LE), so we step by 4 bytes.
-      const sampleCount = Math.floor(audio.length / 2);
-      const downsampledCount = Math.floor(sampleCount / 2);
-      const downsampled = Buffer.alloc(downsampledCount * 2);
-      for (let i = 0; i < downsampledCount; i++) {
-        // Copy every other 16-bit sample
-        downsampled[i * 2] = audio[i * 4];
-        downsampled[i * 2 + 1] = audio[i * 4 + 1];
-      }
+      // Headerless PCM carries no declared rate; assume the 16 kHz that
+      // ElevenLabs pcm_16000 produces and downsample to 8 kHz.
+      const downsampled = decimatePcm16(audio, 2);
       const mulawBuffer = pcm16ToMulaw(downsampled);
       return chunkMulawToBase64Frames(mulawBuffer);
     }
@@ -656,5 +721,27 @@ export class MediaStreamOutput implements CallTransport {
       "Unrecognized audio format — attempting raw passthrough (may produce garbled audio)",
     );
     return chunkMulawToBase64Frames(audio);
+  }
+
+  /**
+   * Convert PCM16 LE at the given sample rate to the 8 kHz telephony
+   * rate. Integer multiples of 8 kHz use cheap decimation; other rates
+   * (e.g. Fish Audio's 44.1 kHz WAV default) use linear-interpolation
+   * resampling. Unparseable rates fall back to the historical 8 kHz
+   * assumption with a warning.
+   */
+  private pcm16ToTelephonyRate(pcm: Buffer, sampleRate: number): Buffer {
+    if (sampleRate === TELEPHONY_SAMPLE_RATE_HZ) return pcm;
+    if (!Number.isFinite(sampleRate) || sampleRate <= 0) {
+      log.warn(
+        { streamSid: this.streamSid, sampleRate },
+        "Unparseable WAV sample rate — assuming 8 kHz",
+      );
+      return pcm;
+    }
+    if (sampleRate % TELEPHONY_SAMPLE_RATE_HZ === 0) {
+      return decimatePcm16(pcm, sampleRate / TELEPHONY_SAMPLE_RATE_HZ);
+    }
+    return resamplePcm16(pcm, sampleRate, TELEPHONY_SAMPLE_RATE_HZ);
   }
 }

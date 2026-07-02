@@ -558,6 +558,104 @@ describe("DeepgramRealtimeTranscriber", () => {
   });
 
   // ─────────────────────────────────────────────────────────────────
+  // Utterance-boundary finals (telephony gating)
+  // ─────────────────────────────────────────────────────────────────
+
+  describe("utteranceBoundaryFinals", () => {
+    test("withholds is_final segments until speech_final, then emits one aggregated final", async () => {
+      const { events } = await startSession({ utteranceBoundaryFinals: true });
+
+      mockWs.simulateMessage(resultsFrame("this is a", { is_final: true }));
+      mockWs.simulateMessage(resultsFrame("long sentence", { is_final: true }));
+      expect(events.filter((e) => e.type === "final")).toHaveLength(0);
+
+      mockWs.simulateMessage(
+        resultsFrame("with a pause", { is_final: true, speech_final: true }),
+      );
+
+      const finals = events.filter((e) => e.type === "final");
+      expect(finals).toHaveLength(1);
+      expect(finals[0]).toEqual({
+        type: "final",
+        text: "this is a long sentence with a pause",
+      });
+    });
+
+    test("still emits partials while segments are withheld", async () => {
+      const { events } = await startSession({ utteranceBoundaryFinals: true });
+
+      mockWs.simulateMessage(resultsFrame("this is", { is_final: false }));
+      mockWs.simulateMessage(resultsFrame("this is a", { is_final: true }));
+      mockWs.simulateMessage(resultsFrame("long sen", { is_final: false }));
+
+      expect(events.filter((e) => e.type === "partial")).toHaveLength(2);
+      expect(events.filter((e) => e.type === "final")).toHaveLength(0);
+    });
+
+    test("UtteranceEnd flushes withheld segments as a single final", async () => {
+      const { events } = await startSession({ utteranceBoundaryFinals: true });
+
+      mockWs.simulateMessage(resultsFrame("trailing words", { is_final: true }));
+      mockWs.simulateMessage(utteranceEndFrame());
+
+      const finals = events.filter((e) => e.type === "final");
+      expect(finals).toHaveLength(1);
+      expect(finals[0]).toEqual({ type: "final", text: "trailing words" });
+    });
+
+    test("boundary signals over silence emit nothing", async () => {
+      const { events } = await startSession({ utteranceBoundaryFinals: true });
+
+      mockWs.simulateMessage(
+        resultsFrame("", { is_final: true, speech_final: true }),
+      );
+      mockWs.simulateMessage(utteranceEndFrame());
+
+      expect(events).toHaveLength(0);
+    });
+
+    test("close flushes withheld segments before the closed event", async () => {
+      const { transcriber, events } = await startSession({
+        utteranceBoundaryFinals: true,
+      });
+
+      mockWs.simulateMessage(resultsFrame("cut off", { is_final: true }));
+      transcriber.stop();
+      mockWs.simulateClose(1000, "normal");
+
+      const finalIndex = events.findIndex((e) => e.type === "final");
+      const closedIndex = events.findIndex((e) => e.type === "closed");
+      expect(finalIndex).toBeGreaterThanOrEqual(0);
+      expect(closedIndex).toBeGreaterThan(finalIndex);
+      expect(events[finalIndex]).toEqual({ type: "final", text: "cut off" });
+    });
+
+    test("each utterance aggregates independently", async () => {
+      const { events } = await startSession({ utteranceBoundaryFinals: true });
+
+      mockWs.simulateMessage(resultsFrame("first part", { is_final: true }));
+      mockWs.simulateMessage(
+        resultsFrame("done", { is_final: true, speech_final: true }),
+      );
+      mockWs.simulateMessage(
+        resultsFrame("second utterance", {
+          is_final: true,
+          speech_final: true,
+        }),
+      );
+
+      const finals = events.filter((e) => e.type === "final") as {
+        type: "final";
+        text: string;
+      }[];
+      expect(finals.map((f) => f.text)).toEqual([
+        "first part done",
+        "second utterance",
+      ]);
+    });
+  });
+
+  // ─────────────────────────────────────────────────────────────────
   // Non-transcript frames
   // ─────────────────────────────────────────────────────────────────
 
