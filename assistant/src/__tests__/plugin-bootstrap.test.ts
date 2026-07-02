@@ -21,7 +21,14 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { bootstrapPlugins } from "../daemon/external-plugins-bootstrap.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import { registerDefaultPlugins } from "../plugins/defaults/index.js";
+import {
+  getDefaultPluginNames,
+  primeDefaultPluginNames,
+} from "../plugins/defaults/default-plugin-names.js";
+import {
+  getAllDefaultPlugins,
+  registerDefaultPlugins,
+} from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
   closeRegistration,
@@ -251,6 +258,20 @@ describe("plugin bootstrap", () => {
     });
 
     expect(callOrder).toEqual(["first-registered", "second-registered"]);
+  });
+
+  test("registerDefaultPlugins primes the default-name cache from the canonical list", () => {
+    // Clear the cache, then register: the cache must be filled from
+    // getAllDefaultPlugins so per-chat scoping unions exactly those names,
+    // with no hand-maintained parallel list to drift.
+    primeDefaultPluginNames([]);
+    expect(getDefaultPluginNames().size).toBe(0);
+
+    registerDefaultPlugins();
+
+    const expected = getAllDefaultPlugins().map((p) => p.manifest.name);
+    expect([...getDefaultPluginNames()].sort()).toEqual([...expected].sort());
+    expect(getDefaultPluginNames().has("default-memory")).toBe(true);
   });
 
   test("empty registry: bootstrap seeds the first-party defaults without throwing", async () => {

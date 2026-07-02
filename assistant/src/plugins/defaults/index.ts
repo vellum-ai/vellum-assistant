@@ -42,6 +42,7 @@ import { type Plugin, PluginExecutionError } from "../types.js";
 import { channelInjectors } from "./channel/injectors.js";
 import channelPkg from "./channel/package.json" with { type: "json" };
 import compactionPkg from "./compaction/package.json" with { type: "json" };
+import { primeDefaultPluginNames } from "./default-plugin-names.js";
 import { documentsInjectors } from "./documents/injectors.js";
 import documentsPkg from "./documents/package.json" with { type: "json" };
 import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.js";
@@ -448,7 +449,12 @@ export function getAllDefaultPlugins(): readonly Plugin[] {
  * mismatch) re-throws.
  */
 export function registerDefaultPlugins(): void {
-  for (const plugin of getAllDefaultPlugins()) {
+  const defaults = getAllDefaultPlugins();
+  // Prime the default-name cache from the canonical list so per-chat plugin
+  // scoping (getEffectiveEnabledPluginSet) can union the defaults without a
+  // hardcoded parallel list.
+  primeDefaultPluginNames(defaults.map((p) => p.manifest.name));
+  for (const plugin of defaults) {
     try {
       registerPlugin(plugin);
     } catch (err) {
