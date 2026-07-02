@@ -89,6 +89,8 @@ Rewrite your identity files (IDENTITY.md, SOUL.md, users/guardian.md) to reflect
 
 Overwrite each file completely with file_write: write the whole file fresh in one pass. This is a from-scratch rewrite, not an edit — do not append to what's already there, do not patch individual lines, and leave none of the current default wording behind. Fill in every IDENTITY.md placeholder (the _(not yet chosen)_ / _(not yet established)_ fields).
 
+Keep your existing name exactly as it is — this changes your personality, not who you are. Do not rename yourself, and if your name is already set, carry it through verbatim (don't treat it as a placeholder to fill).
+
 Each rewritten file must still be complete: SOUL.md keeps everything you operate by — how you use memory, your boundaries, your compliance stance — re-expressed in your new voice rather than dropped. When you finish, every file should read top-to-bottom as this new personality, with nothing left in the generic default voice.
 </system-message>`;
 }
