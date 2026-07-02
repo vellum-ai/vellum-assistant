@@ -2117,6 +2117,8 @@ export class Conversation {
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
+      /** See {@link runAgentLoopImpl} — hidden machine-signal turn marker. */
+      isHiddenPrompt?: boolean;
       callSite?: LLMCallSite;
       /**
        * Optional ad-hoc inference-profile override applied to every LLM call

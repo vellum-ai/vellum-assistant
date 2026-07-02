@@ -262,6 +262,13 @@ export async function runAgentLoopImpl(
     isUserMessage?: boolean;
     titleText?: string;
     /**
+     * True when the triggering message is a transcript-suppressed machine
+     * signal (`metadata.hidden`). Forwarded to the user-prompt-submit hook
+     * context so prompt-as-user-speech consumers (title generation) skip
+     * the turn.
+     */
+    isHiddenPrompt?: boolean;
+    /**
      * LLM call-site identifier threaded into the per-call provider config.
      * Adapter callers (heartbeat, filing, scheduler, etc.) pass their own
      * call-site id so the resolver picks `llm.callSites.<id>`. When unset,
@@ -903,6 +910,7 @@ export async function runAgentLoopImpl(
       userMessageId,
       requestId: reqId,
       prompt: options?.titleText ?? content,
+      isHiddenPrompt: options?.isHiddenPrompt === true,
       originalMessages: ctx.messages,
       latestMessages: ctx.messages,
       logger: rlog,

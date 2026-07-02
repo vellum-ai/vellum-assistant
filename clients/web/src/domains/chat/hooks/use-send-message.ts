@@ -335,12 +335,14 @@ export function useSendMessage({
         requestAssistantId,
         useServerMint ? null : requestConversationId,
         content,
-        attachmentIds,
-        onboardingContext ?? undefined,
-        clientMessageId,
-        inferenceProfileForSend,
-        enabledPluginsForSend,
-        isHidden,
+        {
+          attachmentIds,
+          onboarding: onboardingContext ?? undefined,
+          clientMessageId,
+          inferenceProfile: inferenceProfileForSend,
+          enabledPlugins: enabledPluginsForSend,
+          hidden: isHidden,
+        },
       );
       if (
         useServerMint &&
@@ -791,9 +793,7 @@ export function useSendMessage({
             assistantId,
             activeConversationId,
             content,
-            attachmentIds,
-            undefined,
-            clientMessageId,
+            { attachmentIds, clientMessageId, hidden: isHidden },
           );
           if (!postResult.ok) {
             revertQueuedMessage(userMessage.id);

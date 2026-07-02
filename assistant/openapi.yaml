@@ -18317,9 +18317,12 @@ paths:
                     - high
                 hidden:
                   description:
-                    When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history
-                    and still drives the turn). Used to prime a proactive assistant greeting without showing the
-                    triggering user message. Honored on the standard send path only.
+                    "When true, persist the user message but suppress it from the UI transcript (it stays in LLM-side history
+                    and still drives the turn). Used for machine signals the user never typed (proactive-greeting
+                    priming, channel-setup wizard close). Suppression covers the queued path too: a hidden send that
+                    lands mid-turn returns { queued: true, requestId } but never appears in list-messages queued
+                    snapshots, emits no echo, and does not supersede pending interactions. Honored on the standard send
+                    path only — slash-command content bypasses it."
                   type: boolean
                 onboarding:
                   type: object
