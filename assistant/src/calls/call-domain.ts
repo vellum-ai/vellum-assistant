@@ -40,7 +40,7 @@ import {
 } from "./call-store.js";
 import { activeMediaStreamSessions } from "./media-stream-server.js";
 import { getTwilioConfig } from "./twilio-config.js";
-import { TwilioConversationRelayProvider } from "./twilio-provider.js";
+import { TwilioVoiceProvider } from "./twilio-provider.js";
 import type { CallSession } from "./types.js";
 import { preflightVoiceIngress } from "./voice-ingress-preflight.js";
 
@@ -227,7 +227,7 @@ export async function resolveCallerIdentity(
   }
 
   // Verify the user number is eligible as a caller ID with Twilio
-  const provider = new TwilioConversationRelayProvider();
+  const provider = new TwilioVoiceProvider();
   const eligibility = await provider.checkCallerIdEligibility(userNumber);
   if (!eligibility.eligible) {
     log.warn(
@@ -432,7 +432,7 @@ export async function startCall(
     }
 
     const ingressConfig = preflightResult.ingressConfig;
-    const provider = new TwilioConversationRelayProvider();
+    const provider = new TwilioVoiceProvider();
 
     const session = createCallSession({
       conversationId,
@@ -661,7 +661,7 @@ export async function cancelCall(
   // Terminate the call via the provider API
   if (session.providerCallSid) {
     try {
-      const provider = new TwilioConversationRelayProvider();
+      const provider = new TwilioVoiceProvider();
       await provider.endCall(session.providerCallSid);
     } catch (endErr) {
       log.warn(
@@ -924,7 +924,7 @@ export async function startVerificationCall(
 
   try {
     const config = loadConfig();
-    const provider = new TwilioConversationRelayProvider();
+    const provider = new TwilioVoiceProvider();
 
     // Resolve the assistant's Twilio number as the caller ID
     const identityResult = await resolveCallerIdentity(config);
@@ -1056,7 +1056,7 @@ export async function startInviteCall(
 
   try {
     const config = loadConfig();
-    const provider = new TwilioConversationRelayProvider();
+    const provider = new TwilioVoiceProvider();
 
     // Resolve the assistant's Twilio number as the caller ID
     const identityResult = await resolveCallerIdentity(config);
