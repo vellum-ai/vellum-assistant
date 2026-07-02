@@ -1,9 +1,9 @@
-// Integration coverage for the messages lexical-index dual-write wiring:
-//   - a real persist (`addMessage` → `onMessagePersisted`) enqueues one
-//     `index_message_lexical` job for the message when memory is enabled, and
-//     none when memory is disabled;
+// Integration coverage for the messages lexical-index write wiring:
+//   - a real persist (`addMessage`) enqueues one `index_message_lexical` job
+//     for the message, regardless of whether memory is enabled or disabled
+//     (message-content search is host infrastructure);
 //   - forking a conversation copies message rows WITHOUT routing through
-//     `onMessagePersisted`, so a fork enqueues ZERO `index_message_lexical`
+//     the persist path, so a fork enqueues ZERO `index_message_lexical`
 //     jobs (the fork-exclusion regression);
 //   - wiping a conversation enqueues one `purge_conversation_lexical` job.
 //
@@ -161,12 +161,16 @@ describe("messages lexical-index dual-write", () => {
     expect(lexicalJobMessageIds()).toContain(message.id);
   });
 
-  test("addMessage enqueues NO index_message_lexical job when memory is disabled", async () => {
+  test("addMessage still enqueues an index_message_lexical job when memory is disabled", async () => {
     setMemoryEnabled(false);
     const conv = createConversation("Disabled memory thread");
-    await addMessage(conv.id, "user", "should not be lexically indexed");
+    const message = await addMessage(
+      conv.id,
+      "user",
+      "lexically indexed regardless of memory state",
+    );
 
-    expect(countJobs("index_message_lexical")).toBe(0);
+    expect(lexicalJobMessageIds()).toContain(message.id);
   });
 
   test("enqueueLexicalIndexForMessage no-ops on an empty message id", () => {

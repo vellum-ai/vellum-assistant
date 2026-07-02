@@ -87,7 +87,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../../persistence/db-connection.js",
     "../../../../../persistence/embeddings/embed.js",
     "../../../../../persistence/embeddings/embedding-backend.js",
-    "../../../../../persistence/job-handlers/message-lexical.js",
     "../../../../../persistence/raw-query.js",
     "../../../../../persistence/schema/index.js",
     "../../../../../security/untrusted-content.js",

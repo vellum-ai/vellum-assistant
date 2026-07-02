@@ -40,10 +40,9 @@ mock.module("../conversation-search-lexical.js", () => ({
   searchMessageIdsLexical: searchMessageIdsLexicalMock,
 }));
 
-// Content search is unavailable when memory is disabled (the lexical index is
-// only written while memory is enabled). Control `isMemoryEnabled` so most
-// tests run with it `true`, and one test flips it `false` to assert the
-// title-only behavior. Spread the real module to preserve its other exports
+// Message-content search is host infrastructure, independent of the memory
+// feature. Control `isMemoryEnabled` so one test can flip it `false` and
+// prove reads ignore it. Spread the real module to preserve its other exports
 // (many modules import from `jobs-store`).
 let memoryEnabled = true;
 const actualJobsStore = await import("../jobs-store.js");
@@ -307,22 +306,22 @@ describe("searchConversations · qdrant lexical index", () => {
     expect(results[0]!.matchingMessages).toEqual([]);
   });
 
-  test("returns title matches only when memory is disabled (content search unavailable)", async () => {
-    // The lexical index is only written while memory is enabled, so with
-    // memory off it is empty and a lookup would silently return no content
-    // matches. The index must not be consulted at all; only titles can match.
+  test("serves lexical content matches even when memory is disabled", async () => {
+    // Message-content search is host infrastructure: indexing runs and reads
+    // serve regardless of the memory feature's state, so disabling memory
+    // must not degrade search to title-only.
     memoryEnabled = false;
-    const contentOnly = createConversation("Notes");
-    insertMessage("m-1", contentOnly.id, "flux capacitor in content only");
-    const titleMatch = createConversation("Flux capacitor planning");
-    // Even if the index somehow returned a candidate, it must not be consulted.
+    const conv = createConversation("Notes");
+    insertMessage("m-1", conv.id, "flux capacitor in content only");
     lexicalReturns(["m-1"]);
 
     const results = await searchConversations("flux capacitor");
 
-    expect(searchMessageIdsLexicalMock).not.toHaveBeenCalled();
-    expect(results.map((r) => r.conversationId)).toEqual([titleMatch.id]);
-    expect(results[0]!.matchingMessages).toEqual([]);
+    expect(searchMessageIdsLexicalMock).toHaveBeenCalledTimes(1);
+    expect(results.map((r) => r.conversationId)).toEqual([conv.id]);
+    expect(results[0]!.matchingMessages.map((m) => m.messageId)).toEqual([
+      "m-1",
+    ]);
   });
 
   test("returns title matches only until the backfill completion checkpoint is set", async () => {
