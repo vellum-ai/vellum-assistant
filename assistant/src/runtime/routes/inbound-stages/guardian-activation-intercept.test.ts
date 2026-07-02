@@ -32,12 +32,24 @@ mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
     list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
-mock.module("../../channel-verification-service.js", () => ({
-  createOutboundSession: (params: unknown) => {
+// Gateway-backed session client (async IPC); the throw toggles simulate an
+// unreachable gateway, where the client wrappers throw transport errors.
+let findActiveSessionThrows = false;
+let createOutboundSessionThrows = false;
+mock.module("../../../channels/gateway-verification-sessions.js", () => ({
+  createOutboundSession: async (params: unknown) => {
+    if (createOutboundSessionThrows) {
+      throw new Error("gateway unreachable");
+    }
     createOutboundSessionCalls.push(params);
     return mockSessionResult;
   },
-  findActiveSession: () => mockActiveSession,
+  findActiveSession: async () => {
+    if (findActiveSessionThrows) {
+      throw new Error("gateway unreachable");
+    }
+    return mockActiveSession;
+  },
 }));
 
 mock.module("../../gateway-client.js", () => ({
@@ -116,6 +128,8 @@ describe("handleGuardianActivationIntercept", () => {
     createOutboundSessionCalls = [];
     deliverChannelReplyCalls = [];
     emitNotificationSignalCalls = [];
+    findActiveSessionThrows = false;
+    createOutboundSessionThrows = false;
   });
 
   afterEach(() => {
@@ -276,6 +290,34 @@ describe("handleGuardianActivationIntercept", () => {
     expect(body).toEqual({ accepted: true, guardianActivation: true });
     expect(createOutboundSessionCalls).toHaveLength(1);
     expect(emitNotificationSignalCalls).toHaveLength(1);
+  });
+
+  test("gateway unreachable on the session read skips auto-activation without throwing", async () => {
+    findActiveSessionThrows = true;
+
+    const result = await handleGuardianActivationIntercept(makeParams());
+
+    // Degrades to the normal pipeline: no session, no reply, no signal.
+    expect(result).toBeNull();
+    expect(createOutboundSessionCalls).toHaveLength(0);
+    expect(deliverChannelReplyCalls).toHaveLength(0);
+    expect(emitNotificationSignalCalls).toHaveLength(0);
+  });
+
+  test("gateway unreachable on session creation skips auto-activation and stays retryable", async () => {
+    createOutboundSessionThrows = true;
+    const params = makeParams({ externalMessageId: "retry-after-outage" });
+
+    const result = await handleGuardianActivationIntercept(params);
+    expect(result).toBeNull();
+    expect(emitNotificationSignalCalls).toHaveLength(0);
+
+    // Not marked processed on failure: the next webhook retry succeeds once
+    // the gateway is reachable again.
+    createOutboundSessionThrows = false;
+    const retry = await handleGuardianActivationIntercept(params);
+    expect(retry).toEqual({ accepted: true, guardianActivation: true });
+    expect(createOutboundSessionCalls).toHaveLength(1);
   });
 
   test("duplicate webhook retry is silently deduped", async () => {

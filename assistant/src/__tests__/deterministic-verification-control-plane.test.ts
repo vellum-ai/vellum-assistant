@@ -57,11 +57,40 @@ mock.module("../daemon/process-message.js", () => ({
 import type { TwilioRelaySpeechConfig } from "../calls/twilio-routes.js";
 import { generateTwiML } from "../calls/twilio-routes.js";
 import { initializeDb } from "../persistence/db-init.js";
+import {
+  bindSessionIdentity,
+  createOutboundSession,
+  resolveBootstrapToken,
+  updateSessionDelivery,
+  updateSessionStatus,
+} from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "../runtime/routes/inbound-message-handler.js";
 import {
   composeChannelVerifyReply,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/verification-templates.js";
+
+// The inbound stages read/write sessions via the gateway-backed IPC client;
+// delegate it to the local service so the bootstrap flow keeps running
+// against the test DB.
+mock.module("../channels/gateway-verification-sessions.js", () => ({
+  resolveBootstrapToken: async (channel: string, token: string) =>
+    resolveBootstrapToken(channel, token),
+  bindSessionIdentity: async (
+    id: string,
+    externalUserId: string,
+    chatId: string,
+  ) => bindSessionIdentity(id, externalUserId, chatId),
+  updateSessionStatus: async (
+    ...args: Parameters<typeof updateSessionStatus>
+  ) => updateSessionStatus(...args),
+  createOutboundSession: async (
+    params: Parameters<typeof createOutboundSession>[0],
+  ) => createOutboundSession(params),
+  updateSessionDelivery: async (
+    ...args: Parameters<typeof updateSessionDelivery>
+  ) => updateSessionDelivery(...args),
+}));
 
 // ---------------------------------------------------------------------------
 // Template tests: channel verification reply templates are deterministic

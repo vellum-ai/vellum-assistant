@@ -9,6 +9,13 @@
 import type { AdmissionPolicy, SourceMetadata } from "@vellumai/gateway-client";
 import { isTrustClass } from "@vellumai/gateway-client";
 
+import type { VerificationSessionWire } from "../../../channels/gateway-verification-sessions.js";
+import {
+  createOutboundSession,
+  findActiveSession,
+  getPendingSession,
+  resolveBootstrapToken,
+} from "../../../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../../../channels/types.js";
 import { getGuardianDelivery } from "../../../contacts/guardian-delivery-reader.js";
 import { channelStatusToMemberStatus } from "../../../contacts/member-status.js";
@@ -22,12 +29,6 @@ import {
   notifyGuardianOfAccessRequest,
 } from "../../access-request-helper.js";
 import { resolveAnchoredGuardian } from "../../anchored-guardian.js";
-import {
-  createOutboundSession,
-  findActiveSession,
-  getPendingSession,
-  resolveBootstrapToken,
-} from "../../channel-verification-service.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import type { VerdictMember } from "../../trust-verdict-consumer.js";
 import { verdictMemberFromVerdict } from "../../trust-verdict-consumer.js";
@@ -138,6 +139,28 @@ function failClosedDeny(): AclResult {
       reason: "not_a_member",
     },
   };
+}
+
+/**
+ * Resolve a `gv_`-prefixed bootstrap payload to its verification session via
+ * the gateway. Inbound messages arrive through the gateway, so an unreachable
+ * gateway here is a narrow race, not a steady state: treat the read as "no
+ * valid session" and keep the deny.
+ */
+async function resolveBootstrapSessionForAcl(
+  sourceChannel: ChannelId,
+  payload: string,
+): Promise<VerificationSessionWire | null> {
+  try {
+    // Strip the 'gv_' prefix; the gateway hashes the raw token.
+    return await resolveBootstrapToken(sourceChannel, payload.slice(3));
+  } catch (err) {
+    log.warn(
+      { err, sourceChannel },
+      "Ingress ACL: bootstrap token resolution failed (gateway unreachable), keeping deny",
+    );
+    return null;
+  }
 }
 
 export interface AclResult {
@@ -328,16 +351,11 @@ export async function enforceIngressAcl(
       // any `/start gv_<garbage>` would bypass the not_a_member gate and
       // fall through to normal /start processing.
       if (isBootstrapCommand) {
-        const bootstrapPayload = commandIntentForAcl!.payload!;
-        const bootstrapTokenForAcl = bootstrapPayload.slice(3); // strip 'gv_' prefix
-        const bootstrapSessionForAcl = resolveBootstrapToken(
+        const bootstrapSessionForAcl = await resolveBootstrapSessionForAcl(
           sourceChannel,
-          bootstrapTokenForAcl,
+          commandIntentForAcl!.payload!,
         );
-        if (
-          bootstrapSessionForAcl &&
-          bootstrapSessionForAcl.status === "pending_bootstrap"
-        ) {
+        if (bootstrapSessionForAcl?.status === "pending_bootstrap") {
           denyNonMember = false;
           isValidatedBootstrap = true;
         } else {
@@ -401,7 +419,7 @@ export async function enforceIngressAcl(
           !terminallyDenied &&
           !isCallbackInteraction
         ) {
-          const slackVerifyResult = initiateSlackVerificationChallenge({
+          const slackVerifyResult = await initiateVerificationChallenge({
             sourceChannel,
             senderUserId: (canonicalSenderId ?? rawSenderId)!,
           });
@@ -483,7 +501,7 @@ export async function enforceIngressAcl(
           !terminallyDenied &&
           !isCallbackInteraction
         ) {
-          const emailVerifyResult = initiateEmailVerificationChallenge({
+          const emailVerifyResult = await initiateVerificationChallenge({
             sourceChannel,
             senderUserId: (canonicalSenderId ?? rawSenderId)!,
           });
@@ -618,16 +636,11 @@ export async function enforceIngressAcl(
         // (pending/revoked), but never for blocked members.
         let denyInactiveMember = true;
         if (!isBlockedMember && isBootstrapCommand) {
-          const bootstrapPayload = commandIntentForAcl!.payload!;
-          const bootstrapTokenForAcl = bootstrapPayload.slice(3);
-          const bootstrapSessionForAcl = resolveBootstrapToken(
+          const bootstrapSessionForAcl = await resolveBootstrapSessionForAcl(
             sourceChannel,
-            bootstrapTokenForAcl,
+            commandIntentForAcl!.payload!,
           );
-          if (
-            bootstrapSessionForAcl &&
-            bootstrapSessionForAcl.status === "pending_bootstrap"
-          ) {
+          if (bootstrapSessionForAcl?.status === "pending_bootstrap") {
             denyInactiveMember = false;
             isValidatedBootstrap = true;
           } else {
@@ -713,7 +726,7 @@ export async function enforceIngressAcl(
             !terminallyDenied &&
             !isCallbackInteraction
           ) {
-            const slackVerifyResult = initiateSlackVerificationChallenge({
+            const slackVerifyResult = await initiateVerificationChallenge({
               sourceChannel,
               senderUserId: (canonicalSenderId ?? rawSenderId)!,
             });
@@ -932,24 +945,41 @@ interface VerificationChallengeResult {
 }
 
 /**
- * Create an outbound verification session for a Slack user. The guardian
- * receives the verification code via the notification pipeline (not a
- * direct DM to the requester). The session is identity-bound with
- * `verificationPurpose: "trusted_contact"` so consuming the code
- * creates a trusted contact record (not a guardian binding).
+ * Create an outbound verification session for an unknown sender (Slack and
+ * email deny lanes). The guardian receives the verification code via the
+ * notification pipeline (not a direct DM to the requester). The session is
+ * identity-bound with `verificationPurpose: "trusted_contact"` so consuming
+ * the code creates a trusted contact record (not a guardian binding).
  */
-function initiateSlackVerificationChallenge(params: {
+async function initiateVerificationChallenge(params: {
   sourceChannel: ChannelId;
   senderUserId: string;
-}): VerificationChallengeResult {
+}): Promise<VerificationChallengeResult> {
   const { sourceChannel, senderUserId } = params;
 
   // Skip if there is already a pending challenge or active session for
   // this sender to avoid flooding them with duplicate codes. We scope by
   // sender identity (expectedExternalUserId) so that a pending session for
   // user A does not suppress challenges for user B.
-  const existingChallenge = getPendingSession(sourceChannel);
-  const existingSession = findActiveSession(sourceChannel);
+  //
+  // Inbound messages arrive through the gateway, so an unreachable gateway
+  // here is a narrow race, not a steady state: treat it as "no active
+  // session but do not create" (creating would fail anyway) and fall
+  // through to the normal deny.
+  let existingChallenge: VerificationSessionWire | null;
+  let existingSession: VerificationSessionWire | null;
+  try {
+    [existingChallenge, existingSession] = await Promise.all([
+      getPendingSession(sourceChannel),
+      findActiveSession(sourceChannel),
+    ]);
+  } catch (err) {
+    log.warn(
+      { err, sourceChannel, senderUserId },
+      "Verification challenge: session reads failed (gateway unreachable), skipping challenge",
+    );
+    return { initiated: false };
+  }
   const senderHasPending =
     (existingChallenge &&
       existingChallenge.expectedExternalUserId === senderUserId) ||
@@ -963,13 +993,13 @@ function initiateSlackVerificationChallenge(params: {
         hasChallenge: !!existingChallenge,
         hasSession: !!existingSession,
       },
-      "Slack verification: skipping — existing challenge/session for this sender",
+      "Verification challenge: skipping — existing challenge/session for this sender",
     );
     return { initiated: false };
   }
 
   try {
-    const session = createOutboundSession({
+    const session = await createOutboundSession({
       channel: sourceChannel,
       expectedExternalUserId: senderUserId,
       expectedChatId: senderUserId,
@@ -984,64 +1014,14 @@ function initiateSlackVerificationChallenge(params: {
 
     log.info(
       { sourceChannel, senderUserId, sessionId: session.sessionId },
-      "Slack verification challenge initiated for unknown contact",
+      "Verification challenge initiated for unknown contact",
     );
 
     return { initiated: true, sessionId: session.sessionId };
   } catch (err) {
     log.error(
       { err, sourceChannel, senderUserId },
-      "Failed to initiate Slack verification challenge",
-    );
-    return { initiated: false };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Email verification challenge
-// ---------------------------------------------------------------------------
-
-function initiateEmailVerificationChallenge(params: {
-  sourceChannel: ChannelId;
-  senderUserId: string;
-}): VerificationChallengeResult {
-  const { sourceChannel, senderUserId } = params;
-
-  const existingChallenge = getPendingSession(sourceChannel);
-  const existingSession = findActiveSession(sourceChannel);
-  const senderHasPending =
-    (existingChallenge &&
-      existingChallenge.expectedExternalUserId === senderUserId) ||
-    (existingSession &&
-      existingSession.expectedExternalUserId === senderUserId);
-  if (senderHasPending) {
-    log.debug(
-      { sourceChannel, senderUserId },
-      "Email verification: skipping — existing challenge/session for this sender",
-    );
-    return { initiated: false };
-  }
-
-  try {
-    const session = createOutboundSession({
-      channel: sourceChannel,
-      expectedExternalUserId: senderUserId,
-      expectedChatId: senderUserId,
-      identityBindingStatus: "bound",
-      destinationAddress: senderUserId,
-      verificationPurpose: "trusted_contact",
-    });
-
-    log.info(
-      { sourceChannel, senderUserId, sessionId: session.sessionId },
-      "Email verification challenge initiated for unknown contact",
-    );
-
-    return { initiated: true, sessionId: session.sessionId };
-  } catch (err) {
-    log.error(
-      { err, sourceChannel, senderUserId },
-      "Failed to initiate email verification challenge",
+      "Failed to initiate verification challenge",
     );
     return { initiated: false };
   }

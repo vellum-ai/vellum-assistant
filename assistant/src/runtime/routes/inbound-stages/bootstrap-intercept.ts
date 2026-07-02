@@ -11,16 +11,20 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
-import type { ChannelId } from "../../../channels/types.js";
-import { sendTelegramReply } from "../../../messaging/providers/telegram-bot/send.js";
-import { getLogger } from "../../../util/logger.js";
+import type {
+  CreateOutboundSessionResult,
+  VerificationSessionWire,
+} from "../../../channels/gateway-verification-sessions.js";
 import {
   bindSessionIdentity,
   createOutboundSession,
   resolveBootstrapToken,
   updateSessionDelivery,
   updateSessionStatus,
-} from "../../channel-verification-service.js";
+} from "../../../channels/gateway-verification-sessions.js";
+import type { ChannelId } from "../../../channels/types.js";
+import { sendTelegramReply } from "../../../messaging/providers/telegram-bot/send.js";
+import { getLogger } from "../../../util/logger.js";
 import { RESEND_COOLDOWN_MS } from "../../verification-outbound-actions.js";
 import {
   composeVerificationTelegram,
@@ -72,29 +76,57 @@ export async function handleBootstrapIntercept(
     return null;
   }
 
+  // Sessions live in the gateway. Inbound messages arrive through the
+  // gateway, so an unreachable gateway on these calls is a narrow race, not
+  // a steady state: degrade to normal /start handling instead of throwing.
   const bootstrapToken = (commandIntent.payload as string).slice(3);
-  const bootstrapSession = resolveBootstrapToken(sourceChannel, bootstrapToken);
+  let bootstrapSession: VerificationSessionWire | null;
+  try {
+    bootstrapSession = await resolveBootstrapToken(
+      sourceChannel,
+      bootstrapToken,
+    );
+  } catch (err) {
+    log.warn(
+      { err, sourceChannel },
+      "Bootstrap intercept: token resolution failed (gateway unreachable)",
+    );
+    return null;
+  }
 
   if (!bootstrapSession || bootstrapSession.status !== "pending_bootstrap") {
     // Not found or expired — fall through to normal /start handling
     return null;
   }
 
-  // Bind the pending_bootstrap session to the sender's identity
-  bindSessionIdentity(bootstrapSession.id, rawSenderId, conversationExternalId);
+  let newSession: CreateOutboundSessionResult;
+  try {
+    // Bind the pending_bootstrap session to the sender's identity
+    await bindSessionIdentity(
+      bootstrapSession.id,
+      rawSenderId,
+      conversationExternalId,
+    );
 
-  // Transition bootstrap session to awaiting_response
-  updateSessionStatus(bootstrapSession.id, "awaiting_response");
+    // Transition bootstrap session to awaiting_response
+    await updateSessionStatus(bootstrapSession.id, "awaiting_response");
 
-  // Create a new identity-bound outbound session with a fresh secret.
-  // The old bootstrap session is auto-revoked by createOutboundSession.
-  const newSession = createOutboundSession({
-    channel: sourceChannel,
-    expectedExternalUserId: rawSenderId,
-    expectedChatId: conversationExternalId,
-    identityBindingStatus: "bound",
-    destinationAddress: conversationExternalId,
-  });
+    // Create a new identity-bound outbound session with a fresh secret.
+    // The old bootstrap session is auto-revoked by createOutboundSession.
+    newSession = await createOutboundSession({
+      channel: sourceChannel,
+      expectedExternalUserId: rawSenderId,
+      expectedChatId: conversationExternalId,
+      identityBindingStatus: "bound",
+      destinationAddress: conversationExternalId,
+    });
+  } catch (err) {
+    log.warn(
+      { err, sourceChannel, sessionId: bootstrapSession.id },
+      "Bootstrap intercept: session handoff failed (gateway unreachable)",
+    );
+    return null;
+  }
 
   // Compose and send the verification prompt via Telegram
   const telegramBody = composeVerificationTelegram(
@@ -114,9 +146,21 @@ export async function handleBootstrapIntercept(
     canonicalAssistantId,
   );
 
-  // Update delivery tracking
+  // Update delivery tracking (best-effort — the code is already on its way)
   const now = Date.now();
-  updateSessionDelivery(newSession.sessionId, now, 1, now + RESEND_COOLDOWN_MS);
+  try {
+    await updateSessionDelivery(
+      newSession.sessionId,
+      now,
+      1,
+      now + RESEND_COOLDOWN_MS,
+    );
+  } catch (err) {
+    log.error(
+      { err, sessionId: newSession.sessionId },
+      "Bootstrap intercept: failed to update session delivery tracking",
+    );
+  }
 
   return ({
     accepted: true,

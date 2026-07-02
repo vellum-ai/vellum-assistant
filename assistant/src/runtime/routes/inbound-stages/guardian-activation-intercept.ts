@@ -8,6 +8,14 @@
  * 6-digit code, the existing verification intercept validates it, creates
  * the guardian binding, and sends a success reply.
  */
+import type {
+  CreateOutboundSessionResult,
+  VerificationSessionWire,
+} from "../../../channels/gateway-verification-sessions.js";
+import {
+  createOutboundSession,
+  findActiveSession,
+} from "../../../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../../../channels/types.js";
 import {
   getGuardianDeliveryFresh,
@@ -15,10 +23,6 @@ import {
 } from "../../../contacts/guardian-delivery-reader.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import { getLogger } from "../../../util/logger.js";
-import {
-  createOutboundSession,
-  findActiveSession,
-} from "../../channel-verification-service.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 
 const log = getLogger("runtime-http");
@@ -115,7 +119,20 @@ export async function handleGuardianActivationIntercept(
   }
 
   // ── Idempotency: check for an existing active session from this sender ──
-  const existingSession = findActiveSession(sourceChannel);
+  // Sessions live in the gateway. Inbound messages arrive through the
+  // gateway, so an unreachable gateway here is a narrow race, not a steady
+  // state: skip auto-activation (creating would fail anyway) and let the
+  // normal pipeline handle the message.
+  let existingSession: VerificationSessionWire | null;
+  try {
+    existingSession = await findActiveSession(sourceChannel);
+  } catch (err) {
+    log.warn(
+      { err, sourceChannel },
+      "Guardian activation: session read failed (gateway unreachable), skipping auto-activation",
+    );
+    return null;
+  }
   if (existingSession) {
     // Only block if the session belongs to the same sender. If a different
     // user triggered the session, let this sender proceed (they'll supersede
@@ -144,17 +161,26 @@ export async function handleGuardianActivationIntercept(
   }
 
   // ── Create verification session ──
-  const sessionResult = createOutboundSession({
-    channel: sourceChannel,
-    expectedExternalUserId: rawSenderId,
-    expectedChatId: conversationExternalId,
-    identityBindingStatus: "bound",
-    destinationAddress: conversationExternalId,
-    verificationPurpose: "guardian",
-  });
+  let sessionResult: CreateOutboundSessionResult;
+  try {
+    sessionResult = await createOutboundSession({
+      channel: sourceChannel,
+      expectedExternalUserId: rawSenderId,
+      expectedChatId: conversationExternalId,
+      identityBindingStatus: "bound",
+      destinationAddress: conversationExternalId,
+      verificationPurpose: "guardian",
+    });
+  } catch (err) {
+    log.warn(
+      { err, sourceChannel },
+      "Guardian activation: session creation failed (gateway unreachable), skipping auto-activation",
+    );
+    return null;
+  }
 
   // Mark as processed only after session creation succeeds so transient
-  // failures (e.g. temporary DB issues) remain retryable on the next webhook.
+  // failures (e.g. gateway unreachable) remain retryable on the next webhook.
   markProcessed(externalMessageId);
 
   // ── Send deterministic Telegram reply ──

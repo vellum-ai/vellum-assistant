@@ -87,9 +87,24 @@ function seedGatewayGuardian(
 import { createCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { findActiveSession } from "../runtime/channel-verification-service.js";
+import {
+  createOutboundSession,
+  findActiveSession,
+  getPendingSession,
+} from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+
+// The inbound stages read/write sessions via the gateway-backed IPC client;
+// delegate it to the local service so this suite keeps exercising the full
+// challenge-offer/dedup matrix against the test DB.
+mock.module("../channels/gateway-verification-sessions.js", () => ({
+  createOutboundSession: async (
+    params: Parameters<typeof createOutboundSession>[0],
+  ) => createOutboundSession(params),
+  getPendingSession: async (channel: string) => getPendingSession(channel),
+  findActiveSession: async (channel: string) => findActiveSession(channel),
+}));
 
 await initializeDb();
 
