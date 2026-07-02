@@ -122,6 +122,7 @@ import { getConfiguredProvider } from "../../providers/provider-send-message.js"
 import type { Provider } from "../../providers/types.js";
 import { checkIngressForSecrets } from "../../security/secret-ingress.js";
 import { getSubagentManager } from "../../subagent/index.js";
+import { normalizeImageBase64 } from "../../util/image-conversion.js";
 import { getLogger } from "../../util/logger.js";
 import {
   getWorkspaceDir,
@@ -952,13 +953,20 @@ export function handleListMessages({
         msgAttachments = linked.map((a) => {
           if (a.mimeType.startsWith("image/")) {
             const full = getAttachmentById(a.id, { hydrateFileData: true });
+            // Stored HEIF/HEIC content is hydrated as JPEG display data —
+            // Chromium-based clients cannot decode HEIF. Filename and
+            // sizeBytes keep describing the stored file, which
+            // /attachments/:id/content serves verbatim for downloads.
+            const display = full?.dataBase64
+              ? normalizeImageBase64(a.mimeType, full.dataBase64)
+              : null;
             return {
               id: a.id,
               filename: a.originalFilename,
-              mimeType: a.mimeType,
+              mimeType: display?.mimeType ?? a.mimeType,
               sizeBytes: a.sizeBytes,
               kind: a.kind,
-              ...(full?.dataBase64 ? { data: full.dataBase64 } : {}),
+              ...(display ? { data: display.dataBase64 } : {}),
               ...(a.thumbnailBase64
                 ? { thumbnailData: a.thumbnailBase64 }
                 : {}),

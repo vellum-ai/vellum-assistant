@@ -5,6 +5,8 @@
  * - User message image attachments include base64 data for client thumbnail generation
  * - User message non-image attachments stay metadata-only (no base64 blob)
  * - Assistant message image attachments include base64 data (same as user messages)
+ * - Stored HEIF/HEIC rows are hydrated as JPEG display data (Chromium cannot
+ *   decode HEIF); undecodable content falls back to the stored bytes
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -26,6 +28,8 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
+import { randomUUID } from "node:crypto";
+
 import {
   linkAttachmentToMessage,
   uploadAttachment,
@@ -36,7 +40,9 @@ import {
 } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { rawRun } from "../persistence/raw-query.js";
 import { handleListMessages } from "../runtime/routes/conversation-routes.js";
+import { fakeHeifHeaderBytes, makeHeicFixtureBytes } from "./heic-fixture.js";
 
 await initializeDb();
 
@@ -56,8 +62,36 @@ function createTestArgs(conversationId: string) {
 
 interface AttachmentPayload {
   data?: string;
+  filename?: string;
   mimeType: string;
   thumbnailData?: string;
+}
+
+/**
+ * Insert an attachment row directly, bypassing upload-time HEIF
+ * normalization — simulates rows stored before normalization existed (or
+ * where conversion was unavailable).
+ */
+function insertLegacyAttachmentRow(
+  messageId: string,
+  filename: string,
+  mimeType: string,
+  dataBase64: string,
+): string {
+  const id = randomUUID();
+  rawRun(
+    `INSERT INTO attachments (id, original_filename, mime_type, size_bytes, kind, data_base64, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    id,
+    filename,
+    mimeType,
+    Buffer.from(dataBase64, "base64").length,
+    "image",
+    dataBase64,
+    Date.now(),
+  );
+  linkAttachmentToMessage(messageId, id, 0);
+  return id;
 }
 
 interface MessagePayload {
@@ -208,6 +242,64 @@ describe("handleListMessages attachments", () => {
       "output.png",
     );
   });
+});
+
+describe("handleListMessages HEIC display normalization", () => {
+  beforeEach(resetTables);
+
+  test("undecodable HEIC data is served unchanged (conversion fallback)", async () => {
+    const conv = createConversation();
+    const msg = await addMessage(
+      conv.id,
+      "user",
+      JSON.stringify([{ type: "text", text: "photo" }]),
+    );
+    const heicB64 = fakeHeifHeaderBytes().toString("base64");
+    insertLegacyAttachmentRow(msg.id, "IMG_1.HEIC", "image/heic", heicB64);
+
+    const response = handleListMessages(createTestArgs(conv.id));
+    const body = response as { messages: MessagePayload[] };
+
+    const attachments = body.messages[0].attachments!;
+    expect(attachments).toHaveLength(1);
+    expect(attachments[0].mimeType).toBe("image/heic");
+    expect(attachments[0].data).toBe(heicB64);
+  });
+
+  describe.skipIf(process.platform !== "darwin")(
+    "real conversion (sips)",
+    () => {
+      test("legacy HEIC rows are hydrated as JPEG display data", async () => {
+        const heic = makeHeicFixtureBytes();
+        expect(heic).not.toBeNull();
+
+        const conv = createConversation();
+        const msg = await addMessage(
+          conv.id,
+          "user",
+          JSON.stringify([{ type: "text", text: "photo" }]),
+        );
+        insertLegacyAttachmentRow(
+          msg.id,
+          "IMG_2.HEIC",
+          "image/heic",
+          heic!.toString("base64"),
+        );
+
+        const response = handleListMessages(createTestArgs(conv.id));
+        const body = response as { messages: MessagePayload[] };
+
+        const attachments = body.messages[0].attachments!;
+        expect(attachments).toHaveLength(1);
+        expect(attachments[0].mimeType).toBe("image/jpeg");
+        // JPEG SOI marker (FF D8 FF) base64-encodes to "/9j/".
+        expect(attachments[0].data!.startsWith("/9j/")).toBe(true);
+        // Metadata keeps describing the stored original, which the content
+        // endpoint serves verbatim for downloads.
+        expect(attachments[0].filename).toBe("IMG_2.HEIC");
+      });
+    },
+  );
 });
 
 describe("handleListMessages no_response filtering", () => {

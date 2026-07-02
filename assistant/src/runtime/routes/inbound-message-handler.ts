@@ -1723,6 +1723,7 @@ async function persistBackfilledSlackMessage(params: {
             downloaded.filename,
             downloaded.mimeType,
             downloaded.data,
+            { normalizeImage: true },
           );
           attachments.push({
             filename: downloaded.filename,
