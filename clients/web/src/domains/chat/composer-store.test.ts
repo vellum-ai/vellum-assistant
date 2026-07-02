@@ -399,6 +399,50 @@ describe("setInput", () => {
 // addFiles — server-canonical upload metadata
 // ---------------------------------------------------------------------------
 
+describe("addPathReferences", () => {
+  test("queues a folder path as a path-reference attachment without triggering an upload", () => {
+    getStore().addPathReferences(["/Users/example/Projects/app"]);
+
+    const atts = getStore().attachments;
+    expect(atts).toHaveLength(1);
+    expect(atts[0].kind).toBe("path-reference");
+    if (atts[0].kind === "path-reference") {
+      expect(atts[0].path).toBe("/Users/example/Projects/app");
+      expect(atts[0].filename).toBe("app");
+    }
+    expect(uploadChatAttachmentMock).not.toHaveBeenCalled();
+  });
+
+  test("ignores blank paths", () => {
+    getStore().addPathReferences(["", "   ", "/valid/path"]);
+
+    const atts = getStore().attachments;
+    expect(atts).toHaveLength(1);
+    if (atts[0].kind === "path-reference") {
+      expect(atts[0].path).toBe("/valid/path");
+    }
+  });
+
+  test("clears prior attachmentLastError when a path is successfully queued", () => {
+    useComposerStore.setState({
+      attachmentLastError: "old error",
+    });
+
+    getStore().addPathReferences(["/some/path"]);
+
+    expect(getStore().attachmentLastError).toBeNull();
+  });
+
+  test("strips a trailing slash when computing the display filename", () => {
+    getStore().addPathReferences(["/Users/example/Projects/app/"]);
+
+    const [att] = getStore().attachments;
+    if (att.kind === "path-reference") {
+      expect(att.filename).toBe("app");
+    }
+  });
+});
+
 describe("addFiles upload metadata", () => {
   test("adopts stored metadata and previews the stored bytes when the assistant transcodes", async () => {
     uploadChatAttachmentMock.mockResolvedValueOnce({
@@ -419,7 +463,7 @@ describe("addFiles upload metadata", () => {
     await waitForUploadsSettled(1);
 
     const att = getStore().attachments[0];
-    expect(att.kind).toBe("uploaded");
+    if (att.kind !== "uploaded") throw new Error("expected uploaded attachment");
     expect(att.filename).toBe("IMG_5487.jpg");
     expect(att.mimeType).toBe("image/jpeg");
     expect(att.sizeBytes).toBe(111);
@@ -445,7 +489,7 @@ describe("addFiles upload metadata", () => {
     await waitForUploadsSettled(1);
 
     const att = getStore().attachments[0];
-    expect(att.kind).toBe("uploaded");
+    if (att.kind !== "uploaded") throw new Error("expected uploaded attachment");
     expect(att.mimeType).toBe("image/png");
     expect(fetchAttachmentContentBlobMock).not.toHaveBeenCalled();
   });
@@ -467,7 +511,7 @@ describe("addFiles upload metadata", () => {
     await waitForUploadsSettled(1);
 
     const att = getStore().attachments[0];
-    expect(att.kind).toBe("uploaded");
+    if (att.kind !== "uploaded") throw new Error("expected uploaded attachment");
     expect(att.filename).toBe("IMG_1.jpg");
     expect(att.mimeType).toBe("image/jpeg");
   });
@@ -482,7 +526,7 @@ describe("addFiles upload metadata", () => {
     await waitForUploadsSettled(1);
 
     const att = getStore().attachments[0];
-    expect(att.kind).toBe("uploaded");
+    if (att.kind !== "uploaded") throw new Error("expected uploaded attachment");
     expect(att.filename).toBe("IMG_2.HEIC");
     expect(att.mimeType).toBe("image/heic");
     expect(fetchAttachmentContentBlobMock).not.toHaveBeenCalled();
