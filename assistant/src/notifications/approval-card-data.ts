@@ -139,7 +139,7 @@ function resolveAccessRequestCard(
   return {
     surfaceIdPrefix: ACCESS_REQUEST_SURFACE_PREFIX,
     cardTitle: "Access Request",
-    requesterName: view.displayName,
+    primaryLine: view.displayName,
     subtitle: "Requesting access to the assistant",
     body,
     metadata,
@@ -177,7 +177,13 @@ function isLenientToolApproval(payload: LenientToolApprovalPayload): boolean {
   );
 }
 
-/** Shape a tool-approval/grant payload (strict or lenient) into card params. */
+/**
+ * Shape a tool-approval/grant payload (strict or lenient) into card params.
+ *
+ * The card is about the tool: the primary line and subtitle name the
+ * sensitive action awaiting approval. The requester appears only as metadata
+ * context, never as the subject of the decision.
+ */
 function extractToolApprovalCard(
   p: GuardianQuestionPayload | LenientToolApprovalPayload,
 ): ApprovalCardParams {
@@ -186,12 +192,14 @@ function extractToolApprovalCard(
   const rawRequester = nonEmpty(p.requesterIdentifier);
   const requester = rawRequester
     ? sanitizeIdentityField(rawRequester)
-    : "Someone";
+    : undefined;
 
   const isGrant = p.requestKind === "tool_grant_request";
 
   const metadata: Array<{ label: string; value: string }> = [];
-  metadata.push({ label: "Tool", value: toolName });
+  if (requester) {
+    metadata.push({ label: "Requested by", value: requester });
+  }
   const sourceChannel = nonEmpty(p.sourceChannel);
   if (sourceChannel) {
     metadata.push({ label: "Source", value: sourceChannel });
@@ -202,8 +210,10 @@ function extractToolApprovalCard(
     : "No additional context available.";
 
   // Fallback text with request-code instructions for older clients.
+  const requesterNote = requester ? ` (requested by ${requester})` : "";
   const baseFallback =
-    p.questionText ?? `${requester} is requesting approval to use ${toolName}`;
+    p.questionText ??
+    `"${toolName}" is a sensitive action and needs guardian approval${requesterNote}`;
   let fallbackText = baseFallback;
   const requestCode = nonEmpty(p.requestCode);
   if (requestCode) {
@@ -222,10 +232,8 @@ function extractToolApprovalCard(
   return {
     surfaceIdPrefix: TOOL_APPROVAL_SURFACE_PREFIX,
     cardTitle: isGrant ? "Tool Grant Request" : "Tool Approval",
-    requesterName: requester,
-    subtitle: isGrant
-      ? "Requesting permission to use this tool"
-      : "Requesting approval to run this tool",
+    primaryLine: toolName,
+    subtitle: "Sensitive action — needs your approval to run",
     body,
     metadata,
     requestId: nonEmpty(p.requestId),
