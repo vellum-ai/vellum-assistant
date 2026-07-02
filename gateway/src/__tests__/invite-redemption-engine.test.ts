@@ -15,9 +15,12 @@ import { hashInviteCode, hashInviteToken } from "@vellumai/gateway-client";
 
 // The engine's ACL side effect (upsertVerifiedContactChannel) dual-writes an
 // assistant-DB info mirror over IPC; stub it so tests never touch a socket.
+// The impls are mutable so tests can simulate a down/failing mirror.
+let assistantDbQueryImpl: () => Promise<unknown[]> = async () => [];
+let assistantDbRunImpl: () => Promise<void> = async () => {};
 mock.module("../db/assistant-db-proxy.js", () => ({
-  assistantDbQuery: async () => [],
-  assistantDbRun: async () => {},
+  assistantDbQuery: () => assistantDbQueryImpl(),
+  assistantDbRun: () => assistantDbRunImpl(),
 }));
 
 await import("./test-preload.js");
@@ -46,6 +49,8 @@ beforeEach(() => {
   db.delete(ingressInvites).run();
   db.delete(contactChannels).run();
   db.delete(contacts).run();
+  assistantDbQueryImpl = async () => [];
+  assistantDbRunImpl = async () => {};
 });
 
 afterAll(() => {
@@ -346,6 +351,62 @@ describe("redeemInviteByCode", () => {
     expect(result.status).toBe("failed");
     if (result.status !== "failed") throw new Error("unreachable");
     expect(result.reason).toBe("missing_identity");
+  });
+});
+
+describe("post-claim failure isolation", () => {
+  test("assistant mirror IPC down (lookup + writes throw): still redeemed, gateway ACL active", async () => {
+    seedContact("c1");
+    const inviteId = seedInvite();
+    assistantDbQueryImpl = async () => {
+      throw new Error("assistant IPC unavailable");
+    };
+    assistantDbRunImpl = async () => {
+      throw new Error("assistant IPC unavailable");
+    };
+
+    const result = await redeemInviteByCode({ code: CODE, ...IDENTITY });
+
+    expect(result.status).toBe("redeemed");
+    if (result.status !== "redeemed") throw new Error("unreachable");
+    expect(result.replyText).toBe("Welcome! You've been granted access.");
+    expect(inviteRow(inviteId).useCount).toBe(1);
+    const channel = gwChannel("U_SENDER");
+    expect(channel?.status).toBe("active");
+    expect(channel?.verifiedVia).toBe("invite");
+    expect(channel?.contactId).toBe("c1");
+  });
+
+  test("assistant mirror write fails on an existing mirror row: still redeemed, gateway ACL active", async () => {
+    seedContact("c1");
+    const inviteId = seedInvite();
+    assistantDbQueryImpl = async () => [
+      { channelId: "mirror-ch-1", contactId: "c1" },
+    ];
+    assistantDbRunImpl = async () => {
+      throw new Error("mirror UPDATE failed");
+    };
+
+    const result = await redeemInviteByCode({ code: CODE, ...IDENTITY });
+
+    expect(result.status).toBe("redeemed");
+    expect(inviteRow(inviteId).useCount).toBe(1);
+    expect(gwChannel("U_SENDER")?.status).toBe("active");
+  });
+
+  test("post-claim engine throw outside the ACL helper (getContact) still yields redeemed", async () => {
+    seedContact("c1");
+    const inviteId = seedInvite();
+    const store = new ContactStore();
+    store.getContact = () => {
+      throw new Error("gateway read failed");
+    };
+
+    const result = await redeemInviteByCode({ code: CODE, ...IDENTITY, store });
+
+    expect(result.status).toBe("redeemed");
+    expect(inviteRow(inviteId).useCount).toBe(1);
+    expect(gwChannel("U_SENDER")?.status).toBe("active");
   });
 });
 

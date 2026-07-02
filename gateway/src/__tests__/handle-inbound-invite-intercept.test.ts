@@ -92,10 +92,13 @@ mock.module("../ipc/assistant-client.js", () => ({
 }));
 
 // The redemption engine's ACL side effect dual-writes an assistant-DB info
-// mirror; stub it so tests never touch a socket.
+// mirror; stub it so tests never touch a socket. Mutable impls let tests
+// simulate a down assistant DB proxy.
+let assistantDbQueryImpl: () => Promise<unknown[]> = async () => [];
+let assistantDbRunImpl: () => Promise<void> = async () => {};
 mock.module("../db/assistant-db-proxy.js", () => ({
-  assistantDbQuery: async () => [],
-  assistantDbRun: async () => {},
+  assistantDbQuery: () => assistantDbQueryImpl(),
+  assistantDbRun: () => assistantDbRunImpl(),
 }));
 
 await import("./test-preload.js");
@@ -229,6 +232,8 @@ beforeEach(async () => {
   ipcCalls = [];
   forwardToRuntimeMock.mockClear();
   interceptResult = { intercepted: false };
+  assistantDbQueryImpl = async () => [];
+  assistantDbRunImpl = async () => {};
 });
 
 afterEach(() => {
@@ -386,6 +391,37 @@ describe("handle-inbound invite redemption intercept", () => {
     const channel = getGatewayDb().select().from(contactChannels).all()[0];
     expect(channel?.status).toBe("blocked");
     expect(ipcCalls.find((c) => c.method === "invite_redeemed")).toBeUndefined();
+  });
+
+  test("assistant DB proxy down: valid code still redeems with the success reply, never forwards", async () => {
+    seedContact("c1");
+    const inviteId = seedInvite();
+    assistantDbQueryImpl = async () => {
+      throw new Error("assistant IPC unavailable");
+    };
+    assistantDbRunImpl = async () => {
+      throw new Error("assistant IPC unavailable");
+    };
+
+    const result = await handleInbound(makeConfig(), makeEvent(), {
+      ...ROUTING,
+      replyCallbackUrl: REPLY_URL,
+    });
+
+    // The mirror is best-effort: the raw code must never reach the runtime
+    // once the gateway claimed the use.
+    expect(result.inviteIntercepted).toBe(true);
+    expect(result.forwarded).toBe(false);
+    expect(forwardToRuntimeMock).toHaveBeenCalledTimes(0);
+    expect(fetchCalls).toHaveLength(1);
+    expect(fetchCalls[0]!.body.text).toBe(
+      "Welcome! You've been granted access.",
+    );
+
+    expect(inviteRow(inviteId).useCount).toBe(1);
+    const channel = getGatewayDb().select().from(contactChannels).all()[0];
+    expect(channel?.status).toBe("active");
+    expect(channel?.verifiedVia).toBe("invite");
   });
 
   test("verification intercept wins when both could match", async () => {

@@ -223,12 +223,28 @@ async function finishRedemption(
     return failed("invalid_token");
   }
 
+  // ── Commit point ──
+  // The claim above consumed the use; from here the redemption must never
+  // regress to a thrown engine error (the intercept would fall through and
+  // forward the raw code to the runtime on an already-consumed invite).
+  // Assistant-mirror failures are soft inside the helper; anything else that
+  // throws post-claim is logged and the redemption still succeeds — the
+  // daemon `invite_redeemed` event and self-heal cover the mirror.
+
   // Preserve the target contact's curated displayName over the raw
   // transport-provided name (mirrors the daemon redemption service).
-  const targetContact = store.getContact(invite.contactId);
-  const displayName = targetContact?.displayName?.trim().length
-    ? targetContact.displayName
-    : params.displayName;
+  let displayName = params.displayName;
+  try {
+    const targetContact = store.getContact(invite.contactId);
+    if (targetContact?.displayName?.trim().length) {
+      displayName = targetContact.displayName;
+    }
+  } catch (err) {
+    log.warn(
+      { err, inviteId: invite.id },
+      "Invite redemption: target contact lookup failed post-claim",
+    );
+  }
 
   // ── ACL side effect ──
   // The same gateway store path the `upsert_verified_channel` IPC handler
@@ -236,16 +252,25 @@ async function finishRedemption(
   // member-write-relay passes: an invite may reactivate a revoked member;
   // blocked actors are still refused inside the helper.
   const address = externalUserId ?? externalChatId!;
-  const { verified } = await upsertVerifiedContactChannel({
-    sourceChannel,
-    externalUserId: address,
-    externalChatId: externalChatId ?? address,
-    displayName,
-    username,
-    verifiedVia: "invite",
-    contactId: invite.contactId,
-    allowRevokedReactivation: true,
-  });
+  let verified = true;
+  try {
+    ({ verified } = await upsertVerifiedContactChannel({
+      sourceChannel,
+      externalUserId: address,
+      externalChatId: externalChatId ?? address,
+      displayName,
+      username,
+      verifiedVia: "invite",
+      contactId: invite.contactId,
+      allowRevokedReactivation: true,
+      mirrorFailureMode: "soft",
+    }));
+  } catch (err) {
+    log.error(
+      { err, sourceChannel, inviteId: invite.id },
+      "Invite redemption: ACL upsert threw post-claim; use already consumed — treating as redeemed",
+    );
+  }
   if (!verified) {
     // The authoritative write was refused (a block landed under the race).
     // The claimed use is wasted — same semantics as the daemon engine.
