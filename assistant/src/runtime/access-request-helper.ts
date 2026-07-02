@@ -26,7 +26,7 @@ import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import type { GuardianResolutionSource } from "../notifications/signal.js";
 import { getLogger } from "../util/logger.js";
 import { resolveAnchoredGuardian } from "./anchored-guardian.js";
-import { findSessionByIdentity } from "./channel-verification-service.js";
+import { CHALLENGE_TTL_MS } from "./channel-verification-service.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
 const log = getLogger("access-request-helper");
@@ -106,6 +106,46 @@ export function isAccessRequestDenied(params: {
       conversationId,
     }).length > 0
   );
+}
+
+/**
+ * Whether this sender is inside the post-approval verification window: the
+ * guardian approved their access request recently enough that the minted
+ * 6-digit code could still be redeemable. In that state the handshake is in
+ * progress — the sender needs to enter the code, not trigger a fresh access
+ * request.
+ *
+ * Keyed on the approval decision time (the request row's `updatedAt`) bounded
+ * by the verification-code TTL, deliberately NOT on live verification-session
+ * rows: session lookups cannot distinguish the approval-minted session from a
+ * self-verify challenge session the ACL mints on the same inbound, or from an
+ * unrelated session bound to the same identity (guardian-initiated
+ * verification, invites).
+ *
+ * Voice is excluded: phone approvals activate the caller directly and never
+ * mint a code.
+ */
+export function isApprovalHandshakeInProgress(params: {
+  canonicalAssistantId: string;
+  sourceChannel: string;
+  actorExternalId: string;
+}): boolean {
+  if (params.sourceChannel === "phone") {
+    return false;
+  }
+  const conversationId = accessRequestConversationId(
+    params.canonicalAssistantId,
+    params.sourceChannel,
+    params.actorExternalId,
+  );
+  const windowStart = Date.now() - CHALLENGE_TTL_MS;
+  return listCanonicalGuardianRequests({
+    status: "approved",
+    requesterExternalUserId: params.actorExternalId,
+    sourceChannel: params.sourceChannel,
+    kind: "access_request",
+    conversationId,
+  }).some((request) => request.updatedAt >= windowStart);
 }
 
 // ---------------------------------------------------------------------------
@@ -203,40 +243,14 @@ export async function notifyGuardianOfAccessRequest(
     };
   }
 
-  // Handshake-in-progress suppression: once the guardian APPROVES an access
-  // request, the requester holds a live verification code and the flow is
-  // waiting on them to enter it. Until that session lapses, further inbound
-  // from the same sender (messages, code attempts, button callbacks) must not
-  // re-create a request the guardian already decided — the resolved request no
-  // longer matches the pending-dedupe above, so without this check every
-  // post-approval inbound minted a fresh canonical request and re-delivered a
-  // new Approve/Reject card on top of the just-approved one (LUM-2673). Once
-  // the session expires unconsumed, re-prompting is allowed again.
-  const hasApprovedRequest =
-    listCanonicalGuardianRequests({
-      status: "approved",
-      requesterExternalUserId: actorExternalId,
-      sourceChannel,
-      kind: "access_request",
-      conversationId,
-    }).length > 0;
-  if (
-    hasApprovedRequest &&
-    findSessionByIdentity(sourceChannel, actorExternalId)
-  ) {
-    log.debug(
-      { sourceChannel, actorExternalId },
-      "Suppressing access request notification — approval granted, verification session still live",
-    );
-    return { notified: false, reason: "approval_pending_verification" };
-  }
-
   // Terminal-deny suppression: once the guardian has denied an access request
   // for this sender on this channel, subsequent inbound must not re-prompt.
   // The denied decision persists the sender as an unverified_contact (see the
   // accessRequestResolver deny path); re-surfacing the same request the
   // guardian already rejected would be noise. The guardian can still verify the
-  // contact manually — that path does not go through here.
+  // contact manually — that path does not go through here. Checked before the
+  // handshake window below so a standing deny always wins over an earlier
+  // approval.
   if (
     isAccessRequestDenied({
       canonicalAssistantId,
@@ -249,6 +263,25 @@ export async function notifyGuardianOfAccessRequest(
       "Suppressing access request notification — guardian already denied this sender",
     );
     return { notified: false, reason: "already_denied" };
+  }
+
+  // Handshake-in-progress suppression: within the verification-code window
+  // after the guardian approves, the flow is waiting on the requester to enter
+  // their code. Inbound from the sender in that window must not create a new
+  // request or re-notify the guardian; once the window lapses unconsumed,
+  // re-prompting is allowed again.
+  if (
+    isApprovalHandshakeInProgress({
+      canonicalAssistantId,
+      sourceChannel,
+      actorExternalId,
+    })
+  ) {
+    log.debug(
+      { sourceChannel, actorExternalId },
+      "Suppressing access request notification — approval granted, verification window still open",
+    );
+    return { notified: false, reason: "approval_pending_verification" };
   }
 
   const senderIdentifier = actorDisplayName || actorUsername || actorExternalId;

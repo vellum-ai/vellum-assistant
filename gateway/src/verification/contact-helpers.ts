@@ -180,11 +180,6 @@ function writeVerifiedGatewayChannel(params: {
  * Re-parent a gateway channel to the invite's target contact, ensuring the
  * target contact row exists first. Best-effort: a gateway DB error is logged,
  * not thrown, so a legitimate activation still proceeds.
- *
- * When the re-parent strips the previous parent of its last channel, the
- * previous parent is garbage-collected if it is an inbound-seeded stub (see
- * `deleteContactIfOrphaned`) so channel claims don't strand duplicate
- * contacts (LUM-2672).
  */
 function reassignChannelContact(params: {
   type: string;
@@ -207,18 +202,6 @@ function reassignChannelContact(params: {
       })
       .onConflictDoNothing()
       .run();
-    // Capture the previous parent before the update so an orphaned seed
-    // contact can be garbage-collected after the re-parent.
-    const previousParent = gwDb
-      .select({ contactId: gwContactChannels.contactId })
-      .from(gwContactChannels)
-      .where(
-        and(
-          eq(gwContactChannels.type, type),
-          sql`${gwContactChannels.address} = ${address} COLLATE NOCASE`,
-        ),
-      )
-      .get();
     // Match by the (type,address) logical key, not the assistant channel id:
     // the gateway row can live under a different UUID (m0006 reconcile), and an
     // id-only update would re-parent nothing.
@@ -232,37 +215,40 @@ function reassignChannelContact(params: {
         ),
       )
       .run();
-    if (previousParent && previousParent.contactId !== toContactId) {
-      void deleteContactIfOrphaned(previousParent.contactId);
-    }
   } catch (gwErr) {
     log.warn({ err: gwErr }, "Gateway channel reassignment dual-write failed");
   }
 }
 
 /**
- * Garbage-collect a contact stranded by a channel re-parent (LUM-2672).
+ * Garbage-collect a contact stranded by the guardian-binding channel claim
+ * (LUM-2672).
  *
  * Inbound seeding (`upsertContactChannel` below) creates a stub contact for a
- * first-seen sender keyed only by (type, address). When that sender later
- * turns out to be the guardian (channel verification) or an invite target,
- * the claim re-parents the channel to the real contact and the stub is left
- * behind with zero channels — a duplicate the guardian sees in the Contacts
- * pane.
+ * first-seen sender keyed only by (type, address). When that sender turns out
+ * to be the guardian, channel verification re-parents the seeded channel to
+ * the guardian contact and the stub is left behind with zero channels — a
+ * duplicate of the guardian in the Contacts pane.
  *
  * Deletion is deliberately narrow so a claim can never destroy real data:
- * the contact must have role `contact`, no principal, and no remaining
- * channels in the gateway DB (source of truth). The assistant mirror row is
- * deleted best-effort and only when it, too, is channel-less and carries no
- * guardian-authored notes.
+ * the gateway contact must have role `contact`, no principal, and no
+ * remaining channels; the assistant mirror must agree (no channels) and
+ * carry no guardian-authored notes. When any check fails, BOTH rows are
+ * kept, so the two stores never disagree about the contact's existence.
+ * A mirror that is unreachable (IPC socket absent) does not block the
+ * gateway-side delete; a leftover mirror row is recoverable via the
+ * tolerant contact delete (LUM-2662).
  *
- * Never throws. Returns true when the gateway row was deleted.
+ * Callers must invoke this only after all re-parent writes (gateway AND
+ * assistant mirror) have completed, or the mirror inspection can observe the
+ * pre-claim channel and veto the delete. Never throws.
  */
 export async function deleteContactIfOrphaned(
   contactId: string,
-): Promise<boolean> {
+): Promise<void> {
+  const gwDb = getGatewayDb();
+
   try {
-    const gwDb = getGatewayDb();
     const contact = gwDb
       .select({
         role: gwContacts.role,
@@ -272,7 +258,7 @@ export async function deleteContactIfOrphaned(
       .where(eq(gwContacts.id, contactId))
       .get();
     if (!contact || contact.role !== "contact" || contact.principalId) {
-      return false;
+      return;
     }
     const remainingChannel = gwDb
       .select({ id: gwContactChannels.id })
@@ -280,54 +266,81 @@ export async function deleteContactIfOrphaned(
       .where(eq(gwContactChannels.contactId, contactId))
       .limit(1)
       .get();
-    if (remainingChannel) return false;
+    if (remainingChannel) {
+      return;
+    }
+  } catch (gwErr) {
+    log.warn(
+      { err: gwErr, contactId },
+      "Orphaned contact garbage-collection failed (gateway inspection)",
+    );
+    return;
+  }
 
+  // Inspect the assistant mirror BEFORE deleting anything: a mirror row with
+  // channels or guardian-authored notes vetoes the whole delete so both
+  // stores keep the contact.
+  let mirrorRowPresent = false;
+  const { path: socketPath } = resolveIpcSocketPath("assistant");
+  const mirrorReachable = existsSync(socketPath);
+  if (mirrorReachable) {
+    try {
+      const mirrorChannels = await assistantDbQuery<{ id: string }>(
+        `SELECT id FROM contact_channels WHERE contact_id = ? LIMIT 1`,
+        [contactId],
+      );
+      if (mirrorChannels.length > 0) {
+        return;
+      }
+      const mirrorNotes = await assistantDbQuery<{ notes: string | null }>(
+        `SELECT notes FROM contacts WHERE id = ?`,
+        [contactId],
+      );
+      mirrorRowPresent = mirrorNotes.length > 0;
+      if (
+        mirrorRowPresent &&
+        mirrorNotes[0].notes &&
+        mirrorNotes[0].notes.trim().length > 0
+      ) {
+        log.info(
+          { contactId },
+          "Keeping orphaned seed contact: assistant mirror carries notes",
+        );
+        return;
+      }
+    } catch (mirrorErr) {
+      log.warn(
+        { err: mirrorErr, contactId },
+        "Orphaned contact garbage-collection failed (mirror inspection)",
+      );
+      return;
+    }
+  }
+
+  try {
     gwDb.delete(gwContacts).where(eq(gwContacts.id, contactId)).run();
     log.info(
       { contactId },
-      "Deleted orphaned seed contact after channel re-parent",
+      "Deleted orphaned seed contact after guardian channel claim",
     );
   } catch (gwErr) {
     log.warn(
       { err: gwErr, contactId },
-      "Orphaned contact garbage-collection failed (gateway)",
+      "Orphaned contact garbage-collection failed (gateway delete)",
     );
-    return false;
+    return;
   }
 
-  // Assistant mirror cleanup: best-effort, and skipped entirely when the IPC
-  // socket is unavailable (test environments) or the mirror still has
-  // channels or notes — a leftover mirror row is recoverable via the tolerant
-  // contact delete (LUM-2662), lost notes are not.
-  try {
-    const { path: socketPath } = resolveIpcSocketPath("assistant");
-    if (!existsSync(socketPath)) return true;
-
-    const mirrorChannels = await assistantDbQuery<{ id: string }>(
-      `SELECT id FROM contact_channels WHERE contact_id = ? LIMIT 1`,
-      [contactId],
-    );
-    if (mirrorChannels.length > 0) return true;
-    const mirrorNotes = await assistantDbQuery<{ notes: string | null }>(
-      `SELECT notes FROM contacts WHERE id = ?`,
-      [contactId],
-    );
-    if (mirrorNotes.length === 0) return true;
-    if (mirrorNotes[0].notes && mirrorNotes[0].notes.trim().length > 0) {
-      log.info(
-        { contactId },
-        "Keeping assistant-mirror contact with notes after gateway orphan delete",
+  if (mirrorRowPresent) {
+    try {
+      await assistantDbRun(`DELETE FROM contacts WHERE id = ?`, [contactId]);
+    } catch (mirrorErr) {
+      log.warn(
+        { err: mirrorErr, contactId },
+        "Orphaned contact garbage-collection failed (assistant mirror delete)",
       );
-      return true;
     }
-    await assistantDbRun(`DELETE FROM contacts WHERE id = ?`, [contactId]);
-  } catch (mirrorErr) {
-    log.warn(
-      { err: mirrorErr, contactId },
-      "Orphaned contact garbage-collection failed (assistant mirror)",
-    );
   }
-  return true;
 }
 
 /**

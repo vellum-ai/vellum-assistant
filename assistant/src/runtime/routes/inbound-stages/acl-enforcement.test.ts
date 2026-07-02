@@ -54,12 +54,14 @@ mock.module("../../gateway-client.js", () => ({
 
 const accessRequestCalls: unknown[] = [];
 let accessRequestDeniedForTest = false;
+let approvalHandshakeForTest = false;
 mock.module("../../access-request-helper.js", () => ({
   notifyGuardianOfAccessRequest: (params: unknown) => {
     accessRequestCalls.push(params);
     return { notified: true };
   },
   isAccessRequestDenied: () => accessRequestDeniedForTest,
+  isApprovalHandshakeInProgress: () => approvalHandshakeForTest,
 }));
 
 // Invite transport: by default no adapter (no token). Per-test override below.
@@ -135,6 +137,7 @@ function makeParams(
     replyCallbackUrl: "http://localhost/deliver",
     assistantId: "assistant-1",
     externalMessageId: "msg-1",
+    isCallbackInteraction: false,
     ...overrides,
   };
 }
@@ -164,6 +167,7 @@ beforeEach(() => {
   accessRequestCalls.length = 0;
   createOutboundSessionCalls.length = 0;
   accessRequestDeniedForTest = false;
+  approvalHandshakeForTest = false;
   inviteTokenForTest = undefined;
   guardianDeliveryList = [];
 });
@@ -682,6 +686,31 @@ describe("enforceIngressAcl — callback interactions never spawn stranger-lane 
     expect(result.earlyResponse!.reason).toBe("member_pending");
     expect(createOutboundSessionCalls.length).toBe(0);
     expect(accessRequestCalls.length).toBe(0);
+  });
+
+  test("a callback inside the approval handshake window gets next-step copy, not a denial", async () => {
+    approvalHandshakeForTest = true;
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        canonicalSenderId: "stranger-1",
+        rawSenderId: "stranger-1",
+        trimmedContent: "apr:req-1:approve_once",
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "stranger-1",
+        }),
+        isCallbackInteraction: true,
+      }),
+    );
+
+    expect(result.earlyResponse).toBeDefined();
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(accessRequestCalls.length).toBe(0);
+    expect(deliverReplyCalls.length).toBe(1);
+    const payload = deliverReplyCalls[0].payload as { text: string };
+    expect(payload.text).toContain("approved");
+    expect(payload.text).toContain("verification code");
   });
 
   test("a Slack stranger MESSAGE still gets the challenge + access request (control)", async () => {

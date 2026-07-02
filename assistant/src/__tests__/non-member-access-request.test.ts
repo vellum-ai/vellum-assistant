@@ -9,6 +9,8 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { sql } from "drizzle-orm";
+
 // ---------------------------------------------------------------------------
 // Test isolation: in-memory SQLite via temp directory
 // ---------------------------------------------------------------------------
@@ -105,7 +107,6 @@ import {
   isAccessRequestDenied,
   notifyGuardianOfAccessRequest,
 } from "../runtime/access-request-helper.js";
-import { createOutboundSession } from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
@@ -125,7 +126,6 @@ const TEST_BEARER_TOKEN = "test-token";
 function resetState(): string {
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
-  db.run("DELETE FROM channel_verification_sessions");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
   db.run("DELETE FROM canonical_guardian_requests");
@@ -824,7 +824,9 @@ describe("access-request-helper unit tests", () => {
     });
 
     expect(result.notified).toBe(true);
-    if (!result.notified) return;
+    if (!result.notified) {
+      return;
+    }
 
     await flushAsyncAccessRequestBookkeeping();
 
@@ -885,7 +887,9 @@ describe("access-request-helper unit tests", () => {
     });
 
     expect(result.notified).toBe(true);
-    if (!result.notified) return;
+    if (!result.notified) {
+      return;
+    }
 
     await flushAsyncAccessRequestBookkeeping();
 
@@ -941,10 +945,10 @@ describe("access-request-helper unit tests", () => {
     expect(pending.length).toBe(0);
   });
 
-  // LUM-2673: an approved request whose verification code is still live must
-  // not be re-created by the sender's follow-up inbound — that re-delivered a
-  // fresh Approve/Reject card on top of the one the guardian just decided.
-  test("suppressed while an approved request's verification session is live", async () => {
+  // LUM-2673: inside the post-approval verification window, inbound from the
+  // sender must not create a new request or re-notify the guardian — the
+  // handshake is waiting on the sender to enter their code.
+  test("suppressed while the approval's verification window is open", async () => {
     createCanonicalGuardianRequest({
       id: `approved-${Date.now()}`,
       kind: "access_request",
@@ -955,14 +959,6 @@ describe("access-request-helper unit tests", () => {
       guardianPrincipalId: anchorPrincipalId,
       toolName: "ingress_access_request",
       status: "approved",
-    });
-    createOutboundSession({
-      channel: "telegram",
-      expectedExternalUserId: "approved-user",
-      expectedChatId: "chat-approved",
-      identityBindingStatus: "bound",
-      destinationAddress: "chat-approved",
-      verificationPurpose: "trusted_contact",
     });
 
     const result = await notifyGuardianOfAccessRequest({
@@ -987,9 +983,10 @@ describe("access-request-helper unit tests", () => {
     expect(pending.length).toBe(0);
   });
 
-  test("re-prompts once the approved request's verification session has lapsed", async () => {
+  test("re-prompts once the approval's verification window has lapsed", async () => {
+    const requestId = `approved-stale-${Date.now()}`;
     createCanonicalGuardianRequest({
-      id: `approved-stale-${Date.now()}`,
+      id: requestId,
       kind: "access_request",
       sourceType: "channel",
       sourceChannel: "telegram",
@@ -999,8 +996,13 @@ describe("access-request-helper unit tests", () => {
       toolName: "ingress_access_request",
       status: "approved",
     });
-    // No live verification session: the code lapsed unconsumed, so the
-    // sender's next message legitimately re-prompts the guardian.
+    // Age the approval decision past the verification-code TTL: the code can
+    // no longer be redeemed, so the sender's next message legitimately
+    // re-prompts the guardian.
+    const staleUpdatedAt = Date.now() - 11 * 60 * 1000;
+    getDb().run(
+      sql`UPDATE canonical_guardian_requests SET updated_at = ${staleUpdatedAt} WHERE id = ${requestId}`,
+    );
 
     const result = await notifyGuardianOfAccessRequest({
       canonicalAssistantId: "self",
@@ -1019,6 +1021,45 @@ describe("access-request-helper unit tests", () => {
       kind: "access_request",
     });
     expect(pending.length).toBe(1);
+  });
+
+  test("a terminal deny wins over an in-window approval for the same sender", async () => {
+    createCanonicalGuardianRequest({
+      id: `approved-then-denied-a-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-flip-user",
+      requesterExternalUserId: "flip-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "approved",
+    });
+    createCanonicalGuardianRequest({
+      id: `approved-then-denied-d-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "telegram",
+      conversationId: "access-req-self-telegram-flip-user",
+      requesterExternalUserId: "flip-user",
+      guardianPrincipalId: anchorPrincipalId,
+      toolName: "ingress_access_request",
+      status: "denied",
+    });
+
+    const result = await notifyGuardianOfAccessRequest({
+      canonicalAssistantId: "self",
+      sourceChannel: "telegram",
+      conversationExternalId: "chat-flip",
+      actorExternalId: "flip-user",
+      actorDisplayName: "Flip User",
+    });
+
+    expect(result.notified).toBe(false);
+    if (!result.notified) {
+      expect(result.reason).toBe("already_denied");
+    }
+    expect(emitSignalCalls.length).toBe(0);
   });
 
   test("a prior deny for one sender does not suppress prompts for a different sender", async () => {

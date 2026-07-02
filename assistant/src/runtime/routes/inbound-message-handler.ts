@@ -90,14 +90,20 @@ import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
-import { notifyGuardianOfAccessRequest } from "../access-request-helper.js";
+import {
+  isApprovalHandshakeInProgress,
+  notifyGuardianOfAccessRequest,
+} from "../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { deliverChannelReply } from "../gateway-client.js";
 import { trustContextFromVerdict } from "../trust-verdict-consumer.js";
 import { canonicalChannelAssistantId } from "./channel-route-shared.js";
 import { BadRequestError } from "./errors.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
-import { enforceIngressAcl } from "./inbound-stages/acl-enforcement.js";
+import {
+  composeAccessDenialReply,
+  enforceIngressAcl,
+} from "./inbound-stages/acl-enforcement.js";
 import { enforceAdmissionPolicy } from "./inbound-stages/admission-policy.js";
 import { processChannelMessageInBackground } from "./inbound-stages/background-dispatch.js";
 import { handleBootstrapIntercept } from "./inbound-stages/bootstrap-intercept.js";
@@ -457,9 +463,9 @@ export async function handleChannelInbound({
   // Callback payloads (button presses, delete sentinels) are decision
   // attempts / lifecycle events, not access attempts: the ACL stage must not
   // respond to one by minting a verification challenge or creating an access
-  // request (LUM-2673). Reactions are intercepted before this point; the
-  // guard is defensive.
-  const isCallbackInteraction = hasCallbackData && !isSlackReactionEvent(body);
+  // request (LUM-2673). Reaction callbacks never reach this point — the
+  // intercept above returns for them.
+  const isCallbackInteraction = hasCallbackData;
 
   // ── Ingress ACL enforcement ──
   const aclResult = await enforceIngressAcl({
@@ -807,16 +813,26 @@ export async function handleChannelInbound({
     // visible in the same UI. previousMemberStatus is only meaningful when
     // a member record exists; we pass it through when available so the
     // guardian sees "previously pending" etc. Callback interactions never
-    // create an access request (LUM-2673).
+    // create an access request (LUM-2673); the handshake window is still
+    // probed for reply copy.
     let guardianNotified = false;
     let handshakeInProgress = false;
-    if (!isCallbackInteraction) {
+    const floorSenderId = canonicalSenderId ?? rawSenderId;
+    if (isCallbackInteraction) {
+      if (floorSenderId) {
+        handshakeInProgress = isApprovalHandshakeInProgress({
+          canonicalAssistantId,
+          sourceChannel,
+          actorExternalId: floorSenderId,
+        });
+      }
+    } else {
       try {
         const accessResult = await notifyGuardianOfAccessRequest({
           canonicalAssistantId,
           sourceChannel,
           conversationExternalId,
-          actorExternalId: canonicalSenderId ?? rawSenderId,
+          actorExternalId: floorSenderId,
           actorDisplayName: body.actorDisplayName,
           actorUsername: body.actorUsername,
           ...(resolvedMember
@@ -852,11 +868,11 @@ export async function handleChannelInbound({
     // Canned reply mirrors the not_a_member surface. §8.2: no upgrade
     // challenge text for `trusted_contacts` / `guardian_only` denials —
     // sender gets the standard "ask the guardian" copy.
-    const replyText = handshakeInProgress
-      ? "Your access has been approved! Reply with the 6-digit verification code you received to finish connecting."
-      : guardianNotified
-        ? "Hmm looks like you don't have access to talk to me. I'll let your guardian know you tried."
-        : "Sorry, you haven't been approved to message this assistant.";
+    const replyText = await composeAccessDenialReply({
+      sourceChannel,
+      guardianNotified,
+      handshakeInProgress,
+    });
     let replyDelivered = false;
     if (replyCallbackUrl) {
       const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
