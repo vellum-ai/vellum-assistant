@@ -324,6 +324,3 @@ export class TwilioVoiceProvider implements VoiceProvider {
     return timingSafeEqual(a, b);
   }
 }
-
-// Deprecated alias; the twilio-validation middleware imports this name.
-export { TwilioVoiceProvider as TwilioConversationRelayProvider };

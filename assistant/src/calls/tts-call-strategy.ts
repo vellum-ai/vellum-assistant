@@ -1,15 +1,15 @@
 /**
  * Explicit call-path strategy for TTS providers.
  *
- * Determines how a TTS provider integrates with the Twilio
- * ConversationRelay call path by reading the provider's `callMode` from
- * the canonical catalog rather than inferring behavior from runtime
- * capabilities like `supportsStreaming`.
+ * Determines how a TTS provider integrates with the telephony call path
+ * by reading the provider's `callMode` from the canonical catalog rather
+ * than inferring behavior from runtime capabilities like
+ * `supportsStreaming`.
  *
  * Two strategies exist:
  *
- * - **native-twilio** -- Twilio handles TTS natively via
- *   ConversationRelay. The profile needs a real `ttsProvider` name
+ * - **native-twilio** -- Twilio synthesises audio itself via its built-in
+ *   provider integrations. The profile needs a real `ttsProvider` name
  *   (e.g. `"ElevenLabs"`) and a provider-specific voice spec string.
  *   New native providers plug in by registering a
  *   {@link NativeTwilioVoiceSpecBuilder} -- no edits to the core call
@@ -37,15 +37,14 @@ import type { TtsCallMode, TtsProviderId } from "../tts/types.js";
  * Builds the provider-specific voice spec string for a native Twilio
  * provider.
  *
- * The returned string is used as the `voice` attribute in the
- * ConversationRelay TwiML element. Its format is provider-specific --
- * e.g. ElevenLabs uses `voiceId-modelId-speed_stability_similarity`.
+ * The returned string is used as Twilio's TTS `voice` attribute. Its
+ * format is provider-specific -- e.g. ElevenLabs uses
+ * `voiceId-modelId-speed_stability_similarity`.
  *
  * @param providerConfig - Provider-specific config block from
  *   `services.tts.providers.<id>`.
- * @returns The voice spec string for the ConversationRelay `voice`
- *   attribute, or an empty string if the provider has no voice to
- *   specify.
+ * @returns The voice spec string for Twilio's TTS `voice` attribute, or
+ *   an empty string if the provider has no voice to specify.
  */
 export type NativeTwilioVoiceSpecBuilder = (
   providerConfig: Record<string, unknown>,

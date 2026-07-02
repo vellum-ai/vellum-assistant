@@ -130,7 +130,7 @@ export async function evaluateTelephonyTtsPlayability(
  * Single source of truth for the fish-audio usability invariant: the
  * telephony path supplies no per-request voiceId, so synthesis requires a
  * configured reference ID. Shared by {@link evaluateTelephonyTtsPlayability}
- * and the call TTS resolver's ConversationRelay degrade path.
+ * and the call TTS resolver's non-WAV degrade path.
  *
  * When fish-audio is the active `services.tts.provider`, its config is
  * read through the {@link resolveTtsConfig} provider-options layer — the

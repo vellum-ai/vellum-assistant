@@ -230,7 +230,7 @@ mock.module("../security/secure-keys.js", () => ({
 }));
 
 mock.module("../calls/twilio-provider.js", () => ({
-  TwilioConversationRelayProvider: class {
+  TwilioVoiceProvider: class {
     readonly name = "twilio";
     static getAuthToken(): string | null {
       return null;
@@ -1026,7 +1026,6 @@ describe("twilio webhook routes", () => {
       expect(res.status).toBe(200);
       const twiml = await res.text();
       expect(twiml).toContain("<Stream");
-      expect(twiml).not.toContain("<ConversationRelay");
       expect(twiml).toContain('<Parameter name="callSessionId"');
 
       // Verify session was created with the CallSid
@@ -1100,7 +1099,6 @@ describe("twilio webhook routes", () => {
       expect(res.status).toBe(200);
       const twiml = await res.text();
       expect(twiml).toContain("<Stream");
-      expect(twiml).not.toContain("<ConversationRelay");
       expect(twiml).toContain(`/webhooks/twilio/media-stream/${session.id}`);
     });
   });
@@ -1118,7 +1116,7 @@ describe("twilio webhook routes", () => {
     ] as const;
 
     for (const provider of providers) {
-      test(`outbound: ${provider} -> Stream TwiML (no ConversationRelay)`, async () => {
+      test(`outbound: ${provider} -> Stream TwiML`, async () => {
         mockConfigObj.services.stt.provider = provider as any;
         const session = createTestSession(
           `conv-stt-${provider}-1`,
@@ -1133,7 +1131,6 @@ describe("twilio webhook routes", () => {
 
         const twiml = await res.text();
         expect(twiml).toContain("<Stream");
-        expect(twiml).not.toContain("<ConversationRelay");
         expect(twiml).not.toContain("transcriptionProvider=");
         // callSessionId is in the URL path, not as a query param
         expect(twiml).toContain(
@@ -1142,7 +1139,7 @@ describe("twilio webhook routes", () => {
         expect(twiml).not.toContain("?callSessionId=");
       });
 
-      test(`inbound: ${provider} -> Stream TwiML (no ConversationRelay)`, async () => {
+      test(`inbound: ${provider} -> Stream TwiML`, async () => {
         mockConfigObj.services.stt.provider = provider as any;
         const req = makeInboundVoiceRequest({
           CallSid: `CA_stt_${provider}_inbound_1`,
@@ -1155,7 +1152,6 @@ describe("twilio webhook routes", () => {
 
         const twiml = await res.text();
         expect(twiml).toContain("<Stream");
-        expect(twiml).not.toContain("<ConversationRelay");
         expect(twiml).not.toContain("transcriptionProvider=");
       });
     }
@@ -1228,7 +1224,6 @@ describe("twilio webhook routes", () => {
 
         const twiml = await res.text();
         expect(twiml).toContain("<Stream");
-        expect(twiml).not.toContain("<ConversationRelay");
       });
     }
 
@@ -1295,7 +1290,6 @@ describe("twilio webhook routes", () => {
       expect(twiml).toContain("<Hangup/>");
       expect(twiml).toContain("speech-to-text provider");
       expect(twiml).not.toContain("<Stream");
-      expect(twiml).not.toContain("<ConversationRelay");
 
       const session = getCallSessionByCallSid("CA_preflight_inbound_1");
       expect(session).not.toBeNull();
@@ -1383,7 +1377,6 @@ describe("twilio webhook routes", () => {
 
       const twiml = result.body as string;
       expect(twiml).toContain("<Stream");
-      expect(twiml).not.toContain("<ConversationRelay");
     });
 
     test("outbound forward (callSessionId in originalUrl) yields Stream TwiML", async () => {

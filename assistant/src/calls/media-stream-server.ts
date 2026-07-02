@@ -417,11 +417,11 @@ export class MediaStreamCallSession {
     });
 
     // ── Setup-policy routing ────────────────────────────────────────
-    // Run the same routeSetup() that the ConversationRelay path uses
-    // to enforce ACL/deny/escalate, verification, and invite flows.
-    // The resulting outcome is handed to a CallSetupFlow, which drives
-    // every interactive sub-flow (DTMF/spoken code entry, invite
-    // redemption, name capture, guardian wait) over this transport.
+    // Run routeSetup() to enforce ACL/deny/escalate, verification, and
+    // invite flows. The resulting outcome is handed to a CallSetupFlow,
+    // which drives every interactive sub-flow (DTMF/spoken code entry,
+    // invite redemption, name capture, guardian wait) over this
+    // transport.
     const from = session?.fromNumber ?? "";
     const to = session?.toNumber ?? "";
 
@@ -454,10 +454,10 @@ export class MediaStreamCallSession {
       return;
     }
 
-    // Verdict-first caller trust so this transport enforces the same gateway
-    // ACL as ConversationRelay. routeSetup uses it when present and not
-    // resolutionFailed, else falls back to local resolution. The reader returns
-    // null on failure, keeping the local path on a gateway blip.
+    // Verdict-first caller trust so this transport enforces the gateway
+    // ACL. routeSetup uses it when present and not resolutionFailed, else
+    // falls back to local resolution. The reader returns null on failure,
+    // keeping the local path on a gateway blip.
     const isInbound = session?.initiatedFromConversationId == null;
     const otherPartyNumber = isInbound ? from : to;
     const verdict = await getPhoneCallerVerdict(otherPartyNumber);

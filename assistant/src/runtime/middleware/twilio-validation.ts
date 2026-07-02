@@ -2,7 +2,7 @@
  * Twilio webhook signature validation and related constants.
  */
 
-import { TwilioConversationRelayProvider } from "../../calls/twilio-provider.js";
+import { TwilioVoiceProvider } from "../../calls/twilio-provider.js";
 import { loadConfig } from "../../config/loader.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
 import { getLogger } from "../../util/logger.js";
@@ -55,7 +55,7 @@ export async function validateTwilioWebhook(
 ): Promise<{ body: string } | Response> {
   const rawBody = await req.text();
 
-  const authToken = await TwilioConversationRelayProvider.getAuthToken();
+  const authToken = await TwilioVoiceProvider.getAuthToken();
 
   if (!authToken) {
     log.error(
@@ -93,7 +93,7 @@ export async function validateTwilioWebhook(
     ? publicBaseUrl + parsedUrl.pathname + parsedUrl.search
     : req.url;
 
-  const isValid = TwilioConversationRelayProvider.verifyWebhookSignature(
+  const isValid = TwilioVoiceProvider.verifyWebhookSignature(
     publicUrl,
     params,
     signature,

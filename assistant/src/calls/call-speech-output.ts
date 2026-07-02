@@ -75,7 +75,7 @@ export async function speakSystemPrompt(
 
 /**
  * Synthesize text via a streaming TTS provider and send the play URL
- * to the relay.
+ * to the transport.
  *
  * On synthesis failure the behavior depends on the transport:
  * - WAV-requiring transports (media-stream) retry once with a playable
@@ -84,10 +84,10 @@ export async function speakSystemPrompt(
  *   path. When no fallback exists (or the retry also fails), only an
  *   empty end-of-turn signal is sent so the transport transitions back
  *   to listening state.
- * - On the ConversationRelay transport, providers with a native Twilio
- *   TTS fallback (e.g. Fish Audio) fall back to `sendTextToken(text)` so
- *   the caller still hears the message; providers without one (e.g.
- *   Deepgram) log the error and send only the end-of-turn signal.
+ * - On non-WAV transports, providers with a native Twilio TTS fallback
+ *   (e.g. Fish Audio) fall back to `sendTextToken(text)` so the caller
+ *   still hears the message; providers without one (e.g. Deepgram) log
+ *   the error and send only the end-of-turn signal.
  */
 async function synthesizeAndPlay(
   relay: CallTransport,
@@ -151,11 +151,11 @@ async function synthesizeAndPlay(
     }
 
     // Signal end of this turn's speech.  An empty token with `last: true`
-    // tells ConversationRelay to start listening — it does NOT trigger TTS
+    // tells the transport to start listening — it does NOT trigger TTS
     // synthesis.  This is required even when a synthesized provider handled
-    // all audio playback, because ConversationRelay still needs the
-    // end-of-turn signal to transition from "assistant speaking" to
-    // "caller speaking" state.
+    // all audio playback, because the transport still needs the end-of-turn
+    // signal to transition from "assistant speaking" to "caller speaking"
+    // state.
     relay.sendTextToken("", true);
   } catch (err) {
     // Extract error class and code for diagnosable log entries.
@@ -221,10 +221,10 @@ async function synthesizeAndPlay(
         { err, provider: provider.id, errName, errCode },
         "System prompt TTS synthesis failed — native fallback disabled for this provider",
       );
-      // Send the end-of-turn signal so ConversationRelay transitions from
-      // "assistant speaking" to "caller speaking" state. Without this, the
-      // relay hangs waiting for the prompt to complete and the caller
-      // cannot interact.
+      // Send the end-of-turn signal so the transport transitions from
+      // "assistant speaking" to "caller speaking" state. Without this,
+      // the session hangs waiting for the prompt to complete and the
+      // caller cannot interact.
       relay.sendTextToken("", true);
       return;
     }

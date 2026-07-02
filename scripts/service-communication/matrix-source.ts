@@ -314,17 +314,6 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
   // Gateway -> Assistant (WebSocket)
   // =========================================================================
   {
-    label: "Twilio ConversationRelay WebSocket proxy",
-    caller: "gateway",
-    callee: "assistant",
-    protocol: "websocket",
-    auth: "JWT Bearer (service token, query param)",
-    description:
-      "Gateway proxies Twilio ConversationRelay WebSocket frames to the assistant's /v1/calls/relay endpoint.",
-    callerGlobs: ["gateway/src/http/routes/twilio-relay-websocket.ts"],
-    calleeGlobs: ["assistant/src/calls/relay-server.ts"],
-  },
-  {
     label: "Browser relay WebSocket proxy",
     caller: "gateway",
     callee: "assistant",

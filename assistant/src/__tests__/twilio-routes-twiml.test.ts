@@ -28,7 +28,6 @@ describe("generateStreamTwiML", () => {
     expect(twiml).toContain(
       `url="wss://test.example.com/webhooks/twilio/media-stream/${callSessionId}"`,
     );
-    expect(twiml).not.toContain("<ConversationRelay");
     // No query params should be present
     expect(twiml).not.toContain("?callSessionId=");
   });
@@ -97,7 +96,7 @@ describe("generateStreamTwiML", () => {
     expect(twiml).not.toContain("attacker-session");
   });
 
-  test("does not include ConversationRelay STT attributes", () => {
+  test("does not include STT/TTS attributes on the Stream element", () => {
     const twiml = generateStreamTwiML(callSessionId, streamUrl);
 
     expect(twiml).not.toContain("transcriptionProvider=");
