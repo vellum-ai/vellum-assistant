@@ -2222,13 +2222,12 @@ describe("handleCreateInvite (gateway-native mint)", () => {
 });
 
 describe("handleListInvites (gateway-native)", () => {
-  test("returns gateway rows joined with assistant voice fields", async () => {
+  test("returns voice/display fields from the gateway row; assistant DB never queried", async () => {
     contactStoreListInvitesMock = mock(() => [
-      { ...DEFAULT_INVITE, id: "inv_1", sourceChannel: "phone" },
-    ]);
-    assistantDbQueryMock = mock(async () => [
       {
+        ...DEFAULT_INVITE,
         id: "inv_1",
+        sourceChannel: "phone",
         voiceCodeDigits: 6,
         friendName: "Alice",
         guardianName: "Bob",
@@ -2248,12 +2247,17 @@ describe("handleListInvites (gateway-native)", () => {
     expect(body.invites[0].id).toBe("inv_1");
     expect(body.invites[0].voiceCodeDigits).toBe(6);
     expect(body.invites[0].friendName).toBe("Alice");
+    expect(body.invites[0].guardianName).toBe("Bob");
+    expect(body.invites[0].expectedExternalUserId).toBe("+15551234567");
     // The brute-forceable code hash must never be exposed in list responses.
     expect(body.invites[0]).not.toHaveProperty("inviteCodeHash");
     // status filter passed through to the store query.
     expect(contactStoreListInvitesMock.mock.calls[0][0]).toEqual({
       status: "active",
     });
+    // The gateway DB is the single source: no assistant DB access, no proxy.
+    expect(assistantDbQueryMock).not.toHaveBeenCalled();
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -2267,7 +2271,6 @@ describe("handleListInvites (gateway-native)", () => {
         voiceCodeHash: "secret-voice-hash",
       },
     ]);
-    assistantDbQueryMock = mock(async () => []);
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleListInvites(
@@ -2284,11 +2287,14 @@ describe("handleListInvites (gateway-native)", () => {
     expect(body.invites[0]).not.toHaveProperty("voiceCodeHash");
   });
 
-  test("degrades gracefully when the assistant voice-field join throws", async () => {
+  test("succeeds even when the assistant DB is unavailable (list never touches it)", async () => {
     contactStoreListInvitesMock = mock(() => [
       { ...DEFAULT_INVITE, id: "inv_1" },
     ]);
     assistantDbQueryMock = mock(async () => {
+      throw new Error("assistant DB down");
+    });
+    assistantDbRunMock = mock(async () => {
       throw new Error("assistant DB down");
     });
 
@@ -2301,133 +2307,9 @@ describe("handleListInvites (gateway-native)", () => {
     const body = await res.json();
     expect(body.invites).toHaveLength(1);
     expect(body.invites[0].id).toBe("inv_1");
-    expect(body.invites[0].friendName).toBeUndefined();
     expect(body.invites[0]).not.toHaveProperty("inviteCodeHash");
-  });
-
-  test("merges assistant-only invites (no gateway row) into the list, sanitized", async () => {
-    contactStoreListInvitesMock = mock(() => [
-      { ...DEFAULT_INVITE, id: "inv_gateway", sourceChannel: "telegram" },
-    ]);
-    // The voice-join SELECT and the assistant-only merge SELECT both go through
-    // assistantDbQuery; branch on the query text to return the right shape.
-    assistantDbQueryMock = mock(async (sql: string) => {
-      if (/FROM assistant_ingress_invites/.test(sql) && /max_uses/.test(sql)) {
-        // The assistant-only merge query (selects full row + voice fields).
-        return [
-          {
-            id: "inv_assistant_only",
-            sourceChannel: "telegram",
-            note: null,
-            maxUses: 1,
-            useCount: 0,
-            expiresAt: 4_000_000_000_000,
-            status: "active",
-            redeemedByExternalUserId: null,
-            redeemedByExternalChatId: null,
-            redeemedAt: null,
-            contactId: "ct_1",
-            createdAt: 1000000,
-            updatedAt: 1000000,
-            voiceCodeDigits: 6,
-            friendName: "Carol",
-            guardianName: null,
-            expectedExternalUserId: null,
-            // Hash columns are NOT selected by the merge query; assert below.
-          },
-        ];
-      }
-      // The voice-join query for gateway rows.
-      return [];
-    });
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleListInvites(
-      new Request("http://localhost:7830/v1/contacts/invites?status=active"),
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    const ids = body.invites.map((i: { id: string }) => i.id);
-    expect(ids).toContain("inv_gateway");
-    expect(ids).toContain("inv_assistant_only");
-    const assistantOnly = body.invites.find(
-      (i: { id: string }) => i.id === "inv_assistant_only",
-    );
-    expect(assistantOnly.voiceCodeDigits).toBe(6);
-    expect(assistantOnly.friendName).toBe("Carol");
-    // Assistant-only rows must be sanitized too — never leak a code hash.
-    expect(assistantOnly).not.toHaveProperty("inviteCodeHash");
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test("does not duplicate an invite present in both stores (gateway wins)", async () => {
-    contactStoreListInvitesMock = mock(() => [
-      { ...DEFAULT_INVITE, id: "inv_dupe", status: "redeemed" },
-    ]);
-    // Assistant DB also has inv_dupe (e.g. as 'active'); the merge must drop it
-    // because the gateway row already covers that id.
-    assistantDbQueryMock = mock(async (sql: string) => {
-      if (/FROM assistant_ingress_invites/.test(sql) && /max_uses/.test(sql)) {
-        return [
-          {
-            id: "inv_dupe",
-            sourceChannel: "telegram",
-            note: null,
-            maxUses: 1,
-            useCount: 0,
-            expiresAt: 4_000_000_000_000,
-            status: "active",
-            redeemedByExternalUserId: null,
-            redeemedByExternalChatId: null,
-            redeemedAt: null,
-            contactId: "ct_1",
-            createdAt: 1000000,
-            updatedAt: 1000000,
-            voiceCodeDigits: null,
-            friendName: null,
-            guardianName: null,
-            expectedExternalUserId: null,
-          },
-        ];
-      }
-      return [];
-    });
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleListInvites(
-      new Request("http://localhost:7830/v1/contacts/invites"),
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    const dupes = body.invites.filter(
-      (i: { id: string }) => i.id === "inv_dupe",
-    );
-    expect(dupes).toHaveLength(1);
-    // The gateway row (lifecycle truth) wins: status is 'redeemed', not 'active'.
-    expect(dupes[0].status).toBe("redeemed");
-  });
-
-  test("degrades to gateway-only rows when the assistant-only merge query throws", async () => {
-    contactStoreListInvitesMock = mock(() => [
-      { ...DEFAULT_INVITE, id: "inv_gateway" },
-    ]);
-    assistantDbQueryMock = mock(async () => {
-      throw new Error("assistant DB down");
-    });
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleListInvites(
-      new Request("http://localhost:7830/v1/contacts/invites"),
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.invites).toHaveLength(1);
-    expect(body.invites[0].id).toBe("inv_gateway");
-    expect(body.invites[0]).not.toHaveProperty("inviteCodeHash");
+    expect(assistantDbQueryMock).not.toHaveBeenCalled();
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
   });
 
   test("returns 500 when the gateway read throws", async () => {
@@ -2446,7 +2328,7 @@ describe("handleListInvites (gateway-native)", () => {
 });
 
 describe("handleRevokeInvite (gateway-native)", () => {
-  test("revokes the invite and mirrors into the assistant DB", async () => {
+  test("revokes the invite via a single gateway UPDATE; assistant DB never touched", async () => {
     contactStoreRevokeInviteMock = mock(() => ({
       ...DEFAULT_INVITE,
       status: "revoked",
@@ -2467,19 +2349,53 @@ describe("handleRevokeInvite (gateway-native)", () => {
     // Revoke responses must not leak the brute-forceable code hash.
     expect(body.invite).not.toHaveProperty("inviteCodeHash");
     expect(contactStoreRevokeInviteMock).toHaveBeenCalledWith("inv_1");
-    // Best-effort assistant DB mirror reflects the gateway row's actual status.
-    expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
-    expect(assistantDbRunMock.mock.calls[0][0]).toMatch(
-      /assistant_ingress_invites/,
-    );
-    expect(assistantDbRunMock.mock.calls[0][1]?.[0]).toBe("revoked");
+    // The gateway DB is the single source: no assistant DB access, no proxy.
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
+    expect(assistantDbQueryMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("mirrors the gateway row's actual status for an already-redeemed invite", async () => {
+  test("revokes a backfilled (pre-migration) invite carrying voice/display fields", async () => {
+    contactStoreRevokeInviteMock = mock(() => ({
+      ...DEFAULT_INVITE,
+      id: "inv_backfilled",
+      sourceChannel: "phone",
+      status: "revoked",
+      tokenHash: "secret-token-hash",
+      voiceCodeHash: "secret-voice-hash",
+      voiceCodeDigits: 6,
+      friendName: "Alice",
+      guardianName: "Bob",
+      expectedExternalUserId: "+15551234567",
+    }));
+
+    const handler = createContactsControlPlaneProxyHandler(makeConfig());
+    const res = await handler.handleRevokeInvite(
+      new Request("http://localhost:7830/v1/contacts/invites/inv_backfilled", {
+        method: "DELETE",
+      }),
+      "inv_backfilled",
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.ok).toBe(true);
+    expect(body.invite.id).toBe("inv_backfilled");
+    expect(body.invite.status).toBe("revoked");
+    expect(body.invite.friendName).toBe("Alice");
+    expect(body.invite.voiceCodeDigits).toBe(6);
+    // No secret hash field may ever reach the wire.
+    expect(body.invite).not.toHaveProperty("inviteCodeHash");
+    expect(body.invite).not.toHaveProperty("tokenHash");
+    expect(body.invite).not.toHaveProperty("voiceCodeHash");
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
+    expect(assistantDbQueryMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test("is idempotent on an already-terminal invite (returns its current state)", async () => {
     // revokeInvite() only flips an ACTIVE row to revoked; an already-redeemed
-    // invite is returned unchanged. The mirror must NOT force 'revoked' — it
-    // must reflect the gateway row's real status so the stores stay in sync.
+    // invite is returned unchanged with its terminal status.
     contactStoreRevokeInviteMock = mock(() => ({
       ...DEFAULT_INVITE,
       status: "redeemed",
@@ -2496,16 +2412,12 @@ describe("handleRevokeInvite (gateway-native)", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.invite.status).toBe("redeemed");
-    expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
-    expect(assistantDbRunMock.mock.calls[0][1]?.[0]).toBe("redeemed");
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("returns 404 when the invite is absent from both the gateway and assistant DBs", async () => {
-    // No gateway row AND no assistant row: the SELECT re-read returns empty,
-    // so the invite is genuinely absent everywhere.
+  test("returns 404 when the invite id is unknown (no assistant DB fallback)", async () => {
     contactStoreRevokeInviteMock = mock(() => null);
-    assistantDbQueryMock = mock(async () => []);
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
     const res = await handler.handleRevokeInvite(
@@ -2517,194 +2429,8 @@ describe("handleRevokeInvite (gateway-native)", () => {
 
     expect(res.status).toBe(404);
     expect((await res.json()).error.code).toBe("NOT_FOUND");
-  });
-
-  test("falls back to revoking the assistant row when no gateway row exists", async () => {
-    // Assistant-only invite: gateway revoke returns null, but the row exists in
-    // the assistant DB and gets flipped active -> revoked via the fallback.
-    contactStoreRevokeInviteMock = mock(() => null);
-    assistantDbQueryMock = mock(async () => [
-      {
-        id: "inv_assistant_only",
-        sourceChannel: "telegram",
-        note: null,
-        maxUses: 1,
-        useCount: 0,
-        expiresAt: 4_000_000_000_000,
-        status: "revoked",
-        redeemedByExternalUserId: null,
-        redeemedByExternalChatId: null,
-        redeemedAt: null,
-        contactId: "ct_1",
-        createdAt: 1000000,
-        updatedAt: 2000000,
-        voiceCodeDigits: null,
-        friendName: null,
-        guardianName: null,
-        expectedExternalUserId: null,
-      },
-    ]);
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRevokeInvite(
-      new Request(
-        "http://localhost:7830/v1/contacts/invites/inv_assistant_only",
-        { method: "DELETE" },
-      ),
-      "inv_assistant_only",
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.invite.id).toBe("inv_assistant_only");
-    expect(body.invite.status).toBe("revoked");
-    expect(body.invite).not.toHaveProperty("inviteCodeHash");
-    // The assistant fallback UPDATE ran against assistant_ingress_invites.
-    expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
-    expect(assistantDbRunMock.mock.calls[0][0]).toMatch(
-      /UPDATE assistant_ingress_invites SET status='revoked'/,
-    );
-    expect(assistantDbRunMock.mock.calls[0][1]?.[1]).toBe("inv_assistant_only");
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test("assistant-only revoke is idempotent on an already-terminal row (UPDATE no-ops, 200 terminal)", async () => {
-    // No gateway row. The UPDATE succeeds but affects 0 rows because the invite
-    // is already redeemed; the SELECT then returns the terminal row. This is the
-    // legitimate idempotent revoke — must stay 200 with the terminal state.
-    contactStoreRevokeInviteMock = mock(() => null);
-    assistantDbRunMock = mock(async () => ({ changes: 0, lastInsertRowid: 0 }));
-    assistantDbQueryMock = mock(async () => [
-      {
-        id: "inv_terminal",
-        sourceChannel: "telegram",
-        note: null,
-        maxUses: 1,
-        useCount: 1,
-        expiresAt: 4_000_000_000_000,
-        status: "redeemed",
-        redeemedByExternalUserId: "ext_1",
-        redeemedByExternalChatId: "chat_1",
-        redeemedAt: 3000000,
-        contactId: "ct_1",
-        createdAt: 1000000,
-        updatedAt: 2000000,
-        voiceCodeDigits: null,
-        friendName: null,
-        guardianName: null,
-        expectedExternalUserId: null,
-      },
-    ]);
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRevokeInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/inv_terminal", {
-        method: "DELETE",
-      }),
-      "inv_terminal",
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.invite.id).toBe("inv_terminal");
-    expect(body.invite.status).toBe("redeemed");
-  });
-
-  test("assistant-only revoke surfaces 500 when the fallback UPDATE throws (no false success)", async () => {
-    // No gateway row, so assistant_ingress_invites is the only store that can
-    // revoke. If the UPDATE write throws, the handler must NOT swallow it and
-    // return 200 with the still-active row — a guardian would believe the
-    // invite was revoked while it stays redeemable via the legacy path.
-    contactStoreRevokeInviteMock = mock(() => null);
-    assistantDbRunMock = mock(async () => {
-      throw new Error("assistant DB write failed");
-    });
-    // The SELECT would still find the row active — proving the write didn't land.
-    const assistantQuerySpy = mock(async () => [
-      {
-        id: "inv_assistant_only",
-        sourceChannel: "telegram",
-        note: null,
-        maxUses: 1,
-        useCount: 0,
-        expiresAt: 4_000_000_000_000,
-        status: "active",
-        redeemedByExternalUserId: null,
-        redeemedByExternalChatId: null,
-        redeemedAt: null,
-        contactId: "ct_1",
-        createdAt: 1000000,
-        updatedAt: 2000000,
-        voiceCodeDigits: null,
-        friendName: null,
-        guardianName: null,
-        expectedExternalUserId: null,
-      },
-    ]);
-    assistantDbQueryMock = assistantQuerySpy;
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRevokeInvite(
-      new Request(
-        "http://localhost:7830/v1/contacts/invites/inv_assistant_only",
-        { method: "DELETE" },
-      ),
-      "inv_assistant_only",
-    );
-
-    expect(res.status).toBe(500);
-    expect((await res.json()).error.code).toBe("INTERNAL_ERROR");
-    // The handler must not have read back and returned the still-active row.
-    expect(assistantQuerySpy).not.toHaveBeenCalled();
-  });
-
-  test("revoking a gateway-known invite uses the gateway path (no assistant fallback)", async () => {
-    contactStoreRevokeInviteMock = mock(() => ({
-      ...DEFAULT_INVITE,
-      status: "revoked",
-    }));
-    // assistantDbQuery would only be hit by the fallback; it must NOT run here.
-    const assistantQuerySpy = mock(async () => []);
-    assistantDbQueryMock = assistantQuerySpy;
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRevokeInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/inv_1", {
-        method: "DELETE",
-      }),
-      "inv_1",
-    );
-
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.invite.status).toBe("revoked");
-    expect(contactStoreRevokeInviteMock).toHaveBeenCalledWith("inv_1");
-    // Gateway path mirrors via assistantDbRun but never SELECTs via the fallback.
-    expect(assistantQuerySpy).not.toHaveBeenCalled();
-    expect(fetchMock).not.toHaveBeenCalled();
-  });
-
-  test("still succeeds when the assistant DB mirror soft-fails", async () => {
-    contactStoreRevokeInviteMock = mock(() => ({
-      ...DEFAULT_INVITE,
-      status: "revoked",
-    }));
-    assistantDbRunMock = mock(async () => {
-      throw new Error("assistant DB down");
-    });
-
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRevokeInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/inv_1", {
-        method: "DELETE",
-      }),
-      "inv_1",
-    );
-
-    expect(res.status).toBe(200);
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(assistantDbQueryMock).not.toHaveBeenCalled();
+    expect(assistantDbRunMock).not.toHaveBeenCalled();
   });
 
   test("returns 500 on unexpected gateway error (no proxy fallback)", async () => {
@@ -2898,9 +2624,8 @@ describe("handleCallInvite (gateway-native)", () => {
   });
 
   test("relays to the assistant when no gateway row exists (assistant-only invite)", async () => {
-    // Legacy/assistant-only invite: no gateway row, but a live row in
-    // assistant_ingress_invites. Mirror the list/revoke assistant-only fallback
-    // — don't 404; relay and let the daemon-local trigger validate its own row.
+    // Legacy assistant-only invite: no gateway row, but a live daemon-local
+    // row — don't 404; relay and let the daemon-local trigger validate it.
     contactStoreGetInviteByIdMock = mock(() => null);
     ipcCallAssistantMock = mock(async (method: string) => {
       if (method === "invites_trigger_call") {
