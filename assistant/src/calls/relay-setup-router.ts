@@ -8,13 +8,13 @@
 
 import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 
+import { getPendingSession } from "../channels/gateway-verification-sessions.js";
 import { getConfig } from "../config/loader.js";
 import {
   type ActorTrustContext,
   resolveActorTrust,
 } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { getPendingSession } from "../channels/gateway-verification-sessions.js";
 import {
   type AdmissionPolicyResult,
   enforceAdmissionPolicy,
