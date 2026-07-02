@@ -1,0 +1,83 @@
+/**
+ * Types for the transport-agnostic call setup flow.
+ *
+ * The setup flow runs the pre-conversation phase of a phone call (ACL
+ * denial, verification, invite redemption, name capture) against any
+ * transport that can speak and end the session. Its result describes how
+ * the owning server should continue the call once setup completes.
+ */
+
+import type { TrustContext } from "../daemon/trust-context.js";
+
+// ── Transport surface ────────────────────────────────────────────────
+
+/**
+ * Structural subset of `CallTransport` (call-transport.ts) that the setup
+ * flow needs. `MediaStreamOutput` satisfies this interface (asserted at
+ * compile time in call-setup-flow.test.ts).
+ */
+export interface SetupFlowTransport {
+  sendTextToken(token: string, last: boolean): void;
+  sendPlayUrl(url: string): void;
+  endSession(reason?: string): void;
+  getConnectionState(): string;
+  readonly requiresWavAudio?: boolean;
+}
+
+// ── Input surface ────────────────────────────────────────────────────
+
+/**
+ * Caller input routed into the active setup sub-flow by the owning
+ * transport server. Both methods are no-ops while the flow is `idle` or
+ * `completed`.
+ */
+export interface SetupFlowInput {
+  pushDtmfDigit(digit: string): void;
+  pushTranscriptFinal(text: string): void;
+}
+
+// ── Flow state ───────────────────────────────────────────────────────
+
+/**
+ * Explicit setup-flow state. The flow is the sole source of truth for its
+ * state — it is never inferred from `transport.getConnectionState()`
+ * (which on `MediaStreamOutput` is only `"connected" | "closed"`).
+ */
+export type SetupFlowState =
+  | "idle"
+  | "collecting_code"
+  | "capturing_name"
+  | "awaiting_guardian_decision"
+  | "completed";
+
+// ── Terminal results ─────────────────────────────────────────────────
+
+/**
+ * Terminal setup-flow result, mirroring the distinct continuations of the
+ * relay setup path:
+ *
+ * - `proceed-initial-greeting` — the controller fires
+ *   `startInitialGreeting()`.
+ * - `proceed-post-verification-greeting` — the controller fires
+ *   `startPostVerificationGreeting()`.
+ * - `proceed-handoff-spoken` — the flow already spoke the handoff copy;
+ *   the controller calls `markNextCallerTurnAsOpeningAck()`.
+ * - `ended` — the flow terminated the call; no controller is created.
+ */
+export type SetupFlowResult =
+  | {
+      kind: "proceed-initial-greeting";
+      assistantId: string;
+      trustContext: TrustContext;
+    }
+  | {
+      kind: "proceed-post-verification-greeting";
+      assistantId: string;
+      trustContext: TrustContext;
+    }
+  | {
+      kind: "proceed-handoff-spoken";
+      assistantId: string;
+      trustContext: TrustContext;
+    }
+  | { kind: "ended"; reason: string };
