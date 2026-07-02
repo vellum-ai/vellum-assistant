@@ -63,6 +63,25 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   },
 }));
 
+// The identity-mirror delete now goes through typed IPC; route it to the same
+// in-process mirror DB so the orphan-GC delete is observable. Other IPC calls
+// (e.g. emit_event) are fire-and-forget no-ops here.
+mock.module("../ipc/assistant-client.js", () => ({
+  IpcHandlerError: class extends Error {},
+  IpcTransportError: class extends Error {},
+  async ipcCallAssistant(
+    method: string,
+    params?: { body?: { contactId?: string } },
+  ) {
+    if (method === "contacts_mirror_delete_contact") {
+      db()
+        .prepare("DELETE FROM contacts WHERE id = ?")
+        .run(params?.body?.contactId ?? "");
+    }
+    return { ok: true };
+  },
+}));
+
 // The orphan-GC mirror inspection now goes through typed IPC instead of raw
 // SELECTs; serve it from the same in-memory assistant DB.
 mock.module("../ipc/contacts-info-client.js", () => ({

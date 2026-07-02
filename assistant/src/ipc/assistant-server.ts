@@ -52,6 +52,7 @@ import {
   writeStreamEnd,
 } from "./ipc-framing.js";
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
+import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
 import {
   type DbProxyTransactionParams,
@@ -217,6 +218,16 @@ export class AssistantIpcServer {
     // identity, replacing raw db_proxy SELECTs. No HTTP surface; never in ROUTES.
     for (const [operationId, handler] of Object.entries(
       CONTACTS_INFO_IPC_METHODS,
+    )) {
+      this.methods.set(operationId, handler);
+    }
+
+    // IPC-only contact identity-mirror methods (see
+    // ipc/routes/contacts-mirror-ipc-routes.ts). The gateway calls these back
+    // over IPC to mirror single-row contact/channel identity locally after a
+    // gateway-owned ACL write. No HTTP surface; never in ROUTES.
+    for (const [operationId, handler] of Object.entries(
+      CONTACTS_MIRROR_IPC_METHODS,
     )) {
       this.methods.set(operationId, handler);
     }

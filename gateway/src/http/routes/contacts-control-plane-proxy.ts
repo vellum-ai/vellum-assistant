@@ -21,7 +21,6 @@ import { eq } from "drizzle-orm";
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
-import { assistantDbRun } from "../../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../../db/connection.js";
 import {
   ContactStore,
@@ -1373,7 +1372,9 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       // (source of truth) delete below always applies, even if the mirror is
       // unavailable.
       try {
-        await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
+        await ipcCallAssistant("contacts_mirror_delete_contact", {
+          body: { contactId },
+        });
       } catch (err) {
         log.warn(
           { err, contactId },

@@ -152,6 +152,10 @@ function withChannels(contact: Contact): ContactWithChannels {
 // ── Channel data type for syncChannels ───────────────────────────────
 
 interface SyncChannelData {
+  /** Explicit channel id for a NEW channel insert. Lets the identity mirror
+   *  reuse the gateway-minted channel id so both stores key the channel
+   *  identically; omit to mint one. Ignored when the channel already exists. */
+  id?: string;
   type: string;
   address: string;
   isPrimary?: boolean;
@@ -212,6 +216,11 @@ export function upsertContact(params: {
   role?: ContactRole;
   contactType?: ContactType;
   userFile?: string | null;
+  /** userFile to seed ONLY when inserting a new contact; ignored on update so
+   *  an existing persona-file pointer is never clobbered. Used by the identity
+   *  mirror to create faithful null-user_file stubs. `userFile` takes
+   *  precedence when both are supplied. */
+  userFileOnCreate?: string | null;
   channels?: SyncChannelData[];
   /** When true, conflicting channels on other contacts are reassigned to this
    *  contact instead of being skipped. Used by invite redemption to bind a
@@ -301,7 +310,9 @@ export function upsertContact(params: {
   const resolvedUserFile =
     params.userFile !== undefined
       ? params.userFile
-      : generateUserFileSlug(params.displayName);
+      : params.userFileOnCreate !== undefined
+        ? params.userFileOnCreate
+        : generateUserFileSlug(params.displayName);
   db.insert(contacts)
     .values({
       id: contactId,
@@ -325,6 +336,16 @@ export function upsertContact(params: {
 
   notifyContactsChanged();
   return { ...getContactInternal(contactId)!, created: true };
+}
+
+/**
+ * Delete a contact row (channels cascade via FK). Info-only: the gateway DB is
+ * the ACL source of truth, so this only removes the local identity mirror. A
+ * missing row is a harmless no-op.
+ */
+export function deleteContact(id: string): void {
+  getDb().delete(contacts).where(eq(contacts.id, id)).run();
+  notifyContactsChanged();
 }
 
 /**
@@ -399,7 +420,7 @@ function syncChannels(
 
     db.insert(contactChannels)
       .values({
-        id: uuid(),
+        id: ch.id ?? uuid(),
         contactId,
         type: ch.type,
         address: ch.address,

@@ -222,9 +222,13 @@ describe("voice invite IPC routes", () => {
     expect(inviteRow(inviteId).useCount).toBe(1);
     expect(inviteRow(inviteId).status).toBe("redeemed");
 
-    expect(ipcCallAssistantCalls).toHaveLength(1);
-    expect(ipcCallAssistantCalls[0].method).toBe("invite_redeemed");
-    expect(ipcCallAssistantCalls[0].body).toMatchObject({
+    // The redemption fires the identity-mirror upsert (contacts_mirror_*) and
+    // the best-effort invite_redeemed daemon event, both over the same client.
+    const redeemedEvents = ipcCallAssistantCalls.filter(
+      (c) => c.method === "invite_redeemed",
+    );
+    expect(redeemedEvents).toHaveLength(1);
+    expect(redeemedEvents[0].body).toMatchObject({
       inviteId,
       result: "redeemed",
     });

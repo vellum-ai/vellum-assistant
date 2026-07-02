@@ -2006,7 +2006,11 @@ describe("handleDeleteContact (gateway-native)", () => {
     const res = await handler.handleDeleteContact("ct_regular");
 
     expect(res.status).toBe(204);
-    expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
+    const deleteCalls = ipcCallAssistantMock.mock.calls.filter(
+      (c) => c[0] === "contacts_mirror_delete_contact",
+    );
+    expect(deleteCalls).toHaveLength(1);
+    expect(deleteCalls[0]![1]).toEqual({ body: { contactId: "ct_regular" } });
     expect(getGatewayDb().select().from(gwContacts).all()).toHaveLength(0);
   });
 
@@ -2023,7 +2027,11 @@ describe("handleDeleteContact (gateway-native)", () => {
 
     expect(res.status).toBe(204);
     // The mirror delete ran; the gateway delete is a harmless no-op.
-    expect(assistantDbRunMock).toHaveBeenCalledTimes(1);
+    expect(
+      ipcCallAssistantMock.mock.calls.some(
+        (c) => c[0] === "contacts_mirror_delete_contact",
+      ),
+    ).toBe(true);
   });
 
   test("returns 404 only when the contact is absent from both DBs", async () => {
@@ -2049,8 +2057,11 @@ describe("handleDeleteContact (gateway-native)", () => {
       }
       return {};
     });
-    assistantDbRunMock = mock(async () => {
-      throw new Error("assistant DB unavailable");
+    ipcCallAssistantMock = mock(async (method: string) => {
+      if (method === "contacts_mirror_delete_contact") {
+        throw new Error("assistant mirror unavailable");
+      }
+      return {};
     });
 
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
