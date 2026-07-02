@@ -34,55 +34,73 @@ export function deriveFailureError(ackMessage: string, stderr: string): string {
  * Returns the `error.message` of the LAST JSON object embedded in `text` whose
  * shape is `{"error":{"message":"..."}}`, or null. Objects may be surrounded by
  * arbitrary log text.
+ *
+ * A candidate object is attempted at EACH `{`, so a stray unmatched `{` in the
+ * surrounding log text never balances and is skipped rather than swallowing a
+ * later valid object.
  */
 function lastJsonErrorMessage(text: string): string | null {
-  const objects = extractJsonObjects(text);
-  for (let i = objects.length - 1; i >= 0; i--) {
+  let found: string | null = null;
+  for (let i = 0; i < text.length; i++) {
+    if (text[i] !== "{") {
+      continue;
+    }
+    const candidate = balancedObjectAt(text, i);
+    if (candidate === null) {
+      continue;
+    }
     try {
-      const parsed = JSON.parse(objects[i]) as {
-        error?: { message?: unknown };
-      };
+      const parsed = JSON.parse(candidate) as { error?: { message?: unknown } };
+      // A valid top-level object: skip past its end so we don't restart
+      // candidates at its nested braces. Otherwise a nested error.message
+      // (e.g. a JSON-RPC error.data payload) would shadow the outer adapter
+      // error. Only reached on a successful parse, so a stray unmatched brace
+      // that balances-but-fails-to-parse still lets inner objects be scanned.
+      i += candidate.length - 1;
       const message = parsed.error?.message;
-      if (typeof message === "string" && message.length > 0) return message;
+      if (typeof message === "string" && message.length > 0) {
+        found = message;
+      }
     } catch {
-      // Not valid JSON; keep scanning earlier candidates.
+      // Not valid JSON at this position; keep scanning later braces.
     }
   }
-  return null;
+  return found;
 }
 
 /**
- * Extracts top-level balanced `{...}` substrings, tracking string literals so
- * braces inside JSON strings don't throw off the depth count.
+ * Returns the balanced `{...}` substring starting at `start`, tracking string
+ * literals so braces inside JSON strings don't throw off the depth count, or
+ * null if the braces never balance before the text ends.
  */
-function extractJsonObjects(text: string): string[] {
-  const objects: string[] = [];
+function balancedObjectAt(text: string, start: number): string | null {
   let depth = 0;
-  let start = -1;
   let inString = false;
   let escaped = false;
-  for (let i = 0; i < text.length; i++) {
+  for (let i = start; i < text.length; i++) {
     const ch = text[i];
     if (inString) {
-      if (escaped) escaped = false;
-      else if (ch === "\\") escaped = true;
-      else if (ch === '"') inString = false;
+      if (escaped) {
+        escaped = false;
+      } else if (ch === "\\") {
+        escaped = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
       continue;
     }
     if (ch === '"') {
       inString = true;
     } else if (ch === "{") {
-      if (depth === 0) start = i;
       depth++;
-    } else if (ch === "}" && depth > 0) {
+    } else if (ch === "}") {
       depth--;
-      if (depth === 0 && start >= 0) {
-        objects.push(text.slice(start, i + 1));
-        start = -1;
+      if (depth === 0) {
+        return text.slice(start, i + 1);
       }
     }
   }
-  return objects;
+  return null;
 }
 
 function lastNonEmptyLine(text: string): string | null {

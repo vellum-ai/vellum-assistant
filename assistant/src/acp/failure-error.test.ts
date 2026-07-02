@@ -81,4 +81,29 @@ describe("deriveFailureError", () => {
       "real failure detail",
     );
   });
+
+  test("a stray unmatched brace before the JSON does not block extraction", () => {
+    const stderr =
+      `some log { unmatched brace here\n` +
+      `... {"type":"error","error":{"message":"The real error"}} ...`;
+    expect(deriveFailureError("Internal error", stderr)).toBe("The real error");
+  });
+
+  test("braces inside a JSON string literal don't throw off the scan", () => {
+    const stderr = `{"error":{"message":"unexpected } brace {in} the text"}}`;
+    expect(deriveFailureError("Internal error", stderr)).toBe(
+      "unexpected } brace {in} the text",
+    );
+  });
+
+  test("prefers the outer adapter error over a nested error.message", () => {
+    // JSON-RPC style: the real failure is the top-level error.message; a nested
+    // error.data.error.message must not shadow it.
+    const stderr =
+      `{"error":{"message":"outer adapter failure",` +
+      `"data":{"error":{"message":"inner debug detail"}}}}`;
+    expect(deriveFailureError("Internal error", stderr)).toBe(
+      "outer adapter failure",
+    );
+  });
 });
