@@ -200,6 +200,11 @@ describe("AcpSessionManager parent notification", () => {
     await fire(manager, "sess-cancel", entry);
     // Any notification would have called enqueue synchronously inside the catch.
     expect(enqueueMessage).not.toHaveBeenCalled();
+    // Nor a terminal error event (would regress the optimistic Cancelled state).
+    const sentTypes = (entry.sendToVellum.mock.calls as unknown[][]).map(
+      (c) => (c[0] as { type?: string })?.type,
+    );
+    expect(sentTypes).not.toContain("acp_session_error");
   });
 
   test("a cancelled session does not notify the parent on success", async () => {
@@ -221,6 +226,12 @@ describe("AcpSessionManager parent notification", () => {
 
     await fire(manager, "sess-cancel-ok", entry);
     expect(enqueueMessage).not.toHaveBeenCalled();
+    // Nor a completed terminal event: it would regress the client's optimistic
+    // Cancelled state to Completed while history is stored as cancelled.
+    const sentTypes = (entry.sendToVellum.mock.calls as unknown[][]).map(
+      (c) => (c[0] as { type?: string })?.type,
+    );
+    expect(sentTypes).not.toContain("acp_session_completed");
   });
 
   test("cancel marks the session cancelled before the protocol cancel resolves", async () => {

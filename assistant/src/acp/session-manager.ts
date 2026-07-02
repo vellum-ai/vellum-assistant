@@ -1018,11 +1018,18 @@ export class AcpSessionManager {
             { acpSessionId, stopReason: response.stopReason },
             "ACP prompt completed",
           );
-          current.sendToVellum({
-            type: "acp_session_completed",
-            acpSessionId,
-            stopReason: response.stopReason,
-          });
+          // Skip the completed terminal event when the session was already
+          // cancelled (a prompt can win the cancel race by resolving normally):
+          // emitting it would regress the client's optimistic Cancelled state to
+          // Completed while history persists as cancelled. persistTerminal below
+          // records the preserved "cancelled" status.
+          if (current.state.status !== "cancelled") {
+            current.sendToVellum({
+              type: "acp_session_completed",
+              acpSessionId,
+              stopReason: response.stopReason,
+            });
+          }
 
           // Persist the terminal row + buffered event log before tearing
           // down (teardown deletes the buffer entry).
@@ -1073,11 +1080,15 @@ export class AcpSessionManager {
             { acpSessionId, error: err.message, failureMessage },
             "ACP prompt failed",
           );
-          current.sendToVellum({
-            type: "acp_session_error",
-            acpSessionId,
-            error: failureMessage,
-          });
+          // Skip the error terminal event when already cancelled (same cancel
+          // race as the success path): a user stop must not surface an error.
+          if (current.state.status !== "cancelled") {
+            current.sendToVellum({
+              type: "acp_session_error",
+              acpSessionId,
+              error: failureMessage,
+            });
+          }
 
           // Persist the terminal row before teardown clears the buffer.
           this.persistTerminal(acpSessionId, current);
