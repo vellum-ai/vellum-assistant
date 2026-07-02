@@ -142,6 +142,7 @@ import { MessageQueue } from "./conversation-queue-manager.js";
 import {
   type ChannelCapabilities,
   getSlackCompactionWatermarkForPrefix,
+  getSlackWatermarkAdvanceForRowPrefix,
   type InboundActorContext,
   loadSlackChronologicalContext,
   stripInjectionsForCompaction,
@@ -1868,6 +1869,15 @@ export class Conversation {
       }
       return await this.runCompaction(true, undefined, {
         fixedTailStartIndex: tailIndex,
+        // Slack projections gate on the persisted watermark, not on
+        // `contextCompactedMessageCount` — without an advance, the summarized
+        // rows would reappear verbatim in the projection alongside the new
+        // summary. Null for non-Slack rows or a non-advancing boundary.
+        fixedBoundarySlackWatermarkTs: getSlackWatermarkAdvanceForRowPrefix(
+          rows,
+          boundaryRowIndex,
+          this.slackContextCompactionWatermarkTs,
+        ),
       });
     } finally {
       // Only undo the temporary guardian context this method installed. If
@@ -1909,12 +1919,18 @@ export class Conversation {
    * auto-threshold check inside the context-window manager (user-initiated
    * `/compact`); without it the manager no-ops below the threshold.
    * `opts.fixedTailStartIndex` pins the kept tail to a caller-chosen history
-   * index ("summarize up to here") instead of the token-budget cut.
+   * index ("summarize up to here") instead of the token-budget cut;
+   * `opts.fixedBoundarySlackWatermarkTs` is that path's row-space-derived
+   * Slack watermark (the auto/forced Slack path derives its own from the
+   * chronological projection).
    */
   private async runCompaction(
     force: boolean,
     sizing?: CompactionSizing,
-    opts?: { fixedTailStartIndex?: number },
+    opts?: {
+      fixedTailStartIndex?: number;
+      fixedBoundarySlackWatermarkTs?: string | null;
+    },
   ): Promise<ContextWindowResult> {
     const overrideProfile = resolveOverrideProfile(this) ?? null;
     const config = getConfig();
@@ -1946,8 +1962,9 @@ export class Conversation {
     // `this.messages`; the Slack chronological projection is a different
     // array (watermark-sliced, actor-filtered, re-rendered) whose indices
     // don't correspond. Fixed-boundary runs therefore always compact
-    // `this.messages` and skip the Slack watermark (a null context makes
-    // `getSlackCompactionWatermarkForPrefix` return null below).
+    // `this.messages`; their Slack watermark arrives pre-derived in
+    // row-space via `opts.fixedBoundarySlackWatermarkTs` (a null context
+    // makes `getSlackCompactionWatermarkForPrefix` return null below).
     const slackChronologicalContext =
       opts?.fixedTailStartIndex == null &&
       this.channelCapabilities?.channel === "slack"
@@ -1989,10 +2006,12 @@ export class Conversation {
     }
     if (result.compacted) {
       await applyCompactionResult(this, result, this.sendToClient, null, {
-        slackContextCompactionWatermarkTs: getSlackCompactionWatermarkForPrefix(
-          slackChronologicalContext,
-          result.compactedMessages,
-        ),
+        slackContextCompactionWatermarkTs:
+          opts?.fixedBoundarySlackWatermarkTs ??
+          getSlackCompactionWatermarkForPrefix(
+            slackChronologicalContext,
+            result.compactedMessages,
+          ),
       });
     }
     return result;

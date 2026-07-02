@@ -136,7 +136,10 @@ export function formatSummarizeUpToResult(result: ContextWindowResult): string {
     result.previousEstimatedInputTokens - result.estimatedInputTokens;
   return [
     "**Conversation summarized**",
-    `Summarized ${fmt(result.compactedMessages)} earlier messages. ${fmt(
+    // Persisted (row-space) count — `compactedMessages` is history-space and
+    // counts the synthetic summary head on a repeat summarize, which is not
+    // a message the user ever saw. The kept tail never contains the head.
+    `Summarized ${fmt(result.compactedPersistedMessages)} earlier messages. ${fmt(
       result.preservedTailMessages,
     )} recent messages kept in full.`,
     `Context: ${fmt(result.previousEstimatedInputTokens)} → ${fmt(
