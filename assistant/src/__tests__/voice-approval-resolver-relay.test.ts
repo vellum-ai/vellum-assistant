@@ -1,18 +1,19 @@
 /**
  * ATL-463: the daemon's access_request phone resolver relay is the authoritative
  * grant for voice approvals. These tests pin that relay's contract so no
- * approved-but-ungranted state is ever *silently* lost:
+ * approved-but-ungranted state is ever silently lost:
  *
  *   - happy path: activation lands  → applied, no resolverFailed, status approved
  *   - relay throws (voice_activation_failed)   → resolverFailed surfaced upstream
  *   - gateway refuses (voice_activation_refused) → resolverFailed surfaced upstream
  *
- * On failure the request stays `approved` (CAS is not rolled back) with
- * `resolverFailed`/`resolverFailureReason` set — matching how every other
- * resolver failure is reported. The deciding guardian is told the decision
- * "could not be completed" via the existing decision-reply path
- * (guardian-reply-router / guardian-action-service), so the failure is never
- * silent.
+ * On failure the resolver REOPENS the request to `pending` (via
+ * reopenAccessRequestAfterFailedPersist) with `resolverFailed`/
+ * `resolverFailureReason` set: leaving the row `approved` would suppress
+ * re-prompts for a grant the gateway never persisted. Reopening keeps the
+ * request decidable — the guardian can re-approve and the request code stays
+ * live (the expiry sweep re-enables discovery if no retry comes), so the
+ * failure is neither silent nor a stuck approved-but-ungranted state.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -122,7 +123,9 @@ describe("voice approval resolver relay (ATL-463)", () => {
     expect(result.resolverFailed).toBe(true);
     expect(result.resolverFailureReason).toBe("voice_activation_failed");
     expect(result.grantMinted).toBe(false);
-    expect(getCanonicalGuardianRequest(requestId)!.status).toBe("approved");
+    // The failed persist reopens the request to `pending` so the guardian can
+    // re-approve rather than being stuck in an approved-but-ungranted state.
+    expect(getCanonicalGuardianRequest(requestId)!.status).toBe("pending");
   });
 
   test("gateway refuses: failure is surfaced (voice_activation_refused), not silent", async () => {
@@ -140,5 +143,8 @@ describe("voice approval resolver relay (ATL-463)", () => {
     expect(result.resolverFailed).toBe(true);
     expect(result.resolverFailureReason).toBe("voice_activation_refused");
     expect(result.grantMinted).toBe(false);
+    // A refused activation also reopens to `pending` — the gateway never
+    // recorded the grant, so the row must not stay terminally approved.
+    expect(getCanonicalGuardianRequest(requestId)!.status).toBe("pending");
   });
 });
