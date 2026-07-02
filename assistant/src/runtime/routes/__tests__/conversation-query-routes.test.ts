@@ -940,22 +940,33 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
 
   describe("managed profile guard", () => {
     beforeEach(() => {
-      // Seed a managed profile alongside the existing custom one.
-      (rawConfigFixture.llm as { profiles: Record<string, unknown> }).profiles[
-        "balanced"
-      ] = {
+      // Seed an invariant default profile and the non-invariant managed
+      // os-beta profile alongside the existing custom one. Default profiles
+      // are fully read-only (only disabled → active status transitions
+      // pass); os-beta keeps the label/status/topP allowlist.
+      const profiles = (
+        rawConfigFixture.llm as { profiles: Record<string, unknown> }
+      ).profiles;
+      profiles["balanced"] = {
         source: "managed",
         provider: "anthropic",
         model: "claude-sonnet-4-6",
         label: "Balanced",
         status: "active",
       };
+      profiles["os-beta"] = {
+        source: "managed",
+        provider: "together",
+        model: "zai-org/GLM-5.2",
+        label: "OS Beta",
+        status: "active",
+      };
     });
 
-    test("allows label edit on managed profile, preserving seed fields", async () => {
+    test("allows label edit on managed os-beta profile, preserving seed fields", async () => {
       const result = await replaceProfileRoute.handler({
-        pathParams: { name: "balanced" },
-        body: { label: "My Balanced" },
+        pathParams: { name: "os-beta" },
+        body: { label: "My OS Beta" },
       });
 
       expect(result).toEqual({ ok: true });
@@ -963,18 +974,18 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
         savedRawConfig?.llm as {
           profiles: Record<string, Record<string, unknown>>;
         }
-      ).profiles.balanced;
+      ).profiles["os-beta"]!;
 
-      expect(savedProfile.label).toBe("My Balanced");
+      expect(savedProfile.label).toBe("My OS Beta");
       // Seed fields preserved.
-      expect(savedProfile.provider).toBe("anthropic");
-      expect(savedProfile.model).toBe("claude-sonnet-4-6");
+      expect(savedProfile.provider).toBe("together");
+      expect(savedProfile.model).toBe("zai-org/GLM-5.2");
       expect(savedProfile.source).toBe("managed");
     });
 
-    test("allows status edit on managed profile", async () => {
+    test("allows status edit on managed os-beta profile", async () => {
       const result = await replaceProfileRoute.handler({
-        pathParams: { name: "balanced" },
+        pathParams: { name: "os-beta" },
         body: { status: "disabled" },
       });
 
@@ -983,15 +994,15 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
         savedRawConfig?.llm as {
           profiles: Record<string, Record<string, unknown>>;
         }
-      ).profiles.balanced;
+      ).profiles["os-beta"]!;
 
       expect(savedProfile.status).toBe("disabled");
-      expect(savedProfile.provider).toBe("anthropic");
+      expect(savedProfile.provider).toBe("together");
     });
 
-    test("allows label+status edit together", async () => {
+    test("allows label+status edit together on managed os-beta profile", async () => {
       const result = await replaceProfileRoute.handler({
-        pathParams: { name: "balanced" },
+        pathParams: { name: "os-beta" },
         body: { label: "Renamed", status: "disabled" },
       });
 
@@ -1000,10 +1011,36 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
         savedRawConfig?.llm as {
           profiles: Record<string, Record<string, unknown>>;
         }
-      ).profiles.balanced;
+      ).profiles["os-beta"]!;
 
       expect(savedProfile.label).toBe("Renamed");
       expect(savedProfile.status).toBe("disabled");
+    });
+
+    test("rejects label edit on an invariant default profile at commit time", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "balanced" },
+          body: { label: "My Balanced" },
+        }),
+      ).rejects.toThrow(
+        'Cannot edit default profile "balanced" fields [label]',
+      );
+      expect(savedRawConfig).toBeNull();
+      expect(initializeProvidersCalls).toBe(0);
+      expect(invalidateConfigCacheCalls).toBe(0);
+    });
+
+    test("rejects disabling an invariant default profile at commit time", async () => {
+      await expect(
+        replaceProfileRoute.handler({
+          pathParams: { name: "balanced" },
+          body: { status: "disabled" },
+        }),
+      ).rejects.toThrow('Cannot disable default profile "balanced".');
+      expect(savedRawConfig).toBeNull();
+      expect(initializeProvidersCalls).toBe(0);
+      expect(invalidateConfigCacheCalls).toBe(0);
     });
 
     test("rejects provider edit on managed profile with disallowed-keys error", async () => {
@@ -1040,10 +1077,12 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
   });
 
   describe("commitConfigWrite side effects", () => {
-    test("status flip on managed profile triggers provider reinit + cache invalidation", async () => {
-      // Seed a managed profile that the user will disable. commitConfigWrite
-      // must reinit the provider registry so the status change is reflected
-      // in the running daemon immediately, not at the next watcher tick.
+    test("re-enabling a disabled default profile triggers provider reinit + cache invalidation", async () => {
+      // Seed a hatch-disabled default profile that the user re-enables — the
+      // only status transition the invariant guard permits on a default
+      // profile. commitConfigWrite must reinit the provider registry so the
+      // status change is reflected in the running daemon immediately, not at
+      // the next watcher tick.
       (rawConfigFixture.llm as { profiles: Record<string, unknown> }).profiles[
         "balanced"
       ] = {
@@ -1051,12 +1090,12 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
         provider: "anthropic",
         model: "claude-sonnet-4-6",
         label: "Balanced",
-        status: "active",
+        status: "disabled",
       };
 
       const result = await replaceProfileRoute.handler({
         pathParams: { name: "balanced" },
-        body: { status: "disabled" },
+        body: { status: "active" },
       });
 
       expect(result).toEqual({ ok: true });

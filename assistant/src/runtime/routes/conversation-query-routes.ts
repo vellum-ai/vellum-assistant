@@ -19,6 +19,8 @@
  * POST   /v1/messages/queued/:id/steer — steer to a queued message
  */
 
+import { isDeepStrictEqual } from "node:util";
+
 import { z } from "zod";
 
 import { LlmContextResponseSchema } from "../../api/responses/llm-context-response.js";
@@ -882,6 +884,76 @@ function rejectManagedProfileDeletion(body: Record<string, unknown>): void {
 }
 
 /**
+ * Enforce the default-profile invariants at the config-write choke point.
+ *
+ * Transitional: protects the *seeded* default profiles
+ * (`INVARIANT_PROFILE_NAMES`) that live in workspace config. When the
+ * code-defined default catalog lands (inference-config refactor M4), the
+ * defaults stop living in workspace config, this guard becomes a no-op, and
+ * it is removed in the M9 cleanup.
+ *
+ * For each invariant name where the OLD raw config carries a plain-object
+ * entry at `llm.profiles[name]`:
+ *
+ * - The NEW raw config must still carry a plain-object entry at the same
+ *   path — deletion, non-object overwrite, and subtree replacement are all
+ *   rejected by this single check, regardless of route.
+ * - `status` is one-directional: effective status is
+ *   `entry.status !== "disabled"` (absence/null = active). An active default
+ *   can never be disabled; re-enabling a disabled default (including
+ *   clearing `status` to null/absent) is allowed.
+ * - Every other field is frozen: any changed, added, or removed key across
+ *   the union of both entries' keys (except `status`) is rejected. A
+ *   pre-existing on-disk override (e.g. `topP`) is preserved but frozen —
+ *   it passes the guard only while it doesn't change.
+ */
+function assertInvariantProfilesPreserved(
+  oldRaw: Record<string, unknown>,
+  newRaw: Record<string, unknown>,
+): void {
+  const oldProfiles = asMutablePlainObject(
+    asMutablePlainObject(oldRaw.llm)?.profiles,
+  );
+  if (!oldProfiles) return;
+  const newProfiles = asMutablePlainObject(
+    asMutablePlainObject(newRaw.llm)?.profiles,
+  );
+
+  for (const name of INVARIANT_PROFILE_NAMES) {
+    const oldEntry = asMutablePlainObject(oldProfiles[name]);
+    if (!oldEntry) continue;
+
+    const newEntry = newProfiles
+      ? asMutablePlainObject(newProfiles[name])
+      : null;
+    if (!newEntry) {
+      throw new BadRequestError(
+        `Cannot delete or replace default profile "${name}". Default profiles are read-only.`,
+      );
+    }
+
+    const oldActive = oldEntry.status !== "disabled";
+    const newActive = newEntry.status !== "disabled";
+    if (oldActive && !newActive) {
+      throw new BadRequestError(`Cannot disable default profile "${name}".`);
+    }
+
+    const changedKeys = [
+      ...new Set([...Object.keys(oldEntry), ...Object.keys(newEntry)]),
+    ].filter(
+      (key) =>
+        key !== "status" && !isDeepStrictEqual(oldEntry[key], newEntry[key]),
+    );
+    if (changedKeys.length > 0) {
+      throw new BadRequestError(
+        `Cannot edit default profile "${name}" fields [${changedKeys.join(", ")}]. ` +
+          `Default profiles are read-only; duplicate to a custom profile to customize.`,
+      );
+    }
+  }
+}
+
+/**
  * Persist a mutated raw config object to disk and synchronize the running
  * daemon (file-watcher, embedding cache, provider registry).
  *
@@ -892,6 +964,12 @@ async function commitConfigWrite(
   raw: Record<string, unknown>,
   opLabel: string,
 ): Promise<void> {
+  // `loadRawConfig()` reads fresh from disk and the save hasn't happened yet,
+  // so it is the pre-write state; raw-to-raw comparison avoids parsed-vs-raw
+  // false diffs. Runs before the watcher-suppress/save sequence so a
+  // rejection needs no suppress-flag or cache cleanup.
+  assertInvariantProfilesPreserved(loadRawConfig(), raw);
+
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write
   // ~200ms later, sees a stale fingerprint, and calls initializeProviders a
@@ -1081,9 +1159,14 @@ async function handleReplaceInferenceProfile({
       (k) => !MANAGED_PROFILE_EDITABLE_KEYS.has(k),
     );
     if (disallowed.length > 0) {
+      // Invariant (default) profiles are locked down further by
+      // `assertInvariantProfilesPreserved` at commit time — don't tell users
+      // label/status/topP are editable when they aren't.
+      const guidance = INVARIANT_PROFILE_NAMES.has(name)
+        ? "Default profiles are read-only (a disabled default can be re-enabled); duplicate to a custom profile to customize."
+        : "Only label, status, and topP may be edited; duplicate to a custom profile to change other fields.";
       throw new BadRequestError(
-        `Cannot edit managed profile "${name}" fields [${disallowed.join(", ")}]. ` +
-          `Only label, status, and topP may be edited; duplicate to a custom profile to change other fields.`,
+        `Cannot edit managed profile "${name}" fields [${disallowed.join(", ")}]. ${guidance}`,
       );
     }
   }
