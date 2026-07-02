@@ -56,6 +56,20 @@ Earlier turns summarized here.
 </compaction_result>
 `;
 
+// The emergency prompt asks for summary + key_state only — no tail_start —
+// so the emergency test's canned response mirrors a prompt-following model.
+const emergencyCompactionResponse = `
+<compaction_result>
+<summary>
+Earlier turns summarized here.
+</summary>
+
+<key_state>
+- Nothing critical pending.
+</key_state>
+</compaction_result>
+`;
+
 const ENCRYPTED_TOKEN = "expired_encrypted_token_abc123";
 
 const userText = (text: string): Message => ({
@@ -114,13 +128,16 @@ function serializeBlocks(messages: Message[]): string {
 }
 
 // Records the exact message list the provider is asked to summarize.
-function recordingProvider(sink: { sent: Message[] }): Provider {
+function recordingProvider(
+  sink: { sent: Message[] },
+  response: string,
+): Provider {
   return {
     name: "mock-provider",
     sendMessage: async (msgs: Message[]) => {
       sink.sent = msgs;
       return {
-        content: [{ type: "text", text: compactionResponse }],
+        content: [{ type: "text", text: response }],
         model: "mock-model",
         usage: { inputTokens: 100, outputTokens: 50 },
         stopReason: "end_turn",
@@ -151,7 +168,7 @@ describe("compaction summary calls — historical web-search sanitization", () =
     const result = await runAssistantDrivenCompaction({
       conversationId: "conv-web-search",
       messages,
-      provider: recordingProvider(sink),
+      provider: recordingProvider(sink, compactionResponse),
       systemPrompt: "system",
       compaction: { enabled: true, autoThreshold: 0.7 },
       maxInputTokens: 1000,
@@ -192,7 +209,7 @@ describe("compaction summary calls — historical web-search sanitization", () =
     const result = await runEmergencyCompaction({
       conversationId: "conv-web-search-emergency",
       messages,
-      provider: recordingProvider(sink),
+      provider: recordingProvider(sink, emergencyCompactionResponse),
       systemPrompt: "system",
       compaction: { enabled: true, autoThreshold: 0.7 },
       // Large budget so the prefix is not front-truncated — this test exercises
