@@ -368,9 +368,14 @@ export class SlackAdapter implements ChannelAdapter {
     const messageText = resolveMessageText(payload);
 
     try {
+      // `approval` rides along with the prebuilt card blocks so the send
+      // layer treats a rejected Block Kit payload as an approval prompt:
+      // its block-free retry re-attaches `plainTextFallback` reply
+      // instructions instead of posting text with no way to respond.
       const result = payload.approvalContext
         ? await sendSlackReply(chatId, messageText, {
             blocks: buildApprovalNotificationBlocks(payload, messageText),
+            approval: payload.approvalContext,
           })
         : await sendSlackReply(chatId, messageText, { useBlocks: true });
 
