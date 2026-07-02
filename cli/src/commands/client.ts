@@ -429,6 +429,8 @@ const webLoginFlow = createWebLoginFlow({
     savePlatformToken(token);
     platformSessionToken = token;
   },
+  hasAssistants: async (token) =>
+    (await fetchPlatformAssistants(token)).length > 0,
 });
 
 // Whether to attach the platform credential to a proxied request. Only

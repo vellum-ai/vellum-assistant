@@ -179,6 +179,26 @@ function requestPort(req: http.IncomingMessage): string {
   }
 }
 
+/** GET /v1/assistants/ — true when the user has any active assistant. */
+async function platformHasAssistants(
+  platformUrl: string,
+  token: string,
+): Promise<boolean> {
+  const response = await fetch(`${new URL(platformUrl).origin}/v1/assistants/`, {
+    // Server-side credential for the dev server's own request, not browser
+    // auth (same as the proxy hook in vite.config.ts).
+    // eslint-disable-next-line no-restricted-syntax
+    headers: { "X-Session-Token": token },
+  });
+  if (!response.ok) {
+    return false;
+  }
+  const body = (await response.json()) as {
+    results?: Array<{ status?: string }>;
+  };
+  return (body.results ?? []).some((a) => a.status === "active");
+}
+
 function loginStartMiddleware(platformUrl: string): Connect.NextHandleFunction {
   return (req, res, next) => {
     const url = new URL(req.url ?? "/", "http://placeholder.invalid");
@@ -260,17 +280,19 @@ function authCallbackMiddleware(
     pendingLogin = null;
 
     void (async () => {
+      let token: string;
       try {
         const accessToken = await exchangeCodeWithWorkos({
           clientId: current.clientId,
           code,
           verifier: current.verifier,
         });
-        devPlatformToken = await exchangeAccessTokenForSession(
+        token = await exchangeAccessTokenForSession(
           platformUrl,
           current.clientId,
           accessToken,
         );
+        devPlatformToken = token;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         res.statusCode = 502;
@@ -283,8 +305,18 @@ function authCallbackMiddleware(
         );
         return;
       }
+      // Existing-assistant users land in the app, not back at returnTo
+      // (typically onboarding). Mirrors the Bun server's web-login flow.
+      let destination = current.returnTo;
+      try {
+        if (await platformHasAssistants(platformUrl, token)) {
+          destination = DEFAULT_RETURN_TO;
+        }
+      } catch {
+        // Can't tell — honor returnTo.
+      }
       res.writeHead(302, {
-        Location: `http://localhost:${requestPort(req)}${current.returnTo}`,
+        Location: `http://localhost:${requestPort(req)}${destination}`,
       });
       res.end();
     })();

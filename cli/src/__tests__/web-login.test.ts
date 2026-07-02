@@ -69,11 +69,12 @@ function happyPathMocks() {
   });
 }
 
-function makeFlow() {
+function makeFlow(hasAssistants?: (token: string) => Promise<boolean>) {
   const installed: string[] = [];
   const flow = createWebLoginFlow({
     platformUrl: PLATFORM_URL,
     installToken: (token) => installed.push(token),
+    hasAssistants,
   });
   return { flow, installed };
 }
@@ -216,6 +217,63 @@ describe("handleCallback", () => {
     );
     expect(res.status).toBe(404);
     expect(installed).toEqual([]);
+  });
+
+  test("existing-assistant users land in the app, not at returnTo", async () => {
+    happyPathMocks();
+    const { flow, installed } = makeFlow(async (token) => {
+      expect(token).toBe("sesstok123");
+      return true;
+    });
+    const authorize = await startAndGetAuthorizeUrl(flow);
+    const state = authorize.searchParams.get("state")!;
+
+    const res = await flow.handleCallback(
+      new URL(
+        `http://127.0.0.1:3000/auth/callback?code=authcode&state=${state}`,
+      ),
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "http://localhost:3000/assistant/",
+    );
+    expect(installed).toEqual(["sesstok123"]);
+  });
+
+  test("no assistants → returnTo honored", async () => {
+    happyPathMocks();
+    const { flow } = makeFlow(async () => false);
+    const authorize = await startAndGetAuthorizeUrl(flow);
+    const state = authorize.searchParams.get("state")!;
+
+    const res = await flow.handleCallback(
+      new URL(
+        `http://127.0.0.1:3000/auth/callback?code=authcode&state=${state}`,
+      ),
+    );
+    expect(res.headers.get("Location")).toBe(
+      "http://localhost:3000/assistant/settings",
+    );
+  });
+
+  test("assistant check failure → returnTo honored, login still succeeds", async () => {
+    happyPathMocks();
+    const { flow, installed } = makeFlow(async () => {
+      throw new Error("platform down");
+    });
+    const authorize = await startAndGetAuthorizeUrl(flow);
+    const state = authorize.searchParams.get("state")!;
+
+    const res = await flow.handleCallback(
+      new URL(
+        `http://127.0.0.1:3000/auth/callback?code=authcode&state=${state}`,
+      ),
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get("Location")).toBe(
+      "http://localhost:3000/assistant/settings",
+    );
+    expect(installed).toEqual(["sesstok123"]);
   });
 
   test("exchange failure surfaces an error page, not a redirect", async () => {

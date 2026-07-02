@@ -34,6 +34,8 @@ export interface WebLoginFlowOptions {
   platformUrl: string;
   /** Persist and cache the exchanged session token. */
   installToken: (token: string) => void;
+  /** Whether the logged-in user already has platform assistants. */
+  hasAssistants?: (token: string) => Promise<boolean>;
 }
 
 /**
@@ -128,13 +130,14 @@ export function createWebLoginFlow(options: WebLoginFlowOptions): WebLoginFlow {
     // Single-use: clear before the network legs to block replays.
     pending = null;
 
+    let token: string;
     try {
       const accessToken = await exchangeCodeWithWorkos({
         clientId: current.clientId,
         code,
         verifier: current.verifier,
       });
-      const token = await exchangeAccessTokenForSession(
+      token = await exchangeAccessTokenForSession(
         options.platformUrl,
         current.clientId,
         accessToken,
@@ -144,10 +147,21 @@ export function createWebLoginFlow(options: WebLoginFlowOptions): WebLoginFlow {
       return loginErrorResponse(err);
     }
 
+    // Existing-assistant users land in the app, not back at returnTo (which
+    // is typically onboarding). Mirrors the deleted loopback page's routing.
+    let destination = current.returnTo;
+    try {
+      if (await options.hasAssistants?.(token)) {
+        destination = DEFAULT_RETURN_TO;
+      }
+    } catch {
+      // Can't tell — honor returnTo.
+    }
+
     // Back to the origin the user started on (`localhost`, not `127.0.0.1`).
     return new Response(null, {
       status: 302,
-      headers: { Location: `http://localhost:${url.port}${current.returnTo}` },
+      headers: { Location: `http://localhost:${url.port}${destination}` },
     });
   }
 
