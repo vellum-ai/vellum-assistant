@@ -107,7 +107,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     protocol: "http",
     auth: "JWT Bearer (service token)",
     description:
-      "Gateway forwards validated Twilio voice/status/connect-action webhooks to the assistant's internal Twilio endpoints.",
+      "Gateway forwards validated Twilio voice/status webhooks to the assistant's internal Twilio endpoints.",
     callerGlobs: ["gateway/src/runtime/client.ts"],
     calleeGlobs: ["assistant/src/calls/*.ts"],
   },

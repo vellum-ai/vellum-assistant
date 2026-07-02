@@ -330,11 +330,6 @@ mock.module("../inbound/platform-callback-registration.js", () => ({
 }));
 
 mock.module("../inbound/public-ingress-urls.js", () => ({
-  getTwilioRelayUrl: (ingressConfig: unknown) => {
-    const base = resolveIngressBaseUrlFromConfig(ingressConfig);
-    const wsBase = base.replace(/^http(s?)/, "ws$1");
-    return `${wsBase}/webhooks/twilio/relay`;
-  },
   getTwilioMediaStreamUrl: (ingressConfig: unknown) => {
     const base = resolveIngressBaseUrlFromConfig(ingressConfig);
     const wsBase = base.replace(/^http(s?)/, "ws$1");

@@ -268,22 +268,6 @@ describe("gateway-only ingress enforcement", () => {
       expect(body.error.code).toBe("GONE");
     });
 
-    test("POST /webhooks/twilio/connect-action returns 410", async () => {
-      const res = await fetch(
-        `http://127.0.0.1:${port}/webhooks/twilio/connect-action`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: makeFormBody({ CallSid: "CA123" }),
-        },
-      );
-      expect(res.status).toBe(410);
-      const body = (await res.json()) as {
-        error: { code: string; message: string };
-      };
-      expect(body.error.code).toBe("GONE");
-    });
-
     test("POST /v1/calls/twilio/voice-webhook returns 410", async () => {
       const res = await fetch(
         `http://127.0.0.1:${port}/v1/calls/twilio/voice-webhook`,
@@ -351,23 +335,6 @@ describe("gateway-only ingress enforcement", () => {
           },
           body: JSON.stringify({
             params: { CallSid: "CA123", CallStatus: "completed" },
-          }),
-        },
-      );
-      expect(res.status).not.toBe(410);
-    });
-
-    test("POST /v1/internal/twilio/connect-action is NOT blocked", async () => {
-      const res = await fetch(
-        `http://127.0.0.1:${port}/v1/internal/twilio/connect-action`,
-        {
-          method: "POST",
-          headers: {
-            ...GATEWAY_AUTH_HEADERS,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            params: { CallSid: "CA123" },
           }),
         },
       );

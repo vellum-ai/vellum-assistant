@@ -12,7 +12,6 @@ import {
   MediaStreamCallSession,
 } from "../calls/media-stream-server.js";
 import {
-  handleConnectAction,
   handleStatusCallback,
   handleVoiceWebhook,
 } from "../calls/twilio-routes.js";
@@ -1017,8 +1016,6 @@ export class RuntimeHttpServer {
       return await handleVoiceWebhook(validatedReq);
     if (twilioSubpath === "status")
       return await handleStatusCallback(validatedReq);
-    if (twilioSubpath === "connect-action")
-      return await handleConnectAction(validatedReq);
 
     return null;
   }

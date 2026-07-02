@@ -5,7 +5,6 @@
  *   TwiML so the daemon receives raw audio over the media-stream transport
  *   and performs STT/TTS server-side for every call
  * - handleStatusCallback: call status updates (ringing, in-progress, completed, etc.)
- * - handleConnectAction: called when the ConversationRelay connection ends
  *
  * Setup-flow routing (verification, invite redemption, name capture, deny,
  * normal) is resolved by the media-stream server when Twilio's `start`
@@ -498,21 +497,7 @@ export async function handleStatusCallback(req: Request): Promise<Response> {
   return new Response(null, { status: 200 });
 }
 
-/**
- * Called when the ConversationRelay connection ends.
- * Returns empty TwiML to acknowledge.
- */
-export async function handleConnectAction(_req: Request): Promise<Response> {
-  log.info("ConversationRelay connect-action callback received");
-  return new Response('<?xml version="1.0" encoding="UTF-8"?><Response/>', {
-    status: 200,
-    headers: { "Content-Type": "text/xml" },
-  });
-}
-
 // ── Transport-agnostic internal route handlers ───────────────────────
-
-const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
 
 /**
  * Internal voice-webhook handler for gateway→runtime forwarding.
@@ -550,12 +535,4 @@ export function handleInternalStatusCallback({
   const { params = {} } = body as { params?: Record<string, string> };
   processStatusCallback(params);
   return new RouteResponse(null, {});
-}
-
-/**
- * Internal connect-action handler for gateway→runtime forwarding.
- */
-export function handleInternalConnectAction(): RouteResponse {
-  log.info("ConversationRelay connect-action callback received");
-  return new RouteResponse(EMPTY_TWIML, TWIML_HEADERS);
 }
