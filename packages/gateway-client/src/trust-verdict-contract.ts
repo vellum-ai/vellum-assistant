@@ -77,6 +77,12 @@ export const TrustVerdictSchema = z.object({
   verifiedAt: z.number().nullable().optional(),
   verifiedVia: z.string().nullable().optional(),
   memberDisplayName: z.string().optional(),
+
+  // Gateway-owned interaction telemetry (a trust signal, not an info field per
+  // the 2×2) — carried straight off the member `contact_channels` row.
+  // Present only when a member channel resolves; absent for unknown senders.
+  interactionCount: z.number().optional(),
+  lastInteraction: z.number().nullable().optional(),
 });
 
 export type TrustVerdict = z.infer<typeof TrustVerdictSchema>;

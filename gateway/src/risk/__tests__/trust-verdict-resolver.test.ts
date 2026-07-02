@@ -47,6 +47,8 @@ function insertChannel(args: {
   policy?: string;
   verifiedAt?: number | null;
   verifiedVia?: string | null;
+  interactionCount?: number;
+  lastInteraction?: number | null;
 }): void {
   const now = Date.now();
   getGatewayDb()
@@ -61,7 +63,8 @@ function insertChannel(args: {
       policy: args.policy ?? "allow",
       verifiedAt: args.verifiedAt ?? now,
       verifiedVia: args.verifiedVia ?? "challenge",
-      interactionCount: 0,
+      interactionCount: args.interactionCount ?? 0,
+      lastInteraction: args.lastInteraction ?? null,
       createdAt: now,
     })
     .run();
@@ -131,6 +134,8 @@ describe("resolveTrustVerdict", () => {
       externalChatId: "chat-member",
       status: "active",
       verifiedVia: "manual",
+      interactionCount: 7,
+      lastInteraction: 1699990000,
     });
 
     const verdict = await resolveTrustVerdict({
@@ -147,6 +152,9 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.externalChatId).toBe("chat-member");
     expect(verdict.memberDisplayName).toBe("Trusted Member");
     expect(verdict.verifiedVia).toBe("manual");
+    // Interaction telemetry carried straight off the member channel row.
+    expect(verdict.interactionCount).toBe(7);
+    expect(verdict.lastInteraction).toBe(1699990000);
     // Guardian fields still populated from the channel binding.
     expect(verdict.guardianExternalUserId).toBe("U_GUARDIAN");
   });
@@ -184,6 +192,9 @@ describe("resolveTrustVerdict", () => {
     expect(verdict.channelId).toBeUndefined();
     expect(verdict.status).toBeUndefined();
     expect(verdict.guardianExternalUserId).toBeUndefined();
+    // No member channel → no interaction telemetry.
+    expect(verdict.interactionCount).toBeUndefined();
+    expect(verdict.lastInteraction).toBeUndefined();
   });
 
   test("no actorExternalId → unknown, canonicalSenderId null", async () => {

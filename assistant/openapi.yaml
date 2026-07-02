@@ -4130,6 +4130,12 @@ paths:
                             - type: "null"
                         memberDisplayName:
                           type: string
+                        interactionCount:
+                          type: number
+                        lastInteraction:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                       required:
                         - trustClass
                         - canonicalSenderId
