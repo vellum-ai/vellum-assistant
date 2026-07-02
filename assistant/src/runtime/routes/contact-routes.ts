@@ -248,8 +248,8 @@ type ContactWithGatewayTelemetry = Omit<
  * batch-fetch it via `contacts_list_rich` keyed by the filtered id set and
  * overlay it, keeping the local assistant-DB aggregation out of the served
  * payload. Fail-soft: if the gateway read fails or omits a contact, that
- * contact's telemetry degrades to null rather than reviving the local
- * (PR9-slated-for-removal) aggregation.
+ * contact's telemetry degrades to null rather than falling back to the local
+ * assistant-DB aggregation.
  */
 async function hydrateTelemetryFromGateway(
   contacts: ContactWithChannels[],
