@@ -2,13 +2,16 @@
   "name": "vellum-web-workspace",
   "private": true,
   "workspaces": [
+    "clients/macos",
     "clients/web",
     "packages/design-library",
+    "packages/environments",
     "packages/ipc-contract",
-    "packages/local-mode",
-    "packages/environments"
+    "packages/local-mode"
   ],
-  "trustedDependencies": ["@playwright/browser-chromium"],
+  "trustedDependencies": [
+    "@playwright/browser-chromium"
+  ],
   "overrides": {
     "es-toolkit": "1.46.1",
     "@radix-ui/react-dismissable-layer": "1.1.13"
