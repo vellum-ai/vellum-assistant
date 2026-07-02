@@ -367,7 +367,26 @@ function syncChannels(
         if (crossContact && !reassignConflicting) continue;
 
         const updateSet: Record<string, unknown> = { updatedAt: now };
-        if (byId.address !== ch.address) updateSet.address = ch.address;
+        if (byId.address !== ch.address) {
+          // Rebinding to a new address: a DIFFERENT row may already hold
+          // (type, new-address), and idx_contact_channels_type_address would
+          // reject the move. Resolve it the same way the (contactId,type,address)
+          // path does — findConflictingChannel + the reassign gate. When
+          // reassigning, adopt the (type,address) identity onto this
+          // gateway-keyed row by removing the stale duplicate; otherwise leave
+          // the address so the existing mapping stands (onConflictDoNothing).
+          const conflicting = findConflictingChannel(db, ch.type, ch.address);
+          if (conflicting && conflicting.id !== ch.id) {
+            if (reassignConflicting) {
+              db.delete(contactChannels)
+                .where(eq(contactChannels.id, conflicting.id))
+                .run();
+              updateSet.address = ch.address;
+            }
+          } else {
+            updateSet.address = ch.address;
+          }
+        }
         if (crossContact) updateSet.contactId = contactId;
         if (ch.isPrimary !== undefined) updateSet.isPrimary = ch.isPrimary;
         if (ch.externalChatId !== undefined)

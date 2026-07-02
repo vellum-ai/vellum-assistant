@@ -193,6 +193,69 @@ describe("contacts_mirror_apply", () => {
     expect(count.n).toBe(1);
   });
 
+  test("re-auth rebind adopts a (type,address) held by another row instead of colliding on the unique index", () => {
+    const sqlite = getSqlite();
+    // Guardian channel at the OLD address.
+    sqlite
+      .prepare(
+        "INSERT INTO contacts (id, display_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+      )
+      .run("g3-co", "Owner", 1, 1);
+    sqlite
+      .prepare(
+        "INSERT INTO contact_channels (id, contact_id, type, address, is_primary, created_at) VALUES (?, ?, ?, ?, 1, ?)",
+      )
+      .run("g3-ch", "g3-co", "vellum", "OLD-3", 1);
+    // A DIFFERENT row (different contact) already holds (vellum, NEW-3) — the
+    // address the guardian is about to rebind to. idx_contact_channels_type_address
+    // would reject a naive address move.
+    sqlite
+      .prepare(
+        "INSERT INTO contacts (id, display_name, created_at, updated_at) VALUES (?, ?, ?, ?)",
+      )
+      .run("stale-co", "Stale", 1, 1);
+    sqlite
+      .prepare(
+        "INSERT INTO contact_channels (id, contact_id, type, address, is_primary, created_at) VALUES (?, ?, ?, ?, 0, ?)",
+      )
+      .run("stale-ch", "stale-co", "vellum", "NEW-3", 1);
+
+    // reassignConflictingChannels:true (guardian) → adopt the identity onto the
+    // gateway-keyed row: remove the stale duplicate, land g3-ch on NEW-3, no throw.
+    const result = handleContactsMirrorApply({
+      body: {
+        ops: [
+          {
+            op: "upsert_channel",
+            contactId: "g3-co",
+            channelId: "g3-ch",
+            type: "vellum",
+            address: "NEW-3",
+            displayName: "Owner",
+            isPrimary: true,
+            refreshDisplayName: true,
+            reassignConflictingChannels: true,
+          },
+        ],
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    // The gateway-keyed row survived and moved to the new address.
+    const g3 = getSqlite()
+      .prepare("SELECT contact_id, address, is_primary FROM contact_channels WHERE id = ?")
+      .get("g3-ch");
+    expect(g3).toEqual({ contact_id: "g3-co", address: "NEW-3", is_primary: 1 });
+    // The stale duplicate is gone — exactly one channel row remains.
+    expect(
+      getSqlite().prepare("SELECT 1 FROM contact_channels WHERE id = ?").get("stale-ch"),
+    ).toBeNull();
+    const count = getSqlite()
+      .prepare("SELECT COUNT(*) AS n FROM contact_channels")
+      .get() as { n: number };
+    expect(count.n).toBe(1);
+  });
+
   test("rejects an unknown op discriminator", () => {
     expect(() =>
       handleContactsMirrorApply({
