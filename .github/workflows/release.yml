@@ -1677,8 +1677,8 @@ jobs:
           node-version-file: .nvmrc
       - name: Install dependencies
         run: |
-          if ! bun install --frozen-lockfile; then
-            rm -f bun.lock && rm -rf node_modules && bun install
+          if ! bun install --frozen-lockfile --filter=@vellumai/web; then
+            rm -f bun.lock && rm -rf node_modules && bun install --filter=@vellumai/web
           fi
       - name: Generate API clients
         working-directory: clients/web
@@ -1847,11 +1847,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          if ! bun install --frozen-lockfile; then
+          if ! bun install --frozen-lockfile --filter=@vellumai/web; then
             echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
             rm -f bun.lock
             rm -rf node_modules
-            bun install
+            bun install --filter=@vellumai/web
           fi
 
       - name: Generate API clients
@@ -2077,7 +2077,7 @@ jobs:
 
       - name: Install design-library dependencies
         working-directory: packages/design-library
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/design-library
 
       - name: Install web dependencies
         working-directory: clients/web
