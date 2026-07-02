@@ -399,7 +399,7 @@ export class MediaStreamOutput implements CallTransport {
       // Request WAV so audioBufferToFrames gets PCM it can transcode
       // to mu-law. Compressed formats (mp3, opus) would be sent as raw
       // bytes and produce garbled audio.
-      const { provider, audioFormat } = resolveCallTtsProvider({
+      const { provider, audioFormat } = await resolveCallTtsProvider({
         preferWav: true,
       });
       if (!provider) {

@@ -2936,11 +2936,11 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test("Deepgram selected path resolves useSynthesizedPath to true", () => {
+  test("Deepgram selected path resolves useSynthesizedPath to true", async () => {
     const cfg = loadConfig();
     cfg.services.tts.provider = "deepgram";
 
-    const result = resolveCallTtsProvider();
+    const result = await resolveCallTtsProvider();
     expect(result.provider).not.toBeNull();
     expect(result.provider!.id).toBe("deepgram");
     expect(result.useSynthesizedPath).toBe(true);
@@ -3086,30 +3086,30 @@ describe("call-controller", () => {
   // ── Shared TTS provider resolution ──────────────────────────────────
 
   describe("resolveCallTtsProvider (shared helper)", () => {
-    test("returns native path with elevenlabs (non-streaming provider)", () => {
+    test("returns native path with elevenlabs (non-streaming provider)", async () => {
       // Default config has provider: "elevenlabs" which is registered as
       // non-streaming in registerTestTtsProviders()
-      const result = resolveCallTtsProvider();
+      const result = await resolveCallTtsProvider();
       expect(result.provider).not.toBeNull();
       expect(result.provider!.id).toBe("elevenlabs");
       expect(result.useSynthesizedPath).toBe(false);
       expect(result.audioFormat).toBe("mp3");
     });
 
-    test("returns fallback when provider registry is empty", () => {
+    test("returns fallback when provider registry is empty", async () => {
       _resetTtsProviderRegistry();
-      const result = resolveCallTtsProvider();
+      const result = await resolveCallTtsProvider();
       expect(result.provider).toBeNull();
       expect(result.useSynthesizedPath).toBe(false);
       expect(result.audioFormat).toBe("mp3");
     });
 
-    test("degrades fish-audio synthesized path when referenceId is missing", () => {
+    test("degrades fish-audio synthesized path when referenceId is missing", async () => {
       const cfg = loadConfig();
       cfg.services.tts.provider = "fish-audio";
       cfg.services.tts.providers["fish-audio"].referenceId = "";
 
-      const result = resolveCallTtsProvider();
+      const result = await resolveCallTtsProvider();
       expect(result.provider).toBeNull();
       expect(result.useSynthesizedPath).toBe(false);
       expect(result.audioFormat).toBe("mp3");
@@ -3133,18 +3133,18 @@ describe("call-controller", () => {
       controller.destroy();
     });
 
-    test("returns synthesized path with deepgram provider", () => {
+    test("returns synthesized path with deepgram provider", async () => {
       const cfg = loadConfig();
       cfg.services.tts.provider = "deepgram";
 
-      const result = resolveCallTtsProvider();
+      const result = await resolveCallTtsProvider();
       expect(result.provider).not.toBeNull();
       expect(result.provider!.id).toBe("deepgram");
       expect(result.useSynthesizedPath).toBe(true);
       expect(result.audioFormat).toBe("mp3");
     });
 
-    test("Deepgram does not apply fish-audio referenceId gate", () => {
+    test("Deepgram does not apply fish-audio referenceId gate", async () => {
       // Deepgram has no referenceId requirement. Verify the fish-audio
       // config gate does not apply to deepgram resolution.
       const cfg = loadConfig();
@@ -3152,7 +3152,7 @@ describe("call-controller", () => {
       // fish-audio referenceId left empty — should not affect deepgram.
       cfg.services.tts.providers["fish-audio"].referenceId = "";
 
-      const result = resolveCallTtsProvider();
+      const result = await resolveCallTtsProvider();
       expect(result.provider).not.toBeNull();
       expect(result.provider!.id).toBe("deepgram");
       expect(result.useSynthesizedPath).toBe(true);

@@ -2297,6 +2297,9 @@ describe("relay-server", () => {
     expect(relay.isVerificationSessionActive()).toBe(true);
     expect(relay.getConnectionState()).toBe("verification_pending");
 
+    // Let the fire-and-forget speakSystemPrompt resolution settle
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
     // Should have sent a retry prompt
     const textMessages = ws.sentMessages
       .map((raw) => JSON.parse(raw) as { type: string; token?: string })
@@ -2344,6 +2347,9 @@ describe("relay-server", () => {
     expect(updated).not.toBeNull();
     expect(updated!.status).toBe("failed");
     expect(updated!.lastError).toContain("Guardian voice verification failed");
+
+    // Let the fire-and-forget speakSystemPrompt resolution settle
+    await new Promise((resolve) => setTimeout(resolve, 0));
 
     // Should have sent goodbye message
     const textMessages = ws.sentMessages
