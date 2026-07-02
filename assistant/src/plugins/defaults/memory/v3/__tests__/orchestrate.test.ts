@@ -79,8 +79,37 @@ mock.module("../dense.js", () => ({
   },
 }));
 
-const { orchestrate, DEFAULT_NEEDLE_K, DEFAULT_DENSE_K } =
-  await import("../orchestrate.js");
+// The watchdog telemetry store is stubbed with the same active-flag delegation
+// as the dense lane: gate tests capture the per-run gate telemetry; any other
+// test file sharing the process falls through to the real store. Spread the
+// real module so the query/type exports stay present.
+const realWatchdogStore = {
+  ...(await import("../../../../../telemetry/watchdog-events-store.js")),
+};
+let watchdogMockActive = false;
+let recordedGateEvents: Array<{
+  checkName: string;
+  value?: number | null;
+  detail?: Record<string, unknown> | null;
+}> = [];
+mock.module("../../../../../telemetry/watchdog-events-store.js", () => ({
+  ...realWatchdogStore,
+  recordWatchdogEvent: (
+    record: Parameters<typeof realWatchdogStore.recordWatchdogEvent>[0],
+  ) => {
+    if (!watchdogMockActive) {
+      return realWatchdogStore.recordWatchdogEvent(record);
+    }
+    recordedGateEvents.push(record);
+  },
+}));
+
+const {
+  orchestrate,
+  DEFAULT_NEEDLE_K,
+  DEFAULT_DENSE_K,
+  MEMORY_V3_INJECTION_GATE_CHECK_NAME,
+} = await import("../orchestrate.js");
 
 // ---------------------------------------------------------------------------
 // Fixtures: a tiny corpus of pages with bodies + `links:` frontmatter.
@@ -261,9 +290,11 @@ function selectProvider(keep: Slug[], pin: Slug[] = []): Provider {
 
 beforeEach(() => {
   denseMockActive = true;
+  watchdogMockActive = true;
   providerStub = null;
   denseHits = [];
   denseCalls = [];
+  recordedGateEvents = [];
   lastPool = [];
   lastPoolLines = [];
   lastPrefixBlock = null;
@@ -272,6 +303,7 @@ beforeEach(() => {
 
 afterAll(() => {
   denseMockActive = false;
+  watchdogMockActive = false;
 });
 
 // ---------------------------------------------------------------------------
@@ -1198,5 +1230,85 @@ describe("orchestrate — injection gate", () => {
 
     expect(selectCalls).toBe(1);
     expect(result.selections.map((s) => s.slug)).toContain("topic-a");
+  });
+
+  test("a scored gate run records ONE telemetry event carrying the decision", async () => {
+    const lanes = await buildLanes();
+    // Dense top-1 (0.9) clears denseThreshold (0.52) → dense_pass.
+    denseHits = [{ article: "topic-b", section: 0, score: 0.9 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(recordedGateEvents).toHaveLength(1);
+    const event = recordedGateEvents[0]!;
+    expect(event.checkName).toBe(MEMORY_V3_INJECTION_GATE_CHECK_NAME);
+    expect(event.value).toBe(1);
+    expect(event.detail).toMatchObject({
+      pass: true,
+      reason: "dense_pass",
+      top_dense_score: 0.9,
+    });
+  });
+
+  test("a closed gate records pass:false with the failure reason", async () => {
+    const lanes = await buildLanes();
+    // No needle-term overlap and sub-threshold dense → fail_no_signal.
+    denseHits = [{ article: "topic-b", section: 0, score: 0.1 }];
+    providerStub = selectProvider([]);
+
+    await orchestrate(
+      makeTurn(1, "zzzz nomatch"),
+      depsOf(lanes, { denseK: 100, gateConfig: gateConfigOf() }),
+    );
+
+    expect(recordedGateEvents).toHaveLength(1);
+    expect(recordedGateEvents[0]!.detail).toMatchObject({
+      pass: false,
+      reason: "fail_no_signal",
+    });
+  });
+
+  test("the dense-unavailable pass-open records reason dense_unavailable", async () => {
+    const lanes = await buildLanes();
+    // denseK: 0 → no live dense hits → the gate passes open without scoring.
+    const needle = {
+      query: () => [],
+      queryScored: () => [{ article: "topic-a", section: 0, score: 0.1 }],
+      bestSection: () => -1,
+      idf: () => 0,
+    };
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, { needle, denseK: 0, gateConfig: gateConfigOf() }),
+    );
+
+    expect(recordedGateEvents).toHaveLength(1);
+    expect(recordedGateEvents[0]!.detail).toMatchObject({
+      pass: true,
+      reason: "dense_unavailable",
+    });
+  });
+
+  test("no gate telemetry when the gate is disabled or omitted", async () => {
+    const lanes = await buildLanes();
+    denseHits = [{ article: "topic-b", section: 0, score: 0.1 }];
+    providerStub = selectProvider(["topic-a"]);
+
+    await orchestrate(
+      makeTurn(1, "apple"),
+      depsOf(lanes, {
+        denseK: 100,
+        gateConfig: gateConfigOf({ enabled: false }),
+      }),
+    );
+    await orchestrate(makeTurn(2, "apple"), depsOf(lanes));
+
+    expect(recordedGateEvents).toEqual([]);
   });
 });
