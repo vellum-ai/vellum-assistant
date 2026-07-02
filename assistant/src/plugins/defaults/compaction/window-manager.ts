@@ -27,9 +27,12 @@ import type { ContextWindowConfig } from "../../../config/types.js";
 import {
   type CompactionRunArgs,
   type CompactionRunResult,
+  CONTEXT_SUMMARY_CLOSE,
+  CONTEXT_SUMMARY_MARKER,
   isSyntheticCompactionMessage,
   runAssistantDrivenCompaction,
   runEmergencyCompaction,
+  wrapContextSummaryText,
 } from "../../../context/compactor.js";
 import {
   estimatePromptTokens,
@@ -52,8 +55,7 @@ import { resolveOverflowAction } from "./overflow-policy.js";
 
 const log = getLogger("context-window");
 
-export const CONTEXT_SUMMARY_MARKER = "<context_summary>";
-const CONTEXT_SUMMARY_CLOSE = "</context_summary>";
+export { CONTEXT_SUMMARY_MARKER };
 const INTERNAL_CONTEXT_SUMMARY_MESSAGES = new WeakSet<Message>();
 
 // ---------------------------------------------------------------------------
@@ -258,12 +260,7 @@ export interface ContextWindowManagerOptions {
 export function createContextSummaryMessage(summary: string): Message {
   const message: Message = {
     role: "assistant",
-    content: [
-      {
-        type: "text",
-        text: `${CONTEXT_SUMMARY_MARKER}\n${summary}\n${CONTEXT_SUMMARY_CLOSE}`,
-      },
-    ],
+    content: [{ type: "text", text: wrapContextSummaryText(summary) }],
   };
   INTERNAL_CONTEXT_SUMMARY_MESSAGES.add(message);
   return message;
@@ -291,6 +288,22 @@ function extractText(content: ContentBlock[]): string {
     .join("\n");
 }
 
+/**
+ * Content-shaped detection of a synthetic summary head: assistant-role with
+ * text starting at the `<context_summary>` marker every summary head carries
+ * (`wrapContextSummaryText`). Used only for persisted-count accounting, where
+ * a false positive is conservative — see
+ * {@link ContextWindowManager.resolveNonPersistedPrefixCount}. Never use it to
+ * extract summary text; that is {@link getSummaryFromContextMessage}'s
+ * WeakSet-gated job.
+ */
+function isStructuralContextSummaryHead(message: Message | undefined): boolean {
+  return (
+    message?.role === "assistant" &&
+    extractText(message.content).trim().startsWith(CONTEXT_SUMMARY_MARKER)
+  );
+}
+
 // ---------------------------------------------------------------------------
 // ContextWindowManager
 // ---------------------------------------------------------------------------
@@ -310,6 +323,15 @@ export class ContextWindowManager {
    * rows. Decremented after a successful compaction.
    */
   private _nonPersistedPrefixCount = 0;
+  /**
+   * Whether the seeded prefix still occupies the very front of the history.
+   * True from seeding until the first productive compaction pass: such a pass
+   * rebuilds the front with a freshly minted summary head that is NOT part of
+   * the seed, after which the head and any remaining seed are disjoint spans.
+   * {@link resolveNonPersistedPrefixCount} switches between "the seed subsumes
+   * its own synthetic head" and "minted head + remaining seed" on this flag.
+   */
+  private _seedLeadsHistory = false;
   /**
    * Reducer state for the in-progress overflow-recovery ladder, held across
    * the successive {@link reduceOverflowOneRung} calls of a single turn so the
@@ -366,6 +388,7 @@ export class ContextWindowManager {
    */
   seedNonPersistedPrefix(count: number): void {
     this._nonPersistedPrefixCount = count;
+    this._seedLeadsHistory = count > 0;
   }
 
   private get estimationProviderName(): string {
@@ -676,7 +699,8 @@ export class ContextWindowManager {
       });
     }
 
-    if (this.conversationId == null) {
+    const conversationId = this.conversationId;
+    if (conversationId == null) {
       // The compactor needs the conversation id to look up image
       // attachments and DB timestamps. If we don't have one (legacy test
       // path, ad-hoc instantiation), skip — never fabricate one.
@@ -690,11 +714,14 @@ export class ContextWindowManager {
       });
     }
 
-    // Shared compactor args for every pass in this call. `targetTokens` is
-    // intentionally absent — the fixed-boundary path never applies a budget
-    // forward-cut, and the auto path adds it per call site.
-    const baseArgs: CompactionRunArgs = {
-      conversationId: this.conversationId,
+    // Shared compactor args for every pass in this call. Built lazily — only
+    // on paths that actually invoke the compactor — so the below-threshold
+    // no-op (the common outcome of idle `maybeCompact` gate calls) never pays
+    // tool resolution or the prefix walk. `targetTokens` is intentionally
+    // absent — the fixed-boundary path never applies a budget forward-cut,
+    // and the auto path adds it per call site.
+    const buildBaseArgs = (): CompactionRunArgs => ({
+      conversationId,
       messages,
       provider: this.provider,
       systemPrompt: this.systemPrompt,
@@ -707,7 +734,7 @@ export class ContextWindowManager {
       overrideProfile: options?.overrideProfile ?? null,
       actorTrustClass: options?.actorTrustClass,
       nonPersistedPrefixCount: this.resolveNonPersistedPrefixCount(messages),
-    };
+    });
 
     // Caller-fixed boundary ("summarize up to here"): one compactor pass at
     // the user's chosen cut. No threshold gate (the user asked, regardless of
@@ -716,7 +743,7 @@ export class ContextWindowManager {
     // history past the boundary the user picked).
     if (options?.fixedTailStartIndex != null) {
       const result = await runAssistantDrivenCompaction({
-        ...baseArgs,
+        ...buildBaseArgs(),
         force: true,
         fixedTailStartIndex: options.fixedTailStartIndex,
       });
@@ -735,6 +762,7 @@ export class ContextWindowManager {
       });
     }
 
+    const baseArgs = buildBaseArgs();
     const targetTokens = this.resolveCompactionTargetTokens(thresholdTokens);
 
     // Retry budget for the compactor itself. Lives here (not in the
@@ -825,7 +853,7 @@ export class ContextWindowManager {
         "ContextWindowManager has no conversationId — cannot run emergency compaction",
       );
     }
-    return await runEmergencyCompaction({
+    const result = await runEmergencyCompaction({
       conversationId: this.conversationId,
       messages,
       provider: this.provider,
@@ -839,6 +867,10 @@ export class ContextWindowManager {
       overrideProfile: options.overrideProfile ?? null,
       nonPersistedPrefixCount: this.resolveNonPersistedPrefixCount(messages),
     });
+    // A productive emergency pass rebuilds the history front just like the
+    // ordinary path, so it consumes the same non-persisted prefix bookkeeping.
+    if (result.compacted) this.consumeCompactionState(result.compactedMessages);
+    return result;
   }
 
   /**
@@ -863,22 +895,48 @@ export class ContextWindowManager {
 
   /**
    * Leading non-persisted messages of `messages` for persisted-count
-   * accounting: the seeded fork-inherited prefix, or the synthetic
+   * accounting: the seeded fork-inherited prefix and/or the synthetic
    * summary/retained-images head minted by conversation rehydration
    * (`createContextSummaryMessage`) or a prior compaction pass — none of
-   * which have DB rows. `max`, not `+`: a fork-inherited prefix already
-   * counts its own inherited summary head.
+   * which have DB rows.
+   *
+   * The synthetic head is detected two ways. WeakSet identity
+   * ({@link isSyntheticCompactionMessage}) covers heads passed through as the
+   * exact minted objects; the structural marker check covers heads whose
+   * wrappers were rebuilt by history repair (repair copies content into fresh
+   * message objects every turn, so identity is lost). A structural false
+   * positive — an assistant message that merely starts with the marker — errs
+   * toward a LOWER persisted count, so the boundary advances less and more
+   * rows are kept verbatim: conservative, no data loss. That failure direction
+   * is why a content-shaped check is acceptable here while
+   * {@link getSummaryFromContextMessage} (which EXTRACTS summary text for
+   * reuse) rightly stays WeakSet-gated.
+   *
+   * The retained-images message needs no structural fallback: within the pass
+   * that minted it, it keeps WeakSet identity; after history repair it merges
+   * into the adjacent first tail user message (both user-role), and the merged
+   * message occupies that kept message's position, which the accounting
+   * already attributes correctly.
    */
   private resolveNonPersistedPrefixCount(messages: Message[]): number {
     let syntheticHead = 0;
     while (
       syntheticHead < messages.length &&
-      (getSummaryFromContextMessage(messages[syntheticHead]) != null ||
+      (isStructuralContextSummaryHead(messages[syntheticHead]) ||
         isSyntheticCompactionMessage(messages[syntheticHead]))
     ) {
       syntheticHead++;
     }
-    return Math.max(this._nonPersistedPrefixCount, syntheticHead);
+    if (this._seedLeadsHistory) {
+      // The seeded prefix still heads the history, so any synthetic head the
+      // walk found is the seed's own inherited summary — already inside the
+      // seed count, not an addition to it.
+      return Math.max(this._nonPersistedPrefixCount, syntheticHead);
+    }
+    // A compaction pass has rebuilt the front (or there is no seed): the
+    // minted head and any remaining seeded prefix are disjoint leading spans
+    // — `[head..., remaining seed..., persisted rows...]` — so they sum.
+    return syntheticHead + this._nonPersistedPrefixCount;
   }
 
   /**
@@ -903,6 +961,11 @@ export class ContextWindowManager {
    * into the summary.
    */
   private consumeCompactionState(compactedMessages: number): void {
+    if (compactedMessages > 0) {
+      // The pass rebuilt the history front with a minted summary head, so any
+      // remaining seed now sits behind that head rather than at index 0.
+      this._seedLeadsHistory = false;
+    }
     const compactedAway = Math.min(
       this._nonPersistedPrefixCount,
       compactedMessages,
