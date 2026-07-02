@@ -202,6 +202,27 @@ describe("AcpSessionManager parent notification", () => {
     expect(enqueueMessage).not.toHaveBeenCalled();
   });
 
+  test("a cancelled session does not notify the parent on success", async () => {
+    // A prompt can win the cancel race by resolving normally; a user stop must
+    // still not wake the parent with a completion.
+    const manager = new AcpSessionManager(1);
+    const { conversation, enqueueMessage } = mockConversation();
+    setConversation("parent-cancel-ok", conversation);
+    registered.push("parent-cancel-ok");
+
+    const proc = fakeProcess(() => Promise.resolve({ stopReason: "end_turn" }));
+    const entry = injectSession(
+      manager,
+      "sess-cancel-ok",
+      "parent-cancel-ok",
+      proc,
+    );
+    entry.state.status = "cancelled";
+
+    await fire(manager, "sess-cancel-ok", entry);
+    expect(enqueueMessage).not.toHaveBeenCalled();
+  });
+
   test("cancel marks the session cancelled before the protocol cancel resolves", async () => {
     // Guards the cancel race: if the in-flight prompt rejects while
     // process.cancel is still pending, the failure gate must already see

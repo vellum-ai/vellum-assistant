@@ -1041,10 +1041,15 @@ export class AcpSessionManager {
             current.state.acpSessionId,
           );
           const resumeHint = hint ? `\n\n${hint}` : "";
-          this.notifyParent(
-            current,
-            `[ACP agent "${agentLabel}" completed]\n\n${responseText}${resumeHint}`,
-          );
+          // Skip when cancelled: a prompt can win the cancel race by resolving
+          // normally, but a user stop must not enqueue a completion and wake the
+          // parent (mirrors the failure-path gate below).
+          if (current.state.status !== "cancelled") {
+            this.notifyParent(
+              current,
+              `[ACP agent "${agentLabel}" completed]\n\n${responseText}${resumeHint}`,
+            );
+          }
         }
       })
       .catch((err: Error) => {
