@@ -71,7 +71,16 @@ export function AcpChatTerminalBlock({
         data-terminal-kind="failed"
         className="flex items-start gap-2 rounded-lg bg-[var(--system-negative-weak)] px-3 py-2 text-body-small-default text-[var(--system-negative-strong)]"
       >
-        <AlertTriangle aria-hidden className="mt-0.5 h-4 w-4 shrink-0" />
+        {/* Row wraps for multi-line errors; the icon box matches the 12px
+            text-body-small line-height so the triangle centers on the first
+            line rather than the wrapped block's middle. */}
+        <span
+          aria-hidden
+          data-testid="acp-chat-terminal-failed-icon"
+          className="flex h-[12px] w-4 shrink-0 items-center justify-center"
+        >
+          <AlertTriangle className="h-4 w-4" />
+        </span>
         <span>{error ?? "Run failed"}</span>
       </div>
     );
