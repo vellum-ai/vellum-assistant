@@ -1316,6 +1316,7 @@ describe("forkConversation", () => {
       skipIndexing: true,
     });
     rawRun(
+      "test:setGroupId",
       "UPDATE conversations SET group_id = ? WHERE id = ?",
       "system:pinned",
       source.id,
@@ -1328,6 +1329,7 @@ describe("forkConversation", () => {
       .where(eq(conversations.id, fork.id))
       .get();
     const groupIdRow = rawGet<{ group_id: string | null }>(
+      "test:fetchForkGroupId",
       "SELECT group_id FROM conversations WHERE id = ?",
       fork.id,
     );
@@ -1354,6 +1356,7 @@ describe("forkConversation", () => {
       .where(eq(conversations.id, fork.id))
       .get();
     const groupIdRow = rawGet<{ group_id: string | null }>(
+      "test:fetchForkGroupId",
       "SELECT group_id FROM conversations WHERE id = ?",
       fork.id,
     );

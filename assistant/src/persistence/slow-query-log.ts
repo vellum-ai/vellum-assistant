@@ -141,21 +141,28 @@ export function wrapSqliteForSlowQueryLogging(
     });
   };
 
-  // Unlabeled statement proxies are cached against their native statement so
-  // repeated executions of a `.query()`-cached prepared statement reuse one
-  // proxy and its timed closures — nothing allocates on the hot path. Labeled
-  // statements are opt-in attribution created fresh (a native statement shared
-  // across labels must not leak the first label), so they skip this cache.
-  const unlabeledProxies = new WeakMap<Statement, Statement>();
+  // Statement proxies are cached against their native statement so repeated
+  // executions of a `.query()`-cached prepared statement reuse one proxy and its
+  // timed closures — nothing allocates on the hot path. The cache is keyed by
+  // label as well as statement so a native statement reused under different
+  // labels gets one proxy per label (no label leaks across callers), and the
+  // labeled hot path (e.g. the raw-query helpers) stays allocation-free too.
+  const UNLABELED = "";
+  const proxiesByStmt = new WeakMap<Statement, Map<string, Statement>>();
 
   const wrapStatement = (
     stmt: Statement,
     sql: string,
     label: string | undefined,
   ): Statement => {
-    if (label === undefined) {
-      const cached = unlabeledProxies.get(stmt);
+    const cacheKey = label ?? UNLABELED;
+    let byLabel = proxiesByStmt.get(stmt);
+    if (byLabel) {
+      const cached = byLabel.get(cacheKey);
       if (cached) return cached;
+    } else {
+      byLabel = new Map();
+      proxiesByStmt.set(stmt, byLabel);
     }
 
     const timed = new Map<string, (...args: unknown[]) => unknown>();
@@ -201,7 +208,7 @@ export function wrapSqliteForSlowQueryLogging(
       },
     });
 
-    if (label === undefined) unlabeledProxies.set(stmt, proxy);
+    byLabel.set(cacheKey, proxy);
     return proxy;
   };
 

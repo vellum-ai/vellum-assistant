@@ -34,6 +34,7 @@ function getDatabaseSizeBytes(): number | null {
 function getMemoryItemCount(): number {
   try {
     const rows = rawAll<{ c: number }>(
+      "debug:getMemoryItemCount",
       "SELECT COUNT(*) AS c FROM memory_graph_nodes",
     );
     return rows[0]?.c ?? 0;

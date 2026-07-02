@@ -40,11 +40,14 @@ function listAllDocuments(): Array<{
   updatedAt: number;
 }> {
   try {
-    const results = rawAll<DocumentListRow>(/*sql*/ `
+    const results = rawAll<DocumentListRow>(
+      "documents:listAllDocuments",
+      /*sql*/ `
       SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
       FROM documents
       ORDER BY updated_at DESC
-      `);
+      `,
+    );
 
     log.info({ count: results.length }, "Listed documents");
     return results.map((row) => ({
