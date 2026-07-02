@@ -51,6 +51,12 @@ function lastJsonErrorMessage(text: string): string | null {
     }
     try {
       const parsed = JSON.parse(candidate) as { error?: { message?: unknown } };
+      // A valid top-level object: skip past its end so we don't restart
+      // candidates at its nested braces. Otherwise a nested error.message
+      // (e.g. a JSON-RPC error.data payload) would shadow the outer adapter
+      // error. Only reached on a successful parse, so a stray unmatched brace
+      // that balances-but-fails-to-parse still lets inner objects be scanned.
+      i += candidate.length - 1;
       const message = parsed.error?.message;
       if (typeof message === "string" && message.length > 0) {
         found = message;

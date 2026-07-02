@@ -95,4 +95,15 @@ describe("deriveFailureError", () => {
       "unexpected } brace {in} the text",
     );
   });
+
+  test("prefers the outer adapter error over a nested error.message", () => {
+    // JSON-RPC style: the real failure is the top-level error.message; a nested
+    // error.data.error.message must not shadow it.
+    const stderr =
+      `{"error":{"message":"outer adapter failure",` +
+      `"data":{"error":{"message":"inner debug detail"}}}}`;
+    expect(deriveFailureError("Internal error", stderr)).toBe(
+      "outer adapter failure",
+    );
+  });
 });
