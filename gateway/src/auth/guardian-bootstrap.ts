@@ -11,7 +11,6 @@ import { createHash, randomBytes } from "node:crypto";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
 import { getGatewayDb } from "../db/connection.js";
-import { assistantDbRun, assistantDbExec } from "../db/assistant-db-proxy.js";
 import {
   actorRefreshTokenRecords,
   actorTokenRecords,
@@ -331,75 +330,32 @@ export async function createGuardianBinding(
     }
   });
 
-  // --- Assistant DB identity mirror (best-effort, via IPC proxy) ---
+  // --- Assistant DB identity mirror (best-effort, via typed transactional IPC) ---
   // A non-authoritative convenience copy; its failure must not undo or abort
-  // the committed gateway binding.
+  // the committed gateway binding. One atomic daemon-side transaction upserts
+  // the guardian contact + its primary channel under the gateway-minted ids,
+  // reusing the same channel-id alignment the gateway wrote. The upsert
+  // reparents a claimable channel that inbound seeding attached elsewhere and
+  // refreshes the display name to match this binding.
   try {
-    await assistantDbExec("BEGIN IMMEDIATE");
-    try {
-      if (existingGuardianContact || claimableChannel) {
-        await assistantDbRun(
-          `UPDATE contacts
-           SET display_name = ?, updated_at = ?
-           WHERE id = ?`,
-          [displayName, now, contactId],
-        );
-      } else {
-        await assistantDbRun(
-          `INSERT INTO contacts (id, display_name, notes, created_at, updated_at)
-           VALUES (?, ?, 'guardian', ?, ?)`,
-          [contactId, displayName, now, now],
-        );
-      }
-
-      if (claimableChannel || existingChannel) {
-        // Remove duplicate channels with the same address (defensive).
-        await assistantDbRun(
-          `DELETE FROM contact_channels
-           WHERE type = ? AND address = ? COLLATE NOCASE AND id != ?`,
-          [params.channel, params.externalUserId, channelId],
-        );
-
-        await assistantDbRun(
-          `UPDATE contact_channels
-           SET contact_id = ?, address = ?, external_chat_id = ?,
-               is_primary = 1,
-               updated_at = ?
-           WHERE id = ?`,
-          [
+    await ipcCallAssistant("contacts_mirror_apply", {
+      body: {
+        ops: [
+          {
+            op: "upsert_channel",
             contactId,
-            params.externalUserId,
-            params.deliveryChatId,
-            now,
             channelId,
-          ],
-        );
-      } else {
-        await assistantDbRun(
-          `INSERT INTO contact_channels
-             (id, contact_id, type, address, external_chat_id,
-              is_primary, interaction_count, created_at)
-           VALUES (?, ?, ?, ?, ?, 1, 0, ?)`,
-          [
-            channelId,
-            contactId,
-            params.channel,
-            params.externalUserId,
-            params.deliveryChatId,
-            now,
-          ],
-        );
-      }
-
-      await assistantDbExec("COMMIT");
-    } catch (err) {
-      try {
-        await assistantDbExec("ROLLBACK");
-      } catch {
-        // best effort
-      }
-      throw err;
-    }
+            type: params.channel,
+            address: params.externalUserId,
+            externalChatId: params.deliveryChatId,
+            displayName,
+            isPrimary: true,
+            refreshDisplayName: true,
+            reassignConflictingChannels: true,
+          },
+        ],
+      },
+    });
   } catch (mirrorErr) {
     log.warn(
       { err: mirrorErr },

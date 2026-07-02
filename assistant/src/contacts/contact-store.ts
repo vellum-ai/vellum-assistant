@@ -407,6 +407,7 @@ function syncChannels(
         };
         if (ch.externalChatId !== undefined)
           reassignSet.externalChatId = ch.externalChatId;
+        if (ch.isPrimary !== undefined) reassignSet.isPrimary = ch.isPrimary;
 
         db.update(contactChannels)
           .set(reassignSet)
