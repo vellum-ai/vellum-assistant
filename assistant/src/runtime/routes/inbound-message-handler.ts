@@ -1,8 +1,9 @@
 /**
  * Channel inbound message handler: validates, records, and routes inbound
  * messages from all channels. Handles ingress ACL, edits, guardian
- * verification, guardian action answers, approval interception, and
- * invite token redemption.
+ * verification, guardian action answers, and approval interception.
+ * Invite token/code redemption is intercepted at gateway ingress before
+ * messages reach this handler.
  */
 import type { SourceMetadata } from "@vellumai/gateway-client";
 import {
@@ -481,7 +482,6 @@ export async function handleChannelInbound({
     actorUsername: body.actorUsername,
     replyCallbackUrl: body.replyCallbackUrl,
     assistantId,
-    externalMessageId,
     effectiveAdmissionPolicy: effectiveAdmissionPolicyForAcl,
     isCallbackInteraction,
   });
@@ -1723,6 +1723,7 @@ async function persistBackfilledSlackMessage(params: {
             downloaded.filename,
             downloaded.mimeType,
             downloaded.data,
+            { normalizeImage: true },
           );
           attachments.push({
             filename: downloaded.filename,

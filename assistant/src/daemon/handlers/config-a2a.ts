@@ -26,12 +26,11 @@ import {
 } from "../../contacts/contact-store.js";
 import type { VellumAssistantMetadata } from "../../contacts/types.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
-import { getDb } from "../../persistence/db-connection.js";
 import {
-  claimA2AInvite,
-  createInvite,
-  hashToken,
-} from "../../persistence/invite-store.js";
+  claimA2aInvite,
+  createA2aInvite,
+} from "../../persistence/a2a-invite-store.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { assistantContactMetadata } from "../../persistence/schema/index.js";
 import type { HttpErrorResponse } from "../../runtime/http-errors.js";
 import { getLogger } from "../../util/logger.js";
@@ -157,8 +156,7 @@ export function createA2AInvite(params: {
 
   // 4. Create the invite
   const expiresInMs = (params.expiresInHours ?? 72) * 60 * 60 * 1000;
-  const { invite, rawToken } = createInvite({
-    sourceChannel: "a2a",
+  const { invite, rawToken } = createA2aInvite({
     contactId: contact.id,
     maxUses: 1,
     expiresInMs,
@@ -197,9 +195,8 @@ export function completeA2AInvite(params: {
     };
   }
 
-  const tokenHash = hashToken(params.token);
-  const claimResult = claimA2AInvite({
-    tokenHash,
+  const claimResult = claimA2aInvite({
+    token: params.token,
     redeemedByExternalUserId: params.acceptor.assistantId,
   });
 

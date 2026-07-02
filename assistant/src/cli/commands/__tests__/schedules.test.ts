@@ -107,6 +107,7 @@ describe("schedules command", () => {
       "cancel",
       "delete",
       "execute",
+      "worker",
     ]);
   });
 });

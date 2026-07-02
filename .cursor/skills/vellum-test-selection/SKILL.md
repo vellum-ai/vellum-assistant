@@ -68,7 +68,7 @@ Add typecheck when edits touch:
 
 Add migration tests when edits touch:
 
-- `assistant/src/memory/migrations/`
+- `assistant/src/persistence/migrations/`
 - `assistant/src/workspace/migrations/`
 - persisted workspace files
 - database schema modules

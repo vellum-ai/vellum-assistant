@@ -33,7 +33,6 @@ const MEMBER_CONTACT = {
       address: MEMBER_USER_ID,
       isPrimary: false,
       externalChatId: SLACK_CHANNEL_ID,
-      inviteId: null,
       lastSeenAt: null,
       interactionCount: 0,
       lastInteraction: null,

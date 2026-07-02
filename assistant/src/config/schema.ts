@@ -50,6 +50,7 @@ import {
   PlatformConfigSchema,
   UiConfigSchema,
 } from "./schemas/platform.js";
+import { SchedulesConfigSchema } from "./schemas/schedules.js";
 import { SecretDetectionConfigSchema } from "./schemas/security.js";
 import { ServicesSchema } from "./schemas/services.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
@@ -68,6 +69,7 @@ export const AssistantConfigSchema = z
     monitoring: MonitoringConfigSchema.default(
       MonitoringConfigSchema.parse({}),
     ),
+    schedules: SchedulesConfigSchema.default(SchedulesConfigSchema.parse({})),
     migrations: MigrationsConfigSchema.default(
       MigrationsConfigSchema.parse({}),
     ),

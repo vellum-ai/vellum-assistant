@@ -221,7 +221,7 @@ This document enumerates every observed communication permutation between the th
 
 - **Protocol:** `http`
 - **Auth:** JWT Bearer (service token)
-- **Description:** Gateway proxies contacts and invites CRUD (/v1/contacts, /v1/contact-channels, /v1/contacts/invites) to the assistant's ingress contacts control-plane.
+- **Description:** Gateway proxies contacts CRUD (/v1/contacts, /v1/contact-channels) to the assistant's ingress contacts control-plane. Invite endpoints (/v1/contacts/invites*) are gateway-native against the gateway DB's ingress_invites table; only the outbound invite-call relay reaches the assistant.
 
 **Caller files:**
 - `gateway/src/http/routes/contacts-control-plane-proxy.ts`

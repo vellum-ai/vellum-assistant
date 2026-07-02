@@ -12,7 +12,6 @@ import {
   wrapUntrustedContent,
 } from "../../../../../security/untrusted-content.js";
 import { getLogger } from "../../../../../util/logger.js";
-import { isMemoryIndexingSuppressed } from "../../job-handlers/index-message-lexical.js";
 import type { RecallSearchContext, RecallSearchResult } from "../types.js";
 
 const log = getLogger("recall-conversations-source");
@@ -116,15 +115,13 @@ export async function searchConversationSource(
   }
 
   // The Qdrant lexical index — the only source of conversation evidence — is
-  // forward-filled by the memory write path, which is gated on
-  // `isMemoryIndexingSuppressed()`: while suppressed (memory disabled or the
-  // memory plugin disabled) the collection is never populated. And until the
-  // one-time upgrade backfill has fully drained, it holds only messages
-  // written since the write path went live. In both cases a qdrant read would
-  // silently miss content (an empty candidate set, not a throw), so the
-  // source yields no evidence instead of serving misleading partial results.
-  // The completion checkpoint is shared with the persistence read site.
-  if (isMemoryIndexingSuppressed() || !isLexicalBackfillComplete()) {
+  // populated unconditionally (host-owned message-search indexing), but until
+  // the one-time upgrade backfill has fully drained it holds only messages
+  // written since the write path went live. A qdrant read then would silently
+  // miss older content (an empty candidate set, not a throw), so the source
+  // yields no evidence instead of serving misleading partial results. The
+  // completion checkpoint is shared with the persistence read site.
+  if (!isLexicalBackfillComplete()) {
     return { evidence: [] };
   }
 
@@ -212,7 +209,9 @@ async function gatherCandidateRowsFromQdrant(
   }
 
   const candidateIds = candidates.map((candidate) => candidate.messageId);
-  if (candidateIds.length === 0) return [];
+  if (candidateIds.length === 0) {
+    return [];
+  }
 
   return searchByIds(candidateIds, candidateLimit, excludedConversationId);
 }
@@ -283,7 +282,9 @@ function parseSlackRecallMetadata(rawMetadata: string | null): {
   displayName?: string;
   provenanceTrustClass?: string;
 } | null {
-  if (!rawMetadata) return null;
+  if (!rawMetadata) {
+    return null;
+  }
 
   let parsed: unknown;
   try {
@@ -297,9 +298,13 @@ function parseSlackRecallMetadata(rawMetadata: string | null): {
   }
 
   const metadata = parsed as Record<string, unknown>;
-  if (typeof metadata.slackMeta !== "string") return null;
+  if (typeof metadata.slackMeta !== "string") {
+    return null;
+  }
   const slackMeta = readSlackMetadata(metadata.slackMeta);
-  if (!slackMeta) return null;
+  if (!slackMeta) {
+    return null;
+  }
 
   return {
     ...(slackMeta.displayName ? { displayName: slackMeta.displayName } : {}),
@@ -339,6 +344,8 @@ function compareScoredConversationRows(
   b: { row: ConversationEvidenceRow; score: number },
 ): number {
   const scoreCompare = b.score - a.score;
-  if (scoreCompare !== 0) return scoreCompare;
+  if (scoreCompare !== 0) {
+    return scoreCompare;
+  }
   return b.row.created_at - a.row.created_at;
 }

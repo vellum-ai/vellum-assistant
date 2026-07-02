@@ -108,6 +108,7 @@ import {
   type SlackChronologicalContext,
 } from "./conversation-runtime-assembly.js";
 import { markSurfaceCompleted } from "./conversation-surfaces.js";
+import { getEffectiveEnabledPluginSet } from "./conversation-tool-setup.js";
 import { runDeferredTurnTail } from "./conversation-turn-finalize.js";
 import { recordUsage } from "./conversation-usage.js";
 import { resolveTurnTimezoneContext } from "./date-context.js";
@@ -912,6 +913,7 @@ export async function runAgentLoopImpl(
     const finalUserPromptCtx = await runHook(
       HOOKS.USER_PROMPT_SUBMIT,
       userPromptCtx,
+      getEffectiveEnabledPluginSet(ctx),
     );
     latencyTracker.mark("prompt_hook_end");
     const runMessages = finalUserPromptCtx.latestMessages;

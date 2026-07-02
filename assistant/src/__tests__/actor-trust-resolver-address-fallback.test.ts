@@ -99,7 +99,6 @@ function makeContact(
         address: PHONE,
         externalChatId: null,
         isPrimary: true,
-        inviteId: null,
         lastSeenAt: null,
         interactionCount: 0,
         lastInteraction: null,
