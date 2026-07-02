@@ -86,9 +86,9 @@ export interface ProfileEditorModalProps {
    *     delete-then-recreate cycle so omitted fields are reset to default.
    *   - `"merge"` (view mode): the parent skips the delete and sends a
    *     single deep-merge PATCH so unspecified fields (provider, model,
-   *     advanced params) survive. Required for managed-profile policy
-   *     edits — view mode sends only `{label, status}` and we must not
-   *     destroy the seed-owned fields.
+   *     advanced params) survive. View mode's only save is the managed
+   *     re-enable — `{status: "active"}` — and we must not destroy the
+   *     seed-owned fields.
    */
   onSave: (
     name: string,
@@ -169,17 +169,24 @@ function ProfileEditorModalInner({
   const [effectiveMode, setEffectiveMode] = useState<
     "create" | "edit" | "view"
   >(mode);
-  const isReadOnly = effectiveMode === "view";
+  // Managed profiles are read-only: no rename, no reshaping, no disabling —
+  // the only interactive control is the enable-only status toggle when the
+  // profile is disabled. The lock keys off the server-stamped `invariant`
+  // wire flag (the daemon stamps it exactly on the managed-source entries it
+  // freezes), so it must hold even if the parent opens the editor in edit
+  // mode. Customization goes through "Save As New", which switches
+  // `effectiveMode` to "create" and therefore drops the lock on the
+  // duplicate.
+  const isInvariant =
+    initialValues?.invariant === true && effectiveMode !== "create";
+  // The invariant lock forces read-only handling even in edit mode, so Save
+  // takes the partial-merge path and never the delete/recreate cycle the
+  // daemon rejects for managed profiles.
+  const isReadOnly = effectiveMode === "view" || isInvariant;
   const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
 
-  // Managed profiles open the editor in view mode (mode === "view") so they
-  // can't be reshaped (provider, model, advanced params) — those are
-  // daemon-seeded. But the user is still allowed to rename them (label)
-  // and disable them (status) without leaving view mode, since those two
-  // fields are user policy, not daemon contract. The Save button at the
-  // footer is gated by `hasViewModeChanges` below so unchanged view-mode
-  // sessions stay close-only.
-  const initialLabel = initialValues?.label ?? "";
+  // Baseline for `hasViewModeChanges`: the enable flip is the only edit
+  // read-only mode permits.
   const initialStatus: ProfileStatus = initialValues?.status ?? "active";
 
   const [label, setLabel] = useState(initialValues?.label ?? "");
@@ -244,26 +251,18 @@ function ProfileEditorModalInner({
       : 0.7,
   );
 
-  // Advanced params — top P. Top P is editable in view mode (managed
-  // profiles), so capture its initial enabled flag + value as the baseline
-  // `hasViewModeChanges` compares against.
-  const initialTopPEnabled = typeof initialValues?.topP === "number";
-  const initialTopP =
-    typeof initialValues?.topP === "number" ? initialValues.topP : 0.95;
-  const [topPEnabled, setTopPEnabled] = useState<boolean>(initialTopPEnabled);
-  const [topP, setTopP] = useState<number>(initialTopP);
+  // Advanced params — top P
+  const [topPEnabled, setTopPEnabled] = useState<boolean>(
+    typeof initialValues?.topP === "number",
+  );
+  const [topP, setTopP] = useState<number>(
+    typeof initialValues?.topP === "number" ? initialValues.topP : 0.95,
+  );
 
-  // True when in view mode and the user has touched one of the fields that
-  // view mode permits editing (label, status, Top P). Drives the view-mode
-  // Save button's enabled state and the partial-update save path. Top P is
-  // compared on both the enabled flag and the value so flipping the toggle or
-  // dragging the slider both arm Save.
-  const hasViewModeChanges =
-    isReadOnly &&
-    (label !== initialLabel ||
-      status !== initialStatus ||
-      topPEnabled !== initialTopPEnabled ||
-      (topPEnabled && topP !== initialTopP));
+  // True when read-only mode's one permitted edit — the enable flip
+  // (disabled → active) — has been made. Drives the view-mode Save button's
+  // enabled state and the re-enable save path.
+  const hasViewModeChanges = isReadOnly && status !== initialStatus;
 
   // Advanced params — thinking
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(
@@ -498,35 +497,17 @@ function ProfileEditorModalInner({
 
   async function handleSave() {
     if (isInvalid && !isReadOnly) return;
-    // View mode is reserved for managed profiles. The user can rename them
-    // (label) and disable them (status) without leaving view mode, but
-    // everything else (provider, model, advanced params, binding) belongs
-    // to the daemon seed and must NOT be in the request body — the daemon
-    // would reject the request as a managed-profile mutation otherwise.
-    //
-    // `mode: "merge"` tells the parent to skip its delete-then-recreate
-    // cycle and send a single deep-merge PATCH. Without this, the seed
-    // fields (provider, model, advanced params) would be destroyed by
-    // the recreate step that only writes back the partial `{label, status}`
-    // entry.
+    // Read-only (managed) profiles reach Save only via the enable flip — the
+    // daemon rejects every other mutation on them — so the body is exactly
+    // `{status: "active"}`. `mode: "merge"` tells the parent to skip its
+    // delete-then-recreate cycle and send a single deep-merge PATCH so the
+    // seed-owned fields (provider, model, advanced params) stay intact.
     if (isReadOnly) {
       if (!hasViewModeChanges) return;
       setSaving(true);
       setSaveError(null);
       try {
-        const entry: ProfileEntry = {
-          label: label.trim() || null,
-          status,
-        };
-        // Top P is the one advanced param managed profiles may override.
-        // Mirror the create/edit build-entry logic: enabled → number,
-        // cleared → null. Only when the selected provider/model surfaces the
-        // control. `mode: "merge"` means sending just this changed subset
-        // leaves the seed-owned fields intact.
-        if (visibility.topP) {
-          entry.topP = topPEnabled ? topP : null;
-        }
-        await onSave(keyTrimmed, entry, { mode: "merge" });
+        await onSave(keyTrimmed, { status: "active" }, { mode: "merge" });
       } catch {
         setSaveError("Failed to save profile. Please try again.");
       } finally {
@@ -654,6 +635,7 @@ function ProfileEditorModalInner({
         value={label}
         onChange={(e) => handleLabelChange(e.target.value)}
         placeholder="e.g. Fast & Cheap"
+        disabled={isReadOnly}
         fullWidth
       />
     </div>
@@ -702,21 +684,22 @@ function ProfileEditorModalInner({
     </div>
   );
 
-  const activeToggle = (
-    <Toggle
-      checked={status === "active"}
-      onChange={(v) => setStatus(v ? "active" : "disabled")}
-      label="Active"
-    />
-  );
+  // An active read-only (managed) profile shows no status toggle (it cannot
+  // be disabled); a disabled one keeps an enable-only toggle, mirroring the
+  // manage-profiles list item and the daemon's one-directional status rule.
+  const activeToggle =
+    !isReadOnly || status !== "active" ? (
+      <Toggle
+        checked={status === "active"}
+        onChange={(v) => setStatus(v ? "active" : "disabled")}
+        label="Active"
+      />
+    ) : null;
 
   const advancedParamsNode = (
     <ProfileAdvancedParams
       visibility={visibility}
       isReadOnly={isReadOnly}
-      // Top P is user policy on managed profiles too, so it stays editable in
-      // view mode while the other advanced params remain locked by isReadOnly.
-      topPReadOnly={false}
       model={model}
       selectedModel={selectedModel}
       defaultMaxOutputTokens={defaultMaxOutputTokens}
@@ -946,7 +929,11 @@ function ProfileEditorModalInner({
       </Modal.Body>
 
       <Modal.Footer>
-        {effectiveMode === "view" ? (
+        {/* `isReadOnly` (not `effectiveMode === "view"`) picks the footer so
+            an invariant profile opened in edit mode still gets the safe
+            footer: Close, Save As New, and a Save gated by
+            `hasViewModeChanges` that only ever takes the merge path. */}
+        {isReadOnly ? (
           <>
             <Button
               variant="outlined"
@@ -967,10 +954,9 @@ function ProfileEditorModalInner({
             >
               Save As New
             </Button>
-            {/* Save in view mode persists ONLY label and status changes
-                (managed profile policy fields). The button is gated by
-                `hasViewModeChanges` so an unchanged view session can't
-                round-trip a no-op write. */}
+            {/* Save in view mode persists ONLY the status re-enable. The
+                button is gated by `hasViewModeChanges` so an unchanged view
+                session can't round-trip a no-op write. */}
             <Button
               variant="primary"
               onClick={() => void handleSave()}

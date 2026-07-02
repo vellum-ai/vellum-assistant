@@ -105,10 +105,10 @@ export function ManageProfilesModal({
     const mode = options?.mode ?? "replace";
     const isNew = !(name in profiles);
 
-    // Merge mode (view-mode managed-profile policy edits): send a single
-    // deep-merge PATCH so the caller's partial `entry` (typically just
-    // `{label, status}`) layers on top of the existing record without
-    // wiping seed-owned fields.
+    // Merge mode (view-mode managed-profile re-enable): send a single
+    // deep-merge PATCH so the caller's partial `entry` — the
+    // `{status: "active"}` re-enable — layers on top of the existing record
+    // without wiping seed-owned fields.
     if (mode === "merge" && !isNew) {
       await configMutation.mutateAsync({
         path: { assistant_id: assistantId },
@@ -211,9 +211,15 @@ export function ManageProfilesModal({
       </Modal.Root>
       <ProfileEditorModal
         isOpen={editorOpen}
+        // Managed profiles AND invariant-flagged profiles open in view mode.
+        // The daemon stamps `invariant` only on managed-source entries, so
+        // the two checks normally coincide; keeping both is defensive. A
+        // user-owned profile sharing a managed name carries neither marker
+        // and opens fully editable — the daemon accepts every write to it.
         mode={
           editingProfile
-            ? editingProfile.source === "managed"
+            ? editingProfile.source === "managed" ||
+              editingProfile.invariant === true
               ? "view"
               : "edit"
             : "create"
