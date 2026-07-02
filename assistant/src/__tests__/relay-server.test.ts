@@ -79,25 +79,46 @@ mock.module("../ipc/gateway-client.js", () => ({
       };
     }
     if (method === "redeem_voice_invite") {
-      if (voiceInviteIpcError) throw new Error("gateway unreachable");
-      // Model the gateway redemption engine with the local service (identical
-      // semantics: identity-bound candidates, code hash, expiry, atomic claim).
-      const { redeemVoiceInviteCode } =
-        await import("../runtime/invite-redemption-service.js");
-      const result = await redeemVoiceInviteCode({
-        callerExternalUserId: params?.callerExternalUserId as string,
-        sourceChannel: "phone",
-        code: params?.code as string,
-      });
-      if (!result.ok) return { ok: false, reason: "invalid_or_expired" };
+      if (voiceInviteIpcError) {
+        throw new Error("gateway unreachable");
+      }
+      // Model the gateway redemption engine against the locally seeded rows
+      // (identical semantics: identity-bound candidates, code hash, expiry,
+      // then the atomic claim that consumes the use).
+      const { findActiveVoiceInvites, recordInviteUse } =
+        await import("../persistence/invite-store.js");
+      const { hashVoiceCode } = await import("../util/voice-code.js");
+      const caller = params?.callerExternalUserId as string;
+      const codeHash = hashVoiceCode(params?.code as string);
+      const now = Date.now();
+      const invite = findActiveVoiceInvites({
+        expectedExternalUserId: caller,
+      }).find(
+        (i) =>
+          i.voiceCodeHash === codeHash &&
+          i.expiresAt > now &&
+          i.useCount < i.maxUses,
+      );
+      if (!invite) {
+        return { ok: false, reason: "invalid_or_expired" };
+      }
+      // Atomic claim — counted and gateable so tests can drive the in-flight
+      // race window.
+      inviteClaimCalls += 1;
+      if (inviteClaimGate) {
+        await inviteClaimGate;
+      }
+      if (!recordInviteUse({ inviteId: invite.id, externalUserId: caller })) {
+        return { ok: false, reason: "invalid_or_expired" };
+      }
       return {
         ok: true,
         outcome: {
-          inviteId: result.type === "redeemed" ? result.inviteId : "inv-member",
-          contactId: result.memberId,
+          inviteId: invite.id,
+          contactId: invite.contactId,
           sourceChannel: "phone",
-          memberExternalUserId: params?.callerExternalUserId as string,
-          result: result.type,
+          memberExternalUserId: caller,
+          result: "redeemed",
         },
       };
     }
@@ -107,11 +128,6 @@ mock.module("../ipc/gateway-client.js", () => ({
     method: string,
     params?: Record<string, unknown>,
   ) => {
-    if (method === "record_invite_redemption") {
-      inviteClaimCalls += 1;
-      if (inviteClaimGate) await inviteClaimGate;
-      return { ok: true, updated: true, mirrored: true };
-    }
     // The gateway owns the ACL verdict; activation fails closed when the relay
     // does not land, so model a verified upsert for the redemption paths.
     if (method === "upsert_verified_channel") {

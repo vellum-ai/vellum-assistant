@@ -341,6 +341,61 @@ mock.module("../db/contact-store.js", () => ({
   },
 }));
 
+// ── Redemption engine mock ────────────────────────────────────────────────────
+// handleRedeemInvite drives the gateway-native engine directly; mock it so
+// these tests pin the handler's dispatch, response shapes, and error mappings
+// (engine behavior itself is covered by invite-redemption-engine*.test.ts).
+type EngineOutcome = {
+  inviteId: string;
+  contactId: string;
+  sourceChannel: string;
+  memberExternalUserId: string;
+  result: "redeemed" | "already_member";
+};
+type EngineResult =
+  | {
+      status: "redeemed" | "already_member";
+      outcome: EngineOutcome;
+      replyText: string;
+    }
+  | { status: "failed"; reason: string; replyText: string }
+  | { status: "no_match" };
+type RedeemVoiceEngineFn = (params: unknown) => Promise<
+  | { status: "redeemed" | "already_member"; outcome: EngineOutcome }
+  | { status: "failed"; reason: "invalid_or_expired" }
+>;
+let redeemVoiceInviteMock: ReturnType<typeof mock<RedeemVoiceEngineFn>> = mock(
+  async () => ({ status: "failed", reason: "invalid_or_expired" }),
+);
+type RedeemTokenEngineFn = (params: unknown) => Promise<EngineResult>;
+let redeemInviteByTokenMock: ReturnType<typeof mock<RedeemTokenEngineFn>> =
+  mock(async () => ({
+    status: "failed",
+    reason: "invalid_token",
+    replyText: "This invite is no longer valid.",
+  }));
+let notifyDaemonInviteRedeemedMock: ReturnType<
+  typeof mock<(outcome: EngineOutcome) => void>
+> = mock(() => {});
+
+mock.module("../verification/invite-redemption.js", () => ({
+  redeemVoiceInvite: (...args: Parameters<RedeemVoiceEngineFn>) =>
+    redeemVoiceInviteMock(...args),
+  redeemInviteByToken: (...args: Parameters<RedeemTokenEngineFn>) =>
+    redeemInviteByTokenMock(...args),
+  notifyDaemonInviteRedeemed: (outcome: EngineOutcome) =>
+    notifyDaemonInviteRedeemedMock(outcome),
+  // Faithful stand-in for the real helper (curated contact displayName wins,
+  // invite friendName falls back) — the trigger-call tests rely on it.
+  resolveInviteeName: (
+    store: { getContact: (id: string) => { displayName?: string } | undefined },
+    invite: { contactId: string; friendName?: string | null },
+  ) =>
+    store.getContact(invite.contactId)?.displayName?.trim() ||
+    invite.friendName?.trim() ||
+    null,
+}));
+
 const { createContactsControlPlaneProxyHandler } =
   await import("../http/routes/contacts-control-plane-proxy.js");
 
@@ -411,6 +466,16 @@ afterEach(() => {
   }));
   contactStoreGetInviteByIdMock = mock(() => DEFAULT_INVITE);
   contactStoreMarkInviteExpiredMock = mock(() => true);
+  redeemVoiceInviteMock = mock(async () => ({
+    status: "failed",
+    reason: "invalid_or_expired",
+  }));
+  redeemInviteByTokenMock = mock(async () => ({
+    status: "failed",
+    reason: "invalid_token",
+    replyText: "This invite is no longer valid.",
+  }));
+  notifyDaemonInviteRedeemedMock = mock(() => {});
 });
 
 describe("contacts control-plane proxy", () => {
@@ -2460,141 +2525,200 @@ describe("handleRevokeInvite (gateway-native)", () => {
   });
 });
 
-describe("handleRedeemInvite (gateway-native, thin relay)", () => {
-  // The assistant redemption service now owns the authoritative gateway claim
-  // (record_invite_redemption, by id, caller-scoped) for ALL paths — including
-  // this HTTP one, which relays into the same assistant redeem handlers. So the
-  // gateway HTTP handler is a thin relay: it must NOT claim, resolve, or record
-  // itself.
+describe("handleRedeemInvite (gateway-native)", () => {
+  // The handler drives the gateway redemption engine directly — no assistant
+  // relay, no gateway-side re-claim (the engine claims internally).
 
-  test("voice path relays to invites_redeem_voice and returns the result", async () => {
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_redeem_voice") {
-        return { type: "redeemed", memberId: "mem_1", inviteId: "inv_1" };
-      }
-      return {};
-    });
-
+  function redeem(body: unknown) {
     const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRedeemInvite(
+    return handler.handleRedeemInvite(
       new Request("http://localhost:7830/v1/contacts/invites/redeem", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          code: "123456",
-          callerExternalUserId: "+15551234567",
-        }),
+        body: JSON.stringify(body),
       }),
     );
+  }
+
+  const VOICE_OUTCOME: EngineOutcome = {
+    inviteId: "inv_1",
+    contactId: "ct_1",
+    sourceChannel: "phone",
+    memberExternalUserId: "+15551234567",
+    result: "redeemed",
+  };
+
+  test("voice path dispatches to the voice engine and returns { ok, type, memberId, inviteId }", async () => {
+    redeemVoiceInviteMock = mock(async () => ({
+      status: "redeemed" as const,
+      outcome: VOICE_OUTCOME,
+    }));
+
+    const res = await redeem({
+      code: "123456",
+      callerExternalUserId: "+15551234567",
+    });
 
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.ok).toBe(true);
-    expect(body.type).toBe("redeemed");
-    expect(body.memberId).toBe("mem_1");
-    expect(body.inviteId).toBe("inv_1");
-    // Voice path relayed; the handler does NOT re-gate or re-mirror.
-    expect(ipcCallAssistantMock.mock.calls[0][0]).toBe("invites_redeem_voice");
-    expect(contactStoreRecordRedemptionMock).not.toHaveBeenCalled();
+    expect(body).toEqual({
+      ok: true,
+      type: "redeemed",
+      memberId: "ct_1",
+      inviteId: "inv_1",
+    });
+    expect(redeemVoiceInviteMock.mock.calls[0][0]).toMatchObject({
+      code: "123456",
+      callerExternalUserId: "+15551234567",
+    });
+    // The daemon info-mirror event fired; no assistant redeem relay ran.
+    expect(notifyDaemonInviteRedeemedMock).toHaveBeenCalledWith(VOICE_OUTCOME);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  test("token path relays to invites_redeem_token and returns the invite", async () => {
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_redeem_token") {
-        return { invite: { id: "inv_1" }, type: "redeemed" };
-      }
-      return {};
+  test("voice already_member returns no inviteId and fires no daemon event (nothing consumed)", async () => {
+    redeemVoiceInviteMock = mock(async () => ({
+      status: "already_member" as const,
+      outcome: { ...VOICE_OUTCOME, result: "already_member" as const },
+    }));
+
+    const res = await redeem({
+      code: "123456",
+      callerExternalUserId: "+15551234567",
     });
 
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRedeemInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          token: "tok",
-          sourceChannel: "telegram",
-          externalUserId: "u_1",
-        }),
-      }),
-    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({
+      ok: true,
+      type: "already_member",
+      memberId: "ct_1",
+    });
+    expect(notifyDaemonInviteRedeemedMock).not.toHaveBeenCalled();
+  });
+
+  test("voice failure maps to 400 BAD_REQUEST with the generic reason", async () => {
+    // Default engine mock fails with invalid_or_expired.
+    const res = await redeem({
+      code: "000000",
+      callerExternalUserId: "+15551234567",
+    });
+
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toBe("invalid_or_expired");
+    expect(notifyDaemonInviteRedeemedMock).not.toHaveBeenCalled();
+  });
+
+  test("token path dispatches to the token engine and returns the sanitized invite + type", async () => {
+    redeemInviteByTokenMock = mock(async () => ({
+      status: "redeemed" as const,
+      outcome: { ...VOICE_OUTCOME, sourceChannel: "telegram" },
+      replyText: "Welcome! You've been granted access.",
+    }));
+    // The response invite is the post-claim gateway row, hashes stripped.
+    contactStoreGetInviteByIdMock = mock(() => ({
+      ...DEFAULT_INVITE,
+      status: "redeemed",
+      useCount: 1,
+      tokenHash: "tok_hash",
+      voiceCodeHash: "voice_hash",
+    }));
+
+    const res = await redeem({
+      token: "raw-token",
+      sourceChannel: "telegram",
+      externalUserId: "u_1",
+    });
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(body.invite.id).toBe("inv_1");
-    // Redemption type must be relayed so callers can tell a real redeem apart
-    // from a no-op already_member (mirrors the voice path's shape).
     expect(body.type).toBe("redeemed");
-    // Only the redeem IPC runs — no resolve pre-step, no gateway-side record.
-    const methods = ipcCallAssistantMock.mock.calls.map((c) => c[0]);
-    expect(methods).toEqual(["invites_redeem_token"]);
-    expect(methods).not.toContain("invites_resolve_token");
-    expect(contactStoreRecordRedemptionMock).not.toHaveBeenCalled();
-    expect(contactStoreGetInviteByIdMock).not.toHaveBeenCalled();
+    expect(body.invite.id).toBe("inv_1");
+    expect(body.invite.status).toBe("redeemed");
+    expect(body.invite.useCount).toBe(1);
+    // Redemption secrets never leave the DB.
+    expect(body.invite.inviteCodeHash).toBeUndefined();
+    expect(body.invite.tokenHash).toBeUndefined();
+    expect(body.invite.voiceCodeHash).toBeUndefined();
+    expect(redeemInviteByTokenMock.mock.calls[0][0]).toMatchObject({
+      rawToken: "raw-token",
+      sourceChannel: "telegram",
+      externalUserId: "u_1",
+    });
+    expect(contactStoreGetInviteByIdMock.mock.calls[0][0]).toBe("inv_1");
+    expect(notifyDaemonInviteRedeemedMock).toHaveBeenCalledTimes(1);
+    expect(ipcCallAssistantMock).not.toHaveBeenCalled();
   });
 
-  test("token path relays the already_member type unchanged", async () => {
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_redeem_token") {
-        return { invite: { id: "inv_1" }, type: "already_member" };
-      }
-      return {};
-    });
+  test("token already_member relays the type unchanged and fires no daemon event", async () => {
+    redeemInviteByTokenMock = mock(async () => ({
+      status: "already_member" as const,
+      outcome: {
+        ...VOICE_OUTCOME,
+        sourceChannel: "telegram",
+        result: "already_member" as const,
+      },
+      replyText: "You already have access.",
+    }));
 
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRedeemInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          token: "tok",
-          sourceChannel: "telegram",
-          externalUserId: "u_1",
-        }),
-      }),
-    );
+    const res = await redeem({
+      token: "raw-token",
+      sourceChannel: "telegram",
+      externalUserId: "u_1",
+    });
 
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.ok).toBe(true);
-    expect(body.invite.id).toBe("inv_1");
     expect(body.type).toBe("already_member");
+    expect(body.invite.id).toBe("inv_1");
+    expect(notifyDaemonInviteRedeemedMock).not.toHaveBeenCalled();
   });
 
-  test("returns 400 when token redeem is missing sourceChannel", async () => {
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRedeemInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token: "tok" }),
-      }),
-    );
+  test("token engine failure maps the reason to 400 BAD_REQUEST", async () => {
+    redeemInviteByTokenMock = mock(async () => ({
+      status: "failed" as const,
+      reason: "expired",
+      replyText: "This invite is no longer valid.",
+    }));
 
-    expect(res.status).toBe(400);
-  });
-
-  test("maps assistant redeem 400 (IpcHandlerError) to 400", async () => {
-    ipcCallAssistantMock = mock(async (method: string) => {
-      if (method === "invites_redeem_token") {
-        throw new IpcHandlerError("Invite not found", 400, "BAD_REQUEST");
-      }
-      return {};
+    const res = await redeem({
+      token: "raw-token",
+      sourceChannel: "telegram",
+      externalUserId: "u_1",
     });
 
-    const handler = createContactsControlPlaneProxyHandler(makeConfig());
-    const res = await handler.handleRedeemInvite(
-      new Request("http://localhost:7830/v1/contacts/invites/redeem", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token: "tok", sourceChannel: "telegram" }),
-      }),
-    );
+    expect(res.status).toBe(400);
+    const body = await res.json();
+    expect(body.error.code).toBe("BAD_REQUEST");
+    expect(body.error.message).toBe("expired");
+  });
+
+  test("returns 400 when token redeem is missing sourceChannel (engine never runs)", async () => {
+    const res = await redeem({ token: "tok" });
 
     expect(res.status).toBe(400);
-    expect((await res.json()).error.message).toMatch(/not found/);
+    expect(redeemInviteByTokenMock).not.toHaveBeenCalled();
+    expect(redeemVoiceInviteMock).not.toHaveBeenCalled();
+  });
+
+  test("returns 500 when the engine throws unexpectedly", async () => {
+    redeemInviteByTokenMock = mock(async () => {
+      throw new Error("gateway DB unavailable");
+    });
+
+    const res = await redeem({
+      token: "tok",
+      sourceChannel: "telegram",
+      externalUserId: "u_1",
+    });
+
+    expect(res.status).toBe(500);
+    expect((await res.json()).error.message).toBe("Failed to redeem invite");
   });
 });
 

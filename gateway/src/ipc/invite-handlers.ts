@@ -1,17 +1,14 @@
 /**
  * IPC route definitions for gateway-canonical invite lifecycle.
  *
- * The assistant resolves the exact invite (caller-scoped) from a token/code,
- * passes its own validation, then CLAIMS the gateway-canonical row — BY ID —
- * via `record_invite_redemption` BEFORE mutating its own DB. That call
- * atomically gates on status="active" and consumes the row, so it is the single
- * authoritative lifecycle gate (no separate check-then-act window). This keeps
- * the gateway invite row authoritative across every runtime redemption path
- * (token + 6-digit channel intercepts, voice relay, HTTP).
+ * The gateway owns the whole invite lifecycle: mint, list, revoke, and
+ * redemption (validation, membership gate, atomic claim, ACL upsert) all run
+ * against the gateway-canonical `ingress_invites` row inside the gateway
+ * process. The daemon relays its CLI/HTTP invite surfaces here.
  *
  * ───────────────────────────────────────────────────────────────────────────
- * Invite CRUD IPC contract (the daemon CLI relay calls these via
- * `ipcCallPersistent`; KEEP STABLE):
+ * Invite IPC contract (the daemon relays call these via `ipcCallPersistent`;
+ * KEEP STABLE):
  *
  *   invites_list
  *     params : { sourceChannel?: string; status?: string }
@@ -31,6 +28,15 @@
  *     params : { id: string }
  *     returns: { invite: Record<string, unknown> }            (sanitized)
  *
+ *   invites_redeem
+ *     params : voice — { code: string; callerExternalUserId: string;
+ *                        assistantId?: string }
+ *              token — { token: string; sourceChannel: string;
+ *                        externalUserId?: string; externalChatId?: string }
+ *     returns: voice — { ok: true; type; memberId; inviteId? }
+ *              token — { ok: true; invite; type }             (sanitized)
+ *              failures throw a 400 typed error with the engine reason
+ *
  *   get_active_voice_invite
  *     params : { callerExternalUserId: string }
  *     returns: { invite: ActiveVoiceInvite | null }           (display metadata
@@ -49,10 +55,11 @@
  * provider call to the assistant via triggerInviteCallNative; relaying it back
  * over IPC would loop gateway→assistant→gateway.)
  *
- * All three delegate to the SAME native functions the gateway HTTP invite
+ * All routes delegate to the SAME native functions the gateway HTTP invite
  * handlers use (gateway/src/http/routes/contacts-control-plane-proxy.ts), which
  * throw InviteNativeError / IpcHandlerError on failure. The IPC server
- * stringifies a thrown error into the wire `error` field.
+ * stringifies a thrown error into the wire `error` field and mirrors its
+ * statusCode/code so the daemon relay surfaces 4xx user-errors.
  * ───────────────────────────────────────────────────────────────────────────
  */
 
@@ -64,13 +71,16 @@ import { z } from "zod";
 
 import { ContactStore } from "../db/contact-store.js";
 import {
+  InviteNativeError,
   createInviteNative,
   listInvitesNative,
+  redeemInviteNative,
   revokeInviteNative,
 } from "../http/routes/contacts-control-plane-proxy.js";
 import {
   createInviteSchema,
   listInviteQueryShape,
+  parseRedeemInviteBody,
 } from "../http/routes/invite-validation.js";
 import {
   getActiveVoiceInviteForCaller,
@@ -88,11 +98,13 @@ function getStore(): ContactStore {
   return store;
 }
 
-const RecordInviteRedemptionParamsSchema = z.object({
-  inviteId: z.string().min(1),
-  redeemedByExternalUserId: z.string().nullish(),
-  redeemedByExternalChatId: z.string().nullish(),
-});
+// Voice-vs-token dispatch and field validation live in the shared
+// parseRedeemInviteBody (single source of validation truth with the HTTP
+// redeem handler); the wire schema only pins the params to an object.
+const RedeemInviteParamsSchema = z.preprocess(
+  (v) => v ?? {},
+  z.record(z.string(), z.unknown()),
+);
 
 // The no-filter list is the common case; the daemon relay calls
 // `ipcCallPersistent("invites_list")` with no params (req.params === undefined).
@@ -115,26 +127,17 @@ const InviteIdParamsSchema = z.object({
 
 export const inviteRoutes: IpcRoute[] = [
   {
-    // Authoritative redemption claim against the gateway-canonical row: bumps
-    // useCount and flips status once exhausted, gated on status="active" so a
-    // revoked/exhausted row can't be consumed under a race. `updated:false` on a
-    // present row (`mirrored:true`) signals a rejected claim; `mirrored:false`
-    // means the row is absent (legacy invite) — which is valid and must NOT
-    // error.
-    method: "record_invite_redemption",
-    schema: RecordInviteRedemptionParamsSchema,
-    handler: (params?: Record<string, unknown>) => {
-      const parsed = RecordInviteRedemptionParamsSchema.parse(params);
-      const result = getStore().recordInviteRedemption({
-        inviteId: parsed.inviteId,
-        redeemedByExternalUserId: parsed.redeemedByExternalUserId ?? null,
-        redeemedByExternalChatId: parsed.redeemedByExternalChatId ?? null,
-      });
-      return {
-        ok: true,
-        updated: result.updated,
-        mirrored: result.row !== null,
-      };
+    // Explicit redemption relay for the daemon's CLI/HTTP redeem routes:
+    // voice-code and token requests dispatch into the same gateway-native
+    // engine the HTTP redeem handler uses (redeemInviteNative).
+    method: "invites_redeem",
+    schema: RedeemInviteParamsSchema,
+    handler: async (params?: Record<string, unknown>) => {
+      const parsed = parseRedeemInviteBody(params ?? {});
+      if (!parsed.ok) {
+        throw new InviteNativeError(parsed.message, 400, "BAD_REQUEST");
+      }
+      return await redeemInviteNative(parsed.value);
     },
   },
   {

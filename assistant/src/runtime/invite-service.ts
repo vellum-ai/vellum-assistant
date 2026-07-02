@@ -12,11 +12,6 @@ import { startInviteCall } from "../calls/call-domain.js";
 import { isChannelId } from "../channels/types.js";
 import { getContact } from "../contacts/contact-store.js";
 import {
-  findByTokenHash,
-  hashToken,
-  type IngressInvite,
-} from "../persistence/invite-store.js";
-import {
   DECLINED_BY_USER_SENTINEL,
   DEFAULT_USER_REFERENCE,
   resolveGuardianName,
@@ -26,44 +21,6 @@ import {
   resolveAdapterHandle,
 } from "./channel-invite-transport.js";
 import { generateInviteInstruction } from "./invite-instruction-generator.js";
-import { redeemInvite as redeemInviteTyped } from "./invite-redemption-service.js";
-
-// ---------------------------------------------------------------------------
-// Response shapes — used by both HTTP routes and message handlers
-// ---------------------------------------------------------------------------
-
-/**
- * Redemption outcome type surfaced to callers. `already_member` consumes no
- * invite use, so the gateway must not mirror it into recordInviteRedemption.
- */
-export type RedemptionType = "redeemed" | "already_member";
-
-export interface InviteResponseData {
-  id: string;
-  sourceChannel: string;
-  token?: string;
-  share?: {
-    url: string;
-    displayText: string;
-  };
-  tokenHash: string;
-  maxUses: number;
-  useCount: number;
-  expiresAt: number | null;
-  status: string;
-  note?: string;
-  // Voice invite fields (present only for voice invites)
-  expectedExternalUserId?: string;
-  voiceCode?: string;
-  voiceCodeDigits?: number;
-  friendName?: string;
-  guardianName?: string;
-  // Non-voice invite fields (present only for non-voice invites)
-  inviteCode?: string;
-  guardianInstruction?: string;
-  channelHandle?: string;
-  createdAt: number;
-}
 
 // ---------------------------------------------------------------------------
 // Mappers
@@ -72,7 +29,7 @@ export interface InviteResponseData {
 function buildSharePayload(
   sourceChannel: string,
   rawToken?: string,
-): InviteResponseData["share"] | undefined {
+): { url: string; displayText: string } | undefined {
   if (!rawToken || !isChannelId(sourceChannel)) return undefined;
   const adapter = getInviteAdapterRegistry().get(sourceChannel);
   if (!adapter?.buildShareLink) return undefined;
@@ -87,46 +44,6 @@ function buildSharePayload(
     // not fail invite creation — callers can still use the raw token.
     return undefined;
   }
-}
-
-function inviteToResponse(
-  inv: IngressInvite,
-  opts?: {
-    rawToken?: string;
-    voiceCode?: string;
-    inviteCode?: string;
-    guardianInstruction?: string;
-    channelHandle?: string;
-  },
-): InviteResponseData {
-  const share = buildSharePayload(inv.sourceChannel, opts?.rawToken);
-  return {
-    id: inv.id,
-    sourceChannel: inv.sourceChannel,
-    ...(opts?.rawToken ? { token: opts.rawToken } : {}),
-    ...(share ? { share } : {}),
-    tokenHash: inv.tokenHash,
-    maxUses: inv.maxUses,
-    useCount: inv.useCount,
-    expiresAt: inv.expiresAt,
-    status: inv.status,
-    note: inv.note ?? undefined,
-    ...(inv.expectedExternalUserId
-      ? { expectedExternalUserId: inv.expectedExternalUserId }
-      : {}),
-    ...(opts?.voiceCode ? { voiceCode: opts.voiceCode } : {}),
-    ...(inv.voiceCodeDigits != null
-      ? { voiceCodeDigits: inv.voiceCodeDigits }
-      : {}),
-    ...(inv.friendName ? { friendName: inv.friendName } : {}),
-    ...(inv.guardianName ? { guardianName: inv.guardianName } : {}),
-    ...(opts?.inviteCode ? { inviteCode: opts.inviteCode } : {}),
-    ...(opts?.guardianInstruction
-      ? { guardianInstruction: opts.guardianInstruction }
-      : {}),
-    ...(opts?.channelHandle ? { channelHandle: opts.channelHandle } : {}),
-    createdAt: inv.createdAt,
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -260,41 +177,4 @@ export async function triggerInviteCall(params: {
     return { ok: false, error: result.error };
   }
   return { ok: true, data: { callSid: result.callSid } };
-}
-
-export async function redeemIngressInvite(params: {
-  token?: string;
-  externalUserId?: string;
-  externalChatId?: string;
-  sourceChannel?: string;
-}): Promise<
-  IngressResult<{ invite: InviteResponseData; type: RedemptionType }>
-> {
-  if (!params.token) {
-    return { ok: false, error: "token is required for redeem" };
-  }
-  if (!params.sourceChannel) {
-    return { ok: false, error: "sourceChannel is required for redeem" };
-  }
-  const outcome = await redeemInviteTyped({
-    rawToken: params.token,
-    sourceChannel: params.sourceChannel,
-    externalUserId: params.externalUserId,
-    externalChatId: params.externalChatId,
-  });
-  if (!outcome.ok) {
-    return { ok: false, error: outcome.reason };
-  }
-  // Look up the invite by token hash for both outcomes (`redeemed` and
-  // `already_member`). Using findByTokenHash avoids the pagination limit of
-  // listInvites. The `type` is surfaced so the gateway can skip mirroring an
-  // `already_member` redemption (which consumes no use).
-  const inv = findByTokenHash(hashToken(params.token));
-  if (!inv) {
-    return { ok: false, error: "Invite not found after redemption" };
-  }
-  return {
-    ok: true,
-    data: { invite: inviteToResponse(inv), type: outcome.type },
-  };
 }

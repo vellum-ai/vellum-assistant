@@ -27,10 +27,8 @@ import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { redeemVoiceInviteCode } from "../invite-redemption-service.js";
 import {
   composeInvitePresentation,
-  redeemIngressInvite,
   resolveInviteGuardianName,
   triggerInviteCall,
 } from "../invite-service.js";
@@ -298,12 +296,10 @@ export async function handleGetContact(contactId: string) {
 // Invite handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
-// The gateway owns the canonical invite write path, including the mint: it
-// generates the secrets and writes the single gateway invite row. These CLI
-// handlers relay via `ipcCallPersistent`; the daemon then layers the
-// presentation fields (share link, LLM guardian instruction, channel handle)
-// onto the gateway's one-time create payload. (Redemption stays daemon-local
-// — see the redeem route.)
+// The gateway owns the canonical invite lifecycle: mint, list, revoke, and
+// redemption. These CLI handlers relay via `ipcCallPersistent`; the daemon
+// then layers the presentation fields (share link, LLM guardian instruction,
+// channel handle) onto the gateway's one-time create payload.
 
 export async function handleListInvites({
   queryParams = {},
@@ -375,9 +371,10 @@ export async function handleRevokeInvite({
 /**
  * Redeem a voice invite code.
  *
- * Backs the HTTP `invites_redeem` route (voice path) and the IPC-only
- * `invites_redeem_voice` method. Wraps the identity-bound
- * `redeemVoiceInviteCode` path.
+ * Backs the HTTP `invites_redeem` route (voice path). Relays to the gateway's
+ * `invites_redeem` IPC — the gateway redemption engine owns validation, the
+ * atomic claim, and the ACL write. Fail-closed: a gateway relay failure
+ * surfaces as an error; there is no local redemption fallback.
  */
 export async function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
   const callerExternalUserId = body.callerExternalUserId as string | undefined;
@@ -387,46 +384,46 @@ export async function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
     throw new BadRequestError("callerExternalUserId and code are required");
   }
 
-  const result = await redeemVoiceInviteCode({
-    assistantId: body.assistantId as string | undefined,
-    callerExternalUserId,
-    sourceChannel: "phone",
-    code,
-  });
-
-  if (!result.ok) {
-    throw new BadRequestError(result.reason);
+  try {
+    return (await ipcCallPersistent("invites_redeem", {
+      code,
+      callerExternalUserId,
+      ...(typeof body.assistantId === "string"
+        ? { assistantId: body.assistantId }
+        : {}),
+    })) as { ok: true; type: string; memberId: string; inviteId?: string };
+  } catch (err) {
+    rethrowGatewayError(err);
   }
-
-  return {
-    ok: true,
-    type: result.type,
-    memberId: result.memberId,
-    ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
-  };
 }
 
 /**
  * Redeem a token invite.
  *
- * Backs the HTTP `invites_redeem` route (token path) and the IPC-only
- * `invites_redeem_token` method. Wraps the generic `redeemIngressInvite`
- * token path.
+ * Backs the HTTP `invites_redeem` route (token path). Relays to the gateway's
+ * `invites_redeem` IPC — the gateway redemption engine owns validation, the
+ * atomic claim, and the ACL write. Fail-closed: a gateway relay failure
+ * surfaces as an error; there is no local redemption fallback.
  */
 export async function handleRedeemTokenInvite({ body = {} }: RouteHandlerArgs) {
-  const result = await redeemIngressInvite({
-    token: body.token as string | undefined,
-    externalUserId: body.externalUserId as string | undefined,
-    externalChatId: body.externalChatId as string | undefined,
-    sourceChannel: body.sourceChannel as string | undefined,
-  });
-
-  if (!result.ok) {
-    throw new BadRequestError(result.error);
+  try {
+    // The `type` is surfaced so callers can tell a real redeem apart from an
+    // `already_member` no-op (which consumes no invite use).
+    return (await ipcCallPersistent("invites_redeem", {
+      ...(typeof body.token === "string" ? { token: body.token } : {}),
+      ...(typeof body.sourceChannel === "string"
+        ? { sourceChannel: body.sourceChannel }
+        : {}),
+      ...(typeof body.externalUserId === "string"
+        ? { externalUserId: body.externalUserId }
+        : {}),
+      ...(typeof body.externalChatId === "string"
+        ? { externalChatId: body.externalChatId }
+        : {}),
+    })) as { ok: true; invite: Record<string, unknown>; type: string };
+  } catch (err) {
+    rethrowGatewayError(err);
   }
-  // Surface the redemption `type` so the gateway can skip mirroring an
-  // `already_member` redeem (which consumes no invite use).
-  return { ok: true, invite: result.data.invite, type: result.data.type };
 }
 
 export async function handleRedeemInvite(args: RouteHandlerArgs) {
@@ -593,9 +590,9 @@ export const ROUTES: RouteDefinition[] = [
     },
   },
   {
-    // Stays daemon-local by design: redemption is an inbound-channel path (not
-    // a CLI ACL surface), and the assistant redemption service already claims
-    // the gateway row by id via record_invite_redemption — relaying would loop.
+    // Relays to the gateway `invites_redeem` IPC: the gateway redemption
+    // engine is the single lifecycle authority (validation, atomic claim,
+    // ACL upsert). Fail-closed when the gateway is unreachable.
     operationId: "invites_redeem",
     endpoint: "contacts/invites/redeem",
     method: "POST",
