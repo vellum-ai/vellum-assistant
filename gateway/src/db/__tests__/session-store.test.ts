@@ -154,9 +154,9 @@ describe("createOutboundSession", () => {
   test("round-trips caller-supplied status and identity fields", () => {
     const session = createOutbound({
       status: "pending_bootstrap",
-      expectedPhoneE164: "+15551234567",
+      expectedPhoneE164: "+15555550123",
       identityBindingStatus: "pending_bootstrap",
-      destinationAddress: "+15551234567",
+      destinationAddress: "+15555550123",
       codeDigits: 8,
       maxAttempts: 5,
       verificationPurpose: "trusted_contact",
@@ -165,9 +165,9 @@ describe("createOutboundSession", () => {
 
     const row = getRow(session.id);
     expect(row?.status).toBe("pending_bootstrap");
-    expect(row?.expectedPhoneE164).toBe("+15551234567");
+    expect(row?.expectedPhoneE164).toBe("+15555550123");
     expect(row?.identityBindingStatus).toBe("pending_bootstrap");
-    expect(row?.destinationAddress).toBe("+15551234567");
+    expect(row?.destinationAddress).toBe("+15555550123");
     expect(row?.codeDigits).toBe(8);
     expect(row?.maxAttempts).toBe(5);
     expect(row?.verificationPurpose).toBe("trusted_contact");
@@ -350,7 +350,7 @@ describe("findSessionByIdentity", () => {
       status: "awaiting_response",
       expectedExternalUserId: "user-1",
       expectedChatId: "chat-1",
-      expectedPhoneE164: "+15550001111",
+      expectedPhoneE164: "+15555550111",
     });
 
     expect(findSessionByIdentity("telegram", "user-1")?.id).toBe("s1");
@@ -358,7 +358,7 @@ describe("findSessionByIdentity", () => {
       "s1",
     );
     expect(
-      findSessionByIdentity("telegram", undefined, undefined, "+15550001111")
+      findSessionByIdentity("telegram", undefined, undefined, "+15555550111")
         ?.id,
     ).toBe("s1");
     expect(findSessionByIdentity("telegram", "user-other")).toBeNull();
@@ -494,7 +494,7 @@ describe("bindSessionIdentity", () => {
 describe("countRecentSendsToDestination", () => {
   test("counts rows sent to the destination within the window", () => {
     const now = Date.now();
-    const dest = "+15550001111";
+    const dest = "+15555550111";
 
     insertRaw({
       id: "recent-1",
@@ -513,7 +513,7 @@ describe("countRecentSendsToDestination", () => {
     });
     insertRaw({
       id: "other-dest",
-      destinationAddress: "+15559998888",
+      destinationAddress: "+15555550188",
       lastSentAt: now - 1000,
     });
     insertRaw({ id: "never-sent", destinationAddress: dest });
