@@ -424,6 +424,8 @@ export async function enforceIngressAcl(
           const slackVerifyResult = await initiateVerificationChallenge({
             sourceChannel,
             senderUserId: (canonicalSenderId ?? rawSenderId)!,
+            hasInterceptableVerificationSession:
+              verdict.hasInterceptableVerificationSession,
           });
 
           if (slackVerifyResult.initiated) {
@@ -506,6 +508,8 @@ export async function enforceIngressAcl(
           const emailVerifyResult = await initiateVerificationChallenge({
             sourceChannel,
             senderUserId: (canonicalSenderId ?? rawSenderId)!,
+            hasInterceptableVerificationSession:
+              verdict.hasInterceptableVerificationSession,
           });
 
           if (emailVerifyResult.initiated) {
@@ -731,6 +735,8 @@ export async function enforceIngressAcl(
             const slackVerifyResult = await initiateVerificationChallenge({
               sourceChannel,
               senderUserId: (canonicalSenderId ?? rawSenderId)!,
+              hasInterceptableVerificationSession:
+                verdict.hasInterceptableVerificationSession,
             });
 
             if (slackVerifyResult.initiated) {
@@ -956,48 +962,60 @@ interface VerificationChallengeResult {
 async function initiateVerificationChallenge(params: {
   sourceChannel: ChannelId;
   senderUserId: string;
+  /** Channel-scoped session-presence stamp from the trust verdict. */
+  hasInterceptableVerificationSession?: boolean;
 }): Promise<VerificationChallengeResult> {
-  const { sourceChannel, senderUserId } = params;
+  const { sourceChannel, senderUserId, hasInterceptableVerificationSession } =
+    params;
 
   // Skip if there is already a pending challenge or active session for
   // this sender to avoid flooding them with duplicate codes. We scope by
   // sender identity (expectedExternalUserId) so that a pending session for
   // user A does not suppress challenges for user B.
   //
-  // Inbound messages arrive through the gateway, so an unreachable gateway
-  // here is a narrow race, not a steady state: treat it as "no active
-  // session but do not create" (creating would fail anyway) and fall
-  // through to the normal deny.
-  let existingChallenge: VerificationSessionWire | null;
-  let existingSession: VerificationSessionWire | null;
-  try {
-    [existingChallenge, existingSession] = await Promise.all([
-      getPendingSession(sourceChannel),
-      findActiveSession(sourceChannel),
-    ]);
-  } catch (err) {
-    log.warn(
-      { err, sourceChannel, senderUserId },
-      "Verification challenge: session reads failed (gateway unreachable), skipping challenge",
-    );
-    return { initiated: false };
-  }
-  const senderHasPending =
-    (existingChallenge &&
-      existingChallenge.expectedExternalUserId === senderUserId) ||
-    (existingSession &&
-      existingSession.expectedExternalUserId === senderUserId);
-  if (senderHasPending) {
-    log.debug(
-      {
-        sourceChannel,
-        senderUserId,
-        hasChallenge: !!existingChallenge,
-        hasSession: !!existingSession,
-      },
-      "Verification challenge: skipping — existing challenge/session for this sender",
-    );
-    return { initiated: false };
+  // The verdict stamp is only trusted as a fast-path NEGATIVE: `false` means
+  // the gateway saw no interceptable session for this CHANNEL at verdict
+  // time, so the sender-scoped checks below cannot match — skip both IPC
+  // reads and mint (the conditional mint's atomic claim stays the second
+  // line of defense against races). A `true` or absent stamp (voice-relay /
+  // legacy verdicts) is channel-scoped, not sender-scoped, so it falls back
+  // to the reads to preserve the exact dedup semantics.
+  if (hasInterceptableVerificationSession !== false) {
+    // Inbound messages arrive through the gateway, so an unreachable gateway
+    // here is a narrow race, not a steady state: treat it as "no active
+    // session but do not create" (creating would fail anyway) and fall
+    // through to the normal deny.
+    let existingChallenge: VerificationSessionWire | null;
+    let existingSession: VerificationSessionWire | null;
+    try {
+      [existingChallenge, existingSession] = await Promise.all([
+        getPendingSession(sourceChannel),
+        findActiveSession(sourceChannel),
+      ]);
+    } catch (err) {
+      log.warn(
+        { err, sourceChannel, senderUserId },
+        "Verification challenge: session reads failed (gateway unreachable), skipping challenge",
+      );
+      return { initiated: false };
+    }
+    const senderHasPending =
+      (existingChallenge &&
+        existingChallenge.expectedExternalUserId === senderUserId) ||
+      (existingSession &&
+        existingSession.expectedExternalUserId === senderUserId);
+    if (senderHasPending) {
+      log.debug(
+        {
+          sourceChannel,
+          senderUserId,
+          hasChallenge: !!existingChallenge,
+          hasSession: !!existingSession,
+        },
+        "Verification challenge: skipping — existing challenge/session for this sender",
+      );
+      return { initiated: false };
+    }
   }
 
   try {

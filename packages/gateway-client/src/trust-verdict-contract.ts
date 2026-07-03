@@ -83,6 +83,14 @@ export const TrustVerdictSchema = z.object({
   // Present only when a member channel resolves; absent for unknown senders.
   interactionCount: z.number().optional(),
   lastInteraction: z.number().nullable().optional(),
+
+  // CHANNEL-scoped session-presence stamp: true ⇒ an interceptable
+  // (pending | pending_bootstrap | awaiting_response), non-expired
+  // verification session existed for this channel at resolution time.
+  // Not sender-scoped, so consumers may treat only `false` as authoritative
+  // (safe to skip session reads before minting a challenge); on true/absent
+  // they fall back to session reads for sender-scoped dedup.
+  hasInterceptableVerificationSession: z.boolean().optional(),
 });
 
 export type TrustVerdict = z.infer<typeof TrustVerdictSchema>;
