@@ -12,6 +12,7 @@ import {
   resetGuardianBootstrap,
   seedGuardianTokenFromSiblingEnv,
 } from "../lib/guardian-token.js";
+import { waitForDaemonMigrationsReady } from "../lib/http-client.js";
 import { resolveProcessState, stopProcessByPidFile } from "../lib/process";
 import {
   generateLocalSigningKey,
@@ -194,6 +195,7 @@ export async function wake(): Promise<void> {
   }
 
   // Start gateway
+  let gatewayStarted = false;
   {
     const vellumDir = join(resources.instanceDir, ".vellum");
     const gatewayPidFile = join(vellumDir, "gateway.pid");
@@ -220,6 +222,7 @@ export async function wake(): Promise<void> {
         signingKey,
         bootstrapSecret,
       });
+      gatewayStarted = true;
     } else if (gatewayAlive) {
       if (watch && isGatewayWatchModeAvailable()) {
         console.log(
@@ -227,6 +230,7 @@ export async function wake(): Promise<void> {
         );
         await stopProcessByPidFile(gatewayPidFile, "gateway");
         await startGateway(watch, resources, { signingKey, bootstrapSecret });
+        gatewayStarted = true;
       } else {
         if (watch) {
           console.log(
@@ -238,7 +242,29 @@ export async function wake(): Promise<void> {
       }
     } else {
       await startGateway(watch, resources, { signingKey, bootstrapSecret });
+      gatewayStarted = true;
     }
+  }
+
+  // A freshly-(re)started gateway refuses all non-probe traffic until the
+  // daemon reports migration readiness, so consumers that act right after
+  // wake (the web connect-repair retry, the guardian re-provision below)
+  // would hit its closed gate. When we attached to a migrating daemon AND
+  // the gateway was just started (or a guardian repair was requested), wait
+  // out the migration up to the same 60s budget the attach classification
+  // used — the bound must stay well under the 180s host-wrapper timeout.
+  // Fast path (gateway already serving, no repair) stays ~1s.
+  if (
+    daemonUnready &&
+    !daemonMigrationsFailed &&
+    (gatewayStarted || repairGuardian)
+  ) {
+    const readiness = await waitForDaemonMigrationsReady(
+      resources.daemonPort,
+      Date.now() + 60_000,
+    );
+    daemonUnready = readiness !== "ready";
+    daemonMigrationsFailed = readiness === "failed";
   }
 
   // Self-heal the guardian token when the current environment's config dir
@@ -284,6 +310,11 @@ export async function wake(): Promise<void> {
           console.warn(
             `   Guardian token re-provision failed after ${maxAttempts} attempts: ${err}`,
           );
+          // The user explicitly confirmed this destructive repair — a
+          // success exit here would make callers (the web recovery flow)
+          // treat a repair that never ran as done and drop their cached
+          // gateway token. Surface the failure through the exit code.
+          process.exitCode = 1;
         }
       }
     }

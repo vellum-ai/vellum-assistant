@@ -1293,6 +1293,11 @@ export async function startLocalDaemon(
             Date.now() + 60000,
           );
         }
+      } else if (readiness === "unreachable") {
+        // The health check just passed, so the readyz probes were the flaky
+        // part — re-probe once so the log reports the daemon's real state
+        // instead of "did not become ready".
+        readiness = await probeDaemonReadiness(resources.daemonPort);
       }
 
       logDaemonReadiness(readiness);

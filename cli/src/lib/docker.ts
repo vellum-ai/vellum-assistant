@@ -1492,19 +1492,24 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
 
     emitProgress(6, 6, "Waiting for services...");
     const waitDetached = watch ? false : detached;
-    const { ready, guardianAccessToken } = await waitForGatewayAndLease({
-      bootstrapSecret: ownSecret,
-      containerName: res.assistantContainer,
-      detached: waitDetached,
-      instanceName,
-      logFd,
-      runtimeUrl,
-      containersUpAt,
-      analyze: params.analyze ?? false,
-    });
+    const { ready, guardianAccessToken, notReadyReason } =
+      await waitForGatewayAndLease({
+        bootstrapSecret: ownSecret,
+        containerName: res.assistantContainer,
+        detached: waitDetached,
+        instanceName,
+        logFd,
+        runtimeUrl,
+        containersUpAt,
+        analyze: params.analyze ?? false,
+      });
 
     if (!ready && !(watch && repoRoot)) {
-      throw new Error("Timed out waiting for assistant to become ready");
+      throw new Error(
+        notReadyReason === "migrations_failed"
+          ? "Assistant database migrations failed — the container is running but DB-backed routes are unavailable; check its logs and restore a backup or retry the migration"
+          : "Timed out waiting for assistant to become ready",
+      );
     }
 
     if (ready) {
@@ -1606,7 +1611,13 @@ async function waitForGatewayAndLease(opts: {
   runtimeUrl: string;
   containersUpAt: number;
   analyze: boolean;
-}): Promise<{ ready: boolean; guardianAccessToken?: string }> {
+}): Promise<{
+  ready: boolean;
+  guardianAccessToken?: string;
+  /** Why readiness was not reached — distinguishes a terminal migration
+   * failure (returned in seconds) from an actual timeout. */
+  notReadyReason?: "migrations_failed" | "timeout";
+}> {
   const {
     bootstrapSecret,
     containerName,
@@ -1687,7 +1698,10 @@ async function waitForGatewayAndLease(opts: {
     log(`   The container is still running.`);
     log(`   Check logs with: docker logs -f ${containerName}`);
     log("");
-    return { ready: false };
+    return {
+      ready: false,
+      notReadyReason: migrationsFailed ? "migrations_failed" : "timeout",
+    };
   }
 
   const readyAt = Date.now();
