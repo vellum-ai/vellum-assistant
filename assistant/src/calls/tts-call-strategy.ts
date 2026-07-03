@@ -50,7 +50,7 @@ export type {
  *   `native-twilio` provider (synthesized-play providers have no spec).
  */
 export function getNativeTwilioVoiceSpec(
-  providerId: TtsProviderId,
+  providerId: string,
 ): NativeTwilioVoiceSpec {
   const definition = getProviderDefinition(providerId);
   if (definition.callMode !== "native-twilio") {

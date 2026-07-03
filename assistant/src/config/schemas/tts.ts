@@ -7,17 +7,6 @@ import {
 } from "./elevenlabs.js";
 
 /**
- * Valid TTS provider identifiers derived from the canonical provider ID list.
- *
- * Adding a new TTS provider starts in `tts/types.ts` (`TTS_PROVIDER_IDS`) —
- * the IDs flow here automatically. Sourced from that dependency-free leaf
- * rather than the provider catalog so the config schema never pulls in the
- * provider adapters (whose modules import the config loader — a cycle).
- */
-export const VALID_TTS_PROVIDERS: readonly [string, ...string[]] =
-  TTS_PROVIDER_IDS as unknown as [string, ...string[]];
-
-/**
  * Per-provider config schemas nested under `services.tts.providers.<id>`.
  *
  * Each provider's schema is the full provider-specific config (voice ID,
@@ -244,7 +233,7 @@ export type TtsProviders = z.infer<typeof TtsProvidersSchema>;
 // immediately rather than at runtime when a user selects the provider.
 // ---------------------------------------------------------------------------
 const schemaKeys = new Set(Object.keys(TtsProvidersSchema.shape));
-for (const id of VALID_TTS_PROVIDERS) {
+for (const id of TTS_PROVIDER_IDS) {
   if (!schemaKeys.has(id)) {
     throw new Error(
       `TTS provider "${id}" exists in the catalog but has no schema entry ` +
@@ -252,7 +241,7 @@ for (const id of VALID_TTS_PROVIDERS) {
     );
   }
 }
-const catalogKeys = new Set<string>(VALID_TTS_PROVIDERS);
+const catalogKeys = new Set<string>(TTS_PROVIDER_IDS);
 for (const id of schemaKeys) {
   if (!catalogKeys.has(id)) {
     throw new Error(
@@ -281,8 +270,8 @@ export const TtsServiceSchema = z
         'TTS service mode — only "your-own" is supported (managed TTS is not available)',
       ),
     provider: z
-      .enum(VALID_TTS_PROVIDERS, {
-        error: `services.tts.provider must be one of: ${VALID_TTS_PROVIDERS.join(", ")}`,
+      .enum(TTS_PROVIDER_IDS, {
+        error: `services.tts.provider must be one of: ${TTS_PROVIDER_IDS.join(", ")}`,
       })
       .default("elevenlabs")
       .describe("Active TTS provider used for speech synthesis"),

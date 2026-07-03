@@ -3111,7 +3111,8 @@ describe("call-controller", () => {
 
     test("returns fallback when the configured provider is not in the catalog", async () => {
       const cfg = loadConfig();
-      cfg.services.tts.provider = "not-a-real-provider";
+      (cfg.services.tts as { provider: string }).provider =
+        "not-a-real-provider";
 
       const result = await resolveCallTtsProvider();
       expect(result.provider).toBeNull();

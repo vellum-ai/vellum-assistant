@@ -31,20 +31,13 @@ export const TTS_PROVIDER_IDS = [
 ] as const;
 
 /**
- * A built-in provider ID — the closed union used where exhaustiveness is
- * enforced (the provider catalog).
+ * Unique identifier for a TTS provider — the closed union derived from
+ * {@link TTS_PROVIDER_IDS}. Values correspond to the provider names used in
+ * config schemas (e.g. `"elevenlabs"`, `"fish-audio"`). Lookup functions that
+ * accept runtime-sourced IDs (config values, test stubs) take `string` and
+ * validate at runtime instead of widening this union.
  */
-export type CatalogTtsProviderId = (typeof TTS_PROVIDER_IDS)[number];
-
-/**
- * Unique identifier for a TTS provider.
- *
- * Values correspond to the provider names already used in config schemas
- * (e.g. `"elevenlabs"`, `"fish-audio"`). The union stays open (`string & {}`)
- * so tests and future dynamic sources can carry arbitrary IDs while built-in
- * IDs keep autocomplete.
- */
-export type TtsProviderId = CatalogTtsProviderId | (string & {});
+export type TtsProviderId = (typeof TTS_PROVIDER_IDS)[number];
 
 // ---------------------------------------------------------------------------
 // Call-mode discriminator
@@ -186,8 +179,12 @@ export interface TtsProviderCapabilities {
  * `synthesizeStream`.
  */
 export interface TtsProvider {
-  /** Unique provider identifier used for registry lookup. */
-  readonly id: TtsProviderId;
+  /**
+   * Unique provider identifier used for adapter lookup. Plain `string`
+   * rather than {@link TtsProviderId} so tests can install stub adapters
+   * under arbitrary IDs; catalog adapters carry their catalog ID.
+   */
+  readonly id: string;
 
   /** Static capability advertisement. */
   readonly capabilities: TtsProviderCapabilities;

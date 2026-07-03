@@ -9,7 +9,7 @@
  * query via {@link getCatalogProvider}, {@link listCatalogProviders}, or
  * {@link listCatalogProviderIds}.
  *
- * The `satisfies Record<CatalogTtsProviderId, TtsProviderDefinition>` check
+ * The `satisfies Record<TtsProviderId, TtsProviderDefinition>` check
  * makes the catalog exhaustive at compile time: adding an ID to
  * `TTS_PROVIDER_IDS` (`types.ts`) without a definition here — or a definition
  * without wiring — is a type error, not a boot-time failure. Likewise the
@@ -28,11 +28,7 @@ import { deepgramTtsProviderDefinition } from "./providers/deepgram-provider.js"
 import { elevenLabsTtsProviderDefinition } from "./providers/elevenlabs-provider.js";
 import { fishAudioTtsProviderDefinition } from "./providers/fish-audio-provider.js";
 import { xaiTtsProviderDefinition } from "./providers/xai-provider.js";
-import type {
-  CatalogTtsProviderId,
-  TtsProvider,
-  TtsProviderId,
-} from "./types.js";
+import type { TtsProvider, TtsProviderId } from "./types.js";
 
 export type {
   TtsMediaStreamOutputFormat,
@@ -54,7 +50,7 @@ const DEFINITIONS = {
   "fish-audio": fishAudioTtsProviderDefinition,
   deepgram: deepgramTtsProviderDefinition,
   xai: xaiTtsProviderDefinition,
-} as const satisfies Record<CatalogTtsProviderId, TtsProviderDefinition>;
+} as const satisfies Record<TtsProviderId, TtsProviderDefinition>;
 
 /**
  * Definitions in display order (e.g. settings dropdowns).
@@ -103,7 +99,7 @@ export function listCatalogProvidersForDisplay() {
  *
  * @throws if the ID is not in the catalog.
  */
-export function getCatalogProvider(id: TtsProviderId): TtsProviderCatalogEntry {
+export function getCatalogProvider(id: string): TtsProviderCatalogEntry {
   return getProviderDefinition(id);
 }
 
@@ -112,9 +108,7 @@ export function getCatalogProvider(id: TtsProviderId): TtsProviderCatalogEntry {
  *
  * @throws if the ID is not in the catalog.
  */
-export function getProviderDefinition(
-  id: TtsProviderId,
-): TtsProviderDefinition {
+export function getProviderDefinition(id: string): TtsProviderDefinition {
   const definition = (
     DEFINITIONS as Record<string, TtsProviderDefinition | undefined>
   )[id];
@@ -137,14 +131,14 @@ export function getProviderDefinition(
  * can substitute stub providers (no real HTTP) or inject providers with
  * non-catalog IDs.
  */
-const testOverrides = new Map<TtsProviderId, TtsProvider>();
+const testOverrides = new Map<string, TtsProvider>();
 
 /**
  * Resolve the runtime synthesis adapter for a provider ID.
  *
  * @throws if the ID is not in the catalog (and no test override exists).
  */
-export function getTtsProvider(id: TtsProviderId): TtsProvider {
+export function getTtsProvider(id: string): TtsProvider {
   const override = testOverrides.get(id);
   if (override) {
     return override;
