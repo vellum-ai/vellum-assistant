@@ -84,6 +84,17 @@ export async function waitForAssistant(): Promise<boolean> {
         log.info("Assistant is ready");
         return true;
       }
+      if (health.dbMigrations?.state === "failed") {
+        // Terminal until the assistant restarts — polling out the full
+        // deadline would keep every gateway route 503ing for minutes for no
+        // benefit. Return unready immediately: the caller opens traffic (so
+        // the CLI's migration-repair rollback/restore can reach the daemon)
+        // and the background poller takes over in case a restart recovers.
+        log.error(
+          "Assistant reports terminally failed DB migrations — opening gateway traffic without waiting",
+        );
+        return false;
+      }
       log.info(
         { state: health.dbMigrations?.state },
         "Assistant reachable but DB migrations not ready — waiting",
@@ -145,11 +156,11 @@ async function runDeferredTasks(): Promise<void> {
 /**
  * Poll the assistant until it reports migrations ready, then run the deferred
  * tasks. Unbounded by design: it backs the post-timeout background path, where
- * giving up permanently is exactly the failure mode being fixed — a slow but
- * successful migration, or a failed one repaired by a later assistant
- * restart, must still get its data migrations, guardian backfill, and
- * outbound voice verification sync. All errors (including transport) are
- * swallowed so the loop survives an assistant that is down entirely.
+ * a slow but successful migration, or a failed one repaired by a later
+ * assistant restart, must still get its data migrations, guardian backfill,
+ * and outbound voice verification sync — so the loop never gives up. All
+ * errors (including transport) are swallowed so it survives an assistant
+ * that is down entirely.
  *
  * Exported for tests; production reaches it only via
  * {@link runPostAssistantReady}'s timeout path.

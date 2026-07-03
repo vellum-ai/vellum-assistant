@@ -35,7 +35,7 @@ export function buildSchema(): Record<string, unknown> {
         get: {
           summary: "Readiness probe",
           description:
-            "Returns 200 when the gateway is ready to accept traffic. Returns 503 while startup work is incomplete, during graceful shutdown drain, or when the upstream assistant is unavailable.",
+            "Forwards the upstream assistant's readiness. Returns 200 with ready: true when the full stack can serve traffic; 200 with ready: false while assistant DB migrations run or gateway startup work is incomplete (the pod stays in service — orchestrators read the status code, programmatic callers read the body); 503 during graceful shutdown drain or when the upstream assistant is unavailable or its migrations failed.",
           operationId: "readyz",
           responses: {
             "200": {
@@ -4129,7 +4129,24 @@ export function buildSchema(): Record<string, unknown> {
           type: "object",
           required: ["status"],
           properties: {
-            status: { type: "string", enum: ["ok"] },
+            status: {
+              type: "string",
+              enum: ["ok", "migrating", "starting"],
+            },
+            ready: { type: "boolean" },
+            reason: { type: "string" },
+            dbMigrations: {
+              type: "object",
+              properties: {
+                ready: { type: "boolean" },
+                state: {
+                  type: "string",
+                  enum: ["not_started", "running", "failed", "ready"],
+                },
+                reason: { type: "string" },
+                error: { type: "string" },
+              },
+            },
           },
         },
         ReadyUnavailableResponse: {

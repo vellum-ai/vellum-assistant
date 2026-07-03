@@ -31,7 +31,11 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { setDbMigrating, setDbReady } from "../daemon/daemon-readiness.js";
+import {
+  setDbMigrating,
+  setDbMigrationFailed,
+  setDbReady,
+} from "../daemon/daemon-readiness.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import { APP_VERSION } from "../version.js";
 
@@ -101,6 +105,34 @@ describe("DB migration readiness HTTP gate", () => {
     expect((body.dbMigrations as Record<string, unknown>).state).toBe(
       "running",
     );
+  });
+
+  test("allows the migration-repair surface only in the failed state", async () => {
+    // While migrations RUN, rollback stays gated (it would race the runner).
+    setDbMigrating();
+    await startServer();
+
+    let response = await fetch(url("/admin/rollback-migrations"), {
+      method: "POST",
+    });
+    expect(response.status).toBe(503);
+    let body = (await response.json()) as Record<string, unknown>;
+    expect(body.reason).toBe("db_migrations_running");
+
+    // In the terminal FAILED state the repair surface passes the migration
+    // gate (the request proceeds to auth — anything but the gate's 503 body).
+    setDbMigrationFailed(new Error("boom"));
+    response = await fetch(url("/admin/rollback-migrations"), {
+      method: "POST",
+    });
+    body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    expect(body.reason).not.toBe("db_migrations_failed");
+
+    // Non-repair routes stay gated in the failed state.
+    response = await fetch(url("/conversations"));
+    expect(response.status).toBe(503);
+    body = (await response.json()) as Record<string, unknown>;
+    expect(body.reason).toBe("db_migrations_failed");
   });
 
   test("blocks config schema while migrations are running", async () => {

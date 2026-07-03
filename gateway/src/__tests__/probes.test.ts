@@ -34,7 +34,13 @@ async function handleRequest(req: Request): Promise<Response> {
     if (draining) {
       return Response.json({ status: "draining" }, { status: 503 });
     }
-    return Response.json({ status: "ok" });
+    // Mirrors gateway/src/index.ts: while post-assistant-ready work is
+    // incomplete the status code stays 200 (pod in service) but the body
+    // reports ready:false so body-aware CLI waits keep waiting.
+    if (!postAssistantReadyComplete) {
+      return Response.json({ status: "starting", ready: false });
+    }
+    return Response.json({ status: "ok", ready: true });
   }
 
   if (!postAssistantReadyComplete) {
@@ -104,15 +110,18 @@ describe("/readyz", () => {
     }
   });
 
-  test("returns 200 while post-assistant-ready startup work is incomplete", async () => {
+  test("returns 200 with ready:false while post-assistant-ready startup work is incomplete", async () => {
     postAssistantReadyComplete = false;
     try {
       const res = await handleRequest(
         new Request("http://gateway.test/readyz"),
       );
+      // 200 keeps the pod in service; the body tells body-aware CLI waits
+      // the stack cannot serve them yet.
       expect(res.status).toBe(200);
       const body = await res.json();
-      expect(body.status).toBe("ok");
+      expect(body.status).toBe("starting");
+      expect(body.ready).toBe(false);
     } finally {
       postAssistantReadyComplete = true;
     }

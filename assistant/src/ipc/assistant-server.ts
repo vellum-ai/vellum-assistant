@@ -36,6 +36,7 @@ import { ensureSocketDir, SocketWatchdog } from "@vellumai/ipc-server-utils";
 import {
   DB_MIGRATION_READINESS_EXEMPT_OPERATIONS,
   getDbMigrationReadiness,
+  isDbMigrationGateBypassed,
 } from "../daemon/daemon-readiness.js";
 import type { PrincipalType } from "../runtime/auth/types.js";
 import { findLocalGuardianPrincipalIdFromStore } from "../runtime/local-actor-identity.js";
@@ -249,7 +250,9 @@ export class AssistantIpcServer {
 
     this.methods.set("$cancel", (params) => {
       const targetId = (params as { targetId?: string }).targetId;
-      if (targetId) {this.abortControllers.get(targetId)?.abort();}
+      if (targetId) {
+        this.abortControllers.get(targetId)?.abort();
+      }
       return null;
     });
 
@@ -291,11 +294,15 @@ export class AssistantIpcServer {
   stop(): void {
     this.watchdog.stop();
 
-    for (const ctrl of this.abortControllers.values()) {ctrl.abort();}
+    for (const ctrl of this.abortControllers.values()) {
+      ctrl.abort();
+    }
     this.abortControllers.clear();
 
     for (const client of this.clients) {
-      if (!client.destroyed) {client.destroy();}
+      if (!client.destroyed) {
+        client.destroy();
+      }
     }
     this.clients.clear();
 
@@ -395,7 +402,7 @@ export class AssistantIpcServer {
       return;
     }
 
-    // Gate ORM-touching methods on DB migration readiness. Migrations now run
+    // Gate ORM-touching methods on DB migration readiness. Migrations run
     // asynchronously during startup, so the IPC server can be answering before
     // the schema exists; dispatching a handler that calls getDb()/getSqlite()
     // would hit a "no such table" error.
@@ -459,15 +466,19 @@ export class AssistantIpcServer {
    * called while DB migrations are not ready, or `null` when the call may
    * proceed. Exempt methods (health/healthz/ps/$cancel) always return `null` so
    * the gateway can poll `health` to observe when migrations finish (see
-   * gateway/src/post-assistant-ready.ts). Carrying `statusCode` maps this to an
-   * `IpcHandlerError` (not an `IpcTransportError`) on the gateway client, so the
-   * warm-pool claim path waits and retries instead of failing hard.
+   * gateway/src/post-assistant-ready.ts), and the migration-repair surface
+   * (rollback/import — see daemon-readiness.ts) is additionally allowed in the
+   * terminal failed state so recovery is possible. Carrying `statusCode` maps
+   * this to an `IpcHandlerError` (not an `IpcTransportError`) on the gateway
+   * client, so the warm-pool claim path waits and retries instead of failing
+   * hard.
    */
   private dbMigrationGateResponse(
     method: string,
     id: string,
   ): IpcResponse | null {
     if (DB_MIGRATION_READINESS_EXEMPT_IPC_METHODS.has(method)) return null;
+    if (isDbMigrationGateBypassed(method)) return null;
     const readiness = getDbMigrationReadiness();
     if (readiness.ready) return null;
     return {
@@ -666,7 +677,9 @@ export class AssistantIpcServer {
     response: IpcResponse,
     binary?: Uint8Array,
   ): void {
-    if (socket.destroyed) {return;}
+    if (socket.destroyed) {
+      return;
+    }
     if (reader.isLegacy) {
       writeLegacyMessage(socket, response);
     } else {
@@ -714,7 +727,9 @@ export function injectLocalActorHeader(
   if (!headers["x-vellum-actor-principal-id"]) {
     try {
       const localActor = findLocalGuardianPrincipalIdFromStore();
-      if (localActor) {headers["x-vellum-actor-principal-id"] = localActor;}
+      if (localActor) {
+        headers["x-vellum-actor-principal-id"] = localActor;
+      }
     } catch (err) {
       log.debug(
         { err },

@@ -23,8 +23,8 @@ import {
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import {
-  DB_MIGRATION_READINESS_EXEMPT_OPERATIONS,
   getDbMigrationReadiness,
+  isDbMigrationGateBypassed,
 } from "../daemon/daemon-readiness.js";
 import { processMessage } from "../daemon/process-message.js";
 import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
@@ -104,12 +104,8 @@ const DEFAULT_HOSTNAME = "127.0.0.1";
 /** Global hard cap on request body size (512 MB — accommodates large .vbundle backup imports). */
 const MAX_REQUEST_BODY_BYTES = 512 * 1024 * 1024;
 
-function shouldBypassDbMigrationReadiness(endpoint: string): boolean {
-  return DB_MIGRATION_READINESS_EXEMPT_OPERATIONS.has(endpoint);
-}
-
 function dbMigrationUnavailableForEndpoint(endpoint: string): Response | null {
-  if (shouldBypassDbMigrationReadiness(endpoint)) return null;
+  if (isDbMigrationGateBypassed(endpoint)) return null;
   return dbMigrationUnavailableResponse();
 }
 

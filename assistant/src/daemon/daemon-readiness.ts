@@ -39,6 +39,39 @@ let dbMigrationReadiness: DbMigrationReadiness = {
 export const DB_MIGRATION_READINESS_EXEMPT_OPERATIONS: ReadonlySet<string> =
   new Set(["health", "healthz", "ps"]);
 
+/**
+ * The migration-repair surface: operations additionally allowed while DB
+ * migrations are in the terminal FAILED state — and only then, never while
+ * they are still running. Rolling back migrations and importing a backup are
+ * exactly the remedies for a failed migration (the upgrade CLI's
+ * rollback/restore path), so gating them in that state would make recovery
+ * impossible. Contains both the HTTP endpoint form and the IPC operationId
+ * form of each route. Bypasses only the migration gate — route policies
+ * (gateway-principal scopes, guardian auth) still apply.
+ */
+export const DB_MIGRATION_FAILED_STATE_EXEMPT_OPERATIONS: ReadonlySet<string> =
+  new Set([
+    "admin/rollback-migrations",
+    "admin_rollbackmigrations_post",
+    "migrations/import",
+    "migrations_import_post",
+  ]);
+
+/**
+ * Whether an operation may proceed despite unready DB migrations: always for
+ * the probe/diagnostic exempt set, and additionally for the migration-repair
+ * surface when migrations have terminally failed.
+ */
+export function isDbMigrationGateBypassed(operation: string): boolean {
+  if (DB_MIGRATION_READINESS_EXEMPT_OPERATIONS.has(operation)) {
+    return true;
+  }
+  return (
+    dbMigrationReadiness.state === "failed" &&
+    DB_MIGRATION_FAILED_STATE_EXEMPT_OPERATIONS.has(operation)
+  );
+}
+
 export function setDbReady(v: boolean): void {
   dbMigrationReadiness = v
     ? { ready: true, state: "ready" }

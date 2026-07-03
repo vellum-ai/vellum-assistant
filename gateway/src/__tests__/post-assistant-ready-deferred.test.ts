@@ -48,8 +48,11 @@ mock.module("../verification/outbound-voice-verification-sync.js", () => ({
   startOutboundVoiceVerificationSync: () => outboundVoiceSyncMock(),
 }));
 
-const { resetPostAssistantReadyForTest, runDeferredTasksWhenAssistantReady } =
-  await import("../post-assistant-ready.js");
+const {
+  resetPostAssistantReadyForTest,
+  runDeferredTasksWhenAssistantReady,
+  waitForAssistant,
+} = await import("../post-assistant-ready.js");
 
 const MIGRATING_HEALTH = {
   status: "MIGRATING",
@@ -96,6 +99,25 @@ describe("runDeferredTasksWhenAssistantReady", () => {
     expect(runDataMigrationsMock).toHaveBeenCalledTimes(1);
     expect(guardianBindingMock).toHaveBeenCalledTimes(1);
     expect(outboundVoiceSyncMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("waitForAssistant returns unready immediately on terminally failed migrations", async () => {
+    // Failed is terminal until the assistant restarts — waiting out the full
+    // 5-minute deadline would keep every gateway route 503ing for nothing.
+    // Fast-returning false opens traffic (so the CLI's migration-repair
+    // rollback/restore can reach the daemon) and hands off to the background
+    // poller.
+    healthResponder = () => ({
+      status: "ERROR",
+      dbMigrations: { ready: false, state: "failed" },
+    });
+
+    const started = Date.now();
+    const ready = await waitForAssistant();
+
+    expect(ready).toBe(false);
+    // Nowhere near the 5-minute deadline (or even one 2s poll interval).
+    expect(Date.now() - started).toBeLessThan(1_500);
   });
 
   test("stops polling immediately once the tasks have run elsewhere", async () => {

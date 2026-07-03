@@ -80,4 +80,20 @@ describe("AssistantIpcServer DB migration readiness gate", () => {
       expect(gate(method)).toBeNull();
     }
   });
+
+  test("migration-repair surface is allowed only in the failed state", () => {
+    // Rollback/import are the remedies for failed migrations — gating them in
+    // that state would make recovery impossible (the upgrade CLI's
+    // rollback/restore path). While migrations are merely RUNNING they stay
+    // gated: a rollback would race the in-flight migration runner.
+    setDbMigrating();
+    expect(gate("admin_rollbackmigrations_post")?.statusCode).toBe(503);
+    expect(gate("migrations_import_post")?.statusCode).toBe(503);
+
+    setDbMigrationFailed(new Error("boom"));
+    expect(gate("admin_rollbackmigrations_post")).toBeNull();
+    expect(gate("migrations_import_post")).toBeNull();
+    // Everything else stays gated in the failed state.
+    expect(gate("db_proxy")?.statusCode).toBe(503);
+  });
 });
