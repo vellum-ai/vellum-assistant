@@ -4136,6 +4136,8 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        hasInterceptableVerificationSession:
+                          type: boolean
                       required:
                         - trustClass
                         - canonicalSenderId
