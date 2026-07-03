@@ -48,17 +48,13 @@ import {
   deepRepairHistory,
   repairHistory,
 } from "../plugins/defaults/history-repair/terminal.js";
-import { getAllDefaultPlugins } from "../plugins/defaults/index.js";
+import { defaultHistoryRepairPlugin } from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import type { Message } from "../providers/types.js";
-
-const defaultHistoryRepairPlugin = getAllDefaultPlugins().find(
-  (p) => p.manifest.name === "default-history-repair",
-)!;
 
 /** Provider rejection text matched by `isRepairableOrderingError`. */
 const ORDERING_ERROR_MESSAGE =

@@ -71,7 +71,6 @@ import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
-import { getEffectiveEnabledPluginSet } from "./conversation-tool-setup.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
 import type {
   DynamicPageSurfaceData,
@@ -1593,19 +1592,13 @@ export interface RuntimeInjectionResult {
  * preserves ascending-`order` sort so downstream callers (notably
  * {@link applyRuntimeInjections}) can group blocks by `placement` and apply
  * them declaratively without losing per-injector ordering within each slot.
- *
- * `effectiveEnabledPlugins` carries the conversation's per-chat plugin scope:
- * when non-null, injectors contributed by a plugin outside the set are excluded
- * for this turn (see {@link getRegisteredInjectors}). `null`/omitted means no
- * per-chat restriction.
  */
 async function collectInjectorBlocks(
   ctx: TurnContext,
   runMessages?: Message[],
-  effectiveEnabledPlugins?: Set<string> | null,
 ): Promise<InjectionBlock[]> {
   const out: InjectionBlock[] = [];
-  for (const injector of getRegisteredInjectors(effectiveEnabledPlugins)) {
+  for (const injector of getRegisteredInjectors()) {
     const block = await injector.produce(ctx, runMessages);
     if (block) out.push(block);
   }
@@ -1944,14 +1937,6 @@ export async function applyRuntimeInjections(
   // field below from it rather than from orchestrator-computed options.
   const liveConversation = findConversationOrSubagent(conversationId);
 
-  // Per-chat plugin scope for this turn: when the conversation restricts its
-  // plugins (`enabledPlugins` non-null), injectors contributed by a plugin
-  // outside the set are excluded below. `null` (no live conversation, or no
-  // restriction) leaves the injector chain unchanged.
-  const effectiveEnabledPlugins = liveConversation
-    ? getEffectiveEnabledPluginSet(liveConversation)
-    : null;
-
   const channelCapabilities = liveConversation?.channelCapabilities ?? null;
   const slackConversation = channelCapabilities?.channel === "slack";
 
@@ -2103,11 +2088,7 @@ export async function applyRuntimeInjections(
     ...injectionInputs,
   };
 
-  const chainBlocks = await collectInjectorBlocks(
-    turnCtx,
-    runMessages,
-    effectiveEnabledPlugins,
-  );
+  const chainBlocks = await collectInjectorBlocks(turnCtx, runMessages);
 
   // Split the chain output by placement so the downstream assembly can
   // process each slot with the correct ordering rule.

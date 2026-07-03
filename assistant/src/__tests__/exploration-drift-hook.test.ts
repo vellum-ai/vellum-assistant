@@ -32,17 +32,13 @@ import postToolUse, {
   explorationLoopNudgeText,
   resetExplorationDriftStateForTests,
 } from "../plugins/defaults/exploration-drift/hooks/post-tool-use.js";
-import { getAllDefaultPlugins } from "../plugins/defaults/index.js";
+import { defaultExplorationDriftPlugin } from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import type { Message, ToolResultContent } from "../providers/types.js";
-
-const defaultExplorationDriftPlugin = getAllDefaultPlugins().find(
-  (p) => p.manifest.name === "default-exploration-drift",
-)!;
 
 const noopLogger: PluginLogger = {
   info: () => {},

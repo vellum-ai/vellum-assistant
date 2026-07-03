@@ -82,7 +82,7 @@ import type {
   StopContext,
   UserPromptSubmitContext,
 } from "../plugin-api/types.js";
-import { getAllDefaultPlugins } from "../plugins/defaults/index.js";
+import { defaultTitleGeneratePlugin } from "../plugins/defaults/index.js";
 import stop from "../plugins/defaults/title-generate/hooks/stop.js";
 import userPromptSubmit from "../plugins/defaults/title-generate/hooks/user-prompt-submit.js";
 import { runHook } from "../plugins/pipeline.js";
@@ -91,10 +91,6 @@ import {
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import type { Message } from "../providers/types.js";
-
-const defaultTitleGeneratePlugin = getAllDefaultPlugins().find(
-  (p) => p.manifest.name === "default-title-generate",
-)!;
 
 const noopLogger: PluginLogger = {
   info: () => {},

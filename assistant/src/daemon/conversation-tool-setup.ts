@@ -148,7 +148,7 @@ export function resolveConversationAttribution(
  * silently disable core behavior. A workspace-disabled default is left out so
  * `assistant plugins disable default-*` still takes effect; a default the
  * conversation explicitly enabled (rule 1) stays in regardless. Unioning here
- * fixes every consumer (tools/skills/injectors/hooks) at the single chokepoint.
+ * fixes every consumer (tools/skills/hooks) at the single chokepoint.
  */
 export function getEffectiveEnabledPluginSet(conv: {
   enabledPlugins?: string[] | null;

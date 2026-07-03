@@ -16,7 +16,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PluginLogger, PostToolUseContext } from "../plugin-api/types.js";
-import { getAllDefaultPlugins } from "../plugins/defaults/index.js";
+import { defaultToolResultTruncatePlugin } from "../plugins/defaults/index.js";
 import postToolUse from "../plugins/defaults/tool-result-truncate/hooks/post-tool-use.js";
 import {
   truncateToolResult,
@@ -28,10 +28,6 @@ import {
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import type { ToolResultContent } from "../providers/types.js";
-
-const defaultToolResultTruncatePlugin = getAllDefaultPlugins().find(
-  (p) => p.manifest.name === "default-tool-result-truncate",
-)!;
 
 const noopLogger: PluginLogger = {
   info: () => {},
