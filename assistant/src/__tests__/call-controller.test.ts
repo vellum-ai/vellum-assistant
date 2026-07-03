@@ -848,6 +848,50 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("second END_CALL after a deferral completes immediately (no listen window)", async () => {
+    mockEndCallListenWindowMs = 30;
+    const turnContents: string[] = [];
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        content: string;
+        onTextDelta: (t: string) => void;
+        onComplete: () => void;
+      }) => {
+        turnContents.push(opts.content);
+        if (turnContents.length === 1) {
+          opts.onTextDelta("Goodbye! [END_CALL]");
+        } else if (turnContents.length === 2) {
+          // Re-engaged by caller, responds without END_CALL — but then
+          // the caller speaks again and we want out.
+          opts.onTextDelta("Okay, one quick thing.");
+        } else {
+          opts.onTextDelta("I have to go now. Goodbye! [END_CALL]");
+        }
+        opts.onComplete();
+        return { turnId: `run-${turnContents.length}`, abort: () => {} };
+      },
+    );
+    const { session, relay, controller } = setupController();
+
+    // First turn: assistant says goodbye with END_CALL (listen window starts)
+    await controller.handleCallerUtterance("That is all, thanks");
+    expect(relay.endCalled).toBe(false);
+
+    // Caller re-engages during listen window (deferral #1)
+    await controller.handleCallerUtterance("Wait, one more thing");
+    await new Promise((r) => setTimeout(r, 40));
+    expect(relay.endCalled).toBe(false);
+
+    // Caller speaks again — assistant emits END_CALL a second time.
+    // After one deferral, this must complete immediately — no listen window.
+    await controller.handleCallerUtterance("Just kidding, keep going");
+    await new Promise((r) => setTimeout(r, 5));
+
+    expect(relay.endCalled).toBe(true);
+    expect(getCallSession(session.id)!.status).toBe("completed");
+    controller.destroy();
+  });
+
   test("END_CALL listen window restores in_progress after clearing pending guardian input", async () => {
     mockEndCallListenWindowMs = 30;
     const turnContents: string[] = [];
