@@ -244,7 +244,7 @@ async function synthesizeAndPlay(
 }
 
 /** Look up a registered provider, returning null instead of throwing. */
-function lookupRegisteredProvider(id: TtsProviderId): TtsProvider | null {
+function lookupRegisteredProvider(id: string): TtsProvider | null {
   try {
     return getTtsProvider(id);
   } catch {

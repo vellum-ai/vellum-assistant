@@ -9,7 +9,7 @@
  *
  * Each provider module (`providers/<id>-provider.ts`) exports one
  * definition; `provider-catalog.ts` assembles them into the canonical
- * catalog, statically checked to cover every {@link CatalogTtsProviderId}.
+ * catalog, statically checked to cover every {@link TtsProviderId}.
  * There is no runtime registration step — a provider that exists in the
  * catalog is fully wired by construction.
  *
@@ -18,11 +18,7 @@
  * the catalog that aggregates them.
  */
 
-import type {
-  CatalogTtsProviderId,
-  TtsCallMode,
-  TtsProvider,
-} from "./types.js";
+import type { TtsCallMode, TtsProvider, TtsProviderId } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Catalog metadata
@@ -140,7 +136,7 @@ export interface NativeTwilioVoiceSpec {
  */
 export interface TtsProviderCatalogEntry {
   /** Unique provider identifier. */
-  readonly id: CatalogTtsProviderId;
+  readonly id: TtsProviderId;
 
   /** Human-readable name for display in settings UI and logs. */
   readonly displayName: string;

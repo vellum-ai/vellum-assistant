@@ -28,7 +28,6 @@ import {
 import type { TtsProviderCatalogEntry } from "../tts/provider-catalog.js";
 import { getCatalogProvider } from "../tts/provider-catalog.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
-import type { TtsProviderId } from "../tts/types.js";
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -48,12 +47,12 @@ export type TelephonyTtsCapability =
   | {
       /** The provider produces playable audio and credentials resolve. */
       status: "playable";
-      providerId: TtsProviderId;
+      providerId: string;
     }
   | {
       /** The provider cannot play over media-stream transports. */
       status: "not-playable";
-      providerId: TtsProviderId;
+      providerId: string;
       reason: TelephonyTtsNotPlayableReason;
     };
 
@@ -85,7 +84,7 @@ export async function resolveTelephonyTtsCapability(): Promise<TelephonyTtsCapab
  * the call TTS resolver's fallback scan (candidate providers).
  */
 export async function evaluateTelephonyTtsPlayability(
-  providerId: TtsProviderId,
+  providerId: string,
 ): Promise<TelephonyTtsCapability> {
   let entry: TtsProviderCatalogEntry;
   try {
@@ -176,7 +175,11 @@ async function secretResolves(credentialStoreKey: string): Promise<boolean> {
   if (parts.length === 1) {
     return Boolean(await getProviderKeyAsync(credentialStoreKey));
   }
-  if (parts.length === 3 && parts[0] === "credential" && parts[2] === "api_key") {
+  if (
+    parts.length === 3 &&
+    parts[0] === "credential" &&
+    parts[2] === "api_key"
+  ) {
     return Boolean(await getProviderKeyAsync(parts[1]));
   }
   return Boolean(await getSecureKeyAsync(credentialStoreKey));

@@ -187,7 +187,7 @@ export async function resolveCallTtsProvider(
  * no provider qualifies.
  */
 export async function findPlayableTelephonyTtsFallback(
-  excludeProviderId?: TtsProviderId,
+  excludeProviderId?: string,
 ): Promise<TtsProviderId | null> {
   const candidates = [
     ...new Set<TtsProviderId>(["elevenlabs", ...listCatalogProviderIds()]),
