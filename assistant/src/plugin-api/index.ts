@@ -56,8 +56,6 @@
  *   every model-call outcome (a finalized reply or a provider rejection) to
  *   transform content and decide whether to retry
  * - {@link HookFunction} — signature every lifecycle hook implements
- * - {@link BaseHookContext} — capabilities every chain-hook context shares
- *   (`logger`, `broadcast`), stamped per hook by the pipeline
  * - {@link HookBroadcast} — the `ctx.broadcast(detail)` signature: emit a
  *   transient `hook_event` to any UI watching the conversation
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts,
@@ -103,7 +101,6 @@ export type {
 export type { LLMCallSite } from "../config/schemas/llm.js";
 export type {
   AgentLoopExitReason,
-  BaseHookContext,
   HookBroadcast,
   HookFunction,
   InitContext,
