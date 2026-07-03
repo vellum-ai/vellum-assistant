@@ -42,11 +42,14 @@ afterEach(() => {
 const invocation: CliInvocation = { command: "bun", baseArgs: ["run", "cli"] };
 
 describe("isValidReleaseVersion", () => {
-  test("accepts trusted release identifiers", () => {
+  test("accepts release tags, staying lenient about semver shape", () => {
     for (const version of [
       "latest",
       "v1.2.3",
+      "V1.2.3", // uppercase prefix
       "1.2.3",
+      "1.2", // two-part
+      "1.2.3.4", // four-part
       "0.6.0-staging.5",
       "1.2.3-rc.1+build.7",
     ]) {
@@ -54,16 +57,17 @@ describe("isValidReleaseVersion", () => {
     }
   });
 
-  test("rejects package specs, traversal, and malformed semver", () => {
+  test("rejects package specs and path-traversal input", () => {
     for (const version of [
       "npm:@attacker/evil@1.0.0",
       "https://evil.example/x.tgz",
       "git+https://evil.example/x.git",
+      "github:attacker/vellum",
+      "file:/tmp/evil",
       "../../../../tmp/evil",
-      "1.2.3-..",
-      "1.2.3-a..b", // empty pre-release identifier
-      "1.2.3+build.", // trailing empty build identifier
-      "1.2.3-", // empty pre-release
+      "1.2.3-..", // no consecutive dots (would be a traversal segment)
+      "1.2.3-a..b",
+      "..",
       "",
       "vellum@1.2.3",
     ]) {

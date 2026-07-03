@@ -14,22 +14,26 @@ export interface UpgradeOptions {
   force?: boolean;
 }
 
-// A trusted release version is either the literal `latest` dist-tag or a semver
-// release tag (optionally `v`-prefixed). Pre-release and build metadata are
-// dot-separated, non-empty identifiers of `[0-9A-Za-z-]`, so empty identifiers
-// (e.g. `1.2.3-a..b`, `1.2.3+build.`) are rejected rather than treated as
-// trusted. Because no `/`, `\`, `:`, `@` or whitespace can pass, the value can
-// never become a package-manager spec (npm alias, tarball/git URL) or a
-// path-traversal segment when the CLI writes it into a generated `package.json`
-// and installs/executes the local runtime.
-const RELEASE_VERSION_PATTERN =
-  /^(?:latest|v?\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$/;
+// A trusted release version is the literal `latest` dist-tag, or a
+// version-shaped string: an optional `v`/`V` prefix, then a leading digit,
+// then any run of `[0-9A-Za-z.+-]`. This is intentionally lenient about the
+// *shape* of the version (2-, 3-, or 4-part, arbitrary pre-release/build
+// identifiers, uppercase `V`) so we never reject a legitimate release tag.
+//
+// Security does not depend on the shape — it depends on the CHARSET. The
+// allowed set excludes `/`, `\`, `:`, `@`, `#` and whitespace, so the value can
+// never be interpreted by `bun install` as a package-manager spec (npm alias,
+// tarball/git URL, `file:`/`github:` ref) — all of which require one of those
+// characters. The mandatory leading digit means the value can never be a bare
+// `.`/`..` path segment, and `..` is rejected outright, so the version is safe
+// to use as the runtime-install directory name.
+const RELEASE_VERSION_PATTERN = /^(?:latest|[vV]?\d[0-9A-Za-z.+-]*)$/;
 
 /**
  * Whether `version` is a trusted release identifier: the literal `latest`, or a
- * semver release tag like `v1.2.3` / `1.2.3` / `0.6.0-staging.5`. Rejects
- * package-manager specifiers (npm aliases, tarball or git URLs), empty semver
- * identifiers, and any path-traversal-like input.
+ * version-shaped tag like `v1.2.3` / `1.2.3` / `0.6.0-staging.5`. Rejects
+ * package-manager specifiers (npm aliases, tarball or git URLs) and any
+ * path-traversal-like input, while staying permissive about semver shape.
  *
  * Defined once here and reused by both the host-bridge boundary guard
  * (`runUpgrade`, in the shared library backing the Electron host and the web
@@ -38,7 +42,7 @@ const RELEASE_VERSION_PATTERN =
  * two call sites.
  */
 export function isValidReleaseVersion(version: string): boolean {
-  return RELEASE_VERSION_PATTERN.test(version);
+  return RELEASE_VERSION_PATTERN.test(version) && !version.includes("..");
 }
 
 function extractVersion(output: string): string | undefined {
