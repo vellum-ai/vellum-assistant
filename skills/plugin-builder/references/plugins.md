@@ -76,11 +76,11 @@ The hook-related exports (context types, `HOOKS` constant, `HookFunction` signat
 
 ### Logging
 
-The logger the host binds to your plugin name and threads onto the contexts. Log through it rather than rolling your own.
+The logger the host threads onto the contexts. Log through it rather than rolling your own.
 
-| Export         | Kind | Purpose                                                                                  |
-| -------------- | ---- | ---------------------------------------------------------------------------------------- |
-| `PluginLogger` | type | Pino-compatible logger shape, bound to `{ plugin: <name> }` and present on the contexts. |
+| Export         | Kind | Purpose                                                                                                                                                                                                                                                                                                                         |
+| -------------- | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PluginLogger` | type | Pino-compatible logger shape present on the contexts. On agent-loop hook contexts it is bound per hook — pre-tagged with the hook name, your plugin, and the conversation / request identity when the context carries them — so no manual `{ plugin }` tagging is needed. On `InitContext` it is bound to `{ plugin: <name> }`. |
 
 ### Runtime handles
 
