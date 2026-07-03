@@ -254,8 +254,6 @@ export function listAllPlugins(
     (manifest) => {
       const target = join(pluginsDir, manifest.name);
       const disabled = existsSync(join(target, ".disabled"));
-      // A default plugin's files (including icon.png) live in the source tree,
-      // not the workspace stub dir that only holds the `.disabled` sentinel.
       return {
         name: manifest.name,
         target,
@@ -266,7 +264,12 @@ export function listAllPlugins(
         issues: [],
         source: "default" as const,
         disabled,
-        ...pluginIconFields(join(DEFAULT_PLUGINS_DIR, manifest.name)),
+        // Read icon fields from the workspace copy — the same source the plugin
+        // detail + icon-serving routes use — so every surface agrees: a default
+        // plugin reports no bundled icon (its workspace dir is a `.disabled`
+        // stub), keeping list/detail/serve consistent rather than advertising a
+        // source-tree icon the HTTP routes can't serve.
+        ...pluginIconFields(target),
       };
     },
   );
