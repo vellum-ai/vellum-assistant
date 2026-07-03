@@ -67,7 +67,6 @@ import maxTokensContinueStop from "./max-tokens-continue/hooks/stop.js";
 import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { type: "json" };
 import memoryInit from "./memory/hooks/init.js";
 import memoryPostCompact from "./memory/hooks/post-compact.js";
-import memoryShutdown from "./memory/hooks/shutdown.js";
 import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
 import { memoryInjectors } from "./memory/injectors.js";
 import memoryPkg from "./memory/package.json" with { type: "json" };
@@ -173,7 +172,6 @@ export const defaultMemoryPlugin: Plugin = {
   },
   hooks: {
     init: memoryInit,
-    shutdown: memoryShutdown,
     "user-prompt-submit": memoryUserPromptSubmit,
     "post-compact": memoryPostCompact,
   },

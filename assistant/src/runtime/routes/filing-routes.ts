@@ -1,22 +1,29 @@
 /**
  * Route handlers for filing management.
  *
- * `available` reflects whether the filing service is the active background
- * memory job for this instance. When `config.memory.v2.enabled` is true,
- * filing yields to the consolidation job (see consolidation-routes.ts) and
- * returns `available: false` so the UI can hide the row.
+ * `available` reflects whether PKB filing is the active background memory job
+ * for this instance. When `config.memory.v2.enabled` is true, filing yields to
+ * the consolidation job (see consolidation-routes.ts) and returns
+ * `available: false` so the UI can hide the row.
+ *
+ * Filing runs as a `pkb_filing` background job: the jobs-worker's maintenance
+ * scheduler enqueues it on a durable checkpoint, and the status here reads
+ * that checkpoint. "Run now" enqueues a job directly (with `force`, bypassing
+ * the empty-buffer skip) rather than executing inline.
  */
 
 import { z } from "zod";
 
 import { getConfig } from "../../config/loader.js";
-import { FilingService } from "../../plugins/defaults/memory/filing-service.js";
-import { getLogger } from "../../util/logger.js";
+import { getMemoryCheckpoint } from "../../persistence/checkpoints.js";
+import {
+  enqueueMemoryJob,
+  hasActiveJobOfType,
+} from "../../persistence/jobs-store.js";
+import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../persistence/jobs-worker.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { BadRequestError, InternalError } from "./errors.js";
+import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
-
-const log = getLogger("filing-routes");
 
 function isFilingAvailable(): boolean {
   return !getConfig().memory.v2.enabled;
@@ -50,15 +57,27 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: async (_args: RouteHandlerArgs) => {
       const config = getConfig().filing;
-      const svc = FilingService.getInstance();
+      // The maintenance scheduler's durable checkpoint: the last time a
+      // pkb_filing job was enqueued (0/absent before the first run).
+      const lastRun = parseInt(
+        getMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.pkbFiling) ?? "0",
+        10,
+      );
+      const scheduled = isFilingAvailable() && config.enabled;
       return {
         available: isFilingAvailable(),
         enabled: config.enabled,
         intervalMs: config.intervalMs,
         activeHoursStart: config.activeHoursStart ?? null,
         activeHoursEnd: config.activeHoursEnd ?? null,
-        nextRunAt: svc?.nextRunAt ?? null,
-        lastRunAt: svc?.lastRunAt ?? null,
+        // Before the first enqueue there is no checkpoint — the scheduler
+        // fires on its next tick, so the run is due now.
+        nextRunAt: scheduled
+          ? lastRun > 0
+            ? lastRun + config.intervalMs
+            : Date.now()
+          : null,
+        lastRunAt: lastRun > 0 ? lastRun : null,
         success: true,
       };
     },
@@ -72,11 +91,13 @@ export const ROUTES: RouteDefinition[] = [
       allowedPrincipalTypes: ACTOR_PRINCIPALS,
     },
     summary: "Run filing now",
-    description: "Trigger an immediate filing run.",
+    description:
+      "Enqueue an immediate PKB filing job. Returns once the job is queued; " +
+      "the job itself runs through the memory jobs worker.",
     tags: ["filing"],
     responseBody: z.object({
       success: z.boolean(),
-      ran: z.boolean().describe("Whether the filing actually ran"),
+      ran: z.boolean().describe("Whether a job was enqueued"),
     }),
     handler: async (_args: RouteHandlerArgs) => {
       if (!isFilingAvailable()) {
@@ -84,18 +105,16 @@ export const ROUTES: RouteDefinition[] = [
           "Filing is not the active background memory job (memory v2 is enabled)",
         );
       }
-      const svc = FilingService.getInstance();
-      if (!svc) {
-        throw new InternalError("Filing service not available");
+      // Coalesce: filing and compaction both rewrite the PKB tree, so don't
+      // enqueue while either is already pending/running.
+      if (
+        hasActiveJobOfType("pkb_filing") ||
+        hasActiveJobOfType("pkb_compaction")
+      ) {
+        return { success: true, ran: false };
       }
-      try {
-        const ran = await svc.runOnce({ force: true });
-        return { success: true, ran };
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        log.error({ err }, "Filing run-now failed");
-        return { success: false, ran: false, error: message };
-      }
+      enqueueMemoryJob("pkb_filing", { force: true });
+      return { success: true, ran: true };
     },
   },
 ];

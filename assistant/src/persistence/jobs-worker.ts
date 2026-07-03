@@ -6,6 +6,10 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
+import {
+  hasPkbBufferContent,
+  isWithinPkbActiveHours,
+} from "../plugins/defaults/memory/pkb-schedule.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import {
@@ -721,6 +725,8 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   narrative: "graph_maintenance:narrative:last_run",
   memoryV2Consolidate: "memory_v2_consolidate_last_run",
   memoryV3Maintain: "memory_v3_maintain_last_run",
+  pkbFiling: "pkb_filing_last_run",
+  pkbCompaction: "pkb_compaction_last_run",
 } as const;
 
 /**
@@ -868,6 +874,69 @@ export function maybeEnqueueGraphMaintenanceJobs(
         AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD,
       );
       setMemoryCheckpoint(consolidateEntry.key, String(nowMs));
+    }
+  }
+
+  // PKB filing/compaction — v1-only, like the v1 graph entries above (under
+  // v2 the consolidation job owns periodic background memory processing).
+  // Same durable-checkpoint pattern, with three PKB-specific gates:
+  //  - outside the configured active-hours window: skip AND advance the
+  //    checkpoint, so the next attempt lands a full interval later (the
+  //    interval cadence, not a busy-retry against a closed window);
+  //  - filing with an empty buffer: skip and advance — no work, no LLM run
+  //    (mirrors the consolidation minimum-line skip above);
+  //  - either PKB job already pending/running: skip WITHOUT advancing, so the
+  //    next worker tick retries. Filing and compaction both rewrite the PKB
+  //    tree, so at most one of the two is ever in the queue.
+  if (!v2Active) {
+    const filingConfig = config.filing;
+    const withinActiveHours = isWithinPkbActiveHours(
+      new Date(nowMs).getHours(),
+      filingConfig.activeHoursStart ?? null,
+      filingConfig.activeHoursEnd ?? null,
+    );
+    const pkbSchedule: Array<{
+      key: string;
+      intervalMs: number;
+      jobType: MemoryJobType;
+      enabled: boolean;
+      hasWork: () => boolean;
+    }> = [
+      {
+        key: GRAPH_MAINTENANCE_CHECKPOINTS.pkbFiling,
+        intervalMs: filingConfig.intervalMs,
+        jobType: "pkb_filing",
+        enabled: filingConfig.enabled,
+        hasWork: () => hasPkbBufferContent(),
+      },
+      {
+        key: GRAPH_MAINTENANCE_CHECKPOINTS.pkbCompaction,
+        intervalMs: filingConfig.compactionIntervalMs,
+        jobType: "pkb_compaction",
+        enabled: filingConfig.compactionEnabled,
+        hasWork: () => true,
+      },
+    ];
+    for (const { key, intervalMs, jobType, enabled, hasWork } of pkbSchedule) {
+      if (!enabled) {
+        continue;
+      }
+      const lastRun = parseInt(getMemoryCheckpoint(key) ?? "0", 10);
+      if (nowMs - lastRun < intervalMs) {
+        continue;
+      }
+      if (!withinActiveHours || !hasWork()) {
+        setMemoryCheckpoint(key, String(nowMs));
+        continue;
+      }
+      if (
+        hasActiveJobOfType("pkb_filing") ||
+        hasActiveJobOfType("pkb_compaction")
+      ) {
+        continue;
+      }
+      enqueueMemoryJob(jobType, {});
+      setMemoryCheckpoint(key, String(nowMs));
     }
   }
 }
