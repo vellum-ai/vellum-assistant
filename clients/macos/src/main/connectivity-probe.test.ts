@@ -39,6 +39,8 @@ mock.module("electron", () => ({
 // Control the lockfile data returned by getLockfileData.
 type LockfileEntry = {
   assistantId: string;
+  cloud?: string;
+  runtimeUrl?: string;
   resources?: { gatewayPort?: number };
 };
 type LockfileData = {
@@ -83,6 +85,7 @@ describe("connectivity-probe", () => {
         assistants: [
           {
             assistantId: "local-1",
+            cloud: "local",
             resources: { gatewayPort: 7830 },
           },
         ],
@@ -96,15 +99,15 @@ describe("connectivity-probe", () => {
     expect(backendReachableCalls).toEqual([true]);
   });
 
-  test("sets backend reachable=true when active assistant is cloud (no gatewayPort)", async () => {
-    // Simulate a prior local-assistant probe having set backendReachable=false.
-    // The probe should clear that stale state when the active assistant is cloud.
+  test("sets backend reachable=true when active assistant is cloud-hosted", async () => {
     mockLockfileData = {
       ok: true,
       data: {
         assistants: [
           {
             assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
             // No resources.gatewayPort: cloud assistant
           },
         ],
@@ -114,13 +117,20 @@ describe("connectivity-probe", () => {
 
     await runProbe();
 
-    // No fetch should have been made (no local gateway to probe).
     expect(fetchCalls).toEqual([]);
-    // The stale unreachable state should be cleared.
     expect(backendReachableCalls).toEqual([true]);
   });
 
-  test("sets backend reachable=true when there is no active assistant", async () => {
+  test("does not change reachability when lockfile cannot be read", async () => {
+    mockLockfileData = { ok: false };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual([]);
+    expect(backendReachableCalls).toEqual([]);
+  });
+
+  test("does not change reachability when there is no active assistant", async () => {
     mockLockfileData = {
       ok: true,
       data: {
@@ -132,7 +142,31 @@ describe("connectivity-probe", () => {
     await runProbe();
 
     expect(fetchCalls).toEqual([]);
-    expect(backendReachableCalls).toEqual([true]);
+    expect(backendReachableCalls).toEqual([]);
+  });
+
+  test("does not change reachability when local entry is missing gatewayPort", async () => {
+    // A local entry without a gatewayPort is a degenerate state — we can't
+    // probe and we can't prove reachability, so we leave the state unchanged
+    // rather than falsely clearing or setting unreachable.
+    mockLockfileData = {
+      ok: true,
+      data: {
+        assistants: [
+          {
+            assistantId: "local-1",
+            cloud: "local",
+            // No resources at all
+          },
+        ],
+        activeAssistant: "local-1",
+      },
+    };
+
+    await runProbe();
+
+    expect(fetchCalls).toEqual([]);
+    expect(backendReachableCalls).toEqual([]);
   });
 
   test("sets backend reachable=false when local gateway is unreachable", async () => {
@@ -143,6 +177,7 @@ describe("connectivity-probe", () => {
         assistants: [
           {
             assistantId: "local-1",
+            cloud: "local",
             resources: { gatewayPort: 7830 },
           },
         ],
@@ -165,10 +200,13 @@ describe("connectivity-probe", () => {
         assistants: [
           {
             assistantId: "local-1",
+            cloud: "local",
             resources: { gatewayPort: 7830 },
           },
           {
             assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
           },
         ],
         activeAssistant: "local-1",
@@ -186,10 +224,13 @@ describe("connectivity-probe", () => {
         assistants: [
           {
             assistantId: "local-1",
+            cloud: "local",
             resources: { gatewayPort: 7830 },
           },
           {
             assistantId: "cloud-1",
+            cloud: "vellum",
+            runtimeUrl: "https://platform.vellum.ai",
           },
         ],
         activeAssistant: "cloud-1",
