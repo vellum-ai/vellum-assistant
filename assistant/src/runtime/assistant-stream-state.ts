@@ -52,8 +52,11 @@ import {
   SSE_REPLAY_RING_AGE_LIMIT_MS,
   SSE_REPLAY_RING_COUNT_LIMIT,
 } from "../api/constants/sse-replay.js";
+import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import type { AssistantEvent } from "./assistant-event.js";
+
+const log = getLogger("assistant-stream-state");
 
 // ── Tunables ─────────────────────────────────────────────────────────
 
@@ -161,16 +164,37 @@ export function stampAndBuffer(
   event: AssistantEvent,
   options?: { targeting?: EventTargeting },
 ): void {
-  if (event.conversationId == null) return;
-
-  reserveSeqCapacity();
-  event.seq = state.nextSeq++;
-  if (state.firstStampedSeq === 0) state.firstStampedSeq = event.seq;
+  if (event.conversationId == null) {
+    return;
+  }
 
   // Approximate size by serialized JSON length. This is the same
   // bytes-on-wire we'll send, so it tracks ring memory pressure
-  // closely without a separate measurement pass.
-  const sizeBytes = JSON.stringify(event).length;
+  // closely without a separate measurement pass. Serialized before `seq`
+  // is stamped, so the count misses that one small field — negligible
+  // against the ring budget. An event whose payload cannot serialize
+  // (circular reference, BigInt, throwing toJSON — e.g. a plugin-supplied
+  // `hook_event` detail) is left unstamped and not buffered: it could
+  // never be written to the SSE wire, so buffering it would poison
+  // reconnect replay, and skipping the stamp entirely (like an unscoped
+  // event) keeps the seq stream gap-free. Live delivery to in-process
+  // subscribers still proceeds.
+  let sizeBytes: number;
+  try {
+    sizeBytes = JSON.stringify(event).length;
+  } catch (err) {
+    log.error(
+      { err, eventType: event.message.type },
+      "event payload failed to serialize — not stamping or buffering for replay",
+    );
+    return;
+  }
+
+  reserveSeqCapacity();
+  event.seq = state.nextSeq++;
+  if (state.firstStampedSeq === 0) {
+    state.firstStampedSeq = event.seq;
+  }
   const entry: RingEntry = {
     seq: event.seq,
     event,
@@ -212,7 +236,9 @@ export function getReplayWindow(
 ): readonly AssistantEvent[] | null {
   evict();
 
-  if (state.ring.length === 0) return [];
+  if (state.ring.length === 0) {
+    return [];
+  }
 
   // A cursor from before this process started can skip over the
   // reservation gap: seqs below `firstStampedSeq` were never assigned
@@ -223,7 +249,9 @@ export function getReplayWindow(
   const oldest = state.ring[0]?.seq ?? Infinity;
   const coversRestartGap =
     lastSeenSeq < state.firstStampedSeq && oldest === state.firstStampedSeq;
-  if (lastSeenSeq < oldest - 1 && !coversRestartGap) return null;
+  if (lastSeenSeq < oldest - 1 && !coversRestartGap) {
+    return null;
+  }
 
   return state.ring
     .filter(
@@ -324,7 +352,9 @@ function seqReservationPath(): string {
  * have emitted.
  */
 function loadSeqReservation(): void {
-  if (state.seqReservationLoaded) return;
+  if (state.seqReservationLoaded) {
+    return;
+  }
   state.seqReservationLoaded = true;
   state.reservedSeqCeiling = readReservedCeiling();
   if (state.reservedSeqCeiling >= state.nextSeq) {
@@ -335,7 +365,9 @@ function loadSeqReservation(): void {
 function reserveSeqCapacity(): void {
   loadSeqReservation();
 
-  if (state.nextSeq <= state.reservedSeqCeiling) return;
+  if (state.nextSeq <= state.reservedSeqCeiling) {
+    return;
+  }
 
   const ceiling = state.nextSeq + SEQ_RESERVATION_BLOCK - 1;
   try {
@@ -386,7 +418,9 @@ function matchesSubscriber(
   subscriber: ReplaySubscriber,
 ): boolean {
   const t = entry.targeting;
-  if (!t) return true;
+  if (!t) {
+    return true;
+  }
 
   // Self-echo suppression: the originating client never receives the
   // event back.
@@ -444,13 +478,17 @@ function evict(): void {
   const now = Date.now();
   while (state.ring.length > 0) {
     const head = state.ring[0];
-    if (head == null) break;
+    if (head == null) {
+      break;
+    }
 
     const overCount = state.ring.length > RING_COUNT_LIMIT;
     const overSize = state.totalSizeBytes > RING_SIZE_LIMIT_BYTES;
     const overAge = now - head.emittedAt > RING_AGE_LIMIT_MS;
 
-    if (!overCount && !overSize && !overAge) break;
+    if (!overCount && !overSize && !overAge) {
+      break;
+    }
 
     state.ring.shift();
     state.totalSizeBytes -= head.sizeBytes;

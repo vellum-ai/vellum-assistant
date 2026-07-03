@@ -144,6 +144,28 @@ describe("user-prompt-submit broadcast capability", () => {
     expect(events[0]!.owner).toEqual({ kind: "plugin", id: "owner-a" });
   });
 
+  test("sanitizes unserializable detail instead of throwing into the hook", async () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+    let ranPastBroadcast = false;
+    registerPlugin(
+      buildPlugin("owner-a", (ctx) => {
+        ctx.broadcast(circular);
+        ranPastBroadcast = true;
+        return Promise.resolve();
+      }),
+    );
+
+    await runHook("user-prompt-submit", baseCtx());
+
+    // The broadcast never throws into the hook; the payload is replaced with
+    // a marker so the emitted event stays JSON-serializable.
+    expect(ranPastBroadcast).toBe(true);
+    const events = emittedHookEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]!.detail).toEqual({ unserializableDetail: true });
+  });
+
   test("a hook that never broadcasts emits nothing", async () => {
     registerPlugin(buildPlugin("owner-quiet", () => Promise.resolve()));
 
