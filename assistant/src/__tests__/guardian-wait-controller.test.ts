@@ -19,6 +19,7 @@ import {
   expect,
   jest,
   mock,
+  spyOn,
   test,
 } from "bun:test";
 
@@ -332,23 +333,31 @@ describe("GuardianWaitController", () => {
       seedRequest("pending");
       // Stamp the wait start 10s in the past so elapsed exceeds the 300ms
       // initial window and the steady interval range [150, 200) applies.
-      nowValue = Date.now() - 10_000;
-      const { controller, spoken } = createController();
-      controller.start(START_PARAMS);
+      // Pin the jitter to the midpoint (175ms): with live randomness, two
+      // consecutive near-minimum intervals can fit a second heartbeat into
+      // the 210ms window below and flake the exact-count assertions.
+      const randomSpy = spyOn(Math, "random").mockReturnValue(0.5);
+      try {
+        nowValue = Date.now() - 10_000;
+        const { controller, spoken } = createController();
+        controller.start(START_PARAMS);
 
-      jest.advanceTimersByTime(140);
-      expect(spoken).toHaveLength(1);
+        jest.advanceTimersByTime(140);
+        expect(spoken).toHaveLength(1);
 
-      jest.advanceTimersByTime(120);
-      expect(spoken).toHaveLength(2);
+        jest.advanceTimersByTime(120);
+        expect(spoken).toHaveLength(2);
 
-      // The next heartbeat is rescheduled and uses the next message in the
-      // rotation.
-      jest.advanceTimersByTime(210);
-      expect(spoken).toHaveLength(3);
-      expect(spoken[2]).not.toBe(spoken[1]);
+        // The next heartbeat is rescheduled and uses the next message in the
+        // rotation.
+        jest.advanceTimersByTime(210);
+        expect(spoken).toHaveLength(3);
+        expect(spoken[2]).not.toBe(spoken[1]);
 
-      controller.dispose();
+        controller.dispose();
+      } finally {
+        randomSpy.mockRestore();
+      }
     });
 
     test("a caller reply resets the heartbeat timer", () => {
