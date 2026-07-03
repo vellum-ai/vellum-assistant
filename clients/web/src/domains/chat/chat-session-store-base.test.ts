@@ -82,6 +82,55 @@ describe("chat-session-store — snapshot + optimistic", () => {
     expect(store().snapshot).toBe(snap); // wholesale, no partial replay
   });
 
+  test("seedSnapshot drops a stale-anchored fetch the ring can't bridge (send flicker)", () => {
+    // The logged incident: the live view seeded at seq 100, then folded the
+    // send's user_message_echo (seq 500 — other conversations' events advanced
+    // the global counter in between, so the ring can't bridge from 100). The
+    // echo handler already retired the optimistic copy, so a pre-send fetch
+    // committing now (anchor still 100, no user row) must be dropped — taking
+    // it wholesale would erase the just-sent message from the screen.
+    const id = registerSseClient(new AbortController().signal);
+    store().seedSnapshot(CONV, snapshot([textRow("a1", "earlier")], 100));
+    const echo = envelope(500, CONV, {
+      type: "user_message_echo",
+      text: "hi",
+      messageId: "msg-user-1",
+      clientMessageId: "nonce-1",
+    } as AssistantEvent);
+    pushSseEvent(id, echo);
+    store().applyEnvelopeToSnapshot(echo);
+    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(true);
+
+    const before = store().snapshot;
+    store().seedSnapshot(CONV, snapshot([textRow("a1", "earlier")], 100));
+
+    expect(store().snapshot).toBe(before);
+    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(true);
+  });
+
+  test("seedSnapshot accepts a caught-up anchor after dropping a stale one", () => {
+    const id = registerSseClient(new AbortController().signal);
+    store().seedSnapshot(CONV, snapshot([textRow("a1", "earlier")], 100));
+    const echo = envelope(500, CONV, {
+      type: "user_message_echo",
+      text: "hi",
+      messageId: "msg-user-1",
+      clientMessageId: "nonce-1",
+    } as AssistantEvent);
+    pushSseEvent(id, echo);
+    store().applyEnvelopeToSnapshot(echo);
+
+    // The authoritative reconcile refetch lands with the persisted user row
+    // and an anchor at (or past) the live watermark — reseeds normally.
+    const fresh = snapshot(
+      [textRow("a1", "earlier"), { ...textRow("msg-user-1", "hi"), role: "user" }],
+      500,
+    );
+    store().seedSnapshot(CONV, fresh);
+    expect(store().snapshot?.messages.some((m) => m.id === "msg-user-1")).toBe(true);
+    expect(store().snapshot?.seq).toBe(500);
+  });
+
   test("applyEnvelopeToSnapshot folds a live event once seeded; idempotent by seq", () => {
     store().seedSnapshot(CONV, snapshot([textRow("a1", "persisted")], 5));
     store().applyEnvelopeToSnapshot(textDelta(6, CONV, "a1", " live"));
