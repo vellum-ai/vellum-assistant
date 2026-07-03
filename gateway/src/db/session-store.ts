@@ -229,13 +229,36 @@ export function findPendingSessionForChannel(
 }
 
 /**
- * Channel-scoped existence check: any interceptable, non-expired session for
- * the channel (union of `findPendingSessionForChannel` + `findActiveSession`
- * statuses). Powers the trust verdict's session-presence stamp.
+ * Latest non-expired session for a channel in one of the given statuses.
  */
-export function hasInterceptableSessionForChannel(channel: string): boolean {
+export function findLatestSessionByStatuses(
+  channel: string,
+  statuses: SessionStatus[],
+): VerificationSession | null {
   const db = getGatewayDb();
 
+  const row = db
+    .select()
+    .from(channelVerificationSessions)
+    .where(
+      and(
+        eq(channelVerificationSessions.channel, channel),
+        inArray(channelVerificationSessions.status, statuses),
+        gt(channelVerificationSessions.expiresAt, Date.now()),
+      ),
+    )
+    .orderBy(desc(channelVerificationSessions.createdAt))
+    .get();
+
+  return row ? rowToSession(row) : null;
+}
+
+/**
+ * True if the channel has any non-expired interceptable session
+ * (pending, pending_bootstrap, or awaiting_response).
+ */
+export function hasInterceptableSession(channel: string): boolean {
+  const db = getGatewayDb();
   const row = db
     .select({ id: channelVerificationSessions.id })
     .from(channelVerificationSessions)
@@ -246,7 +269,6 @@ export function hasInterceptableSessionForChannel(channel: string): boolean {
         gt(channelVerificationSessions.expiresAt, Date.now()),
       ),
     )
-    .limit(1)
     .get();
 
   return row !== undefined;
@@ -375,26 +397,10 @@ export function getSessionById(id: string): VerificationSession | null {
  * for a given channel.
  */
 export function findActiveSession(channel: string): VerificationSession | null {
-  const db = getGatewayDb();
-  const now = Date.now();
-
-  const row = db
-    .select()
-    .from(channelVerificationSessions)
-    .where(
-      and(
-        eq(channelVerificationSessions.channel, channel),
-        inArray(channelVerificationSessions.status, [
-          "pending_bootstrap",
-          "awaiting_response",
-        ]),
-        gt(channelVerificationSessions.expiresAt, now),
-      ),
-    )
-    .orderBy(desc(channelVerificationSessions.createdAt))
-    .get();
-
-  return row ? rowToSession(row) : null;
+  return findLatestSessionByStatuses(channel, [
+    "pending_bootstrap",
+    "awaiting_response",
+  ]);
 }
 
 /**

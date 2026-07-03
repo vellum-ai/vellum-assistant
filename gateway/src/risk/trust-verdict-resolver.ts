@@ -20,7 +20,7 @@ import {
   contacts as gwContacts,
   contactChannels as gwContactChannels,
 } from "../db/schema.js";
-import { hasInterceptableSessionForChannel } from "../db/session-store.js";
+import { hasInterceptableSession } from "../db/session-store.js";
 import { canonicalSenderIdFor } from "../verification/identity.js";
 
 export interface ResolveTrustVerdictInput {
@@ -211,7 +211,7 @@ export async function resolveTrustVerdict(
   // must not convert an otherwise-good verdict into a resolver failure.
   try {
     verdict.hasInterceptableVerificationSession =
-      hasInterceptableSessionForChannel(input.channelType);
+      hasInterceptableSession(input.channelType);
   } catch {
     // Stamp omitted; consumer falls back to IPC reads.
   }
