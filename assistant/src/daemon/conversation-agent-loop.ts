@@ -915,6 +915,10 @@ export async function runAgentLoopImpl(
       logger: rlog,
       modelProfileKey,
       isNonInteractive,
+      // Stamped per hook by `runHook` with the calling hook's owner
+      // attribution; this placeholder only satisfies the type and is never
+      // invoked (a chain with zero hooks never emits).
+      broadcast: () => {},
     };
     latencyTracker.mark("prompt_hook_start");
     const finalUserPromptCtx = await runHook(

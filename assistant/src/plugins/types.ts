@@ -11,6 +11,7 @@
 
 import type { CompactionCircuitClosedEvent } from "../api/events/compaction-circuit-closed.js";
 import type { CompactionCircuitOpenEvent } from "../api/events/compaction-circuit-open.js";
+import type { HookEventOwner } from "../api/events/hook-event.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type {
   ChannelCapabilities,
@@ -368,6 +369,18 @@ export interface JobHandlerEntry {
 // both assign in/out of slot entries under strict-function-types contravariance.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type PluginHooks = Record<string, HookFunction<any>>;
+
+/**
+ * A resolved hook plus its owner attribution, as surfaced by the hook
+ * collection layer to the pipeline. `owner` distinguishes a plugin hook
+ * (default or user, `{ kind: "plugin", id: <plugin name> }`) from a
+ * standalone-workspace hook (`{ kind: "workspace", id }`). The pipeline uses
+ * it to attribute per-hook side effects (e.g. the `hook_event` broadcast).
+ */
+export interface HookEntry<TCtx = unknown> {
+  readonly fn: HookFunction<TCtx>;
+  readonly owner: HookEventOwner;
+}
 
 /**
  * A registered plugin. Every field besides `manifest` is optional — a plugin

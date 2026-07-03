@@ -266,6 +266,19 @@ export interface UserPromptSubmitContext {
    * fields (e.g. `{ plugin: "<name>" }`) for attribution.
    */
   readonly logger: PluginLogger;
+  /**
+   * Emit a transient `hook_event` to any UI watching this conversation —
+   * e.g. progress while the hook does work the user can feel (memory
+   * selection). The daemon stamps the conversation, this hook's name, and
+   * the owning plugin; the hook supplies only `detail`, an arbitrary
+   * JSON-serializable record whose shape it and its client renderer agree on.
+   *
+   * Best-effort and fire-and-forget: it never blocks or fails the turn, is
+   * not persisted (a client joining mid-turn will not replay it), and cannot
+   * emit any other event type or target another conversation — the emit
+   * surface is bound to this turn.
+   */
+  readonly broadcast: (detail: Record<string, unknown>) => void;
 }
 
 // ─── Post-compact hook context ───────────────────────────────────────────────

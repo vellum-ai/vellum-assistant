@@ -590,6 +590,24 @@ describe("assistant-stream-state", () => {
       expect(b.seq).toBe(1025);
     });
 
+    test("getCurrentSeq reports the persisted ceiling before the first stamp of a process", () => {
+      // GIVEN a process that stamped events (reserving a seq block on disk)
+      stampAndBuffer(mkEvent());
+
+      // WHEN the daemon restarts and nothing has been stamped yet
+      _simulateRestartForTesting();
+
+      // THEN the high-water read loads the reservation instead of reporting
+      // 0 — callers seeding baselines at creation (conversation rows) must
+      // never treat a warm workspace as a cold start.
+      expect(getCurrentSeq()).toBe(1024);
+
+      // AND the next stamped event still lands strictly above it.
+      const b = mkEvent();
+      stampAndBuffer(b);
+      expect(b.seq).toBe(1025);
+    });
+
     test("repeated restarts keep advancing monotonically", () => {
       stampAndBuffer(mkEvent());
       _simulateRestartForTesting();
