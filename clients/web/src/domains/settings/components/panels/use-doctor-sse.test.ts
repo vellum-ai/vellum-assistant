@@ -16,6 +16,7 @@ import {
   type DoctorPanelContext,
   useDoctorPanelStore,
 } from "@/domains/settings/components/panels/doctor-panel-store";
+import { shouldResetDoctorSseReconnectBudget } from "@/domains/settings/components/panels/doctor-sse-reconnect";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -237,6 +238,20 @@ describe("Doctor replay state", () => {
     expect(useDoctorPanelStore.getState().latestReplayableSourceEventId).toBe(
       "2-0",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Doctor SSE reconnect budget
+// ---------------------------------------------------------------------------
+
+describe("Doctor SSE reconnect budget", () => {
+  test("keeps retry budget for heartbeat-only attempts", () => {
+    expect(shouldResetDoctorSseReconnectBudget(false)).toBe(false);
+  });
+
+  test("resets retry budget after data frames", () => {
+    expect(shouldResetDoctorSseReconnectBudget(true)).toBe(true);
   });
 });
 

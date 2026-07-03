@@ -35,6 +35,7 @@ import {
   handleToolCall,
   handleToolResult,
 } from "@/domains/settings/components/panels/doctor-event-handlers";
+import { shouldResetDoctorSseReconnectBudget } from "@/domains/settings/components/panels/doctor-sse-reconnect";
 import {
   assistantsDoctorHistoryRetrieve,
   assistantsDoctorSessionsEventsRetrieve,
@@ -264,7 +265,7 @@ export function useDoctorSSE() {
           let sessionExpired = false;
           let replayGap = false;
           let failedStatus: number | null = null;
-          let receivedTraffic = false;
+          let receivedDataFrame = false;
           let pendingSseEventId: string | null = null;
 
           try {
@@ -298,10 +299,10 @@ export function useDoctorSSE() {
                 return response;
               }) as typeof globalThis.fetch,
               onSseEvent: (event) => {
-                receivedTraffic = true;
                 const isData =
                   typeof (event as { data?: unknown }).data !== "undefined";
                 if (isData) {
+                  receivedDataFrame = true;
                   pendingSseEventId = getSseEventId(event);
                 }
                 watchdog.recordTraffic(isData);
@@ -328,7 +329,7 @@ export function useDoctorSSE() {
                 return;
               }
 
-              receivedTraffic = true;
+              receivedDataFrame = true;
               reconnectAttempt = 0;
               watchdog.arm(attemptController, reconnectAttempt);
 
@@ -422,7 +423,7 @@ export function useDoctorSSE() {
             );
           }
 
-          if (receivedTraffic) {
+          if (shouldResetDoctorSseReconnectBudget(receivedDataFrame)) {
             reconnectAttempt = 0;
           }
 
