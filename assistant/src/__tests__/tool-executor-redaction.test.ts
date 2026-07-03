@@ -89,6 +89,17 @@ describe("redactSensitiveFields", () => {
     expect(items[1].password).toBe(R);
   });
 
+  test("recurses into arrays nested inside arrays", () => {
+    const input = { calls: [[{ name: "a", token: "plainword" }]] };
+    const result = redactSensitiveFields(input);
+    const inner = (result.calls as unknown[][])[0][0] as Record<
+      string,
+      unknown
+    >;
+    expect(inner.name).toBe("a");
+    expect(inner.token).toBe(R);
+  });
+
   test("preserves primitive arrays", () => {
     const input = { tags: ["public", "v1"], token: "tk" };
     const result = redactSensitiveFields(input);

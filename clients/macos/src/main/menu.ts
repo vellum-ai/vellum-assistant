@@ -250,6 +250,11 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
             label: "Developer",
             submenu: [
               {
+                label: "Choose Assistant…",
+                click: () => dispatchMenuCommand({ kind: "chooseAssistant" }),
+              },
+              { type: "separator" as const },
+              {
                 label: "Replay Onboarding",
                 click: () => dispatchMenuCommand({ kind: "replayOnboarding" }),
               },
@@ -287,7 +292,7 @@ const buildTemplate = (): MenuItemConstructorOptions[] => {
         {
           label: "Vellum Documentation",
           click: () => {
-            void shell.openExternal("https://docs.vellum.ai");
+            void shell.openExternal("https://www.vellum.ai/docs");
           },
         },
       ],

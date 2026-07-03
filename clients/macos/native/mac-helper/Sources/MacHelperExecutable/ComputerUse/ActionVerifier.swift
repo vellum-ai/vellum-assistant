@@ -1,0 +1,150 @@
+import Foundation
+import CoreGraphics
+
+enum VerifyResult {
+    case allowed
+    case needsConfirmation(String)
+    case blocked(String)
+}
+
+final class ActionVerifier {
+    private var actionHistory: [AgentAction] = []
+    private let maxSteps: Int
+
+    init(maxSteps: Int = 50) {
+        self.maxSteps = maxSteps
+    }
+
+    func verify(_ action: AgentAction) -> VerifyResult {
+        // 1. Step limit
+        if actionHistory.count >= maxSteps {
+            return .blocked("Maximum step limit (\(maxSteps)) reached")
+        }
+
+        // 2. Loop detection — repeating action patterns
+        if detectLoop(including: action) {
+            return .blocked("Agent appears stuck in a repeating action loop")
+        }
+
+        // Note: detecting "sensitive" typed text (passwords/SSNs/cards) is a
+        // user-experience judgement, which AGENTS.md requires be made by the
+        // assistant through the daemon rather than a hardcoded client heuristic
+        // — and in proxy mode a client-side block has no confirmation path, so
+        // it would make legitimate user-directed typing impossible. Left to the
+        // daemon/approval flow.
+
+        // 4. Destructive key combos
+        if action.type == .key, let key = action.key?.lowercased() {
+            let destructiveKeys = ["cmd+q", "command+q", "cmd+w", "command+w",
+                                   "cmd+delete", "command+delete", "cmd+backspace", "command+backspace"]
+            if destructiveKeys.contains(key) {
+                return .needsConfirmation("Key combo '\(key)' could close a window or delete content")
+            }
+        }
+
+        // 5. Form submission (Enter after typing)
+        if action.type == .key, let key = action.key?.lowercased(),
+           (key == "enter" || key == "return"),
+           let lastAction = actionHistory.last, lastAction.type == .type {
+            return .needsConfirmation("Pressing Enter may submit a form")
+        }
+
+        // 6. Forbidden screen region (system menu bar)
+        if let y = action.y, y < 25, action.type == .click || action.type == .doubleClick || action.type == .rightClick {
+            return .blocked("Action targets the system menu bar (y < 25)")
+        }
+
+        // 7. AppleScript safety
+        if action.type == .runAppleScript, let script = action.script {
+            // Normalize whitespace to prevent bypass via "do shell\nscript" etc.
+            let normalized = script.lowercased()
+                .split(omittingEmptySubsequences: true, whereSeparator: \.isWhitespace)
+                .joined(separator: " ")
+            let blockedPatterns = [
+                "do shell script", "keychain", "password", "credential",
+                "sudo", "rm -rf", "defaults write", "defaults delete",
+                "osascript", "system events\" to keystroke",
+                "system events' to keystroke"
+            ]
+            for pattern in blockedPatterns {
+                if normalized.contains(pattern) {
+                    return .blocked("AppleScript contains blocked pattern: \(pattern)")
+                }
+            }
+            // A script that passes the blocklist is allowed: the daemon gates
+            // computer-use execution behind its own approval, and proxy mode has
+            // no interactive confirmation path — returning needsConfirmation here
+            // surfaces as a hard BLOCK, making the tool unusable for every safe
+            // script. Fall through to .allowed.
+        }
+
+        // All checks passed
+        actionHistory.append(action)
+        return .allowed
+    }
+
+    // MARK: - Loop Detection
+
+    private static let loopWindowSize = 10
+    private static let coordinateTolerance: CGFloat = 5
+    private static let clickTypes: Set<ActionType> = [.click, .doubleClick, .rightClick]
+
+    /// Detects repeating action patterns using a sliding window.
+    /// Checks for length-1 cycles (3 consecutive identical) and
+    /// length 2-4 cycles (pattern repeats twice) within the last 10 actions.
+    private func detectLoop(including candidate: AgentAction) -> Bool {
+        let historySlice = actionHistory.suffix(Self.loopWindowSize - 1)
+        var window = Array(historySlice)
+        window.append(candidate)
+
+        // Length-1: same action 3 times in a row
+        if window.count >= 3 {
+            let tail = window.suffix(3)
+            let first = tail[tail.startIndex]
+            if tail.dropFirst().allSatisfy({ actionsMatch($0, first) }) {
+                return true
+            }
+        }
+
+        // Length 2-4: pattern repeats at least twice consecutively
+        for cycleLen in 2...4 {
+            let needed = cycleLen * 2
+            guard window.count >= needed else { continue }
+            let end = window.count
+            let patternA = window[(end - needed)..<(end - cycleLen)]
+            let patternB = window[(end - cycleLen)..<end]
+            if zip(patternA, patternB).allSatisfy({ actionsMatch($0, $1) }) {
+                return true
+            }
+        }
+
+        return false
+    }
+
+    // MARK: - Comparison
+
+    /// Compare two actions for equivalence. Click-type actions use radial
+    /// proximity matching on coordinates (within 5px radius) to catch near-identical clicks.
+    private func actionsMatch(_ a: AgentAction, _ b: AgentAction) -> Bool {
+        guard a.type == b.type && a.text == b.text && a.key == b.key
+              && a.appName == b.appName && a.script == b.script else {
+            return false
+        }
+        if Self.clickTypes.contains(a.type) {
+            return coordinatesMatch(a.x, a.y, b.x, b.y)
+        }
+        return a.x == b.x && a.y == b.y
+    }
+
+    private func coordinatesMatch(_ ax: CGFloat?, _ ay: CGFloat?,
+                                  _ bx: CGFloat?, _ by: CGFloat?) -> Bool {
+        switch (ax, ay, bx, by) {
+        case let (.some(x1), .some(y1), .some(x2), .some(y2)):
+            return hypot(x1 - x2, y1 - y2) <= Self.coordinateTolerance
+        case (.none, .none, .none, .none):
+            return true
+        default:
+            return false
+        }
+    }
+}

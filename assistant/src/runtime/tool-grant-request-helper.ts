@@ -15,7 +15,7 @@ import type { ChannelId } from "../channels/types.js";
 import {
   createCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
@@ -23,6 +23,7 @@ import {
 import { emitNotificationSignal } from "../notifications/emit-signal.js";
 import { getLogger } from "../util/logger.js";
 import { getGuardianBinding } from "./channel-verification-service.js";
+import { resolveDecidableGuardianPrincipalId } from "./local-actor-identity.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
 const log = getLogger("tool-grant-request-helper");
@@ -59,9 +60,9 @@ export type ToolGrantRequestResult =
  * Returns a result indicating whether a new request was created, an existing
  * one was deduped, or the escalation failed (no binding, missing identity).
  */
-export function createOrReuseToolGrantRequest(
+export async function createOrReuseToolGrantRequest(
   params: ToolGrantRequestParams,
-): ToolGrantRequestResult {
+): Promise<ToolGrantRequestResult> {
   const {
     assistantId,
     sourceChannel,
@@ -78,11 +79,26 @@ export function createOrReuseToolGrantRequest(
     return { failed: true, reason: "missing_identity" };
   }
 
-  const binding = getGuardianBinding(assistantId, sourceChannel);
+  const binding = await getGuardianBinding(assistantId, sourceChannel);
   if (!binding) {
     log.debug(
       { sourceChannel, assistantId },
       "No guardian binding for tool grant request escalation",
+    );
+    return { failed: true, reason: "no_guardian_binding" };
+  }
+
+  // A binding with no principal is unresolved, not empty: adopt the vellum
+  // anchor principal so the resulting request is decidable by the guardian.
+  // When neither resolves, fail closed — a principal-less tool_grant_request
+  // can never be authorized by anyone.
+  const guardianPrincipalId = await resolveDecidableGuardianPrincipalId(
+    binding.guardianPrincipalId,
+  );
+  if (!guardianPrincipalId) {
+    log.warn(
+      { sourceChannel, assistantId },
+      "Guardian principal unresolved for tool grant request escalation",
     );
     return { failed: true, reason: "no_guardian_binding" };
   }
@@ -132,7 +148,7 @@ export function createOrReuseToolGrantRequest(
     requesterExternalUserId,
     requesterChatId: requesterChatId ?? undefined,
     guardianExternalUserId: binding.guardianExternalUserId,
-    guardianPrincipalId: binding.guardianPrincipalId,
+    guardianPrincipalId,
     toolName,
     inputDigest,
     questionText,

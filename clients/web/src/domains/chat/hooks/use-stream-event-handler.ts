@@ -1,9 +1,4 @@
-import {
-  type Dispatch,
-  type SetStateAction,
-  useCallback,
-  useRef,
-} from "react";
+import { type Dispatch, type SetStateAction, useCallback, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 
 import { useConversationStore } from "@/stores/conversation-store";
@@ -19,6 +14,7 @@ import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
 import {
   handleOpenUrl,
   handleNavigateSettings,
+  handleOpenPanel,
 } from "@/domains/chat/utils/stream-handlers/navigation-handlers";
 import {
   handleAssistantTextDelta,
@@ -33,11 +29,13 @@ import {
 import {
   handleStreamError,
   handleConversationErrorEvent,
+  handleConversationNoticeEvent,
 } from "@/domains/chat/utils/stream-handlers/error-handlers";
 import {
   handleSecretRequest,
   handleConfirmationRequest,
   handleContactRequest,
+  handleInteractionResolved,
   handleQuestionRequest,
 } from "@/domains/chat/utils/stream-handlers/interaction-handlers";
 import {
@@ -47,6 +45,7 @@ import {
   handleUISurfaceComplete,
 } from "@/domains/chat/utils/stream-handlers/surface-handlers";
 import {
+  handleToolUsePreviewStart,
   handleToolUseStart,
   handleToolResult,
 } from "@/domains/chat/utils/stream-handlers/tool-call-handlers";
@@ -54,7 +53,6 @@ import {
   handleUsageUpdate,
   handleCompactionCircuitOpen,
   handleCompactionCircuitClosed,
-  handleTurnProfileAutoRouted,
 } from "@/domains/chat/utils/stream-handlers/metadata-handlers";
 import {
   handleMessageQueued,
@@ -67,6 +65,17 @@ import {
   handleSubagentStatusChanged,
   handleSubagentEvent,
 } from "@/domains/chat/utils/stream-handlers/subagent-handlers";
+import {
+  handleAcpSessionSpawned,
+  handleAcpSessionUpdate,
+  handleAcpSessionUsage,
+  handleAcpSessionCompleted,
+  handleAcpSessionError,
+} from "@/domains/chat/utils/stream-handlers/acp-handlers";
+import {
+  handleBackgroundToolStarted,
+  handleBackgroundToolCompleted,
+} from "@/domains/chat/utils/stream-handlers/background-task-handlers";
 import {
   handleWorkflowStarted,
   handleWorkflowProgress,
@@ -137,7 +146,6 @@ export function useStreamEventHandler(
 
   // --- Refs owned by this hook (only used inside handleStreamEvent) ---
   const lastActivityVersionRef = useRef<Map<string, number>>(new Map());
-  const toolCallIdCounterRef = useRef(0);
   const currentAssistantMessageIdRef = useRef<string | undefined>(undefined);
 
   // --- Main event handler ---
@@ -200,7 +208,10 @@ export function useStreamEventHandler(
       const isStreamingDelta =
         event.type === "assistant_text_delta" ||
         event.type === "assistant_thinking_delta";
-      if (!isStreamingDelta || !tailIsAssistant(store.messages)) {
+      if (
+        !isStreamingDelta ||
+        !tailIsAssistant(store.snapshot?.messages ?? [])
+      ) {
         recordDiagnostic(
           event.type === "assistant_text_delta"
             ? "sse_assistant_text_delta_start"
@@ -223,19 +234,20 @@ export function useStreamEventHandler(
         isNative,
         streamContext: streamState.streamContext,
         assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
-        setMessages: store.setMessages,
-        messages: store.messages,
+        setOptimisticSends: store.setOptimisticSends,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         endTurn,
         setError: store.setError,
+        setNotice: store.setNotice,
         cancelAndClearStream: useStreamStore.getState().cancelAndClearStream,
         cancelReconciliation,
         startReconciliationLoop,
         setConfirmationToolCall: store.setConfirmationToolCall,
         setAssetsRefreshKey,
         addDismissedSurfaceId: store.addDismissedSurfaceId,
-        setContextWindowUsageForConversation: store.setContextWindowUsageForConversation,
+        setContextWindowUsageForConversation:
+          store.setContextWindowUsageForConversation,
         setContextWindowUsage: store.setContextWindowUsage,
         queryClient,
         setCompactionCircuitOpenUntil: store.setCompactionCircuitOpenUntil,
@@ -244,7 +256,6 @@ export function useStreamEventHandler(
         popRequestIdMapping: store.popRequestIdMapping,
         consumePendingLocalDeletion: store.consumePendingLocalDeletion,
         lastActivityVersionRef,
-        toolCallIdCounterRef,
         currentAssistantMessageIdRef,
       };
 
@@ -254,6 +265,9 @@ export function useStreamEventHandler(
           break;
         case "navigate_settings":
           handleNavigateSettings(event, ctx);
+          break;
+        case "open_panel":
+          handleOpenPanel(event, ctx);
           break;
         case "assistant_turn_start":
           handleAssistantTurnStart(event, ctx);
@@ -281,6 +295,9 @@ export function useStreamEventHandler(
           break;
         case "conversation_error":
           handleConversationErrorEvent(event, ctx);
+          break;
+        case "conversation_notice":
+          handleConversationNoticeEvent(event, ctx);
           break;
         case "generation_cancelled":
           handleGenerationCancelled(event, ctx);
@@ -315,10 +332,15 @@ export function useStreamEventHandler(
         case "tool_result":
           handleToolResult(event, ctx);
           break;
-        // The web transcript renders tool activity from `tool_use_start`
-        // and `tool_result`. It does not surface the optimistic pre-input
-        // affordance or incremental output chunks, so these are ignored.
+        // Optimistic pre-input affordance: seed a running tool card the moment
+        // the call is recognized, so the user-perceived elapsed timer starts at
+        // first byte rather than after the input-streaming gap.
         case "tool_use_preview_start":
+          handleToolUsePreviewStart(event, ctx);
+          break;
+        // Incremental tool output (e.g. foreground bash stdout/stderr) folds
+        // onto the matching tool call's live `streamedOutput` tail directly in
+        // the rolling-snapshot reducer (`use-event-stream`); no handler work.
         case "tool_output_chunk":
           break;
         case "usage_update":
@@ -350,9 +372,6 @@ export function useStreamEventHandler(
           handleCompactionCircuitClosed(event, ctx);
           break;
 
-        case "turn_profile_auto_routed":
-          handleTurnProfileAutoRouted(event, ctx);
-          break;
         case "message_queued":
           handleMessageQueued(event, ctx);
           break;
@@ -374,6 +393,29 @@ export function useStreamEventHandler(
           break;
         case "subagent_event":
           handleSubagentEvent(event, ctx);
+          break;
+
+        case "acp_session_spawned":
+          handleAcpSessionSpawned(event);
+          break;
+        case "acp_session_update":
+          handleAcpSessionUpdate(event);
+          break;
+        case "acp_session_usage":
+          handleAcpSessionUsage(event);
+          break;
+        case "acp_session_completed":
+          handleAcpSessionCompleted(event);
+          break;
+        case "acp_session_error":
+          handleAcpSessionError(event);
+          break;
+
+        case "background_tool_started":
+          handleBackgroundToolStarted(event);
+          break;
+        case "background_tool_completed":
+          handleBackgroundToolCompleted(event);
           break;
 
         case "workflow_started":
@@ -409,7 +451,13 @@ export function useStreamEventHandler(
         case "document_comment_resolved":
         case "document_comment_reopened":
         case "document_comment_deleted":
+          break;
+        // The daemon resolved a pending interaction for the active
+        // conversation. Attention tracking handles non-active conversations
+        // and defers the active one here, so retire any matching confirmation
+        // card before the user can tap a prompt the server has discarded.
         case "interaction_resolved":
+          handleInteractionResolved(event);
           break;
         // Diagnostic timeline events. The logs domain fetches these from
         // the daemon's trace-events endpoint on demand; the chat stream

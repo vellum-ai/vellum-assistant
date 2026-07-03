@@ -25,6 +25,7 @@ import { truncate } from "@/domains/chat/utils/truncate";
  */
 export type IconName =
   | "code"
+  | "terminal"
   | "file"
   | "pen"
   | "monitor"
@@ -32,7 +33,8 @@ export type IconName =
   | "sparkle"
   | "user-plus"
   | "bolt"
-  | "brain";
+  | "brain"
+  | "globe";
 
 /** Result of mapping a tool call to its carousel-header label. */
 export interface StepLabel {
@@ -132,7 +134,7 @@ export function deriveStepLabelFromName(
         title: "Working",
         info: truncate(cleaned, INFO_MAX_LENGTH),
         activity,
-        iconName: "code",
+        iconName: "terminal",
       };
     }
 

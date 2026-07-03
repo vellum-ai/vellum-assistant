@@ -22,17 +22,27 @@
  *
  * Lifetime: `enterFocus()` on submit of the research form, `exitFocus()` when
  * the user clicks "Continue" out of the focused chat (or remounts the form).
+ * Avatar traits are handoff state and clear through their own setter.
  */
 
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
+import type { CharacterTraits } from "@/types/avatar";
 
 interface OnboardingFocusState {
   /** When true, `ChatLayout` renders chrome-less with a Continue affordance. */
   focused: boolean;
   enterFocus: () => void;
   exitFocus: () => void;
+  /**
+   * Avatar traits chosen on the "Give me a face" picker, staged at handoff and
+   * applied to the assistant once it's hatched (the avatar isn't part of the
+   * pre-chat context, so it's a post-hatch call). Cleared after a successful
+   * apply or when a new research-onboarding form mounts.
+   */
+  pendingAvatarTraits: CharacterTraits | null;
+  setPendingAvatarTraits: (traits: CharacterTraits | null) => void;
   /**
    * A follow-up message the focused results overlay wants sent into the same
    * conversation (e.g. the "deeper dive" research request). The overlay lives
@@ -56,6 +66,17 @@ interface OnboardingFocusState {
   checkinUserName: string | null;
   beginCheckin: (userName?: string) => void;
   endCheckin: () => void;
+  /**
+   * Set by the onboarding handoff so the chat side panel opens collapsed for a
+   * focused first impression; consumed (cleared) once by `ChatLayout`. The
+   * signal is one-shot — set once at handoff and consumed on the next
+   * `ChatLayout` mount; honoring it flips the chat's ordinary persisted
+   * `collapsed` state, so the user lands collapsed and it remains their default
+   * until they expand it.
+   */
+  sidebarCollapseRequested: boolean;
+  requestSidebarCollapse: () => void;
+  consumeSidebarCollapse: () => void;
 }
 
 const useOnboardingFocusStoreBase = create<OnboardingFocusState>((set) => ({
@@ -66,7 +87,10 @@ const useOnboardingFocusStoreBase = create<OnboardingFocusState>((set) => ({
       focused: false,
       pendingFollowupMessage: null,
       checkinPending: false,
+      sidebarCollapseRequested: false,
     }),
+  pendingAvatarTraits: null,
+  setPendingAvatarTraits: (traits) => set({ pendingAvatarTraits: traits }),
   pendingFollowupMessage: null,
   requestFollowup: (message) => set({ pendingFollowupMessage: message }),
   clearFollowup: () => set({ pendingFollowupMessage: null }),
@@ -75,6 +99,9 @@ const useOnboardingFocusStoreBase = create<OnboardingFocusState>((set) => ({
   beginCheckin: (userName) =>
     set({ checkinPending: true, checkinUserName: userName ?? null }),
   endCheckin: () => set({ checkinPending: false }),
+  sidebarCollapseRequested: false,
+  requestSidebarCollapse: () => set({ sidebarCollapseRequested: true }),
+  consumeSidebarCollapse: () => set({ sidebarCollapseRequested: false }),
 }));
 
 export const useOnboardingFocusStore = createSelectors(

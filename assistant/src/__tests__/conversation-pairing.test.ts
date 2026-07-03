@@ -50,7 +50,9 @@ const getConversationMock = mock((id: string) => {
   return mockExistingConversations[id] ?? null;
 });
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -90,7 +92,7 @@ const upsertOutboundBindingMock = mock(
   }) => {},
 );
 
-mock.module("../memory/external-conversation-store.js", () => ({
+mock.module("../persistence/external-conversation-store.js", () => ({
   getBindingByChannelChat: getBindingByChannelChatMock,
   upsertOutboundBinding: upsertOutboundBindingMock,
 }));

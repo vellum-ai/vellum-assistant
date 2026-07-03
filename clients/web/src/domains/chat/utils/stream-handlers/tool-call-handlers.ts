@@ -1,13 +1,24 @@
-import {
-  applyToolResult,
-  upsertToolCall,
-} from "@/domains/chat/utils/stream-updaters/tool-call-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
-import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type {
   ToolResultEvent,
+  ToolUsePreviewStartEvent,
   ToolUseStartEvent,
 } from "@vellumai/assistant-api";
+
+/**
+ * Optimistic pre-input affordance: the moment the daemon recognizes a tool call
+ * (before its input finishes streaming), the rolling-snapshot reducer renders a
+ * running tool card so the user sees activity immediately. The handler only
+ * stamps the current-assistant anchor for subagent attribution.
+ */
+export function handleToolUsePreviewStart(
+  event: ToolUsePreviewStartEvent,
+  ctx: StreamHandlerContext,
+): void {
+  if (event.messageId) {
+    ctx.currentAssistantMessageIdRef.current = event.messageId;
+  }
+}
 
 export function handleToolUseStart(
   event: ToolUseStartEvent,
@@ -15,28 +26,11 @@ export function handleToolUseStart(
 ): void {
   ctx.cancelReconciliation();
   ctx.turnActions.onToolUseStart();
-  const toolCallId =
-    event.toolUseId ?? `tool-${++ctx.toolCallIdCounterRef.current}`;
-  const newToolCall: ChatMessageToolCall = {
-    id: toolCallId,
-    name: event.toolName,
-    input: event.input,
-    startedAt:
-      "startedAt" in event &&
-      typeof event.startedAt === "number"
-        ? event.startedAt
-        : Date.now(),
-  };
-  ctx.setMessages((prev) => {
-    const next = upsertToolCall(prev, newToolCall, event.messageId);
-    const tail = next[next.length - 1];
-    // Stamp the current-assistant ref to the assistant tail. See parallel
-    // logic in handleAssistantTextDelta.
-    if (tail?.role === "assistant") {
-      ctx.currentAssistantMessageIdRef.current = tail.id;
-    }
-    return next;
-  });
+  // The reducer folds the tool call onto the assistant row in the snapshot;
+  // the handler owns the turn-state transition and the anchor stamp.
+  if (event.messageId) {
+    ctx.currentAssistantMessageIdRef.current = event.messageId;
+  }
 }
 
 export function handleToolResult(
@@ -47,34 +41,13 @@ export function handleToolResult(
   // Forward structured tool activity metadata (web_search / web_fetch) onto
   // the turn store so the web-search inline link can render during the
   // active turn. Metadata is live-only — the store clears it on idle
-  // transitions; historical reopens continue through the existing
-  // `result: string` flow below (parsed for fallback chips).
+  // transitions; the durable tool result is folded into the snapshot by the
+  // reducer (which also clears any live `streamedOutput` in favor of the
+  // complete `result`).
   if (event.activityMetadata && event.toolUseId) {
     ctx.turnActions.onToolActivityMetadata(
       event.toolUseId,
       event.activityMetadata,
     );
   }
-  ctx.setMessages((prev) =>
-    applyToolResult(prev, {
-      toolUseId: event.toolUseId,
-      result: event.result,
-      isError: event.isError,
-      riskLevel: event.riskLevel,
-      riskReason: event.riskReason,
-      matchedTrustRuleId: event.matchedTrustRuleId,
-      approvalMode: event.approvalMode,
-      approvalReason: event.approvalReason,
-      riskThreshold: event.riskThreshold,
-      riskAllowlistOptions: event.riskAllowlistOptions,
-      riskScopeOptions: event.riskScopeOptions,
-      riskDirectoryScopeOptions: event.riskDirectoryScopeOptions,
-      activityMetadata: event.activityMetadata,
-      completedAt:
-        "completedAt" in event &&
-        typeof event.completedAt === "number"
-          ? event.completedAt
-          : undefined,
-    }),
-  );
 }

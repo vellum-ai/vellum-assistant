@@ -1,8 +1,9 @@
 /**
  * Channel inbound message handler: validates, records, and routes inbound
  * messages from all channels. Handles ingress ACL, edits, guardian
- * verification, guardian action answers, approval interception, and
- * invite token redemption.
+ * verification, guardian action answers, and approval interception.
+ * Invite token/code redemption is intercepted at gateway ingress before
+ * messages reach this handler.
  */
 import type { SourceMetadata } from "@vellumai/gateway-client";
 import {
@@ -24,6 +25,7 @@ import {
 } from "../../channels/types.js";
 import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
+import { channelStatusToMemberStatus } from "../../contacts/member-status.js";
 import {
   createApprovalConversationGenerator,
   createApprovalCopyGenerator,
@@ -38,31 +40,6 @@ import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-polic
 import { processMessage } from "../../daemon/process-message.js";
 import type { TrustContext } from "../../daemon/trust-context.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
-import {
-  attachInlineAttachmentToMessage,
-  AttachmentUploadError,
-  getAttachmentsByIds,
-  validateAttachmentUpload,
-} from "../../memory/attachments-store.js";
-import {
-  recordConversationSeenSignal,
-  type SignalType,
-} from "../../memory/conversation-attention-store.js";
-import {
-  addMessage,
-  getMessageById,
-  getMessages,
-  selectSlackMetaCandidateMetadata,
-  updateMessageContent,
-  updateMessageMetadata,
-} from "../../memory/conversation-crud.js";
-import {
-  clearPayload,
-  findMessageBySourceId,
-  recordInbound,
-} from "../../memory/delivery-crud.js";
-import { markProcessed } from "../../memory/delivery-status.js";
-import { upsertBinding } from "../../memory/external-conversation-store.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import {
   resolveSlackBotUserId,
@@ -84,20 +61,48 @@ import {
   writeSlackMetadata,
 } from "../../messaging/providers/slack/message-metadata.js";
 import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../notifications/notification-utils.js";
+import {
+  attachInlineAttachmentToMessage,
+  AttachmentUploadError,
+  getAttachmentsByIds,
+  validateAttachmentUpload,
+} from "../../persistence/attachments-store.js";
+import {
+  recordConversationSeenSignal,
+  type SignalType,
+} from "../../persistence/conversation-attention-store.js";
+import {
+  addMessage,
+  getMessageById,
+  getMessages,
+  selectSlackMetaCandidateMetadata,
+  updateMessageContent,
+  updateMessageMetadata,
+} from "../../persistence/conversation-crud.js";
+import {
+  clearPayload,
+  findMessageBySourceId,
+  recordInbound,
+} from "../../persistence/delivery-crud.js";
+import { markProcessed } from "../../persistence/delivery-status.js";
+import { upsertBinding } from "../../persistence/external-conversation-store.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { wrapUntrustedContent } from "../../security/untrusted-content.js";
 import { canonicalizeInboundIdentity } from "../../util/canonicalize-identity.js";
 import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
-import { notifyGuardianOfAccessRequest } from "../access-request-helper.js";
+import {
+  isApprovalHandshakeInProgress,
+  notifyGuardianOfAccessRequest,
+} from "../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { deliverChannelReply } from "../gateway-client.js";
-import { resolveTrustContext } from "../trust-context-resolver.js";
+import { trustContextFromVerdict } from "../trust-verdict-consumer.js";
 import { canonicalChannelAssistantId } from "./channel-route-shared.js";
 import { BadRequestError } from "./errors.js";
 import { handleApprovalInterception } from "./guardian-approval-interception.js";
 import {
-  channelStatusToMemberStatus,
+  composeAccessDenialReply,
   enforceIngressAcl,
 } from "./inbound-stages/acl-enforcement.js";
 import { enforceAdmissionPolicy } from "./inbound-stages/admission-policy.js";
@@ -456,6 +461,13 @@ export async function handleChannelInbound({
     ? admissionPolicyFromGateway
     : undefined;
 
+  // Callback payloads (button presses, delete sentinels) are decision
+  // attempts / lifecycle events, not access attempts: the ACL stage must not
+  // respond to one by minting a verification challenge or creating an access
+  // request (LUM-2673). Reaction callbacks never reach this point — the
+  // intercept above returns for them.
+  const isCallbackInteraction = hasCallbackData;
+
   // ── Ingress ACL enforcement ──
   const aclResult = await enforceIngressAcl({
     canonicalSenderId,
@@ -470,8 +482,8 @@ export async function handleChannelInbound({
     actorUsername: body.actorUsername,
     replyCallbackUrl: body.replyCallbackUrl,
     assistantId,
-    externalMessageId,
     effectiveAdmissionPolicy: effectiveAdmissionPolicyForAcl,
+    isCallbackInteraction,
   });
   if (aclResult.earlyResponse) return aclResult.earlyResponse;
   const { resolvedMember } = aclResult;
@@ -682,7 +694,7 @@ export async function handleChannelInbound({
       canonicalAssistantId,
       assistantId,
       content,
-      channelId: resolvedMember?.channel.id,
+      channelId: resolvedMember?.channelId,
     });
   }
 
@@ -717,17 +729,24 @@ export async function handleChannelInbound({
   }
 
   // ── Actor role resolution ──
-  // Uses shared channel-agnostic resolution so all ingress paths classify
-  // guardian vs non-guardian actors the same way.
+  // Built from the gateway-stamped trust verdict (ACL + identity). An absent
+  // verdict is already hard-denied upstream in enforceIngressAcl; the synthetic
+  // unknown ctx here only guards non-ACL metadata use on that unreachable path.
+  const inboundVerdict = sourceMetadata?.trustVerdict;
   const trustCtx: TrustContext = attachSlackRequesterTimezone(
-    resolveTrustContext({
-      assistantId: canonicalAssistantId,
-      sourceChannel,
-      conversationExternalId,
-      actorExternalId: rawSenderId,
-      actorUsername: body.actorUsername,
-      actorDisplayName: body.actorDisplayName,
-    }),
+    inboundVerdict
+      ? trustContextFromVerdict(inboundVerdict, {
+          sourceChannel,
+          conversationExternalId,
+          actorUsername: body.actorUsername,
+          actorDisplayName: body.actorDisplayName,
+        })
+      : {
+          sourceChannel,
+          trustClass: "unknown",
+          requesterExternalUserId: canonicalSenderId ?? undefined,
+          requesterChatId: conversationExternalId,
+        },
     slackActorTimezone,
   );
 
@@ -756,7 +775,7 @@ export async function handleChannelInbound({
       : enforceAdmissionPolicy({
           sourceChannel,
           trustClass: trustCtx.trustClass,
-          memberStatus: resolvedMember?.channel.status,
+          memberStatus: resolvedMember?.status,
           policy: admissionPolicyFromGateway,
         });
   if (!admissionResult.admitted) {
@@ -793,48 +812,67 @@ export async function handleChannelInbound({
     // `acl-enforcement.ts:267-449` for `not_a_member`, so denials are
     // visible in the same UI. previousMemberStatus is only meaningful when
     // a member record exists; we pass it through when available so the
-    // guardian sees "previously pending" etc.
+    // guardian sees "previously pending" etc. Callback interactions never
+    // create an access request (LUM-2673); the handshake window is still
+    // probed for reply copy.
     let guardianNotified = false;
-    try {
-      const accessResult = notifyGuardianOfAccessRequest({
-        canonicalAssistantId,
-        sourceChannel,
-        conversationExternalId,
-        actorExternalId: canonicalSenderId ?? rawSenderId,
-        actorDisplayName: body.actorDisplayName,
-        actorUsername: body.actorUsername,
-        ...(resolvedMember
-          ? {
-              previousMemberStatus: channelStatusToMemberStatus(
-                resolvedMember.channel.status,
-              ),
-            }
-          : {}),
-        messagePreview: truncate(trimmedContent, MESSAGE_PREVIEW_MAX_LENGTH),
-        ...(typeof sourceMetadata?.isStranger === "boolean"
-          ? { isStranger: sourceMetadata.isStranger }
-          : {}),
-        ...(typeof sourceMetadata?.isRestricted === "boolean"
-          ? { isRestricted: sourceMetadata.isRestricted }
-          : {}),
-        ...(typeof sourceMetadata?.messageId === "string"
-          ? { messageTs: sourceMetadata.messageId }
-          : {}),
-      });
-      guardianNotified = accessResult.notified;
-    } catch (err) {
-      log.error(
-        { err, sourceChannel, conversationExternalId },
-        "Failed to notify guardian of access request (admission policy)",
-      );
+    let handshakeInProgress = false;
+    const floorSenderId = canonicalSenderId ?? rawSenderId;
+    if (isCallbackInteraction) {
+      if (floorSenderId) {
+        handshakeInProgress = isApprovalHandshakeInProgress({
+          canonicalAssistantId,
+          sourceChannel,
+          actorExternalId: floorSenderId,
+        });
+      }
+    } else {
+      try {
+        const accessResult = await notifyGuardianOfAccessRequest({
+          canonicalAssistantId,
+          sourceChannel,
+          conversationExternalId,
+          actorExternalId: floorSenderId,
+          actorDisplayName: body.actorDisplayName,
+          actorUsername: body.actorUsername,
+          ...(resolvedMember
+            ? {
+                previousMemberStatus: channelStatusToMemberStatus(
+                  resolvedMember.status,
+                ),
+              }
+            : {}),
+          messagePreview: truncate(trimmedContent, MESSAGE_PREVIEW_MAX_LENGTH),
+          ...(typeof sourceMetadata?.isStranger === "boolean"
+            ? { isStranger: sourceMetadata.isStranger }
+            : {}),
+          ...(typeof sourceMetadata?.isRestricted === "boolean"
+            ? { isRestricted: sourceMetadata.isRestricted }
+            : {}),
+          ...(typeof sourceMetadata?.messageId === "string"
+            ? { messageTs: sourceMetadata.messageId }
+            : {}),
+        });
+        guardianNotified = accessResult.notified;
+        handshakeInProgress =
+          !accessResult.notified &&
+          accessResult.reason === "approval_pending_verification";
+      } catch (err) {
+        log.error(
+          { err, sourceChannel, conversationExternalId },
+          "Failed to notify guardian of access request (admission policy)",
+        );
+      }
     }
 
     // Canned reply mirrors the not_a_member surface. §8.2: no upgrade
     // challenge text for `trusted_contacts` / `guardian_only` denials —
     // sender gets the standard "ask the guardian" copy.
-    const replyText = guardianNotified
-      ? "Hmm looks like you don't have access to talk to me. I'll let your guardian know you tried."
-      : "Sorry, you haven't been approved to message this assistant.";
+    const replyText = await composeAccessDenialReply({
+      sourceChannel,
+      guardianNotified,
+      handshakeInProgress,
+    });
     let replyDelivered = false;
     if (replyCallbackUrl) {
       const replyPayload: Parameters<typeof deliverChannelReply>[1] = {
@@ -930,7 +968,7 @@ export async function handleChannelInbound({
   }
 
   // ── Ingress escalation ──
-  const escalationResponse = handleEscalationIntercept({
+  const escalationResponse = await handleEscalationIntercept({
     resolvedMember,
     canonicalAssistantId,
     sourceChannel,
@@ -1246,6 +1284,12 @@ export async function handleChannelInbound({
         sourceChannel === "slack"
           ? resolveSlackTranscriptTimestampTimezone(inboundClientTimezone)
           : undefined;
+      const slackActorTeamId =
+        sourceChannel === "slack" &&
+        typeof sourceMetadata?.actorTeamId === "string" &&
+        sourceMetadata.actorTeamId.length > 0
+          ? sourceMetadata.actorTeamId
+          : undefined;
       const slackInbound =
         sourceChannel === "slack"
           ? {
@@ -1261,6 +1305,7 @@ export async function handleChannelInbound({
               ...(trustCtx.requesterExternalUserId
                 ? { actorExternalUserId: trustCtx.requesterExternalUserId }
                 : {}),
+              ...(slackActorTeamId ? { actorTeamId: slackActorTeamId } : {}),
               ...buildSlackTimezoneMetadata({
                 actorTimezone: slackActorTimezone?.timezone,
                 actorTimezoneLabel: slackActorTimezone?.timezoneLabel,
@@ -1678,6 +1723,7 @@ async function persistBackfilledSlackMessage(params: {
             downloaded.filename,
             downloaded.mimeType,
             downloaded.data,
+            { normalizeImage: true },
           );
           attachments.push({
             filename: downloaded.filename,

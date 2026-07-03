@@ -35,14 +35,17 @@ const { createSurfaceMutex, handleSurfaceAction, surfaceProxyResolver } =
 
 import type { SurfaceConversationContext } from "../daemon/conversation-surfaces.js";
 import type { SurfaceType, UiSurfaceShow } from "../daemon/message-protocol.js";
+import { queryUnreportedOnboardingEvents } from "../onboarding/onboarding-events-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import {
+  activationSessions,
+  onboardingEvents,
+} from "../persistence/schema/index.js";
 import {
   isActivationSession,
   markActivationSession,
-} from "../memory/activation-session-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
-import { activationSessions, onboardingEvents } from "../memory/schema.js";
+} from "../plugins/defaults/memory/activation-session-store.js";
 
 await initializeDb();
 
@@ -184,7 +187,7 @@ describe("activation moment emission from ui_show surface commits", () => {
     await surfaceProxyResolver(ctx, "ui_show", {
       surface_type: "card",
       title: "Inbox cleaned",
-      data: { text: "Archived 1,240 emails" },
+      data: { body: "Archived 1,240 emails" },
       activation_moment: "first_wow_executed",
     });
 
@@ -210,7 +213,7 @@ describe("activation moment emission from ui_show surface commits", () => {
     await surfaceProxyResolver(ctx, "ui_show", {
       surface_type: "card",
       title: "Result",
-      data: { text: "x" },
+      data: { body: "x" },
       activation_moment: "first_wow_executed",
     });
     expect(queryUnreportedOnboardingEvents(0, undefined, 10)).toHaveLength(0);
@@ -283,7 +286,7 @@ describe("activation moment emission from ui_show surface commits", () => {
     await surfaceProxyResolver(ctx, "ui_show", {
       surface_type: "card",
       title: "Start something",
-      data: { text: "Kick off a draft" },
+      data: { body: "Kick off a draft" },
       actions: [{ id: "go", label: "Go", style: "primary" }],
       activation_moment: "moment_1",
     });

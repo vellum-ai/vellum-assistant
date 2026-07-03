@@ -21,6 +21,7 @@ import { groupBackgroundConversationsBySource } from "@/domains/chat/utils/backg
 import { groupScheduledConversationsByJobId } from "@/domains/chat/utils/scheduled-sub-groups";
 import type { SubGroup } from "@/domains/chat/utils/sub-group";
 import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
+import { channelSectionKey } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 import { mergeConversationLists } from "@/utils/conversation-cache";
 import {
   useBackgroundConversationListQuery,
@@ -48,6 +49,47 @@ export interface PaginatedSection {
   onShowLess: () => void;
 }
 
+/** A paginated sidebar section bound to a specific origin channel. */
+export interface ChannelSectionState extends PaginatedSection {
+  channelId: string;
+}
+
+/**
+ * Shape a conversation list into a paginated sidebar section. Shared by the
+ * Recents section and every per-channel section so the "show more / show
+ * less" and attention-reveal behavior stays identical across them.
+ */
+function buildPaginatedSection(
+  all: Conversation[],
+  visibleCount: number,
+  setVisibleCount: (updater: (prev: number) => number) => void,
+  attentionConversationIds?: Set<string>,
+): PaginatedSection {
+  const attentionIndex = attentionConversationIds
+    ? all.findIndex((c) => attentionConversationIds.has(c.conversationId))
+    : -1;
+  // Force enough rows visible to reveal a conversation that needs attention.
+  const effectiveVisibleCount =
+    attentionIndex >= visibleCount ? attentionIndex + 1 : visibleCount;
+  return {
+    all,
+    items: all.slice(0, effectiveVisibleCount),
+    totalCount: all.length,
+    showMore: effectiveVisibleCount < all.length,
+    showLess:
+      visibleCount > SIDEBAR_CONVERSATION_LIMIT &&
+      all.length > SIDEBAR_CONVERSATION_LIMIT,
+    onShowMore: () =>
+      setVisibleCount((prev) =>
+        Math.min(
+          all.length,
+          Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
+        ),
+      ),
+    onShowLess: () => setVisibleCount(() => SIDEBAR_CONVERSATION_LIMIT),
+  };
+}
+
 export interface SidebarState {
   pinned: Conversation[];
 
@@ -57,7 +99,7 @@ export interface SidebarState {
   background: Conversation[];
   backgroundSubGroups: SubGroup[];
 
-  slack: PaginatedSection;
+  channelSections: ChannelSectionState[];
   recents: PaginatedSection;
 
   customGroups: CustomGroup[];
@@ -190,67 +232,42 @@ export function useSidebarState({
   const [visibleRecentsCount, setVisibleRecentsCount] = useState(
     SIDEBAR_CONVERSATION_LIMIT,
   );
-  const [visibleSlackCount, setVisibleSlackCount] = useState(
-    SIDEBAR_CONVERSATION_LIMIT,
+  // Per-channel "show more" counts, keyed by channel id. Channels absent from
+  // the map default to SIDEBAR_CONVERSATION_LIMIT.
+  const [visibleChannelCounts, setVisibleChannelCounts] = useState<
+    Record<string, number>
+  >({});
+
+  const recentsSection = useMemo(
+    (): PaginatedSection =>
+      buildPaginatedSection(
+        grouped.recents,
+        visibleRecentsCount,
+        setVisibleRecentsCount,
+        attentionConversationIds,
+      ),
+    [grouped.recents, visibleRecentsCount, attentionConversationIds],
   );
 
-  const recentsSection = useMemo((): PaginatedSection => {
-    const attentionIndex = attentionConversationIds
-      ? grouped.recents.findIndex((c) =>
-          attentionConversationIds.has(c.conversationId),
-        )
-      : -1;
-    const effectiveVisibleCount =
-      attentionIndex >= visibleRecentsCount
-        ? attentionIndex + 1
-        : visibleRecentsCount;
-    return {
-      all: grouped.recents,
-      items: grouped.recents.slice(0, effectiveVisibleCount),
-      totalCount: grouped.recents.length,
-      showMore: effectiveVisibleCount < grouped.recents.length,
-      showLess:
-        visibleRecentsCount > SIDEBAR_CONVERSATION_LIMIT &&
-        grouped.recents.length > SIDEBAR_CONVERSATION_LIMIT,
-      onShowMore: () =>
-        setVisibleRecentsCount((prev) =>
-          Math.min(
-            grouped.recents.length,
-            Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
-          ),
+  const channelSections = useMemo(
+    (): ChannelSectionState[] =>
+      grouped.channelSections.map((section) => ({
+        channelId: section.channelId,
+        ...buildPaginatedSection(
+          section.conversations,
+          visibleChannelCounts[section.channelId] ?? SIDEBAR_CONVERSATION_LIMIT,
+          (updater) =>
+            setVisibleChannelCounts((prev) => ({
+              ...prev,
+              [section.channelId]: updater(
+                prev[section.channelId] ?? SIDEBAR_CONVERSATION_LIMIT,
+              ),
+            })),
+          attentionConversationIds,
         ),
-      onShowLess: () => setVisibleRecentsCount(SIDEBAR_CONVERSATION_LIMIT),
-    };
-  }, [grouped.recents, visibleRecentsCount, attentionConversationIds]);
-
-  const slackSection = useMemo((): PaginatedSection => {
-    const attentionIndex = attentionConversationIds
-      ? grouped.slack.findIndex((c) =>
-          attentionConversationIds.has(c.conversationId),
-        )
-      : -1;
-    const effectiveVisibleCount =
-      attentionIndex >= visibleSlackCount
-        ? attentionIndex + 1
-        : visibleSlackCount;
-    return {
-      all: grouped.slack,
-      items: grouped.slack.slice(0, effectiveVisibleCount),
-      totalCount: grouped.slack.length,
-      showMore: effectiveVisibleCount < grouped.slack.length,
-      showLess:
-        visibleSlackCount > SIDEBAR_CONVERSATION_LIMIT &&
-        grouped.slack.length > SIDEBAR_CONVERSATION_LIMIT,
-      onShowMore: () =>
-        setVisibleSlackCount((prev) =>
-          Math.min(
-            grouped.slack.length,
-            Math.max(prev, effectiveVisibleCount) + SIDEBAR_CONVERSATION_LIMIT,
-          ),
-        ),
-      onShowLess: () => setVisibleSlackCount(SIDEBAR_CONVERSATION_LIMIT),
-    };
-  }, [grouped.slack, visibleSlackCount, attentionConversationIds]);
+      })),
+    [grouped.channelSections, visibleChannelCounts, attentionConversationIds],
+  );
 
   // --- Attention-forced expansion ---
 
@@ -272,8 +289,13 @@ export function useSidebarState({
       extra.push("scheduled");
     if (grouped.background.length > 0 && hasAttentionIn(grouped.background))
       extra.push("background");
-    if (grouped.slack.length > 0 && hasAttentionIn(grouped.slack))
-      extra.push("slack");
+    for (const section of grouped.channelSections) {
+      if (
+        section.conversations.length > 0 &&
+        hasAttentionIn(section.conversations)
+      )
+        extra.push(channelSectionKey(section.channelId));
+    }
     if (extra.length === 0) return openCategories;
     if (extra.every((c) => openCategories.includes(c))) return openCategories;
     return [...new Set([...openCategories, ...extra])];
@@ -282,7 +304,7 @@ export function useSidebarState({
     attentionConversationIds,
     grouped.scheduled,
     grouped.background,
-    grouped.slack,
+    grouped.channelSections,
     hasAttentionIn,
   ]);
 
@@ -311,7 +333,7 @@ export function useSidebarState({
     scheduledSubGroups,
     background: grouped.background,
     backgroundSubGroups,
-    slack: slackSection,
+    channelSections,
     recents: recentsSection,
     customGroups: grouped.customGroups,
     effectiveOpenCategories,

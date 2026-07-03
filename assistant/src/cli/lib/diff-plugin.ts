@@ -43,7 +43,6 @@ import {
   DEFAULT_PLUGIN_REF,
   type FetchLike,
   type GitRunner,
-  INSTALL_META_FILENAME,
   materializePluginTree,
   type PluginFetchSource,
   PluginNotFoundError,
@@ -56,6 +55,7 @@ import {
   compareFingerprint,
   computeFingerprint,
   type Fingerprint,
+  PRESERVED_ENTRIES,
 } from "./plugin-fingerprint.js";
 import { PluginNotInstalledError } from "./uninstall-plugin.js";
 
@@ -232,12 +232,8 @@ function buildFileDiffs(
   target: string,
   recorded: Fingerprint,
 ): PluginFileDiff[] {
-  const comparison = compareFingerprint(target, recorded, [
-    INSTALL_META_FILENAME,
-  ]);
-  const materialized = computeFingerprint(baselineRoot, [
-    INSTALL_META_FILENAME,
-  ]);
+  const comparison = compareFingerprint(target, recorded, PRESERVED_ENTRIES);
+  const materialized = computeFingerprint(baselineRoot, PRESERVED_ENTRIES);
 
   const files: PluginFileDiff[] = [];
   for (const path of comparison.modified) {

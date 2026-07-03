@@ -1,0 +1,57 @@
+import type { DrizzleDb } from "../db-connection.js";
+import { getSqliteFrom } from "../db-connection.js";
+
+/**
+ * Backfill MIME types for audio attachments that were stored with
+ * "application/octet-stream" because the EXTENSION_MIME_MAP was
+ * missing audio format entries.
+ *
+ * Updates mime_type based on the file extension in original_filename.
+ */
+
+const AUDIO_EXT_MIME: Record<string, string> = {
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  ogg: "audio/ogg",
+  flac: "audio/flac",
+  aac: "audio/aac",
+  m4a: "audio/x-m4a",
+  opus: "audio/opus",
+};
+
+export function migrateBackfillAudioAttachmentMimeTypes(
+  database: DrizzleDb,
+): void {
+  const raw = getSqliteFrom(database);
+
+  for (const [ext, mime] of Object.entries(AUDIO_EXT_MIME)) {
+    const pattern = `%.${ext}`;
+    const result = raw
+      .query(
+        `UPDATE attachments
+         SET mime_type = ?, kind = 'document'
+         WHERE lower(original_filename) LIKE ?
+           AND mime_type = 'application/octet-stream'`,
+      )
+      .run(mime, pattern);
+
+    if ((result as { changes?: number }).changes) {
+      console.log(
+        `Backfilled ${(result as { changes: number }).changes} .${ext} attachments → ${mime}`,
+      );
+    }
+  }
+}
+
+/**
+ * Reverse: no-op.
+ *
+ * The forward migration corrected incorrect MIME types (application/octet-stream)
+ * to their proper audio/* values. Restoring the wrong MIME types would break
+ * audio playback and file handling. The corrected values are the desired state.
+ */
+export function migrateBackfillAudioAttachmentMimeTypesDown(
+  _database: DrizzleDb,
+): void {
+  // No-op — see comment above.
+}

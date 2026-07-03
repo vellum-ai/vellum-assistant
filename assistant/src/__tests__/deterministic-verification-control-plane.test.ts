@@ -5,8 +5,7 @@
  * 1. Verification control messages (code replies, /start gv_<token>) never invoke
  *    the normal message pipeline — they produce only template-driven copy.
  * 2. Call session mode metadata is persisted correctly for guardian verification calls.
- * 3. TwiML generation includes guardian verification parameters when relevant.
- * 4. Channel verification reply templates are non-empty and deterministic.
+ * 3. Channel verification reply templates are non-empty and deterministic.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -54,22 +53,12 @@ mock.module("../daemon/process-message.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import type { TwilioRelaySpeechConfig } from "../calls/twilio-routes.js";
-import { generateTwiML } from "../calls/twilio-routes.js";
-import { initializeDb } from "../memory/db-init.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { handleChannelInbound } from "../runtime/routes/inbound-message-handler.js";
 import {
   composeChannelVerifyReply,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/verification-templates.js";
-
-// ---------------------------------------------------------------------------
-// DB initialization
-// ---------------------------------------------------------------------------
-
-beforeEach(async () => {
-  await initializeDb();
-});
 
 // ---------------------------------------------------------------------------
 // Template tests: channel verification reply templates are deterministic
@@ -119,74 +108,22 @@ describe("Channel verification reply templates", () => {
 });
 
 // ---------------------------------------------------------------------------
-// TwiML generation: parameter propagation
-// ---------------------------------------------------------------------------
-
-describe("TwiML parameter propagation", () => {
-  const defaultProfile = {
-    language: "en-US",
-    ttsProvider: "google",
-    voice: "en-US-Standard-A",
-  };
-
-  const defaultSpeechConfig: TwilioRelaySpeechConfig = {
-    transcriptionProvider: "deepgram",
-    speechModel: undefined,
-    hints: undefined,
-    interruptSensitivity: "low",
-  };
-
-  test("includes verificationSessionId as Parameter when provided", () => {
-    const twiml = generateTwiML(
-      "session-123",
-      "wss://example.com/v1/calls/relay",
-      null,
-      defaultProfile,
-      defaultSpeechConfig,
-      undefined,
-      { verificationSessionId: "gv-session-456" },
-    );
-    expect(twiml).toContain('name="verificationSessionId"');
-    expect(twiml).toContain('value="gv-session-456"');
-    expect(twiml).toContain("<Parameter");
-  });
-
-  test("omits Parameter elements when no custom parameters", () => {
-    const twiml = generateTwiML(
-      "session-123",
-      "wss://example.com/v1/calls/relay",
-      null,
-      defaultProfile,
-      defaultSpeechConfig,
-    );
-    expect(twiml).not.toContain("<Parameter");
-  });
-
-  test("omits Parameter elements when custom parameters is undefined", () => {
-    const twiml = generateTwiML(
-      "session-123",
-      "wss://example.com/v1/calls/relay",
-      null,
-      defaultProfile,
-      defaultSpeechConfig,
-      "token123",
-      undefined,
-    );
-    expect(twiml).not.toContain("<Parameter");
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Call session mode metadata: createCallSession persists callMode
 // ---------------------------------------------------------------------------
 
 describe("Call session mode metadata", () => {
+  // Cold DB init runs every migration; give it headroom over Bun's 5s default
+  // hook timeout so a loaded CI runner doesn't trip it.
+  beforeEach(async () => {
+    await initializeDb();
+  }, 30_000);
+
   test("createCallSession persists callMode and verificationSessionId", async () => {
     // Dynamic import to avoid circular dependency issues
     const { createCallSession, getCallSession } =
       await import("../calls/call-store.js");
     const { getOrCreateConversation } =
-      await import("../memory/conversation-key-store.js");
+      await import("../persistence/conversation-key-store.js");
 
     const { conversationId } = getOrCreateConversation("test-conv-mode");
     const session = createCallSession({
@@ -212,7 +149,7 @@ describe("Call session mode metadata", () => {
     const { createCallSession, getCallSession } =
       await import("../calls/call-store.js");
     const { getOrCreateConversation } =
-      await import("../memory/conversation-key-store.js");
+      await import("../persistence/conversation-key-store.js");
 
     const { conversationId } = getOrCreateConversation(
       "test-conv-mode-default",
@@ -239,6 +176,10 @@ describe("Call session mode metadata", () => {
 // ---------------------------------------------------------------------------
 
 describe("Verification control messages are deterministic (guard)", () => {
+  beforeEach(async () => {
+    await initializeDb();
+  }, 30_000);
+
   test("handleChannelInbound does not call processMessage for /start gv_<token> bootstrap commands", async () => {
     const { createHash, randomBytes } = await import("node:crypto");
 
@@ -302,6 +243,12 @@ describe("Verification control messages are deterministic (guard)", () => {
           replyCallbackUrl: "http://localhost/callback",
           sourceMetadata: {
             commandIntent: { type: "start", payload: `gv_${bootstrapToken}` },
+            // Gateway stamps a stranger verdict for this not-yet-bound user;
+            // the bootstrap intercept still fires for a present stranger.
+            trustVerdict: {
+              trustClass: "unknown",
+              canonicalSenderId: "user-bootstrap-123",
+            },
           },
         }),
       });
@@ -367,6 +314,18 @@ describe("Verification control messages are deterministic (guard)", () => {
         actorDisplayName: blockedIdentity.displayName,
         sourceMetadata: {
           commandIntent: { type: "start", payload: `gv_${bootstrapToken}` },
+          // Gateway stamps the member verdict surfacing the blocked status; the
+          // ACL hard-deny fires before the bootstrap intercept.
+          trustVerdict: {
+            trustClass: "unknown",
+            canonicalSenderId: blockedIdentity.externalUserId,
+            contactId: "contact-blocked-bootstrap",
+            channelId: "channel-blocked-bootstrap",
+            type: blockedIdentity.sourceChannel,
+            address: blockedIdentity.externalUserId,
+            status: blockedIdentity.status,
+            policy: blockedIdentity.policy,
+          },
         },
       }),
     });

@@ -15,10 +15,15 @@ import { getConfig } from "../../config/loader.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../../memory/checkpoints.js";
+} from "../../persistence/checkpoints.js";
 
 const CHECKPOINT_KEY_TEXT = "empty_state:greeting:text";
 const CHECKPOINT_KEY_TIMESTAMP = "empty_state:greeting:cached_at";
+
+function scopedCheckpointKey(baseKey: string, scope?: string | null): string {
+  const normalizedScope = scope?.trim();
+  return normalizedScope ? `${baseKey}:${normalizedScope}` : baseKey;
+}
 
 function cacheTtlMs(): number {
   return getConfig().ui.emptyStateGreetingCacheTtlMs;
@@ -29,17 +34,30 @@ function cacheTtlMs(): number {
  * Returns `null` when caching is disabled (TTL <= 0), the cache is empty,
  * or the entry has expired.
  */
-export function getCachedEmptyStateGreeting(): string | null {
+export function getCachedEmptyStateGreeting(
+  scope?: string | null,
+): string | null {
   const ttl = cacheTtlMs();
-  if (ttl <= 0) return null; // caching disabled — always regenerate
+  if (ttl <= 0) {
+    // Caching disabled — always regenerate.
+    return null;
+  }
 
   try {
-    const text = getMemoryCheckpoint(CHECKPOINT_KEY_TEXT);
-    const timestampStr = getMemoryCheckpoint(CHECKPOINT_KEY_TIMESTAMP);
-    if (!text || !timestampStr) return null;
+    const text = getMemoryCheckpoint(
+      scopedCheckpointKey(CHECKPOINT_KEY_TEXT, scope),
+    );
+    const timestampStr = getMemoryCheckpoint(
+      scopedCheckpointKey(CHECKPOINT_KEY_TIMESTAMP, scope),
+    );
+    if (!text || !timestampStr) {
+      return null;
+    }
 
     const cachedAt = Number(timestampStr);
-    if (Number.isNaN(cachedAt) || Date.now() - cachedAt > ttl) return null;
+    if (Number.isNaN(cachedAt) || Date.now() - cachedAt > ttl) {
+      return null;
+    }
 
     return text;
   } catch {
@@ -52,12 +70,21 @@ export function getCachedEmptyStateGreeting(): string | null {
  * No-ops when caching is disabled (TTL <= 0) so a zero-TTL workspace never
  * writes a stale entry.
  */
-export function setCachedEmptyStateGreeting(text: string): void {
-  if (cacheTtlMs() <= 0) return; // caching disabled — skip write
+export function setCachedEmptyStateGreeting(
+  text: string,
+  scope?: string | null,
+): void {
+  if (cacheTtlMs() <= 0) {
+    // Caching disabled — skip write.
+    return;
+  }
 
   try {
-    setMemoryCheckpoint(CHECKPOINT_KEY_TEXT, text);
-    setMemoryCheckpoint(CHECKPOINT_KEY_TIMESTAMP, String(Date.now()));
+    setMemoryCheckpoint(scopedCheckpointKey(CHECKPOINT_KEY_TEXT, scope), text);
+    setMemoryCheckpoint(
+      scopedCheckpointKey(CHECKPOINT_KEY_TIMESTAMP, scope),
+      String(Date.now()),
+    );
   } catch {
     // Cache write failure is non-fatal — next request will regenerate.
   }

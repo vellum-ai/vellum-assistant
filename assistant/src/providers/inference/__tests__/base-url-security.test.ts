@@ -3,13 +3,13 @@ import { describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateCreateProviderConnections } from "../../../memory/migrations/243-provider-connections.js";
-import { migrateProviderConnectionStatusLabel } from "../../../memory/migrations/244-provider-connection-status-label.js";
-import { migrateProviderConnectionBaseUrlAndModels } from "../../../memory/migrations/250-provider-connection-base-url-and-models.js";
-import { migrateStripBaseUrlNonOpenaiCompatible } from "../../../memory/migrations/257-strip-base-url-non-openai-compatible.js";
-import { migrateDropProviderConnectionStatus } from "../../../memory/migrations/265-drop-provider-connection-status.js";
-import * as schema from "../../../memory/schema.js";
-import { providerConnections } from "../../../memory/schema/inference.js";
+import { migrateCreateProviderConnections } from "../../../persistence/migrations/243-provider-connections.js";
+import { migrateProviderConnectionStatusLabel } from "../../../persistence/migrations/244-provider-connection-status-label.js";
+import { migrateProviderConnectionBaseUrlAndModels } from "../../../persistence/migrations/250-provider-connection-base-url-and-models.js";
+import { migrateStripBaseUrlNonOpenaiCompatible } from "../../../persistence/migrations/257-strip-base-url-non-openai-compatible.js";
+import { migrateDropProviderConnectionStatus } from "../../../persistence/migrations/265-drop-provider-connection-status.js";
+import * as schema from "../../../persistence/schema/index.js";
+import { providerConnections } from "../../../persistence/schema/inference.js";
 import { getConnection } from "../connections.js";
 import { resolveAuth } from "../resolve-auth.js";
 
@@ -116,7 +116,7 @@ describe("resolveAuth defense-in-depth", () => {
   }));
 
   // Mock the platform proxy context to avoid real platform calls.
-  mock.module("../../../providers/platform-proxy/context.js", () => ({
+  mock.module("../../platform-proxy/context.js", () => ({
     buildManagedBaseUrl: async () => null,
     resolveManagedProxyContext: async () => ({
       assistantApiKey: "platform-key",

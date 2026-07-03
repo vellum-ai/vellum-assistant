@@ -15,6 +15,7 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
+  useRef,
   useState,
 } from "react";
 import { Link } from "react-router";
@@ -218,6 +219,7 @@ export function StatusBannerNotice({
 
 const OPERATIONAL_STATUS_TITLES: Record<AssistantOperationalState, string> = {
   initializing: "Assistant is initializing",
+  migrating: "Assistant is migrating",
   provisioning: "Assistant is provisioning",
   active: "Assistant is healthy",
   sleeping: "Assistant is sleeping",
@@ -242,6 +244,7 @@ const OPERATIONAL_STATUS_FAILED_TITLES: Partial<
   Record<AssistantOperationalState, string>
 > = {
   initializing: "Assistant failed to initialize",
+  migrating: "Assistant migration failed",
   provisioning: "Assistant failed to provision",
   waking: "Assistant failed to wake",
   restarting: "Assistant restart failed",
@@ -273,9 +276,33 @@ function wakingDotIcon(): ReactNode {
   );
 }
 
+function failedOperationActions(
+  showDoctorAction: boolean,
+  onDismiss?: () => void,
+): ReactNode | undefined {
+  if (!showDoctorAction && !onDismiss) return undefined;
+  return (
+    <>
+      {showDoctorAction ? doctorAction() : null}
+      {showDoctorAction && onDismiss ? (
+        <span
+          aria-hidden="true"
+          className="h-3 w-px bg-[color-mix(in_srgb,var(--status-banner-action-color)_35%,transparent)]"
+        />
+      ) : null}
+      {onDismiss ? (
+        <Button variant="ghost" size="compact" onClick={onDismiss}>
+          Dismiss
+        </Button>
+      ) : null}
+    </>
+  );
+}
+
 function operationalStatusBannerConfig(
   status: AssistantOperationalStatus | null | undefined,
   showDoctorAction: boolean,
+  onDismissFailedOperation?: () => void,
 ): BannerConfig | null {
   if (!status || isHealthyOperationalStatus(status)) return null;
 
@@ -290,7 +317,10 @@ function operationalStatusBannerConfig(
         tone: "error",
         title: failedTitle,
         children: status.detail?.message ?? undefined,
-        actions: showDoctorAction ? doctorAction() : undefined,
+        actions: failedOperationActions(
+          showDoctorAction,
+          onDismissFailedOperation,
+        ),
       };
     }
   }
@@ -316,6 +346,7 @@ function operationalStatusBannerConfig(
     case "resizing_machine":
     case "resizing_storage":
     case "initializing":
+    case "migrating":
     case "provisioning":
       return {
         tone: "info",
@@ -365,6 +396,14 @@ function localHealthBannerConfig(
         title: "Your assistant is waking up",
         icon: wakingDotIcon(),
       };
+    case "upgrading":
+      return {
+        tone: "warning",
+        title: "Assistant is upgrading",
+        icon: (
+          <LoaderCircle className="h-4 w-4 animate-spin" aria-hidden="true" />
+        ),
+      };
     case "crashed":
       return {
         tone: "error",
@@ -408,10 +447,12 @@ function BannerNotice({
   banner,
   className,
   placement,
+  reserveTopSafeArea,
 }: {
   banner: BannerConfig;
   className?: string;
   placement: StatusBannerPlacement;
+  reserveTopSafeArea?: boolean;
 }) {
   return (
     <div
@@ -419,6 +460,14 @@ function BannerNotice({
         placement === "electron" ? "px-4 pt-2" : "px-0 pt-0",
         className,
       )}
+      style={
+        reserveTopSafeArea
+          ? {
+              paddingTop:
+                "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
+            }
+          : undefined
+      }
     >
       <StatusBannerNotice
         tone={banner.tone}
@@ -513,6 +562,28 @@ function useAssistantBannerConfig(): BannerConfig | null {
     }, 15_000);
     return () => clearTimeout(timeout);
   }, [wasRecentlyActive, operationalStatus?.state]);
+  // Track dismissed failed-operation banners so the user can clear
+  // terminal error messages (e.g. "Assistant upgrade failed"). The
+  // dismissal is keyed on the operation state so it auto-resets when
+  // the platform reports a new state.
+  const [dismissedFailedState, setDismissedFailedState] = useState<
+    string | null
+  >(null);
+  const prevOperationalStateRef = useRef(operationalStatus?.state);
+  useEffect(() => {
+    const prev = prevOperationalStateRef.current;
+    prevOperationalStateRef.current = operationalStatus?.state;
+    if (operationalStatus?.state !== prev) {
+      setDismissedFailedState(null);
+    }
+  }, [operationalStatus?.state]);
+
+  const handleDismissFailedOperation = useCallback(() => {
+    if (operationalStatus?.state) {
+      setDismissedFailedState(operationalStatus.state);
+    }
+  }, [operationalStatus?.state]);
+
   const [isExitingMaintenanceMode, setIsExitingMaintenanceMode] =
     useState(false);
   const [maintenanceModeExitError, setMaintenanceModeExitError] = useState<
@@ -728,9 +799,19 @@ function useAssistantBannerConfig(): BannerConfig | null {
         ? { ...operationalStatus, state: "sleeping" as AssistantOperationalState }
         : operationalStatus;
 
+  const isFailedOperationDismissed =
+    effectiveStatus?.detail_state === "failed" &&
+    effectiveStatus.state === dismissedFailedState;
+
   const operationalBanner = shouldUseLifecycleMaintenanceMode
     ? maintenanceModeBannerConfig()
-    : operationalStatusBannerConfig(effectiveStatus, showDoctorAction);
+    : isFailedOperationDismissed
+      ? null
+      : operationalStatusBannerConfig(
+          effectiveStatus,
+          showDoctorAction,
+          handleDismissFailedOperation,
+        );
   const isMaintenanceModeBanner =
     operationalStatus?.state === "maintenance_mode" ||
     shouldUseLifecycleMaintenanceMode;
@@ -765,13 +846,20 @@ function useAssistantBannerConfig(): BannerConfig | null {
 export function StatusBanner({
   className,
   placement = isElectron() ? "electron" : "web",
+  reserveTopSafeArea = false,
 }: {
   className?: string;
   placement?: StatusBannerPlacement;
+  reserveTopSafeArea?: boolean;
 }) {
   const banner = useAssistantBannerConfig();
 
   return banner ? (
-    <BannerNotice banner={banner} className={className} placement={placement} />
+    <BannerNotice
+      banner={banner}
+      className={className}
+      placement={placement}
+      reserveTopSafeArea={reserveTopSafeArea}
+    />
   ) : null;
 }

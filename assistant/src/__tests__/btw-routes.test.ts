@@ -8,7 +8,7 @@
 
 import { rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 // ---------------------------------------------------------------------------
 // Mocks — must be defined before importing the module under test
@@ -31,7 +31,7 @@ const mockGetConversationByKey = mock(
   }),
 );
 
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getConversationByKey: mockGetConversationByKey,
   getOrCreateConversation: () => {
     throw new Error(
@@ -42,7 +42,9 @@ mock.module("../memory/conversation-key-store.js", () => ({
 
 const mockAddMessage = mock(() => {});
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: mockAddMessage,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
@@ -82,6 +84,25 @@ mock.module("../runtime/routes/workspace-greetings.js", () => ({
   readWorkspaceGreetings: () => null,
 }));
 
+const mockConfig = {
+  ui: {
+    emptyStateGreetingCacheTtlMs: 0,
+    userTimezone: "",
+    detectedTimezone: "",
+  },
+  memory: {
+    retrieval: {
+      scratchpadInjection: {
+        enabled: false,
+      },
+    },
+  },
+};
+
+mock.module("../config/loader.js", () => ({
+  getConfig: () => mockConfig,
+}));
+
 // Mock getOrCreateConversation from conversation-store so the handler
 // never touches DaemonServer.
 const mockGetOrCreateConversation = mock(async (_id: string) =>
@@ -101,7 +122,6 @@ mock.module("../daemon/conversation-store.js", () => ({
   conversationEntries: () => [][Symbol.iterator](),
   conversationIds: () => [][Symbol.iterator](),
   getConversationMap: () => new Map(),
-  initConversationLifecycle: () => {},
   registerConversationFactory: () => {},
   getOrCreateActiveConversation: mockGetOrCreateConversation,
   getConversationOptions: () => undefined,
@@ -178,7 +198,9 @@ function makeMockSession(
 }
 
 const route = ROUTES.find((r) => r.endpoint === "btw" && r.method === "POST");
-if (!route) throw new Error("btw route not found in ROUTES");
+if (!route) {
+  throw new Error("btw route not found in ROUTES");
+}
 
 async function callHandler(
   body: Record<string, unknown>,
@@ -201,7 +223,9 @@ async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {
   const chunks: Uint8Array[] = [];
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
     chunks.push(value);
   }
   return new TextDecoder().decode(
@@ -217,6 +241,13 @@ async function readStream(stream: ReadableStream<Uint8Array>): Promise<string> {
 // ---------------------------------------------------------------------------
 
 describe("POST /v1/btw", () => {
+  beforeEach(() => {
+    mockConfig.ui.emptyStateGreetingCacheTtlMs = 0;
+    mockConfig.ui.userTimezone = "";
+    mockConfig.ui.detectedTimezone = "";
+    mockConfig.memory.retrieval.scratchpadInjection.enabled = false;
+  });
+
   // -- Validation (400s) --
 
   test("throws BadRequestError for missing conversationKey", async () => {
@@ -341,6 +372,30 @@ describe("POST /v1/btw", () => {
     expect(provider.sendMessage).toHaveBeenCalledTimes(1);
     const [, options] = provider.sendMessage.mock.calls[0];
     expect(options!.config!.callSite).toBe("emptyStateGreeting");
+  });
+
+  test("greeting requests include fresh turn context using the client timezone", async () => {
+    const provider = makeMockProvider();
+    const session = makeMockSession(provider);
+    mockGetOrCreateConversation.mockImplementationOnce(async () => session);
+
+    const { result } = await callHandler({
+      conversationKey: "greeting",
+      content: "Generate a greeting",
+      clientTimezone: "Europe/Skopje",
+    });
+    await readStream(result as ReadableStream<Uint8Array>);
+
+    expect(provider.sendMessage).toHaveBeenCalledTimes(1);
+    const [messages] = provider.sendMessage.mock.calls[0] as [
+      Array<{ content: Array<{ type: string; text: string }> }>,
+      SendMessageOptions | undefined,
+    ];
+    const greetingPrompt = messages[2]!.content[0]!.text;
+    expect(greetingPrompt).toContain("Generate a greeting");
+    expect(greetingPrompt).toContain("<turn_context>");
+    expect(greetingPrompt).toContain("current_time:");
+    expect(greetingPrompt).toContain("(Europe/Skopje)");
   });
 
   test("generic requests pass the default callSite", async () => {

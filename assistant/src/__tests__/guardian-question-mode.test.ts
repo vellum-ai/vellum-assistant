@@ -9,10 +9,12 @@ import {
   buildGuardianRequestCodeInstruction,
   hasGuardianRequestCodeInstruction,
   parseGuardianQuestionPayload,
+  parseInteractiveApprovalPayload,
   resolveGuardianInstructionModeForRequest,
   resolveGuardianInstructionModeFromFields,
   resolveGuardianQuestionInstructionMode,
   stripConflictingGuardianRequestInstructions,
+  stripGuardianRequestCodeInstructions,
 } from "../notifications/guardian-question-mode.js";
 
 describe("guardian-question-mode", () => {
@@ -227,5 +229,60 @@ describe("guardian-question-mode", () => {
         "approval",
       ),
     ).toBe("");
+  });
+
+  test("stripGuardianRequestCodeInstructions removes both-mode directives and bare code mentions", () => {
+    const text = [
+      "Alice is asking to run ls /tmp.",
+      "Approval code: A1B2C3",
+      'Reference code: A1B2C3. Reply "A1B2C3 approve" or "A1B2C3 reject".',
+      'Reply "A1B2C3 <your answer>".',
+    ].join("\n");
+
+    expect(stripGuardianRequestCodeInstructions(text, "A1B2C3")).toBe(
+      "Alice is asking to run ls /tmp.",
+    );
+  });
+
+  test("stripGuardianRequestCodeInstructions leaves unrelated text and other codes intact", () => {
+    const text = 'Approval code: ZZZZZZ. Reply "A1B2C3 approve" if you agree.';
+    expect(stripGuardianRequestCodeInstructions(text, "A1B2C3")).toBe(text);
+  });
+
+  test("parseInteractiveApprovalPayload accepts approval-mode payloads with a requestId", () => {
+    expect(
+      parseInteractiveApprovalPayload({
+        requestKind: "tool_grant_request",
+        requestId: "req-1",
+        requestCode: "A1B2C3",
+        questionText: "Allow host bash?",
+        toolName: "host_bash",
+      }),
+    ).not.toBeNull();
+  });
+
+  test("parseInteractiveApprovalPayload rejects answer-mode and unparseable payloads", () => {
+    // Answer mode: free-text questions get no Approve/Reject buttons.
+    expect(
+      parseInteractiveApprovalPayload({
+        requestKind: "pending_question",
+        requestId: "req-2",
+        requestCode: "A1B2C3",
+        questionText: "What time works?",
+        callSessionId: "call-1",
+        activeGuardianRequestCount: 1,
+      }),
+    ).toBeNull();
+
+    // Strict-parse failure: missing required pending_question fields.
+    expect(
+      parseInteractiveApprovalPayload({
+        requestKind: "pending_question",
+        requestId: "req-3",
+        requestCode: "A1B2C3",
+        questionText: "Allow send_email?",
+        toolName: "send_email",
+      }),
+    ).toBeNull();
   });
 });

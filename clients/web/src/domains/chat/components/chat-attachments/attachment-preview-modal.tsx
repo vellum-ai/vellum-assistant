@@ -1,15 +1,17 @@
-import { Download, FileIcon, Loader2, X } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight, Download, FileIcon, Loader2, X } from "lucide-react";
 import type { FC, KeyboardEvent, MouseEvent } from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
-import { attachmentsByIdContentGet } from "@/generated/daemon/sdk.gen";
+import { fetchAttachmentContentBlob } from "@/domains/chat/components/chat-attachments/download-attachment";
 import { Button, Typography } from "@vellumai/design-library";
 
 import { PdfPreview } from "@/domains/chat/components/chat-attachments/pdf-preview";
 import { PreviewMessageCard } from "@/domains/chat/components/chat-attachments/preview-message-card";
 import { TextPreview } from "@/domains/chat/components/chat-attachments/text-preview";
 import { formatAttachmentSize } from "@/domains/chat/components/chat-attachments/utils";
+import type { DisplayAttachment } from "@/types/attachment-types";
 
 // File extensions routed to the inline text preview even when the upstream
 // MIME type is generic (e.g. application/octet-stream).
@@ -45,16 +47,16 @@ const getExtension = (filename: string): string => {
 interface AttachmentPreviewModalProps {
   open: boolean;
   onClose: () => void;
-  attachment: {
-    id: string;
-    filename: string;
-    mimeType: string;
-    sizeBytes: number;
-    previewUrl: string | null;
-  };
+  attachment: DisplayAttachment;
   /** When set, the modal will fetch missing content from
    *  /v1/assistants/{assistantId}/attachments/{attachment.id}/content. */
   assistantId?: string | null;
+  /** Full list of sibling attachments for gallery navigation. When provided
+   *  with more than one entry, prev/next arrows and a position counter render. */
+  siblingAttachments?: DisplayAttachment[];
+  /** Called when the user navigates to a different attachment via the gallery
+   *  arrows. The parent swaps the active `attachment` prop in response. */
+  onNavigate?: (attachment: DisplayAttachment) => void;
 }
 
 /**
@@ -71,12 +73,11 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
   onClose,
   attachment,
   assistantId,
+  siblingAttachments,
+  onNavigate,
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
-  const [objectUrl, setObjectUrl] = useState<string | null>(null);
-  const [isLoadingPreview, setIsLoadingPreview] = useState(false);
-  const [previewError, setPreviewError] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -84,77 +85,104 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     }
   }, [open]);
 
-  // Lazily fetch attachment content as a blob when no previewUrl is supplied.
-  useEffect(() => {
-    if (!open) return;
-    if (attachment.previewUrl) return;
-    if (!assistantId || !attachment.id) return;
+  // Synthetic IDs from the text-parsing history fallback
+  // (parseAttachmentSummariesFromContent) can never resolve against the
+  // daemon's content endpoint, so we never fetch them — we show a clear message
+  // instead of a misleading network error.
+  const isRehydrated =
+    !attachment.previewUrl && attachment.id.startsWith("rehydrated:");
 
-    // Synthetic IDs created by the text-parsing fallback
-    // (parseAttachmentSummariesFromContent) can never resolve against
-    // the daemon's content endpoint. Skip the doomed fetch and show a
-    // clear message instead of a misleading network error.
-    if (attachment.id.startsWith("rehydrated:")) {
-      setPreviewError(
-        "Preview unavailable — file content was not preserved in chat history.",
-      );
+  // Fetch content from the daemon only when there's no inline previewUrl and we
+  // have a real, resolvable id to fetch with.
+  const shouldFetch =
+    open &&
+    !attachment.previewUrl &&
+    !!assistantId &&
+    !!attachment.id &&
+    !isRehydrated;
+
+  const { data: blob, isError } = useQuery({
+    // The attachment id is stable and unique, so it is the cache key — reopening
+    // the same attachment reuses the fetched blob instead of refetching.
+    queryKey: ["attachmentContent", assistantId, attachment.id],
+    queryFn: async () => {
+      const data = await fetchAttachmentContentBlob(assistantId!, attachment.id);
+      if (!data) {
+        throw new Error("Failed to load file");
+      }
+      return data;
+    },
+    enabled: shouldFetch,
+    staleTime: Infinity,
+    retry: false,
+  });
+
+  // Hold the fetched blob as an object URL for the media/text renderers, and
+  // revoke it when the blob changes or the modal unmounts.
+  const [objectUrl, setObjectUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!blob) {
+      setObjectUrl(null);
       return;
     }
-
-    let revoked = false;
-
-    const loadPreview = async () => {
-      setIsLoadingPreview(true);
-      setPreviewError(null);
-      setObjectUrl(null);
-
-      try {
-        const { data, error } = await attachmentsByIdContentGet({
-          path: { assistant_id: assistantId, id: attachment.id },
-          parseAs: "blob",
-          throwOnError: false,
-        });
-        if (error || !(data instanceof Blob)) {
-          throw new Error("Failed to load file");
-        }
-        if (revoked) return;
-
-        const url = URL.createObjectURL(data);
-        setObjectUrl(url);
-      } catch {
-        if (!revoked) {
-          setPreviewError("Failed to load preview.");
-        }
-      } finally {
-        if (!revoked) {
-          setIsLoadingPreview(false);
-        }
-      }
-    };
-
-    void loadPreview();
-
+    const url = URL.createObjectURL(blob);
+    setObjectUrl(url);
     return () => {
-      revoked = true;
-      setObjectUrl((prev) => {
-        if (prev) URL.revokeObjectURL(prev);
-        return null;
-      });
-      setIsLoadingPreview(false);
-      setPreviewError(null);
+      URL.revokeObjectURL(url);
+      setObjectUrl(null);
     };
-  }, [open, attachment.previewUrl, attachment.id, assistantId]);
+  }, [blob]);
+
+  const effectiveUrl = attachment.previewUrl ?? objectUrl;
+
+  // A full-size image whose bytes the browser can't decode (e.g. HEIC on
+  // Chromium, even after fetching the stored original) falls through to the
+  // non-image fallback card instead of rendering the broken-image glyph.
+  const [decodeFailedUrl, setDecodeFailedUrl] = useState<string | null>(null);
+
+  // Loading until there's a usable URL: covers the fetch and the one-render gap
+  // between the blob arriving and its object URL being created.
+  const isLoadingPreview = shouldFetch && !objectUrl && !isError;
+
+  const previewError = isRehydrated
+    ? "Preview unavailable — file content was not preserved in chat history."
+    : isError
+      ? "Failed to load preview."
+      : null;
+
+  const currentIndex = useMemo(() => {
+    if (!siblingAttachments || siblingAttachments.length <= 1) return -1;
+    return siblingAttachments.findIndex((a) => a.id === attachment.id);
+  }, [siblingAttachments, attachment.id]);
+
+  const hasGallery = currentIndex !== -1 && siblingAttachments != null && siblingAttachments.length > 1;
+
+  const goToPrev = useCallback(() => {
+    if (!hasGallery || !siblingAttachments || !onNavigate) return;
+    const prevIndex = (currentIndex - 1 + siblingAttachments.length) % siblingAttachments.length;
+    onNavigate(siblingAttachments[prevIndex]!);
+  }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
+
+  const goToNext = useCallback(() => {
+    if (!hasGallery || !siblingAttachments || !onNavigate) return;
+    const nextIndex = (currentIndex + 1) % siblingAttachments.length;
+    onNavigate(siblingAttachments[nextIndex]!);
+  }, [hasGallery, siblingAttachments, currentIndex, onNavigate]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
-        // Mark the key as consumed so the window-level Escape listener
-        // (which closes the right-hand side panel) doesn't also fire.
         e.preventDefault();
         onClose();
+      } else if (e.key === "ArrowLeft" && hasGallery) {
+        e.preventDefault();
+        goToPrev();
+      } else if (e.key === "ArrowRight" && hasGallery) {
+        e.preventDefault();
+        goToNext();
       }
     },
-    [onClose],
+    [onClose, goToPrev, goToNext, hasGallery],
   );
 
   const handleBackdropClick = useCallback(
@@ -165,8 +193,6 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
     },
     [onClose],
   );
-
-  const effectiveUrl = attachment.previewUrl ?? objectUrl;
 
   const handleDownload = useCallback(async () => {
     if (!effectiveUrl) return;
@@ -222,11 +248,12 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
       return <PdfPreview url={effectiveUrl} />;
     }
 
-    if (isImage && effectiveUrl) {
+    if (isImage && effectiveUrl && decodeFailedUrl !== effectiveUrl) {
       return (
         <img
           src={effectiveUrl}
           alt={attachment.filename}
+          onError={() => setDecodeFailedUrl(effectiveUrl)}
           className="max-h-[80vh] max-w-[90vw] rounded object-contain"
         />
       );
@@ -307,6 +334,29 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
         tintColor="currentColor"
       />
 
+      {hasGallery && (
+        <div className="pointer-events-none absolute inset-x-0 top-1/2 z-10 flex -translate-y-1/2 items-center justify-between px-4">
+          <Button
+            variant="ghost"
+            iconOnly={<ChevronLeft />}
+            expandOnMobile={false}
+            onClick={goToPrev}
+            aria-label="Previous attachment"
+            className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            tintColor="currentColor"
+          />
+          <Button
+            variant="ghost"
+            iconOnly={<ChevronRight />}
+            expandOnMobile={false}
+            onClick={goToNext}
+            aria-label="Next attachment"
+            className="pointer-events-auto h-11 w-11 rounded-full bg-white/10 text-white/70 hover:bg-white/20 hover:text-white"
+            tintColor="currentColor"
+          />
+        </div>
+      )}
+
       <div
         className="flex items-center justify-center"
         onClick={(e) => e.stopPropagation()}
@@ -332,6 +382,14 @@ export const AttachmentPreviewModal: FC<AttachmentPreviewModalProps> = ({
           >
             {formatAttachmentSize(attachment.sizeBytes)}
           </Typography>
+          {hasGallery && (
+            <Typography
+              variant="body-small-default"
+              className="shrink-0 text-white/50"
+            >
+              {currentIndex + 1} / {siblingAttachments!.length}
+            </Typography>
+          )}
         </div>
         <Button
           variant="ghost"

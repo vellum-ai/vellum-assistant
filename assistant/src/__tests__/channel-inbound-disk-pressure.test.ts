@@ -59,18 +59,18 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
     diskPressureStatusSequence?.shift() ?? diskPressureStatus,
 }));
 
-import { upsertContact } from "../contacts/contact-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import * as deliveryCrud from "../memory/delivery-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import * as deliveryCrud from "../persistence/delivery-crud.js";
 import {
   canonicalGuardianRequests,
   channelInboundEvents,
   messages,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 import {
   handleChannelInbound,
+  seedContactChannel,
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
@@ -80,7 +80,6 @@ await initializeDb();
 function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
-  db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM messages");
@@ -91,16 +90,12 @@ function resetTables(): void {
 }
 
 function seedTrustedContact(policy: "allow" | "escalate" = "allow"): void {
-  upsertContact({
+  seedContactChannel({
+    sourceChannel: "telegram",
+    externalUserId: "telegram-user-1",
     displayName: "Example User",
-    channels: [
-      {
-        type: "telegram",
-        address: "telegram-user-1",
-        status: "active",
-        policy,
-      },
-    ],
+    status: "active",
+    policy,
   });
 }
 
@@ -237,16 +232,12 @@ describe("channel inbound disk pressure gate", () => {
   });
 
   test("blocks non-guardian Slack reactions silently (no reply) before persistence while locked", async () => {
-    upsertContact({
+    seedContactChannel({
+      sourceChannel: "slack",
+      externalUserId: "slack-user-1",
       displayName: "Example Slack User",
-      channels: [
-        {
-          type: "slack",
-          address: "slack-user-1",
-          status: "active",
-          policy: "allow",
-        },
-      ],
+      status: "active",
+      policy: "allow",
     });
     const processMessage = mock(async () => {
       throw new Error("processMessage should not run");

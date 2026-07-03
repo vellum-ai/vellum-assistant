@@ -17,6 +17,7 @@ export type LocalAssistantHealth =
   | "healthy"
   | "unhealthy"
   | "unreachable"
+  | "upgrading"
   | "sleeping"
   | "starting"
   | "crashed";

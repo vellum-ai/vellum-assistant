@@ -9,6 +9,7 @@ import {
   type FSWatcher,
   mkdirSync,
   readdirSync,
+  readFileSync,
   unwatchFile,
   watch,
   watchFile,
@@ -17,9 +18,16 @@ import { join, relative } from "node:path";
 
 import { getConfig, invalidateConfigCache } from "../config/loader.js";
 import type { MemoryCleanupConfig } from "../config/schemas/memory-lifecycle.js";
-import { resetCleanupScheduleThrottle } from "../memory/cleanup-schedule-state.js";
-import { clearEmbeddingBackendCache } from "../memory/embedding-backend.js";
+import { resetCleanupScheduleThrottle } from "../persistence/cleanup-schedule-state.js";
+import { clearEmbeddingBackendCache } from "../persistence/embeddings/embedding-backend.js";
+import { syncIdentityNameToPlatform } from "../platform/sync-identity.js";
 import { initializeProviders } from "../providers/registry.js";
+import {
+  publishAvatarChanged,
+  publishConfigChanged,
+  publishIdentityChanged,
+  publishSoundsConfigUpdated,
+} from "../runtime/sync/resource-sync-events.js";
 import { handleCancelSignal } from "../signals/cancel.js";
 import { handleConversationUndoSignal } from "../signals/conversation-undo.js";
 import { handleEmitEventSignal } from "../signals/emit-event.js";
@@ -32,9 +40,13 @@ import {
   getSignalsDir,
   getSoundsDir,
   getWorkspaceDir,
+  getWorkspacePromptPath,
   getWorkspaceSkillsDir,
 } from "../util/platform.js";
+import { evictConversationsForReload } from "./conversation-store.js";
+import { parseIdentityFields } from "./handlers/identity.js";
 import { reloadMcpServers } from "./mcp-reload-service.js";
+import { refreshSkillCapabilityMemories } from "./skill-memory-refresh.js";
 
 const log = getLogger("config-watcher");
 
@@ -175,20 +187,12 @@ export class ConfigWatcher {
   }
 
   /**
-   * Start all file watchers. `onConversationEvict` is called when watched
-   * files change and conversations need to be evicted for reload.
-   * `onIdentityChanged` is called when IDENTITY.md changes on disk.
-   * `onSkillsChanged` is called after skill directory changes evict
-   * conversations.
+   * Start all file watchers. On a detected change the watcher reacts directly:
+   * evicting conversations so the next turn rebuilds against the new config,
+   * broadcasting the relevant resource-changed events to clients, and
+   * refreshing skill capability memories after skill directory changes.
    */
-  start(
-    onConversationEvict: () => void,
-    onIdentityChanged?: () => void,
-    onSoundsConfigChanged?: () => void,
-    onAvatarChanged?: () => void,
-    onConfigChanged?: () => void,
-    onSkillsChanged?: () => void,
-  ): void {
+  start(): void {
     // Reset the stopped flag so a stop()→start() cycle on the same
     // instance resumes hot-reload instead of silently bailing in every
     // watchFile callback. This matters because getConfigWatcher() is a
@@ -204,8 +208,8 @@ export class ConfigWatcher {
           const prevMcpFingerprint = JSON.stringify(this.lastConfig?.mcp ?? {});
           const changed = await this.refreshConfigFromSources();
           if (changed) {
-            onConversationEvict();
-            onConfigChanged?.();
+            evictConversationsForReload();
+            publishConfigChanged();
             const newConfig = this.lastConfig ?? getConfig();
             const newMcpFingerprint = JSON.stringify(newConfig.mcp ?? {});
             if (newMcpFingerprint !== prevMcpFingerprint) {
@@ -222,11 +226,11 @@ export class ConfigWatcher {
         }
       },
       "SOUL.md": () => {
-        onConversationEvict();
+        evictConversationsForReload();
       },
       "IDENTITY.md": () => {
-        onConversationEvict();
-        onIdentityChanged?.();
+        evictConversationsForReload();
+        broadcastIdentityChange();
       },
     };
 
@@ -236,16 +240,11 @@ export class ConfigWatcher {
       this.watchFile(join(workspaceDir, filename), handler, filename);
     }
 
-    if (onSoundsConfigChanged) {
-      this.startSoundsWatcher(onSoundsConfigChanged);
-    }
-    if (onAvatarChanged) {
-      this.startAvatarWatcher(onAvatarChanged);
-    }
-
+    this.startSoundsWatcher();
+    this.startAvatarWatcher();
     this.startSignalsWatcher();
-    this.startUsersWatcher(onConversationEvict);
-    this.startSkillsWatchers(onConversationEvict, onSkillsChanged);
+    this.startUsersWatcher();
+    this.startSkillsWatchers();
   }
 
   stop(): void {
@@ -289,7 +288,7 @@ export class ConfigWatcher {
     }
   }
 
-  private startSoundsWatcher(onSoundsConfigChanged: () => void): void {
+  private startSoundsWatcher(): void {
     const soundsDir = getSoundsDir();
     try {
       if (!existsSync(soundsDir)) {
@@ -307,7 +306,7 @@ export class ConfigWatcher {
             { file: String(filename) },
             "Sounds directory changed, notifying clients",
           );
-          onSoundsConfigChanged();
+          publishSoundsConfigUpdated();
         });
       });
       attachWatcherErrorHandler(watcher, soundsDir);
@@ -321,7 +320,7 @@ export class ConfigWatcher {
     }
   }
 
-  private startUsersWatcher(onConversationEvict: () => void): void {
+  private startUsersWatcher(): void {
     const usersDir = join(getWorkspaceDir(), "users");
     try {
       if (!existsSync(usersDir)) {
@@ -338,7 +337,7 @@ export class ConfigWatcher {
         if (!file.endsWith(".md")) return;
         this.debounceTimers.schedule(`file:users/${file}`, () => {
           log.info({ file }, "Users persona file changed, reloading");
-          onConversationEvict();
+          evictConversationsForReload();
         });
       });
       attachWatcherErrorHandler(watcher, usersDir);
@@ -355,7 +354,7 @@ export class ConfigWatcher {
     }
   }
 
-  private startAvatarWatcher(onAvatarChanged: () => void): void {
+  private startAvatarWatcher(): void {
     const avatarDir = getAvatarDir();
     try {
       if (!existsSync(avatarDir)) {
@@ -374,7 +373,7 @@ export class ConfigWatcher {
             { file: String(filename) },
             "Avatar image changed, notifying clients",
           );
-          onAvatarChanged();
+          publishAvatarChanged();
         });
       });
       attachWatcherErrorHandler(watcher, avatarDir);
@@ -445,10 +444,7 @@ export class ConfigWatcher {
     }
   }
 
-  private startSkillsWatchers(
-    onConversationEvict: () => void,
-    onSkillsChanged?: () => void,
-  ): void {
+  private startSkillsWatchers(): void {
     const skillsDir = getWorkspaceSkillsDir();
     if (!existsSync(skillsDir)) return;
 
@@ -457,8 +453,8 @@ export class ConfigWatcher {
 
       this.debounceTimers.schedule("skills:catalog", () => {
         log.info({ file }, "Skill file changed, reloading");
-        onConversationEvict();
-        onSkillsChanged?.();
+        evictConversationsForReload();
+        refreshSkillCapabilityMemories(getConfig());
       });
     };
 
@@ -595,13 +591,26 @@ export class ConfigWatcher {
 }
 
 /**
- * Return true if any cleanup field the user can change via the UI differs
- * between the previous and next config snapshots. Used to decide whether to
- * reset the cleanup-scheduler throttle after a config reload so retention
- * changes take effect immediately instead of waiting up to 6 hours.
- *
- * Exported for unit testing.
+ * Re-read IDENTITY.md and broadcast the parsed fields to clients, best-effort
+ * syncing the assistant name to the platform record. The config watcher's
+ * IDENTITY.md-change reaction.
  */
+function broadcastIdentityChange(): void {
+  try {
+    const identityPath = getWorkspacePromptPath("IDENTITY.md");
+    const content = existsSync(identityPath)
+      ? readFileSync(identityPath, "utf-8")
+      : "";
+    const fields = parseIdentityFields(content);
+    publishIdentityChanged(fields);
+    if (fields.name) {
+      syncIdentityNameToPlatform(fields.name);
+    }
+  } catch (err) {
+    log.error({ err }, "Failed to broadcast identity change");
+  }
+}
+
 // ─── Module-level singleton ──────────────────────────────────────────────────
 
 let _instance: ConfigWatcher | undefined;
@@ -614,6 +623,21 @@ export function getConfigWatcher(): ConfigWatcher {
     _instance = new ConfigWatcher();
   }
   return _instance;
+}
+
+/**
+ * Initialize the config fingerprint and start all workspace file watchers.
+ * Called once during daemon startup.
+ */
+export function startConfigWatcher(): void {
+  const watcher = getConfigWatcher();
+  watcher.initFingerprint(getConfig());
+  watcher.start();
+}
+
+/** Stop the config watcher during daemon shutdown. */
+export function stopConfigWatcher(): void {
+  getConfigWatcher().stop();
 }
 
 export function cleanupSettingsChanged(

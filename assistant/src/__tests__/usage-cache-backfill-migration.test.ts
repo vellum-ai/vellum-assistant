@@ -22,10 +22,10 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-import { getDb, getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { migrateBackfillUsageCacheAccounting } from "../memory/migrations/140-backfill-usage-cache-accounting.js";
-import { rawGet, rawRun } from "../memory/raw-query.js";
+import { getDb, getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { migrateBackfillUsageCacheAccounting } from "../persistence/migrations/140-backfill-usage-cache-accounting.js";
+import { rawGet, rawRun } from "../persistence/raw-query.js";
 import type { PricingUsage } from "../usage/types.js";
 import {
   resolvePricing,
@@ -33,8 +33,6 @@ import {
 } from "../util/pricing.js";
 
 await initializeDb();
-
-const CHECKPOINT_KEY = "migration_backfill_usage_cache_accounting_v1";
 
 interface UsageEventRow {
   input_tokens: number;
@@ -58,6 +56,7 @@ function insertUsageEvent(args: {
   pricingStatus?: string;
 }): void {
   rawRun(
+    "test:insertUsageEvent",
     /*sql*/ `
     INSERT INTO llm_usage_events (
       id,
@@ -101,6 +100,7 @@ function insertRequestLog(args: {
   // that ordering — the unqualified reads in the migration resolve to `main`
   // when a same-named table is present there.
   rawRun(
+    "test:insertRequestLog",
     /*sql*/ `
     INSERT INTO main.llm_request_logs (
       id,
@@ -161,7 +161,6 @@ describe("migrateBackfillUsageCacheAccounting", () => {
     `);
     getSqlite().run(`DELETE FROM main.llm_request_logs`);
     getSqlite().run(`DELETE FROM llm_usage_events`);
-    rawRun(`DELETE FROM memory_checkpoints WHERE key = ?`, CHECKPOINT_KEY);
     mockPricingOverrides = [];
   });
 
@@ -263,6 +262,7 @@ describe("migrateBackfillUsageCacheAccounting", () => {
     );
 
     const targetRow = rawGet<UsageEventRow>(
+      "test:fetchTargetUsage",
       `SELECT
          input_tokens,
          output_tokens,
@@ -287,6 +287,7 @@ describe("migrateBackfillUsageCacheAccounting", () => {
     expect(targetRow?.estimated_cost_usd).not.toBe(flattenedHistoricalCost);
 
     const untouchedRow = rawGet<UsageEventRow>(
+      "test:fetchUntouchedUsage",
       `SELECT
          input_tokens,
          output_tokens,
@@ -307,12 +308,6 @@ describe("migrateBackfillUsageCacheAccounting", () => {
       estimated_cost_usd: noLogCost,
       pricing_status: "priced",
     });
-
-    const checkpoint = rawGet<{ value: string }>(
-      `SELECT value FROM memory_checkpoints WHERE key = ?`,
-      CHECKPOINT_KEY,
-    );
-    expect(checkpoint?.value).toBe("1");
   });
 
   test("uses pricing overrides when backfilling Anthropic cache-aware usage rows", () => {
@@ -368,6 +363,7 @@ describe("migrateBackfillUsageCacheAccounting", () => {
     );
 
     const targetRow = rawGet<UsageEventRow>(
+      "test:fetchTargetUsage",
       `SELECT
          input_tokens,
          output_tokens,

@@ -68,14 +68,33 @@ mock.module("../notifications/emit-signal.js", () => ({
   },
 }));
 
+// Guardian principalId is resolved from the gateway binding reader. Mirror the
+// seeded vellum binding so dispatch can resolve the principal.
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => [
+    {
+      channelType: "vellum",
+      contactId: "guardian-vellum",
+      principalId: "test-principal-id",
+      address: "local",
+      status: "active",
+    },
+  ],
+  guardianForChannel: (
+    list: Array<{ channelType: string; status: string }>,
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+  anyGuardian: (list: unknown[]) => list[0],
+}));
+
 import {
   createCallSession,
   createPendingQuestion,
 } from "../calls/call-store.js";
 import { dispatchGuardianQuestion } from "../calls/guardian-dispatch.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 await initializeDb();

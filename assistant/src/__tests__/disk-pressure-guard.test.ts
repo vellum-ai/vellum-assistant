@@ -38,6 +38,7 @@ mock.module("../runtime/assistant-event-hub.js", () => ({
 
 const {
   DISK_PRESSURE_CLEAR_THRESHOLD_PERCENT,
+  DISK_PRESSURE_MIN_FREE_FLOOR_MB,
   DISK_PRESSURE_OVERRIDE_CONFIRMATION,
   DISK_PRESSURE_THRESHOLD_PERCENT,
   DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT,
@@ -341,5 +342,45 @@ describe("disk pressure guard", () => {
     // A drop below even the warning-clear threshold is a genuine recovery.
     setDiskUsage(DISK_PRESSURE_WARNING_CLEAR_THRESHOLD_PERCENT - 1);
     expect(evaluateDiskPressureNow().state).toBe("ok");
+  });
+
+  test("stays ok at a critical usage percentage while ample free space remains", () => {
+    // 99% used of a large volume still leaves gigabytes free — above the floor.
+    const totalMb = 1_000_000;
+    const usedMb = Math.round(totalMb * 0.99); // freeMb ~= 10_000 MiB
+    setDiskUsage(usedMb, totalMb);
+    expect(diskSample!.freeMb).toBeGreaterThanOrEqual(
+      DISK_PRESSURE_MIN_FREE_FLOOR_MB,
+    );
+
+    const status = evaluateDiskPressureNow();
+
+    expect(status.state).toBe("ok");
+    expect(status.locked).toBe(false);
+    expect(status.effectivelyLocked).toBe(false);
+  });
+
+  test("stays ok at a warning usage percentage while ample free space remains", () => {
+    const totalMb = 1_000_000;
+    const usedMb = Math.round(totalMb * 0.85); // 85% used, freeMb ~= 150_000 MiB
+    setDiskUsage(usedMb, totalMb);
+
+    const status = evaluateDiskPressureNow();
+
+    expect(status.state).toBe("ok");
+  });
+
+  test("locks at a critical usage percentage once free space drops below the floor", () => {
+    // High percentage AND little absolute headroom: floor does not apply.
+    const totalMb = 100_000;
+    const freeMb = DISK_PRESSURE_MIN_FREE_FLOOR_MB - 1;
+    setDiskUsage(totalMb - freeMb, totalMb);
+    expect(diskSample!.freeMb).toBeLessThan(DISK_PRESSURE_MIN_FREE_FLOOR_MB);
+
+    const status = evaluateDiskPressureNow();
+
+    expect(status.state).toBe("critical");
+    expect(status.locked).toBe(true);
+    expect(status.effectivelyLocked).toBe(true);
   });
 });

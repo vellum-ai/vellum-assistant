@@ -17,7 +17,7 @@ import {
   listGroups,
   reorderGroups,
   updateGroup,
-} from "../../memory/group-crud.js";
+} from "../../persistence/group-crud.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { publishConversationListChanged } from "../sync/resource-sync-events.js";
 import { BadRequestError, ForbiddenError, NotFoundError } from "./errors.js";

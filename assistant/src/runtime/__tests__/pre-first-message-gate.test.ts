@@ -12,7 +12,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 let rawGetImpl: () => unknown = () => null;
 let rawGetCalls = 0;
 
-mock.module("../../memory/raw-query.js", () => ({
+mock.module("../../persistence/raw-query.js", () => ({
   rawGet: () => {
     rawGetCalls += 1;
     return rawGetImpl();

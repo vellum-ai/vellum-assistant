@@ -5,9 +5,14 @@
  * form, list, table, confirmation, dynamic_page, file_upload,
  * document_preview, task_preferences) inside the chat view. The
  * concrete `data` shape depends on `surfaceType` and is owned by the
- * surface-data subsystem in `daemon/message-types/surfaces.ts`; the
- * canonical schema treats `data` as opaque on the wire so this file
- * doesn't have to mirror eight nested-payload schemas.
+ * surface-data subsystem in `daemon/message-types/surfaces.ts`
+ * (`CardSurfaceDataSchema` et al.). `data` is intentionally opaque on the
+ * wire — not for brevity, but because (1) this event is a member of the
+ * `type`-discriminated `AssistantEventSchema`, and (2) the stream parser
+ * drops any event that fails validation, so a strict per-`surfaceType`
+ * payload schema would silently vanish renderable-but-messy LLM surfaces.
+ * Consumers narrow `data` by parsing it with the canonical per-type schema
+ * (all-optional, so it never rejects a real surface) at their boundary.
  *
  * Lifecycle: a surface progresses `show` → (zero or more `update`s) →
  * (`dismiss` for cancellation OR `complete` with a `summary` /

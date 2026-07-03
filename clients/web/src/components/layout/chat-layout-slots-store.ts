@@ -31,7 +31,14 @@ import type { Conversation } from "@/types/conversation-types";
 
 export interface ChatHeaderSupplements {
   hasPersistedMessage: boolean;
-  slackHeaderLabel: string | null;
+  /** Human label for the originating external channel (e.g. a Slack
+   *  channel name, a Telegram sender) shown alongside the conversation
+   *  title, or null for native Vellum conversations. */
+  channelHeaderLabel: string | null;
+  /** Origin channel id (`"slack"`, `"telegram"`, …) backing
+   *  {@link channelHeaderLabel}, used to pick the channel icon. Null for
+   *  native conversations. */
+  channelHeaderChannelId: string | null;
   /** Secondary action callbacks — ChatPage-specific because they need
    *  access to the message list, active stream, or ChatPage-local state. */
   onAnalyze: ((conversation: Conversation) => void) | null;

@@ -1,13 +1,46 @@
 import { validateInferenceProfileKey } from "../../config/inference-profile-validation.js";
 import { resolveDefaultProfileKey } from "../../config/llm-resolver.js";
 import { getConfig } from "../../config/loader.js";
-import { AUTO_PROFILE_KEY } from "../../config/seed-inference-profiles.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
-import { getConversationOverrideProfile } from "../../memory/conversation-crud.js";
-import type { Message } from "../../providers/types.js";
-import { getSubagentManager } from "../../subagent/index.js";
+import type { ServerMessage } from "../../daemon/message-protocol.js";
+import {
+  getConversationOverrideProfile,
+  getMessages,
+} from "../../persistence/conversation-crud.js";
+import type { ContentBlock, Message } from "../../providers/types.js";
+import {
+  advisorRequestText,
+  buildAdvisorSystem,
+} from "../../subagent/consult-prompt.js";
+import { sanitizeConsultTranscript } from "../../subagent/consult-transcript.js";
+import {
+  getSubagentManager,
+  SubagentAbortedError,
+} from "../../subagent/index.js";
 import type { SubagentRole } from "../../subagent/types.js";
+import { getLogger } from "../../util/logger.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
+import { createConsultDeadline } from "./consult-deadline.js";
+
+const log = getLogger("subagent-spawn");
+
+/**
+ * Idle ceiling on a single advisor consult: abort only after this much time
+ * passes with NO streamed token (thinking or text). A reasoning advisor profile
+ * streams its reasoning while it works, so a fixed wall-clock ceiling would kill
+ * it mid-thought; an idle window instead fires only when the consult is
+ * genuinely stalled (or never starts). Generous enough to also span
+ * time-to-first-token over a large inherited transcript.
+ */
+const ADVISOR_IDLE_TIMEOUT_MS = 60_000;
+
+/**
+ * Absolute backstop on a single advisor consult regardless of streaming
+ * progress, so a runaway or looping stream can't block the parent forever.
+ * Either ceiling still yields the partial guidance (recovered in the
+ * `SubagentAbortedError` branch below), not a discard.
+ */
+const ADVISOR_MAX_TIMEOUT_MS = 300_000;
 
 export async function executeSubagentSpawn(
   input: Record<string, unknown>,
@@ -62,6 +95,19 @@ export async function executeSubagentSpawn(
       content: "No client connected - cannot spawn subagent.",
       isError: true,
     };
+  }
+
+  // ── Advisor role: synchronous, tool-less, stronger-model consult ──
+  // Branch before the fire-and-forget path: the advisor blocks on the run and
+  // returns its guidance as the tool result in the same turn.
+  if (role === "advisor") {
+    return runAdvisorConsult({
+      context,
+      label,
+      objective,
+      sendToClient: sendToClient as (msg: ServerMessage) => void,
+      requestedOverrideProfile,
+    });
   }
 
   // ── Fork mode: resolve parent context ────────────────────────────
@@ -128,12 +174,7 @@ export async function executeSubagentSpawn(
         context.invokingCallSite ?? "mainAgent",
         getConfig().llm,
       );
-    // Skip the metadata-only "auto" key: forwarding it collapses the child to
-    // `llm.default`, whereas the invoker's own auto base IS the `subagentSpawn`
-    // default — so leaving this undefined keeps the child on that default.
-    if (inheritedCandidate !== AUTO_PROFILE_KEY) {
-      inheritedOverrideProfile = inheritedCandidate;
-    }
+    inheritedOverrideProfile = inheritedCandidate;
   }
 
   try {
@@ -144,8 +185,8 @@ export async function executeSubagentSpawn(
         objective,
         context: extraContext,
         sendResultToUser,
-        // For fork mode, role is ignored by the manager (forced to general),
-        // but we still omit it from the config to signal intent.
+        // Regular forks omit the role so they default to general; the advisor
+        // role is special-cased earlier via runAdvisorConsult, not here.
         ...(!fork && role ? { role: role as SubagentRole } : {}),
         ...(inheritedOverrideProfile
           ? { overrideProfile: inheritedOverrideProfile }
@@ -173,4 +214,186 @@ export async function executeSubagentSpawn(
     const msg = err instanceof Error ? err.message : String(err);
     return { content: `Failed to spawn subagent: ${msg}`, isError: true };
   }
+}
+
+// ── Advisor consult ──────────────────────────────────────────────────
+
+/**
+ * Run the `advisor` role as a synchronous, context-inheriting, stronger-model
+ * consult and return its guidance as the tool result.
+ *
+ * Inherits the parent transcript (sanitized), frames it as advice via
+ * `buildAdvisorSystem`, runs tool-less on `llm.advisorProfile` (unless the
+ * caller passed an explicit `inference_profile`), and is bounded by a
+ * progress-aware deadline: an idle window (`ADVISOR_IDLE_TIMEOUT_MS`) reset on
+ * every streamed token so a reasoning model isn't killed mid-thought, plus an
+ * absolute `ADVISOR_MAX_TIMEOUT_MS` backstop. If either ceiling is hit, the
+ * partial guidance produced so far is recovered and returned with a "may be cut
+ * off" note rather than discarded. Degrades to a benign non-error notice on any
+ * other failure (including the depth-limit rejection when a subagent itself
+ * calls the advisor).
+ */
+async function runAdvisorConsult(args: {
+  context: ToolContext;
+  label: string;
+  /** The agent's own `objective` — its framing of what it wants advised on. */
+  objective: string;
+  sendToClient: (msg: ServerMessage) => void;
+  requestedOverrideProfile: string | undefined;
+}): Promise<ToolExecutionResult> {
+  const { context, label, objective, sendToClient, requestedOverrideProfile } =
+    args;
+
+  try {
+    const parentConversation = findConversation(context.conversationId);
+    if (!parentConversation) {
+      return {
+        content:
+          "(advisor unavailable: parent conversation could not be resolved)",
+        isError: false,
+      };
+    }
+
+    // Snapshot the parent's in-memory transcript and system prompt, then append
+    // the in-flight assistant turn (the plan/text the model wrote THIS turn,
+    // before calling the advisor). The in-memory array does not yet hold that
+    // turn — the agent loop only writes it back to `conversation.messages` after
+    // the turn settles — but it is already persisted to the DB (the assistant
+    // row is finalized at `message_complete`, which fires before tool execution).
+    // `sanitizeConsultTranscript` then strips the dangling advisor `tool_use`
+    // off that final assistant turn so the inherited transcript is provider-safe.
+    const parentSystemPrompt = parentConversation.getCurrentSystemPrompt();
+    const withInFlight = appendInFlightAssistantTurn(
+      [...parentConversation.messages],
+      context.conversationId,
+    );
+    const sanitizedMessages = sanitizeConsultTranscript(withInFlight);
+
+    // Default to the stronger advisor profile when the caller did not pin one;
+    // an explicit `inference_profile` wins (already forced upstream).
+    const advisorProfile = getConfig().llm.advisorProfile;
+    const overrideProfile = requestedOverrideProfile ?? advisorProfile;
+    const forceOverrideProfile = overrideProfile !== undefined;
+
+    // Progress-aware deadline: reset on every streamed token so the consult
+    // isn't killed mid-thought, with an absolute backstop. Combine it with the
+    // caller's own signal.
+    const deadline = createConsultDeadline({
+      idleMs: ADVISOR_IDLE_TIMEOUT_MS,
+      maxMs: ADVISOR_MAX_TIMEOUT_MS,
+    });
+    const signal = context.signal
+      ? AbortSignal.any([context.signal, deadline.signal])
+      : deadline.signal;
+    // Every streamed chunk (thinking or text) counts as progress and resets the
+    // idle window, then forwards to the caller's stream sink if one is present.
+    const onText = (chunk: string): void => {
+      deadline.recordProgress();
+      context.onOutput?.(chunk);
+    };
+
+    try {
+      const advice = await getSubagentManager().spawnAndAwait(
+        {
+          parentConversationId: context.conversationId,
+          label,
+          // Carry the agent's own objective into the consult request — the
+          // agent states the task here, and the inherited transcript can be thin.
+          objective: advisorRequestText(objective),
+          sendResultToUser: false,
+          role: "advisor",
+          fork: true,
+          parentMessages: sanitizedMessages,
+          systemPromptOverride: buildAdvisorSystem(parentSystemPrompt),
+          ...(overrideProfile ? { overrideProfile } : {}),
+          ...(forceOverrideProfile ? { forceOverrideProfile: true } : {}),
+          ...(context.toolUseId ? { parentToolUseId: context.toolUseId } : {}),
+        },
+        sendToClient,
+        { signal, onText },
+      );
+
+      const trimmed = advice.trim();
+      return {
+        content:
+          trimmed.length > 0 ? trimmed : "(advisor returned no guidance)",
+        isError: false,
+      };
+    } finally {
+      deadline.dispose();
+    }
+  } catch (err) {
+    // Timed out mid-generation: salvage whatever guidance the advisor had
+    // written rather than throwing it away. Partial strategic advice is far
+    // more useful to the agent than an "unavailable" notice — especially on a
+    // slow reasoning profile that needs most of the window to think.
+    if (err instanceof SubagentAbortedError) {
+      const partial = err.partialText.trim();
+      if (partial.length > 0) {
+        log.warn(
+          { conversationId: context.conversationId },
+          "Advisor consult timed out; returning partial guidance",
+        );
+        return {
+          content: `${partial}\n\n_(The advisor reached its time limit while still writing — the guidance above may be cut off.)_`,
+          isError: false,
+        };
+      }
+    }
+    const reason = err instanceof Error ? err.message : String(err);
+    log.warn(
+      { err, conversationId: context.conversationId },
+      "Advisor consult failed",
+    );
+    // Never fail the turn — the advisor is advice, not a blocker.
+    return { content: `(advisor unavailable: ${reason})`, isError: false };
+  }
+}
+
+/**
+ * Append the in-flight assistant turn (persisted this turn before the advisor
+ * tool ran) to an in-memory message snapshot, unless the snapshot already ends
+ * with it. The latest persisted assistant row carries the plan/text the model
+ * wrote immediately before calling the advisor plus the dangling advisor
+ * `tool_use`; `sanitizeConsultTranscript` strips the dangling call.
+ *
+ * Best-effort: a malformed or missing row leaves the snapshot unchanged so the
+ * consult still runs over the in-memory history.
+ */
+function appendInFlightAssistantTurn(
+  messages: Message[],
+  conversationId: string,
+): Message[] {
+  // When the snapshot already ends on an assistant turn, the in-flight turn is
+  // present (or there is none to add) — appending the latest row would duplicate it.
+  if (messages[messages.length - 1]?.role === "assistant") return messages;
+
+  let rows;
+  try {
+    rows = getMessages(conversationId);
+  } catch {
+    return messages;
+  }
+  if (!rows || rows.length === 0) return messages;
+
+  const lastRow = rows[rows.length - 1];
+  if (lastRow.role !== "assistant") return messages;
+
+  let blocks: ContentBlock[];
+  try {
+    const parsed = JSON.parse(lastRow.content);
+    if (Array.isArray(parsed)) {
+      blocks = parsed as ContentBlock[];
+    } else if (typeof parsed === "string") {
+      blocks = [{ type: "text", text: parsed }];
+    } else {
+      return messages;
+    }
+  } catch {
+    // Plain-text content (no JSON envelope).
+    blocks = [{ type: "text", text: lastRow.content }];
+  }
+
+  if (blocks.length === 0) return messages;
+  return [...messages, { role: "assistant", content: blocks }];
 }

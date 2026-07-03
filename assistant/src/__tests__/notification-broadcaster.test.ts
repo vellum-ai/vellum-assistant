@@ -24,6 +24,10 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => null,
+}));
+
 // Mock destination-resolver to return a destination for every requested channel.
 // External channels (telegram, slack) include bindingContext.
 mock.module("../notifications/destination-resolver.js", () => ({

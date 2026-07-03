@@ -6,6 +6,7 @@ import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
 import { ipcClassifyRisk } from "../ipc/gateway-client.js";
+import { MEMORY_RETROSPECTIVE_ORIGIN } from "../plugins/defaults/memory/memory-retrospective-constants.js";
 import { indexCatalogById } from "../skills/include-graph.js";
 import { getSkillRoots } from "../skills/path-classifier.js";
 import { computeTransitiveSkillVersionHash } from "../skills/transitive-version-hash.js";
@@ -26,6 +27,7 @@ import {
   getWorkspacePluginsDir,
   getWorkspaceRoutesDir,
   getWorkspaceToolsDir,
+  getWorkspaceWorkflowsDir,
 } from "../util/platform.js";
 import {
   type ApprovalContext,
@@ -310,6 +312,7 @@ function buildFileContext(): FileContext {
     pluginsDir: resolveRealPath(getWorkspacePluginsDir()),
     toolsDir: resolveRealPath(getWorkspaceToolsDir()),
     routesDir: resolveRealPath(getWorkspaceRoutesDir()),
+    workflowsDir: resolveRealPath(getWorkspaceWorkflowsDir()),
     actorTokenSigningKeyPath: join(protectedDir, "actor-token-signing-key"),
     skillSourceDirs: getSkillRoots(config.skills.load.extraDirs).map(
       resolveRealPath,
@@ -671,6 +674,49 @@ export async function classifyRisk(
   return result;
 }
 
+// ── Background memory-retrospective skill-authoring auto-grant ────────────────
+// Skill scaffolding (`scaffold_managed_skill`, risk: high + allowlist-gated),
+// finding similar skills (`find_similar_skills`), and loading the
+// `skill-management` skill (`skill_load skill-management`, which exposes the
+// scaffold tool) require an interactive approval. The memory-retrospective
+// background job runs without any connected client, so it can never answer that
+// prompt. The grant resolves these tools to ALLOW non-interactively, and ONLY
+// when all of these hold:
+//   - procedural-memory-as-skills is active (`policyContext.procToSkillsActive`,
+//     precomputed by buildPolicyContext: memory-v3 is live),
+//   - the turn is the retrospective background source — guardian trust, `vellum`
+//     source channel, `memory_retrospective` origin (set in
+//     memory-retrospective-job.ts).
+//
+// The grant is intentionally narrow: it matches exactly these tools AND the
+// retrospective origin on a v3-live assistant, so no interactive session, other
+// origin, or non-v3-live install is affected.
+const SKILL_MANAGEMENT_SKILL_ID = "skill-management";
+
+function isRetrospectiveSkillAuthoringGrant(
+  toolName: string,
+  input: Record<string, unknown>,
+  policyContext?: PolicyContext,
+): boolean {
+  if (
+    policyContext?.procToSkillsActive !== true ||
+    policyContext.requestOrigin !== MEMORY_RETROSPECTIVE_ORIGIN ||
+    policyContext.trustClass !== "guardian" ||
+    policyContext.sourceChannel !== "vellum"
+  ) {
+    return false;
+  }
+  if (toolName === "scaffold_managed_skill") return true;
+  if (toolName === "find_similar_skills") return true;
+  if (toolName === "skill_load") {
+    return (
+      getStringField(input, "skill", "skill_id").trim() ===
+      SKILL_MANAGEMENT_SKILL_ID
+    );
+  }
+  return false;
+}
+
 export async function check(
   toolName: string,
   input: Record<string, unknown>,
@@ -680,6 +726,14 @@ export async function check(
   signal?: AbortSignal,
 ): Promise<PermissionCheckResult> {
   signal?.throwIfAborted();
+
+  if (isRetrospectiveSkillAuthoringGrant(toolName, input, policyContext)) {
+    return {
+      decision: "allow",
+      reason:
+        "Memory retrospective background session: skill authoring auto-approved",
+    };
+  }
 
   const classification = await classifyRisk(
     toolName,

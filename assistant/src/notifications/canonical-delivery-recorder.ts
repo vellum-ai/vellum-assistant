@@ -25,7 +25,7 @@ import {
   type CanonicalGuardianDelivery,
   createCanonicalGuardianDelivery,
   updateCanonicalGuardianDelivery,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
 import { getLogger } from "../util/logger.js";
 import type { NotificationDeliveryResult } from "./types.js";
 
@@ -91,11 +91,12 @@ export function recordApprovalCardDelivery(
  * that row's id as `vellumDeliveryId` and it is reused (only its status applied)
  * — otherwise the vellum row is created here from the result.
  *
- * The pipeline result carries the delivered address directly: a `vellum` result
- * carries a `conversationId`; channel results carry the chat (`destination`) and
- * channel-native id (`messageId`). A blank `destination` is recorded as unknown
- * rather than persisting the literal channel name as a chat id. Status is
- * diagnostic — the read paths key off addressing, not status.
+ * Every result records the internal `conversationId` the card is shown in, so a
+ * conversation's pending cards can be found uniformly regardless of channel.
+ * Channel results additionally carry the chat (`destination`) and channel-native
+ * id (`messageId`) used to match inbound replies/reactions; a blank `destination`
+ * is recorded as unknown rather than persisting the literal channel name as a
+ * chat id. Status is diagnostic — the read paths key off addressing, not status.
  *
  * Returns the vellum delivery id (passed in, or created here) so a caller can
  * record its own "pipeline produced no vellum delivery" fallback.
@@ -123,6 +124,7 @@ export function recordGuardianRequestDeliveries(params: {
       deliveryId = recordApprovalCardDelivery({
         requestId,
         channel: result.channel,
+        conversationId: result.conversationId,
         chatId: result.destination.length > 0 ? result.destination : undefined,
         messageId: result.messageId,
       })?.id;

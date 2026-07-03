@@ -36,6 +36,7 @@ import {
     useActiveAssistantLifecycleIsLoading,
     usePlatformGate,
 } from "@/hooks/use-platform-gate";
+import { toastOnError } from "@/utils/mutation-error";
 import { routes } from "@/utils/routes";
 import { BottomSheet } from "@vellumai/design-library/components/bottom-sheet";
 import { Input } from "@vellumai/design-library/components/input";
@@ -43,6 +44,7 @@ import { Menu } from "@vellumai/design-library/components/menu";
 import { Notice } from "@vellumai/design-library/components/notice";
 import { PanelItem } from "@vellumai/design-library/components/panel-item";
 import { Popover } from "@vellumai/design-library/components/popover";
+import { toast } from "@vellumai/design-library/components/toast";
 
 interface SnoozeMenuProps {
   notificationId: string;
@@ -64,24 +66,34 @@ function SnoozeMenu({
 
   const invalidate = () => invalidateNotificationQueries(queryClient);
 
-  const handleSnooze = async (hours: number) => {
+  const handleSnooze = (hours: number) => {
     const now = new Date();
     const snoozedUntil = new Date(
       now.getTime() + hours * 60 * 60 * 1000,
     ).toISOString();
-    await snoozeMutation.mutateAsync({
-      path: { id: notificationId },
-      body: { snoozed_until: snoozedUntil },
-    });
-    invalidate();
+    snoozeMutation.mutate(
+      {
+        path: { id: notificationId },
+        body: { snoozed_until: snoozedUntil },
+      },
+      {
+        onSuccess: invalidate,
+        onError: toastOnError("Failed to snooze notification"),
+      },
+    );
   };
 
-  const handleUnsnooze = async () => {
-    await snoozeMutation.mutateAsync({
-      path: { id: notificationId },
-      body: { snoozed_until: null },
-    });
-    invalidate();
+  const handleUnsnooze = () => {
+    snoozeMutation.mutate(
+      {
+        path: { id: notificationId },
+        body: { snoozed_until: null },
+      },
+      {
+        onSuccess: invalidate,
+        onError: toastOnError("Failed to clear snooze"),
+      },
+    );
   };
 
   if (isMobile) {
@@ -100,7 +112,7 @@ function SnoozeMenu({
                 onSelect={() => {
                   if (snoozeMutation.isPending) return;
                   setOpen(false);
-                  void handleSnooze(hours);
+                  handleSnooze(hours);
                 }}
               />
             ))}
@@ -110,7 +122,7 @@ function SnoozeMenu({
                 onSelect={() => {
                   if (snoozeMutation.isPending) return;
                   setOpen(false);
-                  void handleUnsnooze();
+                  handleUnsnooze();
                 }}
               />
             )}
@@ -129,7 +141,7 @@ function SnoozeMenu({
           <Menu.Item
             key={label}
             disabled={snoozeMutation.isPending}
-            onSelect={() => void handleSnooze(hours)}
+            onSelect={() => handleSnooze(hours)}
           >
             {label}
           </Menu.Item>
@@ -139,7 +151,7 @@ function SnoozeMenu({
             <Menu.Separator />
             <Menu.Item
               disabled={snoozeMutation.isPending}
-              onSelect={() => void handleUnsnooze()}
+              onSelect={() => handleUnsnooze()}
             >
               Clear snooze
             </Menu.Item>
@@ -176,29 +188,43 @@ function PauseAlertsContent({
 
   const invalidate = () => invalidateNotificationQueries(queryClient);
 
-  const handleCreate = async () => {
+  const handleCreate = () => {
     const now = new Date();
     const oneYearFromNow = new Date(
       now.getTime() + 365 * 24 * 60 * 60 * 1000,
     ).toISOString();
-    const created = await createRule.mutateAsync({
-      body: {
-        notification_type: "alert",
-        dedupe_key_prefix: "",
-        reason: reason.trim() || "User requested pause",
-        expires_at: oneYearFromNow,
+    createRule.mutate(
+      {
+        body: {
+          notification_type: "alert",
+          dedupe_key_prefix: "",
+          reason: reason.trim() || "User requested pause",
+          expires_at: oneYearFromNow,
+        },
       },
-    });
-    onPauseCreated(created);
-    invalidate();
-    onClose();
+      {
+        onSuccess: (created) => {
+          onPauseCreated(created);
+          invalidate();
+          onClose();
+        },
+        onError: toastOnError("Failed to pause alerts"),
+      },
+    );
   };
 
-  const handleDelete = async (ruleId: string) => {
-    await deleteRule.mutateAsync({ path: { rule_id: ruleId } });
-    onPauseDeleted(ruleId);
-    invalidate();
-    onClose();
+  const handleDelete = (ruleId: string) => {
+    deleteRule.mutate(
+      { path: { rule_id: ruleId } },
+      {
+        onSuccess: () => {
+          onPauseDeleted(ruleId);
+          invalidate();
+          onClose();
+        },
+        onError: toastOnError("Failed to resume alerts"),
+      },
+    );
   };
 
   const isPending = createRule.isPending || deleteRule.isPending;
@@ -233,7 +259,7 @@ function PauseAlertsContent({
               </div>
               <button
                 type="button"
-                onClick={() => void handleDelete(rule.id)}
+                onClick={() => handleDelete(rule.id)}
                 disabled={isPending}
                 className="ml-2 shrink-0 cursor-pointer rounded px-2 py-1 text-body-small-default text-[var(--system-negative-strong)] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -255,7 +281,7 @@ function PauseAlertsContent({
           />
           <button
             type="button"
-            onClick={() => void handleCreate()}
+            onClick={() => handleCreate()}
             disabled={isPending}
             className="w-full cursor-pointer rounded-md bg-[var(--primary-base)] px-3 py-1.5 text-body-medium-default text-[var(--content-inset)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
           >
@@ -508,12 +534,16 @@ export function NotificationsPage() {
 
   const handleAck = async (id: string, acknowledged: boolean) => {
     setAckingIds((prev) => new Set(prev).add(id));
+    // `ackMutation` is one observer shared by every row, so await this call's
+    // own promise (rather than `.mutate` callbacks, which only fire for the
+    // latest call) to keep overlapping acks from leaving a row stuck.
     try {
-      await ackMutation.mutateAsync({
-        path: { id },
-        body: { acknowledged },
-      });
+      await ackMutation.mutateAsync({ path: { id }, body: { acknowledged } });
       invalidateLists();
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Failed to update notification",
+      );
     } finally {
       setAckingIds((prev) => {
         const next = new Set(prev);

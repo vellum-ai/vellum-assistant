@@ -10,22 +10,30 @@ import {
 } from "bun:test";
 
 import type { LoopToolExecutor } from "../agent/loop.js";
+import {
+  queueConversationNotice,
+  resetConversationNoticesForTests,
+} from "../daemon/conversation-notices.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
+import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import { resetPluginRegistryAndRegisterDefaults } from "../plugins/defaults/index.js";
+import { registerPlugin } from "../plugins/registry.js";
 import type { Message, Provider, ToolDefinition } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
 
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
   ) as Record<string, unknown>),
 };
 const conversationDiskViewRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
   ) as Record<string, unknown>),
 };
 let mockUiConfig: { userTimezone?: string; detectedTimezone?: string } = {};
+let mockLlmProfiles: Record<string, unknown> = {};
+let mockLlmActiveProfile: string | undefined;
 
 // ── Module mocks (must precede imports of the module under test) ─────
 
@@ -74,8 +82,9 @@ mock.module("../config/loader.js", () => ({
           },
         },
       },
-      profiles: {},
+      profiles: mockLlmProfiles,
       callSites: {},
+      activeProfile: mockLlmActiveProfile,
       pricingOverrides: [],
     },
     rateLimit: { maxRequestsPerMinute: 0 },
@@ -272,7 +281,10 @@ const deleteMessageByIdMock = mock(() => ({
 }));
 const reserveMessageMock = mock(async () => ({ id: "msg-reserve" }));
 const updateMessageContentMock = mock(() => {});
-mock.module("../memory/conversation-crud.js", () => ({
+const addMessageMock = mock(() => ({ id: "mock-msg-id" }));
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationUsage: () => {},
   updateMessageMetadata: updateMessageMetadataMock,
@@ -284,7 +296,7 @@ mock.module("../memory/conversation-crud.js", () => ({
     trustContext: undefined,
   }),
   getConversationOriginInterface: () => null,
-  addMessage: () => ({ id: "mock-msg-id" }),
+  addMessage: addMessageMock,
   deleteMessageById: deleteMessageByIdMock,
   updateConversationContextWindow: () => {},
   updateConversationSlackContextWatermark:
@@ -295,6 +307,8 @@ mock.module("../memory/conversation-crud.js", () => ({
   getLastUserTimestampBefore: () => 0,
   reserveMessage: reserveMessageMock,
   updateMessageContent: updateMessageContentMock,
+  recordConversationPersistedSeq: () => {},
+  getConversationPersistedSeq: () => null,
   // The real schema is a Zod object; tests don't exercise validation,
   // so a passthrough is sufficient — the production code at
   // `handleMessageComplete` only branches on `success` and reads two
@@ -307,7 +321,7 @@ mock.module("../memory/conversation-crud.js", () => ({
 
 // The B3 indexing-restoration path imports `indexMessageNow` from
 // `../memory/indexer.js` and `projectAssistantMessage` from
-// `../memory/conversation-attention-store.js`; without these stubs the
+// `../persistence/conversation-attention-store.js`; without these stubs the
 // real modules would try to open a SQLite DB and read a real config.
 const indexMessageNowMock = mock(async () => ({
   indexedSegments: 0,
@@ -315,10 +329,10 @@ const indexMessageNowMock = mock(async () => ({
 }));
 const projectAssistantMessageMock = mock(() => false);
 const publishSyncInvalidationMock = mock(async () => {});
-mock.module("../memory/indexer.js", () => ({
+mock.module("../plugins/defaults/memory/indexer.js", () => ({
   indexMessageNow: indexMessageNowMock,
 }));
-mock.module("../memory/conversation-attention-store.js", () => ({
+mock.module("../persistence/conversation-attention-store.js", () => ({
   projectAssistantMessage: projectAssistantMessageMock,
 }));
 mock.module("../runtime/sync/sync-publisher.js", () => ({
@@ -327,18 +341,18 @@ mock.module("../runtime/sync/sync-publisher.js", () => ({
 
 afterAll(() => {
   mock.module(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
     () => conversationCrudRealSnapshot,
   );
   mock.module(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
     () => conversationDiskViewRealSnapshot,
   );
 });
 
 const syncMessageToDiskMock = mock(() => {});
 const rebuildConversationDiskViewFromDbStateMock = mock(() => {});
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: syncMessageToDiskMock,
   rebuildConversationDiskViewFromDbState:
     rebuildConversationDiskViewFromDbStateMock,
@@ -357,13 +371,13 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],
   getAppsDir: () => "/tmp/apps",
 }));
 
-mock.module("../memory/app-git-service.js", () => ({
+mock.module("../apps/app-git-service.js", () => ({
   commitAppTurnChanges: () => Promise.resolve(),
 }));
 
@@ -550,13 +564,16 @@ mock.module("../workspace/git-service.js", () => ({
   }),
 }));
 
+let mockConversationErrorClassification = {
+  code: "CONVERSATION_PROCESSING_FAILED",
+  userMessage: "Something went wrong processing your message.",
+  retryable: false,
+  errorCategory: "processing_failed",
+};
+
 mock.module("../daemon/conversation-error.js", () => ({
-  classifyConversationError: (_err: unknown, _ctx: unknown) => ({
-    code: "CONVERSATION_PROCESSING_FAILED",
-    userMessage: "Something went wrong processing your message.",
-    retryable: false,
-    errorCategory: "processing_failed",
-  }),
+  classifyConversationError: (_err: unknown, _ctx: unknown) =>
+    mockConversationErrorClassification,
   isUserCancellation: (err: unknown, ctx: { aborted?: boolean }) => {
     if (!ctx.aborted) return false;
     if (err instanceof DOMException && err.name === "AbortError") return true;
@@ -592,7 +609,7 @@ mock.module("../memory/archive-store.js", () => ({
   }),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: recordRequestLogMock,
   backfillMessageIdOnLogs: backfillMessageIdOnLogsMock,
   setAgentLoopExitReasonOnLatestLog: setAgentLoopExitReasonOnLatestLogMock,
@@ -700,6 +717,7 @@ function makeCtx(
       mockConversationRow?.slackContextCompactionWatermarkTs ?? null,
     lastNotifiedInferenceProfile:
       mockConversationRow?.lastNotifiedInferenceProfile ?? null,
+    processingStartedAt: mockConversationRow?.processingStartedAt ?? null,
 
     memoryPolicy: { scopeId: "default", includeDefaultFallback: true },
 
@@ -760,6 +778,7 @@ function makeCtx(
     }),
 
     buildCurrentSystemPrompt: () => "system prompt",
+    syncLoopSystemPrompt: () => {},
     modelOverride: undefined,
 
     graphMemory: {
@@ -820,6 +839,8 @@ function makeCompactionResult(
 
 beforeEach(() => {
   mockUiConfig = {};
+  mockLlmProfiles = {};
+  mockLlmActiveProfile = undefined;
   mockEstimateTokens = 1000;
   mockReducerStepFn = null;
   mockOverflowAction = "fail_gracefully";
@@ -861,10 +882,24 @@ beforeEach(() => {
   deleteMessageByIdMock.mockClear();
   reserveMessageMock.mockClear();
   updateMessageContentMock.mockClear();
+  addMessageMock.mockClear();
+  mockConversationErrorClassification = {
+    code: "CONVERSATION_PROCESSING_FAILED",
+    userMessage: "Something went wrong processing your message.",
+    retryable: false,
+    errorCategory: "processing_failed",
+  };
   indexMessageNowMock.mockClear();
   projectAssistantMessageMock.mockClear();
   publishSyncInvalidationMock.mockClear();
+  resolveAssistantAttachmentsMock.mockClear();
+  resolveAssistantAttachmentsMock.mockImplementation(async () => ({
+    assistantAttachments: [],
+    emittedAttachments: [],
+    directiveWarnings: [],
+  }));
   mockMessageById = null;
+  resetConversationNoticesForTests();
   // The compaction pipeline runs through the plugin registry; reset and
   // re-register every default so it dispatches to middleware backed by the
   // mocked collaborators these tests install (`syncMessageToDisk`, etc.)
@@ -873,6 +908,153 @@ beforeEach(() => {
 });
 
 describe("session-agent-loop", () => {
+  describe("user-prompt-submit hook failures", () => {
+    test("passes the effective profile to hooks even when it was already announced", async () => {
+      mockLlmProfiles = {
+        balanced: {
+          label: "Balanced",
+          model: "accounts/fireworks/models/glm-5p2",
+        },
+        quality: { label: "Quality", model: "claude-opus-4-8" },
+      };
+      mockLlmActiveProfile = "quality";
+      const observedProfileKeys: string[] = [];
+      registerPlugin({
+        manifest: {
+          name: "test-observe-model-profile",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async (ctx: UserPromptSubmitContext) => {
+            observedProfileKeys.push(ctx.modelProfileKey);
+          },
+        },
+      });
+
+      const ctx = makeCtx({
+        inferenceProfile: "balanced",
+        lastNotifiedInferenceProfile: "balanced",
+        providerResponses: [textResponse("ok")],
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+      expect(observedProfileKeys).toEqual(["balanced"]);
+    });
+
+    test("logs and continues with prior hook mutations", async () => {
+      registerPlugin({
+        manifest: {
+          name: "test-user-prompt-rewrite",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async (_ctx: UserPromptSubmitContext) => ({
+            latestMessages: [
+              {
+                role: "user" as const,
+                content: [{ type: "text" as const, text: "rewritten prompt" }],
+              },
+            ],
+          }),
+        },
+      });
+      registerPlugin({
+        manifest: {
+          name: "test-user-prompt-throw",
+          version: "1.0.0",
+        },
+        hooks: {
+          "user-prompt-submit": async () => {
+            throw new Error("simulated hook failure");
+          },
+        },
+      });
+
+      const events: ServerMessage[] = [];
+      const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
+      const runSpy = spyOn(ctx.agentLoop, "run");
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(runSpy).toHaveBeenCalledTimes(1);
+      const call = runSpy.mock.calls[0]?.[0] as
+        | { messages: Message[] }
+        | undefined;
+      expect(call?.messages[0]?.content).toEqual([
+        { type: "text", text: "rewritten prompt" },
+      ]);
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toBeUndefined();
+      expect(
+        events.find((event) => event.type === "message_complete"),
+      ).toBeDefined();
+    });
+  });
+
+  describe("conversation notices", () => {
+    test("emits queued billing notices after a successful turn", async () => {
+      const events: ServerMessage[] = [];
+      const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
+      queueConversationNotice(ctx.conversationId, "memory-v3-test", {
+        source: "memory_v3",
+        code: "PROVIDER_BILLING",
+        userMessage: "You've run out of credits.",
+        errorCategory: "credits_exhausted",
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toBeUndefined();
+      const messageCompleteIndex = events.findIndex(
+        (event) => event.type === "message_complete",
+      );
+      const conversationNoticeIndex = events.findIndex(
+        (event) => event.type === "conversation_notice",
+      );
+
+      expect(messageCompleteIndex).toBeGreaterThanOrEqual(0);
+      expect(conversationNoticeIndex).toBeGreaterThan(messageCompleteIndex);
+      expect(events[conversationNoticeIndex]).toEqual({
+        type: "conversation_notice",
+        conversationId: "test-conv",
+        source: "memory_v3",
+        code: "PROVIDER_BILLING",
+        userMessage: "You've run out of credits.",
+        errorCategory: "credits_exhausted",
+      });
+    });
+
+    test("clears queued notices when post-loop success work fails", async () => {
+      resolveAssistantAttachmentsMock.mockImplementation(async () => {
+        throw new Error("attachment resolution failed");
+      });
+      const events: ServerMessage[] = [];
+      const ctx = makeCtx({ providerResponses: [textResponse("ok")] });
+      queueConversationNotice(ctx.conversationId, "memory-v3-test", {
+        source: "memory_v3",
+        code: "PROVIDER_BILLING",
+        userMessage: "You've run out of credits.",
+        errorCategory: "credits_exhausted",
+      });
+
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(
+        events.find((event) => event.type === "conversation_notice"),
+      ).toBeUndefined();
+      expect(
+        events.find((event) => event.type === "message_complete"),
+      ).toBeUndefined();
+      expect(
+        events.find((event) => event.type === "conversation_error"),
+      ).toBeDefined();
+    });
+  });
+
   describe("timezone turn context", () => {
     test("passes ctx.clientTimezone and ui.detectedTimezone into timezone resolution", async () => {
       mockUiConfig = {
@@ -1705,6 +1887,10 @@ describe("session-agent-loop", () => {
       expect(ctx.abortController).toBeNull();
       expect(ctx.currentRequestId).toBeUndefined();
       expect(ctx.commandIntent).toBeUndefined();
+      // Turn-scoped interactivity is stamped during the run and must be cleared
+      // so paths that bypass this loop (e.g. opportunity wakes) don't inherit a
+      // stale value instead of falling back to live client state.
+      expect(ctx.currentTurnIsNonInteractive).toBeUndefined();
     });
 
     test("clears state and surfaces a processing error when the provider call fails", async () => {
@@ -2105,6 +2291,49 @@ describe("session-agent-loop", () => {
       expect(backfillCall[0]).toBe("test-conv");
       expect(backfillCall[1]).toBe("mock-msg-id");
     });
+
+    test("does not persist managed credential refresh failures as assistant text", async () => {
+      mockConversationErrorClassification = {
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        retryable: false,
+        errorCategory: "managed_key_invalid",
+      };
+      const events: ServerMessage[] = [];
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("API key has expired.");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hello", "msg-1", (msg) => events.push(msg));
+
+      expect(
+        events.filter((event) => event.type === "assistant_text_delta"),
+      ).toHaveLength(0);
+
+      const conversationError = events.find(
+        (event) => event.type === "conversation_error",
+      );
+      expect(conversationError).toBeDefined();
+      expect(conversationError).toMatchObject({
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        errorCategory: "managed_key_invalid",
+      });
+
+      expect(addMessageMock).not.toHaveBeenCalled();
+      expect(recordRequestLogMock).not.toHaveBeenCalled();
+      expect(backfillMessageIdOnLogsMock).not.toHaveBeenCalled();
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-reserve");
+    });
   });
 
   describe("B3 pre-allocation: indexing + cleanup", () => {
@@ -2178,6 +2407,44 @@ describe("session-agent-loop", () => {
         publishSyncInvalidationMock.mock.calls as unknown as Array<[string[]]>
       ).filter((args) => args[0]?.includes("conversation:test-conv:metadata"));
       expect(metadataPublishes).toHaveLength(1);
+    });
+
+    test("terminal message_complete is emitted before the deferred indexer runs (LUM-2654)", async () => {
+      // Regression guard for LUM-2654 ("long delay between last streaming token
+      // and send-button becoming available"). The terminal `message_complete`
+      // SSE — which the client uses to flip stop→send — is emitted before the
+      // non-critical finalize side-effects (memory segment indexing, lexical
+      // indexing, attention projection), which the orchestrator drains from its
+      // end-of-turn tail. The tail runs within the turn, so the indexer still
+      // fires exactly once; this test pins the ordering by asserting
+      // `message_complete` is already in the client stream when it does.
+      mockMessageById = {
+        id: "msg-reserve",
+        conversationId: "test-conv",
+        createdAt: 1234567,
+        role: "assistant",
+        content: "[]",
+        metadata: null,
+      };
+
+      const events: ServerMessage[] = [];
+      let messageCompleteSeenWhenIndexed: boolean | undefined;
+      indexMessageNowMock.mockImplementationOnce(async () => {
+        messageCompleteSeenWhenIndexed = events.some(
+          (event) => event.type === "message_complete",
+        );
+        return { indexedSegments: 0, enqueuedJobs: 0 };
+      });
+
+      const ctx = makeCtx({
+        providerResponses: [textResponse("indexed reply")],
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", (msg) => events.push(msg));
+
+      // The deferred indexer runs exactly once, within the turn…
+      expect(indexMessageNowMock).toHaveBeenCalledTimes(1);
+      // …and only after the terminal SSE that re-enables the composer.
+      expect(messageCompleteSeenWhenIndexed).toBe(true);
     });
 
     test("handleMessageComplete skips sync invalidation when attention state unchanged", async () => {
@@ -2315,6 +2582,41 @@ describe("session-agent-loop", () => {
       const lastSync = syncCalls[syncCalls.length - 1];
       expect(lastSync?.[1]).toBe("mock-msg-id");
       expect(lastSync?.[1]).not.toBe("msg-orphaned-reservation");
+    });
+
+    test("managed-key provider-error cleanup publishes message invalidation after deleting the reservation", async () => {
+      reserveMessageMock.mockImplementationOnce(async () => ({
+        id: "msg-managed-key-reservation",
+      }));
+      mockConversationErrorClassification = {
+        code: "MANAGED_KEY_INVALID",
+        userMessage: "Couldn't refresh assistant credentials.",
+        retryable: false,
+        errorCategory: "managed_key_invalid",
+      };
+
+      const ctx = makeCtx({
+        loopProvider: {
+          name: "mock-provider",
+          async sendMessage() {
+            throw new Error("API key has expired.");
+          },
+        } as unknown as Provider,
+      });
+      await runAgentLoopImpl(ctx, "hi", "msg-1", () => {});
+
+      expect(deleteMessageByIdMock).toHaveBeenCalledTimes(1);
+      const deleteCall = deleteMessageByIdMock.mock.calls[0] as unknown as [
+        string,
+      ];
+      expect(deleteCall[0]).toBe("msg-managed-key-reservation");
+      expect(addMessageMock).not.toHaveBeenCalled();
+      expect(syncMessageToDiskMock).not.toHaveBeenCalled();
+
+      const messagePublishes = (
+        publishSyncInvalidationMock.mock.calls as unknown as Array<[string[]]>
+      ).filter((args) => args[0]?.includes("conversation:test-conv:messages"));
+      expect(messagePublishes).toHaveLength(1);
     });
   });
 

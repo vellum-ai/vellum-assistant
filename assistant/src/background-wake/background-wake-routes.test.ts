@@ -1,11 +1,41 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { SchedulerDueWorkResult } from "../schedule/scheduler.js";
+import type { HeartbeatService } from "../heartbeat/heartbeat-service.js";
+import type {
+  SchedulerDueWorkResult,
+  SchedulerHandle,
+} from "../schedule/scheduler.js";
 import type { BackgroundWakeIntent } from "./next-wake.js";
-import {
-  clearBackgroundWakeRuntime,
-  registerBackgroundWakeRuntime,
-} from "./runtime-registry.js";
+
+// The drain-due route resolves the scheduler and heartbeat from their
+// singletons; mock those accessors so each test can inject the doubles it
+// asserts against. next-wake.ts also reads HeartbeatService.getInstance(), so
+// the heartbeat mock exposes that too.
+type BackgroundWakeRuntime = {
+  scheduler: Pick<SchedulerHandle, "runOnce" | "runDueWorkOnce">;
+  heartbeat: Pick<HeartbeatService, "nextRunAt" | "runManagedWakeIfDue">;
+};
+
+let mockScheduler: BackgroundWakeRuntime["scheduler"] | null = null;
+let mockHeartbeat: BackgroundWakeRuntime["heartbeat"] | null = null;
+
+mock.module("../schedule/scheduler.js", () => ({
+  getScheduler: () => mockScheduler,
+}));
+mock.module("../heartbeat/heartbeat-service.js", () => ({
+  getHeartbeatService: () => mockHeartbeat,
+  HeartbeatService: { getInstance: () => mockHeartbeat },
+}));
+
+function setBackgroundWakeRuntime(runtime: BackgroundWakeRuntime): void {
+  mockScheduler = runtime.scheduler;
+  mockHeartbeat = runtime.heartbeat;
+}
+
+function clearBackgroundWakeRuntime(): void {
+  mockScheduler = null;
+  mockHeartbeat = null;
+}
 
 type MockIntent = BackgroundWakeIntent;
 type MockCompletionPayload = {
@@ -162,11 +192,11 @@ describe("background wake runtime routes", () => {
     });
   });
 
-  test("drain-due fails when the runtime registry is missing", async () => {
+  test("drain-due fails when the scheduler or heartbeat is unavailable", async () => {
     const handler = findHandler("drainDueBackgroundWake");
 
     await expect(handler({ body: drainBodyFixture() })).rejects.toThrow(
-      "Background wake runtime is not registered",
+      "Background wake runtime is not available",
     );
   });
 
@@ -190,7 +220,7 @@ describe("background wake runtime routes", () => {
       computedIntent = recomputedIntent;
       return schedulerResultFixture({ claimed: 2, completed: 2 });
     });
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: dueAt,
         runManagedWakeIfDue: heartbeatRunManaged,
@@ -228,7 +258,7 @@ describe("background wake runtime routes", () => {
       skipped: 0,
     }));
     const schedulerRunDue = mock(async () => schedulerResultFixture());
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: Date.now() + 5 * 60_000,
         runManagedWakeIfDue: heartbeatRunManaged,
@@ -261,7 +291,7 @@ describe("background wake runtime routes", () => {
       computedIntent = recomputedIntent;
       return schedulerResultFixture({ claimed: 1, completed: 1 });
     });
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: null,
         runManagedWakeIfDue: mock(async () => ({
@@ -304,7 +334,7 @@ describe("background wake runtime routes", () => {
       computedIntent = recomputedIntent;
       return schedulerResultFixture({ claimed: 1, completed: 1 });
     });
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: dueAt,
         runManagedWakeIfDue: heartbeatRunManaged,
@@ -343,7 +373,7 @@ describe("background wake runtime routes", () => {
       skipped: 0,
     }));
     const schedulerRunDue = mock(async () => schedulerResultFixture());
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: Date.now() + 30 * 60_000,
         runManagedWakeIfDue: heartbeatRunManaged,
@@ -381,7 +411,7 @@ describe("background wake runtime routes", () => {
       completed: 1,
       skipped: 0,
     }));
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: dueAt,
         runManagedWakeIfDue: heartbeatRunManaged,
@@ -415,7 +445,7 @@ describe("background wake runtime routes", () => {
     const schedulerRunDue = mock(async () =>
       schedulerResultFixture({ claimed: 1, completed: 1 }),
     );
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: Date.now() + 60_000,
         runManagedWakeIfDue: mock(async () => ({
@@ -466,7 +496,7 @@ describe("background wake runtime routes", () => {
       computedIntent = recomputedIntent;
       return schedulerResultFixture({ claimed: 1, completed: 1 });
     });
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: heartbeatDueAt,
         runManagedWakeIfDue: heartbeatRunManaged,
@@ -504,7 +534,7 @@ describe("background wake runtime routes", () => {
     const schedulerRunDue = mock(async () =>
       schedulerResultFixture({ completed: 1 }),
     );
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: Date.now() + 60_000,
         runManagedWakeIfDue: heartbeatRunManaged,
@@ -545,7 +575,7 @@ describe("background wake runtime routes", () => {
     const schedulerRunDue = mock(async () =>
       schedulerResultFixture({ skipped: 2, stillPending: 2 }),
     );
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: dueAt,
         runManagedWakeIfDue: heartbeatRunManaged,
@@ -594,7 +624,7 @@ describe("background wake runtime routes", () => {
     const schedulerRunDue = mock(async () =>
       schedulerResultFixture({ claimed: 1, completed: 1 }),
     );
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: dueAt,
         runManagedWakeIfDue: heartbeatRunManaged,
@@ -633,7 +663,7 @@ describe("background wake runtime routes", () => {
       await new Promise<void>((resolve) => schedulerResolvers.push(resolve));
       return schedulerResultFixture({ claimed: 1, completed: 1 });
     });
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: Date.now() + 60_000,
         runManagedWakeIfDue: mock(async () => ({
@@ -697,7 +727,7 @@ describe("background wake runtime routes", () => {
     const schedulerRunDue = mock(async () =>
       schedulerResultFixture({ claimed: 1, completed: 1, stillPending: 1 }),
     );
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: Date.now() + 60_000,
         runManagedWakeIfDue: mock(async () => ({
@@ -728,7 +758,7 @@ describe("background wake runtime routes", () => {
     const schedulerRunDue = mock(async () => {
       throw new Error("scheduler exploded");
     });
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: null,
         runManagedWakeIfDue: mock(async () => ({
@@ -764,7 +794,7 @@ describe("background wake runtime routes", () => {
       return { status: "completed" as const, httpStatus: 200 };
     });
     const schedulerRunDue = mock(async () => schedulerResultFixture());
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: null,
         runManagedWakeIfDue: mock(async () => ({
@@ -793,7 +823,7 @@ describe("background wake runtime routes", () => {
 
   test("drain-due accepts vembda snake_case payload aliases", async () => {
     const schedulerRunDue = mock(async () => schedulerResultFixture());
-    registerBackgroundWakeRuntime({
+    setBackgroundWakeRuntime({
       heartbeat: {
         nextRunAt: null,
         runManagedWakeIfDue: mock(async () => ({

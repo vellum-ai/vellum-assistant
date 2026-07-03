@@ -26,7 +26,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // POST /v1/host-cu-result
 // ---------------------------------------------------------------------------
 
-function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
+async function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
@@ -95,9 +95,10 @@ function handleHostCuResult({ body, headers }: RouteHandlerArgs) {
     // stream. This prevents a different authenticated user with knowledge of
     // both the requestId and target clientId from submitting a result on
     // behalf of the targeted client.
-    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
-      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
-    );
+    const submittingActorPrincipalId =
+      await resolveActorPrincipalIdForLocalGuardian(
+        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+      );
     enforceSameActorOrThrow({
       sourceActorPrincipalId: submittingActorPrincipalId,
       targetActorPrincipalId: peeked.targetActorPrincipalId,

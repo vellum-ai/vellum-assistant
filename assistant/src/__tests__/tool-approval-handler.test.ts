@@ -39,12 +39,17 @@ import {
   mintGrantFromDecision,
   type MintGrantParams,
 } from "../approvals/approval-primitive.js";
-import { getDb } from "../memory/db-connection.js";
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { scopedApprovalGrants } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { scopedApprovalGrants } from "../persistence/schema/index.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
-import { ToolApprovalHandler } from "../tools/tool-approval-handler.js";
+import {
+  type ApprovalCellThreshold,
+  isSensitiveTool,
+  resolveSensitiveToolDecision,
+  ToolApprovalHandler,
+} from "../tools/tool-approval-handler.js";
 import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
 
 await initializeDb();
@@ -529,6 +534,87 @@ describe("ToolApprovalHandler / pre-exec gate grant check", () => {
     expect(events.filter((e) => e.type === "permission_denied")).toHaveLength(
       1,
     );
+  });
+});
+
+describe("isSensitiveTool", () => {
+  test("sensitivity is a property of the tool and execution target only", () => {
+    // Side-effect tools are sensitive wherever they run.
+    expect(isSensitiveTool("bash", "sandbox")).toBe(true);
+    expect(isSensitiveTool("file_write", "sandbox")).toBe(true);
+    // Read-only tools are sensitive only when they execute on the host.
+    expect(isSensitiveTool("web_search", "host")).toBe(true);
+    expect(isSensitiveTool("web_search", "sandbox")).toBe(false);
+    // UI surface tools are exempt even on the host target.
+    expect(isSensitiveTool("ui_show", "host")).toBe(false);
+    expect(isSensitiveTool("ui_update", "host")).toBe(false);
+    expect(isSensitiveTool("ui_dismiss", "host")).toBe(false);
+  });
+});
+
+describe("resolveSensitiveToolDecision / CapabilitySet floor invariant", () => {
+  const cellThresholds: Array<ApprovalCellThreshold | undefined> = [
+    undefined,
+    "none",
+    "low",
+    "medium",
+    "high",
+  ];
+  const riskLevels = ["low", "medium", "high"];
+
+  test("no cell threshold or risk level lifts the floor for non-self actors", () => {
+    for (const cellThreshold of cellThresholds) {
+      for (const riskLevel of riskLevels) {
+        expect(
+          resolveSensitiveToolDecision({
+            sensitive: true,
+            cellThreshold,
+            riskLevel,
+            sensitiveToolApproval: "escalate-and-wait",
+          }),
+        ).toBe("escalate-and-wait");
+        expect(
+          resolveSensitiveToolDecision({
+            sensitive: true,
+            cellThreshold,
+            riskLevel,
+            sensitiveToolApproval: "deny",
+          }),
+        ).toBe("deny");
+      }
+    }
+  });
+
+  test("self capability proceeds for sensitive tools (lane-B policy governs downstream)", () => {
+    for (const cellThreshold of cellThresholds) {
+      for (const riskLevel of riskLevels) {
+        expect(
+          resolveSensitiveToolDecision({
+            sensitive: true,
+            cellThreshold,
+            riskLevel,
+            sensitiveToolApproval: "self",
+          }),
+        ).toBe("proceed");
+      }
+    }
+  });
+
+  test("non-sensitive tools proceed regardless of the capability floor", () => {
+    for (const sensitiveToolApproval of [
+      "self",
+      "escalate-and-wait",
+      "deny",
+    ] as const) {
+      expect(
+        resolveSensitiveToolDecision({
+          sensitive: false,
+          cellThreshold: undefined,
+          riskLevel: "high",
+          sensitiveToolApproval,
+        }),
+      ).toBe("proceed");
+    }
   });
 });
 

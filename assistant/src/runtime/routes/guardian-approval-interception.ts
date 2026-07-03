@@ -2,21 +2,14 @@
  * Approval interception: checks for pending approvals and handles inbound
  * messages as decisions, reminders, or conversational follow-ups.
  *
- * This module is the top-level dispatcher. It delegates to strategy modules:
- * - guardian-callback-strategy.ts   — guardian callback button and text decisions
- * - guardian-text-engine-strategy.ts — conversational engine for plain-text messages
+ * This module is the top-level dispatcher. It delegates plain-text messages to
+ * the conversational engine in guardian-text-engine-strategy.ts.
  */
-import { applyGuardianDecision } from "../../approvals/guardian-decision-primitive.js";
+import type { KnownBlock } from "@slack/types";
+
 import type { ChannelId } from "../../channels/types.js";
 import type { TrustContext } from "../../daemon/trust-context.js";
-import {
-  getPendingApprovalForRequest,
-  getUnresolvedApprovalForRequest,
-  updateApprovalDecision,
-} from "../../memory/guardian-approvals.js";
 import { getLogger } from "../../util/logger.js";
-import { runApprovalConversationTurn } from "../approval-conversation-turn.js";
-import { composeApprovalMessageGenerative } from "../approval-message-composer.js";
 import { resolveCapabilities } from "../capabilities.js";
 import type { ApprovalDecisionResult } from "../channel-approval-types.js";
 import {
@@ -26,12 +19,11 @@ import {
 } from "../channel-approvals.js";
 import { deliverChannelReply } from "../gateway-client.js";
 import type {
-  ApprovalConversationContext,
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
 } from "../http-types.js";
+import { findLocalGuardianPrincipalId } from "../local-actor-identity.js";
 import { parseApprovalIntent } from "../nl-approval-parser.js";
-import { handleGuardianCallbackDecision } from "./approval-strategies/guardian-callback-strategy.js";
 import { handleGuardianTextEngineDecision } from "./approval-strategies/guardian-text-engine-strategy.js";
 import {
   buildGuardianDenyContext,
@@ -100,31 +92,6 @@ export async function handleApprovalInterception(
     approvalMessageTs,
   } = params;
 
-  // ── Guardian approval decision path ──
-  // When the sender is the guardian and there's a pending guardian approval
-  // request targeting this chat, the message might be a decision on behalf
-  // of a non-guardian requester. Delegated to the guardian callback strategy.
-  if (
-    resolveCapabilities(trustCtx.trustClass).canSelfApproveTools &&
-    actorExternalId
-  ) {
-    const guardianResult = await handleGuardianCallbackDecision({
-      content,
-      callbackData,
-      conversationExternalId,
-      sourceChannel,
-      actorExternalId,
-      replyCallbackUrl,
-      assistantId,
-      approvalCopyGenerator,
-      approvalConversationGenerator,
-      approvalMessageTs,
-    });
-    if (guardianResult) {
-      return guardianResult;
-    }
-  }
-
   // Slack emoji reactions are handled by the canonical guardian decision
   // pipeline (`routeGuardianReply`), invoked from the inbound reaction stage:
   // it resolves the target request from the reacted card's delivery record.
@@ -171,240 +138,13 @@ export async function handleApprovalInterception(
   if (isIdentityKnownNonGuardian) {
     const pending = getApprovalInfoByConversation(conversationId);
     if (pending.length > 0) {
-      const guardianApprovalForRequest = getPendingApprovalForRequest(
-        pending[0].requestId,
-      );
-      if (guardianApprovalForRequest) {
-        // Allow the requester to cancel their own pending guardian request.
-        // Only reject/cancel is permitted — self-approval is still blocked.
-        if (content) {
-          let requesterCancelIntent = false;
-          let cancelReplyText: string | undefined;
-          let requesterFollowupReplyText: string | undefined;
-
-          // Interpret requester follow-ups through the conversation engine so
-          // "nevermind/cancel" resolves naturally while clarifying questions
-          // remain conversational turns.
-          if (approvalConversationGenerator) {
-            const cancelContext: ApprovalConversationContext = {
-              toolName: pending[0].toolName,
-              allowedActions: ["reject"],
-              role: "requester",
-              pendingApprovals: pending.map((p) => ({
-                requestId: p.requestId,
-                toolName: p.toolName,
-              })),
-              userMessage: content,
-            };
-            const cancelResult = await runApprovalConversationTurn(
-              cancelContext,
-              approvalConversationGenerator,
-            );
-            if (cancelResult.disposition === "reject") {
-              requesterCancelIntent = true;
-              cancelReplyText = cancelResult.replyText;
-            } else if (cancelResult.disposition === "keep_pending") {
-              requesterFollowupReplyText = cancelResult.replyText;
-            }
-          }
-
-          if (requesterCancelIntent) {
-            const rejectDecision: ApprovalDecisionResult = {
-              action: "reject",
-              source: "plain_text",
-            };
-            // Apply the cancel decision through the unified primitive.
-            // The primitive handles record update and (no-op) grant logic.
-            const cancelApplyResult = await applyGuardianDecision({
-              approval: guardianApprovalForRequest,
-              decision: rejectDecision,
-              actorPrincipalId: undefined, // Interception path — principal not available
-              actorExternalUserId: actorExternalId, // Channel-native ID
-              actorChannel: sourceChannel,
-            });
-            if (cancelApplyResult.applied) {
-              // Notify requester
-              const replyText =
-                cancelReplyText ??
-                (await composeApprovalMessageGenerative(
-                  {
-                    scenario: "requester_cancel",
-                    toolName: pending[0].toolName,
-                    channel: sourceChannel,
-                  },
-                  {},
-                  approvalCopyGenerator,
-                ));
-              try {
-                const cancelPayload: Parameters<typeof deliverChannelReply>[1] =
-                  {
-                    chatId: conversationExternalId,
-                    text: replyText,
-                    assistantId,
-                  };
-                const requesterEphemeral = slackEphemeralUserId(
-                  sourceChannel,
-                  actorExternalId,
-                );
-                if (requesterEphemeral) {
-                  cancelPayload.ephemeral = true;
-                  cancelPayload.user = requesterEphemeral;
-                }
-                await deliverChannelReply(replyCallbackUrl, cancelPayload);
-              } catch (err) {
-                log.error(
-                  { err, conversationId },
-                  "Failed to deliver requester cancel notice",
-                );
-              }
-
-              // Notify guardian that the request was cancelled
-              try {
-                const guardianNotice = await composeApprovalMessageGenerative(
-                  {
-                    scenario: "guardian_decision_outcome",
-                    decision: "denied",
-                    toolName: pending[0].toolName,
-                    channel: sourceChannel,
-                  },
-                  {},
-                  approvalCopyGenerator,
-                );
-                const guardianCancelPayload: Parameters<
-                  typeof deliverChannelReply
-                >[1] = {
-                  chatId: guardianApprovalForRequest.guardianChatId,
-                  text: guardianNotice,
-                  assistantId,
-                };
-                const guardianEphemeral = slackEphemeralUserId(
-                  sourceChannel,
-                  guardianApprovalForRequest.guardianExternalUserId,
-                );
-                if (guardianEphemeral) {
-                  guardianCancelPayload.ephemeral = true;
-                  guardianCancelPayload.user = guardianEphemeral;
-                }
-                await deliverChannelReply(
-                  replyCallbackUrl,
-                  guardianCancelPayload,
-                );
-              } catch (err) {
-                log.error(
-                  { err, conversationId },
-                  "Failed to notify guardian of requester cancellation",
-                );
-              }
-
-              return { handled: true, type: "decision_applied" };
-            }
-
-            // Race condition: approval was already resolved elsewhere.
-            await deliverStaleApprovalReply({
-              scenario: "approval_already_resolved",
-              sourceChannel,
-              replyCallbackUrl,
-              chatId: conversationExternalId,
-              assistantId,
-              approvalCopyGenerator,
-              logger: log,
-              errorLogMessage:
-                "Failed to deliver stale requester-cancel notice",
-              errorLogContext: { conversationId },
-              ephemeralUserId: slackEphemeralUserId(
-                sourceChannel,
-                actorExternalId,
-              ),
-            });
-            return { handled: true, type: "stale_ignored" };
-          }
-
-          if (requesterFollowupReplyText) {
-            try {
-              const followupPayload: Parameters<typeof deliverChannelReply>[1] =
-                {
-                  chatId: conversationExternalId,
-                  text: requesterFollowupReplyText,
-                  assistantId,
-                };
-              const followupEphemeral = slackEphemeralUserId(
-                sourceChannel,
-                actorExternalId,
-              );
-              if (followupEphemeral) {
-                followupPayload.ephemeral = true;
-                followupPayload.user = followupEphemeral;
-              }
-              await deliverChannelReply(replyCallbackUrl, followupPayload);
-            } catch (err) {
-              log.error(
-                { err, conversationId },
-                "Failed to deliver requester follow-up reply while awaiting guardian",
-              );
-            }
-            return { handled: true, type: "assistant_turn" };
-          }
-        }
-
-        // Not a cancel intent — tell the requester their request is pending
-        await deliverStaleApprovalReply({
-          scenario: "request_pending_guardian",
-          sourceChannel,
-          replyCallbackUrl,
-          chatId: conversationExternalId,
-          assistantId,
-          approvalCopyGenerator,
-          logger: log,
-          errorLogMessage:
-            "Failed to deliver guardian-pending notice to requester",
-          errorLogContext: { conversationId },
-          ephemeralUserId: slackEphemeralUserId(sourceChannel, actorExternalId),
-        });
-        return { handled: true, type: "assistant_turn" };
-      }
-
-      // Check for an expired-but-unresolved guardian approval. If the approval
-      // expired without a guardian decision, auto-deny and transition
-      // the approval to 'expired'. Without this, the requester could bypass
-      // guardian-only controls by simply waiting for the TTL to elapse.
-      const unresolvedApproval = getUnresolvedApprovalForRequest(
-        pending[0].requestId,
-      );
-      if (unresolvedApproval) {
-        updateApprovalDecision(unresolvedApproval.id, { status: "expired" });
-
-        // Auto-deny the underlying request so it does not remain actionable
-        const expiredDecision: ApprovalDecisionResult = {
-          action: "reject",
-          source: "plain_text",
-        };
-        await handleChannelDecision(conversationId, expiredDecision);
-
-        await deliverStaleApprovalReply({
-          scenario: "guardian_expired_requester",
-          sourceChannel,
-          replyCallbackUrl,
-          chatId: conversationExternalId,
-          assistantId,
-          approvalCopyGenerator,
-          logger: log,
-          errorLogMessage:
-            "Failed to deliver guardian-expiry notice to requester",
-          extraContext: { toolName: pending[0].toolName },
-          errorLogContext: { conversationId },
-          ephemeralUserId: slackEphemeralUserId(sourceChannel, actorExternalId),
-        });
-        return { handled: true, type: "decision_applied" };
-      }
-
-      // Guard: non-guardian actors with a guardian binding must not self-approve
-      // even when no guardian approval row exists yet. The guardian approval
-      // row is created asynchronously when the approval prompt is delivered
-      // to the guardian. In the window between the pending confirmation being
-      // created (isInteractive=true) and the guardian approval row being
-      // persisted, any non-guardian actor could otherwise fall through to the
-      // standard conversational engine / legacy parser and resolve their own
-      // pending request via handleChannelDecision.
+      // Guard: a non-guardian actor with a guardian binding must not
+      // self-approve, even in the window before the guardian's canonical
+      // request row is persisted. The pending confirmation (isInteractive=true)
+      // can exist before the request is delivered to the guardian; without this
+      // guard the actor could fall through to the conversational engine / NL
+      // parser below and resolve their own pending request via
+      // handleChannelDecision.
       if (
         !resolveCapabilities(trustCtx.trustClass).canSelfApproveTools &&
         trustCtx.guardianExternalUserId
@@ -415,7 +155,7 @@ export async function handleApprovalInterception(
             conversationExternalId,
             guardianExternalUserId: trustCtx.guardianExternalUserId,
           },
-          "Blocking non-guardian self-approval: pending confirmation exists but guardian approval row not yet created",
+          "Blocking non-guardian self-approval: pending confirmation exists but canonical guardian request not yet created",
         );
         await deliverStaleApprovalReply({
           scenario: "request_pending_guardian",
@@ -432,6 +172,56 @@ export async function handleApprovalInterception(
         });
         return { handled: true, type: "assistant_turn" };
       }
+    }
+  }
+
+  // ── Guardian principal gate ──
+  // A guardian-class decision must be authorized by principal, not merely by
+  // the same-channel address match that produced the trust class: the acting
+  // principal (the channel binding's principal carried on the trust context)
+  // must be present and, when the assistant's vellum anchor resolves, equal
+  // it. This runs BEFORE any decision is applied (callback, text engine, NL
+  // parser). An unresolvable anchor read (transient gateway miss) defers to
+  // the gateway-stamped verdict — the gateway is the ACL source of truth and
+  // an absent verdict is already hard-denied at ingress. The failure copy is
+  // generic by design: no oracle about pending requests or authorization
+  // detail.
+  if (trustCtx.trustClass === "guardian") {
+    const actingPrincipalId = trustCtx.guardianPrincipalId;
+    const anchorPrincipalId = await findLocalGuardianPrincipalId();
+    const principalAuthorized =
+      !!actingPrincipalId &&
+      (!anchorPrincipalId || actingPrincipalId === anchorPrincipalId);
+    if (!principalAuthorized) {
+      log.warn(
+        {
+          conversationId,
+          sourceChannel,
+          hasActingPrincipal: !!actingPrincipalId,
+          hasAnchorPrincipal: !!anchorPrincipalId,
+        },
+        "Blocking guardian-class approval decision: acting principal missing or does not match the bound guardian principal",
+      );
+      if (replyCallbackUrl) {
+        const ephemeralUser = slackEphemeralUserId(
+          sourceChannel,
+          actorExternalId,
+        );
+        try {
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId: conversationExternalId,
+            text: "Sorry, I couldn't process that. Please try again.",
+            assistantId,
+            ...(ephemeralUser ? { ephemeral: true, user: ephemeralUser } : {}),
+          });
+        } catch (err) {
+          log.error(
+            { err, conversationId },
+            "Failed to deliver principal-gate rejection reply",
+          );
+        }
+      }
+      return { handled: true, type: "stale_ignored" };
     }
   }
 
@@ -593,7 +383,7 @@ function editStaleSlackApprovalMessage(params: {
   conversationId: string;
 }): void {
   const statusText = "This approval request has been resolved.";
-  const blocks = [
+  const blocks: KnownBlock[] = [
     {
       type: "section",
       text: { type: "mrkdwn", text: statusText },

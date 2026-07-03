@@ -5,7 +5,7 @@
  *
  * Owns:
  * - `headerSupplements` computation and slot registration
- * - `topBarRightSlot` (ConversationAssetsPill) computation and registration
+ * - `topBarRightSlot` (ConversationAssetsPill + InChatPluginPill) computation and registration
  * - Slack conversation display derivation for the header label
  */
 
@@ -15,13 +15,18 @@ import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-s
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useSlackConversationDisplay } from "@/domains/chat/hooks/use-slack-conversation-display";
 import {
   formatSlackConversationDisplayLabel,
 } from "@/domains/chat/utils/slack-conversation-display";
+import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { getChannelBindingDisplayText } from "@/domains/chat/utils/channel-conversation-display";
+import { getChannelLabel } from "@/utils/channel-presentation";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
+import { InChatPluginPill } from "@/domains/chat/components/inchat-plugin-pill/inchat-plugin-pill";
+import { useSupportsInchatPluginEdit } from "@/lib/backwards-compat/use-supports-inchat-plugin-edit";
 import { useOpenAppFromChat } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
@@ -48,23 +53,42 @@ export function useChatHeaderRegistration({
 }: UseChatHeaderRegistrationOptions): void {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
-  const messages = useChatSessionStore.use.messages();
+  const messages = useTranscriptMessages();
   const setTopBarRightSlot = useChatLayoutSlotsStore.use.setTopBarRightSlot();
   const setHeaderSupplements = useChatLayoutSlotsStore.use.setHeaderSupplements();
+  // Older daemons omit `enabledPlugins` on the conversation GET, so the pill
+  // can't reflect per-chat state there — hide it until the daemon supports it.
+  const supportsPluginPill = useSupportsInchatPluginEdit();
 
   const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
 
-  // Slack header label derivation
+  // Channel header tag derivation. Slack keeps its richer label (channel
+  // vs DM, lazy name resolution); other channels fall back to the generic
+  // binding name, then the channel's human label.
   const slackConversationDisplay = useSlackConversationDisplay({
     assistantId: assistantId ?? undefined,
     conversation: activeConversation,
     messages,
   });
-  const slackHeaderLabel = useMemo(() => {
-    return slackConversationDisplay
-      ? formatSlackConversationDisplayLabel(slackConversationDisplay)
-      : null;
-  }, [slackConversationDisplay]);
+  const channelHeaderChannelId = isChannelConversation(activeConversation)
+    ? activeConversation?.originChannel ?? null
+    : null;
+  const channelHeaderLabel = useMemo(() => {
+    if (!channelHeaderChannelId) return null;
+    if (channelHeaderChannelId === "slack") {
+      return slackConversationDisplay
+        ? formatSlackConversationDisplayLabel(slackConversationDisplay)
+        : getChannelLabel("slack");
+    }
+    return (
+      getChannelBindingDisplayText(activeConversation?.channelBinding) ??
+      getChannelLabel(channelHeaderChannelId)
+    );
+  }, [
+    channelHeaderChannelId,
+    slackConversationDisplay,
+    activeConversation?.channelBinding,
+  ]);
 
   // Header supplements — chat-specific data for the conversation header menu
   const hasPersistedMessage = useMemo(
@@ -74,7 +98,8 @@ export function useChatHeaderRegistration({
 
   const headerSupplements = useMemo<ChatHeaderSupplements>(() => ({
     hasPersistedMessage,
-    slackHeaderLabel,
+    channelHeaderLabel,
+    channelHeaderChannelId,
     onAnalyze: handleAnalyzeConversation,
     onForkConversation: handleForkConversationFromMenu,
     onOpenInNewWindow: handleOpenInNewWindow,
@@ -83,7 +108,8 @@ export function useChatHeaderRegistration({
     onRefresh,
   }), [
     hasPersistedMessage,
-    slackHeaderLabel,
+    channelHeaderLabel,
+    channelHeaderChannelId,
     handleAnalyzeConversation,
     handleForkConversationFromMenu,
     handleOpenInNewWindow,
@@ -111,15 +137,23 @@ export function useChatHeaderRegistration({
   const topBarRightContent = useMemo(() => {
     if (!activeConversation?.conversationId || !assistantId) return null;
     return (
-      <ConversationAssetsPill
-        assistantId={assistantId}
-        conversationId={activeConversation.conversationId}
-        refreshKey={assetsRefreshKey}
-        onOpenApp={handleOpenAppFromChat}
-        onOpenDocument={handleOpenDocument}
-      />
+      <>
+        <ConversationAssetsPill
+          assistantId={assistantId}
+          conversationId={activeConversation.conversationId}
+          refreshKey={assetsRefreshKey}
+          onOpenApp={handleOpenAppFromChat}
+          onOpenDocument={handleOpenDocument}
+        />
+        {supportsPluginPill ? (
+          <InChatPluginPill
+            assistantId={assistantId}
+            conversationId={activeConversation.conversationId}
+          />
+        ) : null}
+      </>
     );
-  }, [activeConversation?.conversationId, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument]);
+  }, [activeConversation?.conversationId, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument, supportsPluginPill]);
 
   useEffect(() => {
     setTopBarRightSlot(topBarRightContent);

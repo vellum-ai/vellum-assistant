@@ -6,7 +6,10 @@
 
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import type { ToolDetailPayload } from "@/stores/viewer-store";
-import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
+import {
+  isToolCallRunning,
+  perceivedStartedAt,
+} from "@/domains/chat/utils/tool-call-status";
 import type {
   ToolActivityMetadata,
   WebSearchResultItem,
@@ -70,10 +73,23 @@ export type ToolCallCardStep =
        * have no backing reasoning item and keep the snapshot path.
        */
       thinkingItemIndex?: number;
+      /**
+       * Opaque key into a parent-built detail-payload map, letting a clickable
+       * thinking pill open its full reasoning in a detail view. Set by the
+       * subagent timeline (the source text event's id); unset elsewhere, where
+       * thinking pills stay non-interactive.
+       */
+      detailKey?: string;
     }
   | {
       kind: "web_search";
       title: string;
+      /**
+       * The search query, when known. Surfaced by the subagent timeline as a
+       * per-step label so multiple unclamped searches in one "Searching the web"
+       * group stay visually distinct; main-chat builders leave it unset.
+       */
+      query?: string;
       durationLabel: string;
       linkCount: number;
       /** Results shown inline as favicon chips (clamped to `MAX_VISIBLE_RESULTS`). */
@@ -84,12 +100,26 @@ export type ToolCallCardStep =
        * omitted when every result fits inline.
        */
       overflowResults?: WebSearchResultItem[];
+      /**
+       * Stable key (the originating `tool_call`'s `toolUseId`) that lets the
+       * subagent timeline render this search as a clickable pill opening its
+       * nested query + sources detail — matching the key
+       * `buildSubagentStepDetails` emits. Unset for main-chat builders, whose
+       * searches aren't clickable.
+       */
+      detailKey?: string;
     }
   | {
       kind: "web_search_error";
       title: string;
       durationLabel: string;
       errorMessage: string;
+      /**
+       * Detail-map key (the failed search's tool id) so the timeline error chip
+       * opens the full, untruncated error in a nested detail. `undefined` when
+       * the failed search carried no tool id (chip stays non-clickable).
+       */
+      detailKey?: string;
     }
   | {
       kind: "tool";
@@ -124,8 +154,8 @@ export type ToolCallCardStep =
  * successful and failed tool calls can render a distinct chrome state.
  *
  * The subagent leading-icon slot (`<SubagentAvatarChip>`) is plumbed directly
- * through the shell's `leadingIcon` ReactNode prop by
- * `SubagentInlineProgressCard`, so this data shape doesn't need to carry it.
+ * through the inline card's `leadingIcon` ReactNode prop by the subagent
+ * descriptor's `renderCardLeading`, so this data shape doesn't need to carry it.
  */
 export interface ToolCallCardData {
   /**
@@ -377,12 +407,11 @@ function computeDurationLabel(
   return ms == null ? "" : formatMs(ms);
 }
 
-function computeToolDurationMs(tc: ChatMessageToolCall): number | null {
-  return computeDurationMs(tc.startedAt ?? undefined, tc.completedAt ?? undefined);
-}
-
 function computeToolDurationLabel(tc: ChatMessageToolCall): string {
-  return computeDurationLabel(tc.startedAt ?? undefined, tc.completedAt ?? undefined);
+  return computeDurationLabel(
+    tc.startedAt ?? undefined,
+    tc.completedAt ?? undefined,
+  );
 }
 
 /** True for a tool call that is rendered as a step AND still in flight. */
@@ -419,9 +448,16 @@ function computeItemDurationMs(
   }
   const tc = item.toolCall;
   if (isSubagentSpawnCall(tc)) return null;
-  if (tc.completedAt != null) return computeToolDurationMs(tc);
-  if (isToolCallRunning(tc) && tc.startedAt != null && nowMs != null) {
-    return Math.max(0, nowMs - tc.startedAt);
+  // The header total is the user-perceived "time they feel", so it anchors on
+  // the first-byte `previewStartedAt` (falling back to execution start) rather
+  // than `tc.startedAt`. This includes the input-streaming gap before the tool
+  // actually runs. The per-step rows still show the tool's own execution
+  // latency via `computeToolDurationLabel`.
+  const perceived = perceivedStartedAt(tc);
+  if (tc.completedAt != null)
+    return computeDurationMs(perceived, tc.completedAt);
+  if (isToolCallRunning(tc) && perceived != null && nowMs != null) {
+    return Math.max(0, nowMs - perceived);
   }
   return null;
 }
@@ -435,9 +471,7 @@ function computeItemDurationMs(
 export function hasRunningItem(items: ToolCallCardItem[]): boolean {
   return items.some((item) =>
     item.kind === "thinking"
-      ? Boolean(item.text) &&
-        item.startedAt != null &&
-        item.completedAt == null
+      ? Boolean(item.text) && item.startedAt != null && item.completedAt == null
       : isRenderableRunningCall(item.toolCall),
   );
 }
@@ -486,6 +520,7 @@ export function toolDetailPayloadFromToolCall(
     activity,
     input: tc.input ?? {},
     result: tc.result,
+    streamedOutput: tc.streamedOutput,
     status: deriveToolStepStatus(tc),
     riskLevel: tc.riskLevel,
     riskReason: tc.riskReason,
@@ -736,7 +771,9 @@ function buildStepForToolCall(
       : buildWebFetchPlaceholderStep();
   }
   if (tc.name === "web_search" && typeof tc.result === "string") {
-    return buildWebSearchStepFromResultText(tc.result) ?? buildEmptyWebSearchStep();
+    return (
+      buildWebSearchStepFromResultText(tc.result) ?? buildEmptyWebSearchStep()
+    );
   }
   return buildEmptyWebSearchStep();
 }
@@ -753,13 +790,14 @@ export function computeToolCallCardDataFromItems(
   nowMs?: number,
 ): ToolCallCardData {
   const toolCalls = items
-    .filter((i): i is { kind: "toolCall"; toolCall: ChatMessageToolCall } =>
-      i.kind === "toolCall",
+    .filter(
+      (i): i is { kind: "toolCall"; toolCall: ChatMessageToolCall } =>
+        i.kind === "toolCall",
     )
     .map((i) => i.toolCall);
-  // `subagent_spawn` calls are rendered inline by `SubagentInlineProgressCard`
-  // at the transcript level — surfacing them as steps inside the unified card
-  // would render the spawn twice.
+  // `subagent_spawn` calls are rendered inline by `InlineProcessCard` (via the
+  // subagent descriptor) at the transcript level — surfacing them as steps
+  // inside the unified card would render the spawn twice.
   const renderableToolCalls = toolCalls.filter(
     (tc) => !isSubagentSpawnCall(tc),
   );

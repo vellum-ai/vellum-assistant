@@ -9,15 +9,13 @@
 import { createHash, randomBytes } from "crypto";
 import { v4 as uuid } from "uuid";
 
-import { findGuardianForChannel } from "../contacts/contact-store.js";
-import { revokeGuardianBinding } from "../contacts/contacts-write.js";
 import type {
   GuardianBinding,
   IdentityBindingStatus,
   SessionStatus,
   VerificationPurpose,
   VerificationSession,
-} from "../memory/channel-verification-sessions.js";
+} from "../channels/channel-verification-sessions.js";
 import {
   bindSessionIdentity as storeBindSessionIdentity,
   consumeSession,
@@ -32,20 +30,29 @@ import {
   revokePendingSessions as storeRevokePendingSessions,
   updateSessionDelivery as storeUpdateSessionDelivery,
   updateSessionStatus as storeUpdateSessionStatus,
-} from "../memory/channel-verification-sessions.js";
+} from "../channels/channel-verification-sessions.js";
+import {
+  getGuardianDelivery,
+  getGuardianDeliveryFresh,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
 import {
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
-} from "../memory/guardian-rate-limits.js";
+} from "../contacts/guardian-rate-limits.js";
 import { composeApprovalMessage } from "./approval-message-composer.js";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Challenge TTL in milliseconds (10 minutes). */
-const CHALLENGE_TTL_MS = 10 * 60 * 1000;
+/**
+ * Challenge TTL in milliseconds (10 minutes). Exported so consumers that
+ * reason about "is a just-issued code still redeemable" (e.g. the
+ * access-request handshake window) share this exact bound.
+ */
+export const CHALLENGE_TTL_MS = 10 * 60 * 1000;
 
 /** Maximum invalid verification attempts within the throttling window before lockout. */
 const RATE_LIMIT_MAX_ATTEMPTS = 5;
@@ -319,57 +326,73 @@ export function validateAndConsumeVerification(
 
 /**
  * Look up the active guardian binding for a given assistant and channel.
- * Reads from the contacts table via findGuardianForChannel and
- * synthesizes a GuardianBinding-shaped object.
- * Returns null when no contacts match.
+ * Reads the gateway-owned GuardianDelivery and synthesizes a
+ * GuardianBinding-shaped object. Returns null when no guardian is bound or
+ * the gateway is unreachable.
  */
-export function getGuardianBinding(
+export async function getGuardianBinding(
   assistantId: string,
   channel: string,
-): GuardianBinding | null {
-  const result = findGuardianForChannel(channel);
-  if (result) {
-    return {
-      id: result.channel.id,
-      assistantId,
-      channel,
-      guardianExternalUserId: result.channel.address,
-      guardianDeliveryChatId: result.channel.externalChatId ?? "",
-      guardianPrincipalId: result.contact.principalId ?? "",
-      status: "active" as const,
-      verifiedAt: result.channel.verifiedAt ?? 0,
-      verifiedVia: result.channel.verifiedVia ?? "",
-      metadataJson: null,
-      createdAt: result.channel.createdAt,
-      updatedAt: result.channel.updatedAt ?? result.channel.createdAt,
-    };
-  }
+): Promise<GuardianBinding | null> {
+  const list = await getGuardianDelivery({ channelTypes: [channel] });
+  const delivery = list ? guardianForChannel(list, channel) : undefined;
+  if (!delivery) return null;
 
-  return null;
+  const now = Date.now();
+  return {
+    id: delivery.contactId,
+    assistantId,
+    channel,
+    guardianExternalUserId: delivery.address,
+    guardianDeliveryChatId: delivery.externalChatId ?? "",
+    // A missing principal is surfaced as null (unresolved), never coerced to
+    // an empty string that would masquerade as a present-but-empty principal.
+    guardianPrincipalId: delivery.principalId ?? null,
+    status: "active" as const,
+    verifiedAt: delivery.verifiedAt ?? 0,
+    // verifiedVia is not carried on the delivery contract; a bound guardian
+    // is verified by definition.
+    verifiedVia: "verified",
+    metadataJson: null,
+    createdAt: now,
+    updatedAt: now,
+  };
+}
+
+/**
+ * Gateway-backed guardian-existence check: is a guardian already bound for
+ * this channel? Presence-only idempotency guard, NOT an ACL-field read.
+ *
+ * Null-list fail direction: a `null` from the gateway (unreachable / malformed)
+ * is "unknown" — returns `true` so an unreachable gateway is treated as
+ * already-bound. Callers gate session creation on a falsy result, so this
+ * blocks a new binding on a transient miss rather than spuriously creating a
+ * second one.
+ */
+export async function isGuardianBoundForChannel(
+  channel: string,
+): Promise<boolean> {
+  // Existence guards read fresh because gateway-side binding writes don't
+  // invalidate the daemon cache.
+  const list = await getGuardianDeliveryFresh({ channelTypes: [channel] });
+  if (list === null) return true;
+  return !!guardianForChannel(list, channel);
 }
 
 /**
  * Check whether the given external user is the active guardian for
  * the specified assistant and channel.
  */
-export function isGuardian(
+export async function isGuardian(
   assistantId: string,
   channel: string,
   address: string,
-): boolean {
-  const result = findGuardianForChannel(channel);
-  if (result) {
-    return result.channel.address.toLowerCase() === address.toLowerCase();
-  }
+): Promise<boolean> {
+  const list = await getGuardianDelivery({ channelTypes: [channel] });
+  const delivery = list ? guardianForChannel(list, channel) : undefined;
+  if (!delivery) return false;
 
-  return false;
-}
-
-/**
- * Revoke the active guardian binding for a given assistant and channel.
- */
-export function revokeBinding(assistantId: string, channel: string): boolean {
-  return revokeGuardianBinding(channel);
+  return delivery.address.toLowerCase() === address.toLowerCase();
 }
 
 /**

@@ -2,13 +2,13 @@
  * `assistant plugins` — manage external plugins installed under
  * `<workspaceDir>/plugins/`.
  *
- * Gated by the `external-plugins` feature flag (see
- * {@link ../../plugins/feature-gate}). Subcommands delegate the heavy
- * lifting to dedicated modules under {@link ../lib}.
+ * Subcommands delegate the heavy lifting to dedicated modules under
+ * {@link ../lib}.
  */
 
 import type { Command } from "commander";
 
+import { yellow } from "../lib/cli-colors.js";
 import { confirmPrompt } from "../lib/confirm-prompt.js";
 import {
   diffPlugin,
@@ -27,9 +27,21 @@ import {
   type InstallPluginOptions,
   InvalidPluginNameError,
   PluginAlreadyInstalledError,
+  type PluginFetchSource,
   PluginNotFoundError,
+  sanitizePluginName,
 } from "../lib/install-from-github.js";
-import { listInstalledPlugins } from "../lib/list-installed-plugins.js";
+import {
+  type AllPluginInfo,
+  listAllPlugins,
+  listInstalledPlugins,
+} from "../lib/list-installed-plugins.js";
+import {
+  DEFAULT_DIRECT_REF,
+  InvalidGitHubPluginSpecError,
+  looksLikeGitHubSpec,
+  parseGitHubPluginSpec,
+} from "../lib/parse-github-plugin-spec.js";
 import type { FingerprintComparison } from "../lib/plugin-fingerprint.js";
 import {
   DEFAULT_PIN_HISTORY_LIMIT,
@@ -38,11 +50,19 @@ import {
   PluginPinHistoryError,
   resolvePinToMarketplaceCommit,
 } from "../lib/plugin-pin-history.js";
+import { runPublish } from "../lib/publish-plugin.js";
 import { registerCommand } from "../lib/register-command.js";
 import {
   InvalidSearchPatternError,
   searchPlugins,
 } from "../lib/search-plugins.js";
+import {
+  disablePlugin,
+  enablePlugin,
+  InvalidPluginNameError as ToggleInvalidPluginNameError,
+  PluginAlreadyInStateException,
+  PluginDirectoryNotFoundError,
+} from "../lib/toggle-plugin.js";
 import {
   PluginNotInstalledError,
   uninstallPlugin,
@@ -72,12 +92,16 @@ export function registerPluginsCommand(program: Command): void {
 Examples:
   $ assistant plugins install example
   $ assistant plugins install example --force
+  $ assistant plugins install https://github.com/owner/repo
+  $ assistant plugins install https://github.com/owner/repo/tree/main/sub/path --name my-plugin
   $ assistant plugins install example --ref my-feature-branch
   $ assistant plugins versions example
   $ assistant plugins versions example --json
   $ assistant plugins install example --pin <sha> --force
   $ assistant plugins list
   $ assistant plugins list --json
+  $ assistant plugins list --all
+  $ assistant plugins list --all --json
   $ assistant plugins inspect example
   $ assistant plugins inspect example --json
   $ assistant plugins diff example
@@ -90,42 +114,73 @@ Examples:
   $ assistant plugins search example
   $ assistant plugins search "^example"
   $ assistant plugins search example --json
-  $ assistant plugins uninstall example`,
+  $ assistant plugins uninstall example
+  $ assistant plugins enable example
+  $ assistant plugins disable example`,
       );
 
       plugins
-        .command("install <name>")
+        .command("install <name-or-url>")
         .description(
-          "Install a plugin from the curated plugins/marketplace.json catalog",
+          "Install a plugin by name from the curated plugins/marketplace.json catalog, or directly from a GitHub URL (untrusted)",
         )
         .option("--force", "Overwrite an existing install")
         .option(
           "--ref <ref>",
-          `Marketplace manifest revision to read the pin from (default: ${DEFAULT_PLUGIN_REF})`,
+          `Marketplace manifest revision to read the pin from (default: ${DEFAULT_PLUGIN_REF}). Marketplace installs only — for a GitHub URL, put the ref in the URL (.../tree/<ref>/...)`,
         )
         .option(
           "--pin <sha>",
-          "Install a specific reviewed marketplace pin (full commit SHA); run `plugins versions <name>` to list them",
+          "Install a specific reviewed marketplace pin (full commit SHA); run `plugins versions <name>` to list them. Marketplace installs only",
         )
         .option(
           "--allow-unreviewed",
-          "With --pin, install a SHA that is not in the reviewed marketplace history (advanced; the curated adapter may not match)",
+          "With --pin, install a SHA that is not in the reviewed marketplace history (advanced; the curated adapter may not match). Marketplace installs only",
+        )
+        .option(
+          "--name <name>",
+          "Install directory name for a GitHub-URL install (default: derived from the repo or sub-path leaf). Ignored for marketplace installs",
+        )
+        .addHelpText(
+          "after",
+          `
+A GitHub URL (anything containing a slash) installs directly from that repo,
+bypassing the marketplace whitelist. Such a plugin is UNTRUSTED — it has not
+been reviewed and its hooks/tools run with full assistant access — so the
+install prints a warning. Use it for a plugin still under development that is
+not in the catalog yet. The ref comes from the URL's /tree/<ref>/ segment, or
+defaults to the repository's default branch.
+
+Examples:
+  $ assistant plugins install https://github.com/owner/repo
+  $ assistant plugins install https://github.com/owner/repo/tree/my-branch/path/to/plugin
+  $ assistant plugins install owner/repo --name my-plugin --force`,
         )
         .action(
           async (
-            name: string,
+            nameOrUrl: string,
             opts: {
               force?: boolean;
               ref?: string;
               pin?: string;
               allowUnreviewed?: boolean;
+              name?: string;
             },
           ) => {
             try {
-              const installOpts = await resolveInstallOptions(name, opts);
+              const direct = looksLikeGitHubSpec(nameOrUrl);
+              const installOpts = direct
+                ? resolveDirectInstallOptions(nameOrUrl, opts)
+                : await resolveInstallOptions(nameOrUrl, opts);
               if (installOpts === null) {
                 process.exitCode = 1;
                 return;
+              }
+              if (installOpts.directSource) {
+                printUntrustedPluginWarning(
+                  installOpts.name,
+                  installOpts.directSource,
+                );
               }
               const result = await installPlugin(installOpts, {
                 fetch: globalThis.fetch.bind(globalThis),
@@ -137,16 +192,19 @@ Examples:
                   fileCount: result.fileCount,
                   ref: result.ref,
                   commit: result.commit,
+                  untrusted: Boolean(installOpts.directSource),
                 },
                 "external plugin installed",
               );
               const pinned = result.commit
                 ? ` at ${result.commit.slice(0, 7)}`
                 : "";
+              const label = installOpts.directSource
+                ? "untrusted plugin"
+                : "plugin";
               console.log(
-                `Installed plugin "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})${pinned} → ${result.target}`,
+                `Installed ${label} "${result.name}" (${result.fileCount} file${result.fileCount === 1 ? "" : "s"})${pinned} → ${result.target}`,
               );
-              console.log("Restart the assistant to pick up the new plugin.");
             } catch (err) {
               if (err instanceof PluginAlreadyInstalledError) {
                 console.error(`${err.message}\nPass --force to overwrite.`);
@@ -230,9 +288,58 @@ Examples:
 
       plugins
         .command("list")
-        .description("List plugins installed under <workspaceDir>/plugins/")
+        .description("List plugins installed in your workspace.")
         .option("--json", "Emit machine-readable JSON instead of a table")
-        .action((opts: { json?: boolean }) => {
+        .option(
+          "--all",
+          "Include first-party default plugins and disabled plugins in the listing",
+        )
+        .action((opts: { json?: boolean; all?: boolean }) => {
+          if (opts.all) {
+            const all = listAllPlugins();
+
+            if (opts.json) {
+              process.stdout.write(JSON.stringify(all, null, 2) + "\n");
+              return;
+            }
+
+            if (all.length === 0) {
+              console.log("No plugins found.");
+              return;
+            }
+
+            const rows = all.map((p) => ({
+              name: p.name,
+              version: p.packageJson?.version ?? "—",
+              source: p.source,
+              status: formatAllPluginStatus(p),
+            }));
+            const nameW = Math.max(4, ...rows.map((r) => r.name.length));
+            const versionW = Math.max(7, ...rows.map((r) => r.version.length));
+            const sourceW = Math.max(6, ...rows.map((r) => r.source.length));
+            const pad = (s: string, w: number) => s + " ".repeat(w - s.length);
+            console.log(
+              `${pad("NAME", nameW)}  ${pad("VERSION", versionW)}  ${pad("SOURCE", sourceW)}  STATUS`,
+            );
+            for (const r of rows) {
+              console.log(
+                `${pad(r.name, nameW)}  ${pad(r.version, versionW)}  ${pad(r.source, sourceW)}  ${r.status}`,
+              );
+            }
+
+            const userCount = all.filter((p) => p.source === "user").length;
+            const defaultCount = all.length - userCount;
+            const disabledCount = all.filter((p) => p.disabled).length;
+            console.log("");
+            console.log(
+              `${all.length} plugin${all.length === 1 ? "" : "s"} ` +
+                `(${userCount} user, ${defaultCount} default` +
+                (disabledCount > 0 ? `, ${disabledCount} disabled` : "") +
+                `).`,
+            );
+            return;
+          }
+
           const installed = listInstalledPlugins();
 
           if (opts.json) {
@@ -443,6 +550,56 @@ Examples:
         });
 
       plugins
+        .command("publish")
+        .description(
+          "Validate and submit the plugin in the current directory to the Vellum marketplace catalog",
+        )
+        .option(
+          "--print",
+          "Print the entry JSON without submitting to the platform",
+        )
+        .option(
+          "--path <dir>",
+          "Validate a plugin at the given path instead of CWD",
+        )
+        .option("--force", "Skip the confirmation prompt")
+        .option("--json", "Emit machine-readable JSON instead of human output")
+        .option(
+          "--category <cat>",
+          "Set the category, skipping the interactive prompt",
+        )
+        .addHelpText(
+          "after",
+          `
+
+Validates the plugin in the current directory (or --path), resolves the
+git commit SHA and GitHub remote, and submits the entry to the Vellum
+platform API. The platform creates a pull request against
+vellum-ai/vellum-assistant adding the plugin to the marketplace catalog.
+
+Requires a connected Vellum platform account (run \`assistant platform connect\`).
+Use --print to validate and print the entry without submitting.
+
+Examples:
+$ assistant plugins publish
+$ assistant plugins publish --print
+$ assistant plugins publish --path ./my-plugin --category productivity
+$ assistant plugins publish --json`,
+        )
+        .action(
+          async (opts: {
+            print?: boolean;
+            path?: string;
+            force?: boolean;
+            json?: boolean;
+            category?: string;
+          }) => {
+            const ok = await runPublish(opts, { confirmPrompt });
+            if (!ok) process.exitCode = 1;
+          },
+        );
+
+      plugins
         .command("uninstall <name>")
         .description("Remove a plugin from <workspaceDir>/plugins/<name>/")
         .option("--force", "Skip the confirmation prompt")
@@ -471,7 +628,6 @@ Examples:
             console.log(
               `Uninstalled plugin "${result.name}" from ${result.target}`,
             );
-            console.log("Restart the assistant to drop the plugin.");
           } catch (err) {
             if (err instanceof InvalidPluginNameError) {
               console.error(err.message);
@@ -485,6 +641,57 @@ Examples:
             }
             const message = err instanceof Error ? err.message : String(err);
             console.error(`Plugin uninstall failed: ${message}`);
+            process.exitCode = 1;
+          }
+        });
+
+      plugins
+        .command("disable <name>")
+        .description(
+          "Disable a plugin by creating a .disabled sentinel file. Works for both user-installed and default plugins. Takes effect immediately in a running assistant.",
+        )
+        .action((name: string) => {
+          try {
+            const result = disablePlugin(name);
+            log.info({ name: result.name }, "plugin disabled");
+            console.log(`Disabled plugin "${result.name}".`);
+          } catch (err) {
+            if (
+              err instanceof PluginAlreadyInStateException ||
+              err instanceof ToggleInvalidPluginNameError ||
+              err instanceof PluginDirectoryNotFoundError
+            ) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`Plugin disable failed: ${message}`);
+            process.exitCode = 1;
+          }
+        });
+
+      plugins
+        .command("enable <name>")
+        .description(
+          "Re-enable a disabled plugin by removing the .disabled sentinel file. Takes effect immediately.",
+        )
+        .action((name: string) => {
+          try {
+            const result = enablePlugin(name);
+            log.info({ name: result.name }, "plugin enabled");
+            console.log(`Enabled plugin "${result.name}".`);
+          } catch (err) {
+            if (
+              err instanceof PluginAlreadyInStateException ||
+              err instanceof ToggleInvalidPluginNameError
+            ) {
+              console.error(err.message);
+              process.exitCode = 1;
+              return;
+            }
+            const message = err instanceof Error ? err.message : String(err);
+            console.error(`Plugin enable failed: ${message}`);
             process.exitCode = 1;
           }
         });
@@ -643,6 +850,99 @@ async function resolveInstallOptions(
 }
 
 /**
+ * Resolve a GitHub-URL argument into {@link InstallPluginOptions} for an
+ * untrusted direct install, or `null` when the URL or flag combination is
+ * invalid (a message is printed in that case, and the caller exits non-zero).
+ *
+ * The marketplace-only flags (`--ref`, `--pin`, `--allow-unreviewed`) do not
+ * apply to a direct install — the ref lives in the URL — so combining them is
+ * rejected. The install name defaults to the repo / sub-path leaf and can be
+ * overridden with `--name`.
+ */
+function resolveDirectInstallOptions(
+  spec: string,
+  opts: {
+    force?: boolean;
+    ref?: string;
+    pin?: string;
+    allowUnreviewed?: boolean;
+    name?: string;
+  },
+): InstallPluginOptions | null {
+  if (opts.ref) {
+    console.error(
+      "--ref does not apply to a GitHub-URL install; put the ref in the URL (e.g. .../tree/<ref>/...).",
+    );
+    return null;
+  }
+  if (opts.pin || opts.allowUnreviewed) {
+    console.error(
+      "--pin and --allow-unreviewed only apply to marketplace installs by name, not a GitHub URL.",
+    );
+    return null;
+  }
+
+  let parsed;
+  try {
+    parsed = parseGitHubPluginSpec(spec);
+  } catch (err) {
+    if (err instanceof InvalidGitHubPluginSpecError) {
+      console.error(err.message);
+      return null;
+    }
+    throw err;
+  }
+
+  const requested = opts.name ?? parsed.defaultName;
+  let name: string;
+  try {
+    name = sanitizePluginName(requested);
+  } catch (err) {
+    if (err instanceof InvalidPluginNameError) {
+      console.error(
+        opts.name
+          ? err.message
+          : `Could not derive a valid plugin name from "${parsed.defaultName}". ` +
+              "Pass --name <name> to choose one (lowercase letters, digits, '-', '_').",
+      );
+      return null;
+    }
+    throw err;
+  }
+
+  const directSource: PluginFetchSource = {
+    owner: parsed.owner,
+    repo: parsed.repo,
+    rootPath: parsed.path,
+    ref: parsed.ref,
+  };
+  return { name, force: opts.force ?? false, directSource };
+}
+
+/**
+ * Print a prominent yellow warning before an untrusted direct install. Such a
+ * plugin is not in the curated marketplace, has not been reviewed, and its
+ * hooks/tools run inside the assistant with full access — so the user must
+ * decide whether they trust the source. Goes to stderr so it stays visible
+ * alongside (not interleaved with) the stdout result line.
+ */
+function printUntrustedPluginWarning(
+  name: string,
+  source: PluginFetchSource,
+): void {
+  const location = source.rootPath
+    ? `${source.owner}/${source.repo}/${source.rootPath}`
+    : `${source.owner}/${source.repo}`;
+  const ref = source.ref === DEFAULT_DIRECT_REF ? "default branch" : source.ref;
+  const lines = [
+    `⚠ Installing "${name}" from an unreviewed GitHub source: ${location} @ ${ref}.`,
+    "  This plugin is NOT in the Vellum marketplace and has not been reviewed.",
+    "  Its hooks and tools run inside the assistant with full access — install it only if you trust the source.",
+  ];
+  console.error(yellow(lines.join("\n")));
+}
+
+/**
  * Render a plugin's marketplace-pin history as a table: the pinned commit (short
  * SHA), when it was promoted, and a marker for the pin currently active. An
  * empty history reports that none was found.
@@ -691,6 +991,18 @@ function formatTimestamp(iso: string | null): string {
   const ms = Date.parse(iso);
   if (!Number.isFinite(ms)) return "unknown";
   return new Date(ms).toISOString().slice(0, 19);
+}
+
+/**
+ * Build a human-readable status string for a plugin in the `--all` listing.
+ * Combines disabled state with any structural issues.
+ */
+function formatAllPluginStatus(p: AllPluginInfo): string {
+  const parts: string[] = [];
+  if (p.disabled) parts.push("disabled");
+  if (p.issues.length > 0) parts.push(p.issues.join("; "));
+  if (parts.length === 0) parts.push("enabled");
+  return parts.join(", ");
 }
 
 /** Human-readable status line for an inspection result. The from/to revisions

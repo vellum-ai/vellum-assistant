@@ -53,7 +53,7 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
 // Stub app-store functions used by other modules (e.g. app-source-watcher,
 // conversation-surfaces) so tool-side-effects' hooks can run without touching
 // the real app store during tests.
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
   isMultifileApp: mock(() => false),

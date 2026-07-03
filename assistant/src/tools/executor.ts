@@ -525,13 +525,21 @@ export { isSideEffectTool } from "./side-effects.js";
  *
  * Shell tools (`bash`, `host_bash`) manage their own timeouts with SIGKILL
  * on expiry. We add a 5s buffer so the shell's own deadline fires first and
- * handles cleanup before the executor wrapper trips. Non-shell tools use
- * the generic `toolExecutionTimeoutSec` configuration value.
+ * handles cleanup before the executor wrapper trips.
+ *
+ * `ask_question` blocks on user input inside `execute()` via `QuestionPrompter`,
+ * which waits up to `questionResponseTimeoutSec`. We give the wrapper the same
+ * 5s buffer over that deadline so the prompter's own timeout fires first and
+ * returns its clean "User did not respond within timeout" result — otherwise
+ * the shorter generic budget trips first, orphaning the still-pending prompt
+ * behind the confusing "may still be running in the background" error.
+ *
+ * All other tools use the generic `toolExecutionTimeoutSec` configuration value.
  *
  * Consumed by `executeInternal` via `executeWithTimeout`, which is the
  * sole enforcer of the per-tool budget.
  */
-function computePerToolTimeoutMs(
+export function computePerToolTimeoutMs(
   name: string,
   input: Record<string, unknown>,
 ): number {
@@ -546,6 +554,10 @@ function computePerToolTimeoutMs(
       Math.min(requestedSec, shellMaxTimeoutSec),
     );
     return (shellTimeoutSec + 5) * 1000;
+  }
+  if (name === "ask_question") {
+    const { questionResponseTimeoutSec } = getConfig().timeouts;
+    return (questionResponseTimeoutSec + 5) * 1000;
   }
   const rawTimeoutSec = getConfig().timeouts.toolExecutionTimeoutSec;
   return safeTimeoutMs(rawTimeoutSec);

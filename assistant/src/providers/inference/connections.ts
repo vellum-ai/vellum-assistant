@@ -1,8 +1,8 @@
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
-import type { DrizzleDb } from "../../memory/db-connection.js";
-import { providerConnections } from "../../memory/schema/inference.js";
+import type { DrizzleDb } from "../../persistence/db-connection.js";
+import { providerConnections } from "../../persistence/schema/inference.js";
 import { clearConnectionProviderCache } from "../registry.js";
 import {
   type Auth,
@@ -346,6 +346,12 @@ const CANONICAL_CONNECTIONS: Array<{
     auth: { type: "platform" },
     label: "Fireworks",
   },
+  {
+    name: "together-managed",
+    provider: "together",
+    auth: { type: "platform" },
+    label: "Together AI",
+  },
 ];
 
 /**
@@ -415,4 +421,3 @@ export function seedCanonicalConnections(db: DrizzleDb): void {
       .run();
   }
 }
-

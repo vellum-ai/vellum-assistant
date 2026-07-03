@@ -182,6 +182,19 @@ export const askQuestionTool = {
 
     const questions: SingleQuestion[] = parsed.data.questions;
 
+    // No interactive user is present to answer (scheduled/headless/background
+    // turn). Don't park the turn on a prompt no one can resolve — proceed with
+    // defaults immediately. Non-interactive turns are already instructed not to
+    // ask (NON_INTERACTIVE_CONTEXT_BLOCK); this is the backstop for when the
+    // model asks anyway, so it doesn't wait out the full response timeout.
+    if (context.isInteractive === false) {
+      return {
+        content:
+          "No interactive user is present to answer; proceeding with reasonable defaults.",
+        isError: false,
+      };
+    }
+
     const prompter = new QuestionPrompter();
     const result = await prompter.prompt({
       conversationId: context.conversationId,

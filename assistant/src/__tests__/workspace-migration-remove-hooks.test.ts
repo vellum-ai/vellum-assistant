@@ -11,7 +11,7 @@ let hooksDir: string;
 function freshWorkspace(): void {
   workspaceDir = join(
     tmpdir(),
-    `vellum-migration-046-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    `vellum-migration-048-test-${Date.now()}-${Math.random().toString(36).slice(2)}`,
   );
   hooksDir = join(workspaceDir, "hooks");
   mkdirSync(workspaceDir, { recursive: true });
@@ -30,29 +30,22 @@ afterEach(() => {
   }
 });
 
-describe("048-remove-workspace-hooks migration", () => {
+describe("048-remove-workspace-hooks migration (retained no-op)", () => {
   test("has correct migration id", () => {
     expect(removeWorkspaceHooksMigration.id).toBe("048-remove-workspace-hooks");
   });
 
-  test("removes a populated hooks directory", () => {
+  test("preserves a populated hooks directory now that it is a supported surface", () => {
     mkdirSync(hooksDir, { recursive: true });
-    mkdirSync(join(hooksDir, "my-hook"), { recursive: true });
-    writeFileSync(join(hooksDir, "my-hook", "manifest.json"), "{}");
-    writeFileSync(join(hooksDir, "my-hook", "run.sh"), "#!/bin/sh\n");
-    writeFileSync(join(hooksDir, "README.md"), "hooks live here");
+    writeFileSync(
+      join(hooksDir, "user-prompt-submit.ts"),
+      "export default () => {};",
+    );
 
     removeWorkspaceHooksMigration.run(workspaceDir);
 
-    expect(existsSync(hooksDir)).toBe(false);
-  });
-
-  test("removes an empty hooks directory", () => {
-    mkdirSync(hooksDir, { recursive: true });
-
-    removeWorkspaceHooksMigration.run(workspaceDir);
-
-    expect(existsSync(hooksDir)).toBe(false);
+    expect(existsSync(hooksDir)).toBe(true);
+    expect(existsSync(join(hooksDir, "user-prompt-submit.ts"))).toBe(true);
   });
 
   test("no-op when the hooks directory does not exist", () => {
@@ -65,35 +58,21 @@ describe("048-remove-workspace-hooks migration", () => {
     expect(existsSync(workspaceDir)).toBe(true);
   });
 
-  test("idempotent — safe to re-run after the directory is gone", () => {
+  test("idempotent — safe to re-run", () => {
     mkdirSync(hooksDir, { recursive: true });
-    writeFileSync(join(hooksDir, "stale.json"), "{}");
+    writeFileSync(join(hooksDir, "stop.ts"), "export default () => {};");
 
     removeWorkspaceHooksMigration.run(workspaceDir);
-    // Second invocation is a no-op and must not throw.
     removeWorkspaceHooksMigration.run(workspaceDir);
 
-    expect(existsSync(hooksDir)).toBe(false);
-  });
-
-  test("does not touch unrelated workspace entries", () => {
-    mkdirSync(hooksDir, { recursive: true });
-    writeFileSync(join(hooksDir, "stale.json"), "{}");
-    const skillsDir = join(workspaceDir, "skills");
-    mkdirSync(skillsDir, { recursive: true });
-    writeFileSync(join(skillsDir, "keep.md"), "keep me");
-
-    removeWorkspaceHooksMigration.run(workspaceDir);
-
-    expect(existsSync(hooksDir)).toBe(false);
-    expect(existsSync(skillsDir)).toBe(true);
-    expect(existsSync(join(skillsDir, "keep.md"))).toBe(true);
+    expect(existsSync(join(hooksDir, "stop.ts"))).toBe(true);
   });
 
   describe("down()", () => {
     test("is a no-op", () => {
+      mkdirSync(hooksDir, { recursive: true });
       removeWorkspaceHooksMigration.down(workspaceDir);
-      expect(existsSync(hooksDir)).toBe(false);
+      expect(existsSync(hooksDir)).toBe(true);
     });
   });
 });

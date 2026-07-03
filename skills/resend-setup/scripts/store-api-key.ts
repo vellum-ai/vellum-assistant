@@ -41,10 +41,10 @@ async function storeVellum(): Promise<void> {
     stderr: "inherit",
   });
 
-  const exitCode = await proc.exited;
-  if (exitCode !== 0) {
-    process.exitCode = 1;
-  }
+  // Propagate the CLI's exit code verbatim: 0 = stored, 130 = user cancelled
+  // the secure prompt (a valid choice — nothing stored), any other non-zero =
+  // a real error.
+  process.exitCode = await proc.exited;
 }
 
 async function main(): Promise<void> {

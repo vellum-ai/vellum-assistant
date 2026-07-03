@@ -6,7 +6,7 @@
  */
 import type { ChannelId } from "../channels/types.js";
 import { isHttpAuthDisabled } from "../config/env.js";
-import { shouldExposePersonalMemory } from "../memory/v2/static-context.js";
+import { shouldExposePersonalMemory } from "../plugins/defaults/memory/v2/static-context.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 
 export interface TrustContext {
@@ -38,6 +38,19 @@ export interface TrustContext {
   requesterExternalUserId?: string;
   /** Chat/conversation ID the requester is interacting through. */
   requesterChatId?: string;
+  /** Contact ID of the requester's member record, for local info joins. */
+  requesterContactId?: string;
+  /** API-facing member status of the requester's channel (ACL). */
+  memberStatus?: string;
+  /** Channel policy of the requester's channel (ACL). */
+  memberPolicy?: string;
+  /**
+   * Prior-interaction count for the requester's member channel, sourced from
+   * the gateway trust verdict (gateway owns interaction telemetry). Undefined
+   * when the verdict carries no member telemetry (unknown sender) or when trust
+   * was resolved locally without a gateway verdict.
+   */
+  requesterInteractionCount?: number;
 }
 
 /**
@@ -69,17 +82,25 @@ export const FALLBACK_TURN_TRUST: TrustContext = {
 /**
  * Resolve the effective trust class for an actor.
  *
- * When HTTP auth is disabled (dev bypass), always returns `'guardian'`
- * so that control-plane gates don't block local development.
+ * Trust is a property of the actor, never of the deployment's auth posture.
+ * The dev/local bypass therefore fills in `'guardian'` only when NO actor was
+ * resolved: local/native turns reach the daemon without a channel-resolved
+ * trustContext, and in an auth-disabled (local) deployment that unresolved
+ * actor is the guardian. A *present* trustContext always reflects the real
+ * actor — even under `DISABLE_HTTP_AUTH`, which is the standing config in
+ * platform-managed deployments — so a resolved non-guardian channel actor is
+ * never elevated to guardian.
  *
- * When no trust context is available (e.g. desktop-only conversations that
- * don't go through channel trust resolution), defaults to `'unknown'`
- * to fail-closed.
+ * When no trust context is available and auth is enabled (e.g. a desktop-only
+ * conversation that hasn't gone through channel trust resolution), defaults to
+ * `'unknown'` to fail-closed.
  */
 export function resolveTrustClass(
   trustContext: TrustContext | undefined,
 ): TrustClass {
-  if (isHttpAuthDisabled()) return "guardian";
+  if (trustContext === undefined && isHttpAuthDisabled()) {
+    return "guardian";
+  }
   return trustContext?.trustClass ?? "unknown";
 }
 

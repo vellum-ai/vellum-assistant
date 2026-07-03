@@ -29,15 +29,20 @@ import {
   HomeFeedResponseSchema,
 } from "../../api/responses/home.js";
 import { enrichFeedItemsWithSource } from "../../home/feed-source-enrichment.js";
-import { patchFeedItemStatus, readHomeFeed } from "../../home/feed-writer.js";
+import {
+  bulkSetFeedItemStatus,
+  patchFeedItemStatus,
+  readHomeFeed,
+} from "../../home/feed-writer.js";
 import { revalidateHomeContentInBackground } from "../../home/home-content-refresh.js";
 import { getPersonalizedGreeting } from "../../home/home-greeting.js";
 import { getSuggestedPrompts } from "../../home/suggested-prompts.js";
 import {
   addMessage,
   createConversation,
-} from "../../memory/conversation-crud.js";
+} from "../../persistence/conversation-crud.js";
 import { getLogger } from "../../util/logger.js";
+import { withSqliteRetry } from "../../util/sqlite-retry.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -75,6 +80,17 @@ const listHomeFeedResponseSchema = z.object({
   total: z.number().int().nonnegative(),
   returned: z.number().int().nonnegative(),
   hasMore: z.boolean(),
+  updatedAt: z.string(),
+});
+
+const bulkStatusRequestSchema = z.object({
+  from: z.array(z.enum(["new", "seen", "acted_on", "dismissed"])).min(1),
+  to: z.enum(["new", "seen", "acted_on", "dismissed"]),
+  ids: z.array(z.string()).optional(),
+});
+
+const bulkStatusResponseSchema = z.object({
+  updatedCount: z.number().int().min(0),
   updatedAt: z.string(),
 });
 
@@ -303,6 +319,31 @@ export function handleListHomeFeed({
   };
 }
 
+export async function handleBulkSetFeedItemStatus({
+  body,
+}: RouteHandlerArgs): Promise<Record<string, unknown>> {
+  const parsed = bulkStatusRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(
+      `Invalid request body: ${parsed.error.issues
+        .map((i) => `${i.path.join(".")} ${i.message}`)
+        .join("; ")}`,
+    );
+  }
+
+  const { from, to, ids } = parsed.data;
+  const updatedCount = await bulkSetFeedItemStatus(from, to, ids);
+  if (updatedCount === -1) {
+    throw new InternalError("Failed to persist bulk feed item status update");
+  }
+
+  const { updatedAt } = readHomeFeed();
+
+  log.info({ from, to, updatedCount }, "POST /v1/home/feed/mark-all");
+
+  return { updatedCount, updatedAt };
+}
+
 export async function handlePostFeedAction({
   pathParams = {},
 }: RouteHandlerArgs): Promise<Record<string, unknown>> {
@@ -321,10 +362,14 @@ export async function handlePostFeedAction({
   }
 
   try {
-    const conversation = createConversation({
-      title: action.label,
-      source: "home-feed",
-    });
+    const conversation = await withSqliteRetry(
+      () =>
+        createConversation({
+          title: action.label,
+          source: "home-feed",
+        }),
+      { op: "homeFeed.createConversation" },
+    );
     await addMessage(
       conversation.id,
       "user",
@@ -404,6 +449,25 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["home"],
     requestBody: listHomeFeedRequestSchema,
     responseBody: listHomeFeedResponseSchema,
+  },
+  {
+    operationId: "mark_all_home_feed",
+    endpoint: "home/feed/mark-all",
+    method: "POST",
+    policy: {
+      requiredScopes: ["settings.write"],
+      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+    },
+    handler: handleBulkSetFeedItemStatus,
+    summary: "Bulk update home feed item statuses",
+    description:
+      "Flip every home feed item currently at one of the `from` statuses to the single `to` status. Returns the count of items whose status actually changed (items already at `to`, or outside `from`, are left untouched). Used to implement 'Mark all as read' (from=['new'], to='seen') and 'Clear all' (from=['new','seen','acted_on'], to='dismissed').",
+    tags: ["home"],
+    requestBody: bulkStatusRequestSchema,
+    responseBody: bulkStatusResponseSchema,
+    additionalResponses: {
+      "500": { description: "Failed to persist bulk status update" },
+    },
   },
   {
     operationId: "trigger_home_feed_action",

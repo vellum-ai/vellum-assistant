@@ -20,6 +20,16 @@ export type PathFailureReason = "not_absolute" | "out_of_bounds" | "denied";
  */
 const DENIED_BASENAMES = new Set([".backup.key", "backup.key"]);
 
+/**
+ * Whether a path's basename is on the denylist of files the assistant must
+ * never read or write. Shared so callers that walk the filesystem (e.g.
+ * `code_search`) apply the same denylist as `sandboxPolicy`/`hostPolicy`,
+ * keeping the three in sync.
+ */
+export function isDeniedBasename(path: string): boolean {
+  return DENIED_BASENAMES.has(basename(path));
+}
+
 export type PathResult =
   | { ok: true; resolved: string }
   | { ok: false; reason: PathFailureReason; error: string };
@@ -138,10 +148,7 @@ export function sandboxPolicy(
 
   // Check both the logical path and the symlink-resolved path so a symlink
   // with a non-denied name pointing at a denied file is still caught.
-  if (
-    DENIED_BASENAMES.has(basename(resolved)) ||
-    DENIED_BASENAMES.has(basename(realResolved))
-  ) {
+  if (isDeniedBasename(resolved) || isDeniedBasename(realResolved)) {
     return {
       ok: false,
       reason: "denied",
@@ -168,7 +175,7 @@ export function hostPolicy(rawPath: string): PathResult {
       error: `path must be absolute for host file access: ${rawPath}`,
     };
   }
-  if (DENIED_BASENAMES.has(basename(rawPath))) {
+  if (isDeniedBasename(rawPath)) {
     return {
       ok: false,
       reason: "denied",

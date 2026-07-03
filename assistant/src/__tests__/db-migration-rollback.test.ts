@@ -12,74 +12,73 @@
 
 import { createHash } from "node:crypto";
 import { Database } from "bun:sqlite";
-import { afterEach, describe, expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { type DrizzleDb, getSqliteFrom } from "../memory/db-connection.js";
+import { type DrizzleDb, getSqliteFrom } from "../persistence/db-connection.js";
 import {
   downJobDeferrals,
   migrateJobDeferrals,
-} from "../memory/migrations/001-job-deferrals.js";
+} from "../persistence/migrations/001-job-deferrals.js";
 import {
   downMemoryEntityRelationDedup,
   migrateMemoryEntityRelationDedup,
-} from "../memory/migrations/004-entity-relation-dedup.js";
+} from "../persistence/migrations/004-entity-relation-dedup.js";
 import {
   downMemoryItemsFingerprintScopeUnique,
   migrateMemoryItemsFingerprintScopeUnique,
-} from "../memory/migrations/005-fingerprint-scope-unique.js";
+} from "../persistence/migrations/005-fingerprint-scope-unique.js";
 import {
   downMemoryItemsScopeSaltedFingerprints,
   migrateMemoryItemsScopeSaltedFingerprints,
-} from "../memory/migrations/006-scope-salted-fingerprints.js";
-import { downAssistantIdToSelf } from "../memory/migrations/007-assistant-id-to-self.js";
-import { downRemoveAssistantIdColumns } from "../memory/migrations/008-remove-assistant-id-columns.js";
-import { downLlmUsageEventsDropAssistantId } from "../memory/migrations/009-llm-usage-events-drop-assistant-id.js";
-import { downBackfillInboxThreadState } from "../memory/migrations/014-backfill-inbox-thread-state.js";
-import { downDropActiveSearchIndex } from "../memory/migrations/015-drop-active-search-index.js";
-import { downNotificationTablesSchema } from "../memory/migrations/019-notification-tables-schema-migration.js";
-import { downRenameChannelToVellum } from "../memory/migrations/020-rename-macos-ios-channel-to-vellum.js";
-import { downEmbeddingVectorBlob } from "../memory/migrations/024-embedding-vector-blob.js";
-import { downEmbeddingsNullableVectorJson } from "../memory/migrations/026a-embeddings-nullable-vector-json.js";
-import { downNormalizePhoneIdentities } from "../memory/migrations/036-normalize-phone-identities.js";
-import { downBackfillGuardianPrincipalId } from "../memory/migrations/126-backfill-guardian-principal-id.js";
-import { downGuardianPrincipalIdNotNull } from "../memory/migrations/127-guardian-principal-id-not-null.js";
-import { downContactsNotesColumn } from "../memory/migrations/134-contacts-notes-column.js";
-import { downBackfillContactInteractionStats } from "../memory/migrations/135-backfill-contact-interaction-stats.js";
-import { downDropAssistantIdColumns } from "../memory/migrations/136-drop-assistant-id-columns.js";
-import { downBackfillUsageCacheAccounting } from "../memory/migrations/140-backfill-usage-cache-accounting.js";
-import { downRenameVerificationTable } from "../memory/migrations/141-rename-verification-table.js";
-import { downRenameVerificationSessionIdColumn } from "../memory/migrations/142-rename-verification-session-id-column.js";
-import { downRenameGuardianVerificationValues } from "../memory/migrations/143-rename-guardian-verification-values.js";
-import { downRenameVoiceToPhone } from "../memory/migrations/144-rename-voice-to-phone.js";
-import { migrateDropAccountsTableDown } from "../memory/migrations/145-drop-accounts-table.js";
-import { migrateRemindersToSchedulesDown } from "../memory/migrations/147-migrate-reminders-to-schedules.js";
-import { migrateDropRemindersTableDown } from "../memory/migrations/148-drop-reminders-table.js";
-import { migrateOAuthAppsClientSecretPathDown } from "../memory/migrations/150-oauth-apps-client-secret-path.js";
+} from "../persistence/migrations/006-scope-salted-fingerprints.js";
+import { downAssistantIdToSelf } from "../persistence/migrations/007-assistant-id-to-self.js";
+import { downRemoveAssistantIdColumns } from "../persistence/migrations/008-remove-assistant-id-columns.js";
+import { downLlmUsageEventsDropAssistantId } from "../persistence/migrations/009-llm-usage-events-drop-assistant-id.js";
+import { downBackfillInboxThreadState } from "../persistence/migrations/014-backfill-inbox-thread-state.js";
+import { downDropActiveSearchIndex } from "../persistence/migrations/015-drop-active-search-index.js";
+import { downNotificationTablesSchema } from "../persistence/migrations/019-notification-tables-schema-migration.js";
+import { downRenameChannelToVellum } from "../persistence/migrations/020-rename-macos-ios-channel-to-vellum.js";
+import { downEmbeddingVectorBlob } from "../persistence/migrations/024-embedding-vector-blob.js";
+import { downEmbeddingsNullableVectorJson } from "../persistence/migrations/026a-embeddings-nullable-vector-json.js";
+import { downNormalizePhoneIdentities } from "../persistence/migrations/036-normalize-phone-identities.js";
+import { downBackfillGuardianPrincipalId } from "../persistence/migrations/126-backfill-guardian-principal-id.js";
+import { downGuardianPrincipalIdNotNull } from "../persistence/migrations/127-guardian-principal-id-not-null.js";
+import { downContactsNotesColumn } from "../persistence/migrations/134-contacts-notes-column.js";
+import { downBackfillContactInteractionStats } from "../persistence/migrations/135-backfill-contact-interaction-stats.js";
+import { downDropAssistantIdColumns } from "../persistence/migrations/136-drop-assistant-id-columns.js";
+import { downBackfillUsageCacheAccounting } from "../persistence/migrations/140-backfill-usage-cache-accounting.js";
+import { downRenameVerificationTable } from "../persistence/migrations/141-rename-verification-table.js";
+import { downRenameVerificationSessionIdColumn } from "../persistence/migrations/142-rename-verification-session-id-column.js";
+import { downRenameGuardianVerificationValues } from "../persistence/migrations/143-rename-guardian-verification-values.js";
+import { downRenameVoiceToPhone } from "../persistence/migrations/144-rename-voice-to-phone.js";
+import { migrateDropAccountsTableDown } from "../persistence/migrations/145-drop-accounts-table.js";
+import { migrateRemindersToSchedulesDown } from "../persistence/migrations/147-migrate-reminders-to-schedules.js";
+import { migrateDropRemindersTableDown } from "../persistence/migrations/148-drop-reminders-table.js";
+import { migrateOAuthAppsClientSecretPathDown } from "../persistence/migrations/150-oauth-apps-client-secret-path.js";
 import {
   migrateGuardianTimestampsEpochMsDown,
   migrateGuardianTimestampsRebuildDown,
-} from "../memory/migrations/162-guardian-timestamps-epoch-ms.js";
-import { migrateRenameGmailProviderKeyToGoogleDown } from "../memory/migrations/169-rename-gmail-provider-key-to-google.js";
-import { migrateRenameThreadStartersTableDown } from "../memory/migrations/174-rename-thread-starters-table.js";
-import { migrateDropCapabilityCardStateDown } from "../memory/migrations/176-drop-capability-card-state.js";
-import { migrateBackfillInlineAttachmentsToDiskDown } from "../memory/migrations/180-backfill-inline-attachments-to-disk.js";
-import { migrateRenameThreadStartersCheckpointsDown } from "../memory/migrations/181-rename-thread-starters-checkpoints.js";
-import { migrateBackfillAudioAttachmentMimeTypesDown } from "../memory/migrations/191-backfill-audio-attachment-mime-types.js";
-import { migrateLlmUsageAttribution } from "../memory/migrations/235-llm-usage-attribution.js";
+} from "../persistence/migrations/162-guardian-timestamps-epoch-ms.js";
+import { migrateRenameGmailProviderKeyToGoogleDown } from "../persistence/migrations/169-rename-gmail-provider-key-to-google.js";
+import { migrateRenameThreadStartersTableDown } from "../persistence/migrations/174-rename-thread-starters-table.js";
+import { migrateDropCapabilityCardStateDown } from "../persistence/migrations/176-drop-capability-card-state.js";
+import { migrateBackfillInlineAttachmentsToDiskDown } from "../persistence/migrations/180-backfill-inline-attachments-to-disk.js";
+import { migrateRenameThreadStartersCheckpointsDown } from "../persistence/migrations/181-rename-thread-starters-checkpoints.js";
+import { migrateBackfillAudioAttachmentMimeTypesDown } from "../persistence/migrations/191-backfill-audio-attachment-mime-types.js";
+import { migrateLlmUsageAttribution } from "../persistence/migrations/235-llm-usage-attribution.js";
 import {
-  MIGRATION_REGISTRY,
-  type MigrationRegistryEntry,
+  type MigrationStep,
+  runMigrationSteps,
+} from "../persistence/migrations/run-migrations.js";
+import {
   type MigrationValidationResult,
-} from "../memory/migrations/registry.js";
-import { runMigrationSteps } from "../memory/migrations/run-migrations.js";
-import {
   rollbackMemoryMigration,
   validateMigrationState,
-  withCrashRecovery,
-} from "../memory/migrations/validate-migration-state.js";
-import * as schema from "../memory/schema.js";
+} from "../persistence/migrations/validate-migration-state.js";
+import * as schema from "../persistence/schema/index.js";
+import { migrationSteps } from "../persistence/steps.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -537,21 +536,24 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
 
     // Insert a "started" checkpoint — simulates mid-migration crash.
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('migration_job_deferrals', 'started', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:migrateJobDeferrals', 'started', ${now})`,
     );
     // A completed checkpoint should not be flagged.
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('migration_memory_entity_relations_dedup_v1', '1', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:migrateMemoryEntityRelationDedup', '1', ${now})`,
     );
 
     // validateMigrationState logs warnings for crashed migrations and returns
     // structured diagnostic data. Assert directly on the returned result rather
     // than re-deriving the crashed list from the raw DB — this verifies the
     // function itself detects the crash, not just that the data is present.
-    const result: MigrationValidationResult = validateMigrationState(db);
-    expect(result.crashed).toContain("migration_job_deferrals");
+    const result: MigrationValidationResult = validateMigrationState(
+      db,
+      migrationSteps,
+    );
+    expect(result.crashed).toContain("step:migrateJobDeferrals");
     expect(result.crashed).not.toContain(
-      "migration_memory_entity_relations_dedup_v1",
+      "step:migrateMemoryEntityRelationDedup",
     );
   });
 
@@ -566,31 +568,36 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
 
     const now = Date.now();
 
-    // Write the child migration (salted fingerprints) but NOT its parent
-    // (fingerprint_scope_unique). This violates the declared dependsOn.
+    // Write the child migration (salted fingerprints) step checkpoint but NOT
+    // its parent (fingerprint_scope_unique). This violates the declared
+    // dependsOn — the runner records `step:<stepName>` for completed steps.
     raw.exec(`
       INSERT INTO memory_checkpoints (key, value, updated_at)
-      VALUES ('migration_memory_items_scope_salted_fingerprints_v1', '1', ${now})
+      VALUES ('step:migrateMemoryItemsScopeSaltedFingerprints', '1', ${now})
     `);
 
     // validateMigrationState throws an IntegrityError on dependency violations
     // to block daemon startup with an inconsistent schema.
-    expect(() => validateMigrationState(db)).toThrow(
+    expect(() => validateMigrationState(db, migrationSteps)).toThrow(
       "Migration dependency violations detected",
     );
-    expect(() => validateMigrationState(db)).toThrow(
-      "migration_memory_items_fingerprint_scope_unique_v1",
+    expect(() => validateMigrationState(db, migrationSteps)).toThrow(
+      "migrateMemoryItemsFingerprintScopeUnique",
     );
 
-    // Sanity-check: confirm the registry also declares this dependency, so the
-    // violation detection is grounded in real schema intent.
-    const saltedEntry = MIGRATION_REGISTRY.find(
-      (e) => e.key === "migration_memory_items_scope_salted_fingerprints_v1",
+    // Sanity-check: confirm the steps list also declares this dependency, so
+    // the violation detection is grounded in real schema intent.
+    const saltedStep = migrationSteps.find(
+      (s) =>
+        typeof s !== "function" &&
+        s.name === "migrateMemoryItemsScopeSaltedFingerprints",
     );
-    expect(saltedEntry).toBeTruthy();
-    expect(saltedEntry!.dependsOn).toContain(
-      "migration_memory_items_fingerprint_scope_unique_v1",
-    );
+    expect(saltedStep).toBeTruthy();
+    if (saltedStep && typeof saltedStep !== "function") {
+      expect(saltedStep.dependsOn).toContain(
+        "migrateMemoryItemsFingerprintScopeUnique",
+      );
+    }
   });
 
   test("validateMigrationState: no checkpoints table is handled gracefully", () => {
@@ -599,7 +606,7 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
     const db = createTestDb();
     // Deliberately do NOT create memory_checkpoints.
 
-    expect(() => validateMigrationState(db)).not.toThrow();
+    expect(() => validateMigrationState(db, migrationSteps)).not.toThrow();
   });
 
   test("migrateMemoryItemsFingerprintScopeUnique: old schema with UNIQUE on fingerprint is migrated", () => {
@@ -859,26 +866,40 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
     }
   });
 
-  test("MIGRATION_REGISTRY: version numbers are strictly monotonically increasing", () => {
-    // Registry ordering invariant: each entry's version must be strictly greater
-    // than the previous one. A violation here would mean the ordering guarantees
-    // documented in the migration comments cannot be relied upon.
-    for (let i = 1; i < MIGRATION_REGISTRY.length; i++) {
-      const prev = MIGRATION_REGISTRY[i - 1];
-      const curr = MIGRATION_REGISTRY[i];
-      expect(curr.version).toBeGreaterThan(prev.version);
+  test("migrationSteps: rollback versions are strictly monotonically increasing", () => {
+    // Steps ordering invariant: every rollback entry's version must be strictly
+    // greater than the previous rollback entry across the full steps list. A
+    // violation here would mean the rollback ordering guarantees documented in
+    // the migration comments cannot be relied upon.
+    const rollbackVersions: number[] = [];
+    for (const step of migrationSteps) {
+      if (typeof step === "function") continue;
+      if (!step.rollback) continue;
+      for (const entry of step.rollback) {
+        rollbackVersions.push(entry.version);
+      }
+    }
+    rollbackVersions.sort((a, b) => a - b);
+    for (let i = 1; i < rollbackVersions.length; i++) {
+      const prev = rollbackVersions[i - 1];
+      const curr = rollbackVersions[i];
+      expect(curr).toBeGreaterThan(prev);
     }
   });
 
-  test("MIGRATION_REGISTRY: all dependsOn references point to existing registry keys", () => {
-    // Schema drift guard: if a migration declares a dependency on a key that
-    // doesn't exist in the registry, the dependency check in validateMigrationState
-    // can never be satisfied. This test ensures all declared dependencies are valid.
-    const allKeys = new Set(MIGRATION_REGISTRY.map((e) => e.key));
-    for (const entry of MIGRATION_REGISTRY) {
-      if (!entry.dependsOn) continue;
-      for (const dep of entry.dependsOn) {
-        expect(allKeys.has(dep)).toBe(true);
+  test("migrationSteps: all dependsOn references point to existing step names", () => {
+    // Schema drift guard: if a migration declares a dependency on a step name
+    // that doesn't exist in the steps list, the dependency check in
+    // validateMigrationState can never be satisfied. This test ensures all
+    // declared dependencies are valid.
+    const allNames = new Set(
+      migrationSteps.map((s) => (typeof s === "function" ? s.name : s.name)),
+    );
+    for (const step of migrationSteps) {
+      if (typeof step === "function") continue;
+      if (!step.dependsOn) continue;
+      for (const dep of step.dependsOn) {
+        expect(allNames.has(dep)).toBe(true);
       }
     }
   });
@@ -938,26 +959,7 @@ describe("schema-drift recovery: migration handles unexpected schema state", () 
 // ---------------------------------------------------------------------------
 
 describe("rollbackMemoryMigration", () => {
-  // Track test entries pushed onto MIGRATION_REGISTRY so we can restore after
-  // each test. This avoids polluting the real registry across test runs.
-  let registrySnapshot: MigrationRegistryEntry[];
-
-  function saveRegistry() {
-    registrySnapshot = [...MIGRATION_REGISTRY];
-  }
-
-  function restoreRegistry() {
-    MIGRATION_REGISTRY.length = 0;
-    MIGRATION_REGISTRY.push(...registrySnapshot);
-  }
-
-  afterEach(() => {
-    restoreRegistry();
-  });
-
   test("rolls back checkpoint-tracked migrations in reverse version order", () => {
-    saveRegistry();
-
     const db = createTestDb();
     const raw = getRaw(db);
     bootstrapCheckpointsTable(raw);
@@ -968,44 +970,58 @@ describe("rollbackMemoryMigration", () => {
     const now = Date.now();
 
     // Use very high version numbers to avoid colliding with real registry entries.
-    const testEntries: MigrationRegistryEntry[] = [
+    const testSteps: MigrationStep[] = [
       {
-        key: "test_rollback_v1000",
-        version: 1000,
-        description: "test migration v1000",
-        down: () => {
-          downCalls.push("test_rollback_v1000");
-        },
+        name: "test_rollback_v1000",
+        run: () => {},
+        rollback: [
+          {
+            version: 1000,
+            description: "test migration v1000",
+            down: () => {
+              downCalls.push("test_rollback_v1000");
+            },
+          },
+        ],
       },
       {
-        key: "test_rollback_v1001",
-        version: 1001,
-        description: "test migration v1001",
-        down: () => {
-          downCalls.push("test_rollback_v1001");
-        },
+        name: "test_rollback_v1001",
+        run: () => {},
+        rollback: [
+          {
+            version: 1001,
+            description: "test migration v1001",
+            down: () => {
+              downCalls.push("test_rollback_v1001");
+            },
+          },
+        ],
       },
       {
-        key: "test_rollback_v1002",
-        version: 1002,
-        description: "test migration v1002",
-        down: () => {
-          downCalls.push("test_rollback_v1002");
-        },
+        name: "test_rollback_v1002",
+        run: () => {},
+        rollback: [
+          {
+            version: 1002,
+            description: "test migration v1002",
+            down: () => {
+              downCalls.push("test_rollback_v1002");
+            },
+          },
+        ],
       },
     ];
 
-    MIGRATION_REGISTRY.push(...testEntries);
-
-    // Simulate all three migrations as completed.
-    for (const entry of testEntries) {
+    // Simulate all three migrations as completed via their step checkpoints.
+    for (const entry of testSteps) {
+      if (typeof entry === "function") continue;
       raw.exec(
-        `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('${entry.key}', '1', ${now})`,
+        `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:${entry.name}', '1', ${now})`,
       );
     }
 
     // Roll back to version 1000 — should roll back v1002 and v1001 (version > 1000).
-    const rolledBack = rollbackMemoryMigration(db, 1000);
+    const rolledBack = rollbackMemoryMigration(db, 1000, testSteps);
 
     // Verify returned keys.
     expect(rolledBack).toEqual(["test_rollback_v1002", "test_rollback_v1001"]);
@@ -1016,14 +1032,14 @@ describe("rollbackMemoryMigration", () => {
     // Checkpoints for rolled-back migrations should be deleted.
     const cp1001 = raw
       .query(
-        `SELECT 1 FROM memory_checkpoints WHERE key = 'test_rollback_v1001'`,
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'step:test_rollback_v1001'`,
       )
       .get();
     expect(cp1001).toBeNull();
 
     const cp1002 = raw
       .query(
-        `SELECT 1 FROM memory_checkpoints WHERE key = 'test_rollback_v1002'`,
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'step:test_rollback_v1002'`,
       )
       .get();
     expect(cp1002).toBeNull();
@@ -1031,7 +1047,7 @@ describe("rollbackMemoryMigration", () => {
     // Checkpoint for the migration at target version should still exist.
     const cp1000 = raw
       .query(
-        `SELECT value FROM memory_checkpoints WHERE key = 'test_rollback_v1000'`,
+        `SELECT value FROM memory_checkpoints WHERE key = 'step:test_rollback_v1000'`,
       )
       .get() as { value: string } | null;
     expect(cp1000).toBeTruthy();
@@ -1041,13 +1057,10 @@ describe("rollbackMemoryMigration", () => {
   test("clears forward-step checkpoints so a re-upgrade re-applies a rolled-back registry-backed step", async () => {
     /**
      * A registry-backed migration that is also a named forward step is tracked
-     * in both the registry checkpoint (via withCrashRecovery) and the runner's
-     * `step:` checkpoint in the same memory_checkpoints ledger. Rolling it back
+     * by the runner's `step:` checkpoint in memory_checkpoints. Rolling it back
      * must clear the step checkpoint too, otherwise the next upgrade skips the
      * step and never restores the rolled-back schema.
      */
-    saveRegistry();
-
     const db = createTestDb();
     const raw = getRaw(db);
     bootstrapCheckpointsTable(raw);
@@ -1060,29 +1073,36 @@ describe("rollbackMemoryMigration", () => {
         .get() !== null;
 
     // GIVEN a registry-backed migration whose forward body is a named step that
-    // creates a table, guarded by withCrashRecovery.
-    const checkpointKey = "test_step_rollback_v4000";
+    // creates a table. The step runner records `step:<functionName>` after a
+    // successful run; the step's rollback entry maps to that key so rollback
+    // can find and clear it.
     function migrateTestStepRollback(database: DrizzleDb): void {
-      withCrashRecovery(database, checkpointKey, () => {
-        getSqliteFrom(database).exec(
-          `CREATE TABLE IF NOT EXISTS test_step_rollback_data (id TEXT PRIMARY KEY)`,
-        );
-      });
+      getSqliteFrom(database).exec(
+        `CREATE TABLE IF NOT EXISTS test_step_rollback_data (id TEXT PRIMARY KEY)`,
+      );
     }
 
-    // AND the migration is registered with a down() that drops that table.
-    MIGRATION_REGISTRY.push({
-      key: checkpointKey,
-      version: 4000,
-      description: "test step rollback",
-      down: (database) => {
-        getSqliteFrom(database).exec(
-          `DROP TABLE IF EXISTS test_step_rollback_data`,
-        );
+    // The test step carries rollback metadata so rollbackMemoryMigration can
+    // find it in the steps list.
+    const testSteps: MigrationStep[] = [
+      {
+        name: "migrateTestStepRollback",
+        run: migrateTestStepRollback,
+        rollback: [
+          {
+            version: 4000,
+            description: "test step rollback",
+            down: (database) => {
+              getSqliteFrom(database).exec(
+                `DROP TABLE IF EXISTS test_step_rollback_data`,
+              );
+            },
+          },
+        ],
       },
-    });
+    ];
 
-    // AND the step has run once through the runner, recording both checkpoints.
+    // AND the step has run once through the runner, recording the step checkpoint.
     await runMigrationSteps(db, [migrateTestStepRollback]);
     expect(hasTable()).toBe(true);
     expect(
@@ -1094,7 +1114,7 @@ describe("rollbackMemoryMigration", () => {
     ).toBeTruthy();
 
     // AND the migration has since been rolled back below its version.
-    rollbackMemoryMigration(db, 3999);
+    rollbackMemoryMigration(db, 3999, testSteps);
     expect(hasTable()).toBe(false);
 
     // WHEN the runner executes the forward steps again on a later upgrade.
@@ -1105,8 +1125,6 @@ describe("rollbackMemoryMigration", () => {
   });
 
   test("handles transaction failure in down() — rolls back and preserves checkpoint", () => {
-    saveRegistry();
-
     const db = createTestDb();
     const raw = getRaw(db);
     bootstrapCheckpointsTable(raw);
@@ -1124,24 +1142,31 @@ describe("rollbackMemoryMigration", () => {
       `INSERT INTO test_rollback_data (id, value) VALUES ('row-1', 'original')`,
     );
 
-    // Register a migration whose down() modifies test_rollback_data,
-    // but a trigger will force the modification to fail.
-    MIGRATION_REGISTRY.push({
-      key: "test_fail_down_v3000",
-      version: 3000,
-      description: "test migration with failing down()",
-      down: (database) => {
-        const sqlite = getSqliteFrom(database);
-        // This UPDATE will trigger our failure trigger.
-        sqlite.exec(
-          `UPDATE test_rollback_data SET value = 'rolled-back' WHERE id = 'row-1'`,
-        );
+    // The test step carries rollback metadata so rollbackMemoryMigration can
+    // find it in the steps list.
+    const testSteps: MigrationStep[] = [
+      {
+        name: "test_fail_down_v3000",
+        run: () => {},
+        rollback: [
+          {
+            version: 3000,
+            description: "test migration with failing down()",
+            down: (database) => {
+              const sqlite = getSqliteFrom(database);
+              // This UPDATE will trigger our failure trigger.
+              sqlite.exec(
+                `UPDATE test_rollback_data SET value = 'rolled-back' WHERE id = 'row-1'`,
+              );
+            },
+          },
+        ],
       },
-    });
+    ];
 
-    // Mark as completed.
+    // Mark as completed (via step checkpoint).
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_fail_down_v3000', '1', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:test_fail_down_v3000', '1', ${now})`,
     );
 
     // Install a trigger to force the down() function to fail.
@@ -1155,7 +1180,7 @@ describe("rollbackMemoryMigration", () => {
     // Rollback should throw because down() fails.
     let threw = false;
     try {
-      rollbackMemoryMigration(db, 2999);
+      rollbackMemoryMigration(db, 2999, testSteps);
     } catch {
       threw = true;
     }
@@ -1169,7 +1194,7 @@ describe("rollbackMemoryMigration", () => {
     // written before down() was called and is preserved.
     const cp = raw
       .query(
-        `SELECT value FROM memory_checkpoints WHERE key = 'test_fail_down_v3000'`,
+        `SELECT value FROM memory_checkpoints WHERE key = 'step:test_fail_down_v3000'`,
       )
       .get() as { value: string } | null;
     expect(cp).toBeTruthy();
@@ -1184,8 +1209,6 @@ describe("rollbackMemoryMigration", () => {
   });
 
   test("down() with its own BEGIN/COMMIT succeeds without nested-transaction errors", () => {
-    saveRegistry();
-
     const db = createTestDb();
     const raw = getRaw(db);
     bootstrapCheckpointsTable(raw);
@@ -1203,30 +1226,38 @@ describe("rollbackMemoryMigration", () => {
       `INSERT INTO test_self_txn_data (id, value) VALUES ('row-1', 'migrated')`,
     );
 
-    // Register a migration whose down() manages its own transaction —
+    // The test step carries rollback metadata so rollbackMemoryMigration can
+    // find it in the steps list. The down() manages its own transaction —
     // this previously caused nested-transaction errors when rollbackMemoryMigration
     // wrapped every down() call in BEGIN/COMMIT.
-    MIGRATION_REGISTRY.push({
-      key: "test_self_txn_down_v3500",
-      version: 3500,
-      description: "test migration with self-transactional down()",
-      down: (database) => {
-        const sqlite = getSqliteFrom(database);
-        sqlite.exec("BEGIN");
-        sqlite.exec(
-          `UPDATE test_self_txn_data SET value = 'original' WHERE id = 'row-1'`,
-        );
-        sqlite.exec("COMMIT");
+    const testSteps: MigrationStep[] = [
+      {
+        name: "test_self_txn_down_v3500",
+        run: () => {},
+        rollback: [
+          {
+            version: 3500,
+            description: "test migration with self-transactional down()",
+            down: (database) => {
+              const sqlite = getSqliteFrom(database);
+              sqlite.exec("BEGIN");
+              sqlite.exec(
+                `UPDATE test_self_txn_data SET value = 'original' WHERE id = 'row-1'`,
+              );
+              sqlite.exec("COMMIT");
+            },
+          },
+        ],
       },
-    });
+    ];
 
-    // Mark as completed.
+    // Mark as completed (via step checkpoint).
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_self_txn_down_v3500', '1', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:test_self_txn_down_v3500', '1', ${now})`,
     );
 
     // This should succeed — no nested transaction error.
-    const rolledBack = rollbackMemoryMigration(db, 3499);
+    const rolledBack = rollbackMemoryMigration(db, 3499, testSteps);
 
     expect(rolledBack).toEqual(["test_self_txn_down_v3500"]);
 
@@ -1240,53 +1271,61 @@ describe("rollbackMemoryMigration", () => {
     // Checkpoint should be deleted.
     const cp = raw
       .query(
-        `SELECT 1 FROM memory_checkpoints WHERE key = 'test_self_txn_down_v3500'`,
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'step:test_self_txn_down_v3500'`,
       )
       .get();
     expect(cp).toBeNull();
   });
 
   test("no-op when already at target version", () => {
-    saveRegistry();
-
     const db = createTestDb();
     const raw = getRaw(db);
     bootstrapCheckpointsTable(raw);
 
     const now = Date.now();
 
-    // Register entries with down functions — they should NOT be called.
+    // Test steps with rollback metadata — they should NOT have down() called.
     const downCalls: string[] = [];
 
-    MIGRATION_REGISTRY.push(
+    const testSteps: MigrationStep[] = [
       {
-        key: "test_noop_v4000",
-        version: 4000,
-        description: "test noop v4000",
-        down: () => {
-          downCalls.push("test_noop_v4000");
-        },
+        name: "test_noop_v4000",
+        run: () => {},
+        rollback: [
+          {
+            version: 4000,
+            description: "test noop v4000",
+            down: () => {
+              downCalls.push("test_noop_v4000");
+            },
+          },
+        ],
       },
       {
-        key: "test_noop_v4001",
-        version: 4001,
-        description: "test noop v4001",
-        down: () => {
-          downCalls.push("test_noop_v4001");
-        },
+        name: "test_noop_v4001",
+        run: () => {},
+        rollback: [
+          {
+            version: 4001,
+            description: "test noop v4001",
+            down: () => {
+              downCalls.push("test_noop_v4001");
+            },
+          },
+        ],
       },
-    );
+    ];
 
-    // Mark both as completed.
+    // Mark both as completed (via step checkpoints).
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_noop_v4000', '1', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:test_noop_v4000', '1', ${now})`,
     );
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_noop_v4001', '1', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:test_noop_v4001', '1', ${now})`,
     );
 
     // Roll back to version >= latest applied migration — should be a no-op.
-    const rolledBack = rollbackMemoryMigration(db, 4001);
+    const rolledBack = rollbackMemoryMigration(db, 4001, testSteps);
 
     expect(rolledBack).toEqual([]);
     expect(downCalls).toEqual([]);
@@ -1294,26 +1333,24 @@ describe("rollbackMemoryMigration", () => {
     // Both checkpoints should remain.
     const cp4000 = raw
       .query(
-        `SELECT value FROM memory_checkpoints WHERE key = 'test_noop_v4000'`,
+        `SELECT value FROM memory_checkpoints WHERE key = 'step:test_noop_v4000'`,
       )
       .get() as { value: string } | null;
     const cp4001 = raw
       .query(
-        `SELECT value FROM memory_checkpoints WHERE key = 'test_noop_v4001'`,
+        `SELECT value FROM memory_checkpoints WHERE key = 'step:test_noop_v4001'`,
       )
       .get() as { value: string } | null;
     expect(cp4000!.value).toBe("1");
     expect(cp4001!.value).toBe("1");
 
     // Also verify with a target version greater than the latest.
-    const rolledBack2 = rollbackMemoryMigration(db, 9999);
+    const rolledBack2 = rollbackMemoryMigration(db, 9999, testSteps);
     expect(rolledBack2).toEqual([]);
     expect(downCalls).toEqual([]);
   });
 
   test("respects dependency ordering on rollback (children rolled back before parents)", () => {
-    saveRegistry();
-
     const db = createTestDb();
     const raw = getRaw(db);
     bootstrapCheckpointsTable(raw);
@@ -1326,36 +1363,46 @@ describe("rollbackMemoryMigration", () => {
     // Since the child has a higher version number, rolling back in reverse
     // version order means the child (v5001) is rolled back BEFORE the parent
     // (v5000), which is the correct dependency-safe ordering.
-    MIGRATION_REGISTRY.push(
+    const testSteps: MigrationStep[] = [
       {
-        key: "test_parent_v5000",
-        version: 5000,
-        description: "test parent migration",
-        down: () => {
-          downCalls.push("test_parent_v5000");
-        },
+        name: "test_parent_v5000",
+        run: () => {},
+        rollback: [
+          {
+            version: 5000,
+            description: "test parent migration",
+            down: () => {
+              downCalls.push("test_parent_v5000");
+            },
+          },
+        ],
       },
       {
-        key: "test_child_v5001",
-        version: 5001,
+        name: "test_child_v5001",
+        run: () => {},
         dependsOn: ["test_parent_v5000"],
-        description: "test child migration depending on parent",
-        down: () => {
-          downCalls.push("test_child_v5001");
-        },
+        rollback: [
+          {
+            version: 5001,
+            description: "test child migration depending on parent",
+            down: () => {
+              downCalls.push("test_child_v5001");
+            },
+          },
+        ],
       },
-    );
+    ];
 
-    // Both are completed.
+    // Both are completed (via step checkpoints).
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_parent_v5000', '1', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:test_parent_v5000', '1', ${now})`,
     );
     raw.exec(
-      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('test_child_v5001', '1', ${now})`,
+      `INSERT INTO memory_checkpoints (key, value, updated_at) VALUES ('step:test_child_v5001', '1', ${now})`,
     );
 
     // Roll back to version 4999 — both should be rolled back, child first.
-    const rolledBack = rollbackMemoryMigration(db, 4999);
+    const rolledBack = rollbackMemoryMigration(db, 4999, testSteps);
 
     expect(rolledBack).toEqual(["test_child_v5001", "test_parent_v5000"]);
 
@@ -1364,10 +1411,14 @@ describe("rollbackMemoryMigration", () => {
 
     // Both checkpoints should be deleted.
     const cpParent = raw
-      .query(`SELECT 1 FROM memory_checkpoints WHERE key = 'test_parent_v5000'`)
+      .query(
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'step:test_parent_v5000'`,
+      )
       .get();
     const cpChild = raw
-      .query(`SELECT 1 FROM memory_checkpoints WHERE key = 'test_child_v5001'`)
+      .query(
+        `SELECT 1 FROM memory_checkpoints WHERE key = 'step:test_child_v5001'`,
+      )
       .get();
     expect(cpParent).toBeNull();
     expect(cpChild).toBeNull();

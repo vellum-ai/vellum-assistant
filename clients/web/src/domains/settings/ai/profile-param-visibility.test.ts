@@ -32,6 +32,7 @@ describe("resolveProfileParamVisibility", () => {
       resolveProfileParamVisibility("fireworks", "accounts/fireworks/models/minimax-m3").topP,
     ).toBe(true);
     expect(resolveProfileParamVisibility("openrouter", "anthropic/claude-fable-5").topP).toBe(true);
+    expect(resolveProfileParamVisibility("together", "MiniMaxAI/MiniMax-M3").topP).toBe(true);
     // Custom OpenAI-compatible connections route through the OpenAI adapter,
     // which forwards top_p — so the control must be visible for them too.
     expect(resolveProfileParamVisibility("openai-compatible", "some-custom-model").topP).toBe(true);
@@ -64,6 +65,17 @@ describe("resolveProfileParamVisibility", () => {
     const vis = resolveProfileParamVisibility("openrouter", "anthropic/claude-fable-5");
     expect(vis.effort).toBe(true);
     expect(vis.thinking).toBe(false);
+  });
+
+  test("together MiniMax M3 enables effort and topP", () => {
+    const vis = resolveProfileParamVisibility("together", "MiniMaxAI/MiniMax-M3");
+    // Together is an OpenAI-compatible endpoint whose chat-completions client
+    // forwards both top_p and reasoning_effort; MiniMax M3 is a reasoning model
+    // (supportsThinking in the catalog), so effort is adjustable too.
+    expect(vis.effort).toBe(true);
+    expect(vis.topP).toBe(true);
+    // Temperature stays Anthropic-wire only; Together doesn't get it.
+    expect(vis.temperature).toBe(false);
   });
 
   test("anthropic opus enables speed", () => {

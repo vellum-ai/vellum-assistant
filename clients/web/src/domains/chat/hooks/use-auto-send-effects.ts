@@ -3,7 +3,9 @@
  *
  * 1. **URL prompt** — `?prompt=<text>` triggers an immediate send once an
  *    active conversation exists (used by "Submit Feedback" and similar
- *    deep-link flows). Consumed exactly once per distinct `prompt` value.
+ *    deep-link flows). One-shot callers have the `prompt` stripped from the URL
+ *    after dispatch so a refresh can't re-send it; relay callers keep theirs to
+ *    re-fire on a new token.
  *
  * 2. **Pre-chat reachability probe** — when a pending onboarding message
  *    exists in sessionStorage, kicks off a background reachability probe
@@ -17,6 +19,8 @@
 
 import { useEffect, useLayoutEffect, useRef } from "react";
 
+import type { SetURLSearchParams } from "react-router";
+
 import type {
   ReachabilityProbeOptions,
   ReachabilityState,
@@ -26,25 +30,44 @@ export interface UseAutoSendEffectsOptions {
   assistantId: string | null;
   activeConversationId: string | null;
   searchParams: URLSearchParams;
-  sendMessage: (content: string) => Promise<void>;
+  setSearchParams: SetURLSearchParams;
+  sendMessage: (
+    content: string,
+    attachments?: never[],
+    opts?: { hidden?: boolean },
+  ) => Promise<void>;
   reachabilityPhase: ReachabilityState["phase"];
   reachabilityProbe: (options?: ReachabilityProbeOptions) => void;
   /** Reads the staged pre-chat initial message from sessionStorage. */
   getPendingInitialMessage: () => string | undefined;
+  /**
+   * Whether the staged pre-chat initial message should be sent hidden — driving
+   * the assistant's reply but rendering no user bubble (used by the
+   * research-onboarding "Let's chat" handoff for a proactive greeting).
+   */
+  getPendingInitialMessageHidden?: () => boolean;
 }
 
 export function useAutoSendEffects({
   assistantId,
   activeConversationId,
   searchParams,
+  setSearchParams,
   sendMessage,
   reachabilityPhase,
   reachabilityProbe,
   getPendingInitialMessage,
+  getPendingInitialMessageHidden,
 }: UseAutoSendEffectsOptions): void {
   const getPendingInitialMessageRef = useRef(getPendingInitialMessage);
   useLayoutEffect(() => {
     getPendingInitialMessageRef.current = getPendingInitialMessage;
+  });
+  const getPendingInitialMessageHiddenRef = useRef(
+    getPendingInitialMessageHidden,
+  );
+  useLayoutEffect(() => {
+    getPendingInitialMessageHiddenRef.current = getPendingInitialMessageHidden;
   });
   // 1. URL ?prompt= auto-send.
   // Keyed by conversationId + prompt so the same text sent to different
@@ -61,7 +84,21 @@ export function useAutoSendEffects({
     if (promptConsumedRef.current === key) return;
     promptConsumedRef.current = key;
     void sendMessage(prompt);
-  }, [searchParams, activeConversationId, sendMessage]);
+    // One-shot callers (no relay token) dedupe only on this component ref,
+    // which resets on refresh/remount — so a deep link like the Day-2 check-in
+    // (`?prompt=…&vref=…`) would re-send on reload. Strip the prompt once
+    // dispatched so the send is durably once-only. Relay callers intentionally
+    // re-fire (each new token is a fresh dispatch), so leave their URL intact.
+    if (!relayToken) {
+      setSearchParams(
+        (prev) => {
+          prev.delete("prompt");
+          return prev;
+        },
+        { replace: true },
+      );
+    }
+  }, [searchParams, setSearchParams, activeConversationId, sendMessage]);
 
   // 2. Pre-chat reachability probe — eagerly start the probe cycle.
   useEffect(() => {
@@ -80,6 +117,7 @@ export function useAutoSendEffects({
     const message = getPendingInitialMessageRef.current();
     if (!message) return;
     initialMessageConsumedRef.current = true;
-    void sendMessage(message);
+    const hidden = getPendingInitialMessageHiddenRef.current?.() ?? false;
+    void sendMessage(message, [], { hidden });
   }, [activeConversationId, assistantId, reachabilityPhase, sendMessage]);
 }

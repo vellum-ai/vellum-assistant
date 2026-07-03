@@ -58,7 +58,8 @@ mock.module("../mcp/mcp-auth-state.js", () => ({
 }));
 
 mock.module("../mcp/mcp-oauth-provider.js", () => ({
-  deleteMcpOAuthCredentials: async () => {},
+  hasMcpOAuthTokens: async () => false,
+  deleteMcpOAuthCredentials: async () => ({ ok: true, failedKeys: [] }),
 }));
 
 const { ROUTES } = await import("../runtime/routes/mcp-auth-routes.js");

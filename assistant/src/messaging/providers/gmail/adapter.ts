@@ -100,6 +100,7 @@ export const gmailMessagingProvider: MessagingProvider = {
   id: "gmail",
   displayName: "Gmail",
   credentialService: "google",
+  requiredScopes: gmail.GMAIL_REQUIRED_SCOPES,
   capabilities: new Set([
     "threads",
     "labels",

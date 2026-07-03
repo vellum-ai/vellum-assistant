@@ -14,7 +14,6 @@ import {
   useMemo,
 } from "react";
 
-import type { DisplayMessage } from "@/domains/chat/types/types";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { clearQueueStatus } from "@/domains/chat/utils/stream-updaters/shared";
@@ -29,7 +28,6 @@ import { useComposerStore } from "@/domains/chat/composer-store";
 interface UseMessageQueueParams {
   assistantId: string | null;
   activeConversationId: string | null;
-  messages: DisplayMessage[];
 }
 
 // ---------------------------------------------------------------------------
@@ -39,26 +37,26 @@ interface UseMessageQueueParams {
 export function useMessageQueue({
   assistantId,
   activeConversationId,
-  messages,
 }: UseMessageQueueParams) {
-  const setMessages = useChatSessionStore.use.setMessages();
+  const optimisticSends = useChatSessionStore.use.optimisticSends();
+  const setOptimisticSends = useChatSessionStore.use.setOptimisticSends();
   /** Remove an optimistically-added queued message and its tracking state. */
   const revertQueuedMessage = useCallback(
     (messageId: string) => {
-      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      setOptimisticSends((prev) => prev.filter((m) => m.id !== messageId));
       const queueIds = useChatSessionStore.getState().pendingQueuedMessageIds;
       const idx = queueIds.indexOf(messageId);
       if (idx !== -1) queueIds.splice(idx, 1);
     },
-    [],
+    [setOptimisticSends],
   );
 
   const queuedMessages = useMemo(
     () =>
-      messages
+      optimisticSends
         .filter((m) => m.role === "user" && m.queueStatus === "queued")
         .sort((a, b) => (a.queuePosition ?? 0) - (b.queuePosition ?? 0)),
-    [messages],
+    [optimisticSends],
   );
 
   const handleCancelQueuedMessage = useCallback(
@@ -73,7 +71,7 @@ export function useMessageQueue({
           break;
         }
       }
-      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      setOptimisticSends((prev) => prev.filter((m) => m.id !== messageId));
       if (targetRequestId) {
         void deleteQueuedMessage(assistantId, activeConversationId, targetRequestId);
       } else {
@@ -81,7 +79,7 @@ export function useMessageQueue({
         useTurnStore.getState().deleteQueuedMessage();
       }
     },
-    [assistantId, activeConversationId],
+    [assistantId, activeConversationId, setOptimisticSends],
   );
 
   const handleCancelAllQueued = useCallback(() => {
@@ -103,11 +101,11 @@ export function useMessageQueue({
         }
       }
       if (targetRequestId) {
-        setMessages((prev) => clearQueueStatus(prev, messageId));
+        setOptimisticSends((prev) => clearQueueStatus(prev, messageId));
         steerToMessage(assistantId, activeConversationId, targetRequestId).then(
           (ok) => {
             if (!ok) {
-              setMessages((prev) =>
+              setOptimisticSends((prev) =>
                 prev.map((m) =>
                   m.id === messageId
                     ? { ...m, queueStatus: "queued" as const }
@@ -119,7 +117,7 @@ export function useMessageQueue({
         );
       }
     },
-    [assistantId, activeConversationId],
+    [assistantId, activeConversationId, setOptimisticSends],
   );
 
   const handleEditQueueTail = useCallback(() => {

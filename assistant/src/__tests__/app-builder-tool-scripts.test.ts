@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 
-import type { AppDefinition } from "../memory/app-store.js";
+import type { AppDefinition } from "../apps/app-store.js";
 import type { AppStore } from "../tools/apps/executors.js";
 import type { ToolContext } from "../tools/types.js";
 
@@ -53,7 +53,7 @@ function makeContext(overrides: Partial<ToolContext> = {}): ToolContext {
 
 const mockStore = makeMockStore();
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   ...mockStore,
   getAppsDir: () => "/tmp/test-apps",
   getAppDirPath: (appId: string) => `/tmp/test-apps/${appId}`,

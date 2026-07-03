@@ -1,7 +1,29 @@
 import { describe, expect, test } from "bun:test";
 
 import { parseAccessRequestPayload } from "../notifications/access-request-copy.js";
+import type {
+  ApprovalCardBlock,
+  ApprovalCardFallbackBlock,
+  ApprovalCardSurfaceBlock,
+} from "../notifications/approval-card-builder.js";
 import { buildAccessRequestSeedContentBlocks } from "../notifications/approval-card-data.js";
+
+// The builder returns a schema-derived `ApprovalCardBlock[]`, so tests narrow by
+// the block's discriminant instead of casting to `Record<string, unknown>`.
+function surfaceOf(blocks: ApprovalCardBlock[]): ApprovalCardSurfaceBlock {
+  const block = blocks[0];
+  if (block?.type !== "ui_surface") {
+    throw new Error("expected a ui_surface block at index 0");
+  }
+  return block;
+}
+function textOf(blocks: ApprovalCardBlock[]): ApprovalCardFallbackBlock {
+  const block = blocks[1];
+  if (block?.type !== "text") {
+    throw new Error("expected a text fallback block at index 1");
+  }
+  return block;
+}
 
 describe("buildAccessRequestSeedContentBlocks", () => {
   const basePayload: Record<string, unknown> = {
@@ -20,173 +42,187 @@ describe("buildAccessRequestSeedContentBlocks", () => {
   test("produces a ui_surface block and a text fallback block", () => {
     const blocks = buildAccessRequestSeedContentBlocks(basePayload);
     expect(blocks).toHaveLength(2);
-    expect((blocks[0] as Record<string, unknown>).type).toBe("ui_surface");
-    expect((blocks[1] as Record<string, unknown>).type).toBe("text");
+    expect(surfaceOf(blocks).type).toBe("ui_surface");
+    expect(textOf(blocks).type).toBe("text");
+    // The fallback block is flagged so surface-capable clients skip it.
+    expect(textOf(blocks)._surfaceFallback).toBe(true);
   });
 
   test("card surface has correct surfaceType and surfaceId", () => {
-    const blocks = buildAccessRequestSeedContentBlocks(basePayload);
-    const surface = blocks[0] as Record<string, unknown>;
+    const surface = surfaceOf(buildAccessRequestSeedContentBlocks(basePayload));
     expect(surface.surfaceType).toBe("card");
     expect(surface.surfaceId).toBe("access-request-req-123");
     expect(surface.title).toBe("Access Request");
   });
 
   test("card data uses actorDisplayName as title", () => {
-    const blocks = buildAccessRequestSeedContentBlocks(basePayload);
-    const surface = blocks[0] as Record<string, unknown>;
-    const data = surface.data as Record<string, unknown>;
+    const { data } = surfaceOf(
+      buildAccessRequestSeedContentBlocks(basePayload),
+    );
     expect(data.title).toBe("Alice");
     expect(data.subtitle).toBe("Requesting access to the assistant");
   });
 
   test("card data falls back to senderIdentifier when no displayName", () => {
-    const payload = { ...basePayload, actorDisplayName: undefined };
-    const blocks = buildAccessRequestSeedContentBlocks(payload);
-    const data = (blocks[0] as Record<string, unknown>).data as Record<
-      string,
-      unknown
-    >;
-    expect(data.title).toBe("U999");
+    const blocks = buildAccessRequestSeedContentBlocks({
+      ...basePayload,
+      actorDisplayName: undefined,
+    });
+    expect(surfaceOf(blocks).data.title).toBe("U999");
   });
 
   test("card data falls back to 'Someone' when no identity", () => {
-    const payload = {
+    const blocks = buildAccessRequestSeedContentBlocks({
       ...basePayload,
       actorDisplayName: undefined,
       senderIdentifier: undefined,
-    };
-    const blocks = buildAccessRequestSeedContentBlocks(payload);
-    const data = (blocks[0] as Record<string, unknown>).data as Record<
-      string,
-      unknown
-    >;
-    expect(data.title).toBe("Someone");
+    });
+    expect(surfaceOf(blocks).data.title).toBe("Someone");
   });
 
   test("includes username and source in metadata", () => {
-    const blocks = buildAccessRequestSeedContentBlocks(basePayload);
-    const data = (blocks[0] as Record<string, unknown>).data as Record<
-      string,
-      unknown
-    >;
-    const metadata = data.metadata as Array<{ label: string; value: string }>;
-    expect(metadata).toContainEqual({
+    const { data } = surfaceOf(
+      buildAccessRequestSeedContentBlocks(basePayload),
+    );
+    expect(data.metadata).toContainEqual({
       label: "Username",
       value: "@alice",
     });
-    expect(metadata).toContainEqual({
+    expect(data.metadata).toContainEqual({
       label: "Source",
       value: "Slack — #C01ABC",
     });
   });
 
   test("DM channel renders as Direct message", () => {
-    const payload = { ...basePayload, conversationExternalId: "D01XYZ" };
-    const blocks = buildAccessRequestSeedContentBlocks(payload);
-    const data = (blocks[0] as Record<string, unknown>).data as Record<
-      string,
-      unknown
-    >;
-    const metadata = data.metadata as Array<{ label: string; value: string }>;
-    expect(metadata).toContainEqual({
+    const blocks = buildAccessRequestSeedContentBlocks({
+      ...basePayload,
+      conversationExternalId: "D01XYZ",
+    });
+    expect(surfaceOf(blocks).data.metadata).toContainEqual({
       label: "Source",
       value: "Slack — Direct message",
     });
   });
 
   test("body includes message preview when present", () => {
-    const blocks = buildAccessRequestSeedContentBlocks(basePayload);
-    const data = (blocks[0] as Record<string, unknown>).data as Record<
-      string,
-      unknown
-    >;
+    const { data } = surfaceOf(
+      buildAccessRequestSeedContentBlocks(basePayload),
+    );
     expect(data.body).toContain("Hello, I need help with something");
   });
 
   test("body includes trust signal warnings", () => {
-    const payload = {
-      ...basePayload,
-      isStranger: true,
-      isRestricted: true,
-      previousMemberStatus: "revoked",
-    };
-    const blocks = buildAccessRequestSeedContentBlocks(payload);
-    const data = (blocks[0] as Record<string, unknown>).data as Record<
-      string,
-      unknown
-    >;
-    const body = data.body as string;
-    expect(body).toContain("External Slack user");
-    expect(body).toContain("Guest / restricted account");
-    expect(body).toContain("previously revoked");
+    const { data } = surfaceOf(
+      buildAccessRequestSeedContentBlocks({
+        ...basePayload,
+        isStranger: true,
+        isRestricted: true,
+        previousMemberStatus: "revoked",
+      }),
+    );
+    expect(data.body).toContain("External Slack user");
+    expect(data.body).toContain("Guest / restricted account");
+    expect(data.body).toContain("previously revoked");
   });
 
   test("body includes Slack message permalink", () => {
-    const blocks = buildAccessRequestSeedContentBlocks(basePayload);
-    const data = (blocks[0] as Record<string, unknown>).data as Record<
-      string,
-      unknown
-    >;
-    const body = data.body as string;
-    expect(body).toContain("View message");
-    expect(body).toContain(
+    const { data } = surfaceOf(
+      buildAccessRequestSeedContentBlocks(basePayload),
+    );
+    expect(data.body).toContain("View message");
+    expect(data.body).toContain(
       "https://slack.com/archives/C01ABC/p1700000000000100",
     );
   });
 
   test("text fallback block contains contract text", () => {
-    const blocks = buildAccessRequestSeedContentBlocks(basePayload);
-    const textBlock = blocks[1] as Record<string, unknown>;
-    expect(textBlock.type).toBe("text");
-    const text = textBlock.text as string;
-    expect(text).toContain("requesting access to the assistant");
-    expect(text).toContain("ABC123");
+    const textBlock = textOf(buildAccessRequestSeedContentBlocks(basePayload));
+    expect(textBlock.text).toContain("requesting access to the assistant");
+    expect(textBlock.text).toContain("ABC123");
   });
 
   test("body shows fallback when no preview/warnings/permalink", () => {
-    const payload = {
+    const blocks = buildAccessRequestSeedContentBlocks({
       requestId: "req-456",
       requestCode: "XYZ",
       senderIdentifier: "someone",
-    };
-    const blocks = buildAccessRequestSeedContentBlocks(payload);
-    const data = (blocks[0] as Record<string, unknown>).data as Record<
-      string,
-      unknown
-    >;
-    expect(data.body).toBe("No additional context available.");
+    });
+    expect(surfaceOf(blocks).data.body).toBe(
+      "No additional context available.",
+    );
   });
 
-  test("surface block includes approve/reject actions when requestId present", () => {
-    const blocks = buildAccessRequestSeedContentBlocks(basePayload);
-    const surface = blocks[0] as Record<string, unknown>;
-    const actions = surface.actions as Array<{
-      id: string;
-      label: string;
-      style: string;
-    }>;
-    expect(actions).toHaveLength(2);
-    expect(actions[0]).toEqual({
-      id: "apr:req-123:approve_once",
-      label: "Approve",
-      style: "primary",
-    });
-    expect(actions[1]).toEqual({
-      id: "apr:req-123:reject",
-      label: "Reject",
-      style: "destructive",
-    });
+  test("surface block renders introduction actions for a workspace member (no code option)", () => {
+    // Explicit positive signals: users.info resolved a regular member.
+    const surface = surfaceOf(
+      buildAccessRequestSeedContentBlocks({
+        ...basePayload,
+        isStranger: false,
+        isRestricted: false,
+      }),
+    );
+    expect(surface.actions).toEqual([
+      { id: "apr:req-123:trust", label: "Trust", style: "primary" },
+      {
+        id: "apr:req-123:leave_unverified",
+        label: "Leave unverified",
+        style: "secondary",
+      },
+      { id: "apr:req-123:block", label: "Block", style: "destructive" },
+    ]);
+  });
+
+  test("surface block leads with the handshake for an external Slack user", () => {
+    const surface = surfaceOf(
+      buildAccessRequestSeedContentBlocks({ ...basePayload, isStranger: true }),
+    );
+    // Unknown signals (users.info failure) render the same handshake-led
+    // shape — absent platform vouching must never yield one-tap Trust.
+    const unknownSignals = surfaceOf(
+      buildAccessRequestSeedContentBlocks(basePayload),
+    );
+    expect(unknownSignals.actions?.map((a) => a.id)).toEqual(
+      surface.actions?.map((a) => a.id) ?? [],
+    );
+    expect(surface.actions).toEqual([
+      {
+        id: "apr:req-123:verify_code",
+        label: "Verify with a code",
+        style: "primary",
+      },
+      { id: "apr:req-123:trust", label: "Trust anyway", style: "secondary" },
+      {
+        id: "apr:req-123:leave_unverified",
+        label: "Leave unverified",
+        style: "secondary",
+      },
+      { id: "apr:req-123:block", label: "Block", style: "destructive" },
+    ]);
+  });
+
+  test("surface block never offers the code option for a bot", () => {
+    const surface = surfaceOf(
+      buildAccessRequestSeedContentBlocks({
+        ...basePayload,
+        isBot: true,
+        isStranger: true,
+      }),
+    );
+    const ids = (surface.actions ?? []).map((a) => a.id);
+    expect(ids).toEqual([
+      "apr:req-123:trust",
+      "apr:req-123:leave_unverified",
+      "apr:req-123:block",
+    ]);
   });
 
   test("surface block omits actions when requestId is missing", () => {
-    const payload = {
+    const blocks = buildAccessRequestSeedContentBlocks({
       ...basePayload,
       requestId: undefined,
-    };
-    const blocks = buildAccessRequestSeedContentBlocks(payload);
-    const surface = blocks[0] as Record<string, unknown>;
-    expect(surface.actions).toBeUndefined();
+    });
+    expect(surfaceOf(blocks).actions).toBeUndefined();
   });
 
   test("parseAccessRequestPayload extracts typed fields", () => {

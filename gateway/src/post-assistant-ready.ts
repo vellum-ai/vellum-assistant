@@ -8,9 +8,9 @@
  * assistant DB doesn't exist yet.
  *
  * This module polls the assistant IPC health route and, once the assistant
- * is ready, runs data migrations and other deferred tasks. It is awaited
- * during startup — the HTTP server does not start until this completes,
- * preventing auth traffic from racing with data migrations.
+ * is ready, runs data migrations and other deferred tasks. The gateway keeps
+ * readiness and regular traffic closed until this completes, preventing auth
+ * traffic from racing with data migrations.
  */
 
 import type { Database } from "bun:sqlite";
@@ -21,7 +21,6 @@ import { runDataMigrations } from "./db/data-migrations/index.js";
 import { IpcTransportError, ipcCallAssistant } from "./ipc/assistant-client.js";
 import { getLogger } from "./logger.js";
 import { startOutboundVoiceVerificationSync } from "./verification/outbound-voice-verification-sync.js";
-import { startVoiceApprovalSync } from "./verification/voice-approval-sync.js";
 
 const log = getLogger("post-assistant-ready");
 
@@ -57,7 +56,7 @@ export async function waitForAssistant(): Promise<boolean> {
 
 /**
  * Wait for the assistant runtime to become healthy, then run deferred
- * startup tasks. Awaited at startup — blocks Bun.serve().
+ * startup tasks.
  */
 export async function runPostAssistantReady(): Promise<void> {
   const ready = await waitForAssistant();
@@ -77,8 +76,7 @@ export async function runPostAssistantReady(): Promise<void> {
     log.warn({ err }, "Post-ready guardian binding backfill failed");
   }
 
-  // 3. Voice verification syncs — these poll the assistant DB via IPC,
-  // so they must start after the assistant is confirmed ready.
-  startVoiceApprovalSync();
+  // 3. Outbound voice verification sync — polls the assistant DB via IPC,
+  // so it must start after the assistant is confirmed ready.
   startOutboundVoiceVerificationSync();
 }

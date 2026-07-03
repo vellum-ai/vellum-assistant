@@ -10,6 +10,8 @@
 import { captureError } from "@/lib/sentry/capture-error";
 import {
   useCallback,
+  useEffect,
+  useRef,
 } from "react";
 
 import { useNavigate } from "react-router";
@@ -22,6 +24,8 @@ import { routes } from "@/utils/routes";
 import { haptic } from "@/utils/haptics";
 import { messagePlainText } from "@/domains/chat/utils/message-plain-text";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
+import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
+import type { DisplayMessage } from "@/domains/chat/types/types";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -58,8 +62,10 @@ export interface UseConversationSecondaryActionsReturn {
 // assistant responses it produced share one group of LLM calls. Maps any
 // message in the active transcript to its turn's heading user message so
 // the inspector scope always matches an entry in its filter dropdown.
-function turnHeadMessageId(messageId: string): string {
-  const messages = useChatSessionStore.getState().messages;
+function turnHeadMessageId(
+  messageId: string,
+  messages: DisplayMessage[],
+): string {
   const index = messages.findIndex((m) => m.id === messageId);
   if (index === -1) {
     return messageId;
@@ -83,6 +89,16 @@ export function useConversationSecondaryActions({
   switchConversation,
 }: UseConversationSecondaryActionsParams): UseConversationSecondaryActionsReturn {
   const navigate = useNavigate();
+
+  // Fork / inspect / copy operate on the whole conversation. Mirror the derived
+  // transcript into a ref so these callbacks can read the latest at call time
+  // without taking it as a dependency (that would re-create them — and
+  // re-register the header menu — on every streamed token).
+  const transcript = useTranscriptMessages();
+  const transcriptRef = useRef(transcript);
+  useEffect(() => {
+    transcriptRef.current = transcript;
+  }, [transcript]);
 
   const handleForkConversation = useCallback(
     async (throughMessageId: string) => {
@@ -109,7 +125,7 @@ export function useConversationSecondaryActions({
   );
 
   const handleForkConversationFromMenu = useCallback(() => {
-    const latestPersisted = useChatSessionStore.getState().messages.findLast(
+    const latestPersisted = transcriptRef.current.findLast(
       (m) => m.id != null,
     );
     const throughMessageId = latestPersisted?.id;
@@ -164,7 +180,7 @@ export function useConversationSecondaryActions({
       const params = new URLSearchParams();
       const currentActiveId = useConversationStore.getState().activeConversationId;
       if (conversation.conversationId === currentActiveId) {
-        const latestUser = useChatSessionStore.getState().messages.findLast(
+        const latestUser = transcriptRef.current.findLast(
           (m) => m.role === "user" && m.id != null,
         );
         const messageId = latestUser?.id;
@@ -184,7 +200,7 @@ export function useConversationSecondaryActions({
       const activeConversationId = useConversationStore.getState().activeConversationId;
       if (!activeConversationId) return;
       const params = new URLSearchParams();
-      params.set("messageId", turnHeadMessageId(messageId));
+      params.set("messageId", turnHeadMessageId(messageId, transcriptRef.current));
       void navigate(
         `${routes.inspect(activeConversationId)}?${params.toString()}`,
       );
@@ -198,7 +214,7 @@ export function useConversationSecondaryActions({
     if (activeConversation?.title) {
       parts.push(`# ${activeConversation.title}`);
     }
-    for (const msg of useChatSessionStore.getState().messages) {
+    for (const msg of transcriptRef.current) {
       const text = messagePlainText(msg);
       if (!text.trim()) continue;
       const sender = msg.role === "user" ? "You" : name;

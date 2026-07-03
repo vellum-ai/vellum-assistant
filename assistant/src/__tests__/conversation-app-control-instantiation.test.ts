@@ -79,6 +79,8 @@ const mockSkillRefCount = new Map<string, number>();
 
 mock.module("../config/skills.js", () => ({
   loadSkillCatalog: () => mockCatalog,
+  // Pass-through: these tests don't exercise per-chat plugin scoping.
+  filterSkillsByEnabledPlugins: (skills: unknown) => skills,
 }));
 
 mock.module("../skills/active-skill-tools.js", () => ({
@@ -201,8 +203,9 @@ mock.module("../skills/catalog-cache.js", () => ({
 }));
 mock.module("../skills/install-meta.js", () => ({
   readInstallMeta: () => null,
+  touchSkillLastUsed: () => false,
 }));
-mock.module("../memory/skill-loaded-events-store.js", () => ({
+mock.module("../telemetry/skill-loaded-events-store.js", () => ({
   recordSkillLoadedEvent: () => {},
 }));
 

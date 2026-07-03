@@ -130,6 +130,10 @@ describe("clawhubInstall staging", () => {
         "# Staged Skill\n",
       );
       expect(existsSync(join(stagedSkillDir, "install-meta.json"))).toBe(true);
+      const meta = JSON.parse(
+        readFileSync(join(stagedSkillDir, "install-meta.json"), "utf-8"),
+      ) as SkillInstallMeta;
+      expect(meta.author).toBe("user");
     } finally {
       Bun.spawn = originalSpawn;
       rmSync(projectRoot, { recursive: true, force: true });

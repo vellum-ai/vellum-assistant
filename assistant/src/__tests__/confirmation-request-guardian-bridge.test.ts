@@ -69,14 +69,14 @@ mock.module("../runtime/channel-verification-service.js", () => ({
   },
 }));
 
-import type { TrustContext } from "../daemon/trust-context.js";
 import {
   createCanonicalGuardianRequest,
   generateCanonicalRequestCode,
   listCanonicalGuardianDeliveries,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../contacts/canonical-guardian-store.js";
+import type { TrustContext } from "../daemon/trust-context.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 
 await initializeDb();
@@ -135,11 +135,11 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     mockOnConversationCreatedCallbacks.length = 0;
   });
 
-  test("emits guardian.question for trusted-contact sessions", () => {
+  test("emits guardian.question for trusted-contact sessions", async () => {
     const canonicalRequest = makeCanonicalRequest();
     const trustContext = makeTrustedContactContext();
 
-    const result = bridgeConfirmationRequestToGuardian({
+    const result = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-1",
@@ -160,7 +160,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(payload.requesterIdentifier).toBe("@requester");
   });
 
-  test("skips guardian actor sessions (self-approve)", () => {
+  test("skips guardian actor sessions (self-approve)", async () => {
     const canonicalRequest = makeCanonicalRequest();
     const trustContext: TrustContext = {
       sourceChannel: "telegram",
@@ -168,7 +168,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
       guardianExternalUserId: "guardian-1",
     };
 
-    const result = bridgeConfirmationRequestToGuardian({
+    const result = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-1",
@@ -182,14 +182,14 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test("skips unknown actor sessions", () => {
+  test("skips unknown actor sessions", async () => {
     const canonicalRequest = makeCanonicalRequest();
     const trustContext: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "unknown",
     };
 
-    const result = bridgeConfirmationRequestToGuardian({
+    const result = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-1",
@@ -203,13 +203,13 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test("skips when guardian identity is missing", () => {
+  test("skips when guardian identity is missing", async () => {
     const canonicalRequest = makeCanonicalRequest();
     const trustContext = makeTrustedContactContext({
       guardianExternalUserId: undefined,
     });
 
-    const result = bridgeConfirmationRequestToGuardian({
+    const result = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-1",
@@ -223,13 +223,13 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test("skips when no guardian binding exists for channel", () => {
+  test("skips when no guardian binding exists for channel", async () => {
     const canonicalRequest = makeCanonicalRequest({ sourceChannel: "phone" });
     const trustContext = makeTrustedContactContext({
       sourceChannel: "phone",
     });
 
-    const result = bridgeConfirmationRequestToGuardian({
+    const result = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-1",
@@ -243,11 +243,11 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test("sets correct attention hints for urgency", () => {
+  test("sets correct attention hints for urgency", async () => {
     const canonicalRequest = makeCanonicalRequest();
     const trustContext = makeTrustedContactContext();
 
-    bridgeConfirmationRequestToGuardian({
+    await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-1",
@@ -261,11 +261,11 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(hints.visibleInSourceNow).toBe(false);
   });
 
-  test("uses dedupe key scoped to canonical request ID", () => {
+  test("uses dedupe key scoped to canonical request ID", async () => {
     const canonicalRequest = makeCanonicalRequest();
     const trustContext = makeTrustedContactContext();
 
-    bridgeConfirmationRequestToGuardian({
+    await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-1",
@@ -277,11 +277,11 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     );
   });
 
-  test("creates vellum delivery row via onConversationCreated callback", () => {
+  test("creates vellum delivery row via onConversationCreated callback", async () => {
     const canonicalRequest = makeCanonicalRequest();
     const trustContext = makeTrustedContactContext();
 
-    bridgeConfirmationRequestToGuardian({
+    await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-1",
@@ -298,18 +298,20 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     });
 
     const deliveries = listCanonicalGuardianDeliveries(canonicalRequest.id);
-    expect(deliveries).toHaveLength(1);
-    expect(deliveries[0].destinationChannel).toBe("vellum");
-    expect(deliveries[0].destinationConversationId).toBe(
+    const vellumDelivery = deliveries.find(
+      (d) => d.destinationChannel === "vellum",
+    );
+    expect(vellumDelivery).toBeDefined();
+    expect(vellumDelivery?.destinationConversationId).toBe(
       "guardian-conversation-1",
     );
   });
 
-  test("uses custom assistantId when provided", () => {
+  test("uses custom assistantId when provided", async () => {
     const canonicalRequest = makeCanonicalRequest();
     const trustContext = makeTrustedContactContext();
 
-    bridgeConfirmationRequestToGuardian({
+    await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-1",
@@ -324,13 +326,13 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test("does not pass assistantId to notification signal", () => {
+  test("does not pass assistantId to notification signal", async () => {
     const canonicalRequest = makeCanonicalRequest();
     const trustContext = makeTrustedContactContext();
 
     // assistantId is used internally for guardian binding lookup but is no
     // longer forwarded to the notification signal after the assistantId removal refactor.
-    bridgeConfirmationRequestToGuardian({
+    await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-1",
@@ -340,13 +342,13 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(emittedSignals[0].assistantId).toBeUndefined();
   });
 
-  test("includes requesterChatId as null when not provided", () => {
+  test("includes requesterChatId as null when not provided", async () => {
     const canonicalRequest = makeCanonicalRequest();
     const trustContext = makeTrustedContactContext({
       requesterChatId: undefined,
     });
 
-    bridgeConfirmationRequestToGuardian({
+    await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-1",
@@ -357,7 +359,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(payload.requesterChatId).toBeNull();
   });
 
-  test("skips when binding guardian identity does not match canonical request guardian", () => {
+  test("skips when binding guardian identity does not match canonical request guardian", async () => {
     // Create a canonical request where guardianExternalUserId differs from the
     // binding's guardianExternalUserId ('guardian-1' in the mock).
     const canonicalRequest = makeCanonicalRequest({
@@ -365,7 +367,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     });
     const trustContext = makeTrustedContactContext();
 
-    const result = bridgeConfirmationRequestToGuardian({
+    const result = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-1",
@@ -379,7 +381,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     expect(emittedSignals).toHaveLength(0);
   });
 
-  test("does not skip when canonical request guardian identity is null", () => {
+  test("does not skip when canonical request guardian identity is null", async () => {
     // When guardianExternalUserId is null on the canonical request (e.g. desktop
     // flow), the identity check should be skipped and the bridge should proceed.
     const canonicalRequest = makeCanonicalRequest({
@@ -387,7 +389,7 @@ describe("bridgeConfirmationRequestToGuardian", () => {
     });
     const trustContext = makeTrustedContactContext();
 
-    const result = bridgeConfirmationRequestToGuardian({
+    const result = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-1",

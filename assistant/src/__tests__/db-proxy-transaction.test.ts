@@ -11,8 +11,8 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { handleDbProxyTransaction } from "../ipc/routes/db-proxy-transaction.js";
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { RouteError } from "../runtime/routes/errors.js";
 
 await initializeDb();

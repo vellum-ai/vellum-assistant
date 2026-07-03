@@ -56,6 +56,7 @@ function catalog(ref: string, names: string[]): PluginCatalog {
     matches: names.map((name) => ({
       name,
       path: `github:acme/${name}@${"0".repeat(40)}`,
+      category: null,
       source: {
         kind: "github" as const,
         repo: `acme/${name}`,

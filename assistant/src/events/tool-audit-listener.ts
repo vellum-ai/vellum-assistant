@@ -1,10 +1,10 @@
-import {
-  recordToolInvocation,
-  type ToolInvocationRecord,
-} from "../memory/tool-usage-store.js";
 import { getCachedShareAnalytics } from "../platform/consent-cache.js";
 import { redactJsonStringLeaves } from "../security/redact-json.js";
 import { redactSecrets } from "../security/secret-scanner.js";
+import {
+  recordToolInvocation,
+  type ToolInvocationRecord,
+} from "../telemetry/tool-usage-store.js";
 import {
   stringifyToolInput,
   type ToolLifecycleEvent,

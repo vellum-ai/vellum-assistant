@@ -5,6 +5,7 @@ import {
   MemoryJobsConfigSchema,
   MemoryMaintenanceConfigSchema,
   MemoryRetentionConfigSchema,
+  MemoryWorkerConfigSchema,
 } from "./memory-lifecycle.js";
 import {
   MemoryExtractionConfigSchema,
@@ -39,6 +40,9 @@ export const MemoryConfigSchema = z
       MemorySegmentationConfigSchema.parse({}),
     ),
     jobs: MemoryJobsConfigSchema.default(MemoryJobsConfigSchema.parse({})),
+    worker: MemoryWorkerConfigSchema.default(
+      MemoryWorkerConfigSchema.parse({}),
+    ),
     retention: MemoryRetentionConfigSchema.default(
       MemoryRetentionConfigSchema.parse({}),
     ),

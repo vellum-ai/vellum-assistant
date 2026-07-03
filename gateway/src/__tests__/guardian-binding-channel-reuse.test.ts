@@ -1,5 +1,26 @@
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+/**
+ * Tests for createGuardianBinding's id resolution (guardian-by-principal,
+ * claimable channel by (type,address), existing channel by (contactId,type)).
+ *
+ * These reads run against the gateway DB; the resolved contactId/channelId
+ * are then adopted by the assistant + gateway dual-write. Guardian/channel
+ * rows are seeded in the gateway DB; the assistant DB is an in-memory store
+ * behind the proxy mock that receives the writes.
+ */
+
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 import { Database } from "bun:sqlite";
+import { rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import type { SqliteValue } from "../db/assistant-db-proxy.js";
 
@@ -11,6 +32,16 @@ function db(): Database {
   if (!assistantDb) throw new Error("test DB not initialized");
   return assistantDb;
 }
+
+// Fake socket file so the orphan GC's assistant-mirror inspection runs
+// against the in-memory mirror instead of being skipped as unreachable.
+const TEST_SOCKET_PATH = join(
+  tmpdir(),
+  `vellum-guardian-binding-reuse-test-${process.pid}.sock`,
+);
+mock.module("../ipc/socket-path.js", () => ({
+  resolveIpcSocketPath: () => ({ path: TEST_SOCKET_PATH }),
+}));
 
 mock.module("../db/assistant-db-proxy.js", () => ({
   async assistantDbQuery(sql: string, bind: SqliteValue[] = []) {
@@ -32,30 +63,159 @@ mock.module("../db/assistant-db-proxy.js", () => ({
   },
 }));
 
-const fakeGatewayTx = {
-  insert: () => ({
-    values: () => ({
-      onConflictDoUpdate: () => ({ run: () => {} }),
-    }),
-  }),
-};
-
-mock.module("../db/connection.js", () => ({
-  getGatewayDb: () => ({
-    transaction: (fn: (tx: typeof fakeGatewayTx) => void) => fn(fakeGatewayTx),
-  }),
+// The identity-mirror delete now goes through typed IPC; route it to the same
+// in-process mirror DB so the orphan-GC delete is observable. Other IPC calls
+// (e.g. emit_event) are fire-and-forget no-ops here.
+mock.module("../ipc/assistant-client.js", () => ({
+  IpcHandlerError: class extends Error {},
+  IpcTransportError: class extends Error {},
+  async ipcCallAssistant(
+    method: string,
+    params?: { body?: { contactId?: string } },
+  ) {
+    if (method === "contacts_mirror_delete_contact") {
+      db()
+        .prepare("DELETE FROM contacts WHERE id = ?")
+        .run(params?.body?.contactId ?? "");
+    }
+    return { ok: true };
+  },
 }));
 
-mock.module("../db/schema.js", () => ({
-  actorRefreshTokenRecords: {},
-  actorTokenRecords: {},
-  contacts: {},
-  contactChannels: {},
+// The orphan-GC mirror inspection now goes through typed IPC instead of raw
+// SELECTs; serve it from the same in-memory assistant DB.
+mock.module("../ipc/contacts-info-client.js", () => ({
+  async probeContactMirror(contactId: string) {
+    const contactRow = db()
+      .prepare(
+        "SELECT notes, user_file AS userFile, contact_type AS contactType FROM contacts WHERE id = ?",
+      )
+      .get(contactId) as
+      | { notes: string | null; userFile: string | null; contactType: string }
+      | undefined;
+    const channelRow = db()
+      .prepare("SELECT id FROM contact_channels WHERE contact_id = ? LIMIT 1")
+      .get(contactId);
+    const metaRow = db()
+      .prepare(
+        "SELECT contact_id FROM assistant_contact_metadata WHERE contact_id = ? LIMIT 1",
+      )
+      .get(contactId);
+    return {
+      exists: contactRow != null,
+      hasChannels: channelRow != null,
+      notes: contactRow?.notes ?? null,
+      userFile: contactRow?.userFile ?? null,
+      contactType: contactRow?.contactType ?? null,
+      hasMetadata: metaRow != null,
+    };
+  },
+  async lookupContactChannelIdentity(selector: {
+    channelId?: string;
+    type?: string;
+    address?: string;
+  }) {
+    const row = (
+      selector.channelId != null
+        ? db()
+            .prepare(
+              "SELECT cc.id AS id, cc.contact_id AS contactId, cc.type AS type, cc.address AS address, cc.external_chat_id AS externalChatId, c.display_name AS displayName FROM contact_channels cc JOIN contacts c ON c.id = cc.contact_id WHERE cc.id = ?",
+            )
+            .get(selector.channelId)
+        : db()
+            .prepare(
+              "SELECT cc.id AS id, cc.contact_id AS contactId, cc.type AS type, cc.address AS address, cc.external_chat_id AS externalChatId, c.display_name AS displayName FROM contact_channels cc JOIN contacts c ON c.id = cc.contact_id WHERE cc.type = ? AND cc.address = ? COLLATE NOCASE LIMIT 1",
+            )
+            .get(String(selector.type), String(selector.address))
+    ) as Record<string, unknown> | undefined;
+    return row ?? null;
+  },
 }));
 
-const { createGuardianBinding } = await import("../auth/guardian-bootstrap.js");
+import { eq } from "drizzle-orm";
+
+import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
+import {
+  initGatewayDb,
+  getGatewayDb,
+  resetGatewayDb,
+} from "../db/connection.js";
+import { contacts, contactChannels } from "../db/schema.js";
+
+function seedGwGuardianContact(): void {
+  getGatewayDb()
+    .insert(contacts)
+    .values({
+      id: "guardian-contact",
+      displayName: "Example User",
+      role: "guardian",
+      principalId: "guardian-principal",
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    .run();
+}
+
+function seedGwSlackChannel(address: string): void {
+  getGatewayDb()
+    .insert(contacts)
+    .values({
+      id: "seed-contact",
+      displayName: "Example User",
+      role: "contact",
+      principalId: null,
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    .run();
+  getGatewayDb()
+    .insert(contactChannels)
+    .values({
+      id: "seed-channel",
+      contactId: "seed-contact",
+      type: "slack",
+      address,
+      externalChatId: "D123EXAMPLE",
+      isPrimary: false,
+      status: "unverified",
+      policy: "allow",
+      interactionCount: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    .run();
+}
+
+function seedGwRevokedGuardianSlackChannel(): void {
+  getGatewayDb()
+    .insert(contactChannels)
+    .values({
+      id: "guardian-channel",
+      contactId: "guardian-contact",
+      type: "slack",
+      address: "U123EXAMPLE",
+      externalChatId: "D123EXAMPLE",
+      isPrimary: true,
+      status: "revoked",
+      policy: "deny",
+      interactionCount: 0,
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    .run();
+}
+
+beforeAll(async () => {
+  await initGatewayDb();
+});
 
 beforeEach(() => {
+  const gw = getGatewayDb();
+  gw.delete(contactChannels).run();
+  gw.delete(contacts).run();
+
+  writeFileSync(TEST_SOCKET_PATH, "");
+
   assistantDb = new Database(":memory:");
   assistantDb.exec(`
     CREATE TABLE contacts (
@@ -64,8 +224,16 @@ beforeEach(() => {
       role TEXT NOT NULL DEFAULT 'contact',
       principal_id TEXT,
       notes TEXT,
+      user_file TEXT,
+      contact_type TEXT NOT NULL DEFAULT 'human',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE assistant_contact_metadata (
+      contact_id TEXT PRIMARY KEY REFERENCES contacts(id) ON DELETE CASCADE,
+      species TEXT NOT NULL,
+      metadata TEXT
     );
 
     CREATE TABLE contact_channels (
@@ -81,6 +249,7 @@ beforeEach(() => {
       verified_via TEXT,
       revoked_reason TEXT,
       blocked_reason TEXT,
+      interaction_count INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
       updated_at INTEGER
     );
@@ -90,60 +259,52 @@ beforeEach(() => {
   `);
 });
 
-afterEach(() => {
+afterAll(() => {
+  resetGatewayDb();
   assistantDb?.close();
   assistantDb = null;
+  rmSync(TEST_SOCKET_PATH, { force: true });
 });
 
-function seedGuardianContact(): void {
+/** Seed an assistant-mirror contact row for the inbound-seeded stub. */
+function seedMirrorSeedContact(
+  fields: { notes?: string; user_file?: string; contact_type?: string } = {},
+): void {
   db()
     .prepare(
-      `INSERT INTO contacts
-         (id, display_name, role, principal_id, notes, created_at, updated_at)
-       VALUES
-         ('guardian-contact', 'Example User', 'guardian', 'guardian-principal', 'guardian', 1, 1)`,
+      `INSERT INTO contacts (id, display_name, notes, user_file, contact_type, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, 1, 1)`,
     )
-    .run();
+    .run(
+      "seed-contact",
+      "Example User",
+      fields.notes ?? null,
+      fields.user_file ?? null,
+      fields.contact_type ?? "human",
+    );
 }
 
-function seedSlackContactChannel(address: string): void {
-  db()
-    .prepare(
-      `INSERT INTO contacts
-         (id, display_name, role, principal_id, notes, created_at, updated_at)
-       VALUES
-         ('seed-contact', 'Example User', 'contact', NULL, NULL, 1, 1)`,
-    )
-    .run();
-  db()
-    .prepare(
-      `INSERT INTO contact_channels
-         (id, contact_id, type, address, external_chat_id,
-          is_primary, status, policy, created_at, updated_at)
-       VALUES
-         ('seed-channel', 'seed-contact', 'slack', ?,
-          'D123EXAMPLE', 0, 'unverified', 'allow', 1, 1)`,
-    )
-    .run(address);
+function gwSeedContactExists(): boolean {
+  return (
+    getGatewayDb()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.id, "seed-contact"))
+      .get() !== undefined
+  );
 }
 
-function seedRevokedGuardianSlackChannel(): void {
-  db()
-    .prepare(
-      `INSERT INTO contact_channels
-         (id, contact_id, type, address, external_chat_id,
-          is_primary, status, policy, created_at, updated_at)
-       VALUES
-         ('guardian-channel', 'guardian-contact', 'slack', 'U123EXAMPLE',
-          'D123EXAMPLE', 1, 'revoked', 'deny', 1, 1)`,
-    )
-    .run();
+function mirrorSeedContactExists(): boolean {
+  return (
+    db().prepare(`SELECT id FROM contacts WHERE id = ?`).get("seed-contact") !=
+    null
+  );
 }
 
-describe("createGuardianBinding", () => {
-  test("claims a preseeded Slack channel for the guardian instead of inserting a duplicate", async () => {
-    seedGuardianContact();
-    seedSlackContactChannel("U123EXAMPLE");
+describe("createGuardianBinding id resolution", () => {
+  test("claims a preseeded Slack channel for the guardian instead of minting", async () => {
+    seedGwGuardianContact();
+    seedGwSlackChannel("U123EXAMPLE");
 
     const result = await createGuardianBinding({
       channel: "slack",
@@ -156,72 +317,11 @@ describe("createGuardianBinding", () => {
 
     expect(result.contactId).toBe("guardian-contact");
     expect(result.channelId).toBe("seed-channel");
-
-    const rows = db()
-      .query<
-        {
-          id: string;
-          contact_id: string;
-          address: string;
-          status: string;
-          policy: string;
-          is_primary: number;
-        },
-        []
-      >("SELECT * FROM contact_channels WHERE type = 'slack'")
-      .all();
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      id: "seed-channel",
-      contact_id: "guardian-contact",
-      address: "U123EXAMPLE",
-      status: "active",
-      policy: "allow",
-      is_primary: 1,
-    });
   });
 
-  test("claims an existing Slack channel with matching address", async () => {
-    seedGuardianContact();
-    seedSlackContactChannel("U123EXAMPLE");
-
-    await createGuardianBinding({
-      channel: "slack",
-      externalUserId: "U123EXAMPLE",
-      deliveryChatId: "D123EXAMPLE",
-      guardianPrincipalId: "guardian-principal",
-      displayName: "Example User",
-      verifiedVia: "challenge",
-    });
-
-    const rows = db()
-      .query<
-        {
-          id: string;
-          contact_id: string;
-          address: string;
-          status: string;
-        },
-        []
-      >(
-        `SELECT id, contact_id, address, status
-         FROM contact_channels
-         WHERE type = 'slack'`,
-      )
-      .all();
-    expect(rows).toEqual([
-      {
-        id: "seed-channel",
-        contact_id: "guardian-contact",
-        address: "U123EXAMPLE",
-        status: "active",
-      },
-    ]);
-  });
-
-  test("reactivates a revoked guardian channel instead of creating a new one", async () => {
-    seedGuardianContact();
-    seedRevokedGuardianSlackChannel();
+  test("reactivates a revoked guardian channel instead of minting a new one", async () => {
+    seedGwGuardianContact();
+    seedGwRevokedGuardianSlackChannel();
 
     const result = await createGuardianBinding({
       channel: "slack",
@@ -234,30 +334,189 @@ describe("createGuardianBinding", () => {
 
     expect(result.contactId).toBe("guardian-contact");
     expect(result.channelId).toBe("guardian-channel");
+  });
 
-    const rows = db()
-      .query<
-        {
-          id: string;
-          contact_id: string;
-          address: string;
-          status: string;
-        },
-        []
-      >(
-        `SELECT id, contact_id, address, status
-         FROM contact_channels
-         WHERE type = 'slack'
-         ORDER BY id`,
+  // LUM-2672: claiming an inbound-seeded channel must not strand the seed
+  // contact as a channel-less duplicate of the guardian.
+  test("claiming a seeded channel garbage-collects the orphaned seed contact", async () => {
+    seedGwGuardianContact();
+    seedGwSlackChannel("U123EXAMPLE");
+
+    await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U123EXAMPLE",
+      deliveryChatId: "D123EXAMPLE",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    const orphan = getGatewayDb()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.id, "seed-contact"))
+      .get();
+    expect(orphan).toBeUndefined();
+  });
+
+  test("keeps the previous parent contact when it still has other channels", async () => {
+    seedGwGuardianContact();
+    seedGwSlackChannel("U123EXAMPLE");
+    getGatewayDb()
+      .insert(contactChannels)
+      .values({
+        id: "seed-telegram-channel",
+        contactId: "seed-contact",
+        type: "telegram",
+        address: "tg-1001",
+        isPrimary: false,
+        status: "unverified",
+        policy: "allow",
+        interactionCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .run();
+
+    await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U123EXAMPLE",
+      deliveryChatId: "D123EXAMPLE",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    const kept = getGatewayDb()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.id, "seed-contact"))
+      .get();
+    expect(kept?.id).toBe("seed-contact");
+  });
+
+  test("claiming a seeded channel also deletes a pristine assistant-mirror stub", async () => {
+    seedGwGuardianContact();
+    seedGwSlackChannel("U123EXAMPLE");
+    seedMirrorSeedContact();
+
+    await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U123EXAMPLE",
+      deliveryChatId: "D123EXAMPLE",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    expect(gwSeedContactExists()).toBe(false);
+    expect(mirrorSeedContactExists()).toBe(false);
+  });
+
+  test("guardian-authored notes on the mirror veto the delete in BOTH stores", async () => {
+    seedGwGuardianContact();
+    seedGwSlackChannel("U123EXAMPLE");
+    seedMirrorSeedContact({ notes: "my colleague from work" });
+
+    await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U123EXAMPLE",
+      deliveryChatId: "D123EXAMPLE",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    expect(gwSeedContactExists()).toBe(true);
+    expect(mirrorSeedContactExists()).toBe(true);
+  });
+
+  test("a persona-file pointer on the mirror vetoes the delete", async () => {
+    seedGwGuardianContact();
+    seedGwSlackChannel("U123EXAMPLE");
+    seedMirrorSeedContact({ user_file: "users/example-user.md" });
+
+    await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U123EXAMPLE",
+      deliveryChatId: "D123EXAMPLE",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    expect(gwSeedContactExists()).toBe(true);
+    expect(mirrorSeedContactExists()).toBe(true);
+  });
+
+  test("assistant-species metadata on the mirror vetoes the delete", async () => {
+    seedGwGuardianContact();
+    seedGwSlackChannel("U123EXAMPLE");
+    seedMirrorSeedContact();
+    db()
+      .prepare(
+        `INSERT INTO assistant_contact_metadata (contact_id, species, metadata)
+         VALUES (?, ?, ?)`,
       )
-      .all();
-    expect(rows).toEqual([
-      {
-        id: "guardian-channel",
-        contact_id: "guardian-contact",
+      .run("seed-contact", "vellum", "{}");
+
+    await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U123EXAMPLE",
+      deliveryChatId: "D123EXAMPLE",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    expect(gwSeedContactExists()).toBe(true);
+    expect(mirrorSeedContactExists()).toBe(true);
+  });
+
+  test("never garbage-collects a principal-bearing previous parent", async () => {
+    seedGwGuardianContact();
+    getGatewayDb()
+      .insert(contacts)
+      .values({
+        id: "principal-contact",
+        displayName: "Example User",
+        role: "contact",
+        principalId: "some-other-principal",
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .run();
+    getGatewayDb()
+      .insert(contactChannels)
+      .values({
+        id: "principal-channel",
+        contactId: "principal-contact",
+        type: "slack",
         address: "U123EXAMPLE",
-        status: "active",
-      },
-    ]);
+        externalChatId: "D123EXAMPLE",
+        isPrimary: false,
+        status: "unverified",
+        policy: "allow",
+        interactionCount: 0,
+        createdAt: 1,
+        updatedAt: 1,
+      })
+      .run();
+
+    await createGuardianBinding({
+      channel: "slack",
+      externalUserId: "U123EXAMPLE",
+      deliveryChatId: "D123EXAMPLE",
+      guardianPrincipalId: "guardian-principal",
+      displayName: "Example User",
+      verifiedVia: "challenge",
+    });
+
+    const kept = getGatewayDb()
+      .select({ id: contacts.id })
+      .from(contacts)
+      .where(eq(contacts.id, "principal-contact"))
+      .get();
+    expect(kept?.id).toBe("principal-contact");
   });
 });

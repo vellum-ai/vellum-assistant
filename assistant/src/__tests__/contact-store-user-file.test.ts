@@ -1,4 +1,7 @@
+import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
+
+import { drizzle } from "drizzle-orm/bun-sqlite";
 
 mock.module("../util/logger.js", () => ({
   getLogger: () =>
@@ -11,9 +14,11 @@ import {
   generateUserFileSlug,
   upsertContact,
 } from "../contacts/contact-store.js";
-import { getDb, getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { migrateNormalizeUserFileByPrincipal } from "../memory/migrations/220-normalize-user-file-by-principal.js";
+import type { DrizzleDb } from "../persistence/db-connection.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { migrateNormalizeUserFileByPrincipal } from "../persistence/migrations/220-normalize-user-file-by-principal.js";
+import * as schema from "../persistence/schema/index.js";
 
 await initializeDb();
 
@@ -21,28 +26,22 @@ function resetContactTables(): void {
   const sqlite = getSqlite();
   sqlite.run("DELETE FROM contact_channels");
   sqlite.run("DELETE FROM contacts");
-  sqlite.run(
-    "DELETE FROM memory_checkpoints WHERE key = 'migration_normalize_user_file_by_principal_v1'",
-  );
 }
 
+/** Seed a contact row into the production DB (post-ACL-drop schema). */
 function insertContact(params: {
   id: string;
   displayName: string;
-  role: string;
-  principalId: string | null;
   userFile: string | null;
   createdAt: number;
 }): void {
   const sqlite = getSqlite();
   sqlite.run(
-    "INSERT INTO contacts (id, display_name, role, contact_type, principal_id, user_file, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO contacts (id, display_name, contact_type, user_file, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
     [
       params.id,
       params.displayName,
-      params.role,
       "human",
-      params.principalId,
       params.userFile,
       params.createdAt,
       params.createdAt,
@@ -50,27 +49,15 @@ function insertContact(params: {
   );
 }
 
-function fetchUserFilesByPrincipal(
-  principalId: string,
-): Array<{ id: string; user_file: string | null }> {
-  const sqlite = getSqlite();
-  return sqlite
-    .query(
-      "SELECT id, user_file FROM contacts WHERE principal_id = ? ORDER BY id",
-    )
-    .all(principalId) as Array<{ id: string; user_file: string | null }>;
-}
-
 describe("upsertContact user_file selection", () => {
   beforeEach(() => {
     resetContactTables();
   });
 
-  test("reuses an existing sibling's userFile when principalId matches", () => {
+  test("assigns a fresh slug per contact; principalId is gateway-owned and no longer groups siblings locally", () => {
     const primary = upsertContact({
       displayName: "Chris",
       role: "guardian",
-      principalId: "principal-abc",
       channels: [
         {
           type: "vellum",
@@ -80,12 +67,12 @@ describe("upsertContact user_file selection", () => {
     });
     expect(primary.userFile).toBe("chris.md");
 
-    // Second contact for the same principal on Slack — must inherit the
-    // first contact's userFile, NOT auto-increment to chris-2.md.
+    // A second contact with the same display name no longer inherits the
+    // first's userFile via a local principal lookup — it gets a fresh
+    // (collision-incremented) slug. Sibling grouping is owned by the gateway.
     const slack = upsertContact({
       displayName: "chris",
       role: "guardian",
-      principalId: "principal-abc",
       channels: [
         {
           type: "slack",
@@ -94,15 +81,14 @@ describe("upsertContact user_file selection", () => {
         },
       ],
     });
-    expect(slack.userFile).toBe("chris.md");
+    expect(slack.userFile).toBe("chris-2.md");
     expect(slack.id).not.toBe(primary.id);
   });
 
-  test("falls back to generateUserFileSlug when principalId has no existing sibling", () => {
+  test("generates a slug from the display name for a brand-new contact", () => {
     const contact = upsertContact({
       displayName: "Alice",
       role: "contact",
-      principalId: "principal-alone",
       channels: [
         {
           type: "slack",
@@ -141,12 +127,10 @@ describe("upsertContact user_file selection", () => {
     expect(second.userFile).toBe("bob-2.md");
   });
 
-  test("ignores a sibling whose userFile is null and generates a new slug", () => {
+  test("a null-userFile contact does not block a fresh slug for a new contact", () => {
     insertContact({
       id: "seed-null",
       displayName: "legacy",
-      role: "guardian",
-      principalId: "principal-null",
       userFile: null,
       createdAt: Date.now(),
     });
@@ -154,7 +138,6 @@ describe("upsertContact user_file selection", () => {
     const contact = upsertContact({
       displayName: "Legacy",
       role: "guardian",
-      principalId: "principal-null",
       channels: [
         {
           type: "phone",
@@ -180,8 +163,6 @@ describe("generateUserFileSlug", () => {
     insertContact({
       id: "a",
       displayName: "Alice",
-      role: "contact",
-      principalId: null,
       userFile: "alice.md",
       createdAt: Date.now(),
     });
@@ -190,30 +171,75 @@ describe("generateUserFileSlug", () => {
 });
 
 describe("migrateNormalizeUserFileByPrincipal", () => {
+  // Migration 220 reads contacts.principal_id, which migration 305 later drops.
+  // Run it against an isolated DB seeded at the pre-drop schema so the historical
+  // migration's behavior stays under test after the column is gone in production.
+  let db: DrizzleDb;
+  let raw: Database;
+
   beforeEach(() => {
-    resetContactTables();
+    raw = new Database(":memory:");
+    raw.exec(/*sql*/ `
+      CREATE TABLE contacts (
+        id TEXT PRIMARY KEY,
+        display_name TEXT NOT NULL,
+        principal_id TEXT,
+        user_file TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+    db = drizzle(raw, { schema });
   });
+
+  function seedLegacy(params: {
+    id: string;
+    displayName: string;
+    principalId: string | null;
+    userFile: string | null;
+    createdAt: number;
+  }): void {
+    raw.run(
+      "INSERT INTO contacts (id, display_name, principal_id, user_file, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+      [
+        params.id,
+        params.displayName,
+        params.principalId,
+        params.userFile,
+        params.createdAt,
+        params.createdAt,
+      ],
+    );
+  }
+
+  function fetchUserFilesByPrincipal(
+    principalId: string,
+  ): Array<{ id: string; user_file: string | null }> {
+    return raw
+      .query(
+        "SELECT id, user_file FROM contacts WHERE principal_id = ? ORDER BY id",
+      )
+      .all(principalId) as Array<{ id: string; user_file: string | null }>;
+  }
 
   test("normalizes split user_file values across sibling contacts", () => {
     const now = Date.now();
-    insertContact({
+    seedLegacy({
       id: "c1",
       displayName: "chris",
-      role: "guardian",
       principalId: "principal-x",
       userFile: "chris.md",
       createdAt: now - 1000,
     });
-    insertContact({
+    seedLegacy({
       id: "c2",
       displayName: "chris",
-      role: "guardian",
       principalId: "principal-x",
       userFile: "chris-2.md",
       createdAt: now,
     });
 
-    migrateNormalizeUserFileByPrincipal(getDb());
+    migrateNormalizeUserFileByPrincipal(db);
 
     const rows = fetchUserFilesByPrincipal("principal-x");
     expect(rows).toHaveLength(2);
@@ -223,24 +249,22 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
 
   test("propagates a sibling's user_file to NULL rows", () => {
     const now = Date.now();
-    insertContact({
+    seedLegacy({
       id: "c1",
       displayName: "chris",
-      role: "guardian",
       principalId: "principal-y",
       userFile: "chris.md",
       createdAt: now - 1000,
     });
-    insertContact({
+    seedLegacy({
       id: "c2",
       displayName: "chris",
-      role: "guardian",
       principalId: "principal-y",
       userFile: null,
       createdAt: now,
     });
 
-    migrateNormalizeUserFileByPrincipal(getDb());
+    migrateNormalizeUserFileByPrincipal(db);
 
     const rows = fetchUserFilesByPrincipal("principal-y");
     expect(rows[0]?.user_file).toBe("chris.md");
@@ -251,24 +275,22 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     // Older contact has an auto-incremented name, newer has the clean one.
     // Heuristic should pick the clean one regardless of age.
     const now = Date.now();
-    insertContact({
+    seedLegacy({
       id: "c1",
       displayName: "chris",
-      role: "guardian",
       principalId: "principal-z",
       userFile: "chris-3.md",
       createdAt: now - 2000,
     });
-    insertContact({
+    seedLegacy({
       id: "c2",
       displayName: "chris",
-      role: "guardian",
       principalId: "principal-z",
       userFile: "chris.md",
       createdAt: now,
     });
 
-    migrateNormalizeUserFileByPrincipal(getDb());
+    migrateNormalizeUserFileByPrincipal(db);
 
     const rows = fetchUserFilesByPrincipal("principal-z");
     expect(rows[0]?.user_file).toBe("chris.md");
@@ -276,16 +298,15 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
   });
 
   test("leaves untouched when only one contact exists for a principal", () => {
-    insertContact({
+    seedLegacy({
       id: "solo",
       displayName: "Alone",
-      role: "contact",
       principalId: "principal-solo",
       userFile: "alone.md",
       createdAt: Date.now(),
     });
 
-    migrateNormalizeUserFileByPrincipal(getDb());
+    migrateNormalizeUserFileByPrincipal(db);
 
     const rows = fetchUserFilesByPrincipal("principal-solo");
     expect(rows).toHaveLength(1);
@@ -298,24 +319,22 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     // (starting at 2), so `dana-2024.md` must be treated as a normal filename
     // and not deprioritized in favor of an older sibling.
     const now = Date.now();
-    insertContact({
+    seedLegacy({
       id: "c1",
       displayName: "Dana 2024",
-      role: "guardian",
       principalId: "principal-dated",
       userFile: "dana-2024.md",
       createdAt: now,
     });
-    insertContact({
+    seedLegacy({
       id: "c2",
       displayName: "Dana",
-      role: "guardian",
       principalId: "principal-dated",
       userFile: "dana.md",
       createdAt: now - 1000,
     });
 
-    migrateNormalizeUserFileByPrincipal(getDb());
+    migrateNormalizeUserFileByPrincipal(db);
 
     const rows = fetchUserFilesByPrincipal("principal-dated");
     // Neither candidate looks auto-incremented, so tiebreaker is oldest
@@ -327,24 +346,22 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
   test("excludes year-like 4-digit tails from the auto-increment class", () => {
     // `-2.md` is auto-increment; `-1999.md` (year) is not.
     const now = Date.now();
-    insertContact({
+    seedLegacy({
       id: "c1",
       displayName: "Bob 1999",
-      role: "guardian",
       principalId: "principal-mixed",
       userFile: "bob-1999.md",
       createdAt: now - 2000,
     });
-    insertContact({
+    seedLegacy({
       id: "c2",
       displayName: "Bob",
-      role: "guardian",
       principalId: "principal-mixed",
       userFile: "bob-2.md",
       createdAt: now - 1000,
     });
 
-    migrateNormalizeUserFileByPrincipal(getDb());
+    migrateNormalizeUserFileByPrincipal(db);
 
     const rows = fetchUserFilesByPrincipal("principal-mixed");
     // `bob-1999.md` is non-auto-incremented, `bob-2.md` is auto-incremented;
@@ -358,24 +375,22 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     // Those must still be recognized as auto-increments so siblings are
     // normalized to the clean base, not to the counter value.
     const now = Date.now();
-    insertContact({
+    seedLegacy({
       id: "c1",
       displayName: "Carol",
-      role: "guardian",
       principalId: "principal-big",
       userFile: "carol-1000.md",
       createdAt: now - 2000,
     });
-    insertContact({
+    seedLegacy({
       id: "c2",
       displayName: "Carol",
-      role: "guardian",
       principalId: "principal-big",
       userFile: "carol.md",
       createdAt: now,
     });
 
-    migrateNormalizeUserFileByPrincipal(getDb());
+    migrateNormalizeUserFileByPrincipal(db);
 
     const rows = fetchUserFilesByPrincipal("principal-big");
     // Despite `carol-1000.md` being older, it's auto-incremented, so
@@ -388,24 +403,22 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     // small counter), but the preceding `-2025-04` marks the whole tail as a
     // date. Must NOT be classified as auto-incremented.
     const now = Date.now();
-    insertContact({
+    seedLegacy({
       id: "c1",
       displayName: "Dana 2025 04 13",
-      role: "guardian",
       principalId: "principal-datefull",
       userFile: "dana-2025-04-13.md",
       createdAt: now - 2000,
     });
-    insertContact({
+    seedLegacy({
       id: "c2",
       displayName: "Dana",
-      role: "guardian",
       principalId: "principal-datefull",
       userFile: "dana-2.md",
       createdAt: now - 1000,
     });
 
-    migrateNormalizeUserFileByPrincipal(getDb());
+    migrateNormalizeUserFileByPrincipal(db);
 
     const rows = fetchUserFilesByPrincipal("principal-datefull");
     // `dana-2.md` is auto-incremented; `dana-2025-04-13.md` is a date-shaped
@@ -420,24 +433,22 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     // while ISO date components are always 2 digits (`-02`, `-04`), so
     // single-digit trailing segments mark the tail as a counter.
     const now = Date.now();
-    insertContact({
+    seedLegacy({
       id: "c1",
       displayName: "Dana 2025",
-      role: "guardian",
       principalId: "principal-yc",
       userFile: "dana-2025-2.md",
       createdAt: now - 2000,
     });
-    insertContact({
+    seedLegacy({
       id: "c2",
       displayName: "Dana 2025",
-      role: "guardian",
       principalId: "principal-yc",
       userFile: "dana-2025.md",
       createdAt: now,
     });
 
-    migrateNormalizeUserFileByPrincipal(getDb());
+    migrateNormalizeUserFileByPrincipal(db);
 
     const rows = fetchUserFilesByPrincipal("principal-yc");
     // Despite being older, `dana-2025-2.md` is auto-incremented, so
@@ -452,24 +463,22 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
     // name — if `generateUserFileSlug`'s pure slug transform maps the name to
     // the filename, treat it as a base slug, not an auto-incremented counter.
     const now = Date.now();
-    insertContact({
+    seedLegacy({
       id: "c1",
       displayName: "Dana 2025 4",
-      role: "guardian",
       principalId: "principal-yb",
       userFile: "dana-2025-4.md",
       createdAt: now,
     });
-    insertContact({
+    seedLegacy({
       id: "c2",
       displayName: "Dana",
-      role: "guardian",
       principalId: "principal-yb",
       userFile: "dana-2.md",
       createdAt: now - 1000,
     });
 
-    migrateNormalizeUserFileByPrincipal(getDb());
+    migrateNormalizeUserFileByPrincipal(db);
 
     const rows = fetchUserFilesByPrincipal("principal-yb");
     // `dana-2025-4.md` is a legitimate base slug (disambiguated by display
@@ -480,25 +489,23 @@ describe("migrateNormalizeUserFileByPrincipal", () => {
 
   test("is idempotent", () => {
     const now = Date.now();
-    insertContact({
+    seedLegacy({
       id: "c1",
       displayName: "chris",
-      role: "guardian",
       principalId: "principal-i",
       userFile: "chris.md",
       createdAt: now - 1000,
     });
-    insertContact({
+    seedLegacy({
       id: "c2",
       displayName: "chris",
-      role: "guardian",
       principalId: "principal-i",
       userFile: "chris-2.md",
       createdAt: now,
     });
 
-    migrateNormalizeUserFileByPrincipal(getDb());
-    migrateNormalizeUserFileByPrincipal(getDb());
+    migrateNormalizeUserFileByPrincipal(db);
+    migrateNormalizeUserFileByPrincipal(db);
 
     const rows = fetchUserFilesByPrincipal("principal-i");
     for (const row of rows) expect(row.user_file).toBe("chris.md");

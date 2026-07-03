@@ -1,26 +1,16 @@
-export const CHANNEL_IDS = [
-  "telegram",
-  "phone",
-  "vellum",
-  "whatsapp",
-  "slack",
-  "email",
-  "platform",
-  "a2a",
-] as const;
+import {
+  CHANNEL_IDS,
+  type ChannelId,
+  isChannelId,
+} from "@vellumai/service-contracts/channels";
 
-export type ChannelId = (typeof CHANNEL_IDS)[number];
-
-export function isChannelId(value: unknown): value is ChannelId {
-  return (
-    typeof value === "string" &&
-    (CHANNEL_IDS as readonly string[]).includes(value)
-  );
-}
+// The assistant understands the full canonical channel set, so it adopts the
+// shared vocabulary wholesale. `parseChannelId` stays local — it is only used
+// daemon-side and is a thin convenience over the shared guard.
+export { CHANNEL_IDS, type ChannelId, isChannelId };
 
 export function parseChannelId(value: unknown): ChannelId | null {
-  if (isChannelId(value)) return value;
-  return null;
+  return isChannelId(value) ? value : null;
 }
 
 export interface TurnChannelContext {
@@ -194,6 +184,29 @@ export function parseInterfaceId(value: unknown): InterfaceId | null {
   const alias = LEGACY_INTERFACE_ALIASES[value];
   if (alias) return alias;
   return null;
+}
+
+/**
+ * Client OS surfaces — the value set for the message-body `clientOs` field.
+ *
+ * This is deliberately SEPARATE from {@link INTERFACE_IDS}: `clientOs`
+ * describes which OS the user's device runs, not which transport the turn
+ * arrived on. `"android"` (and `"ios"` for a mobile browser) are real OS
+ * surfaces but not transports — they must never answer transport questions
+ * (`supportsHostProxy`, `isInteractiveInterface`), so they live here rather
+ * than polluting the interface vocabulary. Drives only the per-turn
+ * `client_os` context line (e.g. app-builder mobile-first for `ios`/`android`).
+ */
+export const CLIENT_OS_VALUES = ["web", "ios", "macos", "android"] as const;
+
+export type ClientOs = (typeof CLIENT_OS_VALUES)[number];
+
+/** Parse/validate a reported `clientOs`. Returns `null` for unknown values. */
+export function parseClientOs(value: unknown): ClientOs | null {
+  if (typeof value !== "string") return null;
+  return (CLIENT_OS_VALUES as readonly string[]).includes(value)
+    ? (value as ClientOs)
+    : null;
 }
 
 /**

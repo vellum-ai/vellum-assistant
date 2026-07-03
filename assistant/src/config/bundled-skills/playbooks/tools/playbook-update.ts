@@ -1,17 +1,20 @@
 import { and, eq, sql } from "drizzle-orm";
 
-import { getDb } from "../../../../memory/db-connection.js";
-import { getNode, updateNode } from "../../../../memory/graph/store.js";
+import { getDb } from "../../../../persistence/db-connection.js";
 import {
   enqueueMemoryJob,
   isMemoryEnabled,
-} from "../../../../memory/jobs-store.js";
-import { memoryGraphNodes } from "../../../../memory/schema.js";
+} from "../../../../persistence/jobs-store.js";
+import { memoryGraphNodes } from "../../../../persistence/schema/index.js";
 import type {
   Playbook,
   PlaybookAutonomyLevel,
 } from "../../../../playbooks/types.js";
 import { parsePlaybookStatement } from "../../../../playbooks/types.js";
+import {
+  getNode,
+  updateNode,
+} from "../../../../plugins/defaults/memory/graph/store.js";
 import type {
   ToolContext,
   ToolExecutionResult,

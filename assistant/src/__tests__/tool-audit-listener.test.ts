@@ -9,7 +9,7 @@ mock.module("../platform/consent-cache.js", () => ({
 }));
 
 import { createToolAuditListener } from "../events/tool-audit-listener.js";
-import type { ToolInvocationRecord } from "../memory/tool-usage-store.js";
+import type { ToolInvocationRecord } from "../telemetry/tool-usage-store.js";
 import {
   OPENAI_PROJECT_KEY_REDACTION_MARKER,
   SYNTHETIC_OPENAI_PROJECT_KEY,

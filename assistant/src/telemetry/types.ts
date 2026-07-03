@@ -391,6 +391,38 @@ export interface SkillLoadedTelemetryEvent extends ModelTelemetryEventBase {
   conversation_id: string | null;
 }
 
+/**
+ * Watchdog health event — one per watchdog check firing. The daemon's
+ * watchdog observes liveness/health signals (event-loop block, stream-idle
+ * stalls, restarts, ...) and emits one event per check firing.
+ *
+ * Deliberately minimal and forward-compatible, mirroring the platform
+ * `WatchdogTelemetryEventSerializer`:
+ *
+ *   - `check_name` — which watchdog check fired. Open string set (not a
+ *     closed enum) so the daemon can introduce a new check without a
+ *     coordinated serializer release; it is the primary group-by dimension
+ *     downstream. The infrastructure admin chart filters this to
+ *     `event_loop_blocked`.
+ *   - `value` — the single measured magnitude for the check (block ms, idle
+ *     ms, ...). Nullable: not every check carries a scalar. The platform
+ *     coerces ints to float, so the daemon need not distinguish.
+ *   - `detail` — open JSON bag for any extra fields the daemon attaches
+ *     (reason codes, secondary numbers, a human message) without a
+ *     platform-coordinated schema change. Null when the daemon attaches
+ *     nothing. Bounded server-side (4096 bytes serialized); an oversize bag
+ *     rejects only the single event, never the batch.
+ *
+ * Metadata only — no conversation content. Dedupe downstream on
+ * `daemon_event_id` (the daemon retries a batch on transient POST failure).
+ */
+export interface WatchdogTelemetryEvent extends TelemetryEventBase {
+  type: "watchdog";
+  check_name: string;
+  value: number | null;
+  detail: Record<string, unknown> | null;
+}
+
 /** Discriminated union of all telemetry event types. */
 export type TelemetryEvent =
   | LlmUsageTelemetryEvent
@@ -399,4 +431,5 @@ export type TelemetryEvent =
   | OnboardingTelemetryEvent
   | AuthFallbackTelemetryEvent
   | ToolExecutedTelemetryEvent
-  | SkillLoadedTelemetryEvent;
+  | SkillLoadedTelemetryEvent
+  | WatchdogTelemetryEvent;

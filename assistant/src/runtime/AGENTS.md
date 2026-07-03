@@ -154,15 +154,24 @@ All CDP-backed browser tools (`browser_navigate`, `browser_snapshot`, `browser_s
 Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 
 - Telegram callback buttons encode `apr:<requestId>:<action>` in `callback_data`.
-- Guardian approval records in `channelGuardianApprovalRequests` link via `requestId`.
+- Guardian approval records in `canonicalGuardianRequests` (and their `canonicalGuardianDeliveries`) link via `requestId`.
 - The conversational approval engine classifies user intent and resolves via `conversation.handleConfirmationResponse(requestId, decision)`.
+
+### Channel verification source-of-truth split
+
+Verification SESSION state (pending sessions, codes, resend, rate-limit) is assistant-owned (`channel-verification-routes.ts`, `channel-verification-service.ts`). The channel-verified OUTCOME (status / verifiedAt / verifiedVia) is gateway-owned.
+
+The verified outcome is written in-process by the gateway: the HTTP guardian-attest handler calls `ContactStore.markChannelVerified` directly (verifiedVia "manual"), and the inbound code-match path (`gateway/src/verification/text-verification.ts`) writes via `upsertVerifiedContactChannel` / `createGuardianBinding` (verifiedVia "challenge"). The revoke/downgrade outcome is relayed from the daemon via `ipcCallPersistent("mark_channel_revoked", …)` to `ContactStore.markChannelRevoked`.
 
 ## Rate Limiting & Diagnostics
 
-All `/v1/*` endpoints share a per-client-IP sliding-window rate limiter (`middleware/rate-limiter.ts`):
+Most `/v1/*` endpoints share a per-client-IP sliding-window rate limiter (`middleware/rate-limiter.ts`):
 
-- **Authenticated**: 300 requests/minute
+- **Authenticated (loopback)**: 1200 requests/minute — desktop app, CLI, anything on the daemon's own host (`127.0.0.0/8`, `::1`). A cold sidebar load at thousands of conversations legitimately bursts far beyond the remote budget.
+- **Authenticated (remote)**: 300 requests/minute — proxied non-loopback clients, keyed by the forwarded client IP.
 - **Unauthenticated**: 20 requests/minute
+
+**Exempt endpoints** (`isRateLimitExemptEndpoint`): the SSE stream (`events`) and liveness/readiness probes (`health`, `healthz`, `readyz`) bypass the per-minute limiter entirely. The stream is one long-lived connection, not a burst of requests, and 429-ing it drops the stream — which drives a client reconnect + full re-bootstrap loop that generates far more load than the limiter saves. Liveness probes must always answer or the client treats the assistant as down and reconnects harder. The events route still enforces auth downstream, and stream memory is bounded by SSE backpressure shedding + subscriber caps.
 
 When the limit is exceeded, the limiter returns 429 and logs a structured warning (module: `rate-limiter`) with the denied endpoint and a breakdown of which endpoints consumed the budget in the current window. This makes it easy to identify whether the cause is rapid conversation switching, polling, or unexpected request volume.
 

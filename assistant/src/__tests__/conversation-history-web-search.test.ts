@@ -35,7 +35,9 @@ let dbMessages: Array<{
 let deletedMessageIds: string[] = [];
 let updatedMessages: Array<{ id: string; content: string }> = [];
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getMessages: (conversationId: string) =>
     dbMessages.filter((m) => m.conversationId === conversationId),
   deleteMessageById: (messageId: string) => {
@@ -53,23 +55,23 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   isLastUserMessageToolResult: () => false,
 }));
 
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   relinkLlmRequestLogs: () => {},
 }));
 
-mock.module("../memory/qdrant-circuit-breaker.js", () => ({
+mock.module("../persistence/embeddings/qdrant-circuit-breaker.js", () => ({
   withQdrantBreaker: async (fn: () => Promise<unknown>) => fn(),
 }));
 
-mock.module("../memory/qdrant-client.js", () => ({
+mock.module("../persistence/embeddings/qdrant-client.js", () => ({
   getQdrantClient: () => {
     throw new Error("Qdrant not initialized");
   },
@@ -80,8 +82,6 @@ mock.module("../memory/qdrant-client.js", () => ({
 import {
   consolidateAssistantMessages,
   findLastUndoableUserMessageIndex,
-  type HistoryConversationContext,
-  regenerate,
 } from "../daemon/conversation-history.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
@@ -342,141 +342,6 @@ describe("isUndoableUserMessage with web_search_tool_result", () => {
     // A message with BOTH text and web_search_tool_result should be undoable
     // because it contains real user content.
     expect(lastUndoableIdx).toBe(0);
-  });
-});
-
-// ── Test 4: regenerate handles conversations with web_search_tool_result ─
-
-describe("regenerate with web_search_tool_result", () => {
-  beforeEach(() => {
-    dbMessages = [];
-    deletedMessageIds = [];
-    updatedMessages = [];
-  });
-
-  test("regenerate skips web_search_tool_result-only user messages when finding last real user message", async () => {
-    const conversationId = "conv-ws-regen";
-
-    // DB messages: user → assistant(server_tool_use) → user(web_search_tool_result) → assistant(text)
-    dbMessages = [
-      makeDbMessage(
-        "msg-u1",
-        conversationId,
-        "user",
-        [{ type: "text", text: "search for X" }],
-        1000,
-      ),
-      makeDbMessage(
-        "msg-a1",
-        conversationId,
-        "assistant",
-        [
-          {
-            type: "server_tool_use",
-            id: "srvtoolu_regen",
-            name: "web_search",
-            input: { query: "X" },
-          },
-        ],
-        2000,
-      ),
-      makeDbMessage(
-        "msg-ws",
-        conversationId,
-        "user",
-        [
-          {
-            type: "web_search_tool_result",
-            tool_use_id: "srvtoolu_regen",
-            content: [],
-          },
-        ],
-        3000,
-      ),
-      makeDbMessage(
-        "msg-a2",
-        conversationId,
-        "assistant",
-        [{ type: "text", text: "Results here." }],
-        4000,
-      ),
-    ];
-
-    // In-memory messages matching DB
-    const inMemoryMessages: Message[] = [
-      {
-        role: "user",
-        content: [{ type: "text", text: "search for X" }],
-      },
-      {
-        role: "assistant",
-        content: [
-          {
-            type: "server_tool_use",
-            id: "srvtoolu_regen",
-            name: "web_search",
-            input: { query: "X" },
-          },
-        ],
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "web_search_tool_result",
-            tool_use_id: "srvtoolu_regen",
-            content: [],
-          },
-        ],
-      },
-      {
-        role: "assistant",
-        content: [{ type: "text", text: "Results here." }],
-      },
-    ];
-
-    let agentLoopCalled = false;
-    let agentLoopContent = "";
-    let agentLoopUserMessageId = "";
-
-    const events: Array<{ type: string; message?: string }> = [];
-
-    let processing = false;
-    const session: HistoryConversationContext = {
-      conversationId,
-      traceEmitter: {
-        emit: () => {},
-      } as unknown as HistoryConversationContext["traceEmitter"],
-      sendToClient: (msg) => events.push(msg),
-      messages: [...inMemoryMessages],
-      isProcessing: () => processing,
-      setProcessing: (value: boolean) => {
-        processing = value;
-      },
-      abortController: null,
-      async runAgentLoop(content, userMessageId) {
-        agentLoopCalled = true;
-        agentLoopContent = content;
-        agentLoopUserMessageId = userMessageId;
-      },
-    };
-
-    await regenerate(session);
-
-    // regenerate should find the real user message (msg-u1) and skip the
-    // web_search_tool_result-only message (msg-ws).
-    // BUG: Currently, regenerate only checks for tool_result in the
-    // `parsed.every(b => b.type === "tool_result")` check, so msg-ws
-    // is treated as a real user message, and regenerate gets confused.
-
-    expect(agentLoopCalled).toBe(true);
-    expect(agentLoopUserMessageId).toBe("msg-u1");
-    expect(agentLoopContent).toBe("search for X");
-
-    // Messages after the user message should be deleted
-    expect(deletedMessageIds).toContain("msg-a1");
-    expect(deletedMessageIds).toContain("msg-ws");
-    expect(deletedMessageIds).toContain("msg-a2");
   });
 });
 
@@ -756,6 +621,13 @@ describe("web_search_tool_result structural guard", () => {
     "context/tool-result-truncation.ts",
     "context/post-turn-tool-result-truncation.ts",
     "context/tool-result-spool.ts",
+
+    // Outbound sanitize bundle: the media-strip and AX-tree transforms
+    // operate on locally-executed tool results (media contentBlocks and
+    // <ax-tree> text), which web_search_tool_result blocks never carry.
+    // Web-search blocks are handled by the bundle's own third transform
+    // (stripHistoricalWebSearchResults), so nothing is silently dropped.
+    "context/outbound-sanitize.ts",
 
     // Anthropic provider type guards define API-specific discriminants.
     // It has a separate isWebSearchToolResultBlock for the other type.

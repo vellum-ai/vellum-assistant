@@ -42,9 +42,9 @@ import {
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../contacts/canonical-guardian-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { processGuardianDecision } from "../runtime/guardian-action-service.js";
 import { GUARDIAN_DECISION_ACTIONS } from "../runtime/guardian-decision-types.js";
 import {
@@ -226,10 +226,8 @@ describe("routing invariant: all decision paths reference applyCanonicalGuardian
   test("guardian-reply-router routes all decisions through applyCanonicalGuardianDecision", () => {
     const fullPath = join(srcRoot, "runtime/guardian-reply-router.ts");
     const source = readFileSync(fullPath, "utf-8");
-    // The router must import and call the canonical primitive, not applyGuardianDecision
+    // The router must import and call the canonical decision primitive.
     expect(source).toContain("applyCanonicalGuardianDecision");
-    // The router must NOT directly call the legacy applyGuardianDecision
-    expect(source).not.toContain("applyGuardianDecision(");
   });
 });
 

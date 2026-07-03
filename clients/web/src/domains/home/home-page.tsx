@@ -7,15 +7,17 @@ import { CreateScheduleModal } from "@/domains/settings/components/create-schedu
 import { SystemTasksSection } from "@/domains/settings/components/system-tasks-section";
 import { useSystemTasks } from "@/domains/settings/hooks/use-system-tasks";
 import { useIsMobile } from "@/hooks/use-is-mobile";
+import { useSupportsBulkFeedStatus } from "@/lib/backwards-compat/bulk-feed-status";
 import { useEffectiveTimezone } from "@/utils/use-effective-timezone";
 import type { FeedItem, FeedItemStatus } from "@vellumai/assistant-api";
-import { ResizablePanel, Tabs } from "@vellumai/design-library";
+import { Button, ResizablePanel, Tabs } from "@vellumai/design-library";
 import { HomeSchedulesPanel } from "./components/home-schedules-panel";
 import { ScheduleDetailPanel } from "./components/schedule-detail-panel";
 import { SystemTaskDetailPanel } from "./components/system-task-detail-panel";
 import { HomeDetailPanel } from "./detail-panel/home-detail-panel";
 import { HomeFeedList } from "./home-feed-list";
 import { HomeTopHeader } from "./home-top-header";
+import { excludeHighUrgency } from "./utils";
 import { useHomeSchedulesData } from "./hooks/use-home-schedules-data";
 import { useHomeFeedQuery } from "./hooks/use-home-feed-query";
 import { useHomeStateQuery } from "./hooks/use-home-state-query";
@@ -42,6 +44,14 @@ function HomePageSkeleton() {
 export interface HomePageProps {
   assistantId: string;
   validConversationIds: Set<string>;
+  /** Active tab, derived from the URL by `HomePageRoute`. */
+  activeTab: "schedules" | "notifications";
+  /** Navigate to a tab's URL (`/home` or `/schedules`). */
+  onTabChange: (tab: "schedules" | "notifications") => void;
+  /** Focused schedule id from the URL (`/schedules/:scheduleId`), or null. */
+  routeScheduleId: string | null;
+  /** Navigate to focus a schedule (id) or clear it (null → `/schedules`). */
+  onSelectScheduleId: (scheduleId: string | null) => void;
   onStartNewChat: () => void;
   onOpenConversation: (conversationId: string) => void;
 }
@@ -59,6 +69,10 @@ function getFeedItemScheduleId(item: FeedItem | null): string | null {
 export function HomePage({
   assistantId,
   validConversationIds,
+  activeTab,
+  onTabChange,
+  routeScheduleId,
+  onSelectScheduleId,
   onStartNewChat,
   onOpenConversation,
 }: HomePageProps) {
@@ -82,13 +96,10 @@ export function HomePage({
   });
 
   const [createScheduleOpen, setCreateScheduleOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"schedules" | "notifications">(
-    "notifications",
-  );
+  // `activeTab` and the focused schedule are URL-owned (see HomePageRoute);
+  // selecting a schedule navigates rather than setting local state.
+  const selectedScheduleId = routeScheduleId;
   const [selectedItem, setSelectedItem] = useState<FeedItem | null>(null);
-  const [selectedScheduleId, setSelectedScheduleId] = useState<string | null>(
-    null,
-  );
   const [selectedSystemTaskKind, setSelectedSystemTaskKind] =
     useState<SystemTaskKind | null>(null);
   // Accordion open-states are lifted here so they survive the section remount
@@ -105,10 +116,14 @@ export function HomePage({
       null)
     : null;
 
-  // Drop the selection if the schedule disappears (e.g. after a delete/refetch).
+  // Drop the selection if the schedule disappears (e.g. after a delete/refetch,
+  // or a deep link to a now-deleted id). Gate on `!isLoading` so a deep link to
+  // `/schedules/:id` doesn't clear the URL before the list has loaded.
   useEffect(() => {
-    if (selectedScheduleId && !selectedSchedule) setSelectedScheduleId(null);
-  }, [selectedScheduleId, selectedSchedule]);
+    if (selectedScheduleId && !schedules.isLoading && !selectedSchedule) {
+      onSelectScheduleId(null);
+    }
+  }, [selectedScheduleId, selectedSchedule, schedules.isLoading, onSelectScheduleId]);
 
   const systemTaskAvailable =
     selectedSystemTaskKind === "heartbeat"
@@ -129,21 +144,30 @@ export function HomePage({
 
   // The right pane shows one detail at a time — selecting one kind (user
   // schedule, system task, or feed item) closes the others.
-  const handleSelectSchedule = useCallback((scheduleId: string) => {
-    setSelectedItem(null);
-    setSelectedSystemTaskKind(null);
-    setSelectedScheduleId(scheduleId);
-  }, []);
+  const handleSelectSchedule = useCallback(
+    (scheduleId: string) => {
+      setSelectedItem(null);
+      setSelectedSystemTaskKind(null);
+      onSelectScheduleId(scheduleId);
+    },
+    [onSelectScheduleId],
+  );
 
-  const handleSelectSystemTask = useCallback((kind: SystemTaskKind) => {
-    setSelectedItem(null);
-    setSelectedScheduleId(null);
-    setSelectedSystemTaskKind(kind);
-  }, []);
+  const handleSelectSystemTask = useCallback(
+    (kind: SystemTaskKind) => {
+      setSelectedItem(null);
+      // Clear the focused schedule from the URL only when one is set, so
+      // selecting a system task doesn't push a redundant history entry.
+      if (selectedScheduleId) onSelectScheduleId(null);
+      setSelectedSystemTaskKind(kind);
+    },
+    [onSelectScheduleId, selectedScheduleId],
+  );
 
   const handleSelectItem = useCallback(
     (item: FeedItem) => {
-      setSelectedScheduleId(null);
+      // Feed items only render on the Notifications tab, where no schedule is
+      // focused — nothing to clear from the URL here.
       setSelectedSystemTaskKind(null);
       if (item.status === "new") {
         setSelectedItem({ ...item, status: "seen" });
@@ -197,6 +221,31 @@ export function HomePage({
     [onOpenConversation],
   );
 
+  const feedItems = feedQuery.data?.items ?? [];
+  const visibleFeedItems = excludeHighUrgency(
+    feedItems.filter((i) => i.status !== "dismissed"),
+  );
+  const newCount = visibleFeedItems.filter((i) => i.status === "new").length;
+  const activeCount = visibleFeedItems.length;
+  const supportsBulkStatus = useSupportsBulkFeedStatus();
+
+  const handleMarkAllRead = useCallback(() => {
+    feedQuery.markAll.mutate({
+      from: ["new"],
+      to: "seen",
+      ids: visibleFeedItems.filter((i) => i.status === "new").map((i) => i.id),
+    });
+  }, [feedQuery.markAll, visibleFeedItems]);
+
+  const handleClearAll = useCallback(() => {
+    feedQuery.markAll.mutate({
+      from: ["new", "seen", "acted_on"],
+      to: "dismissed",
+      ids: visibleFeedItems.map((i) => i.id),
+    });
+    setSelectedItem(null);
+  }, [feedQuery.markAll, visibleFeedItems]);
+
   // Link a scheduled-run notification back to its schedule, but only when that
   // schedule still exists in the loaded list (it may have since been deleted).
   const selectedItemScheduleId = getFeedItemScheduleId(selectedItem);
@@ -218,7 +267,8 @@ export function HomePage({
       onViewSchedule={
         canViewSelectedItemSchedule
           ? () => {
-              setActiveTab("schedules");
+              // Navigating to the schedule's URL opens the Schedules tab and
+              // focuses the drawer in one step.
               handleSelectSchedule(selectedItemScheduleId);
             }
           : undefined
@@ -232,9 +282,9 @@ export function HomePage({
       assistantId={assistantId}
       usage={schedules.usageForSchedule(selectedSchedule.id)}
       isMobile={isMobile}
-      onClose={() => setSelectedScheduleId(null)}
+      onClose={() => onSelectScheduleId(null)}
       onDeleted={() => {
-        setSelectedScheduleId(null);
+        onSelectScheduleId(null);
         schedules.refetch();
       }}
     />
@@ -339,8 +389,32 @@ export function HomePage({
             : "."}
         </div>
       ) : null}
+      {supportsBulkStatus && (newCount > 0 || activeCount > 0) && (
+        <div className="flex items-center justify-end gap-[var(--app-spacing-sm)]">
+          {newCount > 0 && (
+            <Button
+              variant="ghost"
+              size="compact"
+              onClick={handleMarkAllRead}
+              disabled={feedQuery.markAll.isPending}
+            >
+              Mark all as read
+            </Button>
+          )}
+          {activeCount > 0 && (
+            <Button
+              variant="ghost"
+              size="compact"
+              onClick={handleClearAll}
+              disabled={feedQuery.markAll.isPending}
+            >
+              Clear all
+            </Button>
+          )}
+        </div>
+      )}
       <HomeFeedList
-        items={feedQuery.data?.items ?? []}
+        items={feedItems}
         selectedItemId={selectedItem?.id}
         validConversationIds={validConversationIds}
         onSelectItem={handleSelectItem}
@@ -363,7 +437,7 @@ export function HomePage({
     <Tabs.Root
       value={activeTab}
       onValueChange={(value) =>
-        setActiveTab(value as "schedules" | "notifications")
+        onTabChange(value as "schedules" | "notifications")
       }
       className="flex min-h-0 flex-1 flex-col"
     >

@@ -182,6 +182,7 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "daemon/handlers/config-slack-channel.ts", // Slack channel config credential management
       "providers/platform-proxy/context.ts", // managed proxy API key lookup for provider initialization
       "platform/client.ts", // platform client credential store fallback for standalone CLI auth
+      "mcp/mcp-header-store.ts", // MCP static auth header persistence (credential store CRUD + legacy migration)
       "mcp/mcp-oauth-provider.ts", // MCP OAuth token/client/discovery persistence
       "runtime/routes/integrations/slack/token.ts", // shared Slack token resolver (bot/user token lookup for CLI use routes)
       "mcp/client.ts", // MCP client cached-token lookup
@@ -205,30 +206,26 @@ describe("Invariant 2: no generic plaintext secret read API", () => {
       "runtime/routes/chatgpt-subscription-auth-routes.ts", // ChatGPT subscription daemon OAuth flow (stores tokens in CES)
       "providers/provider-availability.ts", // provider availability API key check
       "media/image-credentials.ts", // shared image-gen credential resolver (provider API key lookup)
-      "memory/embedding-backend.ts", // embedding backend API key lookup
-      "memory/llm-request-log-source-clickhouse.ts", // ClickHouse read source — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped mirror reads
-      "memory/compaction-log-store-clickhouse.ts", // ClickHouse compaction log writer — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped event writes
+      "persistence/embeddings/embedding-backend.ts", // embedding backend API key lookup
+      "persistence/llm-request-log-source-clickhouse.ts", // ClickHouse read source — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped mirror reads
+      "persistence/compaction-log-store-clickhouse.ts", // ClickHouse compaction log writer — lazy lookup of clickhouse:url + clickhouse:password + vellum:platform_assistant_id for self-scoped event writes
       "daemon/providers-setup.ts", // provider initialization API key lookup
       "workspace/migrations/006-services-config.ts", // services config migration reads provider API keys
       "workspace/migrations/018-rekey-compound-credential-keys.ts", // re-key compound credential storage keys
       "daemon/conversation-process.ts", // masked provider key display
       "daemon/handlers/config-model.ts", // masked provider key display
       "providers/speech-to-text/resolve.ts", // STT provider API key lookup
-      "daemon/lifecycle.ts", // CES client injection into secure-keys at startup
-      "daemon/daemon-skill-host.ts", // SkillHost secureKeys facet adapter (delegates to getProviderKeyAsync)
+      "calls/telephony-tts-capability.ts", // TTS provider API key availability check (presence only)
+      "credential-execution/ces-runtime.ts", // CES runtime owns the daemon CES connection (setCesClient/onCesClientChanged/reconnect wiring at startup)
       "runtime/routes/credential-prompt-routes.ts", // Route for secure credential prompt (stores secret via setSecureKeyAsync)
       "runtime/routes/credential-routes.ts", // CLI credential management routes (CLI-migrated to IPC)
       "runtime/routes/sanity-routes.ts", // Sanity connect/discover routes (reads stored api_token from credential store)
       "runtime/routes/platform-routes.ts", // CLI platform connect/disconnect/status routes (CLI-migrated to IPC)
-      "ipc/skill-routes/providers.ts", // host.providers.secureKeys.getProviderKey IPC route (out-of-process SkillHost companion)
-      "daemon/external-plugins-bootstrap.ts", // reads credentials at plugin init (manifest.requiresCredential) via the CES-mediated getSecureKeyAsync path
-      "plugin-api/index.ts", // public @vellumai/plugin-api surface re-exports getSecureKeyAsync to dynamically-imported workspace plugins via the boot-time shim (compiled-binary plugin loading)
       "inbound/platform-callback-registration.ts", // managed credential lookup for platform base URL, assistant ID, and API key
       "tts/providers/elevenlabs-provider.ts", // ElevenLabs TTS API key lookup
       "tts/providers/deepgram-provider.ts", // Deepgram TTS API key lookup
       "tts/providers/xai-provider.ts", // xAI TTS API key lookup
       "credential-health/credential-health-service.ts", // credential health check reads access tokens for liveness pings
-      "ipc/skill-routes/providers.ts", // skill IPC route exposes provider key lookup to hosted skills
       "runtime/routes/avatar-routes.ts", // avatar generate route reads platform_base_url from credential store
       "cli/commands/keys.ts", // CLI provider key management
       "cli/commands/oauth/connect.ts", // CLI OAuth connect stored-secret verification

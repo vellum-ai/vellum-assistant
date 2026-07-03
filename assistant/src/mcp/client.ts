@@ -8,6 +8,7 @@ import { getIsPlatform } from "../config/env-registry.js";
 import type { McpTransport } from "../config/schemas/mcp.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
+import { getMcpHeaders } from "./mcp-header-store.js";
 import { McpOAuthProvider } from "./mcp-oauth-provider.js";
 
 const log = getLogger("mcp-client");
@@ -108,8 +109,21 @@ export class McpClient {
       }
     }
 
+    // Resolve static auth headers from credential store, falling back to
+    // any legacy headers in the transport config for backward compatibility.
+    let effectiveConfig = transportConfig;
+    if (isHttpTransport) {
+      const storedHeaders = await getMcpHeaders(this.serverId);
+      if (storedHeaders) {
+        effectiveConfig = {
+          ...transportConfig,
+          headers: { ...transportConfig.headers, ...storedHeaders },
+        } as McpTransport;
+      }
+    }
+
     log.info({ serverId: this.serverId }, "Connecting to MCP server");
-    this.transport = this.createTransport(transportConfig);
+    this.transport = this.createTransport(effectiveConfig);
 
     try {
       await Promise.race([

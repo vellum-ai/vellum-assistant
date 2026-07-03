@@ -477,6 +477,305 @@ describe("HostCuProxy", () => {
       expect(result2.content).not.toContain("NO VISIBLE EFFECT");
     });
 
+    test("skips unchanged warning and counter after a selection-only key (cmd+a)", async () => {
+      setup();
+
+      // Establish previous AX tree
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.processObservation(sent1.requestId as string, {
+        axTree: "TextField [1]",
+      });
+      await p1;
+
+      // cmd+a only changes selection — AX tree can't show it, so empty diff
+      // is expected and must NOT warn or bump the unchanged counter.
+      const p2 = proxy.request(
+        "computer_use_key",
+        { key: "cmd+a" },
+        "session-1",
+        2,
+      );
+      proxy.recordAction("computer_use_key", { key: "cmd+a" });
+      const sent2 = sentMessages[1] as Record<string, unknown>;
+      proxy.processObservation(sent2.requestId as string, {
+        axTree: "TextField [1]",
+        // No axDiff — selection change is invisible in the AX tree
+      });
+      const result2 = await p2;
+      expect(result2.content).not.toContain("NO VISIBLE EFFECT");
+      expect(proxy.consecutiveUnchangedSteps).toBe(0);
+    });
+
+    test("exempts key combos regardless of spacing, case, alias, or modifier order", async () => {
+      // All of these normalize to an exempt combo the mac helper would execute
+      // identically: spaced, uppercase, alt->option alias, command->cmd alias,
+      // and reversed modifier order.
+      const variants = ["cmd + a", "CMD+A", "alt+tab", "command+c", "tab+shift"];
+
+      for (const [i, variant] of variants.entries()) {
+        setup();
+
+        // Establish previous AX tree
+        const p1 = proxy.request(
+          "computer_use_click",
+          { element_id: 1 },
+          `session-${i}`,
+          1,
+        );
+        proxy.recordAction("computer_use_click", { element_id: 1 });
+        const sent1 = sentMessages[0] as Record<string, unknown>;
+        proxy.processObservation(sent1.requestId as string, {
+          axTree: "TextField [1]",
+        });
+        await p1;
+
+        const p2 = proxy.request(
+          "computer_use_key",
+          { key: variant },
+          `session-${i}`,
+          2,
+        );
+        proxy.recordAction("computer_use_key", { key: variant });
+        const sent2 = sentMessages[1] as Record<string, unknown>;
+        proxy.processObservation(sent2.requestId as string, {
+          axTree: "TextField [1]",
+          // No axDiff — invisible-by-design change
+        });
+        const result2 = await p2;
+        expect(result2.content).not.toContain("NO VISIBLE EFFECT");
+        expect(proxy.consecutiveUnchangedSteps).toBe(0);
+      }
+    });
+
+    test("exempt key clears the no-effect streak between non-exempt no-ops", async () => {
+      setup();
+
+      // Establish previous AX tree
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.processObservation(sent1.requestId as string, {
+        axTree: "TextField [1]",
+      });
+      await p1;
+
+      // Non-exempt no-diff click — streak = 1
+      const p2 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        2,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent2 = sentMessages[1] as Record<string, unknown>;
+      proxy.processObservation(sent2.requestId as string, {
+        axTree: "TextField [1]",
+      });
+      await p2;
+      expect(proxy.consecutiveUnchangedSteps).toBe(1);
+
+      // Exempt cmd+a no-diff — must CLEAR the streak, not just skip it
+      const p3 = proxy.request(
+        "computer_use_key",
+        { key: "cmd+a" },
+        "session-1",
+        3,
+      );
+      proxy.recordAction("computer_use_key", { key: "cmd+a" });
+      const sent3 = sentMessages[2] as Record<string, unknown>;
+      proxy.processObservation(sent3.requestId as string, {
+        axTree: "TextField [1]",
+      });
+      await p3;
+      expect(proxy.consecutiveUnchangedSteps).toBe(0);
+
+      // Next non-exempt no-diff click — streak = 1 again, NOT a "2 consecutive"
+      // escalation bridged across the exempt keypress.
+      const p4 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        4,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent4 = sentMessages[3] as Record<string, unknown>;
+      proxy.processObservation(sent4.requestId as string, {
+        axTree: "TextField [1]",
+      });
+      const result4 = await p4;
+      expect(proxy.consecutiveUnchangedSteps).toBe(1);
+      expect(result4.content).not.toContain("2 consecutive");
+    });
+
+    test("still warns for a non-exempt key (enter) with no diff", async () => {
+      setup();
+
+      // Establish previous AX tree
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.processObservation(sent1.requestId as string, {
+        axTree: "Button [1]",
+      });
+      await p1;
+
+      // enter is not in the exempt set — an empty diff should still warn.
+      const p2 = proxy.request(
+        "computer_use_key",
+        { key: "enter" },
+        "session-1",
+        2,
+      );
+      proxy.recordAction("computer_use_key", { key: "enter" });
+      const sent2 = sentMessages[1] as Record<string, unknown>;
+      proxy.processObservation(sent2.requestId as string, {
+        axTree: "Button [1]",
+      });
+      const result2 = await p2;
+      expect(result2.content).toContain("NO VISIBLE EFFECT");
+      expect(proxy.consecutiveUnchangedSteps).toBe(1);
+    });
+
+    test("still warns for a non-exempt action (click) with no diff", async () => {
+      setup();
+
+      // Establish previous AX tree
+      const p1 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        1,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent1 = sentMessages[0] as Record<string, unknown>;
+      proxy.processObservation(sent1.requestId as string, {
+        axTree: "Button [1]",
+      });
+      await p1;
+
+      const p2 = proxy.request(
+        "computer_use_click",
+        { element_id: 1 },
+        "session-1",
+        2,
+      );
+      proxy.recordAction("computer_use_click", { element_id: 1 });
+      const sent2 = sentMessages[1] as Record<string, unknown>;
+      proxy.processObservation(sent2.requestId as string, {
+        axTree: "Button [1]",
+      });
+      const result2 = await p2;
+      expect(result2.content).toContain("NO VISIBLE EFFECT");
+      expect(proxy.consecutiveUnchangedSteps).toBe(1);
+    });
+
+    test("loop detection still fires for repeated identical exempt keys", () => {
+      setup();
+
+      // Even though `up` is exempt from the unchanged-effect warning, repeating
+      // the same key must still be caught by loop detection.
+      proxy.recordAction("computer_use_key", { key: "up" });
+      proxy.recordAction("computer_use_key", { key: "up" });
+      proxy.recordAction("computer_use_key", { key: "up" });
+
+      const result = proxy.formatObservation({
+        axTree: "Button [1]",
+      });
+
+      expect(result.content).toContain(
+        "WARNING: You've repeated the same action (computer_use_key) 3 times",
+      );
+      expect(result.content).not.toContain("NO VISIBLE EFFECT");
+    });
+
+    test("loop detection fires for the same exempt combo spelled differently", () => {
+      setup();
+
+      // Equivalent spellings the mac helper executes identically must count as
+      // the same action — otherwise a stuck session could repeat cmd+a forever
+      // (no-effect warning is suppressed for exempt keys, so loop detection is
+      // the only remaining guard).
+      proxy.recordAction("computer_use_key", { key: "cmd+a" });
+      proxy.recordAction("computer_use_key", { key: "command+a" });
+      proxy.recordAction("computer_use_key", { key: "cmd + a" });
+
+      const result = proxy.formatObservation({
+        axTree: "Button [1]",
+      });
+
+      expect(result.content).toContain(
+        "WARNING: You've repeated the same action (computer_use_key) 3 times",
+      );
+    });
+
+    test("loop detection ignores the same combo sent to different clients", () => {
+      setup();
+
+      // Same key, different target desktops — not a repeat on one UI, so loop
+      // detection must NOT fire. Routing fields are kept in the signature.
+      proxy.recordAction("computer_use_key", {
+        key: "cmd+a",
+        target_client_id: "client-a",
+      });
+      proxy.recordAction("computer_use_key", {
+        key: "cmd+a",
+        target_client_id: "client-b",
+      });
+      proxy.recordAction("computer_use_key", {
+        key: "cmd+a",
+        target_client_id: "client-c",
+      });
+
+      const result = proxy.formatObservation({
+        axTree: "Button [1]",
+      });
+
+      expect(result.content).not.toContain("WARNING: You've repeated");
+    });
+
+    test("loop detection fires for the same combo+client across spellings", () => {
+      setup();
+
+      // Same target client, equivalent spellings — still a repeat on one UI.
+      proxy.recordAction("computer_use_key", {
+        key: "cmd+a",
+        target_client_id: "client-a",
+      });
+      proxy.recordAction("computer_use_key", {
+        key: "command+a",
+        target_client_id: "client-a",
+      });
+      proxy.recordAction("computer_use_key", {
+        key: "cmd + a",
+        target_client_id: "client-a",
+      });
+
+      const result = proxy.formatObservation({
+        axTree: "Button [1]",
+      });
+
+      expect(result.content).toContain(
+        "WARNING: You've repeated the same action (computer_use_key) 3 times",
+      );
+    });
+
     test("resets consecutive count when diff is present", async () => {
       setup();
 

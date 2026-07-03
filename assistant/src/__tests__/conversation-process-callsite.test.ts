@@ -156,7 +156,9 @@ mock.module("../workspace/git-service.js", () => ({
 let mockDbMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockConversation: Record<string, unknown> | null = null;
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -178,7 +180,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
@@ -259,7 +261,7 @@ mock.module("../plugins/defaults/compaction/window-manager.js", () => ({
   getSummaryFromContextMessage: () => null,
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
   listPendingRequestsByConversationScope: () => [],
@@ -428,5 +430,42 @@ describe("processMessage callSite threading", () => {
     });
 
     expect(conversation.clientTimezone).toBe("Europe/London");
+  });
+
+  test("applies clientOs in the create and reuse transport metadata path", async () => {
+    mockConversation = {
+      id: "conv-store-client-os",
+      contextSummary: null,
+      contextCompactedMessageCount: 0,
+      totalInputTokens: 0,
+      totalOutputTokens: 0,
+      totalEstimatedCost: 0,
+    };
+    mockDbMessages = [];
+    clearCaptured();
+    clearAllActiveConversations();
+
+    // `interface` is always the transport surface (here "web"); the OS is
+    // carried separately as `clientOs` and must be applied on both the create
+    // and reuse paths so each turn reflects its own surface.
+    const conversation = await getOrCreateConversation("conv-store-client-os", {
+      transport: {
+        channelId: "vellum",
+        interfaceId: "web",
+        clientOs: "macos",
+      },
+    });
+
+    expect(conversation.clientOs).toBe("macos");
+
+    await getOrCreateConversation("conv-store-client-os", {
+      transport: {
+        channelId: "vellum",
+        interfaceId: "web",
+        clientOs: "ios",
+      },
+    });
+
+    expect(conversation.clientOs).toBe("ios");
   });
 });

@@ -24,11 +24,11 @@ mock.module("../../assistant-event-hub.js", () => ({
 }));
 
 import { findConversation } from "../../../daemon/conversation-registry.js";
-import { createConversation } from "../../../memory/conversation-crud.js";
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
-import { rawRun } from "../../../memory/raw-query.js";
-import { conversations } from "../../../memory/schema.js";
+import { createConversation } from "../../../persistence/conversation-crud.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import { rawRun } from "../../../persistence/raw-query.js";
+import { conversations } from "../../../persistence/schema/index.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../conversation-list-routes.js";
 import { BadRequestError } from "../errors.js";
 import type { RouteDefinition } from "../types.js";
@@ -46,6 +46,7 @@ function clearConversations(): void {
 function seedArchived(title: string): string {
   const conv = createConversation({ title });
   rawRun(
+    "test:archiveConversation",
     "UPDATE conversations SET archived_at = ? WHERE id = ?",
     Date.now(),
     conv.id,
@@ -154,8 +155,13 @@ describe("GET /v1/conversations — archiveStatus", () => {
     // GIVEN a pinned-but-archived row that would otherwise be force-included
     // on offset=0 of the active view.
     const pinned = createConversation("pinned-archived");
-    rawRun("UPDATE conversations SET is_pinned = 1 WHERE id = ?", pinned.id);
     rawRun(
+      "test:setPinned",
+      "UPDATE conversations SET is_pinned = 1 WHERE id = ?",
+      pinned.id,
+    );
+    rawRun(
+      "test:archiveConversation",
       "UPDATE conversations SET archived_at = ? WHERE id = ?",
       Date.now(),
       pinned.id,

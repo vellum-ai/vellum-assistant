@@ -26,13 +26,12 @@ import {
 } from "../../contacts/contact-store.js";
 import type { VellumAssistantMetadata } from "../../contacts/types.js";
 import { getPublicBaseUrl } from "../../inbound/public-ingress-urls.js";
-import { getDb } from "../../memory/db-connection.js";
 import {
-  claimA2AInvite,
-  createInvite,
-  hashToken,
-} from "../../memory/invite-store.js";
-import { assistantContactMetadata } from "../../memory/schema.js";
+  claimA2aInvite,
+  createA2aInvite,
+} from "../../persistence/a2a-invite-store.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { assistantContactMetadata } from "../../persistence/schema/index.js";
 import type { HttpErrorResponse } from "../../runtime/http-errors.js";
 import { getLogger } from "../../util/logger.js";
 import { getAssistantName } from "../identity-helpers.js";
@@ -96,13 +95,11 @@ export function getA2AConfig(): A2AConfigResult {
   const config = getConfig();
   const enabled = config.a2a?.enabled ?? false;
 
+  // a2a is peer binding outside the human-trust ACL model — the gateway has no
+  // canonical a2a channel status, so channel existence is the readiness signal.
   const contacts = searchContacts({ channelType: "a2a" });
   const activeConnections = contacts.reduce((count, c) => {
-    return (
-      count +
-      c.channels.filter((ch) => ch.type === "a2a" && ch.status === "active")
-        .length
-    );
+    return count + c.channels.filter((ch) => ch.type === "a2a").length;
   }, 0);
 
   return { success: true, enabled, activeConnections };
@@ -159,8 +156,7 @@ export function createA2AInvite(params: {
 
   // 4. Create the invite
   const expiresInMs = (params.expiresInHours ?? 72) * 60 * 60 * 1000;
-  const { invite, rawToken } = createInvite({
-    sourceChannel: "a2a",
+  const { invite, rawToken } = createA2aInvite({
     contactId: contact.id,
     maxUses: 1,
     expiresInMs,
@@ -199,9 +195,8 @@ export function completeA2AInvite(params: {
     };
   }
 
-  const tokenHash = hashToken(params.token);
-  const claimResult = claimA2AInvite({
-    tokenHash,
+  const claimResult = claimA2aInvite({
+    token: params.token,
     redeemedByExternalUserId: params.acceptor.assistantId,
   });
 
@@ -221,8 +216,6 @@ export function completeA2AInvite(params: {
       {
         type: "a2a",
         address: params.acceptor.assistantId.toLowerCase(),
-        status: "active",
-        policy: "allow",
       },
     ],
   });
@@ -270,12 +263,9 @@ export function redeemA2AInvite(params: {
     setA2AConfig();
   }
 
-  // 2. Check for existing active contact with this sender
+  // 2. Check for existing contact with this sender (a2a binding existence)
   const existing = findContactByAddress("a2a", params.sender.assistantId);
-  if (
-    existing &&
-    existing.channels.some((ch) => ch.type === "a2a" && ch.status === "active")
-  ) {
+  if (existing && existing.channels.some((ch) => ch.type === "a2a")) {
     return { success: true, alreadyConnected: true, contactId: existing.id };
   }
 
@@ -288,8 +278,6 @@ export function redeemA2AInvite(params: {
       {
         type: "a2a",
         address: params.sender.assistantId.toLowerCase(),
-        status: "active",
-        policy: "allow",
       },
     ],
   });
@@ -373,10 +361,7 @@ export async function acceptA2AInvite(params: {
   // 2. Short-circuit if already connected — avoids a network round-trip
   //    and consuming a token on the sender side.
   const existing = findContactByAddress("a2a", params.senderAssistantId);
-  if (
-    existing &&
-    existing.channels.some((ch) => ch.type === "a2a" && ch.status === "active")
-  ) {
+  if (existing && existing.channels.some((ch) => ch.type === "a2a")) {
     return { success: true, alreadyConnected: true, contactId: existing.id };
   }
 

@@ -21,6 +21,10 @@ const ALLOWED_PREFIXES = {
     // Status command's daemon-down fallback needs socket path + platform.
     "../../ipc/socket-path",
     "../../util/platform",
+    // App version constant (leaf module; reads package.json/env, no daemon
+    // deps) — status prints it to surface CLI-vs-runtime version drift.
+    "../../version",
+    "../../../version",
     // Logger / output at depth-1 and depth-2.
     "../logger",
     "../output",
@@ -47,9 +51,22 @@ const ALLOWED_PREFIXES = {
     "./",
     // Config schema/loader at depth-1 and depth-2.
     "../../config/loader",
+    "../../../config/loader",
     "../../config/schema",
     "../../config/env",
     "../../util/platform",
+    "../../../util/platform",
+    // Memory retrospective — the retrospective CLI runs the fork-based
+    // retrospective in-process (no daemon, no IPC), so it imports the
+    // job handler directly from the default-memory plugin. Depth-2 for
+    // commands/memory/ nesting.
+    "../../plugins/defaults/memory/memory-retrospective-job",
+    "../../../plugins/defaults/memory/memory-retrospective-job",
+    // Standalone tool execution — `tools run` executes a single tool
+    // in-process from the filesystem (no daemon, no IPC), so it imports the
+    // standalone runner directly. Depth-2 for commands/ nesting.
+    "../../tools/run-standalone",
+    "../../../tools/run-standalone",
     "../logger",
     "../output",
     "../../logger",

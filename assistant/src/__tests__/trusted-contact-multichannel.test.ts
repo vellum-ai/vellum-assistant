@@ -52,6 +52,10 @@ mock.module("../runtime/access-request-helper.js", () => ({
       requestId: `mock-req-${Date.now()}`,
     };
   },
+  // acl-enforcement imports this alongside notifyGuardianOfAccessRequest; stub
+  // it so the terminal-deny check never falls through to the real DB-backed
+  // helper in this mocked suite.
+  isAccessRequestDenied: () => false,
 }));
 
 const deliverReplyCalls: Array<{
@@ -73,15 +77,21 @@ mock.module("../runtime/approval-message-composer.js", () => ({
 }));
 
 import { findContactChannel } from "../contacts/contact-store.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   createOutboundSession,
   validateAndConsumeVerification,
 } from "../runtime/channel-verification-service.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import {
+  gatewayAclByChannelId,
+  resetGatewayAclStore,
+} from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 
@@ -93,7 +103,6 @@ const TEST_BEARER_TOKEN = "test-token";
 
 function resetState(): void {
   const db = getDb();
-  db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM channel_verification_sessions");
   db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM channel_inbound_events");
@@ -101,6 +110,7 @@ function resetState(): void {
   db.run("DELETE FROM notification_events");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
   emitSignalCalls.length = 0;
   notifyGuardianCalls.length = 0;
   deliverReplyCalls.length = 0;
@@ -254,7 +264,7 @@ for (const config of CHANNEL_CONFIGS) {
         expect(challengeResult.verificationType).toBe("trusted_contact");
       }
 
-      upsertContactChannel({
+      seedContactChannel({
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
         externalChatId: config.externalChatId,
@@ -270,14 +280,16 @@ for (const config of CHANNEL_CONFIGS) {
       });
 
       expect(contactResult).not.toBeNull();
-      expect(contactResult!.channel.status).toBe("active");
-      expect(contactResult!.channel.policy).toBe("allow");
+      // Assert the gateway-resolved ACL landed in the gateway ACL store.
+      const acl = gatewayAclByChannelId(contactResult!.channel.id);
+      expect(acl!.status).toBe("active");
+      expect(acl!.policy).toBe("allow");
       expect(contactResult!.channel.type).toBe(config.channel);
     });
 
     test("no cross-channel leakage between member records", () => {
       // Create a member for this channel
-      upsertContactChannel({
+      seedContactChannel({
         sourceChannel: config.channel,
         externalUserId: config.senderExternalUserId,
         externalChatId: config.externalChatId,

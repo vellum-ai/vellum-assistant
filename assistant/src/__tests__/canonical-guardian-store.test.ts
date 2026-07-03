@@ -12,6 +12,7 @@ import {
   createCanonicalGuardianRequest,
   expireAllPendingCanonicalRequests,
   getCanonicalGuardianRequest,
+  isRequestInConversationScope,
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
   listPendingCanonicalGuardianRequestsByDestinationChat,
@@ -20,9 +21,9 @@ import {
   resolveCanonicalGuardianRequest,
   updateCanonicalGuardianDelivery,
   updateCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../contacts/canonical-guardian-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 await initializeDb();
 
 // All decisionable kinds (tool_approval, pending_question, access_request)
@@ -590,6 +591,28 @@ describe("canonical-guardian-store", () => {
       );
     expect(pending).toHaveLength(1);
     expect(pending[0].id).toBe(req.id);
+  });
+
+  test("isRequestInConversationScope matches a channel card's destination conversation", () => {
+    // Access request: synthetic source conversation, card delivered to a Slack
+    // chat in the guardian's conversation. The guardian, acting in that
+    // conversation, is in scope — even though the request's source differs — so
+    // the desktop decision path can resolve it. An unrelated conversation is not.
+    const req = createCanonicalGuardianRequest({
+      kind: "access_request",
+      sourceType: "channel",
+      conversationId: "access-req-src",
+      guardianPrincipalId: TEST_PRINCIPAL,
+    });
+    createCanonicalGuardianDelivery({
+      requestId: req.id,
+      destinationChannel: "slack",
+      destinationChatId: "guardian-chat",
+      destinationConversationId: "guardian-conv",
+    });
+
+    expect(isRequestInConversationScope(req.id, "guardian-conv")).toBe(true);
+    expect(isRequestInConversationScope(req.id, "unrelated-conv")).toBe(false);
   });
 
   test("updates delivery status", () => {

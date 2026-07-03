@@ -98,15 +98,10 @@ import {
   saveRawConfig,
   setNestedValue,
 } from "../config/loader.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
 import {
   type ChannelCapabilities,
   loadSlackChronologicalContext,
 } from "../daemon/conversation-runtime-assembly.js";
-import type { MessageRow } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { recordInbound } from "../memory/delivery-crud.js";
 import type { Message as MessagingMessage } from "../messaging/provider-types.js";
 import * as slackBackfill from "../messaging/providers/slack/backfill.js";
 import {
@@ -114,6 +109,10 @@ import {
   readSlackMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
+import type { MessageRow } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { recordInbound } from "../persistence/delivery-crud.js";
 import type { Message } from "../providers/types.js";
 import {
   _backfillTriggerCache,
@@ -121,6 +120,7 @@ import {
 } from "../runtime/routes/inbound-message-handler.js";
 import {
   handleChannelInbound,
+  seedContactChannel,
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
 
@@ -1902,7 +1902,7 @@ function resetHttpState(): void {
 }
 
 function seedHttpActiveMember(chatId = HTTP_SLACK_CHANNEL_ID): void {
-  upsertContactChannel({
+  seedContactChannel({
     sourceChannel: "slack",
     externalUserId: HTTP_SLACK_USER_ID,
     externalChatId: chatId,
@@ -1913,7 +1913,7 @@ function seedHttpActiveMember(chatId = HTTP_SLACK_CHANNEL_ID): void {
 }
 
 function seedHttpGuardianMember(chatId = HTTP_SLACK_CHANNEL_ID): void {
-  upsertContactChannel({
+  seedContactChannel({
     sourceChannel: "slack",
     externalUserId: HTTP_SLACK_USER_ID,
     externalChatId: chatId,

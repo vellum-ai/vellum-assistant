@@ -175,7 +175,25 @@ export const ingressInvites = sqliteTable(
   {
     id: text("id").primaryKey(),
     sourceChannel: text("source_channel").notNull(),
+    // Logically nullable (voice invites carry voiceCodeHash instead), but the
+    // NOT NULL constraint must stay: relaxing it (or adding a default) makes
+    // drizzle push rebuild the table, and pushSQLiteSchema's generated rebuild
+    // corrupts existing DBs (INSERT..SELECT references not-yet-existent
+    // columns, duplicated CREATE INDEX statements crash startup). The store
+    // writes the "" sentinel for invites without a code (see
+    // NO_INVITE_CODE_HASH in contact-store.ts); m0009 owns normalization.
     inviteCodeHash: text("invite_code_hash").notNull(),
+    // SHA-256 hash of the one-time invite link token (null for voice invites).
+    tokenHash: text("token_hash"),
+    // Voice invite fields (null for non-voice invites).
+    voiceCodeHash: text("voice_code_hash"),
+    voiceCodeDigits: integer("voice_code_digits"),
+    expectedExternalUserId: text("expected_external_user_id"),
+    // Display metadata for personalized invite prompts.
+    friendName: text("friend_name"),
+    guardianName: text("guardian_name"),
+    // Opaque passthrough — the gateway never interprets it.
+    sourceConversationId: text("source_conversation_id"),
     note: text("note"),
     maxUses: integer("max_uses").notNull().default(1),
     useCount: integer("use_count").notNull().default(0),
@@ -196,6 +214,11 @@ export const ingressInvites = sqliteTable(
       table.sourceChannel,
     ),
     index("idx_ingress_invites_contact").on(table.contactId),
+    index("idx_ingress_invites_token_hash").on(table.tokenHash),
+    index("idx_ingress_invites_expected_user").on(
+      table.expectedExternalUserId,
+      table.status,
+    ),
   ],
 );
 
@@ -349,41 +372,6 @@ export const channelGuardianRateLimits = sqliteTable(
       table.actorExternalUserId,
       table.actorChatId,
     ),
-  ],
-);
-
-// ---------------------------------------------------------------------------
-// Channel verification sessions (dual-write mirror of assistant table)
-// ---------------------------------------------------------------------------
-
-export const channelVerificationSessions = sqliteTable(
-  "channel_verification_sessions",
-  {
-    id: text("id").primaryKey(),
-    channel: text("channel").notNull(),
-    challengeHash: text("challenge_hash").notNull(),
-    expiresAt: integer("expires_at").notNull(),
-    status: text("status").notNull().default("pending"),
-    sourceConversationId: text("source_conversation_id"),
-    consumedByExternalUserId: text("consumed_by_external_user_id"),
-    consumedByChatId: text("consumed_by_chat_id"),
-    expectedExternalUserId: text("expected_external_user_id"),
-    expectedChatId: text("expected_chat_id"),
-    expectedPhoneE164: text("expected_phone_e164"),
-    identityBindingStatus: text("identity_binding_status").default("bound"),
-    destinationAddress: text("destination_address"),
-    lastSentAt: integer("last_sent_at"),
-    sendCount: integer("send_count").default(0),
-    nextResendAt: integer("next_resend_at"),
-    codeDigits: integer("code_digits").default(6),
-    maxAttempts: integer("max_attempts").default(3),
-    verificationPurpose: text("verification_purpose").default("guardian"),
-    bootstrapTokenHash: text("bootstrap_token_hash"),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-  (table) => [
-    index("idx_gw_cvs_channel_status").on(table.channel, table.status),
   ],
 );
 

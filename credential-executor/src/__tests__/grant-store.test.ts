@@ -419,6 +419,110 @@ describe("TemporaryGrantStore", () => {
       expect(store.check("allow_once", "hash-1")).toBe(false);
       expect(store.check("allow_once", "hash-2")).toBe(false);
     });
+
+    test("remains usable immediately (default TTL is not instantaneous)", () => {
+      // The default `allow_once` TTL must still allow a prompt retry of the
+      // just-approved operation.
+      store.add("allow_once", "hash-default-ttl");
+      expect(store.check("allow_once", "hash-default-ttl")).toBe(true);
+    });
+
+    test("expires after its TTL even if never consumed (ATL-935)", () => {
+      // An unconsumed single-use approval must not live forever.
+      store.add("allow_once", "hash-once-expire", { durationMs: 1 });
+
+      const start = Date.now();
+      while (Date.now() - start < 5) {
+        // spin
+      }
+
+      expect(store.check("allow_once", "hash-once-expire")).toBe(false);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // ATL-935: ephemeral approvals are bounded by TTLs, not by connection
+  // teardown.
+  //
+  // In managed mode the store instance — contents included — is deliberately
+  // shared across assistant reconnects and, in the multi-process daemon model,
+  // across the connections that each talk to CES, so one guardian approval can
+  // be used by any connection entitled to it. The security boundary is the
+  // per-grant TTL: an approval that is recorded but never consumed must expire
+  // on its own rather than survive indefinitely and be replayed by a much later
+  // connection. These tests encode both halves of that contract — an approval
+  // stays usable across a reconnect (sharing preserved) but does not outlive
+  // its TTL (replay window bounded).
+  // -------------------------------------------------------------------------
+  describe("ATL-935: ephemeral approvals are bounded by TTLs, not teardown", () => {
+    test("every grant kind is bounded by a TTL (no unbounded approvals)", () => {
+      // The finding was that allow_once and allow_conversation had no time
+      // bound at all. Every kind must now expire on its own.
+      store.add("allow_once", "exp-once", { durationMs: 1 });
+      store.add("allow_10m", "exp-10m", { durationMs: 1 });
+      store.add("allow_conversation", "exp-conv", {
+        conversationId: "c",
+        durationMs: 1,
+      });
+
+      const start = Date.now();
+      while (Date.now() - start < 5) {
+        // spin until all three TTLs lapse
+      }
+
+      expect(store.check("allow_once", "exp-once")).toBe(false);
+      expect(store.check("allow_10m", "exp-10m")).toBe(false);
+      expect(store.check("allow_conversation", "exp-conv", "c")).toBe(false);
+    });
+
+    test("allow_once that is never consumed expires instead of lingering", () => {
+      // The headline scenario: an approval recorded but not consumed before a
+      // connection drops must not be replayable by a later connection.
+      store.add("allow_once", "hash-stale", { durationMs: 1 });
+
+      const start = Date.now();
+      while (Date.now() - start < 5) {
+        // spin
+      }
+
+      expect(store.checkAny("hash-stale")).toBeUndefined();
+    });
+
+    test("allow_conversation is bounded by an absolute TTL backstop", () => {
+      store.add("allow_conversation", "hash-conv-ttl", {
+        conversationId: "conv-1",
+        durationMs: 1,
+      });
+
+      const start = Date.now();
+      while (Date.now() - start < 5) {
+        // spin
+      }
+
+      expect(store.checkAny("hash-conv-ttl", "conv-1")).toBeUndefined();
+    });
+
+    test("an unexpired approval is still shared across a reconnect (no teardown)", () => {
+      // The multi-process daemon model depends on this: the store is NOT
+      // cleared on disconnect, so an approval granted while one connection was
+      // live remains usable by a later or sibling connection within its TTL.
+      store.add("allow_conversation", "hash-shared", {
+        conversationId: "conv-1",
+      });
+
+      // Simulate a reconnect — no clear() happens between connections.
+      expect(store.checkAny("hash-shared", "conv-1")).toBe(
+        "allow_conversation",
+      );
+      // Still usable again (conversation grants are not consumed on use).
+      expect(store.checkAny("hash-shared", "conv-1")).toBe(
+        "allow_conversation",
+      );
+
+      // An allow_10m approval likewise survives a reconnect within its window.
+      store.add("allow_10m", "hash-shared-10m");
+      expect(store.checkAny("hash-shared-10m")).toBe("allow_10m");
+    });
   });
 
   describe("allow_10m", () => {

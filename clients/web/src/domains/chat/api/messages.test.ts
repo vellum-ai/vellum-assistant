@@ -11,11 +11,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { client as daemonClient } from "@/generated/daemon/client.gen";
 import {
+  fetchConversationMessages,
   getChatHistory,
   mapRuntimeToolCalls,
   normalizeContentBlocks,
   normalizeContentOrder,
   postChatMessage,
+  RECONCILE_LATEST_PAGE_LIMIT,
 } from "@/domains/chat/api/messages";
 import { messageText } from "@/domains/chat/utils/message-test-helpers";
 import type {
@@ -71,12 +73,14 @@ afterEach(() => {
 
 describe("postChatMessage — onboarding wire format", () => {
   test("includes googleConnected and googleScopes when provided", async () => {
-    await postChatMessage("assistant-1", "conv-key", "Hello", [], {
-      tools: [],
-      tasks: [],
-      tone: "warm",
-      googleConnected: true,
-      googleScopes: ["https://mail.google.com/"],
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      onboarding: {
+        tools: [],
+        tasks: [],
+        tone: "warm",
+        googleConnected: true,
+        googleScopes: ["https://mail.google.com/"],
+      },
     });
 
     expect(capturedBody).not.toBeNull();
@@ -88,10 +92,8 @@ describe("postChatMessage — onboarding wire format", () => {
   });
 
   test("omits googleConnected and googleScopes when not provided", async () => {
-    await postChatMessage("assistant-1", "conv-key", "Hello", [], {
-      tools: [],
-      tasks: [],
-      tone: "grounded",
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      onboarding: { tools: [], tasks: [], tone: "grounded" },
     });
 
     const onboarding = (capturedBody as Record<string, unknown>)
@@ -112,14 +114,9 @@ describe("postChatMessage — onboarding wire format", () => {
 
 describe("postChatMessage — clientMessageId wire format", () => {
   test("sends the client nonce as the idempotency key when provided", async () => {
-    await postChatMessage(
-      "assistant-1",
-      "conv-key",
-      "Hello",
-      [],
-      undefined,
-      "nonce-123",
-    );
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      clientMessageId: "nonce-123",
+    });
 
     expect(capturedBody).not.toBeNull();
     expect((capturedBody as Record<string, unknown>).clientMessageId).toBe(
@@ -133,6 +130,48 @@ describe("postChatMessage — clientMessageId wire format", () => {
     expect(capturedBody).not.toBeNull();
     expect(
       (capturedBody as Record<string, unknown>).clientMessageId,
+    ).toBeUndefined();
+  });
+});
+
+describe("postChatMessage — enabledPlugins wire format", () => {
+  test("includes an explicit plugin selection verbatim", async () => {
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      enabledPlugins: ["alpha", "zeta"],
+    });
+
+    expect(
+      (capturedBody as Record<string, unknown>).enabledPlugins,
+    ).toEqual(["alpha", "zeta"]);
+  });
+
+  test("includes an explicit empty selection (user disabled every plugin)", async () => {
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      enabledPlugins: [],
+    });
+
+    // An empty array is a genuine "no plugins for this chat" selection, not a
+    // missing one — it must reach the daemon, unlike the omitted-default case.
+    expect((capturedBody as Record<string, unknown>).enabledPlugins).toEqual(
+      [],
+    );
+  });
+
+  test("omits enabledPlugins when undefined (untouched default)", async () => {
+    await postChatMessage("assistant-1", "conv-key", "Hello");
+
+    expect(
+      (capturedBody as Record<string, unknown>).enabledPlugins,
+    ).toBeUndefined();
+  });
+
+  test("omits enabledPlugins when null", async () => {
+    await postChatMessage("assistant-1", "conv-key", "Hello", {
+      enabledPlugins: null,
+    });
+
+    expect(
+      (capturedBody as Record<string, unknown>).enabledPlugins,
     ).toBeUndefined();
   });
 });
@@ -389,6 +428,53 @@ describe("getChatHistory", () => {
       timestamp: Date.parse("2026-05-15T12:34:56.000Z"),
     });
     expect(messageText(result.messages[0])).toBe("Slack reply");
+  });
+});
+
+describe("fetchConversationMessages — request shape", () => {
+  function captureQuery(): { current: Record<string, unknown> | null } {
+    const captured: { current: Record<string, unknown> | null } = {
+      current: null,
+    };
+    daemonClient.get = mock(
+      async (options: { query?: Record<string, unknown> }) => {
+        captured.current = options.query ?? null;
+        return {
+          data: { messages: [], seq: 7 },
+          error: null,
+          response: new Response(null, { status: 200 }),
+        };
+      },
+    ) as typeof daemonClient.get;
+    return captured;
+  }
+
+  test("downloads the full conversation when no page limit is given", async () => {
+    const captured = captureQuery();
+
+    await fetchConversationMessages("assistant-1", "conv-1");
+
+    expect(captured.current).toEqual({ conversationId: "conv-1" });
+    // Full-snapshot callers (the inspector) must not page.
+    expect(captured.current).not.toHaveProperty("page");
+    expect(captured.current).not.toHaveProperty("limit");
+  });
+
+  test("requests only the latest page when a page limit is given", async () => {
+    const captured = captureQuery();
+
+    const result = await fetchConversationMessages("assistant-1", "conv-1", {
+      latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT,
+    });
+
+    expect(captured.current).toEqual({
+      conversationId: "conv-1",
+      page: "latest",
+      limit: RECONCILE_LATEST_PAGE_LIMIT,
+    });
+    // The paginated response still carries the snapshot watermark the
+    // reconcile/seq callers depend on.
+    expect(result?.seq).toBe(7);
   });
 });
 

@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { getConfig } from "../config/loader.js";
 import type { HeartbeatConfig } from "../config/schemas/heartbeat.js";
+import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
@@ -15,6 +16,7 @@ import {
   resolveGuardianPersona,
 } from "../prompts/persona-resolver.js";
 import { isTemplateContent } from "../prompts/system-prompt.js";
+import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { runBackgroundJob } from "../runtime/background-job-runner.js";
 import { hasReceivedUserMessage } from "../runtime/pre-first-message-gate.js";
 import { computeNextRunAt } from "../schedule/recurrence-engine.js";
@@ -109,11 +111,6 @@ function refreshBackgroundWakeIntentSoon(reason: string): void {
 }
 
 export interface HeartbeatDeps {
-  alerter: (alert: HeartbeatAlert) => void;
-  onConversationCreated?: (info: {
-    conversationId: string;
-    title: string;
-  }) => void;
   /** Override for current hour (0-23), for testing. */
   getCurrentHour?: () => number;
 }
@@ -162,7 +159,7 @@ export class HeartbeatService {
   // after a guardian message can detect the reset and skip its increment.
   private _resetGeneration = 0;
 
-  constructor(deps: HeartbeatDeps) {
+  constructor(deps: HeartbeatDeps = {}) {
     this.deps = deps;
     HeartbeatService.instance = this;
   }
@@ -669,13 +666,13 @@ export class HeartbeatService {
     } catch (err) {
       log.error({ err }, "Credential health check failed");
       try {
-        this.deps.alerter({
+        broadcastMessage({
           type: "heartbeat_alert",
           title: "Credential Health Check Failed",
           body:
             "Could not verify OAuth credential health. " +
             (err instanceof Error ? err.message : String(err)),
-        });
+        } satisfies HeartbeatAlert);
       } catch {
         // Last resort — alerter itself failed. Already logged above.
       }
@@ -761,6 +758,10 @@ export class HeartbeatService {
 
     const checklist = this.readChecklist();
     const completedRunCount = countCompletedHeartbeatRuns();
+    // Warm the vellum guardian-delivery cache so buildPrompt's sync guardian
+    // persona read (isShallowProfile → resolveGuardianPersona) hits a fresh key
+    // instead of falling back to default.md on a cold/TTL-expired cache.
+    await getGuardianDelivery({ channelTypes: ["vellum"] });
     const { prompt, includedReengagement } = this.buildPrompt(
       checklist,
       unhealthyProviders,
@@ -793,7 +794,8 @@ export class HeartbeatService {
       deferNotifications: true,
       onConversationCreated: (newConversationId) => {
         conversationId = newConversationId;
-        this.deps.onConversationCreated?.({
+        broadcastMessage({
+          type: "heartbeat_conversation_created",
           conversationId: newConversationId,
           title: "Heartbeat",
         });
@@ -855,11 +857,11 @@ export class HeartbeatService {
     // recovery sweep) already alerted for this run.
     if (transitioned) {
       try {
-        this.deps.alerter({
+        broadcastMessage({
           type: "heartbeat_alert",
           title: "Heartbeat Failed",
           body: result.error?.message ?? "Unknown error",
-        });
+        } satisfies HeartbeatAlert);
       } catch (alertErr) {
         log.error({ alertErr }, "Failed to broadcast heartbeat alert");
       }
@@ -912,6 +914,27 @@ This is one of your first heartbeats. Your user hasn't heard from you yet and ma
 
     return { prompt, includedReengagement };
   }
+}
+
+/**
+ * Construct and start the heartbeat service singleton, returning it so callers
+ * can wire it into the background-wake runtime. start() self-gates on
+ * `heartbeat.enabled` and logs its own status.
+ */
+export function startHeartbeatService(): HeartbeatService {
+  const service = new HeartbeatService();
+  service.start();
+  return service;
+}
+
+/** Stop the heartbeat service singleton if one is running; no-op otherwise. */
+export async function stopHeartbeatService(): Promise<void> {
+  await HeartbeatService.getInstance()?.stop();
+}
+
+/** The running heartbeat service, or null if one was never started. */
+export function getHeartbeatService(): HeartbeatService | null {
+  return HeartbeatService.getInstance() ?? null;
 }
 
 function isDiskPressureBackgroundLocked(logKey: string): boolean {

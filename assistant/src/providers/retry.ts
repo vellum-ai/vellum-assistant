@@ -44,6 +44,16 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "openai",
   "openrouter",
   "fireworks",
+  "together",
+]);
+
+// For these providers, disabling reasoning is encoded through the same effort
+// knob their transports send on the wire. Non-"none" tiers can still vary by
+// model and are handled by the provider client.
+const DISABLED_THINKING_USES_EFFORT_PROVIDERS = new Set([
+  "openai",
+  "fireworks",
+  "together",
 ]);
 
 /**
@@ -346,6 +356,13 @@ function normalizeSendMessageOptions(
     }
   }
 
+  if (
+    isThinkingConfigDisabled(nextConfig.thinking) &&
+    DISABLED_THINKING_USES_EFFORT_PROVIDERS.has(providerName)
+  ) {
+    nextConfig.effort = "none";
+  }
+
   // Claude Fable always reasons with adaptive thinking and rejects an explicit
   // `thinking: { type: "disabled" }` (Anthropic 400s the request). Drop a
   // disabled thinking config for these models so they fall back to their
@@ -617,6 +634,16 @@ export class RetryProvider implements Provider {
     return this.inner.tokenEstimationProvider;
   }
 
+  get supportsNativeWebSearch(): boolean | undefined {
+    return this.inner.supportsNativeWebSearch;
+  }
+
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    return this.inner.supportsNativeWebSearchFor
+      ? this.inner.supportsNativeWebSearchFor(options)
+      : this.inner.supportsNativeWebSearch === true;
+  }
+
   // Forward the optional token-counting endpoint so the capability survives
   // the wrapper chain (callers gate on its presence). Bound straight to the
   // inner provider — count_tokens is a cheap separate endpoint and its caller
@@ -686,6 +713,7 @@ export class RetryProvider implements Provider {
               retryAfterHeader: retryAfter !== undefined,
               errorType,
               provider: this.name,
+              message: error instanceof Error ? error.message : String(error),
             },
             "Retrying after transient error",
           );

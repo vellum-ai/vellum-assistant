@@ -3,14 +3,19 @@
  *
  * These checks run after the decision engine produces a NotificationDecision
  * and before the broadcaster dispatches. They enforce hard invariants that
- * the LLM cannot override: channel availability, source-active suppression,
- * deduplication, and schema validity.
+ * the LLM cannot override: channel availability, deduplication, schema
+ * validity, and rendered-copy quality.
+ *
+ * Source-active suppression is also a hard invariant, but it depends only on
+ * the signal — not on the decision — so `emitNotificationSignal` runs it as a
+ * pre-decision gate, short-circuiting before the expensive LLM stage rather
+ * than discarding the decision after it. See `checkSourceActiveSuppression`.
  */
 
 import { and, eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
-import { notificationEvents } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { notificationEvents } from "../persistence/schema/index.js";
 import { getLogger } from "../util/logger.js";
 import { composeFallbackCopy } from "./copy-composer.js";
 import type { NotificationSignal } from "./signal.js";
@@ -52,17 +57,7 @@ export async function runDeterministicChecks(
     return schemaCheck;
   }
 
-  // Check 2: Source-active suppression
-  const sourceActiveCheck = checkSourceActiveSuppression(signal);
-  if (!sourceActiveCheck.passed) {
-    log.info(
-      { signalId: signal.signalId, reason: sourceActiveCheck.reason },
-      "Deterministic check failed: source active",
-    );
-    return sourceActiveCheck;
-  }
-
-  // Check 3: Channel availability
+  // Check 2: Channel availability
   const channelCheck = checkChannelAvailability(
     decision,
     context.connectedChannels,
@@ -75,7 +70,7 @@ export async function runDeterministicChecks(
     return channelCheck;
   }
 
-  // Check 4: Dedupe
+  // Check 3: Dedupe
   const dedupeCheck = checkDedupe(
     signal,
     decision,
@@ -89,7 +84,7 @@ export async function runDeterministicChecks(
     return dedupeCheck;
   }
 
-  // Check 5: Rendered copy quality (fail-closed)
+  // Check 4: Rendered copy quality (fail-closed)
   const copyCheck = checkRenderedCopyQuality(signal, decision);
   if (!copyCheck.passed) {
     log.info(
@@ -151,8 +146,16 @@ function checkDecisionSchema(decision: NotificationDecision): CheckResult {
 /**
  * If the user is already looking at the source context (visibleInSourceNow),
  * suppress the notification to avoid redundant alerts.
+ *
+ * This depends only on the signal, not on the decision, so the outcome is
+ * knowable before the decision engine runs. `emitNotificationSignal` calls it
+ * as a pre-decision gate to short-circuit statically-suppressed signals
+ * (e.g. trusted-contact `verification_sent`) before paying for an LLM
+ * inference whose result would be discarded. Exported for that caller.
  */
-function checkSourceActiveSuppression(signal: NotificationSignal): CheckResult {
+export function checkSourceActiveSuppression(
+  signal: NotificationSignal,
+): CheckResult {
   if (signal.attentionHints.visibleInSourceNow) {
     return {
       passed: false,

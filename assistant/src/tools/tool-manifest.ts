@@ -11,6 +11,7 @@ import {
   isCesSecureInstallEnabled,
   isCesToolsEnabled,
 } from "../credential-execution/feature-gates.js";
+import { recallTool, rememberTool } from "../plugins/defaults/memory/tools.js";
 import { askQuestionTool } from "./ask-question/ask-question-tool.js";
 import { makeAuthenticatedRequestTool } from "./credential-execution/make-authenticated-request.js";
 import { manageSecureCommandTool } from "./credential-execution/manage-secure-command-tool.js";
@@ -18,13 +19,8 @@ import { runAuthenticatedCommandTool } from "./credential-execution/run-authenti
 import { fileEditTool } from "./filesystem/edit.js";
 import { fileListTool } from "./filesystem/list.js";
 import { fileReadTool } from "./filesystem/read.js";
+import { codeSearchTool } from "./filesystem/search.js";
 import { fileWriteTool } from "./filesystem/write.js";
-import {
-  deleteMemoryTool,
-  recallTool,
-  rememberTool,
-  updateMemoryTool,
-} from "./memory/register.js";
 import { webFetchTool } from "./network/web-fetch.js";
 import { webSearchTool } from "./network/web-search.js";
 import { skillExecuteTool } from "./skills/execute.js";
@@ -64,6 +60,7 @@ export const eagerModuleToolNames: string[] = [
   "file_write",
   "file_edit",
   "file_list",
+  "code_search",
   "web_search",
   "web_fetch",
   "skill_execute",
@@ -86,6 +83,7 @@ export const explicitTools: ToolDefinition[] = [
   fileWriteTool,
   fileEditTool,
   fileListTool,
+  codeSearchTool,
   webFetchTool,
   webSearchTool,
   skillExecuteTool,
@@ -94,8 +92,6 @@ export const explicitTools: ToolDefinition[] = [
   // Always-explicit tools
   rememberTool,
   recallTool,
-  deleteMemoryTool,
-  updateMemoryTool,
   notifyParentTool,
   askQuestionTool,
   // NOTE: external skill tools (registered via registerExternalTools in

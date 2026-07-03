@@ -167,6 +167,12 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "memory v3 rebuild-index",
   "memory v3 backfill-sections",
   "memory v3 eval",
+  "memory retrospective",
+  "memory retrospective run",
+  "memory worker",
+  "memory worker start",
+  "memory worker stop",
+  "memory worker status",
   "notifications",
   "notifications send",
   "notifications list",
@@ -196,6 +202,11 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "platform callback-routes",
   "platform callback-routes register",
   "platform callback-routes list",
+  "monitoring",
+  "monitoring start",
+  "monitoring stop",
+  "monitoring status",
+  "ps",
   "routes",
   "routes list",
   "routes inspect",
@@ -211,6 +222,10 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "schedules cancel",
   "schedules delete",
   "schedules execute",
+  "schedules worker",
+  "schedules worker start",
+  "schedules worker stop",
+  "schedules worker status",
   "sequence",
   "sequence list",
   "sequence get",
@@ -235,6 +250,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "telemetry flush",
   "tools",
   "tools list",
+  "tools run",
   "trust",
   "trust list",
   "tts",
@@ -275,6 +291,8 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "plugins search",
   "plugins uninstall",
   "plugins upgrade",
+  "plugins enable",
+  "plugins disable",
 ] as const;
 
 interface AssistantRiskOverride {
@@ -455,6 +473,12 @@ const riskOverrides: AssistantRiskOverride[] = [
   },
   { path: "llm send", risk: "medium" },
   {
+    path: "tools run",
+    risk: "medium",
+    reason:
+      "Executes a registered tool directly. Runs non-interactive and non-guardian, so prompt-gated tools auto-deny, but it still invokes a tool outside the agent loop.",
+  },
+  {
     path: "inference session open",
     risk: "low",
     reason:
@@ -512,6 +536,42 @@ const riskOverrides: AssistantRiskOverride[] = [
     risk: "low",
     reason:
       "Invalidates the in-memory v3 section lanes so they rebuild on the next turn",
+  },
+  {
+    path: "memory retrospective run",
+    risk: "medium",
+    reason:
+      "Forks a conversation and wakes a retrospective agent that calls remember on uncovered facts",
+  },
+  {
+    path: "memory worker start",
+    risk: "medium",
+    reason: "Spawns a background process that processes memory jobs",
+  },
+  {
+    path: "memory worker stop",
+    risk: "low",
+    reason: "Sends SIGTERM to the memory worker process",
+  },
+  {
+    path: "memory worker status",
+    risk: "low",
+    reason: "Read-only liveness probe via PID file",
+  },
+  {
+    path: "monitoring start",
+    risk: "medium",
+    reason: "Spawns a background process that samples memory and disk",
+  },
+  {
+    path: "monitoring stop",
+    risk: "low",
+    reason: "Sends SIGTERM to the resource monitor process",
+  },
+  {
+    path: "monitoring status",
+    risk: "low",
+    reason: "Read-only liveness probe via PID file",
   },
   { path: "notifications send", risk: "low" },
   {
@@ -577,6 +637,22 @@ const riskOverrides: AssistantRiskOverride[] = [
       "via sh -c on the host, and the schedule ID arg is opaque to the " +
       "classifier — must conservatively assume host shell execution",
   },
+  {
+    path: "schedules worker start",
+    risk: "medium",
+    reason: "Spawns a background process that runs scheduled jobs",
+  },
+  {
+    path: "schedules worker stop",
+    risk: "medium",
+    reason:
+      "Disables schedules.worker.enabled and sends SIGTERM to the schedule worker process",
+  },
+  {
+    path: "schedules worker status",
+    risk: "low",
+    reason: "Read-only liveness probe via PID file",
+  },
   { path: "sequence pause", risk: "medium" },
   { path: "sequence resume", risk: "medium" },
   { path: "sequence cancel-enrollment", risk: "medium" },
@@ -595,6 +671,17 @@ const riskOverrides: AssistantRiskOverride[] = [
     path: "plugins upgrade",
     risk: "high",
     reason: "Fetches and re-installs external plugin code from GitHub",
+  },
+  {
+    path: "plugins disable",
+    risk: "medium",
+    reason:
+      "Disables a plugin by creating a .disabled sentinel file in the workspace",
+  },
+  {
+    path: "plugins enable",
+    risk: "medium",
+    reason: "Re-enables a plugin by removing the .disabled sentinel file",
   },
   { path: "skills install", risk: "high" },
   { path: "skills uninstall", risk: "medium" },
@@ -675,5 +762,29 @@ scheduleUpdateNode.argRules = scheduleUpdateArgRules;
 // Both rule flags consume the next token as a value; declare them so the
 // arg parser pairs `--mode script` / `--script <cmd>` correctly.
 scheduleUpdateNode.argSchema = { valueFlags: ["--mode", "--script"] };
+
+// `schedules create` mirrors `schedules update`: a create that installs a
+// script payload persists host shell execution for a later fire — high like
+// `bash`.
+const scheduleCreateArgRules: ArgRule[] = [
+  {
+    id: "assistant-schedules-create:script",
+    flags: ["--script"],
+    risk: "high",
+    reason:
+      "Persists an arbitrary shell command that the schedule executes on fire",
+  },
+  {
+    id: "assistant-schedules-create:mode-script",
+    flags: ["--mode"],
+    valuePattern: "^script$",
+    risk: "high",
+    reason:
+      "Switches the schedule to script mode (host shell execution on fire)",
+  },
+];
+const scheduleCreateNode = getExistingPath(spec, "schedules create");
+scheduleCreateNode.argRules = scheduleCreateArgRules;
+scheduleCreateNode.argSchema = { valueFlags: ["--mode", "--script"] };
 
 export default spec;

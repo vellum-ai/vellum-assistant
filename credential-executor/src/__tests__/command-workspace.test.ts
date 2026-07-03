@@ -112,6 +112,30 @@ describe("stageInputs", () => {
     }
   });
 
+  test("concurrent stagings get isolated scratch directories", () => {
+    // run_authenticated_command relies on each invocation getting its own
+    // scratch dir so that interleaved commands cannot read or clobber each
+    // other's staged inputs/outputs. Same config, two stagings → distinct dirs.
+    const config: WorkspaceStageConfig = {
+      workspaceDir,
+      inputs: [{ workspacePath: "input.txt" }],
+      outputs: [],
+      secrets: new Set(),
+    };
+
+    const a = stageInputs(config);
+    const b = stageInputs(config);
+
+    try {
+      expect(a.scratchDir).not.toBe(b.scratchDir);
+      expect(existsSync(a.scratchDir)).toBe(true);
+      expect(existsSync(b.scratchDir)).toBe(true);
+    } finally {
+      cleanupScratchDir(a.scratchDir);
+      cleanupScratchDir(b.scratchDir);
+    }
+  });
+
   test("staged inputs are read-only", () => {
     const config: WorkspaceStageConfig = {
       workspaceDir,

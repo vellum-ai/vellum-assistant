@@ -68,6 +68,34 @@ describe("validateGcsSignedUrl", () => {
     expect(result).toEqual({ ok: false, reason: "scheme" });
   });
 
+  test("accepts http:// for a host on a non-default allowlist", () => {
+    // A non-default allowlist (e.g. local/minikube where the bundle is
+    // served over http from host.docker.internal) relaxes the scheme check
+    // to also accept http and skips the explicit-port check.
+    const url =
+      "http://host.docker.internal:8000/bucket/object.tgz" +
+      "?X-Goog-Signature=deadbeef";
+
+    const result = validateGcsSignedUrl(url, {
+      allowedHosts: ["host.docker.internal"],
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.host).toBe("host.docker.internal");
+      expect(result.path).toBe("/bucket/object.tgz");
+    }
+  });
+
+  test("still rejects a host absent from a non-default allowlist", () => {
+    const url =
+      "http://evil.internal/bucket/object.tgz" + "?X-Goog-Signature=deadbeef";
+
+    const result = validateGcsSignedUrl(url, {
+      allowedHosts: ["host.docker.internal"],
+    });
+    expect(result).toEqual({ ok: false, reason: "host" });
+  });
+
   test("rejects a non-GCS host", () => {
     const url =
       "https://evil.com/my-bucket/object.tgz" + "?X-Goog-Signature=deadbeef";

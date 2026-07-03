@@ -88,6 +88,13 @@ export {
   type SegmentControlProps,
 } from "./components/segment-control";
 export {
+  Stepper,
+  stepVariants,
+  type StepperStep,
+  type StepperProps,
+  type StepStatus,
+} from "./components/stepper";
+export {
   Slider,
   isRangeValue,
   toValueArray,
@@ -187,6 +194,21 @@ export {
   type SideMenuItemProps,
 } from "./components/side-menu/side-menu";
 export {
+  VirtualList,
+  type VirtualListProps,
+  type VirtualListHandle,
+} from "./components/virtual-list/virtual-list";
+export {
+  VirtualGroupedList,
+  type VirtualGroupedListProps,
+  type VirtualGroupedListHandle,
+  type VirtualListGroup,
+} from "./components/virtual-list/virtual-grouped-list";
+export {
+  GoToNewest,
+  type GoToNewestProps,
+} from "./components/virtual-list/go-to-newest";
+export {
   Collapsible,
   type CollapsibleRootProps,
   type CollapsibleItemProps,
@@ -199,9 +221,9 @@ export {
   type StatSquareTone,
 } from "./components/stat-square";
 export {
-  SkillRow,
-  type SkillRowProps,
-} from "./components/skill-row";
+  ListRow,
+  type ListRowProps,
+} from "./components/list-row";
 export {
   ShortcutKeys,
   parseAccelerator,

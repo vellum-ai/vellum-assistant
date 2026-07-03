@@ -6,7 +6,9 @@
  *   do NOT trigger the agent loop.
  * - Regular messages pass through to the agent loop unchanged.
  */
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { existsSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
@@ -93,12 +95,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-slash-test" }),
   getConversationByKey: () => null,
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
 }));
 
@@ -110,7 +112,7 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
   }),
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   createCanonicalGuardianRequest: () => ({
     id: "canonical-id",
     requestCode: "ABC123",
@@ -125,7 +127,9 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
   bridgeConfirmationRequestToGuardian: async () => undefined,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -145,12 +149,12 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
   updateMetaFile: () => {},
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
   getSourcePathsForAttachments: () => new Map(),
   attachmentExists: () => false,
@@ -188,6 +192,18 @@ mock.module("../runtime/trust-context-resolver.js", () => ({
     ...(ctx as Record<string, unknown>),
     sourceChannel,
   }),
+}));
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => [
+    {
+      channelType: "vellum",
+      contactId: "guardian-contact",
+      principalId: "test-user",
+      address: "test-user",
+      status: "active",
+    },
+  ],
 }));
 
 const ipcCallMock = mock(
@@ -288,6 +304,7 @@ function makeConversation() {
     forceCompact,
     setPreactivatedSkillIds,
     drainQueue: async () => {},
+    warmPromptCache: () => {},
     getMessages: () => messages,
     assistantId: "self",
     trustContext: undefined,
@@ -408,7 +425,9 @@ describe("handleSendMessage slash command interception", () => {
     const { conversation } = makeConversation();
     const drainQueue = mock(async () => {});
     (
-      conversation as unknown as { drainQueue: () => Promise<void> }
+      conversation as unknown as {
+        drainQueue: () => Promise<void>;
+      }
     ).drainQueue = drainQueue;
 
     // Force the user-message persist (the first addMessage in the /compact
@@ -527,5 +546,47 @@ describe("handleSendMessage slash command interception", () => {
     const text = await res.text();
     expect(text).toContain("riskThreshold");
     expect(ipcCallMock).not.toHaveBeenCalled();
+  });
+});
+
+// The first-message wake-up greeting ("Wake up, my friend!") is served as a
+// canned response that skips the agent loop, just like a slash command. Its
+// user row must still carry the client-generated idempotency nonce so the web
+// client can reconcile its optimistic row against the persisted one — otherwise
+// the greeting renders twice (see the "two wakeup messages" staging report).
+describe("handleSendMessage canned wake-up greeting", () => {
+  // `isWakeUpGreeting` resolves BOOTSTRAP.md via getWorkspacePromptPath, which
+  // is rooted at VELLUM_WORKSPACE_DIR (the per-test temp workspace).
+  const bootstrapPath = join(process.env.VELLUM_WORKSPACE_DIR!, "BOOTSTRAP.md");
+
+  beforeEach(() => {
+    addMessageMock.mockClear();
+    // `isWakeUpGreeting` only treats the message as the wake-up greeting when
+    // BOOTSTRAP.md exists at the workspace prompt path (i.e. a first run).
+    writeFileSync(bootstrapPath, "# Bootstrap\n\nFirst run.");
+  });
+
+  afterEach(() => {
+    if (existsSync(bootstrapPath)) rmSync(bootstrapPath, { force: true });
+  });
+
+  test("persists the clientMessageId on the user row", async () => {
+    const { conversation, runAgentLoop } = makeConversation();
+    const res = await callHandler(
+      (args) => handleSendMessage(args, makeDeps(conversation)),
+      makeRequest("Wake up, my friend!", {
+        clientMessageId: "nonce-wake-123",
+      }),
+      undefined,
+      202,
+    );
+
+    expect(res.status).toBe(202);
+    // Canned greeting path: user + assistant rows persisted, agent loop skipped.
+    expect(runAgentLoop).not.toHaveBeenCalled();
+    const userCall = addMessageMock.mock.calls.find((c) => c[1] === "user");
+    expect(userCall).toBeDefined();
+    const options = userCall?.[3] as { clientMessageId?: string } | undefined;
+    expect(options?.clientMessageId).toBe("nonce-wake-123");
   });
 });

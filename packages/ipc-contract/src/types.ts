@@ -51,6 +51,7 @@ export type VellumCommand =
   | { kind: "zoomOut" }
   | { kind: "actualSize" }
   | { kind: "selectAssistant"; assistantId: string }
+  | { kind: "chooseAssistant" }
   | { kind: "createAssistant" }
   | { kind: "retireAssistant"; assistantId: string }
   | { kind: "quickInputSubmit"; message: string }
@@ -114,8 +115,7 @@ export const SYSTEM_PERMISSION_KINDS = [
   "notifications",
 ] as const;
 
-export type SystemPermissionKind =
-  (typeof SYSTEM_PERMISSION_KINDS)[number];
+export type SystemPermissionKind = (typeof SYSTEM_PERMISSION_KINDS)[number];
 
 export const SYSTEM_PERMISSION_STATUSES = [
   "unknown",
@@ -368,6 +368,8 @@ export interface LocalAssistantResources {
   instanceDir?: string;
   gatewayPort: number;
   daemonPort: number;
+  runtimeVersion?: string;
+  runtimeInstallDir?: string;
 }
 
 export interface LockfileAssistant {
@@ -378,6 +380,9 @@ export interface LockfileAssistant {
   species?: string;
   hatchedAt?: string;
   organizationId?: string;
+  platformAssistantId?: string;
+  platformBaseUrl?: string;
+  platformOrganizationId?: string;
   resources?: LocalAssistantResources;
 }
 
@@ -392,6 +397,7 @@ export type LockfileWriteResult =
 
 export type LocalAssistantRuntimeState =
   | "healthy"
+  | "upgrading"
   | "sleeping"
   | "starting"
   | "crashed"

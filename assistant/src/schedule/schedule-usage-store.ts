@@ -1,5 +1,5 @@
-import { rawAll } from "../memory/raw-query.js";
-import { buildScheduleAttributionSubquery } from "../memory/schedule-attribution-sql.js";
+import { rawAll } from "../persistence/raw-query.js";
+import { buildScheduleAttributionSubquery } from "../persistence/schedule-attribution-sql.js";
 
 export interface ScheduleUsageSummary {
   scheduleId: string;
@@ -29,6 +29,7 @@ export function getScheduleUsageSummaries({
     selectExpression: "schedule_attr_runs.job_id",
   });
   const rows = rawAll<ScheduleUsageSummaryRow>(
+    "scheduleUsage:getSummaries",
     /*sql*/ `
     WITH run_counts AS (
       SELECT

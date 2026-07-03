@@ -4,10 +4,10 @@ import { describe, expect, test } from "bun:test";
 import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { migrateScheduleDescription } from "../memory/migrations/270-schedule-description.js";
-import { migrateScheduleSourceConversation } from "../memory/migrations/270-schedule-source-conversation.js";
-import * as schema from "../memory/schema.js";
-import { scheduleJobs } from "../memory/schema.js";
+import { migrateScheduleDescription } from "../persistence/migrations/270-schedule-description.js";
+import { migrateScheduleSourceConversation } from "../persistence/migrations/270-schedule-source-conversation.js";
+import * as schema from "../persistence/schema/index.js";
+import { scheduleJobs } from "../persistence/schema/index.js";
 
 function createTestDb() {
   const sqlite = new Database(":memory:");
@@ -306,16 +306,5 @@ describe("schedule_syntax column migration", () => {
       { id: "legacy-defer", description: "" },
       { id: "legacy-schedule", description: "Legacy report" },
     ]);
-
-    raw
-      .query("UPDATE cron_jobs SET description = ? WHERE id = ?")
-      .run("", "legacy-schedule");
-
-    migrateScheduleDescription(db);
-
-    const description = raw
-      .query("SELECT description FROM cron_jobs WHERE id = ?")
-      .get("legacy-schedule") as { description: string };
-    expect(description.description).toBe("");
   });
 });

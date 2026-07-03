@@ -100,7 +100,9 @@ const addMessageCalls: Array<{
   content: string;
 }> = [];
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -132,7 +134,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateMessageContent: mock(() => {}),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
@@ -225,7 +227,7 @@ mock.module("../workspace/turn-commit.js", () => ({
   commitTurnChanges: async () => {},
 }));
 
-mock.module("../memory/app-git-service.js", () => ({
+mock.module("../apps/app-git-service.js", () => ({
   commitAppTurnChanges: async () => {},
 }));
 
@@ -273,7 +275,7 @@ mock.module("../agent/loop.js", () => ({
     }
   },
 }));
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
   listPendingRequestsByConversationScope: () => [],

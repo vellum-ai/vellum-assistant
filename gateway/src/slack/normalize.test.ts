@@ -8,6 +8,8 @@ import {
   normalizeSlackAppMention,
   normalizeSlackMessageEdit,
   normalizeSlackMessageDelete,
+  enrichNormalizedActor,
+  slackBotContactNote,
   type SlackBlockActionsPayload,
   type SlackReactionAddedEvent,
   type SlackReactionRemovedEvent,
@@ -212,6 +214,71 @@ describe("normalizeSlackBlockActions", () => {
     });
     const payload = makeBlockActionsPayload();
     const result = normalizeSlackBlockActions(payload, "env-6", config);
+
+    expect(result).toBeNull();
+  });
+
+  // LUM-2414: a guardian's Block Kit button click (Approve/Reject on an
+  // access-request card) arrives on their DM channel (D...). When that channel
+  // isn't in the routing table the normalizer must fall back to the default
+  // assistant rather than silently dropping the click — mirroring the fallback
+  // in normalizeSlackDirectMessage, normalizeSlackReaction, and the message
+  // edit/delete normalizers.
+  it("falls back to the default assistant for an unrouted DM channel", () => {
+    const config = makeConfig({
+      defaultAssistantId: "default-ast",
+      unmappedPolicy: "reject",
+    });
+    const payload = makeBlockActionsPayload({ channelId: "D999" });
+    const result = normalizeSlackBlockActions(
+      payload,
+      "env-dm-fallback",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.channel).toBe("D999");
+    expect(result!.routing.assistantId).toBe("default-ast");
+    expect(result!.routing.routeSource).toBe("default");
+  });
+
+  it("uses explicit routing for a DM channel that is in the routing table", () => {
+    // The DM fallback only fires when routing rejects; an explicit
+    // conversation_id route for the DM channel must still win.
+    const config = makeConfig({
+      defaultAssistantId: "default-ast",
+      unmappedPolicy: "reject",
+      routingEntries: [
+        { type: "conversation_id", key: "D789", assistantId: "explicit-ast" },
+      ],
+    });
+    const payload = makeBlockActionsPayload({ channelId: "D789" });
+    const result = normalizeSlackBlockActions(
+      payload,
+      "env-dm-explicit",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.routing.assistantId).toBe("explicit-ast");
+    expect(result!.routing.routeSource).toBe("conversation_id");
+  });
+
+  it("returns null for an unrouted non-DM channel even when a default assistant exists", () => {
+    // Non-DM channels keep strict routing: the DM-only fallback must not leak
+    // into public channels, so a rejected route stays dropped even though
+    // defaultAssistantId is set. (The "returns null when routing rejects" case
+    // above uses defaultAssistantId: undefined and so can't pin this guard.)
+    const config = makeConfig({
+      defaultAssistantId: "default-ast",
+      unmappedPolicy: "reject",
+    });
+    const payload = makeBlockActionsPayload({ channelId: "C456" });
+    const result = normalizeSlackBlockActions(
+      payload,
+      "env-non-dm-reject",
+      config,
+    );
 
     expect(result).toBeNull();
   });
@@ -1368,6 +1435,35 @@ describe("source.threadId propagation", () => {
     });
   });
 
+  describe("actor team ID capture", () => {
+    it("captures event.team as actor.teamId for channel messages", () => {
+      const config = makeConfig();
+      const event = makeChannelEvent({ team: "T999" });
+      const result = normalizeSlackChannelMessage(event, "evt-team-1", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.actor.teamId).toBe("T999");
+    });
+
+    it("captures event.team as actor.teamId for app mentions", () => {
+      const config = makeConfig();
+      const event = makeAppMentionEvent({ team: "T999" });
+      const result = normalizeSlackAppMention(event, "evt-team-2", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.actor.teamId).toBe("T999");
+    });
+
+    it("omits actor.teamId when the event carries no team", () => {
+      const config = makeConfig();
+      const event = makeChannelEvent();
+      const result = normalizeSlackChannelMessage(event, "evt-team-3", config);
+
+      expect(result).not.toBeNull();
+      expect(result!.event.actor.teamId).toBeUndefined();
+    });
+  });
+
   describe("normalizeSlackReactionAdded", () => {
     it("populates source.threadId with the reacted message's ts", () => {
       const config = makeConfig();
@@ -1475,6 +1571,166 @@ describe("source.threadId propagation", () => {
 
       expect(result).not.toBeNull();
       expect(result!.event.source.threadId).toBeUndefined();
+    });
+  });
+});
+
+describe("bot sender classification", () => {
+  it("marks a DM from another bot as a bot sender", () => {
+    const config = makeConfig();
+    const event = makeDmEvent({
+      user: "UBOT99",
+      bot_id: "B0AGENT",
+      bot_profile: {
+        id: "B0AGENT",
+        name: "Peer Assistant",
+        app_id: "A0EXAMPLE",
+        team_id: "T0EXAMPLE",
+      },
+    });
+    const result = normalizeSlackDirectMessage(event, "evt-bot-1", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.isBot).toBe(true);
+    expect(result!.botSender).toEqual({
+      botId: "B0AGENT",
+      botName: "Peer Assistant",
+      appId: "A0EXAMPLE",
+      teamId: "T0EXAMPLE",
+    });
+  });
+
+  it("marks a channel message from another bot as a bot sender", () => {
+    const config = makeConfig();
+    const event = makeChannelEvent({
+      user: "UBOT99",
+      bot_id: "B0AGENT",
+    });
+    const result = normalizeSlackChannelMessage(event, "evt-bot-2", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.isBot).toBe(true);
+    expect(result!.botSender).toEqual({ botId: "B0AGENT" });
+  });
+
+  it("marks an app_mention from another bot as a bot sender", () => {
+    const config = makeConfig();
+    const event = makeAppMentionEvent({
+      user: "UBOT99",
+      bot_id: "B0AGENT",
+      bot_profile: { name: "Peer Assistant" },
+    });
+    const result = normalizeSlackAppMention(event, "evt-bot-3", config);
+
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.isBot).toBe(true);
+    expect(result!.botSender).toEqual({
+      botId: "B0AGENT",
+      botName: "Peer Assistant",
+    });
+  });
+
+  it("does not mark a human sender as a bot", () => {
+    const config = makeConfig();
+    const result = normalizeSlackDirectMessage(
+      makeDmEvent(),
+      "evt-bot-4",
+      config,
+    );
+
+    expect(result).not.toBeNull();
+    expect(result!.event.actor.isBot).toBeUndefined();
+    expect(result!.botSender).toBeUndefined();
+  });
+});
+
+describe("slackBotContactNote", () => {
+  it("includes bot name, app id, and workspace when available", () => {
+    expect(
+      slackBotContactNote({
+        botId: "B0AGENT",
+        botName: "Peer Assistant",
+        appId: "A0EXAMPLE",
+        teamId: "T0EXAMPLE",
+      }),
+    ).toBe(
+      'Automated Slack bot "Peer Assistant" (Slack app A0EXAMPLE, workspace T0EXAMPLE) — messages from this contact are sent by an app, not a person.',
+    );
+  });
+
+  it("degrades gracefully when only bot_id is known", () => {
+    expect(slackBotContactNote({ botId: "B0AGENT" })).toBe(
+      "Automated Slack bot — messages from this contact are sent by an app, not a person.",
+    );
+  });
+});
+
+describe("enrichNormalizedActor", () => {
+  it("classifies an is_bot-only sender as a bot after profile resolution", () => {
+    const config = makeConfig();
+    // No bot_id on the event and no cached profile — normalization alone
+    // cannot detect the bot.
+    const normalized = normalizeSlackDirectMessage(
+      makeDmEvent({ user: "UBOT99" }),
+      "evt-enrich-1",
+      config,
+    );
+    expect(normalized).not.toBeNull();
+    expect(normalized!.botSender).toBeUndefined();
+
+    enrichNormalizedActor(normalized!, {
+      displayName: "Peer Assistant",
+      username: "peer-assistant",
+      isBot: true,
+    });
+
+    expect(normalized!.event.actor.isBot).toBe(true);
+    expect(normalized!.event.actor.displayName).toBe("Peer Assistant");
+    expect(normalized!.botSender).toEqual({ botName: "Peer Assistant" });
+  });
+
+  it("does not classify a human sender as a bot", () => {
+    const config = makeConfig();
+    const normalized = normalizeSlackDirectMessage(
+      makeDmEvent(),
+      "evt-enrich-2",
+      config,
+    );
+    expect(normalized).not.toBeNull();
+
+    enrichNormalizedActor(normalized!, {
+      displayName: "Alice",
+      username: "alice",
+    });
+
+    expect(normalized!.event.actor.isBot).toBeUndefined();
+    expect(normalized!.event.actor.displayName).toBe("Alice");
+    expect(normalized!.botSender).toBeUndefined();
+  });
+
+  it("preserves an existing botSender derived from bot_id", () => {
+    const config = makeConfig();
+    const normalized = normalizeSlackDirectMessage(
+      makeDmEvent({
+        user: "UBOT99",
+        bot_id: "B0AGENT",
+        bot_profile: { name: "Peer Assistant", app_id: "A0EXAMPLE" },
+      }),
+      "evt-enrich-3",
+      config,
+    );
+    expect(normalized).not.toBeNull();
+
+    enrichNormalizedActor(normalized!, {
+      displayName: "Peer Assistant",
+      username: "peer-assistant",
+      isBot: true,
+    });
+
+    expect(normalized!.botSender).toEqual({
+      botId: "B0AGENT",
+      botName: "Peer Assistant",
+      appId: "A0EXAMPLE",
     });
   });
 });

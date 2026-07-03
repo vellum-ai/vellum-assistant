@@ -51,6 +51,7 @@ This file is the cross-system architecture index. Detailed designs live in domai
 - **Permission controls v2** removes deterministic tool-by-tool approval friction for assistant-owned actions. Under `permission-controls-v2`, the only built-in deterministic approval surface is conversation-scoped host computer access for `host_*` / host-target tools. All other assistant-owned tool usage relies on model-mediated consent, not temporary approvals, wildcard scopes, per-tool persistence, or network/side-effect approval cards. Cross-principal identity checks (for example unknown actors) still fail closed deterministically.
 - **Workflow orchestration**: the assistant authors JS/TS scripts that run in a QuickJS-WASM sandbox and fan out to parallel ephemeral leaf agents. Scripts get **hooks only** — no filesystem, network, process, or ambient capabilities — because a script may be authored after the assistant has read untrusted content. The per-run **capability declaration is the single consent point** (no per-call approval prompts inside a run), and the only runaway guard is the per-run **agent cap** (`maxAgentsPerRun`, default 500) — there is no dollar kill-switch by design. Scripts must be deterministic (no `Date.now`/`Math.random`/argless `new Date()`) so a journaled run can resume after a restart by replaying the unchanged call prefix. See [Workflow Orchestration Engine](#workflow-orchestration-engine) and [`assistant/docs/workflows.md`](assistant/docs/workflows.md).
 - **Context overflow resilience**: The session loop implements a deterministic overflow convergence pipeline that recovers from context-too-large failures without surfacing errors to users. A preflight budget check catches overflow before provider calls; a tiered reducer (forced compaction, tool-result truncation, media stubbing, injection downgrade) iteratively shrinks the payload; and when all tiers are exhausted the overflow policy resolver auto-compresses the latest turn with no user prompt — this applies equally to interactive and non-interactive sessions. Setting `contextWindow.overflowRecovery.interactiveLatestTurnCompression` to `"drop"` opts interactive sessions out, and `contextWindow.overflowRecovery.nonInteractiveLatestTurnCompression: "drop"` opts non-interactive/background sessions out independently — either short-circuits to a graceful failure for that session type; setting `contextWindow.overflowRecovery.enabled: false` also yields a graceful failure. Config lives under `contextWindow.overflowRecovery`. See [`assistant/ARCHITECTURE.md`](assistant/ARCHITECTURE.md#context-overflow-recovery) for the full design and [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md#context-compaction-and-overflow-recovery-interaction) for compaction interaction details.
+- **Embedding-dimension reconciliation**: The embedding dimension is a committed property of the Qdrant collection, derived from the backend that built it. At daemon startup `reconcileEmbeddingIdentity` probes the configured backend and reconciles the committed dimension confirm-before-destroy: backend down → defer (recall degrades to empty results, surfaced via `memory_worker_status`'s `embedding.degraded`); no committed dimension → commit the probed dimension and create the collections; match → no-op; mismatch with an explicit provider → migrate (recreate, the only destructive path, gated on a successful probe); mismatch under `auto` → no-op (no thrash on transient backend availability). Platform intent is a fill-only deployment default (`IS_PLATFORM` → `provider: "gemini"`, in-memory, not persisted) — there is no on-disk provider/dimension migration. See [`assistant/docs/architecture/memory.md`](assistant/docs/architecture/memory.md#embedding-dimension-reconciliation).
 
 ## Environment and Data Layout
 
@@ -314,6 +315,7 @@ subgraph "Text Q&A Session"
         HTTP_RT["RuntimeHttpServer<br/>HTTP + SSE"]
         HANDLERS["Route Handlers<br/>conversation routing"]
         SESSION_MGR["Conversation Manager<br/>in-memory pool<br/>stale eviction"]
+        CHANNEL_TX["Channel Transport<br/>messaging/providers<br/>direct Web API delivery"]
 
         subgraph "Onboarding Control Plane"
             PLAYBOOK_MGR["OnboardingPlaybookManager<br/>resolve + reconcile channel playbooks"]
@@ -403,22 +405,22 @@ subgraph "Text Q&A Session"
         GW_NORMALIZE["Normalize Message<br/>DM text only (v1)"]
         GW_ROUTE["Route Resolver<br/>conversation_id → actor_id → default"]
         GW_FORWARD["Runtime Client<br/>POST /channels/inbound"]
-        GW_REPLY["Send Reply<br/>Telegram sendMessage"]
-        GW_ATTACH["Send Attachments<br/>sendPhoto / sendDocument"]
-        GW_TG_DELIVER["Telegram Deliver<br/>/deliver/telegram<br/>(internal, from runtime)"]
         GW_TWILIO_VOICE["Twilio Voice Webhook<br/>/webhooks/twilio/voice"]
         GW_TWILIO_STATUS["Twilio Status Webhook<br/>/webhooks/twilio/status"]
-        GW_TWILIO_CONNECT["Twilio Connect-Action<br/>/webhooks/twilio/connect-action"]
-        GW_TWILIO_RELAY["Twilio Relay WS<br/>/webhooks/twilio/relay<br/>(bidirectional proxy)"]
+        GW_TWILIO_MEDIA["Twilio Media Stream WS<br/>/webhooks/twilio/media-stream/:callSessionId/:token<br/>(bidirectional proxy)"]
         GW_WA_WEBHOOK["WhatsApp Webhook<br/>/webhooks/whatsapp<br/>(HMAC-SHA256 validated)"]
-        GW_WA_DELIVER["WhatsApp Deliver<br/>/deliver/whatsapp<br/>(internal, from runtime)"]
         GW_SLACK_SOCKET["Slack Socket Mode<br/>WebSocket via<br/>apps.connections.open"]
         GW_SLACK_NORMALIZE["Slack Normalize<br/>app_mention events<br/>+ bot-mention stripping"]
-        GW_SLACK_DELIVER["Slack Deliver<br/>/deliver/slack<br/>(internal, from runtime)"]
         GW_OAUTH["OAuth Callback<br/>/webhooks/oauth/callback"]
         GW_PROXY["Runtime Proxy<br/>(optional, bearer auth)"]
         GW_FEATURE_FLAGS["Feature Flags API<br/>GET /v1/feature-flags<br/>PATCH /v1/feature-flags/:key"]
         GW_PROBES["/healthz + /readyz<br/>k8s liveness/readiness"]
+    end
+
+    subgraph "External Channel APIs"
+        EXT_TELEGRAM["Telegram Bot API"]
+        EXT_WHATSAPP["WhatsApp Cloud API<br/>(Meta)"]
+        EXT_SLACK["Slack Web API"]
     end
 
     subgraph "Web Server (Next.js + React)"
@@ -515,31 +517,27 @@ subgraph "Text Q&A Session"
     GW_ROUTE --> GW_FORWARD
     GW_FORWARD -->|"HTTP + replyCallbackUrl"| HTTP_RT
     HTTP_RT -->|"channels/inbound transport<br/>channelId + hints + uxBrief"| PLAYBOOK_MGR
-    GW_REPLY -->|"Telegram API"| GW_WEBHOOK
-    GW_ATTACH -->|"download from runtime<br/>+ upload to Telegram"| GW_WEBHOOK
 
-    %% Gateway flow — Telegram deliver (runtime → gateway → Telegram)
-    %% replyCallbackUrl is built from gatewayInternalBaseUrl (derived from GATEWAY_PORT)
-    HTTP_RT -->|"POST /deliver/telegram<br/>(via gatewayInternalBaseUrl)"| GW_TG_DELIVER
-    GW_TG_DELIVER --> GW_REPLY
-    GW_TG_DELIVER --> GW_ATTACH
+    %% Channel outbound — direct Web API delivery (per-assistant lane)
+    %% The gateway builds replyCallbackUrl as <gatewayInternalBaseUrl>/deliver/<channel>,
+    %% but isDirectDelivery() short-circuits it: the daemon calls each provider's Web API
+    %% itself via messaging/providers and never POSTs the reply back to the gateway.
+    HTTP_RT --> CHANNEL_TX
+    CHANNEL_TX -->|"sendMessage / sendRichMessage<br/>+ attachments"| EXT_TELEGRAM
 
     %% Gateway flow — Twilio voice webhooks
     GW_TWILIO_VOICE -->|"HTTP"| HTTP_RT
     GW_TWILIO_STATUS -->|"HTTP"| HTTP_RT
-    GW_TWILIO_CONNECT -->|"HTTP"| HTTP_RT
-    GW_TWILIO_RELAY -->|"WebSocket proxy"| HTTP_RT
+    GW_TWILIO_MEDIA -->|"WebSocket proxy"| HTTP_RT
 
     %% Gateway flow — WhatsApp channel (Meta Cloud API)
     GW_WA_WEBHOOK -->|"HMAC-SHA256 verify<br/>+ normalize + dedup<br/>+ route resolver"| GW_FORWARD
-    HTTP_RT -->|"POST /deliver/whatsapp<br/>(via gatewayInternalBaseUrl)"| GW_WA_DELIVER
-    GW_WA_DELIVER -->|"Meta Cloud API<br/>/{phoneNumberId}/messages"| GW_WA_WEBHOOK
+    CHANNEL_TX -->|"Meta Cloud API<br/>/{phoneNumberId}/messages"| EXT_WHATSAPP
 
     %% Gateway flow — Slack channel (Socket Mode WebSocket)
     GW_SLACK_SOCKET -->|"app_mention events<br/>ACK + dedup"| GW_SLACK_NORMALIZE
     GW_SLACK_NORMALIZE -->|"normalize + route resolver"| GW_FORWARD
-    HTTP_RT -->|"POST /deliver/slack<br/>(via gatewayInternalBaseUrl)"| GW_SLACK_DELIVER
-    GW_SLACK_DELIVER -->|"Slack API<br/>chat.postMessage"| GW_SLACK_SOCKET
+    CHANNEL_TX -->|"startStream / appendStream / stopStream<br/>postMessage / update"| EXT_SLACK
 
     %% Gateway flow — OAuth callback
     GW_OAUTH -->|"forward code + state"| HTTP_RT

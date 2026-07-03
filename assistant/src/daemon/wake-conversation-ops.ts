@@ -17,12 +17,13 @@ import {
   addMessage,
   getConversation,
   provenanceFromTrustContext,
-} from "../memory/conversation-crud.js";
-import { syncMessageToDisk } from "../memory/conversation-disk-view.js";
-import { backfillMessageIdOnLogs } from "../memory/llm-request-log-store.js";
+} from "../persistence/conversation-crud.js";
+import { syncMessageToDisk } from "../persistence/conversation-disk-view.js";
+import { backfillMessageIdOnLogs } from "../persistence/llm-request-log-store.js";
 import type { Message } from "../providers/types.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { publishConversationMessagesChanged } from "../runtime/sync/resource-sync-events.js";
+import type { CompletedBackgroundTool } from "../tools/background-tool-registry.js";
 import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import type { ServerMessage } from "./message-protocol.js";
@@ -266,13 +267,15 @@ export async function persistWakeTailMessage(
  *
  * Mirrors {@link persistWakeTailMessage}'s channel/interface/provenance
  * metadata, but stamps `kind: "background-event"` (+ the originating `source`)
- * for identification, skips indexing (the body may carry untrusted command
- * output), and is NOT flagged hidden so the trigger shows in the transcript.
+ * for identification and skips indexing (the body may carry untrusted command
+ * output). The `backgroundEventSource` stamp lets clients hide this row from the
+ * rendered transcript — the user-facing wake card carries the status instead.
  */
 export async function persistWakeTriggerMessage(
   conversation: Conversation,
   message: Message,
   source: string,
+  completion?: CompletedBackgroundTool,
 ): Promise<void> {
   const turnChannelCtx = conversation.getTurnChannelContext();
   const turnInterfaceCtx = conversation.getTurnInterfaceContext();
@@ -287,6 +290,7 @@ export async function persistWakeTriggerMessage(
     kind: "background-event",
     backgroundEventSource: source,
     automated: true,
+    ...(completion ? { backgroundToolCompletion: completion } : {}),
   };
   const persisted = await addMessage(
     conversation.conversationId,
@@ -309,12 +313,10 @@ export async function persistWakeTriggerMessage(
       "wake trigger persist: syncMessageToDisk failed (non-fatal)",
     );
   }
-  // Tell connected clients the message list changed so they refetch and the
-  // visible trigger renders live. The normal user-send path publishes the same
-  // invalidation after persisting a user message; without it a wake that
-  // produces no assistant stream (silent no-op), or a conversation open in
-  // another client, would not show the <background_event> row until a manual
-  // reload.
+  // Tell connected clients the message list changed so they refetch. The
+  // trigger row itself is hidden from the transcript (clients drop rows carrying
+  // `backgroundEventSource`), but the refetch keeps other clients' state in sync
+  // and lets a wake that produces no assistant stream still settle cleanly.
   try {
     publishConversationMessagesChanged(conversation.conversationId);
   } catch (err) {
@@ -335,7 +337,9 @@ export async function persistWakeTriggerMessage(
  * {@link SubagentToolGateMode}. `toolContextPin`, when provided
  * (execution-gate-mode cache-parity wakes), freezes the client-context
  * inputs for tool-definition resolution — see {@link WakeToolContextPin}.
- * Both are set and restored alongside the allowlist.
+ * Its `requestOrigin`, when set, is stamped onto the conversation's per-turn
+ * origin so the permission checker's origin-scoped auto-grants fire for the
+ * wake. All are set and restored alongside the allowlist.
  */
 export function scopeWakeAllowedTools(
   conversation: Conversation,
@@ -346,12 +350,17 @@ export function scopeWakeAllowedTools(
   const previous = conversation.subagentAllowedTools;
   const previousGateMode = conversation.subagentToolGateMode;
   const previousToolContextPin = conversation.toolContextPin;
+  const previousRequestOrigin = conversation.currentTurnRequestOrigin;
   conversation.setSubagentAllowedTools(new Set(tools));
   conversation.subagentToolGateMode = gateMode;
   conversation.toolContextPin = toolContextPin;
+  if (toolContextPin?.requestOrigin !== undefined) {
+    conversation.currentTurnRequestOrigin = toolContextPin.requestOrigin;
+  }
   return () => {
     conversation.setSubagentAllowedTools(previous);
     conversation.subagentToolGateMode = previousGateMode;
     conversation.toolContextPin = previousToolContextPin;
+    conversation.currentTurnRequestOrigin = previousRequestOrigin;
   };
 }

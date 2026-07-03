@@ -5,8 +5,11 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 
+import {
+  getModelsForProvider,
+  PROVIDER_DISPLAY_NAMES,
+} from "@/assistant/llm-model-catalog";
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
-import { AUTO_PROFILE_NAME } from "@/assistant/profile-pickers";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -35,6 +38,46 @@ interface ProfileListItemProps {
 }
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function resolveModelDisplayName(
+  provider: string | undefined,
+  modelId: string,
+): string {
+  if (provider) {
+    const match = getModelsForProvider(provider).find((m) => m.id === modelId);
+    if (match) return match.displayName;
+  }
+  // Fallback: strip common path prefixes for readability
+  const lastSlash = modelId.lastIndexOf("/");
+  return lastSlash >= 0 ? modelId.slice(lastSlash + 1) : modelId;
+}
+
+function formatProfileSubtitle(profile: ProfileWithName): string {
+  const parts: string[] = [];
+
+  if (profile.description) {
+    parts.push(profile.description);
+  }
+
+  const modelProvider: string[] = [];
+  if (profile.model) {
+    modelProvider.push(resolveModelDisplayName(profile.provider, profile.model));
+  }
+  if (profile.provider) {
+    const providerLabel = PROVIDER_DISPLAY_NAMES[profile.provider] ?? profile.provider;
+    modelProvider.push(`hosted by ${providerLabel}`);
+  }
+
+  if (modelProvider.length > 0) {
+    parts.push(modelProvider.join(" "));
+  }
+
+  return parts.join(" \u2013 ");
+}
+
+// ---------------------------------------------------------------------------
 // ProfileListItem
 // ---------------------------------------------------------------------------
 
@@ -55,8 +98,8 @@ export function ProfileListItem({
   onStatusToggle,
 }: ProfileListItemProps) {
   const isManaged = profile.source === "managed";
+  const isInvariant = profile.invariant === true;
   const isActive = profile.status !== "disabled";
-  const isAutoProfile = profile.name === AUTO_PROFILE_NAME;
 
   return (
     <div className="relative">
@@ -78,9 +121,7 @@ export function ProfileListItem({
         />
 
         {/* Label — dimmed when disabled */}
-        <div
-          className={`min-w-0 flex-1${isActive ? "" : " opacity-55"}`}
-        >
+        <div className={`min-w-0 flex-1${isActive ? "" : " opacity-55"}`}>
           <div className="flex items-center gap-2">
             <Typography
               variant="body-medium-default"
@@ -89,70 +130,66 @@ export function ProfileListItem({
             >
               {profile.label ?? profile.name}
             </Typography>
-            {isManaged && profile.name !== AUTO_PROFILE_NAME && (
+            {isManaged && (
               <Tag
                 tone="positive"
-                title="Managed by Platform — auth is locked, but you can rename or disable this profile."
+                title="Managed by Platform — this profile cannot be disabled, deleted, or renamed."
               >
                 Platform
               </Tag>
             )}
           </div>
-          {profile.description ? (
+          {(profile.description || profile.model || profile.provider) ? (
             <Typography
               variant="body-medium-lighter"
               as="p"
               className="mt-0.5 text-(--content-tertiary)"
             >
-              {profile.description}
-            </Typography>
-          ) : null}
-          {(profile.model ?? profile.provider) ? (
-            <Typography
-              variant="body-medium-lighter"
-              as="p"
-              className="mt-0.5 text-(--content-tertiary)"
-            >
-              {profile.model ?? profile.provider}
+              {formatProfileSubtitle(profile)}
             </Typography>
           ) : null}
         </div>
 
         {/* Actions */}
         <div className="flex shrink-0 items-center gap-2">
-          <div
-            className="flex shrink-0 items-center"
-            title={
-              isActive
-                ? "Active — toggle to hide from pickers"
-                : "Disabled — toggle to show in pickers"
-            }
-          >
-            <Toggle
-              checked={isActive}
-              onChange={(next) => onStatusToggle(next)}
-              disabled={isToggling}
-              aria-label={`${isActive ? "Disable" : "Enable"} ${profile.label ?? profile.name}`}
-            />
-          </div>
-          <div
-            className={`flex w-[92px] items-center justify-end gap-2${isAutoProfile ? " invisible" : ""}`}
-          >
-            <Button
-              variant="ghost"
-              size="compact"
-              onClick={onEditClick}
+          {/* Invariant (managed) profiles cannot be disabled, so an active one
+              gets no toggle. A disabled one keeps it so it can be re-enabled —
+              the daemon accepts the enable direction. */}
+          {(!isInvariant || !isActive) && (
+            <div
+              className="flex shrink-0 items-center"
+              title={
+                isActive
+                  ? "Active — toggle to hide from pickers"
+                  : "Disabled — toggle to show in pickers"
+              }
             >
-              {isManaged ? "View" : "Edit"}
+              <Toggle
+                checked={isActive}
+                onChange={(next) => onStatusToggle(next)}
+                disabled={isToggling}
+                aria-label={`${isActive ? "Disable" : "Enable"} ${profile.label ?? profile.name}`}
+              />
+            </div>
+          )}
+          <div className="flex w-[92px] items-center justify-end gap-2">
+            {/* Invariant profiles open in view mode and cannot be deleted.
+                The daemon stamps the wire flag only on managed-source
+                entries, so a user-owned profile sharing a managed name
+                renders as a normal editable profile. */}
+            <Button variant="ghost" size="compact" onClick={onEditClick}>
+              {isManaged || isInvariant ? "View" : "Edit"}
             </Button>
             <Button
               variant="ghost"
               size="compact"
               iconOnly={<Trash2 />}
               aria-label={`Delete ${profile.label ?? profile.name}`}
-              disabled={isManaged || isDeleting}
+              disabled={isManaged || isInvariant || isDeleting}
               title={
-                isManaged ? "Managed profiles cannot be deleted" : undefined
+                isManaged || isInvariant
+                  ? "Managed profiles cannot be deleted"
+                  : undefined
               }
               onClick={onDeleteClick}
               tintColor="var(--system-negative-strong)"
@@ -172,9 +209,6 @@ export function ProfileListItem({
           {deleteError}
         </Typography>
       ) : null}
-      {profile.name === AUTO_PROFILE_NAME && (
-        <div className="mx-2 mt-1 border-b border-[var(--border-subtle)]" />
-      )}
     </div>
   );
 }

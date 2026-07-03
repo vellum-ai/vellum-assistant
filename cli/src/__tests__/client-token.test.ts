@@ -84,4 +84,31 @@ describe("client --token (ephemeral)", () => {
     expect(parsed.assistantId).toBe("remote-xyz");
     expect(parsed.bearerToken).toBe("tok");
   });
+
+  test("auto-opens the browser by default", () => {
+    process.argv = [
+      "bun",
+      "vellum",
+      "client",
+      "--url",
+      REMOTE_URL,
+      "--token",
+      "tok",
+    ];
+    expect(parseArgs().openBrowser).toBe(true);
+  });
+
+  test("--no-open opts out of auto-opening the browser", () => {
+    process.argv = [
+      "bun",
+      "vellum",
+      "client",
+      "--url",
+      REMOTE_URL,
+      "--token",
+      "tok",
+      "--no-open",
+    ];
+    expect(parseArgs().openBrowser).toBe(false);
+  });
 });

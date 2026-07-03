@@ -101,6 +101,13 @@ const buttonVariants = cva(
           "active:bg-[color-mix(in_srgb,var(--primary-second-hover)_20%,transparent)] active:scale-100",
           "disabled:[--vbtn-fg:var(--content-disabled)]",
         ].join(" "),
+        link: [
+          "[--vbtn-fg:var(--content-link)]",
+          "inline bg-transparent border-transparent",
+          "hover:underline",
+          "active:scale-100",
+          "disabled:[--vbtn-fg:var(--content-disabled)]",
+        ].join(" "),
       },
       size: {
         regular: "h-8 px-2.5 text-body-medium-default rounded-md",
@@ -199,6 +206,10 @@ const buttonVariants = cva(
           "touch-mobile:hover:bg-[var(--surface-active)]",
           "touch-mobile:active:bg-[var(--surface-active)]",
         ].join(" "),
+      },
+      {
+        variant: "link",
+        class: "h-auto p-0 rounded-none text-[length:inherit] leading-[inherit]",
       },
     ],
     defaultVariants: {

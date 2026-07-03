@@ -34,12 +34,15 @@ import {
   MAX_UPLOAD_BYTES,
   uploadAttachment,
   validateAttachmentUpload,
-} from "../memory/attachments-store.js";
-import { addMessage, createConversation } from "../memory/conversation-crud.js";
-import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { rawGet, rawRun } from "../memory/raw-query.js";
+} from "../persistence/attachments-store.js";
+import {
+  addMessage,
+  createConversation,
+} from "../persistence/conversation-crud.js";
+import { getConversationDirPath } from "../persistence/conversation-disk-view.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { rawGet, rawRun } from "../persistence/raw-query.js";
 import { getConversationsDir } from "../util/platform.js";
 
 await initializeDb();
@@ -97,6 +100,7 @@ describe("uploadAttachment", () => {
 
     // Staged uploads keep the payload inline until they are attached to a message.
     const rawRow = rawGet<{ data_base64: string }>(
+      "test:fetchAttachmentData",
       "SELECT data_base64 FROM attachments WHERE id = ?",
       stored.id,
     );
@@ -282,6 +286,7 @@ describe("deleteAttachment", () => {
     expect(existsSync(filePath!)).toBe(true);
 
     rawRun(
+      "test:unlinkAttachment",
       "DELETE FROM message_attachments WHERE attachment_id = ?",
       stored.id,
     );
@@ -490,6 +495,7 @@ describe("deleteOrphanAttachments", () => {
     expect(existsSync(filePath!)).toBe(true);
 
     rawRun(
+      "test:unlinkOrphanAttachment",
       "DELETE FROM message_attachments WHERE attachment_id = ?",
       stored.id,
     );

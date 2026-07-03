@@ -1,3 +1,4 @@
+import { isPluginDisabled } from "../plugins/disabled-state.js";
 import { getLogger } from "../util/logger.js";
 import { coreAppProxyTools } from "./apps/definitions.js";
 import { registerAppTools } from "./apps/registry.js";
@@ -212,6 +213,26 @@ export function areCoreToolsInitialized(): boolean {
 
 export function getAllTools(): Tool[] {
   return Array.from(tools.values());
+}
+
+/**
+ * Return every registered tool except those contributed by a currently
+ * disabled plugin. The `.disabled` sentinel is checked at read time so
+ * `assistant plugins disable <name>` drops the plugin's tools from the
+ * listing on the next call without a daemon restart — mirroring the
+ * filtering in {@link getPluginToolDefinitions} and `getHooksFor`.
+ *
+ * Plugin tools stay in the underlying `tools` map while disabled (they are
+ * only torn out when the plugin's refcount drops to zero), so callers that
+ * report the *available* tool surface — e.g. the `tools_get` route behind
+ * `assistant tools list` — must filter here rather than read `getAllTools()`
+ * directly, which would keep showing a disabled plugin's tools.
+ */
+export function getEnabledTools(): Tool[] {
+  return getAllTools().filter((t) => {
+    const owner = ownersByName.get(t.name);
+    return !(owner?.kind === "plugin" && isPluginDisabled(owner.id));
+  });
 }
 
 /**
@@ -549,6 +570,25 @@ export function getMcpToolDefinitions(): Tool[] {
 }
 
 /**
+ * Return tool definitions for all currently registered plugin-origin tools.
+ * Used by the session resolver to dynamically pick up plugin tools that were
+ * registered after session creation — e.g. a plugin installed at runtime and
+ * activated on a subsequent turn (see `plugins/mtime-cache.ts`). Mirrors
+ * {@link getMcpToolDefinitions} so a plugin install behaves like `mcp reload`.
+ */
+export function getPluginToolDefinitions(): Tool[] {
+  return Array.from(tools.values()).filter((t) => {
+    const owner = ownersByName.get(t.name);
+    if (owner?.kind !== "plugin") return false;
+    // Filter out tools contributed by disabled plugins at read time so
+    // `assistant plugins disable <name>` takes effect on the next turn
+    // without a daemon restart. Mirrors the `.disabled` sentinel filtering
+    // in `getHooksFor` (plugins/registry.ts).
+    return !isPluginDisabled(owner.id);
+  });
+}
+
+/**
  * Return MCP tools grouped by their owning server ID. Each entry contains
  * the server ID and the tool definitions registered by that server.
  */
@@ -827,6 +867,20 @@ export function getWorkspaceToolNames(): string[] {
 }
 
 /**
+ * Return tool definitions for all currently registered workspace-origin
+ * tools. Used by the conversation tool resolver to re-read workspace tools
+ * from the registry each turn, the same way {@link getMcpToolDefinitions}
+ * lets a conversation pick up MCP tools registered after it was created —
+ * here so reconciled edits under `<workspaceDir>/tools/` are picked up
+ * without recreating the conversation.
+ */
+export function getWorkspaceToolDefinitions(): Tool[] {
+  return Array.from(tools.values()).filter(
+    (t) => ownersByName.get(t.name)?.kind === "workspace",
+  );
+}
+
+/**
  * Return the names of core tools currently stripped via workspace
  * `.removed` sentinels — i.e. names where the stash holds an entry but
  * no live tool sits in the registry.
@@ -864,7 +918,17 @@ export function getAllToolDefinitions(): Tool[] {
   // the base tool list, which is shared across sessions via the global
   // registry.  Including them here causes "Tool names must be unique"
   // errors when the projection appends the same tools a second time.
-  return getAllTools().filter(
+  //
+  // Build on `getEnabledTools()` so tools from a disabled plugin are also
+  // excluded. This is the base snapshot the conversation tool resolver
+  // captures at creation: a plugin disabled BEFORE a new conversation is
+  // created would otherwise leak its tools here, and because the resolver's
+  // core/plugin split reads the (filtered) `getPluginToolDefinitions()`, the
+  // disabled plugin's tools would be misclassified as core and stay on the
+  // wire to the LLM — executable even though `assistant tools list` reports
+  // them gone. Filtering here keeps the executable surface and the listing
+  // in lockstep.
+  return getEnabledTools().filter(
     (t) => ownersByName.get(t.name)?.kind !== "skill",
   );
 }
@@ -967,6 +1031,10 @@ export async function initializeTools(): Promise<void> {
   //   core registrations → workspace tools → MCP → plugins.
   // Workspace tools land after the core snapshot above so they're never
   // baked into the test-reset baseline.
+  //
+  // `loadWorkspaceTools` is idempotent: this is the first reconcile, and
+  // conversation reads re-run it later to pick up on-disk edits without a
+  // restart (see workspace-tools/loader.ts).
   //
   // Imported dynamically because the loader imports back from this module
   // (registerWorkspaceTools / removeCoreToolViaWorkspace); a static import

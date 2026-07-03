@@ -17,8 +17,8 @@ import {
   feedItemSchema,
 } from "../home/feed-types.js";
 import { appendFeedItem } from "../home/feed-writer.js";
-import { getConversation } from "../memory/conversation-crud.js";
-import { isBackgroundConversationType } from "../memory/conversation-types.js";
+import { getConversation } from "../persistence/conversation-crud.js";
+import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { getLogger } from "../util/logger.js";
 import { isConversationSeedSane } from "./conversation-seed-composer.js";
 import { readPayloadString } from "./notification-utils.js";

@@ -3,9 +3,7 @@ process.title = "vellum-gateway";
 import { randomBytes } from "node:crypto";
 
 import {
-  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
-  TWILIO_RELAY_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
@@ -40,12 +38,7 @@ import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js"
 import { createAudioProxyHandler } from "./http/routes/audio-proxy.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
-import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
 import { createTwilioVoiceVerifyCallbackHandler } from "./http/routes/twilio-voice-verify-callback.js";
-import {
-  createTwilioRelayWebsocketHandler,
-  getRelayWebsocketHandlers,
-} from "./http/routes/twilio-relay-websocket.js";
 import {
   createTwilioMediaWebsocketHandler,
   getMediaStreamWebsocketHandlers,
@@ -116,7 +109,6 @@ import {
   createBackupSnapshotHandler,
 } from "./backup/backup-routes.js";
 import { startBackupWorker } from "./backup/backup-worker.js";
-import { stopVoiceApprovalSync } from "./verification/voice-approval-sync.js";
 import { stopOutboundVoiceVerificationSync } from "./verification/outbound-voice-verification-sync.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
@@ -154,6 +146,7 @@ import {
   type SlackSocketModeClient,
 } from "./slack/socket-mode.js";
 import { downloadSlackFile } from "./slack/download.js";
+import { slackBotContactNote } from "./slack/normalize.js";
 import { handleInbound } from "./handlers/handle-inbound.js";
 import { upsertContactChannel } from "./verification/contact-helpers.js";
 import { checkAuthRateLimit } from "./http/middleware/rate-limit.js";
@@ -190,6 +183,8 @@ import { contactRoutes } from "./ipc/contact-handlers.js";
 import { inviteRoutes } from "./ipc/invite-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
+import { trustVerdictRoutes } from "./ipc/trust-verdict-handlers.js";
+import { guardianDeliveryRoutes } from "./ipc/guardian-delivery-handlers.js";
 import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
 import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
@@ -216,6 +211,7 @@ function generateTraceId(): string {
 }
 
 let draining = false;
+let postAssistantReadyComplete = false;
 
 /**
  * Detect which services had credential changes and log them.
@@ -275,6 +271,24 @@ function isLiveVoiceSocketData(data: unknown): data is LiveVoiceSocketData {
   );
 }
 
+/** Log-safe socket-type discriminant for unknown-socket diagnostics. */
+function extractWsType(data: unknown): unknown {
+  return data && typeof data === "object"
+    ? (data as { wsType?: unknown }).wsType
+    : undefined;
+}
+
+function closeUnknownSocket(
+  ws: { data: unknown; close(code?: number, reason?: string): void },
+  event: "open" | "message",
+): void {
+  log.error(
+    { event, wsType: extractWsType(ws.data) },
+    "WebSocket event for unknown socket type — closing",
+  );
+  ws.close(1011, "Unknown socket type");
+}
+
 function getClientIp(
   req: Request,
   server: ReturnType<typeof Bun.serve>,
@@ -306,13 +320,6 @@ async function main() {
   await initGatewayDb();
   initTrustRuleCache();
   initAdmissionPolicyCache();
-
-  // Wait for the assistant runtime to be healthy before serving traffic.
-  // Data migrations (e.g. m0002 actor-token-tables-to-gateway) must
-  // complete before the HTTP server starts accepting auth requests —
-  // otherwise newly minted tokens can be overwritten by stale rows
-  // migrated from the assistant DB.
-  await runPostAssistantReady();
 
   // ── TTL caches ──
   // Instantiate caches for credential and config file reads.
@@ -438,19 +445,13 @@ async function main() {
     config,
     twilioValidationCaches,
   );
-  const handleTwilioConnectActionWebhook =
-    createTwilioConnectActionWebhookHandler(config, twilioValidationCaches);
   const handleTwilioVoiceVerifyCallback =
     createTwilioVoiceVerifyCallbackHandler(config, twilioValidationCaches);
-  const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config, {
-    configFile: configFileCache,
-  });
   const handleTwilioMediaWs = createTwilioMediaWebsocketHandler(config, {
     configFile: configFileCache,
   });
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
-  const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
   const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
@@ -599,10 +600,6 @@ async function main() {
     {
       path: TWILIO_STATUS_WEBHOOK_PATH,
       handler: (req) => handleTwilioStatusWebhook(req),
-    },
-    {
-      path: TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
-      handler: (req) => handleTwilioConnectActionWebhook(req),
     },
     {
       path: "/webhooks/twilio/voice-verify",
@@ -786,35 +783,42 @@ async function main() {
         contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
     },
     // ── Contacts/invites control plane ──
+    // Scope map: invites list → settings.read; create/redeem/revoke/call →
+    // settings.write.
     {
       path: "/v1/contacts/invites",
       method: "GET",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.read",
       handler: (req) => contactsControlPlaneProxy.handleListInvites(req),
     },
     {
       path: "/v1/contacts/invites",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => contactsControlPlaneProxy.handleCreateInvite(req),
     },
     {
       path: "/v1/contacts/invites/redeem",
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req) => contactsControlPlaneProxy.handleRedeemInvite(req),
     },
     {
       path: /^\/v1\/contacts\/invites\/([^/]+)\/call$/,
       method: "POST",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) =>
         contactsControlPlaneProxy.handleCallInvite(req, params[0]),
     },
     {
       path: /^\/v1\/contacts\/invites\/([^/]+)$/,
       method: "DELETE",
-      auth: "edge",
+      auth: "edge-scoped",
+      scope: "settings.write",
       handler: (req, params) =>
         contactsControlPlaneProxy.handleRevokeInvite(req, params[0]),
     },
@@ -1656,7 +1660,7 @@ async function main() {
           liveVoiceWebsocketHandlers.open(ws as never);
           return;
         }
-        twilioRelayWebsocketHandlers.open(ws as never);
+        closeUnknownSocket(ws, "open");
       },
       message(ws, message) {
         if (isMediaStreamSocketData(ws.data)) {
@@ -1671,7 +1675,7 @@ async function main() {
           liveVoiceWebsocketHandlers.message(ws as never, message);
           return;
         }
-        twilioRelayWebsocketHandlers.message(ws as never, message);
+        closeUnknownSocket(ws, "message");
       },
       close(ws, code, reason) {
         if (isMediaStreamSocketData(ws.data)) {
@@ -1686,7 +1690,10 @@ async function main() {
           liveVoiceWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
-        twilioRelayWebsocketHandlers.close(ws as never, code, reason);
+        log.error(
+          { wsType: extractWsType(ws.data), code, reason },
+          "WebSocket closed with unknown socket type",
+        );
       },
     },
     error(err) {
@@ -1723,23 +1730,9 @@ async function main() {
   ): Promise<Response | undefined> {
     const url = new URL(req.url);
 
-    // ── CORS: webview preflight & origin tracking ──
-    // The macOS WKWebView loads pages from https://{appId}.vellum.local/
-    // which is cross-origin to the gateway at http://127.0.0.1:{port}.
-    // Reflect the origin back on matched requests so window.vellum.fetch
-    // calls succeed.
-    const extensionOrigin = resolveExtensionOrigin(req);
-    if (extensionOrigin && req.method === "OPTIONS") {
-      return handleExtensionPreflight(extensionOrigin);
-    }
-
-    const webviewOrigin = resolveWebviewOrigin(req);
-    if (webviewOrigin && req.method === "OPTIONS") {
-      return handlePreflight(webviewOrigin);
-    }
-
-    // ── Pre-router: health/readiness probes ──
-    // These bypass rate limiting and tracing for minimal overhead.
+    // ── Pre-router: health probe ──
+    // This stays available during post-assistant-ready startup work so
+    // Kubernetes startup/liveness probes can observe the bound process.
     if (url.pathname === "/healthz") {
       const includeMigrations =
         url.searchParams.get("include") === "migrations";
@@ -1773,6 +1766,25 @@ async function main() {
         // Daemon unreachable — graceful degradation, still return ok
       }
       return Response.json({ status: "ok" });
+    }
+
+    if (!postAssistantReadyComplete) {
+      return Response.json({ status: "starting" }, { status: 503 });
+    }
+
+    // ── CORS: webview preflight & origin tracking ──
+    // The macOS WKWebView loads pages from https://{appId}.vellum.local/
+    // which is cross-origin to the gateway at http://127.0.0.1:{port}.
+    // Reflect the origin back on matched requests so window.vellum.fetch
+    // calls succeed.
+    const extensionOrigin = resolveExtensionOrigin(req);
+    if (extensionOrigin && req.method === "OPTIONS") {
+      return handleExtensionPreflight(extensionOrigin);
+    }
+
+    const webviewOrigin = resolveWebviewOrigin(req);
+    if (webviewOrigin && req.method === "OPTIONS") {
+      return handlePreflight(webviewOrigin);
     }
 
     if (url.pathname === "/schema") {
@@ -1826,12 +1838,6 @@ async function main() {
     // ── Pre-router: WebSocket upgrades ──
     // Bun's WS upgrade needs `server.upgrade()` which doesn't return
     // a Response, so these can't go through the route table.
-    if (url.pathname === TWILIO_RELAY_WEBHOOK_PATH) {
-      const upgradeResult = handleTwilioRelayWs(req, server);
-      if (upgradeResult !== undefined) return upgradeResult;
-      return undefined as unknown as Response;
-    }
-
     if (
       url.pathname === TWILIO_MEDIA_STREAM_WEBHOOK_PATH ||
       url.pathname.startsWith(`${TWILIO_MEDIA_STREAM_WEBHOOK_PATH}/`)
@@ -1913,6 +1919,18 @@ async function main() {
   }
 
   log.info({ port: server.port }, "Gateway HTTP server listening");
+
+  // Complete post-assistant-ready startup work after binding /healthz.
+  // All non-health routes stay closed until this finishes.
+  try {
+    await runPostAssistantReady();
+    postAssistantReadyComplete = true;
+  } catch (err) {
+    log.error({ err }, "Post-assistant-ready startup work failed");
+    server.stop(true);
+    process.exit(1);
+  }
+
   logAuthBypassState();
 
   // Start periodic background cleanup for dedup caches
@@ -2071,6 +2089,8 @@ async function main() {
         const forward = async () => {
           // Seed contact channel for the Slack actor (dual-write, fire-and-forget).
           // Covers both DMs (externalChatId = DM channel) and workspace messages.
+          // Bot/app senders are classified as 'assistant' contacts with a
+          // provenance note instead of the default 'human'.
           if (normalized.event.actor.actorExternalId) {
             void upsertContactChannel({
               sourceChannel: "slack",
@@ -2083,6 +2103,12 @@ async function main() {
                 : {}),
               displayName: normalized.event.actor.displayName,
               username: normalized.event.actor.username,
+              ...(normalized.botSender
+                ? {
+                    contactType: "assistant" as const,
+                    notes: slackBotContactNote(normalized.botSender),
+                  }
+                : {}),
             }).catch(() => {});
           }
 
@@ -2466,6 +2492,8 @@ async function main() {
     ...slackThreadRoutes,
     ...thresholdRoutes,
     ...admissionPolicyRoutes,
+    ...trustVerdictRoutes,
+    ...guardianDeliveryRoutes,
     ...riskClassificationRoutes,
     ...createLogTailRoutes(config),
     ...trustRulesRoutes,
@@ -2549,7 +2577,6 @@ async function main() {
     const shutdownTasks: Promise<void>[] = [];
     sleepWakeDetector.stop();
     backupWorkerHandle.stop();
-    stopVoiceApprovalSync();
     stopOutboundVoiceVerificationSync();
     credentialWatcher.stop();
     configFileWatcher.stop();

@@ -18,8 +18,8 @@ interface ContactDetailViewProps {
   canMerge?: boolean;
   availableChannels?: ChannelInfo[];
   a2aEnabled?: boolean;
-  onSave: (patch: { displayName: string; notes: string }) => Promise<void>;
-  onDelete: () => Promise<void>;
+  onSave: (patch: { displayName: string; notes: string }) => void;
+  onDelete: () => void;
   onMerge?: () => void;
   onSetupChannel?: (type: string) => void;
   onVerifyChannel?: (type: string) => void;
@@ -70,7 +70,7 @@ function ContactDetailViewInner({
 
   const requestDelete = () => {
     if (isEmptyDraft) {
-      void onDelete();
+      onDelete();
     } else {
       setConfirmOpen(true);
     }
@@ -176,9 +176,9 @@ function ContactDetailViewInner({
         message="This will permanently delete this contact and all their channels. This action cannot be undone."
         confirmLabel="Delete"
         destructive
-        onConfirm={async () => {
+        onConfirm={() => {
           setConfirmOpen(false);
-          await onDelete();
+          onDelete();
         }}
         onCancel={() => setConfirmOpen(false)}
       />

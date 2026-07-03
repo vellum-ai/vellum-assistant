@@ -16,11 +16,12 @@
  *    never the untrusted task project dir. A clean cwd has no project-local
  *    `node_modules/.bin`, `bunfig.toml`, or `.npmrc`, so none of the
  *    cwd-based package-resolution hijacks apply.
- *  - The installer env is a SANITIZED copy of `process.env` with
- *    `CLAUDE_CODE_OAUTH_TOKEN` and `GEMINI_API_KEY` stripped, so the secret
- *    is never in scope during package resolution, and `BUN_CONFIG_REGISTRY`
- *    forced to the public npm registry so a redirected registry cannot serve
- *    a malicious package.
+ *  - The installer env is a SANITIZED copy of `process.env` with known
+ *    ambient secrets (`CLAUDE_CODE_OAUTH_TOKEN`, plus the `GEMINI_API_KEY`
+ *    used by the Gemini LLM provider) stripped, so no secret is ever in scope
+ *    during package resolution, and `BUN_CONFIG_REGISTRY` forced to the
+ *    public npm registry so a redirected registry cannot serve a malicious
+ *    package.
  *  - The token is injected ONLY later, at spawn time, on the real installed
  *    binary (see `prepare-agent-env.ts`). `prepareAgentEnv` is never called
  *    here.
@@ -99,9 +100,12 @@ function execFileWithTimeout(
 }
 
 /**
- * A copy of `process.env` safe to hand to the package installer: the ACP
- * secrets are stripped so they can never leak into a resolved package's
- * lifecycle/runtime, and the registry is pinned to the trusted public one.
+ * A copy of `process.env` safe to hand to the package installer: known
+ * ambient secrets are stripped so they can never leak into a resolved
+ * package's lifecycle/runtime, and the registry is pinned to the trusted
+ * public one. `CLAUDE_CODE_OAUTH_TOKEN` is the ACP adapter token;
+ * `GEMINI_API_KEY` belongs to the Gemini LLM provider but may be present in
+ * the daemon env, so it is stripped here as defense-in-depth.
  */
 function sanitizedInstallEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = { ...process.env };

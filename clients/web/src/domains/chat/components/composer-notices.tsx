@@ -12,38 +12,19 @@ import {
 import { Button, Notice } from "@vellumai/design-library";
 
 /**
- * Banner/notice stack rendered immediately above the chat composer's form
- * (in `ChatComposer`'s `noticesAboveFormSlot`). Each notice is fully
- * controlled by the parent — this component only owns the composition and
- * ordering, not the visibility logic. Notices are ordered from most
- * action-specific (top) to most state-level (bottom) so urgent feedback
- * (e.g. attachment errors triggered by the user's last action) appears
- * closest to the composer.
- *
- * Stale-text affordances (the upload-blocked and restored-draft notices
- * from LUM-1516) are rendered first because they directly answer "why
- * didn't pressing Enter send my message?" — the rest of the stack is for
- * setup / billing / operational state.
+ * Orchestration banner stack rendered above the chat composer's form (in
+ * `ChatComposer`'s `noticesAboveFormSlot`, below the composer-owned
+ * {@link ComposerDraftNotices}). Each banner is fully controlled by the parent
+ * — this component only owns composition and ordering. Banners cover voice,
+ * disk pressure, billing, setup, and operational state; the composer-owned
+ * draft/attachment notices live in {@link ComposerDraftNotices}, which renders
+ * ahead of this stack.
  *
  * All props are optional or boolean flags so the component can be used by
  * both the main chat path (full feature set) and the app-editing side
- * panel (which has no voice input and no per-attachment error surface).
+ * panel (which has no voice input).
  */
 export interface ComposerNoticesProps {
-  /**
-   * Stale-text notice content rendered above all other notices. The parent
-   * page owns this JSX so it can wire dismiss handlers and per-notice
-   * tones without this component knowing about restored-draft / upload-
-   * blocked state. Optional — when omitted nothing is rendered at the
-   * top of the stack.
-   */
-  textStateNoticesSlot?: ReactNode;
-
-  /** Last attachment-upload error, or `null` when no error is active. */
-  attachmentLastError?: string | null;
-  /** Dismiss handler for {@link attachmentLastError}. Required when error is non-null. */
-  onDismissAttachmentError?: () => void;
-
   /** Live voice-input error code, or `null` when no error is active. */
   voiceError?: string | null;
   /** Dismiss handler for {@link voiceError}. Required when error is non-null. */
@@ -74,7 +55,7 @@ export interface ComposerNoticesProps {
    */
   billingBannerSlot?: ReactNode;
 
-  /** True when the assistant returned `PROVIDER_NOT_CONFIGURED` or `MANAGED_KEY_INVALID`. */
+  /** True when the assistant returned `PROVIDER_NOT_CONFIGURED`. */
   showMissingApiKeyBanner: boolean;
   /** Handler invoked when the user clicks "Open settings" on the missing-API-key banner. */
   onOpenAiSettings: () => void;
@@ -100,9 +81,6 @@ export interface ComposerNoticesProps {
 }
 
 export function ComposerNotices({
-  textStateNoticesSlot,
-  attachmentLastError,
-  onDismissAttachmentError,
   voiceError,
   onClearVoiceError,
   onRetryMicPermission,
@@ -122,14 +100,6 @@ export function ComposerNotices({
 }: ComposerNoticesProps) {
   return (
     <>
-      {textStateNoticesSlot}
-      {attachmentLastError && (
-        <div className="mb-2">
-          <Notice tone="error" onDismiss={onDismissAttachmentError}>
-            {attachmentLastError}
-          </Notice>
-        </div>
-      )}
       {voiceError && (
         <div className="mb-2">
           <Notice

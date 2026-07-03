@@ -13,10 +13,13 @@ import {
   getAttachmentsForMessage,
   linkAttachmentToMessage,
   uploadAttachment,
-} from "../memory/attachments-store.js";
-import { addMessage, createConversation } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/attachments-store.js";
+import {
+  addMessage,
+  createConversation,
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 await initializeDb();
 
 describe("renderHistoryContent", () => {
@@ -750,6 +753,45 @@ describe("renderHistoryContent", () => {
     expect(output.text).toBe("");
     expect(output.textSegments).toEqual([]);
     expect(output.contentOrder).toEqual([]);
+  });
+
+  test("keeps a flagged surface-fallback text block in .text but out of blocks/segments", () => {
+    // The approval-card builder emits [ui_surface, text(_surfaceFallback)]. The
+    // surface renders the card for rich clients; the flagged fallback must stay
+    // in the flat `.text` body (CLI/search) but NOT appear as a text segment or
+    // content block, or the card would render twice.
+    const output = renderHistoryContent([
+      {
+        type: "ui_surface",
+        surfaceId: "tool-approval-1",
+        surfaceType: "card",
+        title: "Tool Approval",
+        data: { title: "Bob" },
+      },
+      { type: "text", text: "Bob wants to use bash", _surfaceFallback: true },
+    ]);
+
+    expect(output.text).toBe("Bob wants to use bash");
+    expect(output.textSegments).toEqual([]);
+    expect(output.surfaces).toHaveLength(1);
+    expect(output.contentOrder).toEqual(["surface:0"]);
+    expect(output.contentBlocks.map((b) => b.type)).toEqual(["surface"]);
+  });
+
+  test("renders an unflagged text block after a surface (legacy [ui_surface, text])", () => {
+    // Pre-flag rows carry no `_surfaceFallback`, so the sibling text still
+    // renders as its own block — legacy cards keep their duplicate text until
+    // re-seeded. New rows carry the flag and de-dupe.
+    const output = renderHistoryContent([
+      { type: "ui_surface", surfaceId: "s1", surfaceType: "card", data: {} },
+      { type: "text", text: "legacy fallback" },
+    ]);
+
+    expect(output.contentBlocks.map((b) => b.type)).toEqual([
+      "surface",
+      "text",
+    ]);
+    expect(output.text).toBe("legacy fallback");
   });
 });
 

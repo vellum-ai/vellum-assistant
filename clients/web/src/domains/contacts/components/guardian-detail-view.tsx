@@ -17,7 +17,7 @@ interface GuardianDetailViewProps {
   canMerge?: boolean;
   availableChannels?: ChannelInfo[];
   a2aEnabled?: boolean;
-  onSave: (patch: { displayName: string; notes: string }) => Promise<void>;
+  onSave: (patch: { displayName: string; notes: string }) => void;
   onMerge?: () => void;
   onSetupChannel?: (type: string) => void;
   onVerifyChannel?: (type: string) => void;

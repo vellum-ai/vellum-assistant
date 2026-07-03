@@ -27,6 +27,8 @@ export {
   ChannelDeliveryResultSchema,
   ChannelReplyPayloadSchema,
   PermissionRequestDetailsSchema,
+  SlackStreamOpSchema,
+  SlackStreamTaskSchema,
 } from "./outbound-contract.js";
 
 export type {
@@ -36,6 +38,8 @@ export type {
   ChannelDeliveryResult,
   ChannelReplyPayload,
   PermissionRequestDetails,
+  SlackStreamOp,
+  SlackStreamTask,
 } from "./outbound-contract.js";
 
 // Inbound contract (gateway → daemon) — Zod schemas + derived types
@@ -70,3 +74,60 @@ export {
 } from "./admission-policy-contract.js";
 
 export type { AdmissionPolicy } from "./admission-policy-contract.js";
+
+// Trust verdict contract (gateway → daemon) — Zod schemas + derived types
+export {
+  isTrustClass,
+  makeResolutionFailedVerdict,
+  makeUnauthenticatedSenderVerdict,
+  ResolveInboundTrustRequestSchema,
+  TRUST_CLASS_VALUES,
+  TrustClassSchema,
+  TrustVerdictSchema,
+} from "./trust-verdict-contract.js";
+
+export type {
+  ResolveInboundTrustRequest,
+  TrustClass,
+  TrustVerdict,
+} from "./trust-verdict-contract.js";
+
+// Invite contract (shared gateway ↔ daemon) — hash/generate helpers,
+// channel gating, redemption outcome + invite IPC schemas
+export {
+  ActiveVoiceInviteSchema,
+  generateInviteCode,
+  generateInviteToken,
+  GetActiveVoiceInviteRequestSchema,
+  hashInviteCode,
+  hashInviteToken,
+  InviteRedemptionOutcomeSchema,
+  isInviteCodeRedemptionEnabled,
+  isValidE164,
+  RedeemInviteByCodeRequestSchema,
+  RedeemInviteByTokenRequestSchema,
+  RedeemVoiceInviteRequestSchema,
+} from "./invite-contract.js";
+
+export type {
+  ActiveVoiceInvite,
+  GetActiveVoiceInviteRequest,
+  InviteRedemptionOutcome,
+  InviteRedemptionResult,
+  RedeemInviteByCodeRequest,
+  RedeemInviteByTokenRequest,
+  RedeemVoiceInviteRequest,
+} from "./invite-contract.js";
+
+// Guardian delivery contract (daemon → gateway pull) — Zod schemas + derived types
+export {
+  GuardianDeliverySchema,
+  ResolveGuardianDeliveryRequestSchema,
+  ResolveGuardianDeliveryResponseSchema,
+} from "./guardian-delivery-contract.js";
+
+export type {
+  GuardianDelivery,
+  ResolveGuardianDeliveryRequest,
+  ResolveGuardianDeliveryResponse,
+} from "./guardian-delivery-contract.js";

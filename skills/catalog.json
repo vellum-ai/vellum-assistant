@@ -105,6 +105,20 @@
       "updatedAt": "2026-06-03T03:10:07.000Z"
     },
     {
+      "id": "daily-briefing",
+      "name": "daily-briefing",
+      "description": "Proactive daily briefing that fires on a recurring schedule, pulls recent memory and workspace context, composes a structured summary (action items, progress, radar, next steps), and delivers it to all active channels. Enable with a time like \"set up my daily briefing at 9am\". Disable, reschedule, or check status at any time.",
+      "metadata": {
+        "emoji": "📋",
+        "vellum": {
+          "category": "productivity",
+          "display-name": "Daily Briefing"
+        }
+      },
+      "compatibility": "Designed for Vellum personal assistants",
+      "updatedAt": "2026-07-01T10:52:10.000Z"
+    },
+    {
       "id": "deploy-fullstack-vercel",
       "name": "deploy-fullstack-vercel",
       "description": "Build and deploy a full-stack app (React frontend + Python/FastAPI backend) or a Vellum app to Vercel as a serverless demo with seeded data",
@@ -131,7 +145,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "doordash",
@@ -161,7 +175,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-02T18:44:31.000Z"
     },
     {
       "id": "email-setup",
@@ -270,7 +284,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-04T21:30:07.000Z"
+      "updatedAt": "2026-06-23T21:50:11.000Z"
     },
     {
       "id": "google-calendar",
@@ -378,7 +392,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-06-23T23:40:56.000Z"
     },
     {
       "id": "influencer",
@@ -461,7 +475,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "mcp-setup",
@@ -475,21 +489,6 @@
         }
       },
       "compatibility": "Works on both the Vellum desktop app (local daemon) and the Vellum web app (platform-hosted). Auth flow differs by environment.",
-      "updatedAt": "2026-06-12T18:05:36.000Z"
-    },
-    {
-      "id": "meet-join",
-      "name": "meet-join",
-      "description": "Join a Google Meet call to take notes; only when the user explicitly asks.",
-      "metadata": {
-        "icon": "assets/icon.svg",
-        "emoji": "📹",
-        "vellum": {
-          "category": "voice",
-          "display-name": "Meet Join",
-          "feature-flag": "meet"
-        }
-      },
       "updatedAt": "2026-06-12T18:05:36.000Z"
     },
     {
@@ -622,7 +621,7 @@
     {
       "id": "plugin-builder",
       "name": "plugin-builder",
-      "description": "Walk the user through building, scaffolding, shipping, and editing a Vellum plugin that bundles hooks, tools, and skills into one installable package. Use when the user wants to extend their assistant with a new capability shipped as a plugin, publish to the marketplace, or push edits to an existing plugin's GitHub repo.",
+      "description": "Use when the user wants to build, scaffold, ship, or edit a Vellum plugin that bundles hooks, tools, and skills into one installable package.",
       "metadata": {
         "emoji": "🧩",
         "vellum": {
@@ -644,7 +643,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-16T19:50:46.000Z"
+      "updatedAt": "2026-06-30T00:15:51.000Z"
     },
     {
       "id": "public-ingress",
@@ -680,7 +679,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "restaurant-reservation",
@@ -741,7 +740,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "slack",
@@ -761,7 +760,7 @@
     {
       "id": "slack-app-setup",
       "name": "slack-app-setup",
-      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — the skill generates a one-click manifest URL so they only have to name, save, and copy two tokens.",
+      "description": "Connect a Slack app to the Vellum Assistant via Socket Mode. Use whenever the user wants to set up Slack for their assistant, connect a workspace, or get the assistant talking in Slack — opens a guided setup wizard in the side panel so the user can create the app, generate tokens, and connect in one flow.",
       "metadata": {
         "emoji": "💬",
         "vellum": {
@@ -782,22 +781,32 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-19T17:01:42.000Z"
+      "updatedAt": "2026-07-02T15:22:49.000Z"
     },
     {
       "id": "start-the-day",
       "name": "start-the-day",
-      "description": "Get a personalized daily briefing with weather, news, and actionable insights",
+      "description": "An on-demand personal daily briefing — weather, headlines, the shape of your day, and one thing worth your attention — in a sharp executive-assistant voice. The general-purpose morning brief; richer work or admin digests compose it as their general layer.",
       "metadata": {
         "icon": "assets/icon.svg",
         "emoji": "🌅",
         "vellum": {
           "category": "productivity",
-          "display-name": "Start the Day"
+          "display-name": "Start the Day",
+          "user-invocable": "true",
+          "activation-hints": [
+            "User asks to start their day, for a morning briefing, or a daily briefing/recap",
+            "User asks what's going on today or what they should know this morning",
+            "User wants weather, headlines, and a quick personal rundown"
+          ],
+          "avoid-when": [
+            "User wants a detailed work/admin digest — deep inbox triage, follow-up tracking, or meeting-by-meeting prep — rather than a general briefing",
+            "User wants to set up recurring or automated briefings rather than one right now"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-06-22T21:42:47.000Z"
     },
     {
       "id": "stripe-app-setup",
@@ -813,7 +822,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "stripe-link-wallet",
@@ -978,7 +987,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-20T16:20:53.000Z"
+      "updatedAt": "2026-06-21T15:06:32.000Z"
     },
     {
       "id": "vellum-memory-v2-migration",
@@ -1024,7 +1033,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-18T03:26:43.000Z"
+      "updatedAt": "2026-06-22T18:02:37.000Z"
     },
     {
       "id": "vellum-oauth-integrations",

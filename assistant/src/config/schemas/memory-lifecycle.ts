@@ -78,6 +78,17 @@ export const MemoryJobsConfigSchema = MemoryJobsConfigInputSchema.transform(
   },
 ).describe("Memory background job processing configuration");
 
+export const MemoryWorkerConfigSchema = z
+  .object({
+    enabled: z
+      .boolean({ error: "memory.worker.enabled must be a boolean" })
+      .default(false)
+      .describe(
+        "Whether the memory jobs worker runs as a separate OS process instead of the assistant's synchronous in-process runner. The assistant's worker supervisor re-reads this flag on every poll: while it is set, the in-process runner stands down (the out-of-process worker, spawned at startup when set, owns the queue); while it is unset, the in-process runner drains the queue. `assistant memory worker start`/`stop` flip the flag (and spawn/stop the worker process) to switch modes at runtime without a restart.",
+      ),
+  })
+  .describe("Memory jobs worker process configuration");
+
 export const MemoryRetentionConfigSchema = z
   .object({
     keepRawForever: z
@@ -179,12 +190,22 @@ export const MemoryMaintenanceConfigSchema = z
       .describe(
         "Database maintenance is deferred unless at least this many milliseconds have elapsed since the last user message, so maintenance's write locks never collide with an active user (0 disables the quiet-period gate)",
       ),
+    skillPruneDays: z
+      .number({ error: "memory.maintenance.skillPruneDays must be a number" })
+      .int("memory.maintenance.skillPruneDays must be an integer")
+      .min(1, "memory.maintenance.skillPruneDays must be at least 1")
+      .nullable()
+      .default(null)
+      .describe(
+        'Usage-based prune threshold for assistant-authored skills, in days. `null` (the default) = never prune — the maintain stage runs observe-only and deletes nothing (it still reports stale skills for observability). Set a positive integer to enable deletion of assistant-authored skills unused (lastUsedAt, else installedAt) for at least that many days. Shipped default-off so skill accumulation can be observed before deletion is enabled. Only `author:"assistant"` skills are ever eligible; user-authored and untagged skills are always protected.',
+      ),
   })
   .describe(
     "Database maintenance (PRAGMA optimize / WAL checkpoint) scheduling",
   );
 
 export type MemoryJobsConfig = z.infer<typeof MemoryJobsConfigSchema>;
+export type MemoryWorkerConfig = z.infer<typeof MemoryWorkerConfigSchema>;
 export type MemoryRetentionConfig = z.infer<typeof MemoryRetentionConfigSchema>;
 export type MemoryCleanupConfig = z.infer<typeof MemoryCleanupConfigSchema>;
 export type MemoryMaintenanceConfig = z.infer<

@@ -1,0 +1,14 @@
+{
+  "name": "default-turn-context",
+  "version": "1.0.0",
+  "description": "First-party default plugin contributing the unified <turn_context> runtime injector (temporal, actor, channel, and interface grounding).",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20.12.0"
+  },
+  "peerDependencies": {
+    "@vellumai/plugin-api": "^0.8.0"
+  }
+}

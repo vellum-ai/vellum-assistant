@@ -9,7 +9,10 @@
  * the guardian binding, and sends a success reply.
  */
 import type { ChannelId } from "../../../channels/types.js";
-import { findGuardianForChannel } from "../../../contacts/contact-store.js";
+import {
+  getGuardianDeliveryFresh,
+  guardianForChannel,
+} from "../../../contacts/guardian-delivery-reader.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
 import { getLogger } from "../../../util/logger.js";
 import {
@@ -88,8 +91,16 @@ export async function handleGuardianActivationIntercept(
   // Only proceed for Telegram (can be extended later)
   if (sourceChannel !== "telegram") return null;
 
-  // If a guardian already exists for this channel, continue to normal flow
-  if (findGuardianForChannel(sourceChannel)) return null;
+  // If a guardian already exists for this channel, continue to normal flow.
+  // Null-list (gateway unreachable) is treated as guardian-present so a
+  // transient miss does NOT spuriously auto-start verification.
+  // Read fresh: gateway-side binding writes don't invalidate the daemon cache.
+  const guardianList = await getGuardianDeliveryFresh({
+    channelTypes: [sourceChannel],
+  });
+  if (guardianList === null || guardianForChannel(guardianList, sourceChannel)) {
+    return null;
+  }
 
   // Can't bind a session without sender identity
   if (!rawSenderId) return null;

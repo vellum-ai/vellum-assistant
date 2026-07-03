@@ -105,6 +105,7 @@ mock.module("../tools/background-tool-registry.js", () => ({
     const idx = registeredTools.findIndex((t) => t.id === id);
     if (idx !== -1) registeredTools.splice(idx, 1);
   },
+  recordCompletedBackgroundTool: () => {},
   generateBackgroundToolId: () => "bg-obs-test",
   isBackgroundToolLimitReached: () => false,
   MAX_BACKGROUND_TOOLS: 20,

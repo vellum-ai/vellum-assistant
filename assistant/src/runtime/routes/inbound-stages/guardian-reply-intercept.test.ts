@@ -9,7 +9,7 @@ let mockIdentityRequests: { id: string }[] = [];
 let routeGuardianReplyCalls: unknown[] = [];
 let deliverChannelReplyCalls: unknown[][] = [];
 
-mock.module("../../../memory/canonical-guardian-store.js", () => ({
+mock.module("../../../contacts/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationChat: () =>
     mockDeliveryScopedRequests,
   listCanonicalGuardianRequests: () => mockIdentityRequests,

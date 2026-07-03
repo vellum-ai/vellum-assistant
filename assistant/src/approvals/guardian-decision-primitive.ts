@@ -1,51 +1,40 @@
 /**
- * Unified guardian decision primitive.
+ * Canonical guardian decision primitive.
  *
- * All guardian decision entrypoints (callback buttons, conversational engine,
- * legacy parser, requester self-cancel) call through this module instead of
- * inlining the decision-application logic.  This centralizes:
+ * `applyCanonicalGuardianDecision` is the single write path for guardian
+ * decisions. It operates on the `canonical_guardian_requests` table and
+ * dispatches to kind-specific resolvers:
  *
- *   1. Identity validation (actor must match assigned guardian)
- *   2. Approval-info capture before the pending interaction is consumed
- *   3. Atomic decision application via `handleChannelDecision`
- *   4. Guardian approval record update
- *   5. Scoped grant minting on approve
- *
- * The canonical path (`applyCanonicalGuardianDecision`) adds:
- *   6. Canonical request lookup and status validation
- *   7. CAS resolution via `resolveCanonicalGuardianRequest`
- *   8. Kind-specific resolver dispatch via the resolver registry
+ *   1. Canonical request lookup and status validation
+ *   2. Principal-based identity authorization
+ *   3. Expiry check
+ *   4. CAS resolution via `resolveCanonicalGuardianRequest` (first-writer-wins)
+ *   5. Kind-specific resolver dispatch via the resolver registry
+ *   6. Scoped grant minting on approve for requests carrying tool metadata
+ *   7. Cross-surface approval-card withdrawal
  *
  * Security invariants enforced here:
  *   - Decision authorization is purely principal-based:
  *     actor.guardianPrincipalId === request.guardianPrincipalId (strict equality)
  *   - Decisions are first-response-wins (CAS-like stale protection)
- *   - Only `approve_once` and `reject` are valid actions
+ *   - Valid actions are the `ApprovalAction` union; the introduction-card
+ *     actions (trust / verify_code / leave_unverified / block) are scoped to
+ *     `access_request` requests only
  *   - Scoped grant minting only on explicit approve for requests with tool metadata
  */
 
-import type { ChannelId } from "../channels/types.js";
 import {
   type CanonicalGuardianRequest,
   type CanonicalRequestStatus,
   getCanonicalGuardianRequest,
   resolveCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
 import {
-  type GuardianApprovalRequest,
-  updateApprovalDecision,
-} from "../memory/guardian-approvals.js";
-import type {
-  ApprovalAction,
-  ApprovalDecisionResult,
+  APPROVAL_ACTION_SET,
+  type ApprovalAction,
+  DENYING_ACTION_SET,
+  INTRODUCTION_ACTION_SET,
 } from "../runtime/channel-approval-types.js";
-import {
-  getApprovalInfoByConversation,
-  handleChannelDecision,
-  type PendingApprovalInfo,
-} from "../runtime/channel-approvals.js";
-import type { ApplyGuardianDecisionResult } from "../runtime/guardian-decision-types.js";
-import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getLogger } from "../util/logger.js";
 import { mintGrantFromDecision } from "./approval-primitive.js";
 import { withdrawGuardianRequestCards } from "./guardian-card-withdrawal.js";
@@ -71,186 +60,7 @@ function computeGrantExpiresAt(_action: ApprovalAction): number {
 }
 
 // ---------------------------------------------------------------------------
-// Scoped grant minting
-// ---------------------------------------------------------------------------
-
-/**
- * Mint a `tool_signature` scoped grant when a guardian approves a tool-approval
- * request.  Only mints when the approval info contains a tool invocation with
- * input (so we can compute the input digest).  Informational ASK_GUARDIAN
- * requests that lack tool input are skipped.
- *
- * Fails silently on error -- grant minting is best-effort and must never block
- * the approval flow.
- */
-function tryMintToolApprovalGrant(params: {
-  approvalInfo: PendingApprovalInfo;
-  approval: GuardianApprovalRequest;
-  decisionChannel: ChannelId;
-  guardianExternalUserId: string;
-  effectiveAction: ApprovalAction;
-}): void {
-  const {
-    approvalInfo,
-    approval,
-    decisionChannel,
-    guardianExternalUserId,
-    effectiveAction,
-  } = params;
-
-  if (!approvalInfo.toolName) {
-    return;
-  }
-
-  let inputDigest: string;
-  try {
-    inputDigest = computeToolApprovalDigest(
-      approvalInfo.toolName,
-      approvalInfo.input,
-    );
-  } catch (err) {
-    log.error(
-      {
-        err,
-        toolName: approvalInfo.toolName,
-        conversationId: approval.conversationId,
-      },
-      "Failed to compute tool approval digest for grant minting (non-fatal)",
-    );
-    return;
-  }
-
-  const result = mintGrantFromDecision({
-    scopeMode: "tool_signature",
-    toolName: approvalInfo.toolName,
-    inputDigest,
-    requestChannel: approval.channel,
-    decisionChannel,
-    executionChannel: null,
-    conversationId: approval.conversationId,
-    callSessionId: null,
-    guardianExternalUserId,
-    requesterExternalUserId: approval.requesterExternalUserId,
-    expiresAt: computeGrantExpiresAt(effectiveAction),
-  });
-
-  if (result.ok) {
-    log.info(
-      {
-        toolName: approvalInfo.toolName,
-        conversationId: approval.conversationId,
-      },
-      "Minted scoped approval grant for guardian tool-approval decision",
-    );
-  } else {
-    log.error(
-      {
-        reason: result.reason,
-        toolName: approvalInfo.toolName,
-        conversationId: approval.conversationId,
-      },
-      "Failed to mint scoped approval grant (non-fatal)",
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Apply guardian decision (unified primitive)
-// ---------------------------------------------------------------------------
-
-export interface ApplyGuardianDecisionParams {
-  /** The guardian approval record from the store. */
-  approval: GuardianApprovalRequest;
-  /** The parsed decision (action + source + optional requestId). */
-  decision: ApprovalDecisionResult;
-  /** Principal ID of the actor making the decision (undefined in callback/interception paths without JWT/auth context). */
-  actorPrincipalId: string | undefined;
-  /** Channel-native external user ID of the deciding actor (Telegram user ID, phone, etc.). */
-  actorExternalUserId: string | undefined;
-  /** Channel the decision arrived on. */
-  actorChannel: ChannelId;
-  /** Optional decision context passed to handleChannelDecision. */
-  decisionContext?: string;
-}
-
-/**
- * Apply a guardian decision through the unified primitive.
- *
- * This function centralizes the core logic that was previously duplicated
- * across callback, conversational engine, legacy parser, and requester
- * self-cancel paths:
- *
- *   1. Capture pending approval info before resolution
- *   2. Apply the decision atomically via `handleChannelDecision`
- *   3. Update the guardian approval record
- *   4. Mint a scoped grant on approve
- *
- * Returns a structured result so callers can handle stale/race outcomes.
- */
-export async function applyGuardianDecision(
-  params: ApplyGuardianDecisionParams,
-): Promise<ApplyGuardianDecisionResult> {
-  const {
-    approval,
-    decision,
-    actorPrincipalId,
-    actorExternalUserId,
-    actorChannel,
-    decisionContext,
-  } = params;
-
-  // Capture pending approval info before handleChannelDecision resolves
-  // (and removes) the pending interaction. Needed for grant minting.
-  const approvalInfo = getApprovalInfoByConversation(approval.conversationId);
-  const matchedInfo = decision.requestId
-    ? approvalInfo.find((a) => a.requestId === decision.requestId)
-    : approvalInfo[0];
-
-  // Apply the decision to the underlying session
-  const result = await handleChannelDecision(
-    approval.conversationId,
-    decision,
-    decisionContext,
-  );
-
-  if (!result.applied) {
-    return {
-      applied: false,
-      reason: "stale",
-      requestId: decision.requestId,
-    };
-  }
-
-  // Update the guardian approval request record
-  const approvalStatus =
-    decision.action === "reject" ? ("denied" as const) : ("approved" as const);
-  updateApprovalDecision(approval.id, {
-    status: approvalStatus,
-    decidedByExternalUserId: actorExternalUserId ?? actorPrincipalId,
-  });
-
-  // Mint a scoped grant when a guardian approves a tool-approval request.
-  // Skip when neither actor identity is available -- minting a grant without
-  // a known guardian identity is meaningless (e.g. requester self-cancel).
-  const effectiveGuardianId = actorExternalUserId ?? actorPrincipalId;
-  if (decision.action !== "reject" && matchedInfo && effectiveGuardianId) {
-    tryMintToolApprovalGrant({
-      approvalInfo: matchedInfo,
-      approval,
-      decisionChannel: actorChannel,
-      guardianExternalUserId: effectiveGuardianId,
-      effectiveAction: decision.action,
-    });
-  }
-
-  return {
-    applied: true,
-    requestId: result.requestId,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Consolidated canonical grant minting
+// Canonical grant minting
 // ---------------------------------------------------------------------------
 
 /**
@@ -319,11 +129,13 @@ export function mintCanonicalRequestGrant(params: {
 // Canonical guardian decision primitive
 // ---------------------------------------------------------------------------
 
-/** Valid actions for canonical guardian decisions. */
-const VALID_CANONICAL_ACTIONS: ReadonlySet<ApprovalAction> = new Set([
-  "approve_once",
-  "reject",
-]);
+/**
+ * Valid actions for canonical guardian decisions. The introduction-card
+ * actions (`trust` / `verify_code` / `leave_unverified` / `block`) are only
+ * valid for `access_request` requests — kind scoping is enforced after the
+ * request lookup.
+ */
+const VALID_CANONICAL_ACTIONS: ReadonlySet<string> = APPROVAL_ACTION_SET;
 
 export interface ApplyCanonicalGuardianDecisionParams {
   /** The canonical request ID to resolve. */
@@ -423,6 +235,30 @@ export async function applyCanonicalGuardianDecision(
     };
   }
 
+  // 2b-ii. Introduction-card actions set a contact's trust level and are only
+  // meaningful for access requests. Rejecting them for every other kind keeps
+  // e.g. a handcrafted `apr:<toolApprovalId>:trust` callback from resolving a
+  // tool approval.
+  if (
+    INTRODUCTION_ACTION_SET.has(action) &&
+    request.kind !== "access_request"
+  ) {
+    log.warn(
+      {
+        event: "canonical_decision_action_kind_mismatch",
+        requestId,
+        action,
+        kind: request.kind,
+      },
+      "Introduction-card action rejected for non-access-request kind",
+    );
+    return {
+      applied: false,
+      reason: "invalid_action",
+      detail: `action ${action} is only valid for access_request`,
+    };
+  }
+
   // 2c. Principal-based authorization: actor.guardianPrincipalId must match
   // request.guardianPrincipalId for any applied decision. This is the single
   // authorization gate — principal identity must always match.
@@ -496,8 +332,11 @@ export async function applyCanonicalGuardianDecision(
 
   // 3. CAS resolve: atomically transition from 'pending' to terminal status
   const effectiveAction: ApprovalAction = action;
-  const targetStatus: CanonicalRequestStatus =
-    effectiveAction === "reject" ? "denied" : "approved";
+  const targetStatus: CanonicalRequestStatus = DENYING_ACTION_SET.has(
+    effectiveAction,
+  )
+    ? "denied"
+    : "approved";
 
   const resolved = resolveCanonicalGuardianRequest(requestId, "pending", {
     status: targetStatus,
@@ -539,10 +378,13 @@ export async function applyCanonicalGuardianDecision(
         },
         `Resolver for kind '${request.kind}' failed: ${resolverResult.reason}`,
       );
-      // The canonical request is already resolved (CAS succeeded), so we don't
-      // roll back.  Flag the failure and fall through to grant minting so that
-      // callers see applied: true (reflecting the committed DB state) while
-      // still being informed that the resolver had an issue.
+      // The CAS commit stands; the primitive itself never rolls back. A
+      // resolver MAY CAS-reopen the request to `pending` when its gateway
+      // persist did not land (the access-request trust/block branches do) —
+      // grant minting is skipped on failure either way, and the card
+      // withdrawal below re-reads the row so a reopened request keeps its
+      // live cards. Callers see applied: true (the decision was committed)
+      // plus the resolverFailed flag.
       resolverFailed = true;
       resolverFailureReason = resolverResult.reason;
     } else {
@@ -564,7 +406,7 @@ export async function applyCanonicalGuardianDecision(
   // would allow the tool to execute without the intended resolver action
   // (e.g. answerCall) having succeeded.
   let grantMinted = false;
-  if (effectiveAction !== "reject" && !resolverFailed) {
+  if (targetStatus === "approved" && !resolverFailed) {
     const grantResult = mintCanonicalRequestGrant({
       request: resolved,
       actorChannel: actorContext.channel,
@@ -583,16 +425,27 @@ export async function applyCanonicalGuardianDecision(
   // cosmetic projection, so awaiting its Slack round-trips would only add
   // latency to the decision response that interactive callers wait on. The
   // projector never throws; the `.catch` is a defensive backstop.
-  void withdrawGuardianRequestCards({
-    request: resolved,
-    status: targetStatus,
-    originChannel: actorContext.channel,
-  }).catch((err) => {
-    log.warn(
-      { err, requestId },
-      "Cross-surface card withdrawal failed (non-fatal)",
-    );
-  });
+  //
+  // A failed resolver may have reopened the request to `pending` (an
+  // access-request gateway persist that never landed). Withdrawing the cards
+  // then would stamp every surface with a terminal status the row no longer
+  // has and strip the buttons the guardian needs to retry — so cards are only
+  // withdrawn while the row is actually terminal.
+  const rowForWithdrawal = resolverFailed
+    ? getCanonicalGuardianRequest(requestId)
+    : resolved;
+  if (rowForWithdrawal && rowForWithdrawal.status !== "pending") {
+    void withdrawGuardianRequestCards({
+      request: resolved,
+      status: targetStatus,
+      originChannel: actorContext.channel,
+    }).catch((err) => {
+      log.warn(
+        { err, requestId },
+        "Cross-surface card withdrawal failed (non-fatal)",
+      );
+    });
+  }
 
   log.info(
     {

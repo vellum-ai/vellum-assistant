@@ -36,6 +36,8 @@ interface ChatPillProps {
   onClick?: () => void;
   /** Accessible label. Required when `onClick` is set. */
   ariaLabel?: string;
+  /** aria-expanded for the interactive case. Ignored when `onClick` is unset. */
+  ariaExpanded?: boolean;
   /** Role for the non-interactive case (e.g. "status"). Ignored when
    *  `onClick` is set. */
   role?: string;
@@ -66,6 +68,7 @@ export function ChatPill({
   size = "compact",
   onClick,
   ariaLabel,
+  ariaExpanded,
   role,
   ariaLive,
   className,
@@ -83,6 +86,7 @@ export function ChatPill({
         type="button"
         onClick={onClick}
         aria-label={ariaLabel}
+        aria-expanded={ariaExpanded}
         className={clsx(merged, "cursor-pointer")}
       >
         {children}

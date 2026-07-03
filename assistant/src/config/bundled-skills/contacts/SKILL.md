@@ -218,16 +218,14 @@ Use this when the guardian wants to authorize a specific phone number to call th
 **Important**: The response includes a `voiceCode` field that is only returned at creation time and cannot be retrieved later. Extract and present it clearly.
 
 ```bash
-assistant contacts invites create --source-channel phone --contact-id "<contact_id>" --expected-external-user-id "<phone_E164>" --friend-name "<invitee_name>" --guardian-name "<guardian_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
+assistant contacts invites create --source-channel phone --contact-id "<contact_id>" --expected-external-user-id "<phone_E164>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
 ```
 
 Required flags:
 
 - `--source-channel` -- must be `phone`
-- `--contact-id` -- the ID of the contact this invite is for. Look up the contact first with `assistant contacts list`. New contacts must be added via the Contacts tab in the assistant web UI; you cannot create them here.
+- `--contact-id` -- the ID of the contact this invite is for. Look up the contact first with `assistant contacts list`. New contacts must be added via the Contacts tab in the assistant web UI; you cannot create them here. The contact's `displayName` is used to personalize the voice greeting; the guardian label is resolved at runtime.
 - `--expected-external-user-id` -- the invitee's phone number in E.164 format (e.g., `+15551234567`)
-- `--friend-name` -- the invitee's display name (e.g., "Mom", "Dr. Smith"). Used during the voice verification call to personalize the experience.
-- `--guardian-name` -- the guardian's display name (e.g., "Alex"). Used during the voice verification call so the invitee knows who invited them.
 
 Optional flags:
 
@@ -235,10 +233,9 @@ Optional flags:
 - `--expires-in-ms` -- expiration time in milliseconds from now (e.g., `86400000` for 24 hours). Defaults to 7 days if omitted.
 - `--note` -- a human-readable label for the invite (e.g., "For Mom", "Dr. Smith")
 
-The create response contains `{ ok: true, invite: { id, voiceCode, expectedExternalUserId, friendName, guardianName, ... } }`.
+The create response contains `{ ok: true, invite: { id, voiceCode, expectedExternalUserId, ... } }`.
 
 - `voiceCode` is the numeric code the invitee must enter and is only returned at creation time.
-- `friendName` and `guardianName` are echoed back in the response.
 - Voice invite responses do **not** include `token` or `share.url`. Do not try to build or send a deep link for voice invites.
 
 **Presenting to the guardian**: Give the guardian clear instructions to relay to the invitee:
@@ -264,7 +261,7 @@ If the user provides a phone number without the `+` country code prefix, ask the
 Use this when the guardian wants to invite someone to message the assistant via email. Email invites use a 6-digit code - the invitee sends the code to the assistant's email address to redeem access.
 
 ```bash
-assistant contacts invites create --source-channel email --contact-id "<contact_id>" --contact-name "<invitee_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
+assistant contacts invites create --source-channel email --contact-id "<contact_id>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
 ```
 
 Required flags:
@@ -295,7 +292,7 @@ If the assistant's email address is not available, tell the guardian they need t
 Use this when the guardian wants to invite someone to message the assistant on WhatsApp. WhatsApp invites use a 6-digit code - the invitee sends the code to the assistant's WhatsApp number to redeem access.
 
 ```bash
-assistant contacts invites create --source-channel whatsapp --contact-id "<contact_id>" --contact-name "<invitee_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
+assistant contacts invites create --source-channel whatsapp --contact-id "<contact_id>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
 ```
 
 Required flags:
@@ -328,7 +325,7 @@ If the assistant's WhatsApp integration is not configured at all (Meta WhatsApp 
 Use this when the guardian wants to invite someone to message the assistant on Slack. Slack invites use a 6-digit code -- the invitee sends the code as a direct message to the assistant's Slack bot to redeem access.
 
 ```bash
-assistant contacts invites create --source-channel slack --contact-id "<contact_id>" --contact-name "<invitee_name>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
+assistant contacts invites create --source-channel slack --contact-id "<contact_id>" --max-uses 1 --note "<optional note, e.g. the person it is for>" --json
 ```
 
 Required flags:
@@ -451,8 +448,6 @@ Each channel has:
   - `contactId is required for create` -- when creating an invite, always pass `--contact-id`. Look up or create the contact first.
   - `expectedExternalUserId is required for voice invites` -- voice invites must include the invitee's phone number via `--expected-external-user-id`.
   - `expectedExternalUserId must be in E.164 format` -- the phone number must start with `+` followed by country code and number (e.g., `+15551234567`).
-  - `friendName is required for voice invites` -- voice invites must include the invitee's display name via `--friend-name`.
-  - `guardianName is required for voice invites` -- voice invites must include the guardian's display name via `--guardian-name`.
   - `Invite not found or already revoked` -- the invite ID may be invalid or the invite is already revoked.
 
 ## Tips
@@ -485,7 +480,7 @@ Each channel has:
 
 **"Revoke invite"** / **"Cancel invite link"** -- List invites to identify the target, confirm, then revoke with `assistant contacts invites revoke <invite_id> --json`.
 
-**"Create a voice invite for +15551234567"** -- Look up or create the contact first, then create a voice invite with `assistant contacts invites create --source-channel phone --contact-id <contact_id> --expected-external-user-id "+15551234567" --friend-name "<name>" --guardian-name "<name>"`. Present the invite code and instructions: the person must call from that number and enter the code.
+**"Create a voice invite for +15551234567"** -- Look up or create the contact first, then create a voice invite with `assistant contacts invites create --source-channel phone --contact-id <contact_id> --expected-external-user-id "+15551234567"`. Present the invite code and instructions: the person must call from that number and enter the code. The caller's name and the guardian's name resolve from the bound contact and the runtime guardian — no name flags needed.
 
 **"Let my mom call in"** / **"Invite someone by phone"** -- Ask for the phone number in E.164 format, look up or create the contact first, then create a voice invite with `assistant contacts invites create --source-channel phone --contact-id <contact_id>`, and present the code + calling instructions.
 

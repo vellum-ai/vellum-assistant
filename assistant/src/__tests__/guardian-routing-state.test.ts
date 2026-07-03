@@ -14,12 +14,11 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { upsertContact } from "../contacts/contact-store.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import * as deliveryCrud from "../memory/delivery-crud.js";
-import { channelInboundEvents, messages } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import * as deliveryCrud from "../persistence/delivery-crud.js";
+import { channelInboundEvents, messages } from "../persistence/schema/index.js";
 import { sweepFailedEvents } from "../runtime/channel-retry-sweep.js";
 import {
   resolveRoutingState,
@@ -27,16 +26,17 @@ import {
 } from "../runtime/trust-context-resolver.js";
 import {
   handleChannelInbound,
+  seedContactChannel,
   setAdapterProcessMessage,
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 
 function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM channel_inbound_events");
-  db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM conversation_keys");
   db.run("DELETE FROM messages");
@@ -44,6 +44,7 @@ function resetTables(): void {
   db.run("DELETE FROM external_conversation_bindings");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
+  resetGatewayAclStore();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -156,16 +157,12 @@ describe("inbound-message-handler trusted-contact interactivity", () => {
     resetTables();
     setAdapterProcessMessage(undefined);
     // Insert a test contact so the contacts-based ACL lookup passes
-    upsertContact({
+    seedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "telegram-user-default",
       displayName: "Test User",
-      channels: [
-        {
-          type: "telegram",
-          address: "telegram-user-default",
-          status: "active",
-          policy: "allow",
-        },
-      ],
+      status: "active",
+      policy: "allow",
     });
   });
 

@@ -22,10 +22,13 @@ import {
   addMessage,
   createConversation,
   getAssistantMessageIdsInTurn,
-} from "../memory/conversation-crud.js";
-import { getDb, getLogsDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { llmRequestLogs, toolInvocations } from "../memory/schema.js";
+} from "../persistence/conversation-crud.js";
+import { getDb, getLogsDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import {
+  llmRequestLogs,
+  toolInvocations,
+} from "../persistence/schema/index.js";
 
 await initializeDb();
 

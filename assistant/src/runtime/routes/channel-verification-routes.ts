@@ -6,6 +6,14 @@
  * DELETE /v1/channel-verification-sessions         — cancel all active sessions (inbound + outbound)
  * POST   /v1/channel-verification-sessions/revoke  — cancel all sessions and revoke binding
  * GET    /v1/channel-verification-sessions/status   — check guardian binding status
+ *
+ * Source-of-truth split:
+ * - Verification SESSION state (pending sessions, codes, resend, rate-limit) is assistant-owned.
+ * - The channel-verified OUTCOME (status / verifiedAt / verifiedVia) is gateway-owned, written
+ *   in-process by the HTTP guardian-attest handler (`ContactStore.markChannelVerified`) and by the
+ *   inbound code-match path (`gateway/src/verification/text-verification.ts`).
+ * - The revoke/downgrade OUTCOME is relayed from the daemon via
+ *   `ipcCallPersistent("mark_channel_revoked", …)` to `ContactStore.markChannelRevoked`.
  */
 
 import { z } from "zod";
@@ -168,7 +176,7 @@ export async function handleCreateVerificationSession({
   }
 
   // Inbound challenge path
-  const result = createInboundChallenge(channel, rebind, conversationId);
+  const result = await createInboundChallenge(channel, rebind, conversationId);
   if (!result.success) {
     throw new BadRequestError(
       (result as { message?: string }).message ??
@@ -181,12 +189,12 @@ export async function handleCreateVerificationSession({
 /**
  * GET /v1/channel-verification-sessions/status
  */
-function handleGetVerificationStatus({
+async function handleGetVerificationStatus({
   queryParams = {},
   body = {},
 }: RouteHandlerArgs) {
   const channel = (queryParams.channel ?? (body as Record<string, unknown>).channel) as ChannelId | undefined;
-  return getVerificationStatus(channel);
+  return await getVerificationStatus(channel);
 }
 
 /**
@@ -263,7 +271,7 @@ async function handleRevokeVerificationBinding({
 }: RouteHandlerArgs) {
   const { channel } = body as { channel?: ChannelId };
 
-  const result = revokeVerificationForChannel(channel);
+  const result = await revokeVerificationForChannel(channel);
   if (!result.success) {
     throw new BadRequestError(
       (result as { message?: string }).message ?? "Revocation failed",

@@ -16,6 +16,7 @@ export type CallEventType =
   | "user_instruction_relayed"
   | "call_ended"
   | "call_failed"
+  | "telephony_credential_preflight_failed"
   | "callee_verification_started"
   | "callee_verification_succeeded"
   | "callee_verification_failed"
@@ -55,9 +56,10 @@ export type PendingQuestionStatus =
   | "cancelled";
 
 /**
- * Explicit call mode written at session creation time. The relay server
- * uses this as the primary signal for deterministic flow selection,
- * with Twilio setup custom parameters as a secondary/observability signal.
+ * Explicit call mode written at session creation time. The media-stream
+ * server's setup router uses this as the primary signal for deterministic
+ * flow selection, with Twilio custom parameters as a secondary/observability
+ * signal.
  */
 export type CallMode = "normal" | "verification" | "invite";
 

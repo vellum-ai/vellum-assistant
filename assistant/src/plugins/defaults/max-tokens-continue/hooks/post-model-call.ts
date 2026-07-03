@@ -30,9 +30,12 @@
  *   reject.
  */
 
-import type { PluginHookFn, PostModelCallContext } from "@vellumai/plugin-api";
+import {
+  type HookFunction,
+  isMaxTokensStopReason,
+  type PostModelCallContext,
+} from "@vellumai/plugin-api";
 
-import { isMaxTokensStopReason } from "../../../../agent/loop.js";
 import {
   consumeMaxTokensContinueBudget,
   hasMaxTokensContinueBudget,
@@ -45,7 +48,7 @@ import {
 export const MAX_TOKENS_CONTINUE_NUDGE_TEXT =
   "<system_notice>Your previous response was cut off because it reached the maximum output length. Continue exactly where you stopped — do not repeat content you already sent and do not start over.</system_notice>";
 
-const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
+const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   if (ctx.error) return;
   if (!isMaxTokensStopReason(ctx.stopReason)) return;
   if (ctx.callSite !== "mainAgent") return;

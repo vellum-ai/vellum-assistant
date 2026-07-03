@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "bun:test";
+import type { SubagentInnerEvent } from "@vellumai/assistant-api";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
 
 // ---------------------------------------------------------------------------
@@ -237,6 +238,72 @@ describe("changeStatus", () => {
     expect(entry.totalCost).toBe(0.001);
   });
 
+  it("preserves accumulated tokens when an abort ships zero usage", () => {
+    // Stop button → the daemon emits an abort status carrying `usage: {0,0,0}`.
+    // The already-spent tokens must survive (not flush to zero) — `||`, not
+    // `??`, so the incoming 0 falls back to the running tally.
+    const store = getState();
+    store.spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+    store.changeStatus({
+      subagentId: "sa-1",
+      status: "running",
+      inputTokens: 1200,
+      outputTokens: 340,
+      totalCost: 0.002,
+    });
+
+    getState().changeStatus({
+      subagentId: "sa-1",
+      status: "aborted",
+      inputTokens: 0,
+      outputTokens: 0,
+      totalCost: 0,
+    });
+
+    const entry = getState().byId["sa-1"]!;
+    expect(entry.status).toBe("aborted");
+    expect(entry.inputTokens).toBe(1200);
+    expect(entry.outputTokens).toBe(340);
+    expect(entry.totalCost).toBe(0.002);
+  });
+
+  it("still applies a real non-zero terminal total over the running tally", () => {
+    const store = getState();
+    store.spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+    store.changeStatus({
+      subagentId: "sa-1",
+      status: "running",
+      inputTokens: 1200,
+      outputTokens: 340,
+      totalCost: 0.002,
+    });
+
+    // Completion ships the authoritative final totals — non-zero, so they
+    // replace the running tally (the abort guard only catches zeros).
+    getState().changeStatus({
+      subagentId: "sa-1",
+      status: "completed",
+      inputTokens: 1500,
+      outputTokens: 500,
+      totalCost: 0.003,
+    });
+
+    const entry = getState().byId["sa-1"]!;
+    expect(entry.inputTokens).toBe(1500);
+    expect(entry.outputTokens).toBe(500);
+    expect(entry.totalCost).toBe(0.003);
+  });
+
   it("silently ignores unknown subagent ID", () => {
     const before = getState();
     getState().changeStatus({
@@ -328,6 +395,43 @@ describe("receiveEvent", () => {
 
     expect(getState().byId["sa-1"]!.events).toHaveLength(1);
     expect(getState().byId["sa-1"]!.events[0]!.type).toBe("tool_result");
+  });
+
+  it("captures the web_search query from a tool_result's activityMetadata", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      // `activityMetadata` rides through on the subagent wire as a passthrough
+      // field (not on the inferred `SubagentInnerEvent` type), so cast to attach
+      // it — this is the only live source of the web_search query, since the
+      // originating `tool_use_start` carries empty input.
+      event: {
+        type: "tool_result",
+        toolName: "web_search",
+        toolUseId: "tu-ws",
+        result: "Title\nhttps://example.com",
+        activityMetadata: {
+          webSearch: {
+            query: "best thermos 2025",
+            provider: "anthropic-native",
+            resultCount: 1,
+            durationMs: 120,
+            results: [],
+          },
+        },
+      } as SubagentInnerEvent,
+      timestamp: NOW + 700,
+    });
+
+    expect(getState().byId["sa-1"]!.events[0]!.searchQuery).toBe(
+      "best thermos 2025",
+    );
   });
 
   it("maps to error type when isError is true", () => {
@@ -608,6 +712,117 @@ describe("receiveEvent", () => {
 
     expect(getState().byId).toEqual(before.byId);
     expect(getState().orderedIds).toEqual(before.orderedIds);
+  });
+
+  it("preserves raw input on tool_use_start alongside the content summary", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: {
+        type: "tool_use_start",
+        toolName: "bash",
+        input: { command: "ls -la" },
+      },
+      timestamp: NOW + 100,
+    });
+
+    const ev = getState().byId["sa-1"]!.events[0]!;
+    expect(ev.type).toBe("tool_call");
+    expect(ev.input?.command).toBe("ls -la");
+    // The summary that drives labels is still derived from the input.
+    expect(ev.content).toBe("ls -la");
+    expect(ev.result).toBeUndefined();
+  });
+
+  it("preserves raw result on tool_result", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: { type: "tool_result", result: "total 0\nfile.txt" },
+      timestamp: NOW + 200,
+    });
+
+    const ev = getState().byId["sa-1"]!.events[0]!;
+    expect(ev.type).toBe("tool_result");
+    expect(ev.result).toBe("total 0\nfile.txt");
+    expect(ev.input).toBeUndefined();
+  });
+
+  it("preserves result on an errored tool_result (mapped to type error)", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: {
+        type: "tool_result",
+        toolName: "bash",
+        result: "Error: command not found: foo",
+        isError: true,
+      },
+      timestamp: NOW + 400,
+    });
+
+    const ev = getState().byId["sa-1"]!.events[0]!;
+    // mapInnerEventType routes isError to "error", but the raw result must
+    // still be retained for the detail view.
+    expect(ev.type).toBe("error");
+    expect(ev.isError).toBe(true);
+    expect(ev.result).toBe("Error: command not found: foo");
+  });
+
+  it("falls back to content for tool_result result when result is absent", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: { type: "tool_result", content: "File contents here" },
+      timestamp: NOW + 300,
+    });
+
+    const ev = getState().byId["sa-1"]!.events[0]!;
+    expect(ev.type).toBe("tool_result");
+    expect(ev.result).toBe("File contents here");
+  });
+
+  it("leaves input/result unset for text events", () => {
+    getState().spawnSubagent({
+      subagentId: "sa-1",
+      label: "Agent",
+      objective: "Task",
+      timestamp: NOW,
+    });
+
+    getState().receiveEvent({
+      subagentId: "sa-1",
+      event: { type: "assistant_text_delta", content: "Hello" },
+      timestamp: NOW + 100,
+    });
+
+    const ev = getState().byId["sa-1"]!.events[0]!;
+    expect(ev.input).toBeUndefined();
+    expect(ev.result).toBeUndefined();
   });
 });
 

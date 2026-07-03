@@ -7,7 +7,14 @@
  * cache miss (changed mtime → re-import), plugin deletion (eviction),
  * and hook collection across multiple plugins.
  */
-import { mkdirSync, rmSync, utimesSync,writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -19,14 +26,19 @@ import {
   test,
 } from "bun:test";
 
+import { _inspectHookCacheForTests } from "../hooks/hook-loader.js";
 import {
-  _inspectHookCacheForTests,
   _inspectToolCacheForTests,
   getCachedUserTools,
   getUserHooksFor,
   populateCacheAtBoot,
   resetPluginCacheForTests,
 } from "../plugins/mtime-cache.js";
+import {
+  getAllToolDefinitions,
+  getPluginToolDefinitions,
+  getToolOwner,
+} from "../tools/registry.js";
 
 // ─── Test fixtures ───────────────────────────────────────────────────────────
 
@@ -62,7 +74,15 @@ function writeHook(dir: string, hookName: string, body: string): void {
 function writeInstallMeta(dir: string, installedAt: string): void {
   writeFileSync(
     join(dir, "install-meta.json"),
-    JSON.stringify({ name: "test", installedAt, source: { kind: "github", owner: "test", repo: "test", ref: "main" } }, null, 2),
+    JSON.stringify(
+      {
+        name: "test",
+        installedAt,
+        source: { kind: "github", owner: "test", repo: "test", ref: "main" },
+      },
+      null,
+      2,
+    ),
   );
 }
 
@@ -70,6 +90,20 @@ function writeTool(dir: string, toolName: string, body: string): void {
   const toolsDir = join(dir, "tools");
   mkdirSync(toolsDir, { recursive: true });
   writeFileSync(join(toolsDir, `${toolName}.ts`), body);
+}
+
+/** The standalone workspace hooks directory (`<workspace>/hooks/`). */
+const WORKSPACE_HOOKS_DIR = join(ROOT, "hooks");
+
+function ensureWorkspaceHooksDir(): void {
+  rmSync(WORKSPACE_HOOKS_DIR, { recursive: true, force: true });
+  mkdirSync(WORKSPACE_HOOKS_DIR, { recursive: true });
+}
+
+/** Write a standalone hook file directly under `<workspace>/hooks/`. */
+function writeWorkspaceHook(hookName: string, body: string): void {
+  mkdirSync(WORKSPACE_HOOKS_DIR, { recursive: true });
+  writeFileSync(join(WORKSPACE_HOOKS_DIR, `${hookName}.ts`), body);
 }
 
 /**
@@ -97,6 +131,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   ensurePluginsDir();
+  ensureWorkspaceHooksDir();
   resetPluginCacheForTests();
 });
 
@@ -338,7 +373,9 @@ describe("plugin mtime cache (per-surface)", () => {
     expect(hooks).toHaveLength(2);
 
     // beta was installed earlier (Jan 1) so it should come first.
-    const results = hooks.map((fn) => (fn as unknown as () => { tag: string })());
+    const results = hooks.map((fn) =>
+      (fn as unknown as () => { tag: string })(),
+    );
     expect(results[0]!.tag).toBe("beta");
     expect(results[1]!.tag).toBe("alpha");
   });
@@ -368,8 +405,260 @@ describe("plugin mtime cache (per-surface)", () => {
     const hooks = await getUserHooksFor("user-prompt-submit");
     expect(hooks).toHaveLength(2);
 
-    const results = hooks.map((fn) => (fn as unknown as () => { tag: string })());
+    const results = hooks.map((fn) =>
+      (fn as unknown as () => { tag: string })(),
+    );
     expect(results[0]!.tag).toBe("dated");
     expect(results[1]!.tag).toBe("undated");
+  });
+});
+
+describe("workspace hooks (<workspace>/hooks/)", () => {
+  test("getUserHooksFor loads a standalone workspace hook", async () => {
+    writeWorkspaceHook(
+      "user-prompt-submit",
+      `export default () => ({ ws: 1 });`,
+    );
+
+    await populateCacheAtBoot();
+
+    const hooks = await getUserHooksFor("user-prompt-submit");
+    expect(hooks).toHaveLength(1);
+  });
+
+  test("workspace hooks load even when no plugins directory exists", async () => {
+    rmSync(PLUGINS_DIR, { recursive: true, force: true });
+    writeWorkspaceHook("post-tool-use", `export default () => ({ ws: 1 });`);
+
+    await populateCacheAtBoot();
+
+    const hooks = await getUserHooksFor("post-tool-use");
+    expect(hooks).toHaveLength(1);
+    expect(getCachedUserTools()).toHaveLength(0);
+  });
+
+  // NB: each test below uses a distinct hook event name so the workspace
+  // hook file path is unique. Bun caches dynamic import() by URL and does not
+  // bust on content change, so reusing `<workspace>/hooks/<name>.ts` across
+  // tests would return a stale module (the existing plugin tests dodge this
+  // by using a fresh plugin directory per test).
+  test("plugin hooks run before the workspace hook for the same event", async () => {
+    const dir = freshPluginDir("ordering-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "ordering-plugin" });
+    writeHook(
+      dir,
+      "pre-model-call",
+      `export default () => ({ tag: "plugin" });`,
+    );
+    writeWorkspaceHook(
+      "pre-model-call",
+      `export default () => ({ tag: "workspace" });`,
+    );
+
+    await populateCacheAtBoot();
+
+    const hooks = await getUserHooksFor("pre-model-call");
+    expect(hooks).toHaveLength(2);
+    const results = hooks.map((fn) =>
+      (fn as unknown as () => { tag: string })(),
+    );
+    expect(results[0]!.tag).toBe("plugin");
+    expect(results[1]!.tag).toBe("workspace");
+  });
+
+  test("editing a workspace hook file triggers re-import", async () => {
+    const hookFile = join(WORKSPACE_HOOKS_DIR, "post-model-call.ts");
+    writeWorkspaceHook("post-model-call", `export default () => ({ v: 1 });`);
+
+    await populateCacheAtBoot();
+
+    const before = _inspectHookCacheForTests().find((c) =>
+      c.key.startsWith("__workspace__/"),
+    );
+    expect(before).toBeDefined();
+
+    touchFile(hookFile);
+    await getUserHooksFor("post-model-call");
+
+    const after = _inspectHookCacheForTests().find((c) =>
+      c.key.startsWith("__workspace__/"),
+    );
+    expect(after?.sourceMtime).not.toBe(before?.sourceMtime);
+  });
+
+  test("deleting a workspace hook file evicts it on next read", async () => {
+    const hookFile = join(WORKSPACE_HOOKS_DIR, "stop.ts");
+    writeWorkspaceHook("stop", `export default () => ({ v: 1 });`);
+
+    await populateCacheAtBoot();
+    expect(await getUserHooksFor("stop")).toHaveLength(1);
+
+    rmSync(hookFile, { force: true });
+
+    const hooks = await getUserHooksFor("stop");
+    expect(hooks).toHaveLength(0);
+  });
+
+  test("a newly added workspace hook is picked up without restart", async () => {
+    await populateCacheAtBoot();
+    expect(await getUserHooksFor("post-compact")).toHaveLength(0);
+
+    writeWorkspaceHook("post-compact", `export default () => ({ v: 1 });`);
+
+    expect(await getUserHooksFor("post-compact")).toHaveLength(1);
+  });
+
+  test("a workspace init hook runs once at boot", async () => {
+    // The init hook writes a sentinel file so we can observe it ran exactly
+    // once during populateCacheAtBoot.
+    const sentinel = join(ROOT, "ws-init-ran.txt");
+    rmSync(sentinel, { force: true });
+    writeWorkspaceHook(
+      "init",
+      `import { appendFileSync } from "node:fs";
+       export default () => { appendFileSync(${JSON.stringify(sentinel)}, "x"); };`,
+    );
+
+    await populateCacheAtBoot();
+
+    const { readFileSync: rf, existsSync: ex } = await import("node:fs");
+    expect(ex(sentinel)).toBe(true);
+    expect(rf(sentinel, "utf8")).toBe("x");
+  });
+});
+
+// ─── Runtime activation (hot-reload without a daemon restart) ──────────────────
+
+/**
+ * Write a hook that appends `token` to `markerPath` each time it runs, so a
+ * test can count how many times `init`/`shutdown` fired.
+ */
+function writeMarkerHook(
+  dir: string,
+  hookName: string,
+  markerPath: string,
+  token: string,
+): void {
+  writeHook(
+    dir,
+    hookName,
+    `import { appendFileSync } from "node:fs";\nexport default () => { appendFileSync(${JSON.stringify(markerPath)}, ${JSON.stringify(`${token}\n`)}); };`,
+  );
+}
+
+const TOOL_SRC = (name: string) =>
+  `export default { name: ${JSON.stringify(name)}, description: "test", parameters: { type: "object", properties: {} } };`;
+
+/**
+ * Simulate the per-turn plugin hook dispatch that drives runtime reconciliation
+ * in production: any `getUserHooksFor` call runs `scanPlugins`, which activates
+ * newly present plugins and deactivates removed ones. The hook name is
+ * irrelevant — the scan runs regardless of whether a plugin defines that hook.
+ */
+async function triggerScan(): Promise<void> {
+  await getUserHooksFor("user-prompt-submit");
+}
+
+describe("plugin runtime activation", () => {
+  test("a plugin installed after boot becomes live on the next scan", async () => {
+    await populateCacheAtBoot(); // empty plugins dir
+    expect(getAllToolDefinitions().some((t) => t.name === "late-tool")).toBe(
+      false,
+    );
+
+    const dir = freshPluginDir("late-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "late-plugin" });
+    writeTool(dir, "late-tool", TOOL_SRC("late-tool"));
+    const initMarker = join(ROOT, "late-init.log");
+    writeMarkerHook(dir, "init", initMarker, "init");
+
+    await triggerScan();
+
+    // Registered into the global registry as a plugin-owned tool, and exposed
+    // to the per-turn resolver via getPluginToolDefinitions().
+    expect(getToolOwner("late-tool")).toEqual({
+      kind: "plugin",
+      id: "late-plugin",
+    });
+    expect(getAllToolDefinitions().some((t) => t.name === "late-tool")).toBe(
+      true,
+    );
+    expect(getPluginToolDefinitions().some((t) => t.name === "late-tool")).toBe(
+      true,
+    );
+    // init ran exactly once.
+    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
+  });
+
+  test("activation is idempotent — repeated scans do not re-run init", async () => {
+    const dir = freshPluginDir("idem-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "idem-plugin" });
+    writeTool(dir, "idem-tool", TOOL_SRC("idem-tool"));
+    const initMarker = join(ROOT, "idem-init.log");
+    writeMarkerHook(dir, "init", initMarker, "init");
+
+    await populateCacheAtBoot();
+    await triggerScan();
+    await triggerScan();
+
+    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
+    // Registered exactly once (no refcount inflation from re-registration).
+    expect(getToolOwner("idem-tool")).toEqual({
+      kind: "plugin",
+      id: "idem-plugin",
+    });
+  });
+
+  test("removing a plugin directory deactivates it (unregister + shutdown)", async () => {
+    const dir = freshPluginDir("temp-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "temp-plugin" });
+    writeTool(dir, "temp-tool", TOOL_SRC("temp-tool"));
+    const shutdownMarker = join(ROOT, "temp-shutdown.log");
+    writeMarkerHook(dir, "shutdown", shutdownMarker, "bye");
+
+    await populateCacheAtBoot();
+    expect(getToolOwner("temp-tool")?.kind).toBe("plugin");
+
+    rmSync(dir, { recursive: true, force: true });
+    await triggerScan();
+
+    expect(getToolOwner("temp-tool")).toBeUndefined();
+    expect(getPluginToolDefinitions().some((t) => t.name === "temp-tool")).toBe(
+      false,
+    );
+    expect(existsSync(shutdownMarker)).toBe(true);
+  });
+
+  test("a user plugin's shutdown hook is surfaced through the unified hook lookup", async () => {
+    // Plugin `shutdown` hooks fire at daemon shutdown through the same
+    // getHooksFor/runHook pipeline as every other lifecycle hook. Prove the
+    // user-land side is discoverable that way: the plugin's shutdown hook is
+    // returned by the unified per-name lookup and runs when invoked.
+    const dir = freshPluginDir("shutdown-hook-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "shutdown-hook-plugin" });
+    const shutdownMarker = join(ROOT, "user-shutdown.log");
+    writeMarkerHook(dir, "shutdown", shutdownMarker, "bye");
+
+    await populateCacheAtBoot();
+
+    const shutdownHooks = await getUserHooksFor("shutdown");
+    expect(shutdownHooks).toHaveLength(1);
+
+    await shutdownHooks[0]!({ assistantVersion: "test", reason: "shutdown" });
+    expect(existsSync(shutdownMarker)).toBe(true);
+  });
+
+  test("disabling a plugin at runtime tears down its tools", async () => {
+    const dir = freshPluginDir("disable-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "disable-plugin" });
+    writeTool(dir, "disable-tool", TOOL_SRC("disable-tool"));
+
+    await populateCacheAtBoot();
+    expect(getToolOwner("disable-tool")?.kind).toBe("plugin");
+
+    writeFileSync(join(dir, ".disabled"), "");
+    await triggerScan();
+
+    expect(getToolOwner("disable-tool")).toBeUndefined();
   });
 });

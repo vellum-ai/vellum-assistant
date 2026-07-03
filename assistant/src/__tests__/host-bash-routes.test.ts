@@ -95,7 +95,7 @@ afterAll(() => {
 
 const handleHostBashResult = ROUTES.find(
   (r) => r.endpoint === "host-bash-result",
-)!.handler;
+)!.handler as (args: Record<string, unknown>) => Promise<unknown>;
 
 // ── Helpers ──────────────────────────────────────────────────────────
 
@@ -244,22 +244,20 @@ describe("handleHostBashResult", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("interaction is NOT resolved on cross-actor 403 (still pending)", () => {
+    test("interaction is NOT resolved on cross-actor 403 (still pending)", async () => {
       const requestId = "req-actor-mismatch-stays";
       clientActorPrincipals.set("client-abc", "principal-victim");
       registerPending(requestId, { targetClientId: "client-abc" });
 
-      try {
-        handleHostBashResult({
-          body: bashBody(requestId),
-          headers: {
-            "x-vellum-client-id": "client-abc",
-            "x-vellum-actor-principal-id": "principal-attacker",
-          },
-        });
-      } catch {
+      await handleHostBashResult({
+        body: bashBody(requestId),
+        headers: {
+          "x-vellum-client-id": "client-abc",
+          "x-vellum-actor-principal-id": "principal-attacker",
+        },
+      }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);
@@ -278,19 +276,17 @@ describe("handleHostBashResult", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("interaction is NOT resolved when submitting actor is missing (still pending)", () => {
+    test("interaction is NOT resolved when submitting actor is missing (still pending)", async () => {
       const requestId = "req-actor-missing-stays";
       clientActorPrincipals.set("client-abc", "principal-victim");
       registerPending(requestId, { targetClientId: "client-abc" });
 
-      try {
-        handleHostBashResult({
-          body: bashBody(requestId),
-          headers: { "x-vellum-client-id": "client-abc" },
-        });
-      } catch {
+      await handleHostBashResult({
+        body: bashBody(requestId),
+        headers: { "x-vellum-client-id": "client-abc" },
+      }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);
@@ -358,15 +354,13 @@ describe("handleHostBashResult", () => {
       ).toThrow(BadRequestError);
     });
 
-    test("interaction is NOT resolved on 400 (still pending)", () => {
+    test("interaction is NOT resolved on 400 (still pending)", async () => {
       const requestId = "req-targeted-no-header-stays";
       registerPending(requestId, { targetClientId: "client-abc" });
 
-      try {
-        handleHostBashResult({ body: bashBody(requestId) });
-      } catch {
+      await handleHostBashResult({ body: bashBody(requestId) }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);
@@ -388,19 +382,17 @@ describe("handleHostBashResult", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("ForbiddenError message names both the submitting and expected client", () => {
+    test("ForbiddenError message names both the submitting and expected client", async () => {
       const requestId = "req-targeted-mismatch-msg";
       registerPending(requestId, { targetClientId: "client-abc" });
 
       let caught: unknown;
-      try {
-        handleHostBashResult({
-          body: bashBody(requestId),
-          headers: { "x-vellum-client-id": "client-xyz" },
-        });
-      } catch (e) {
+      await handleHostBashResult({
+        body: bashBody(requestId),
+        headers: { "x-vellum-client-id": "client-xyz" },
+      }).catch((e: unknown) => {
         caught = e;
-      }
+      });
 
       expect(caught).toBeInstanceOf(ForbiddenError);
       const msg = (caught as ForbiddenError).message;
@@ -408,18 +400,16 @@ describe("handleHostBashResult", () => {
       expect(msg).toContain("client-abc");
     });
 
-    test("interaction is NOT resolved on 403 (still pending)", () => {
+    test("interaction is NOT resolved on 403 (still pending)", async () => {
       const requestId = "req-targeted-mismatch-stays";
       registerPending(requestId, { targetClientId: "client-abc" });
 
-      try {
-        handleHostBashResult({
-          body: bashBody(requestId),
-          headers: { "x-vellum-client-id": "client-xyz" },
-        });
-      } catch {
+      await handleHostBashResult({
+        body: bashBody(requestId),
+        headers: { "x-vellum-client-id": "client-xyz" },
+      }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);

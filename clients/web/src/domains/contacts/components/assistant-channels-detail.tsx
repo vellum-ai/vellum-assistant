@@ -3,18 +3,67 @@ import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
+import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
-import { Radio, RadioGroup } from "@vellumai/design-library/components/radio";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { DetailCard } from "@/components/detail-card";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
+import { SlackChannelCard } from "@/domains/contacts/components/slack-channel-card";
+import { SlackSetupWizard, type SlackThreadMode, type MutationStatus } from "@/components/slack-setup-wizard";
 import type { AssistantChannelState } from "@/domains/contacts/types";
+import {
+  ADMISSION_POLICY_DEFAULT,
+  ADMISSION_POLICY_VALUES,
+  POLICY_DESCRIPTIONS,
+  POLICY_LABELS,
+  type AdmissionPolicy,
+} from "@/lib/channel-admission-policy/types";
 
-export type SlackThreadMode = "mention_only" | "mention_then_thread";
+export type { SlackThreadMode } from "@/components/slack-setup-wizard";
 
 type ChannelKey = AssistantChannelState["key"];
+
+const TRUST_FLOOR_OPTIONS = ADMISSION_POLICY_VALUES.map((value) => ({
+  value,
+  label: POLICY_LABELS[value],
+  tooltip: POLICY_DESCRIPTIONS[value],
+}));
+
+/**
+ * Floors that loosen or hard-deny who can reach the assistant and warrant an
+ * explicit confirmation before persisting. Floors not listed here apply
+ * immediately. Web-only UI concern — the cross-surface contract lives in
+ * `@/lib/channel-admission-policy/types`.
+ */
+const POLICY_CONFIRMATIONS: Partial<
+  Record<
+    AdmissionPolicy,
+    { title: string; message: string; confirmLabel: string; destructive?: boolean }
+  >
+> = {
+  no_one: {
+    title: "Block all messages?",
+    message:
+      "Setting this channel to “No one” hard-denies every inbound message — including messages from you.\n\nYou can reverse this at any time.",
+    confirmLabel: "Block all",
+    destructive: true,
+  },
+  any_contact: {
+    title: "Allow any contact?",
+    message:
+      "“Any contact” admits every matched contact in this channel — including pending, unverified ones — not just your verified contacts.\n\nBest for channels consisting of only people you already trust.",
+    confirmLabel: "Allow any contact",
+  },
+  strangers: {
+    title: "Allow strangers?",
+    message:
+      "Are you sure you want to allow strangers to contact your assistant through this channel?\n\nDoing so could cost you money and open you up to security and privacy vulnerabilities.\n\nEnable with extreme caution.",
+    confirmLabel: "Allow strangers",
+    destructive: true,
+  },
+};
 
 interface AssistantChannelsDetailProps {
   assistantName: string;
@@ -22,13 +71,27 @@ interface AssistantChannelsDetailProps {
   pendingChannelKey?: ChannelKey | null;
   slackThreadMode?: SlackThreadMode;
   slackThreadModePending?: boolean;
+  /**
+   * Per-channel admission floor, keyed by channel. Omit (or pass no
+   * `onChannelPolicyChange`) to hide the trust-floor control entirely — used
+   * when the `channelTrustFloors` flag is off.
+   */
+  channelPolicies?: Partial<Record<ChannelKey, AdmissionPolicy>>;
+  policySavingKey?: ChannelKey | null;
+  policiesLoading?: boolean;
+  policiesError?: boolean;
+  onChannelPolicyChange?: (channelKey: ChannelKey, policy: AdmissionPolicy) => void;
   onSetup?: (channelKey: ChannelKey) => void;
   onDisconnect?: (channelKey: ChannelKey) => void;
   onSaveTelegramToken?: (botToken: string) => Promise<void>;
-  onSaveSlackConfig?: (botToken: string, appToken: string) => Promise<void>;
+  onSaveSlackConfig?: (botToken: string, appToken: string) => void;
+  slackSaveStatus?: MutationStatus;
+  slackSaveError?: string | null;
   onSlackThreadModeChange?: (mode: SlackThreadMode) => void;
   onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
   onGenerateInviteLink?: () => void;
+  /** Pre-expand a channel on mount (e.g. from a `?setup=slack` deep-link). */
+  initialExpandedChannel?: ChannelKey | null;
 }
 
 const CHANNEL_META: Record<
@@ -61,19 +124,48 @@ export function AssistantChannelsDetail({
   pendingChannelKey = null,
   slackThreadMode,
   slackThreadModePending = false,
+  channelPolicies,
+  policySavingKey = null,
+  policiesLoading = false,
+  policiesError = false,
+  onChannelPolicyChange,
   onSetup,
   onDisconnect,
   onSaveTelegramToken,
   onSaveSlackConfig,
+  slackSaveStatus,
+  slackSaveError,
   onSlackThreadModeChange,
   onSaveTwilioCredentials,
   onGenerateInviteLink,
+  initialExpandedChannel = null,
 }: AssistantChannelsDetailProps) {
   const displayName = assistantName.trim() || "your assistant";
   const [pendingDisconnect, setPendingDisconnect] = useState<ChannelKey | null>(null);
-  const [expandedChannels, setExpandedChannels] = useState<Set<ChannelKey>>(new Set());
+  const [expandedChannels, setExpandedChannels] = useState<Set<ChannelKey>>(
+    () => initialExpandedChannel ? new Set([initialExpandedChannel]) : new Set(),
+  );
+  // Floor confirmation: non-null while a floor in POLICY_CONFIRMATIONS awaits
+  // the user's go-ahead before persisting.
+  const [pendingPolicy, setPendingPolicy] = useState<{
+    channelKey: ChannelKey;
+    policy: AdmissionPolicy;
+  } | null>(null);
 
   const disconnectMeta = pendingDisconnect ? CHANNEL_META[pendingDisconnect] : null;
+  const pendingConfirmation = pendingPolicy
+    ? POLICY_CONFIRMATIONS[pendingPolicy.policy]
+    : null;
+
+  // Floors that loosen or hard-deny access prompt a confirmation before
+  // persisting; every other floor applies immediately.
+  const handlePolicyChange = (channelKey: ChannelKey, next: AdmissionPolicy) => {
+    if (POLICY_CONFIRMATIONS[next]) {
+      setPendingPolicy({ channelKey, policy: next });
+      return;
+    }
+    onChannelPolicyChange?.(channelKey, next);
+  };
 
   const toggleExpanded = (key: ChannelKey) => {
     setExpandedChannels((prev) => {
@@ -110,19 +202,43 @@ export function AssistantChannelsDetail({
               ) : null}
               <ChannelRow
                 channel={channel}
+                assistantName={assistantName}
                 pending={pendingChannelKey === channel.key}
                 expanded={expandedChannels.has(channel.key)}
                 onToggleExpand={() => toggleExpanded(channel.key)}
-                onSetup={onSetup ? () => onSetup(channel.key) : undefined}
+                onSetup={
+                  channel.key === "slack"
+                    ? () => {
+                        setExpandedChannels((prev) => {
+                          const next = new Set(prev);
+                          next.add(channel.key);
+                          return next;
+                        });
+                      }
+                    : onSetup
+                      ? () => onSetup(channel.key)
+                      : undefined
+                }
                 onDisconnect={
                   onDisconnect ? () => setPendingDisconnect(channel.key) : undefined
                 }
                 onSaveTelegramToken={onSaveTelegramToken}
                 onSaveSlackConfig={onSaveSlackConfig}
+                slackSaveStatus={slackSaveStatus}
+                slackSaveError={slackSaveError}
                 slackThreadMode={slackThreadMode}
                 slackThreadModePending={slackThreadModePending}
                 onSlackThreadModeChange={onSlackThreadModeChange}
                 onSaveTwilioCredentials={onSaveTwilioCredentials}
+                policy={channelPolicies?.[channel.key]}
+                policySaving={policySavingKey === channel.key}
+                policyLoading={policiesLoading}
+                policyError={policiesError}
+                onPolicyChange={
+                  onChannelPolicyChange
+                    ? (next) => handlePolicyChange(channel.key, next)
+                    : undefined
+                }
               />
             </div>
           ))}
@@ -145,6 +261,22 @@ export function AssistantChannelsDetail({
         }}
         onCancel={() => setPendingDisconnect(null)}
       />
+
+      {/* Floor confirmation — loosening or hard-denying access needs a nod. */}
+      <ConfirmDialog
+        open={pendingPolicy !== null}
+        title={pendingConfirmation?.title ?? ""}
+        message={pendingConfirmation?.message ?? ""}
+        confirmLabel={pendingConfirmation?.confirmLabel ?? "Confirm"}
+        destructive={pendingConfirmation?.destructive ?? false}
+        onConfirm={() => {
+          if (pendingPolicy) {
+            onChannelPolicyChange?.(pendingPolicy.channelKey, pendingPolicy.policy);
+          }
+          setPendingPolicy(null);
+        }}
+        onCancel={() => setPendingPolicy(null)}
+      />
     </div>
   );
 }
@@ -155,21 +287,30 @@ export function AssistantChannelsDetail({
 
 interface ChannelRowProps {
   channel: AssistantChannelState;
+  assistantName: string;
   pending: boolean;
   expanded: boolean;
   onToggleExpand: () => void;
   onSetup?: () => void;
   onDisconnect?: () => void;
   onSaveTelegramToken?: (botToken: string) => Promise<void>;
-  onSaveSlackConfig?: (botToken: string, appToken: string) => Promise<void>;
+  onSaveSlackConfig?: (botToken: string, appToken: string) => void;
+  slackSaveStatus?: MutationStatus;
+  slackSaveError?: string | null;
   slackThreadMode?: SlackThreadMode;
   slackThreadModePending?: boolean;
   onSlackThreadModeChange?: (mode: SlackThreadMode) => void;
   onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
+  policy?: AdmissionPolicy;
+  policySaving?: boolean;
+  policyLoading?: boolean;
+  policyError?: boolean;
+  onPolicyChange?: (policy: AdmissionPolicy) => void;
 }
 
 function ChannelRow({
   channel,
+  assistantName,
   pending,
   expanded,
   onToggleExpand,
@@ -177,10 +318,17 @@ function ChannelRow({
   onDisconnect,
   onSaveTelegramToken,
   onSaveSlackConfig,
+  slackSaveStatus,
+  slackSaveError,
   slackThreadMode,
   slackThreadModePending = false,
   onSlackThreadModeChange,
   onSaveTwilioCredentials,
+  policy,
+  policySaving = false,
+  policyLoading = false,
+  policyError = false,
+  onPolicyChange,
 }: ChannelRowProps) {
   const meta = CHANNEL_META[channel.key];
   const connected = channel.status === "ready";
@@ -248,33 +396,115 @@ function ChannelRow({
         </div>
       </div>
 
-      {!connected && channel.key === "telegram" && expanded ? (
-        <TelegramCredentialEntry onSave={onSaveTelegramToken} />
-      ) : null}
+      {expanded ? (
+        <div className={connected ? "flex flex-col gap-4" : undefined}>
+          {connected && onPolicyChange ? (
+            <ChannelTrustFloorSection
+              policy={policy}
+              saving={policySaving}
+              loading={policyLoading}
+              error={policyError}
+              onChange={onPolicyChange}
+            />
+          ) : null}
 
-      {!connected && channel.key === "slack" && expanded ? (
-        <SlackCredentialEntry onSave={onSaveSlackConfig} />
-      ) : null}
+          {channel.key === "telegram" ? (
+            <TelegramCredentialEntry onSave={onSaveTelegramToken} />
+          ) : null}
 
-      {!connected && channel.key === "phone" && expanded ? (
-        <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />
-      ) : null}
+          {channel.key === "slack" ? (
+            <SlackChannelCard assistantName={assistantName} connected={connected}>
+              <SlackSetupWizard
+                assistantName={assistantName}
+                connected={connected}
+                onSave={onSaveSlackConfig}
+                saveStatus={slackSaveStatus}
+                saveError={slackSaveError}
+                threadMode={slackThreadMode}
+                threadModePending={slackThreadModePending}
+                onThreadModeChange={onSlackThreadModeChange}
+              />
+            </SlackChannelCard>
+          ) : null}
 
-      {connected && channel.key === "telegram" && expanded ? (
-        <TelegramCredentialEntry onSave={onSaveTelegramToken} />
+          {channel.key === "phone" ? (
+            <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />
+          ) : null}
+        </div>
       ) : null}
+    </div>
+  );
+}
 
-      {connected && channel.key === "slack" && expanded ? (
-        <SlackThreadModeSection
-          threadMode={slackThreadMode}
-          pending={slackThreadModePending}
-          onThreadModeChange={onSlackThreadModeChange}
-        />
-      ) : null}
+// ---------------------------------------------------------------------------
+// Channel Trust Floor
+// ---------------------------------------------------------------------------
 
-      {connected && channel.key === "phone" && expanded ? (
-        <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />
-      ) : null}
+interface ChannelTrustFloorSectionProps {
+  policy?: AdmissionPolicy;
+  saving?: boolean;
+  loading?: boolean;
+  error?: boolean;
+  onChange: (policy: AdmissionPolicy) => void;
+}
+
+function ChannelTrustFloorSection({
+  policy,
+  saving = false,
+  loading = false,
+  error = false,
+  onChange,
+}: ChannelTrustFloorSectionProps) {
+  const value = policy ?? ADMISSION_POLICY_DEFAULT;
+
+  return (
+    <div className="flex flex-col gap-2 pl-7">
+      <Typography
+        as="span"
+        variant="body-small-emphasised"
+        className="text-[color:var(--content-secondary)]"
+      >
+        Who Can Reach
+      </Typography>
+      {loading ? (
+        // Hold off on rendering a concrete floor until the GET succeeds — the
+        // default would otherwise misreport a channel with a stored non-default
+        // (e.g. `no_one`) policy and let the user overwrite it.
+        <Typography
+          as="span"
+          variant="body-small-default"
+          className="text-[color:var(--content-tertiary)]"
+        >
+          Loading…
+        </Typography>
+      ) : error ? (
+        <Typography
+          as="span"
+          variant="body-small-default"
+          className="text-[color:var(--content-negative)]"
+        >
+          Couldn’t load this setting. Try reopening this page.
+        </Typography>
+      ) : (
+        <>
+          <div style={{ maxWidth: 280 }}>
+            <Dropdown<AdmissionPolicy>
+              value={value}
+              onChange={onChange}
+              options={TRUST_FLOOR_OPTIONS}
+              disabled={saving}
+              aria-label="Channel trust floor"
+            />
+          </div>
+          <Typography
+            as="span"
+            variant="body-small-default"
+            className="text-[color:var(--content-tertiary)]"
+          >
+            {POLICY_DESCRIPTIONS[value]}
+          </Typography>
+        </>
+      )}
     </div>
   );
 }
@@ -335,120 +565,6 @@ function TelegramCredentialEntry({ onSave }: TelegramCredentialEntryProps) {
           {saving ? "Saving…" : "Save"}
         </Button>
       </div>
-    </div>
-  );
-}
-
-interface SlackCredentialEntryProps {
-  onSave?: (botToken: string, appToken: string) => Promise<void>;
-}
-
-function SlackCredentialEntry({ onSave }: SlackCredentialEntryProps) {
-  const [botToken, setBotToken] = useState("");
-  const [appToken, setAppToken] = useState("");
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const canSave = botToken.trim().length > 0 && appToken.trim().length > 0 && !saving;
-
-  const handleSave = async () => {
-    if (!onSave || !canSave) {
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      await onSave(botToken.trim(), appToken.trim());
-      setBotToken("");
-      setAppToken("");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="flex flex-col gap-3 pl-7">
-      <Input
-        label="Bot Token"
-        type="password"
-        value={botToken}
-        onChange={(e) => setBotToken(e.target.value)}
-        placeholder="xoxb-..."
-        disabled={saving}
-        fullWidth
-      />
-      <Input
-        label="App Token"
-        type="password"
-        value={appToken}
-        onChange={(e) => setAppToken(e.target.value)}
-        placeholder="xapp-..."
-        disabled={saving}
-        fullWidth
-      />
-      {error ? (
-        <p className="text-label-small" style={{ color: "var(--content-negative)" }}>
-          {error}
-        </p>
-      ) : null}
-      <div>
-        <Button
-          type="button"
-          onClick={handleSave}
-          disabled={!canSave}
-        >
-          {saving ? "Saving…" : "Save"}
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Slack Thread Mode
-// ---------------------------------------------------------------------------
-
-interface SlackThreadModeSectionProps {
-  threadMode?: SlackThreadMode;
-  pending?: boolean;
-  onThreadModeChange?: (mode: SlackThreadMode) => void;
-}
-
-function SlackThreadModeSection({
-  threadMode,
-  pending = false,
-  onThreadModeChange,
-}: SlackThreadModeSectionProps) {
-  const mode = threadMode ?? "mention_only";
-
-  return (
-    <div className="flex flex-col gap-3 pl-7">
-      <Typography
-        as="span"
-        variant="body-small-emphasised"
-        className="text-[color:var(--content-secondary)]"
-      >
-        Thread Behavior
-      </Typography>
-      <RadioGroup<SlackThreadMode>
-        value={mode}
-        onValueChange={(next) => onThreadModeChange?.(next)}
-        disabled={pending || !onThreadModeChange}
-        aria-label="Slack thread behavior"
-      >
-        <Radio<SlackThreadMode>
-          value="mention_only"
-          label="Mentions only"
-          helperText="Bot only responds when @mentioned."
-        />
-        <Radio<SlackThreadMode>
-          value="mention_then_thread"
-          label="Follow threads after first mention"
-          helperText="After an @mention in a thread, bot listens to all subsequent replies."
-        />
-      </RadioGroup>
     </div>
   );
 }

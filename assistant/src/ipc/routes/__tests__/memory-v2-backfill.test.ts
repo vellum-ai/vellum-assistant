@@ -17,7 +17,7 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
-import * as realJobsStore from "../../../memory/jobs-store.js";
+import * as realJobsStore from "../../../persistence/jobs-store.js";
 
 // ---------------------------------------------------------------------------
 // Module-level mock — capture every enqueue call so each test can assert the
@@ -37,7 +37,7 @@ let nextJobId = 0;
 // only `enqueueMemoryJob` is overridden so the route under test forwards
 // to the test stub. jobs-store.ts has no side-effecting top-level
 // statements, so loading it for the spread is safe.
-mock.module("../../../memory/jobs-store.js", () => ({
+mock.module("../../../persistence/jobs-store.js", () => ({
   ...realJobsStore,
   enqueueMemoryJob: (type: string, payload: Record<string, unknown>) => {
     enqueueCalls.push({ type, payload });
@@ -59,7 +59,7 @@ mock.module("../../../memory/jobs-store.js", () => ({
 }));
 
 const { ROUTES: memoryV2Routes } =
-  await import("../../../runtime/routes/memory-v2-routes.js");
+  await import("../../../plugins/defaults/memory/routes/memory-v2-routes.js");
 
 // ---------------------------------------------------------------------------
 // Helpers

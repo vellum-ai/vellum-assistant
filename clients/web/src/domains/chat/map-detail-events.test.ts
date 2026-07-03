@@ -81,6 +81,33 @@ describe("mapDetailEvents", () => {
     expect(mapDetailEvents([])).toEqual([]);
   });
 
+  it("carries toolUseId and raw input through to timeline events", () => {
+    const raw: SubagentDetailEvent[] = [
+      {
+        type: "tool_use",
+        content: '{"command":"ls -la"}',
+        toolName: "bash",
+        toolUseId: "toolu_1",
+        input: { command: "ls -la" },
+      },
+      {
+        type: "tool_result",
+        content: "total 0",
+        toolName: "bash",
+        toolUseId: "toolu_1",
+      },
+    ];
+    const events = mapDetailEvents(raw);
+
+    expect(events[0]!.type).toBe("tool_call");
+    expect(events[0]!.toolUseId).toBe("toolu_1");
+    expect(events[0]!.input).toEqual({ command: "ls -la" });
+    expect(events[1]!.type).toBe("tool_result");
+    expect(events[1]!.toolUseId).toBe("toolu_1");
+    // result rides in content; buildSubagentStepDetails falls back to it.
+    expect(events[1]!.content).toBe("total 0");
+  });
+
   it("generates sequential detail-N ids", () => {
     const raw: SubagentDetailEvent[] = [
       { type: "tool_use", content: "a", toolName: "t" },

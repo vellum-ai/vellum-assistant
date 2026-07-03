@@ -24,6 +24,16 @@ let lastConstructorOptions: Record<string, unknown> | null = null;
 let shouldThrow: Error | null = null;
 const DEFAULT_SDK_TIMEOUT_MS = 1_860_000;
 
+// Each provider installs a `fetch` wrapper to capture raw error bodies, so the
+// constructor options carry a `fetch` function; assert the meaningful options
+// via objectContaining and confirm `fetch` is wired.
+function expectOpenAIConstructorOptions(
+  expected: Record<string, unknown>,
+): void {
+  expect(lastConstructorOptions).toEqual(expect.objectContaining(expected));
+  expect(typeof lastConstructorOptions?.fetch).toBe("function");
+}
+
 // Simulate OpenAI.APIError
 class FakeAPIError extends Error {
   status: number;
@@ -77,6 +87,10 @@ import { OpenAIResponsesProvider } from "../providers/openai/responses-provider.
 
 function textDeltaEvent(delta: string): FakeStreamEvent {
   return { type: "response.output_text.delta", delta };
+}
+
+function userMsg(text: string): Message {
+  return { role: "user", content: [{ type: "text", text }] };
 }
 
 function functionCallAddedEvent(
@@ -218,7 +232,7 @@ describe("OpenAIResponsesProvider", () => {
       providerLabel: "Managed OpenAI",
     });
 
-    expect(lastConstructorOptions).toEqual({
+    expectOpenAIConstructorOptions({
       apiKey: "sk-custom",
       baseURL: "https://proxy.example.com/v1",
       timeout: DEFAULT_SDK_TIMEOUT_MS,
@@ -230,7 +244,7 @@ describe("OpenAIResponsesProvider", () => {
       streamTimeoutMs: 300_000,
     });
 
-    expect(lastConstructorOptions).toEqual({
+    expectOpenAIConstructorOptions({
       apiKey: "sk-custom",
       baseURL: undefined,
       timeout: 360_000,
@@ -383,6 +397,42 @@ describe("OpenAIResponsesProvider", () => {
       name: "file_read",
       input: { path: "/tmp/test" },
     });
+  });
+
+  test("fires tool preview and argument progress events while tool calls stream", async () => {
+    fakeStreamEvents = [
+      functionCallAddedEvent("call_write", "app_create"),
+      functionCallArgsDeltaEvent(
+        '{"source_files":[{"path":"src/App.tsx","content":"hello"}]}',
+        "call_write",
+      ),
+      functionCallArgsDoneEvent(
+        "call_write",
+        "app_create",
+        '{"source_files":[{"path":"src/App.tsx","content":"hello"}]}',
+      ),
+      completedEvent(10, 15),
+    ];
+
+    const events: ProviderEvent[] = [];
+    await provider.sendMessage([userMsg("Create an app")], {
+      onEvent: (e) => events.push(e),
+    });
+
+    expect(events.slice(0, 2)).toEqual([
+      {
+        type: "tool_use_preview_start",
+        toolUseId: "call_write",
+        toolName: "app_create",
+      },
+      {
+        type: "input_json_delta",
+        toolUseId: "call_write",
+        toolName: "app_create",
+        accumulatedJson:
+          '{"source_files":[{"path":"src/App.tsx","content":"hello"}]}',
+      },
+    ]);
   });
 
   // -----------------------------------------------------------------------

@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createRef } from "react";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
-import type { ChatAttachment } from "@/domains/chat/composer-store";
+import { type ChatAttachment, useComposerStore } from "@/domains/chat/composer-store";
 import type { VoiceInputButtonHandle } from "@/domains/chat/components/voice-input-button";
 import { INITIAL_TURN_STATE, useTurnStore } from "@/domains/chat/turn-store";
 
@@ -25,6 +25,7 @@ import {
   computeGhostSuffix,
   shouldSubmitOnEnter,
 } from "@/domains/chat/components/chat-composer/chat-composer-utils";
+import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 
 let mockIsMobile = false;
 mock.module("@/hooks/use-is-mobile", () => ({
@@ -230,6 +231,20 @@ describe("shouldSubmitOnEnter — guards still preventDefault but skip submit", 
       shouldSubmitOnEnter(ENTER, false, {
         input: "",
         canSendAttachments: true,
+        hasStagedQuotes: false,
+        sendDisabled: false,
+        attachmentsUploadingCount: 0,
+        cmdEnterMode: false,
+      }),
+    ).toBe("submit");
+  });
+
+  test("input is empty but staged quote context is ready", () => {
+    expect(
+      shouldSubmitOnEnter(ENTER, false, {
+        input: "",
+        canSendAttachments: false,
+        hasStagedQuotes: true,
         sendDisabled: false,
         attachmentsUploadingCount: 0,
         cmdEnterMode: false,
@@ -400,27 +415,90 @@ describe("computeGhostSuffix", () => {
 // ---------------------------------------------------------------------------
 
 afterEach(cleanup);
-beforeEach(resetLiveVoiceMocks);
+beforeEach(() => {
+  resetLiveVoiceMocks();
+  // The composer self-sources its draft + attachments from the store; reset
+  // them between tests so seeded values can't leak across cases.
+  useComposerStore.setState({
+    input: "",
+    attachments: [],
+    attachmentLastError: null,
+    restoredDraftConversationId: null,
+  });
+  useQuoteReplyStore.setState({
+    stagedQuotes: [],
+    replyBubble: null,
+  });
+});
 
-function renderComposer(props: Partial<Parameters<typeof ChatComposer>[0]> = {}) {
+/**
+ * Build a composer-store `attachments` array from the test's intent. The
+ * composer derives uploading-count and can-send from the real list, so seeding
+ * the list exercises the real derivation rather than injecting the booleans.
+ */
+function seedAttachments(
+  uploadingCount = 0,
+  canSend = false,
+): ChatAttachment[] {
+  const list: ChatAttachment[] = [];
+  for (let i = 0; i < uploadingCount; i++) {
+    list.push({
+      kind: "uploading",
+      localId: `uploading-${i}`,
+      filename: "file",
+      mimeType: "text/plain",
+      sizeBytes: 1,
+    });
+  }
+  if (canSend) {
+    list.push({
+      kind: "uploaded",
+      localId: "uploaded-0",
+      id: "att-id-0",
+      filename: "file",
+      mimeType: "text/plain",
+      sizeBytes: 1,
+      previewUrl: null,
+    });
+  }
+  return list;
+}
+
+function renderComposer(
+  props: Partial<Parameters<typeof ChatComposer>[0]> & {
+    input?: string;
+    chatAttachments?: ChatAttachment[];
+    attachmentsUploadingCount?: number;
+    canSendAttachments?: boolean;
+  } = {},
+) {
+  // The composer self-sources its draft + attachments from the store, so seed
+  // them there rather than passing them as props.
+  const {
+    input = "",
+    chatAttachments,
+    attachmentsUploadingCount,
+    canSendAttachments,
+    ...rest
+  } = props;
+  useComposerStore.setState({
+    input,
+    attachments:
+      chatAttachments ??
+      seedAttachments(attachmentsUploadingCount, canSendAttachments),
+  });
   const { container } = render(
     <ChatComposer
-      input=""
-      setInput={() => {}}
       placeholder="Custom placeholder"
       onSubmit={() => {}}
       inputRef={createRef<HTMLTextAreaElement>()}
       typingDisabled={false}
       sendDisabled={false}
-      attachmentsUploadingCount={0}
-      canSendAttachments={false}
-      chatAttachments={[]}
       onAddAttachmentFiles={() => {}}
-      onRemoveAttachment={() => {}}
       onStopGenerating={() => {}}
       canStopGenerating={false}
       assistantId="asst_test"
-      {...props}
+      {...rest}
     />,
   );
   return container.innerHTML;
@@ -525,6 +603,21 @@ describe("ChatComposer — disabled submit guard", () => {
   test("empty input + no attachments disables the submit button", () => {
     const html = renderComposer({ input: "", canSendAttachments: false });
     expect(sendButtonHasDisabledAttr(html)).toBe(true);
+  });
+
+  test("empty input with staged quote context leaves the submit button enabled", () => {
+    useQuoteReplyStore.setState({
+      stagedQuotes: [
+        {
+          id: "quote-1",
+          quotedText: "quoted context",
+          replyText: "use this context",
+          sourceMessageId: "msg-1",
+        },
+      ],
+    });
+    const html = renderComposer({ input: "", canSendAttachments: false });
+    expect(sendButtonHasDisabledAttr(html)).toBe(false);
   });
 
   test("ready (input + not disabled + nothing uploading) leaves the button enabled", () => {
@@ -642,28 +735,24 @@ describe("Slash popup — SSR rendering", () => {
 
 /** Render the composer with the dictation voice props supplied. */
 function renderVoiceComposer(
-  props: Partial<Parameters<typeof ChatComposer>[0]> = {},
+  props: Partial<Parameters<typeof ChatComposer>[0]> & { input?: string } = {},
 ) {
+  const { input = "", ...rest } = props;
+  useComposerStore.setState({ input, attachments: [] });
   return render(
     <ChatComposer
-      input=""
-      setInput={() => {}}
       onSubmit={() => {}}
       inputRef={createRef<HTMLTextAreaElement>()}
       typingDisabled={false}
       sendDisabled={false}
-      attachmentsUploadingCount={0}
-      canSendAttachments={false}
-      chatAttachments={[]}
       onAddAttachmentFiles={() => {}}
-      onRemoveAttachment={() => {}}
       onStopGenerating={() => {}}
       canStopGenerating={false}
       assistantId="asst_test"
       conversationId="conv_test"
       voiceInputRef={createRef<VoiceInputButtonHandle>()}
       onVoiceTranscript={() => {}}
-      {...props}
+      {...rest}
     />,
   );
 }

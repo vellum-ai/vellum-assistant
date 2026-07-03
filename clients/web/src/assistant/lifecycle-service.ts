@@ -229,6 +229,13 @@ class AssistantLifecycleService {
    */
   async respondToInputs(): Promise<void> {
     if (!this.ready) return;
+    // Check gateway auth before the unauthenticated-reset below: local (gateway)
+    // and platform are independent authorities, so a platform-session loss that
+    // flips `sessionStatus` must not tear down a gateway-driven local lifecycle.
+    if (isGatewayAuthMode()) {
+      this.applyGatewayAuthShortCircuit();
+      return;
+    }
     if (!isAuthenticated(this.inputs.sessionStatus)) {
       // Logout / pre-auth boot — same reset as `resetForLogout` but
       // reachable from the input-driven path for token-expiry style
@@ -237,10 +244,6 @@ class AssistantLifecycleService {
       return;
     }
 
-    if (isGatewayAuthMode()) {
-      this.applyGatewayAuthShortCircuit();
-      return;
-    }
     if (this.inputs.hasPlatformSession) {
       setSelfHostedConnection(null);
     }
@@ -623,36 +626,49 @@ class AssistantLifecycleService {
     this.reachabilityProbeInFlightIds.add(assistantId);
     try {
       const generation = this.generation;
-      let health: LocalAssistantHealth;
-      try {
-        health = deriveLocalAssistantHealth(
-          await getAssistantHealthz(assistantId),
-        );
-      } catch {
-        health = "unreachable";
+      const isLocalLifecycleState =
+        this.state.kind === "self_hosted" ||
+        (this.state.kind === "active" && this.state.isLocal);
+      const localStatusAssistantId = isLocalLifecycleState
+        ? (getSelectedAssistant()?.assistantId ?? assistantId)
+        : assistantId;
+      let localStatus = !isRemoteGatewayMode() && isLocalLifecycleState
+        ? await getLocalAssistantStatusHost(localStatusAssistantId).catch(
+            () => null,
+          )
+        : null;
+      let health: LocalAssistantHealth =
+        localStatus?.ok && localStatus.state === "upgrading"
+          ? "upgrading"
+          : "unreachable";
+
+      if (health !== "upgrading") {
+        try {
+          health = deriveLocalAssistantHealth(
+            await getAssistantHealthz(assistantId),
+          );
+        } catch {
+          health = "unreachable";
+        }
       }
-      if (health === "unreachable" && !isRemoteGatewayMode()) {
-        const localStatusAssistantId =
-          this.state.kind === "self_hosted" ||
-          (this.state.kind === "active" && this.state.isLocal)
-            ? (getSelectedAssistant()?.assistantId ?? assistantId)
-            : assistantId;
-        const localStatus = await getLocalAssistantStatusHost(
+      if (health === "unreachable" && !localStatus && !isRemoteGatewayMode()) {
+        localStatus = await getLocalAssistantStatusHost(
           localStatusAssistantId,
         ).catch(() => null);
-        if (localStatus?.ok) {
-          switch (localStatus.state) {
-            case "healthy":
-              health = "healthy";
-              break;
-            case "sleeping":
-            case "starting":
-            case "crashed":
-              health = localStatus.state;
-              break;
-            case "unknown":
-              break;
-          }
+      }
+      if (health === "unreachable" && localStatus?.ok) {
+        switch (localStatus.state) {
+          case "healthy":
+            health = "healthy";
+            break;
+          case "sleeping":
+          case "starting":
+          case "upgrading":
+          case "crashed":
+            health = localStatus.state;
+            break;
+          case "unknown":
+            break;
         }
       }
       if (generation !== this.generation) return;
@@ -783,6 +799,33 @@ class AssistantLifecycleService {
       return;
     }
     this.startProbeLoop(assistantId);
+  }
+
+  setLocalAssistantUpgradeInProgress(
+    assistantId: string,
+    inProgress: boolean,
+  ): void {
+    const activeAssistantId =
+      useResolvedAssistantsStore.getState().activeAssistantId;
+    if (activeAssistantId !== assistantId) return;
+
+    if (!inProgress) {
+      void this.probeReachability(assistantId);
+      return;
+    }
+
+    if (this.state.kind === "self_hosted") {
+      this.transition({ ...this.state, health: "upgrading" });
+      return;
+    }
+
+    if (this.state.kind === "active" && this.state.isLocal) {
+      this.transition({
+        ...this.state,
+        reachable: false,
+        health: "upgrading",
+      });
+    }
   }
 
   /**

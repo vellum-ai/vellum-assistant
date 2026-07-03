@@ -111,6 +111,7 @@ describe("getBuilderManagedEnvKeys", () => {
 describe("buildServiceRunArgs extra env routing", () => {
   const opts: BuildServiceRunArgsOpts = {
     gatewayPort: 18080,
+    assistantPort: 18081,
     imageTags: {
       assistant: "assistant:test",
       gateway: "gateway:test",

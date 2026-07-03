@@ -5,7 +5,11 @@ import { rmSync } from "node:fs";
 import type http from "node:http";
 import path from "node:path";
 import { defineConfig, loadEnv } from "vite";
-import { localModePlugin } from "./vite-plugin-local-mode";
+import {
+  localModePlugin,
+  getDevPlatformToken,
+  isSameOriginProxyRequest,
+} from "./vite-plugin-local-mode";
 
 const DESIGN_LIBRARY_SRC = path.resolve(
   import.meta.dirname,
@@ -19,23 +23,43 @@ function isPlatformMode(raw: string | undefined): boolean {
 }
 
 /**
- * Proxy configure hook that rewrites the localhost `sessionid` cookie
- * into both `sessionid` and `__Secure-sessionid` so the platform's
- * Django session middleware recognises it regardless of which cookie
- * name is configured (dev vs production).
+ * Proxy configure hook (local mode) that authenticates upstream requests with
+ * the loopback platform session token the SPA registered. No browser cookie is
+ * involved.
  *
- * Only used in local mode — platform mode proxies without rewriting.
+ * The DRF API (`/v1`) authenticates by header (X-Session-Token); sending a
+ * `sessionid` cookie would engage Django's SessionAuthentication, which enforces
+ * CSRF and rejects unsafe (POST/PUT/PATCH) requests when the proxy can't supply
+ * a matching Origin/Referer. The allauth / accounts session endpoints need the
+ * Django session cookie instead.
  */
-function forwardSessionCookie(proxy: { on: (event: string, cb: (...args: unknown[]) => void) => void }): void {
-  proxy.on("proxyReq", (...args: unknown[]) => {
-    const proxyReq = args[0] as http.ClientRequest;
-    const req = args[1] as http.IncomingMessage;
-    const cookie = req.headers.cookie ?? "";
-    const match = /sessionid=([^;]+)/.exec(cookie);
-    if (match?.[1]) {
-      proxyReq.setHeader("Cookie", `sessionid=${match[1]}; __Secure-sessionid=${match[1]}`);
-    }
-  });
+function injectPlatformToken(apiMode: boolean) {
+  return (proxy: {
+    on: (event: string, cb: (...args: unknown[]) => void) => void;
+  }): void => {
+    proxy.on("proxyReq", (...args: unknown[]) => {
+      const proxyReq = args[0] as http.ClientRequest;
+      const req = args[1] as http.IncomingMessage;
+      if (!isSameOriginProxyRequest(req)) return;
+      const token = getDevPlatformToken();
+      if (apiMode) {
+        // Header-only auth; drop any browser cookie so it can't re-engage the
+        // session-cookie (CSRF-enforcing) path.
+        proxyReq.removeHeader("Cookie");
+        // Server-side proxy injection of the loopback token, not browser auth —
+        // the centralized interceptor can't reach this Node proxy hook.
+        // eslint-disable-next-line no-restricted-syntax
+        if (token) proxyReq.setHeader("X-Session-Token", token);
+        return;
+      }
+      if (token) {
+        proxyReq.setHeader(
+          "Cookie",
+          `sessionid=${token}; __Secure-sessionid=${token}`,
+        );
+      }
+    });
+  };
 }
 
 // Reference: https://vite.dev/config/#using-environment-variables-in-config
@@ -46,17 +70,22 @@ export default defineConfig(({ mode }) => {
   // Server-only proxy targets — never embedded in the client bundle.
   // Reference: https://vite.dev/config/server-options#server-proxy
   const apiProxyTarget = env.API_PROXY_TARGET || "http://localhost:8000";
-  const gatewayProxyTarget = env.GATEWAY_PROXY_TARGET || "http://localhost:7830";
+  const gatewayProxyTarget =
+    env.GATEWAY_PROXY_TARGET || "http://localhost:7830";
 
   // Only enable Sentry source map upload for deploy builds.
   // Reference: https://docs.sentry.io/platforms/javascript/guides/react/sourcemaps/uploading/vite/
   const sentryUploadEnabled = env.SENTRY_UPLOAD_SOURCE_MAPS === "true";
   if (sentryUploadEnabled && !env.SENTRY_AUTH_TOKEN) {
-    throw new Error("SENTRY_AUTH_TOKEN is required to upload Sentry source maps.");
+    throw new Error(
+      "SENTRY_AUTH_TOKEN is required to upload Sentry source maps.",
+    );
   }
   if (sentryUploadEnabled) {
     if (!env.VITE_APP_VERSION) {
-      throw new Error("VITE_APP_VERSION is required to upload Sentry source maps.");
+      throw new Error(
+        "VITE_APP_VERSION is required to upload Sentry source maps.",
+      );
     }
   }
 
@@ -70,6 +99,20 @@ export default defineConfig(({ mode }) => {
         org: env.SENTRY_ORG || "vellum",
         project: env.SENTRY_PROJECT || "vellum-assistant-web",
         authToken: env.SENTRY_AUTH_TOKEN,
+        // The plugin fails the build by default when a source-map upload errors.
+        // Builds that set SENTRY_ALLOW_UPLOAD_FAILURE (the Electron release /
+        // dev-release packaging) downgrade that to a warning, so a Sentry outage
+        // or auth-token scope miss ships an unsymbolicated build rather than
+        // breaking the release. Builds without the flag (the web SPA deploy) keep
+        // failing fast so a missing upload is caught before shipping.
+        ...(env.SENTRY_ALLOW_UPLOAD_FAILURE === "true"
+          ? {
+              errorHandler: (err: Error) =>
+                console.warn(
+                  `[sentry-vite-plugin] source map upload failed: ${err.message}`,
+                ),
+            }
+          : {}),
         release: {
           name: env.VITE_APP_VERSION,
           inject: false,
@@ -129,14 +172,29 @@ export default defineConfig(({ mode }) => {
         allow: [import.meta.dirname, DESIGN_LIBRARY_SRC],
       },
       proxy: {
-        ...(isPlatformMode(env.VITE_PLATFORM_MODE) ? {
-          "/v1": { target: apiProxyTarget, changeOrigin: true },
-          "/_allauth": { target: apiProxyTarget, changeOrigin: true },
-        } : {
-          "/v1": { target: apiProxyTarget, changeOrigin: true, configure: forwardSessionCookie },
-          "/_allauth": { target: apiProxyTarget, changeOrigin: true, configure: forwardSessionCookie },
-        }),
-        "/accounts": { target: apiProxyTarget, changeOrigin: true },
+        ...(isPlatformMode(env.VITE_PLATFORM_MODE)
+          ? {
+              "/v1": { target: apiProxyTarget, changeOrigin: true },
+              "/_allauth": { target: apiProxyTarget, changeOrigin: true },
+              "/accounts": { target: apiProxyTarget, changeOrigin: true },
+            }
+          : {
+              "/v1": {
+                target: apiProxyTarget,
+                changeOrigin: true,
+                configure: injectPlatformToken(true),
+              },
+              "/_allauth": {
+                target: apiProxyTarget,
+                changeOrigin: true,
+                configure: injectPlatformToken(false),
+              },
+              "/accounts": {
+                target: apiProxyTarget,
+                changeOrigin: true,
+                configure: injectPlatformToken(false),
+              },
+            }),
         "/auth": { target: gatewayProxyTarget, changeOrigin: true },
       },
     },

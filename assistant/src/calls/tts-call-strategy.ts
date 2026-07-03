@@ -1,24 +1,24 @@
 /**
  * Explicit call-path strategy for TTS providers.
  *
- * Determines how a TTS provider integrates with the Twilio
- * ConversationRelay call path by reading the provider's `callMode` from
- * the canonical catalog rather than inferring behavior from runtime
- * capabilities like `supportsStreaming`.
+ * Determines how a TTS provider integrates with the telephony call path
+ * by reading the provider's `callMode` from the canonical catalog rather
+ * than inferring behavior from runtime capabilities like
+ * `supportsStreaming`.
  *
  * Two strategies exist:
  *
- * - **native-twilio** -- Twilio handles TTS natively via
- *   ConversationRelay. The profile needs a real `ttsProvider` name
- *   (e.g. `"ElevenLabs"`) and a provider-specific voice spec string.
- *   New native providers plug in by registering a
- *   {@link NativeTwilioVoiceSpecBuilder} -- no edits to the core call
- *   routing logic required.
+ * - **native-twilio** -- the text-token path: spoken text is sent via
+ *   `sendTextToken()`, which the media-stream transport re-synthesizes
+ *   through daemon TTS. The profile carries a real `ttsProvider` name
+ *   (e.g. `"ElevenLabs"`) and a provider-specific voice spec string built
+ *   by a registered {@link NativeTwilioVoiceSpecBuilder}.
  *
- * - **synthesized-play** -- The assistant synthesises audio and streams
- *   chunks to Twilio via `play` messages. The profile uses a
- *   placeholder TTS provider (`"Google"`) and an empty voice string
- *   because Twilio never drives TTS itself on this path.
+ * - **synthesized-play** -- The assistant synthesises audio via the
+ *   provider API and streams it through the audio store / `sendPlayUrl()`
+ *   path. The profile still carries a valid native fallback voice
+ *   (see `resolveVoiceQualityProfile`) so a mid-call synthesis failure can
+ *   degrade to the text-token path.
  *
  * @module
  */
@@ -36,15 +36,14 @@ import type { TtsCallMode, TtsProviderId } from "../tts/types.js";
  * Builds the provider-specific voice spec string for a native Twilio
  * provider.
  *
- * The returned string is used as the `voice` attribute in the
- * ConversationRelay TwiML element. Its format is provider-specific --
- * e.g. ElevenLabs uses `voiceId-modelId-speed_stability_similarity`.
+ * The returned string is used as Twilio's TTS `voice` attribute. Its
+ * format is provider-specific -- e.g. ElevenLabs uses
+ * `voiceId-modelId-speed_stability_similarity`.
  *
  * @param providerConfig - Provider-specific config block from
  *   `services.tts.providers.<id>`.
- * @returns The voice spec string for the ConversationRelay `voice`
- *   attribute, or an empty string if the provider has no voice to
- *   specify.
+ * @returns The voice spec string for Twilio's TTS `voice` attribute, or
+ *   an empty string if the provider has no voice to specify.
  */
 export type NativeTwilioVoiceSpecBuilder = (
   providerConfig: Record<string, unknown>,

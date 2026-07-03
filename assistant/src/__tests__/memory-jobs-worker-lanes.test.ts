@@ -67,7 +67,7 @@ const completions: CompletionRecord[] = [];
 // job completes before any slow job — a single 200ms window is plenty.
 const SLOW_DELAY_MS = 200;
 
-mock.module("../memory/graph/consolidation.js", () => ({
+mock.module("../plugins/defaults/memory/graph/consolidation.js", () => ({
   runConsolidation: async (
     scopeId: string,
   ): Promise<{
@@ -87,7 +87,7 @@ mock.module("../memory/graph/consolidation.js", () => ({
 
 // Fast-lane handler: resolves on the next microtask. The test fires this
 // many times in parallel; nothing should block.
-mock.module("../memory/v2/backfill-jobs.js", () => ({
+mock.module("../plugins/defaults/memory/v2/backfill-jobs.js", () => ({
   memoryV2ActivationRecomputeJob: async (job: {
     payload: { scopeId?: string };
   }): Promise<number> => {
@@ -106,19 +106,21 @@ mock.module("../memory/v2/backfill-jobs.js", () => ({
 // in transitively through jobs-worker's eager imports. These aren't strictly
 // required if the host machine can resolve them, but mocking them keeps the
 // test hermetic and fast under `bun test`.
-mock.module("../memory/db-maintenance.js", () => ({
+mock.module("../persistence/db-maintenance.js", () => ({
   maybeRunDbMaintenance: () => {},
 }));
 
-import { getMemoryDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { enqueueMemoryJob } from "../memory/jobs-store.js";
-import { runMemoryJobsOnce } from "../memory/jobs-worker.js";
-import { _resetQdrantBreaker } from "../memory/qdrant-circuit-breaker.js";
-import { memoryJobs } from "../memory/schema.js";
+import { getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { _resetQdrantBreaker } from "../persistence/embeddings/qdrant-circuit-breaker.js";
+import { enqueueMemoryJob } from "../persistence/jobs-store.js";
+import { runMemoryJobsOnce } from "../persistence/jobs-worker.js";
+import { memoryJobs } from "../persistence/schema/index.js";
+import { registerMemoryPluginJobHandlers } from "../plugins/defaults/memory/job-handler-registration.js";
 
 describe("memory jobs worker lane scheduling", () => {
   beforeAll(async () => {
+    registerMemoryPluginJobHandlers();
     await initializeDb();
   });
 

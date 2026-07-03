@@ -98,17 +98,13 @@ export function AccessConsentSetting() {
       <div className="flex items-start justify-between gap-4">
         <div className="flex-1">
           <div className="text-body-medium-default text-[var(--content-default)]">
-            Allow admin access to assistant data
+            Allow Staff Access
           </div>
           <p className="mt-1 text-body-small-default text-[var(--content-tertiary)]">
-            Lets Vellum administrators reach privileged data on your assistant
-            pod for debugging — today this means tailing the daily assistant log
-            at{" "}
-            <code className="rounded bg-[var(--surface-base)] px-1.5 font-mono text-[var(--content-secondary)] dark:bg-[var(--surface-lift)] dark:text-[var(--content-default)]">
-              /workspace/data/logs/assistant-YYYY-MM-DD.log
-            </code>
-            . Off by default. Turn on temporarily when asking support to
-            investigate an issue, then turn off when you&apos;re done.
+            When enabled, Vellum Staff will be able to access your assistant
+            and its data for debugging purposes. It&apos;s suggested that you
+            leave this off and only turn it on temporarily if you need Vellum
+            Support&apos;s help in investigating an issue.
           </p>
           {platformGate === "full" && isError && (
             <p className="mt-1 text-body-small-default text-[var(--system-negative-strong)]">

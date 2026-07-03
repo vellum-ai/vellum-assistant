@@ -42,12 +42,6 @@ mock.module("../oauth/credential-token-resolver.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
-import { getSqliteFrom } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { migrateOAuthProvidersTokenAuthMethodDefault } from "../memory/migrations/216-oauth-providers-token-auth-method.js";
-import { resetTestTables } from "../memory/raw-query.js";
-import { oauthProviders } from "../memory/schema/oauth.js";
 import {
   createConnection,
   deleteApp,
@@ -69,6 +63,12 @@ import {
   upsertApp,
 } from "../oauth/oauth-store.js";
 import { seedOAuthProviders } from "../oauth/seed-providers.js";
+import { getDb } from "../persistence/db-connection.js";
+import { getSqliteFrom } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { migrateOAuthProvidersTokenAuthMethodDefault } from "../persistence/migrations/216-oauth-providers-token-auth-method.js";
+import { resetTestTables } from "../persistence/raw-query.js";
+import { oauthProviders } from "../persistence/schema/oauth.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { getMockFetchCalls, mockFetch, resetMockFetch } from "./mock-fetch.js";
 

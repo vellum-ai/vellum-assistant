@@ -55,8 +55,38 @@ mock.module("../runtime/gateway-client.js", () => ({
   },
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+// Guardian identity resolves via the gateway delivery reader, not the local
+// contacts DB. Seed it to mirror the createGuardianBinding calls below.
+interface GatewayGuardian {
+  channelType: string;
+  contactId: string;
+  principalId?: string | null;
+  displayName?: string | null;
+  address: string;
+  externalChatId?: string | null;
+  status: string;
+  verifiedAt?: number | null;
+}
+let gatewayGuardians: GatewayGuardian[] = [];
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => gatewayGuardians,
+  guardianForChannel: (list: GatewayGuardian[], channelType: string) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
+function seedGatewayGuardian(
+  g: Partial<GatewayGuardian> & { channelType: string; address: string },
+): void {
+  gatewayGuardians.push({
+    contactId: `c-${g.channelType}`,
+    status: "active",
+    ...g,
+  });
+}
+
+import { createCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { findActiveSession } from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
@@ -71,7 +101,6 @@ const TEST_BEARER_TOKEN = "test-token";
 
 function resetState(): void {
   const db = getDb();
-  db.run("DELETE FROM channel_guardian_approval_requests");
   db.run("DELETE FROM channel_verification_sessions");
   db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM channel_inbound_events");
@@ -81,7 +110,16 @@ function resetState(): void {
   db.run("DELETE FROM canonical_guardian_deliveries");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
-  // Seed the vellum guardian binding (gateway does this at startup in production)
+  gatewayGuardians = [];
+  // Seed the vellum guardian binding (gateway does this at startup in
+  // production). The gateway list is the source of truth for guardian
+  // resolution; the DB write mirrors it for any local INFO reads.
+  seedGatewayGuardian({
+    channelType: "vellum",
+    address: "guardian-principal",
+    principalId: "guardian-principal",
+    displayName: "guardian-principal",
+  });
   createGuardianBinding({
     channel: "vellum",
     guardianExternalUserId: "guardian-principal",
@@ -149,6 +187,41 @@ describe("Slack inbound trusted contact verification", () => {
     ).toContain("I don't recognize you yet");
   });
 
+  test("a terminally-denied Slack sender gets no challenge and no guardian re-prompt", async () => {
+    // Guardian previously denied this sender (terminal). Seed the denied
+    // canonical request under the assistant-scoped conversationId the ingress
+    // path derives for (self, slack, U0123UNKNOWN).
+    createCanonicalGuardianRequest({
+      id: `denied-${Date.now()}`,
+      kind: "access_request",
+      sourceType: "channel",
+      sourceChannel: "slack",
+      conversationId: "access-req-self-slack-U0123UNKNOWN",
+      requesterExternalUserId: "U0123UNKNOWN",
+      guardianPrincipalId: "guardian-principal",
+      toolName: "ingress_access_request",
+      status: "denied",
+    });
+
+    const resp = await handleChannelInbound(
+      buildSlackInboundRequest(),
+      undefined,
+      TEST_BEARER_TOKEN,
+    );
+    const json = (await resp.json()) as Record<string, unknown>;
+
+    // Still denied — but not via a fresh, unusable verification challenge.
+    expect(json.denied).toBe(true);
+    expect(json.reason).not.toBe("verification_challenge_sent");
+    expect(json.verificationSessionId).toBeUndefined();
+
+    // No verification session was minted for the denied sender.
+    expect(findActiveSession("slack")).toBeNull();
+
+    // And the guardian was not re-notified.
+    expect(emitSignalCalls.length).toBe(0);
+  });
+
   test("verification session is identity-bound to the Slack user", async () => {
     const req = buildSlackInboundRequest();
     await handleChannelInbound(req, undefined, TEST_BEARER_TOKEN);
@@ -163,7 +236,14 @@ describe("Slack inbound trusted contact verification", () => {
   });
 
   test("guardian is notified of the access attempt alongside verification", async () => {
-    // Set up a guardian binding so the notification can target it
+    // Set up a guardian binding so the notification can target it. The gateway
+    // list resolves guardian identity; the DB write mirrors it.
+    seedGatewayGuardian({
+      channelType: "slack",
+      address: "U_GUARDIAN",
+      externalChatId: "D_GUARDIAN_DM",
+      principalId: "guardian-principal",
+    });
     createGuardianBinding({
       channel: "slack",
       guardianExternalUserId: "U_GUARDIAN",

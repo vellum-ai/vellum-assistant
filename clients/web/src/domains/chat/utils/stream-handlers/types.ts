@@ -33,10 +33,19 @@ export interface StreamHandlerContext {
   streamContext: StreamContext | null;
   assistantId: string | null;
 
-  // --- Messages ---
-  setMessages: Dispatch<SetStateAction<DisplayMessage[]>>;
-  /** Current messages snapshot — read from store via `getState().messages`. */
-  messages: DisplayMessage[];
+  // --- Optimistic user sends ---
+  // The rendered transcript content (assistant rows, tool calls, surfaces,
+  // echoed user rows) is owned by the rolling-snapshot reducer, which folds
+  // every active-conversation event into the materialized snapshot in
+  // `use-event-stream`. Handlers no longer mutate transcript content; they own
+  // only the control-plane (turn/interaction stores, reconciliation, cache
+  // patches) plus the unconfirmed optimistic sends below.
+  /** Mutate the optimistic-send list — queue handlers retarget here (queue
+   *  position / status / removal of a not-yet-confirmed user send), and the
+   *  echo handler retires or upgrades the confirmed send. */
+  setOptimisticSends: (
+    updater: DisplayMessage[] | ((prev: DisplayMessage[]) => DisplayMessage[]),
+  ) => void;
 
   // --- Turn state ---
   turnActions: TurnActions;
@@ -55,6 +64,7 @@ export interface StreamHandlerContext {
 
   // --- Error & stream lifecycle ---
   setError: Dispatch<SetStateAction<ChatError | null>>;
+  setNotice: Dispatch<SetStateAction<ChatError | null>>;
   /** Cancel the active SSE stream and clear the store's stream state. */
   cancelAndClearStream: () => void;
 
@@ -88,12 +98,12 @@ export interface StreamHandlerContext {
 
   // --- Hook-owned refs ---
   lastActivityVersionRef: MutableRefObject<Map<string, number>>;
-  toolCallIdCounterRef: MutableRefObject<number>;
 
   // --- Synchronous message tracking ---
-  /** Id of the current assistant message being streamed. Updated
-   *  synchronously at dispatch time (before setMessages) so
-   *  subagent_spawned can read the correct parent without waiting for
-   *  React's batched render. Mirrors macOS `currentAssistantMessageId`. */
+  /** Id of the current assistant message being streamed, stamped from the
+   *  event's `messageId` (the row the daemon reserved at turn start). Read by
+   *  `subagent_spawned` to attribute a nested notification to the right parent
+   *  bubble, and by `message_complete` to re-anchor onto the durable server id.
+   *  Mirrors macOS `currentAssistantMessageId`. */
   currentAssistantMessageIdRef: MutableRefObject<string | undefined>;
 }

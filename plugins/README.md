@@ -131,7 +131,7 @@ filename becomes the hook key. **One hook per file.**
 The hook signature is:
 
 ```ts
-type PluginHookFn<TCtx> = (ctx: TCtx) => Promise<Partial<TCtx> | void>;
+type HookFunction<TCtx> = (ctx: TCtx) => Promise<Partial<TCtx> | void>;
 ```
 
 The return shape means a hook can either **mutate `ctx` in place and
@@ -152,11 +152,10 @@ plugin.
 
 ```ts
 // hooks/init.ts
-import type { PluginInitContext } from "@vellumai/plugin-api";
+import type { InitContext } from "@vellumai/plugin-api";
 
-export default async function init(ctx: PluginInitContext): Promise<void> {
+export default async function init(ctx: InitContext): Promise<void> {
   // ctx.config            — your validated config (typed `unknown` for now)
-  // ctx.credentials       — resolved credential values, keyed by manifest entry
   // ctx.logger            — pino child, bound to { plugin: <name> }
   // ctx.pluginStorageDir  — writable dir at <workspace>/plugins-data/<name>/
   // ctx.assistantVersion  — host semver string
@@ -177,10 +176,10 @@ explicit unload, etc.).
 
 ```ts
 // hooks/shutdown.ts
-import type { PluginShutdownContext } from "@vellumai/plugin-api";
+import type { ShutdownContext } from "@vellumai/plugin-api";
 
 export default async function shutdown(
-  ctx: PluginShutdownContext,
+  ctx: ShutdownContext,
 ): Promise<void> {
   // ctx.assistantVersion  — host semver string
 }
@@ -287,7 +286,7 @@ whenever you need the current set — at `init` to build a map once, or per call
 
 ```ts
 // hooks/init.ts — build and validate the router's category → profile map
-import { getModelProfiles, type PluginInitContext } from "@vellumai/plugin-api";
+import { getModelProfiles, type InitContext } from "@vellumai/plugin-api";
 
 const CATEGORY_PROFILE: Record<string, string> = {
   chat: "cost-optimized",
@@ -295,7 +294,7 @@ const CATEGORY_PROFILE: Record<string, string> = {
   deep: "quality-optimized",
 };
 
-export default function init(ctx: PluginInitContext): void {
+export default function init(ctx: InitContext): void {
   const routable = new Set(
     getModelProfiles()
       .filter((p) => !p.isDisabled)
@@ -472,8 +471,8 @@ export default async function postCompact(
   // ctx.conversationId   — conversation the turn being compacted is scoped to
   // ctx.isNonInteractive — true when no human is present (scheduled, background,
   //                        or headless run)
-  // ctx.modelProfileKey  — active inference-profile key to surface, or null when
-  //                        unchanged since last announced to the model
+  // ctx.modelProfileKey  — effective inference-profile identity for the model
+  //                        the compacted turn keeps using
   // ctx.injectionMode    — "full" (restore complete runtime context) or
   //                        "minimal" (reduced volume the overflow-recovery
   //                        downgrade selects); defaults to "full"
@@ -623,6 +622,32 @@ Whitelisting makes an external plugin **appear in the catalog and install by
 name**. It does not by itself guarantee the plugin's hooks/tools match this
 loader's conventions — a plugin authored for another ecosystem may install yet
 contribute nothing on boot. A **postinstall adapter** bridges that gap.
+
+### Installing a plugin not in the marketplace (untrusted)
+
+While a plugin is still under development — before it is whitelisted here —
+install it directly from its GitHub repo by passing a URL (anything containing a
+slash) instead of a marketplace name:
+
+```bash
+assistant plugins install https://github.com/owner/repo
+assistant plugins install https://github.com/owner/repo/tree/my-branch/sub/path
+assistant plugins install owner/repo --name my-plugin
+```
+
+The ref comes from the URL's `/tree/<ref>/` segment, or defaults to the
+repository's default branch. The install directory name is derived from the repo
+(or sub-path leaf) and can be overridden with `--name`.
+
+A direct install **bypasses marketplace curation entirely**: the tree is
+materialized verbatim (no [postinstall adapter](#postinstall-adapters) is
+overlaid), and the source is **untrusted** — it has not been reviewed and its
+hooks/tools run inside the assistant with full access. The CLI prints a yellow
+warning naming the source, so the choice to trust it is explicit. Unlike
+marketplace installs — which pin an immutable, reviewed commit SHA — a branch or
+`HEAD` ref is mutable, so a direct install is a development convenience, not a
+reproducible pin. The marketplace-only flags (`--ref`, `--pin`,
+`--allow-unreviewed`) do not apply.
 
 ### Postinstall adapters
 

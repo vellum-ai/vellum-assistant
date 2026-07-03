@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 
 import { stripSpotlightInjections } from "../context/strip-injections.js";
-import { stripExistingMemoryInjections } from "../memory/graph/conversation-graph-memory.js";
-import { wrapMemorySpotlightBlock } from "../memory/memory-marker.js";
+import { stripExistingMemoryInjections } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import { wrapMemorySpotlightBlock } from "../plugins/defaults/memory/memory-marker.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 
 // ---------------------------------------------------------------------------

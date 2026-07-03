@@ -16,10 +16,11 @@ mock.module("../../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
-import { getDb } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
-import { notificationEvents } from "../../memory/schema.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
+import { notificationEvents } from "../../persistence/schema/index.js";
 import {
+  checkSourceActiveSuppression,
   type DeterministicCheckContext,
   runDeterministicChecks,
 } from "../deterministic-checks.js";
@@ -282,5 +283,46 @@ describe("checkRenderedCopyQuality (via runDeterministicChecks)", () => {
     const result = await runDeterministicChecks(signal, decision, context);
     expect(result.passed).toBe(false);
     expect(result.reason).toContain("fallback leak");
+  });
+});
+
+describe("checkSourceActiveSuppression (pre-decision gate)", () => {
+  test("fails when visibleInSourceNow is set", () => {
+    const result = checkSourceActiveSuppression(
+      makeSignal({
+        attentionHints: {
+          requiresAction: false,
+          urgency: "low",
+          isAsyncBackground: true,
+          visibleInSourceNow: true,
+        },
+      }),
+    );
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain("Source-active suppression");
+  });
+
+  test("passes when visibleInSourceNow is false", () => {
+    expect(checkSourceActiveSuppression(makeSignal()).passed).toBe(true);
+  });
+
+  test("runDeterministicChecks does not suppress source-active signals (handled by the pre-decision gate)", async () => {
+    // Source-active suppression is enforced by the pre-decision gate in
+    // emitNotificationSignal, not by this stage. A source-active signal
+    // evaluated here therefore passes — this stage only validates the decision.
+    const signal = makeSignal({
+      attentionHints: {
+        requiresAction: false,
+        urgency: "low",
+        isAsyncBackground: true,
+        visibleInSourceNow: true,
+      },
+    });
+    const result = await runDeterministicChecks(
+      signal,
+      makeDecision(),
+      context,
+    );
+    expect(result.passed).toBe(true);
   });
 });

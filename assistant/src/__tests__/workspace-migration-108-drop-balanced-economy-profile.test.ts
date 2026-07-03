@@ -94,7 +94,7 @@ describe("108-drop-balanced-economy-profile migration", () => {
           balanced: { ...managedBalanced },
           "balanced-economy": { ...managedEconomy },
         },
-        profileOrder: ["auto", "balanced", "balanced-economy"],
+        profileOrder: ["balanced", "balanced-economy"],
         activeProfile: "balanced",
       },
     });
@@ -104,7 +104,7 @@ describe("108-drop-balanced-economy-profile migration", () => {
     expect("balanced-economy" in profiles).toBe(false);
     // The seeder owns balanced's content; the migration must not touch it.
     expect(profiles.balanced).toEqual(managedBalanced);
-    expect(readLlm().profileOrder).toEqual(["auto", "balanced"]);
+    expect(readLlm().profileOrder).toEqual(["balanced"]);
   });
 
   test("repoints activeProfile from balanced-economy to balanced", () => {
@@ -234,7 +234,7 @@ describe("108-drop-balanced-economy-profile migration", () => {
             source: "user",
           },
         },
-        profileOrder: ["auto", "balanced", "balanced-economy"],
+        profileOrder: ["balanced", "balanced-economy"],
         callSites: { memoryRouter: { profile: "balanced-economy" } },
         activeProfile: "balanced-economy",
         advisorProfile: "balanced-economy",
@@ -249,7 +249,7 @@ describe("108-drop-balanced-economy-profile migration", () => {
     writeConfig({
       llm: {
         profiles: { balanced: { ...managedBalanced } },
-        profileOrder: ["auto", "balanced", "balanced-economy"],
+        profileOrder: ["balanced", "balanced-economy"],
         callSites: { memoryRouter: { profile: "balanced-economy" } },
         activeProfile: "balanced-economy",
       },
@@ -257,7 +257,7 @@ describe("108-drop-balanced-economy-profile migration", () => {
     dropBalancedEconomyProfileMigration.run(workspaceDir);
 
     const llm = readLlm();
-    expect(llm.profileOrder).toEqual(["auto", "balanced"]);
+    expect(llm.profileOrder).toEqual(["balanced"]);
     expect(llm.activeProfile).toBe("balanced");
     expect(
       (llm.callSites as Record<string, Record<string, unknown>>).memoryRouter!
@@ -269,7 +269,7 @@ describe("108-drop-balanced-economy-profile migration", () => {
     writeConfig({
       llm: {
         profiles: { balanced: { ...managedBalanced } },
-        profileOrder: ["auto", "balanced"],
+        profileOrder: ["balanced"],
         activeProfile: "balanced",
       },
     });

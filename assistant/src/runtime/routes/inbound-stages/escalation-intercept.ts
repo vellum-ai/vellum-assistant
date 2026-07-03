@@ -8,13 +8,14 @@
  * focused on orchestration.
  */
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
-import { createCanonicalGuardianRequest } from "../../../memory/canonical-guardian-store.js";
-import { storePayload } from "../../../memory/delivery-crud.js";
+import { createCanonicalGuardianRequest } from "../../../contacts/canonical-guardian-store.js";
 import { emitNotificationSignal } from "../../../notifications/emit-signal.js";
+import { storePayload } from "../../../persistence/delivery-crud.js";
 import { getLogger } from "../../../util/logger.js";
 import { getGuardianBinding } from "../../channel-verification-service.js";
+import { resolveDecidableGuardianPrincipalId } from "../../local-actor-identity.js";
+import type { VerdictMember } from "../../trust-verdict-consumer.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "../channel-route-shared.js";
-import type { ResolvedMember } from "./acl-enforcement.js";
 
 const log = getLogger("runtime-http");
 
@@ -23,7 +24,7 @@ const log = getLogger("runtime-http");
 // ---------------------------------------------------------------------------
 
 export interface EscalationInterceptParams {
-  resolvedMember: ResolvedMember | null;
+  resolvedMember: VerdictMember | null;
   canonicalAssistantId: string;
   sourceChannel: ChannelId;
   sourceInterface: InterfaceId;
@@ -49,9 +50,9 @@ export interface EscalationInterceptParams {
  * Returns a Response if the escalation was handled (the pipeline should
  * short-circuit), or null to continue the pipeline.
  */
-export function handleEscalationIntercept(
+export async function handleEscalationIntercept(
   params: EscalationInterceptParams,
-): Record<string, unknown> | null {
+): Promise<Record<string, unknown> | null> {
   const {
     resolvedMember,
     canonicalAssistantId,
@@ -72,16 +73,36 @@ export function handleEscalationIntercept(
     rawSenderId,
   } = params;
 
-  if (resolvedMember?.channel.policy !== "escalate") {
+  if (resolvedMember?.policy !== "escalate") {
     return null;
   }
 
-  const binding = getGuardianBinding(canonicalAssistantId, sourceChannel);
+  const binding = await getGuardianBinding(canonicalAssistantId, sourceChannel);
   if (!binding) {
     // Fail-closed: can't escalate without a guardian to route to
     log.info(
-      { sourceChannel, channelId: resolvedMember.channel.id },
+      { sourceChannel, channelId: resolvedMember.channelId },
       "Ingress ACL: escalate policy but no guardian binding, denying",
+    );
+    return {
+      accepted: true,
+      denied: true,
+      reason: "escalate_no_guardian",
+    };
+  }
+
+  // A binding with no principal is unresolved, not empty: adopt the vellum
+  // anchor principal so the resulting request is decidable by the guardian.
+  // When neither resolves, fail closed — a principal-less tool_approval
+  // request can never be authorized by anyone (it would sit pending with
+  // dead Approve/Reject buttons until expiry).
+  const guardianPrincipalId = await resolveDecidableGuardianPrincipalId(
+    binding.guardianPrincipalId,
+  );
+  if (!guardianPrincipalId) {
+    log.warn(
+      { sourceChannel, channelId: resolvedMember.channelId },
+      "Ingress ACL: escalate policy but guardian principal unresolved, denying",
     );
     return {
       accepted: true,
@@ -115,7 +136,7 @@ export function handleEscalationIntercept(
       conversationId,
       requesterExternalUserId: canonicalSenderId ?? rawSenderId ?? undefined,
       guardianExternalUserId: binding.guardianExternalUserId,
-      guardianPrincipalId: binding.guardianPrincipalId,
+      guardianPrincipalId,
       toolName: "ingress_message",
       questionText: "Ingress policy requires guardian approval",
       expiresAt: Date.now() + GUARDIAN_APPROVAL_TTL_MS,

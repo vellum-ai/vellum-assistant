@@ -52,7 +52,7 @@ const metadataStore = new Map<
   { allowedTools: string[]; usageDescription?: string }
 >();
 
-mock.module("../../tools/credentials/metadata-store.js", () => ({
+mock.module("../credentials/metadata-store.js", () => ({
   getCredentialMetadata: (service: string, field: string) => {
     const key = `${service}/${field}`;
     const entry = metadataStore.get(key);
@@ -77,8 +77,7 @@ mock.module("../../tools/credentials/metadata-store.js", () => ({
     const existing = metadataStore.get(key);
     metadataStore.set(key, {
       allowedTools: policy?.allowedTools ?? existing?.allowedTools ?? [],
-      usageDescription:
-        policy?.usageDescription ?? existing?.usageDescription,
+      usageDescription: policy?.usageDescription ?? existing?.usageDescription,
     });
     return {
       credentialId: `cred-${key}`,
@@ -92,7 +91,7 @@ mock.module("../../tools/credentials/metadata-store.js", () => ({
   },
 }));
 
-mock.module("../../tools/credentials/broker.js", () => ({
+mock.module("../credentials/broker.js", () => ({
   credentialBroker: {
     serverUse: async <T>(request: {
       service: string;
@@ -130,6 +129,7 @@ const spawnMock = mock(
     _cwd: string,
     _parentConversationId: string,
     _sendToVellum: (msg: unknown) => void,
+    _parentToolUseId?: string,
   ) => ({
     acpSessionId: "acp-session-test",
     protocolSessionId: "proto-session-test",
@@ -148,9 +148,8 @@ mock.module("../../acp/index.js", () => ({
 }));
 
 const { executeAcpSpawn } = await import("./spawn.js");
-const { _resetAdapterInstallCacheForTests } = await import(
-  "../../acp/auto-install.js"
-);
+const { _resetAdapterInstallCacheForTests } =
+  await import("../../acp/auto-install.js");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -203,6 +202,18 @@ describe("executeAcpSpawn - happy path", () => {
     // The real adapter binary is spawned (no `bun x` wrapper).
     const agentConfigArg = spawnMock.mock.calls[0][1] as { command: string };
     expect(agentConfigArg.command).toBe("claude-agent-acp");
+  });
+
+  test("threads the executing tool-use id into manager.spawn as parentToolUseId", async () => {
+    const result = await executeAcpSpawn(
+      { agent: "claude", task: "do something" },
+      { ...makeContext(), toolUseId: "toolu_abc123" },
+    );
+
+    expect(result.isError).toBe(false);
+    expect(spawnMock).toHaveBeenCalledTimes(1);
+    // parentToolUseId is the 7th positional arg to spawn().
+    expect(spawnMock.mock.calls[0][6]).toBe("toolu_abc123");
   });
 
   test("default-profile fallback when user config is empty", async () => {

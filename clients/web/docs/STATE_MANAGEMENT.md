@@ -13,10 +13,13 @@ See also [`clients/web/AGENTS.md`](../AGENTS.md) and the umbrella
 
 ## Zustand for shared mutable state
 
-Use [Zustand](https://github.com/pmndrs/zustand) for state shared
-across multiple components — messages, turn state, interactions,
-conversation list, viewer state. Zustand was chosen over Context +
-useReducer because:
+Use [Zustand](https://github.com/pmndrs/zustand) for *client* state shared
+across multiple components — composer drafts, turn state, interactions,
+viewer state, UI expansion. Server data (conversation history, the
+conversation list) is NOT Zustand state — it lives in its TanStack Query
+cache (see [Data fetching](#data-fetching-react-query-vs-direct-sdk-calls)),
+and the store holds only what the server doesn't have yet (e.g. the in-flight
+turn). Zustand was chosen over Context + useReducer because:
 
 - **Selector support.** `useStore(selector)` lets each component
   subscribe to only the slice it needs. Context has no selector
@@ -77,36 +80,35 @@ wrap with `createSelectors` for auto-generated per-field hooks:
 import { create } from "zustand";
 
 import { createSelectors } from "@/utils/create-selectors";
-import type { Message } from "./types";
 
-// State — the data
-export interface MessageState {
-  messages: Message[];
-  activeThreadId: string | null;
+// State — the data. This pattern is for CLIENT-owned state. Server data (e.g.
+// conversation history) is never stored this way — read it from its TanStack
+// Query cache and keep the store to what the server doesn't have yet.
+export interface ComposerState {
+  draft: string;
+  attachmentIds: string[];
 }
 
 // Actions — direct named functions (no dispatch/reducer)
-export interface MessageActions {
-  addMessage: (message: Message) => void;
-  setActiveThread: (threadId: string | null) => void;
-  clearMessages: () => void;
+export interface ComposerActions {
+  setDraft: (draft: string) => void;
+  addAttachment: (id: string) => void;
+  reset: () => void;
 }
 
 // Combined store type
-export type MessageStore = MessageState & MessageActions;
+export type ComposerStore = ComposerState & ComposerActions;
 
-const useMessageStoreBase = create<MessageStore>()((set) => ({
-  messages: [],
-  activeThreadId: null,
-  addMessage: (message) =>
-    set((s) => ({ messages: [...s.messages, message] })),
-  setActiveThread: (threadId) =>
-    set({ activeThreadId: threadId }),
-  clearMessages: () =>
-    set({ messages: [], activeThreadId: null }),
+const useComposerStoreBase = create<ComposerStore>()((set) => ({
+  draft: "",
+  attachmentIds: [],
+  setDraft: (draft) => set({ draft }),
+  addAttachment: (id) =>
+    set((s) => ({ attachmentIds: [...s.attachmentIds, id] })),
+  reset: () => set({ draft: "", attachmentIds: [] }),
 }));
 
-export const useMessageStore = createSelectors(useMessageStoreBase);
+export const useComposerStore = createSelectors(useComposerStoreBase);
 ```
 
 Consumers use `.use.field()` in render bodies and `.getState()` in

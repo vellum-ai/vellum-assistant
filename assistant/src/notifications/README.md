@@ -5,7 +5,7 @@ Signal-driven notification architecture where producers emit free-form events an
 ## Lifecycle
 
 ```
-Producer → NotificationSignal → Candidate Generation → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
+Producer → NotificationSignal → Source-Active Gate → Candidate Generation → Decision Engine (LLM) → Deterministic Checks → Broadcaster → Conversation Pairing → Adapters → Delivery
                                                               ↑                                                            ↓
                                                       Preference Summary                                    notification_conversation_created SSE event
                                                       Conversation Candidates                               (creation-only — not emitted on reuse)
@@ -14,6 +14,8 @@ Producer → NotificationSignal → Candidate Generation → Decision Engine (LL
 ### 1. Signal
 
 A producer calls `emitNotificationSignal()` with a free-form event name, attention hints (urgency, requiresAction, deadlineAt), and a context payload. The signal is persisted as a `notification_events` row.
+
+Immediately after persistence, a **source-active pre-gate** runs (`checkSourceActiveSuppression`): when `visibleInSourceNow` is set — a hard, signal-only invariant the decision engine cannot override — the signal is suppressed and short-circuits here, before candidate generation and the LLM decision. This keeps an always-suppressed signal (e.g. trusted-contact `verification_sent`) from spending an LLM inference whose result would be discarded. The `notification_events` row is still written for the audit trail.
 
 ### 2. Candidate Generation
 
@@ -55,15 +57,17 @@ Hard invariants that the LLM cannot override:
 
 **Post-generation enforcement** (`decision-engine.ts`):
 
-- **Guardian question request-code enforcement** — `enforceGuardianRequestCode()` ensures request-code instructions (approve/reject or free-text answer) appear in all `guardian.question` notification copy, even when the LLM omits them.
+- **Guardian question request-code enforcement** — `enforceGuardianRequestCode()` ensures request-code instructions (approve/reject or free-text answer) appear in all `guardian.question` notification copy, even when the LLM omits them. Exception: for approval-mode questions the Slack adapter renders an interactive card with Approve/Reject buttons, so Slack copy is instead **stripped** of request-code instructions and bare code mentions (`stripGuardianRequestCodeInstructions()`).
 - **Access-request instruction enforcement** — `enforceAccessRequestInstructions()` validates that `ingress.access_request` copy contains: (1) the request-code approve/reject directive, (2) the exact "open invite flow" phrase. If any required element is missing, the full deterministic contract text is appended. This prevents model-generated copy from dropping security-critical action directives.
 
-**Pre-send gate checks** (`deterministic-checks.ts`):
+**Pre-send gate checks** (`deterministic-checks.ts`) — these all depend on the decision, so they run here, after it:
 
 - **Schema validity** -- fail-closed if the decision is malformed
-- **Source-active suppression** -- if the user is already viewing the source context, suppress
 - **Channel availability** -- at least one selected channel must be connected
 - **Deduplication** -- same `dedupeKey` within the dedupe window (1 hour default) is suppressed
+- **Rendered copy quality** -- fail-closed on empty copy or a fallback leak (body equal to the raw event name)
+
+Source-active suppression depends only on the signal, so it runs earlier — as the pre-decision gate in `emit-signal.ts` (see step 1), not as a pre-send check here.
 
 ### 5. Dispatch
 
@@ -409,13 +413,13 @@ All disambiguation messages are generated through `composeGuardianActionMessageG
 | File                            | Purpose                                                                                                    |
 | ------------------------------- | ---------------------------------------------------------------------------------------------------------- |
 | `../channels/config.ts`         | Channel policy registry -- single source of truth for per-channel notification behavior                    |
-| `emit-signal.ts`                | Single entry point for producers; orchestrates the full pipeline                                           |
+| `emit-signal.ts`                | Single entry point for producers; orchestrates the full pipeline; runs the source-active pre-decision gate |
 | `signal.ts`                     | `NotificationSignal` and `AttentionHints` type definitions                                                 |
 | `types.ts`                      | Channel adapter interfaces, delivery types, decision output contract, `ConversationAction` union           |
 | `conversation-candidates.ts`    | Builds per-channel candidate set of recent notification conversations for the decision engine              |
 | `conversation-pairing.ts`       | Materializes conversation + message per delivery based on channel strategy                                 |
 | `decision-engine.ts`            | LLM-based routing with forced tool_choice; deterministic fallback                                          |
-| `deterministic-checks.ts`       | Pre-send gate checks (dedupe, source-active, channel availability)                                         |
+| `deterministic-checks.ts`       | Post-decision pre-send gate checks (schema, dedupe, channel availability, copy quality)                    |
 | `runtime-dispatch.ts`           | Dispatch gating (no-op decisions, empty channels)                                                          |
 | `broadcaster.ts`                | Fan-out to channel adapters with delivery audit trail; emits `notification_conversation_created` SSE event |
 | `copy-composer.ts`              | Template-based fallback notification copy when LLM copy is unavailable                                     |

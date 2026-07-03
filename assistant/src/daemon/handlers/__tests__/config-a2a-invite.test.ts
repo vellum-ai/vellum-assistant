@@ -21,19 +21,33 @@ import {
   setNestedValue,
 } from "../../../config/loader.js";
 import { getContact } from "../../../contacts/contact-store.js";
-import { getSqlite } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
-import { findById } from "../../../memory/invite-store.js";
+import { getSqlite } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
 import { createA2AInvite, getA2AConfig } from "../config-a2a.js";
 
 await initializeDb();
 
 function resetTables(): void {
   const sqlite = getSqlite();
-  sqlite.run("DELETE FROM assistant_ingress_invites");
+  sqlite.run("DELETE FROM a2a_invites");
   sqlite.run("DELETE FROM assistant_contact_metadata");
   sqlite.run("DELETE FROM contact_channels");
   sqlite.run("DELETE FROM contacts");
+}
+
+interface A2aInviteRow {
+  id: string;
+  contact_id: string;
+  status: string;
+  max_uses: number;
+  use_count: number;
+  expires_at: number;
+}
+
+function getInviteRow(id: string): A2aInviteRow | null {
+  return getSqlite()
+    .prepare("SELECT * FROM a2a_invites WHERE id = ?")
+    .get(id) as A2aInviteRow | null;
 }
 
 function setConfig(opts: {
@@ -75,15 +89,14 @@ describe("createA2AInvite", () => {
     expect(result.error).toBeUndefined();
   });
 
-  test("creates invite in DB with source_channel=a2a, status=active, max_uses=1", () => {
+  test("creates invite in a2a_invites with status=active, max_uses=1", () => {
     const result = createA2AInvite({});
     expect(result.inviteId).toBeDefined();
 
-    const invite = findById(result.inviteId!);
+    const invite = getInviteRow(result.inviteId!);
     expect(invite).not.toBeNull();
-    expect(invite!.sourceChannel).toBe("a2a");
     expect(invite!.status).toBe("active");
-    expect(invite!.maxUses).toBe(1);
+    expect(invite!.max_uses).toBe(1);
   });
 
   test("auto-enables A2A if not already on", () => {
@@ -101,10 +114,10 @@ describe("createA2AInvite", () => {
     const result = createA2AInvite({});
     expect(result.inviteId).toBeDefined();
 
-    const invite = findById(result.inviteId!);
+    const invite = getInviteRow(result.inviteId!);
     expect(invite).not.toBeNull();
 
-    const contact = getContact(invite!.contactId);
+    const contact = getContact(invite!.contact_id);
     expect(contact).not.toBeNull();
     expect(contact!.displayName).toBe("Pending A2A invite");
     expect(contact!.channels).toHaveLength(0);
@@ -128,13 +141,13 @@ describe("createA2AInvite", () => {
     const after = Date.now();
     expect(result.success).toBe(true);
 
-    const invite = findById(result.inviteId!);
+    const invite = getInviteRow(result.inviteId!);
     expect(invite).not.toBeNull();
 
     const expectedMinMs = before + 24 * 60 * 60 * 1000;
     const expectedMaxMs = after + 24 * 60 * 60 * 1000;
-    expect(invite!.expiresAt).toBeGreaterThanOrEqual(expectedMinMs);
-    expect(invite!.expiresAt).toBeLessThanOrEqual(expectedMaxMs);
+    expect(invite!.expires_at).toBeGreaterThanOrEqual(expectedMinMs);
+    expect(invite!.expires_at).toBeLessThanOrEqual(expectedMaxMs);
   });
 
   test("default expiry is 72 hours", () => {
@@ -143,12 +156,12 @@ describe("createA2AInvite", () => {
     const after = Date.now();
     expect(result.success).toBe(true);
 
-    const invite = findById(result.inviteId!);
+    const invite = getInviteRow(result.inviteId!);
     expect(invite).not.toBeNull();
 
     const expectedMinMs = before + 72 * 60 * 60 * 1000;
     const expectedMaxMs = after + 72 * 60 * 60 * 1000;
-    expect(invite!.expiresAt).toBeGreaterThanOrEqual(expectedMinMs);
-    expect(invite!.expiresAt).toBeLessThanOrEqual(expectedMaxMs);
+    expect(invite!.expires_at).toBeGreaterThanOrEqual(expectedMinMs);
+    expect(invite!.expires_at).toBeLessThanOrEqual(expectedMaxMs);
   });
 });

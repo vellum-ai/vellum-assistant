@@ -20,14 +20,12 @@ mock.module("../config/loader.js", () => ({
   },
 }));
 
-import {
-  DEFAULT_INJECTOR_ORDER,
-  defaultInjectors,
-} from "../plugins/defaults/memory-retrieval/injectors.js";
+import { DEFAULT_INJECTOR_ORDER } from "../plugins/defaults/injector-order.js";
+import { sessionInjectors } from "../plugins/defaults/session/injectors.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 
 function findInjector(name: string): Injector {
-  const injector = defaultInjectors.find(
+  const injector = sessionInjectors.find(
     (candidate) => candidate.name === name,
   );
   if (!injector) {

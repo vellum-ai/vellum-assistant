@@ -87,7 +87,7 @@ afterAll(() => {
 
 const handleHostFileResult = ROUTES.find(
   (r) => r.endpoint === "host-file-result",
-)!.handler;
+)!.handler as (args: Record<string, unknown>) => Promise<unknown>;
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -189,15 +189,13 @@ describe("handleHostFileResult — targetClientId guard", () => {
       ).toThrow(BadRequestError);
     });
 
-    test("interaction is NOT resolved on 400 (still pending)", () => {
+    test("interaction is NOT resolved on 400 (still pending)", async () => {
       const requestId = "req-file-targeted-no-header-stays";
       registerPending(requestId, { targetClientId: "client-A" });
 
-      try {
-        handleHostFileResult({ body: fileBody(requestId) });
-      } catch {
+      await handleHostFileResult({ body: fileBody(requestId) }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);
@@ -219,19 +217,17 @@ describe("handleHostFileResult — targetClientId guard", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("ForbiddenError message names both submitting and expected client", () => {
+    test("ForbiddenError message names both submitting and expected client", async () => {
       const requestId = "req-file-targeted-mismatch-msg";
       registerPending(requestId, { targetClientId: "client-A" });
 
       let caught: unknown;
-      try {
-        handleHostFileResult({
-          body: fileBody(requestId),
-          headers: { "x-vellum-client-id": "client-B" },
-        });
-      } catch (e) {
+      await handleHostFileResult({
+        body: fileBody(requestId),
+        headers: { "x-vellum-client-id": "client-B" },
+      }).catch((e: unknown) => {
         caught = e;
-      }
+      });
 
       expect(caught).toBeInstanceOf(ForbiddenError);
       const msg = (caught as ForbiddenError).message;
@@ -239,18 +235,16 @@ describe("handleHostFileResult — targetClientId guard", () => {
       expect(msg).toContain("client-A");
     });
 
-    test("interaction is NOT consumed on 403 (pendingInteractions.get still returns it)", () => {
+    test("interaction is NOT consumed on 403 (pendingInteractions.get still returns it)", async () => {
       const requestId = "req-file-targeted-mismatch-stays";
       registerPending(requestId, { targetClientId: "client-A" });
 
-      try {
-        handleHostFileResult({
-          body: fileBody(requestId),
-          headers: { "x-vellum-client-id": "client-B" },
-        });
-      } catch {
+      await handleHostFileResult({
+        body: fileBody(requestId),
+        headers: { "x-vellum-client-id": "client-B" },
+      }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);
@@ -306,22 +300,20 @@ describe("handleHostFileResult — targetClientId guard", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("interaction is NOT consumed on actor-mismatch 403", () => {
+    test("interaction is NOT consumed on actor-mismatch 403", async () => {
       const requestId = "req-file-actor-mismatch-stays";
       clientActors.set("client-A", "actor-1");
       registerPending(requestId, { targetClientId: "client-A" });
 
-      try {
-        handleHostFileResult({
-          body: fileBody(requestId),
-          headers: {
-            "x-vellum-client-id": "client-A",
-            "x-vellum-actor-principal-id": "actor-2",
-          },
-        });
-      } catch {
+      await handleHostFileResult({
+        body: fileBody(requestId),
+        headers: {
+          "x-vellum-client-id": "client-A",
+          "x-vellum-actor-principal-id": "actor-2",
+        },
+      }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);
@@ -360,19 +352,17 @@ describe("handleHostFileResult — targetClientId guard", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("interaction is NOT consumed when submitting actor is missing", () => {
+    test("interaction is NOT consumed when submitting actor is missing", async () => {
       const requestId = "req-file-actor-missing-stays";
       clientActors.set("client-A", "actor-1");
       registerPending(requestId, { targetClientId: "client-A" });
 
-      try {
-        handleHostFileResult({
-          body: fileBody(requestId),
-          headers: { "x-vellum-client-id": "client-A" },
-        });
-      } catch {
+      await handleHostFileResult({
+        body: fileBody(requestId),
+        headers: { "x-vellum-client-id": "client-A" },
+      }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);
@@ -398,21 +388,19 @@ describe("handleHostFileResult — targetClientId guard", () => {
       ).toThrow(ForbiddenError);
     });
 
-    test("interaction is NOT consumed when target client has no stored actor", () => {
+    test("interaction is NOT consumed when target client has no stored actor", async () => {
       const requestId = "req-file-target-no-actor-stays";
       registerPending(requestId, { targetClientId: "client-A" });
 
-      try {
-        handleHostFileResult({
-          body: fileBody(requestId),
-          headers: {
-            "x-vellum-client-id": "client-A",
-            "x-vellum-actor-principal-id": "actor-1",
-          },
-        });
-      } catch {
+      await handleHostFileResult({
+        body: fileBody(requestId),
+        headers: {
+          "x-vellum-client-id": "client-A",
+          "x-vellum-actor-principal-id": "actor-1",
+        },
+      }).catch(() => {
         // expected
-      }
+      });
 
       expect(resolvedIds).not.toContain(requestId);
       expect(pendingStore.has(requestId)).toBe(true);

@@ -7,6 +7,10 @@
  *   outreach-scan  — Find senders without prior replies (likely cold outreach)
  */
 
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { parseArgs, optionalArg, printError, ok } from "./lib/common.js";
 import {
   gmailGet,
@@ -69,27 +73,49 @@ interface OutreachSenderAggregation {
  * Store data in the daemon's in-memory cache via `assistant cache set`.
  * Returns the cache key. Keeps large payloads (e.g. thousands of message IDs)
  * out of the LLM conversation context.
+ *
+ * The payload is handed to the CLI via `--file` rather than piped stdin: a
+ * subprocess pipe read-end cannot be reopened by path, so piping is fragile
+ * across runtime environments, and a temp file has no command-line length
+ * limit for the large payloads this writes.
  */
 async function cacheStore(data: unknown): Promise<string> {
-  const proc = Bun.spawn(
-    ["assistant", "cache", "set", "--ttl", "30m", "--json"],
-    { stdin: "pipe", stdout: "pipe", stderr: "pipe" },
-  );
-  proc.stdin.write(JSON.stringify(data));
-  proc.stdin.end();
+  const dir = mkdtempSync(join(tmpdir(), "gmail-scan-cache-"));
+  const payloadPath = join(dir, "payload.json");
+  try {
+    writeFileSync(payloadPath, JSON.stringify(data), "utf-8");
 
-  const stdout = await new Response(proc.stdout).text();
-  const exitCode = await proc.exited;
+    const proc = Bun.spawn(
+      [
+        "assistant",
+        "cache",
+        "set",
+        "--file",
+        payloadPath,
+        "--ttl",
+        "30m",
+        "--json",
+      ],
+      { stdin: "ignore", stdout: "pipe", stderr: "pipe" },
+    );
 
-  if (exitCode !== 0) {
-    throw new Error(`assistant cache set failed (exit ${exitCode}): ${stdout}`);
+    const stdout = await new Response(proc.stdout).text();
+    const exitCode = await proc.exited;
+
+    if (exitCode !== 0) {
+      throw new Error(
+        `assistant cache set failed (exit ${exitCode}): ${stdout}`,
+      );
+    }
+
+    const result = JSON.parse(stdout);
+    if (!result.ok) {
+      throw new Error(`assistant cache set error: ${result.error}`);
+    }
+    return result.key;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
   }
-
-  const result = JSON.parse(stdout);
-  if (!result.ok) {
-    throw new Error(`assistant cache set error: ${result.error}`);
-  }
-  return result.key;
 }
 
 // ---------------------------------------------------------------------------

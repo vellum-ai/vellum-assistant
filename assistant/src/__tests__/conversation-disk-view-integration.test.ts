@@ -47,20 +47,20 @@ mock.module("../config/loader.js", () => ({
 import {
   linkAttachmentToMessage,
   uploadAttachment,
-} from "../memory/attachments-store.js";
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   clearAll,
   createConversation,
   deleteConversation,
   updateConversationTitle,
-} from "../memory/conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import {
   getConversationDirPath,
   syncMessageToDisk,
-} from "../memory/conversation-disk-view.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-disk-view.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 await initializeDb();
 
 function resetTables() {

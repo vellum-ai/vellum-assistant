@@ -34,6 +34,11 @@ interface CapturedWatcher {
 const capturedWatchers: CapturedWatcher[] = [];
 let recursiveWatchAvailable = false;
 
+// The skills watcher reacts by calling these directly; count the calls so tests
+// can assert dispatch without driving real eviction or skill-memory reseeding.
+let evictCalls = 0;
+let skillsChangedCalls = 0;
+
 mock.module("node:fs", () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const actual = require("node:fs");
@@ -78,11 +83,11 @@ mock.module("../config/loader.js", () => ({
   invalidateConfigCache: () => {},
 }));
 
-mock.module("../memory/embedding-backend.js", () => ({
+mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
 }));
 
-mock.module("../memory/cleanup-schedule-state.js", () => ({
+mock.module("../persistence/cleanup-schedule-state.js", () => ({
   resetCleanupScheduleThrottle: () => {},
 }));
 
@@ -114,6 +119,29 @@ mock.module("../signals/user-message.js", () => ({
   handleUserMessageSignal: () => {},
 }));
 
+mock.module("../daemon/conversation-store.js", () => ({
+  evictConversationsForReload: () => {
+    evictCalls++;
+  },
+}));
+
+mock.module("../daemon/skill-memory-refresh.js", () => ({
+  refreshSkillCapabilityMemories: () => {
+    skillsChangedCalls++;
+  },
+}));
+
+mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  publishIdentityChanged: () => {},
+  publishConfigChanged: () => {},
+  publishSoundsConfigUpdated: () => {},
+  publishAvatarChanged: () => {},
+}));
+
+mock.module("../platform/sync-identity.js", () => ({
+  syncIdentityNameToPlatform: () => {},
+}));
+
 const { ConfigWatcher } = await import("../daemon/config-watcher.js");
 
 function findWatcher(dir: string): CapturedWatcher | undefined {
@@ -130,8 +158,6 @@ function capturedWatcherCount(dir: string): number {
 
 describe("ConfigWatcher skills watcher reseeding", () => {
   let watcher: InstanceType<typeof ConfigWatcher>;
-  let evictCalls: number;
-  let skillsChangedCalls: number;
 
   beforeEach(() => {
     capturedWatchers.length = 0;
@@ -152,18 +178,7 @@ describe("ConfigWatcher skills watcher reseeding", () => {
   });
 
   test("watched skill file changes evict conversations and refresh skill memories", async () => {
-    watcher.start(
-      () => {
-        evictCalls++;
-      },
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      () => {
-        skillsChangedCalls++;
-      },
-    );
+    watcher.start();
 
     const skillsWatcher = findWatcher(SKILLS_DIR);
     expect(skillsWatcher).toBeDefined();
@@ -178,18 +193,7 @@ describe("ConfigWatcher skills watcher reseeding", () => {
   test("recursive watcher ignores skipped dependency and staging paths", async () => {
     recursiveWatchAvailable = true;
 
-    watcher.start(
-      () => {
-        evictCalls++;
-      },
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      () => {
-        skillsChangedCalls++;
-      },
-    );
+    watcher.start();
 
     const skillsWatcher = findWatcher(SKILLS_DIR);
     expect(skillsWatcher).toBeDefined();
@@ -218,18 +222,7 @@ describe("ConfigWatcher skills watcher reseeding", () => {
   test("recursive watcher reloads skill memories for build output changes", async () => {
     recursiveWatchAvailable = true;
 
-    watcher.start(
-      () => {
-        evictCalls++;
-      },
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      () => {
-        skillsChangedCalls++;
-      },
-    );
+    watcher.start();
 
     const skillsWatcher = findWatcher(SKILLS_DIR);
     expect(skillsWatcher).toBeDefined();
@@ -242,18 +235,7 @@ describe("ConfigWatcher skills watcher reseeding", () => {
   });
 
   test("coalesces multiple skill file changes into one catalog refresh", async () => {
-    watcher.start(
-      () => {
-        evictCalls++;
-      },
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      () => {
-        skillsChangedCalls++;
-      },
-    );
+    watcher.start();
 
     const skillsWatcher = findWatcher(SKILLS_DIR);
     expect(skillsWatcher).toBeDefined();
@@ -271,18 +253,7 @@ describe("ConfigWatcher skills watcher reseeding", () => {
     const referencesDir = join(SKILLS_DIR, "example-skill", "references");
     mkdirSync(referencesDir, { recursive: true });
 
-    watcher.start(
-      () => {
-        evictCalls++;
-      },
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      () => {
-        skillsChangedCalls++;
-      },
-    );
+    watcher.start();
 
     const referencesWatcher = findWatcher(referencesDir);
     expect(referencesWatcher).toBeDefined();
@@ -305,18 +276,7 @@ describe("ConfigWatcher skills watcher reseeding", () => {
     mkdirSync(stagedSkillDir, { recursive: true });
     mkdirSync(referencesDir, { recursive: true });
 
-    watcher.start(
-      () => {
-        evictCalls++;
-      },
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      () => {
-        skillsChangedCalls++;
-      },
-    );
+    watcher.start();
 
     expect(findWatcher(nodeModulesDir)).toBeUndefined();
     expect(findWatcher(dependencyDir)).toBeUndefined();
@@ -353,18 +313,7 @@ describe("ConfigWatcher skills watcher reseeding", () => {
     mkdirSync(distDir, { recursive: true });
     mkdirSync(buildDir, { recursive: true });
 
-    watcher.start(
-      () => {
-        evictCalls++;
-      },
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      () => {
-        skillsChangedCalls++;
-      },
-    );
+    watcher.start();
 
     const distWatcher = findWatcher(distDir);
     const buildWatcher = findWatcher(buildDir);
@@ -392,18 +341,7 @@ describe("ConfigWatcher skills watcher reseeding", () => {
     const generatedDir = join(toolsDir, "generated");
     mkdirSync(skillDir, { recursive: true });
 
-    watcher.start(
-      () => {
-        evictCalls++;
-      },
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      () => {
-        skillsChangedCalls++;
-      },
-    );
+    watcher.start();
 
     const skillWatcher = findWatcher(skillDir);
     expect(skillWatcher).toBeDefined();
@@ -424,18 +362,7 @@ describe("ConfigWatcher skills watcher reseeding", () => {
     const deepDir = join(referencesDir, "deep");
     mkdirSync(deepDir, { recursive: true });
 
-    watcher.start(
-      () => {
-        evictCalls++;
-      },
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      () => {
-        skillsChangedCalls++;
-      },
-    );
+    watcher.start();
 
     expect(findWatcher(referencesDir)).toBeDefined();
     expect(findWatcher(deepDir)).toBeDefined();

@@ -11,13 +11,16 @@
  * private implementation detail between the gateway and assistant IPC
  * servers and must not be discoverable by clients or the OpenAPI spec.
  *
- * Remove this once all contacts/guardian-binding logic is migrated off
- * the assistant daemon and into the gateway's own database.
+ * The gateway callers are pinned by an allowlist guard
+ * (gateway `__tests__/db-proxy-allowlist.test.ts`): verification-session +
+ * rate-limit state, the contact-merge identity-mirror cluster (pending a
+ * merge-shaped op), and one-time data migrations. Slated for removal with the
+ * verification-session source-of-truth move.
  *
  * Tracking: ATL-XXX (gateway security migration)
  */
 
-import { getSqlite } from "../../memory/db-connection.js";
+import { getSqlite } from "../../persistence/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 
 const log = getLogger("db-proxy");
@@ -51,7 +54,9 @@ export function handleDbProxy(params: DbProxyParams): DbProxyResult {
   switch (params.mode) {
     case "query": {
       const stmt = db.prepare(params.sql);
-      const rows = (params.bind ? stmt.all(...params.bind) : stmt.all()) as Record<string, SqliteValue>[];
+      const rows = (
+        params.bind ? stmt.all(...params.bind) : stmt.all()
+      ) as Record<string, SqliteValue>[];
       log.debug({ sql: params.sql, rowCount: rows.length }, "db-proxy query");
       return { rows };
     }

@@ -72,7 +72,24 @@ mock.module("electron", () => ({
 }));
 
 let exists = true;
-mock.module("node:fs", () => ({ existsSync: () => exists }));
+// getMacHelperPath reads CFBundleExecutable from the bundle's Info.plist to
+// resolve the (per-environment) executable filename. getMacHelperAppPath
+// reads a sidecar (.vellum-mac-helper.bundle-name) to discover the .app
+// folder name — the same pattern, lifted one level. The default bundle name
+// is `vellum-mac-helper`, so tests that don't override it resolve the
+// `vellum-mac-helper.app` path.
+let helperExecutableName = "vellum-mac-helper";
+let helperBundleName = "vellum-mac-helper";
+mock.module("node:fs", () => ({
+  existsSync: () => exists,
+  readFileSync: (target: unknown) => {
+    const targetPath = String(target);
+    if (targetPath.endsWith(".vellum-mac-helper.bundle-name")) {
+      return helperBundleName;
+    }
+    return `<plist><dict><key>CFBundleExecutable</key><string>${helperExecutableName}</string></dict></plist>`;
+  },
+}));
 
 let lastChild: FakeHotkeyChild | null = null;
 const spawnCalls: Array<[string, string[], object]> = [];
@@ -105,13 +122,15 @@ const {
   __resetForTesting,
   __setPlatformForTesting,
   __setSupervisorOptionsForTesting,
-  getMacHelperAppPath,
-  getMacHelperPath,
   installHotkeyHelper,
   queryFreshMacHelperPermission,
   requestMacHelperInputMonitoringPermission,
   requestMacHelperSpeechRecognitionPermission,
 } = await import("./hotkey-helper");
+
+const { getMacHelperAppPath, getMacHelperPath } = await import(
+  "./sidecar/mac-helper-path"
+);
 
 const invokeFnPushToTalk = (enable: boolean) =>
   handlers["vellum:helper:hotkey:fnPushToTalk"](
@@ -145,6 +164,8 @@ beforeEach(() => {
   spawnCalls.length = 0;
   lastChild = null;
   exists = true;
+  helperExecutableName = "vellum-mac-helper";
+  helperBundleName = "vellum-mac-helper";
   appState.isPackaged = false;
   appState.appPath = "/repo/clients/macos";
   nextWebContentsId = 1;
@@ -179,6 +200,31 @@ describe("getMacHelperPath", () => {
     appState.isPackaged = true;
     expect(getMacHelperPath()).toBe(
       "/mock/resources/bin/vellum-mac-helper.app/Contents/MacOS/vellum-mac-helper",
+    );
+  });
+
+  test("resolves the per-environment executable name from CFBundleExecutable", () => {
+    helperExecutableName = "Vellum Helper Dev";
+    expect(getMacHelperPath()).toBe(
+      "/repo/clients/macos/resources/vellum-mac-helper.app/Contents/MacOS/Vellum Helper Dev",
+    );
+  });
+
+  test("resolves the per-environment bundle folder name from the sidecar", () => {
+    helperBundleName = "Vellum Helper Dev";
+    expect(getMacHelperAppPath()).toBe(
+      "/repo/clients/macos/resources/Vellum Helper Dev.app",
+    );
+    expect(getMacHelperPath()).toBe(
+      "/repo/clients/macos/resources/Vellum Helper Dev.app/Contents/MacOS/vellum-mac-helper",
+    );
+  });
+
+  test("resolves the packaged bundle folder name from the sidecar", () => {
+    appState.isPackaged = true;
+    helperBundleName = "Vellum Helper Staging";
+    expect(getMacHelperAppPath()).toBe(
+      "/mock/resources/bin/Vellum Helper Staging.app",
     );
   });
 });

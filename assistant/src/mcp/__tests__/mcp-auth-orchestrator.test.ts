@@ -68,6 +68,7 @@ mock.module("../../daemon/mcp-reload-service.js", () => ({
 
 mock.module("../../config/env-registry.js", () => ({
   getIsContainerized: () => false,
+  getWorkspaceDirOverride: () => undefined,
 }));
 
 mock.module("../../util/logger.js", () => ({

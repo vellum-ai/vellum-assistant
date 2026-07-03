@@ -17,6 +17,7 @@ import {
   runHatch,
   runRetire,
   runSleep,
+  runUpgrade,
   runWake,
   getGuardianAccessToken,
   resolveGatewayProxyTarget,
@@ -27,6 +28,33 @@ import {
 const GUARDIAN_TOKEN_PATTERN =
   /^(?:\/assistant)?\/__local\/guardian-token\/([^/]+)$/;
 const LOCAL_STATUS_PATTERN = /^(?:\/assistant)?\/__local\/status\/([^/]+)$/;
+const LOCAL_UPGRADE_PATTERN = /^(?:\/assistant)?\/__local\/upgrade$/;
+const PLATFORM_SESSION_PATTERN =
+  /^(?:\/assistant)?\/__local\/platform-session$/;
+
+// In-memory loopback platform session token for the dev server. The proxy
+// (vite.config.ts) and the middleware below run in the same Node process, so
+// this module singleton bridges them. Dev-only and session-scoped; the
+// installed CLI persists the token via its own store.
+let devPlatformToken: string | null = null;
+export function getDevPlatformToken(): string | null {
+  return devPlatformToken;
+}
+
+/**
+ * Whether a proxied request is same-origin SPA traffic that may carry the
+ * platform credential. A cross-site page must not be able to use the dev proxy
+ * as a confused deputy. Mirrors the Bun server's check.
+ */
+export function isSameOriginProxyRequest(req: http.IncomingMessage): boolean {
+  const origin = Array.isArray(req.headers.origin)
+    ? req.headers.origin[0]
+    : req.headers.origin;
+  if (!originIsAllowed(origin)) return false;
+  const site = req.headers["sec-fetch-site"];
+  const siteValue = Array.isArray(site) ? site[0] : site;
+  return !siteValue || siteValue === "same-origin" || siteValue === "none";
+}
 
 export function localModePlugin(env: Record<string, string>): Plugin {
   const config = resolveLocalConfigFromEnv(env);
@@ -47,6 +75,7 @@ export function localModePlugin(env: Record<string, string>): Plugin {
     },
     configureServer(server) {
       server.middlewares.use(loopbackCallbackMiddleware());
+      server.middlewares.use(platformSessionMiddleware());
       server.middlewares.use(
         configMiddleware(config.webUrl, config.platformUrl),
       );
@@ -55,7 +84,17 @@ export function localModePlugin(env: Record<string, string>): Plugin {
       server.middlewares.use(retireMiddleware(baseDir, config.lockfilePaths));
       server.middlewares.use(sleepMiddleware(baseDir));
       server.middlewares.use(wakeMiddleware(baseDir));
-      server.middlewares.use(statusMiddleware(config.lockfilePaths));
+      const upgradingLocalAssistantIds = new Set<string>();
+      server.middlewares.use(
+        upgradeMiddleware(
+          baseDir,
+          config.lockfilePaths,
+          upgradingLocalAssistantIds,
+        ),
+      );
+      server.middlewares.use(
+        statusMiddleware(config.lockfilePaths, upgradingLocalAssistantIds),
+      );
       server.middlewares.use(
         guardianTokenMiddleware(config.configDir, baseDir, env),
       );
@@ -70,9 +109,17 @@ function rejectUnlessLocalEndpointRequest(
   res: http.ServerResponse,
 ): boolean {
   const peer = req.socket.remoteAddress ?? "";
-  const host = Array.isArray(req.headers.host) ? req.headers.host[0] : req.headers.host;
-  const origin = Array.isArray(req.headers.origin) ? req.headers.origin[0] : req.headers.origin;
-  if (!isLoopbackAddr(peer) || !headerHostIsLoopback(host) || !originIsAllowed(origin)) {
+  const host = Array.isArray(req.headers.host)
+    ? req.headers.host[0]
+    : req.headers.host;
+  const origin = Array.isArray(req.headers.origin)
+    ? req.headers.origin[0]
+    : req.headers.origin;
+  if (
+    !isLoopbackAddr(peer) ||
+    !headerHostIsLoopback(host) ||
+    !originIsAllowed(origin)
+  ) {
     res.statusCode = 403;
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ error: "Forbidden" }));
@@ -90,6 +137,51 @@ function loopbackCallbackMiddleware(): Connect.NextHandleFunction {
       return;
     }
     next();
+  };
+}
+
+// Receives the loopback platform session token from the SPA (after it has
+// validated the `state` nonce) and holds it for the proxy. Mirrors the Bun
+// server's /__local/platform-session endpoint.
+function platformSessionMiddleware(): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    const path = (req.url ?? "").split("?")[0];
+    if (!PLATFORM_SESSION_PATTERN.test(path)) return next();
+    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+
+    if (req.method === "DELETE") {
+      devPlatformToken = null;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      let token: unknown;
+      try {
+        token = (
+          JSON.parse(Buffer.concat(chunks).toString()) as { token?: unknown }
+        ).token;
+      } catch {
+        token = undefined;
+      }
+      if (typeof token !== "string" || !/^[A-Za-z0-9]+$/.test(token)) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: false, error: "Invalid token" }));
+        return;
+      }
+      devPlatformToken = token;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: true }));
+    });
   };
 }
 
@@ -242,22 +334,27 @@ function hatchMiddleware(baseDir: string): Connect.NextHandleFunction {
         return;
       }
 
-      runHatch(invocation, species, remote ? { remote } : undefined).then((result) => {
-        res.statusCode = result.ok ? 200 : result.status;
-        res.setHeader("Content-Type", "application/json");
-        res.end(
-          JSON.stringify(
-            result.ok
-              ? { ok: true, assistantId: result.assistantId }
-              : { ok: false, error: result.error },
-          ),
-        );
-      });
+      runHatch(invocation, species, remote ? { remote } : undefined).then(
+        (result) => {
+          res.statusCode = result.ok ? 200 : result.status;
+          res.setHeader("Content-Type", "application/json");
+          res.end(
+            JSON.stringify(
+              result.ok
+                ? { ok: true, assistantId: result.assistantId }
+                : { ok: false, error: result.error },
+            ),
+          );
+        },
+      );
     });
   };
 }
 
-function retireMiddleware(baseDir: string, lockfilePaths: string[]): Connect.NextHandleFunction {
+function retireMiddleware(
+  baseDir: string,
+  lockfilePaths: string[],
+): Connect.NextHandleFunction {
   return (req, res, next) => {
     if (
       req.url !== "/assistant/__local/retire" &&
@@ -301,7 +398,12 @@ function retireMiddleware(baseDir: string, lockfilePaths: string[]): Connect.Nex
       if (!isActiveAssistant(lockfilePaths, assistantId)) {
         res.statusCode = 403;
         res.setHeader("Content-Type", "application/json");
-        res.end(JSON.stringify({ ok: false, error: "Can only retire the active local assistant" }));
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: "Can only retire the active local assistant",
+          }),
+        );
         return;
       }
 
@@ -320,7 +422,9 @@ function retireMiddleware(baseDir: string, lockfilePaths: string[]): Connect.Nex
         return;
       }
 
-      runRetire(invocation, assistantId).then((result) => {
+      runRetire(invocation, assistantId, {
+        platformToken: getDevPlatformToken() ?? undefined,
+      }).then((result) => {
         res.statusCode = result.ok ? 200 : result.status;
         res.setHeader("Content-Type", "application/json");
         res.end(
@@ -472,7 +576,119 @@ function wakeMiddleware(baseDir: string): Connect.NextHandleFunction {
   };
 }
 
-function statusMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction {
+function upgradeMiddleware(
+  baseDir: string,
+  lockfilePaths: string[],
+  upgradingLocalAssistantIds: Set<string>,
+): Connect.NextHandleFunction {
+  return (req, res, next) => {
+    if (!LOCAL_UPGRADE_PATTERN.test(req.url ?? "")) return next();
+
+    if (rejectUnlessLocalEndpointRequest(req, res)) return;
+
+    if (req.method !== "POST") {
+      res.statusCode = 405;
+      res.end();
+      return;
+    }
+
+    const chunks: Buffer[] = [];
+    req.on("data", (chunk: Buffer) => chunks.push(chunk));
+    req.on("end", () => {
+      let assistantId: string | undefined;
+      let latest = false;
+      let force = false;
+      let version: string | undefined;
+      if (chunks.length > 0) {
+        try {
+          const body = JSON.parse(Buffer.concat(chunks).toString()) as {
+            assistantId?: string;
+            latest?: boolean;
+            force?: boolean;
+            version?: string;
+          };
+          assistantId = body.assistantId;
+          latest = body.latest === true;
+          force = body.force === true;
+          version = body.version;
+        } catch {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify({ ok: false, error: "Invalid JSON body" }));
+          return;
+        }
+      }
+
+      if (!assistantId) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "application/json");
+        res.end(JSON.stringify({ ok: false, error: "Missing assistantId" }));
+        return;
+      }
+
+      if (!isActiveAssistant(lockfilePaths, assistantId)) {
+        res.statusCode = 403;
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: "Can only upgrade the active local assistant",
+          }),
+        );
+        return;
+      }
+
+      if (upgradingLocalAssistantIds.has(assistantId)) {
+        res.statusCode = 409;
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: "An upgrade is already in progress for this assistant.",
+          }),
+        );
+        return;
+      }
+
+      let invocation: CliInvocation;
+      try {
+        invocation = resolveDevCliInvocation(baseDir, import.meta.url);
+      } catch (err) {
+        res.statusCode = 500;
+        res.setHeader("Content-Type", "application/json");
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        );
+        return;
+      }
+
+      const options = {
+        ...(latest ? { latest } : {}),
+        ...(version ? { version } : {}),
+        ...(force ? { force } : {}),
+      };
+
+      upgradingLocalAssistantIds.add(assistantId);
+      runUpgrade(invocation, assistantId, options)
+        .then((result) => {
+          res.statusCode = result.ok ? 200 : result.status;
+          res.setHeader("Content-Type", "application/json");
+          res.end(JSON.stringify(result));
+        })
+        .finally(() => {
+          upgradingLocalAssistantIds.delete(assistantId);
+        });
+    });
+  };
+}
+
+function statusMiddleware(
+  lockfilePaths: string[],
+  upgradingLocalAssistantIds: Set<string>,
+): Connect.NextHandleFunction {
   return (req, res, next) => {
     const match = req.url?.match(LOCAL_STATUS_PATTERN);
     if (!match) return next();
@@ -485,10 +701,15 @@ function statusMiddleware(lockfilePaths: string[]): Connect.NextHandleFunction {
       return;
     }
 
-    void getLocalAssistantStatus(
-      lockfilePaths,
-      decodeURIComponent(match[1]!),
-    ).then((result) => {
+    const assistantId = decodeURIComponent(match[1]!);
+    if (upgradingLocalAssistantIds.has(assistantId)) {
+      res.statusCode = 200;
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify({ ok: true, state: "upgrading" }));
+      return;
+    }
+
+    void getLocalAssistantStatus(lockfilePaths, assistantId).then((result) => {
       res.statusCode = result.ok ? 200 : result.status;
       res.setHeader("Content-Type", "application/json");
       res.end(JSON.stringify(result));

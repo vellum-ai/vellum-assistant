@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
 import { useSidebarCollapseStore } from "@/domains/chat/sidebar-collapse-store";
+import { channelSectionKey } from "@/domains/chat/utils/sidebar-group-collapse-storage";
 
 function resetStore() {
   useSidebarCollapseStore.setState({
@@ -89,7 +90,7 @@ describe("SidebarCollapseStore", () => {
     );
     localStorage.setItem(
       "vellum:sidebar-open-categories:asst-2",
-      JSON.stringify(["background", "slack"]),
+      JSON.stringify(["background", channelSectionKey("slack")]),
     );
 
     useSidebarCollapseStore.getState().setAssistantId("asst-1");
@@ -100,7 +101,7 @@ describe("SidebarCollapseStore", () => {
     useSidebarCollapseStore.getState().setAssistantId("asst-2");
     expect(useSidebarCollapseStore.getState().openCategories).toEqual([
       "background",
-      "slack",
+      channelSectionKey("slack"),
     ]);
   });
 

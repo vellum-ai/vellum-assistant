@@ -6228,6 +6228,27 @@ components:
           readOnly: true
           nullable: true
           description: When the session reached a terminal state.
+        total_input_tokens:
+          type: integer
+          readOnly: true
+          description: Total input-side LLM tokens used by the Doctor session.
+        total_output_tokens:
+          type: integer
+          readOnly: true
+          description: Total output LLM tokens used by the Doctor session.
+        total_cache_creation_input_tokens:
+          type: integer
+          readOnly: true
+          description: Total prompt-cache write input tokens used by the Doctor session.
+        total_cache_read_input_tokens:
+          type: integer
+          readOnly: true
+          description: Total prompt-cache read input tokens used by the Doctor session.
+        total_estimated_cost_usd:
+          type: number
+          format: double
+          readOnly: true
+          description: Estimated LLM cost in USD for the Doctor session.
         created:
           type: string
           format: date-time
@@ -6235,6 +6256,9 @@ components:
         modified:
           type: string
           format: date-time
+          readOnly: true
+        message_count:
+          type: integer
           readOnly: true
         messages:
           type: array
@@ -6246,9 +6270,15 @@ components:
       - ended_at
       - id
       - last_message_at
+      - message_count
       - messages
       - modified
       - status
+      - total_cache_creation_input_tokens
+      - total_cache_read_input_tokens
+      - total_estimated_cost_usd
+      - total_input_tokens
+      - total_output_tokens
     DoctorSessionList:
       type: object
       description: |-
@@ -6284,6 +6314,27 @@ components:
           readOnly: true
           nullable: true
           description: When the session reached a terminal state.
+        total_input_tokens:
+          type: integer
+          readOnly: true
+          description: Total input-side LLM tokens used by the Doctor session.
+        total_output_tokens:
+          type: integer
+          readOnly: true
+          description: Total output LLM tokens used by the Doctor session.
+        total_cache_creation_input_tokens:
+          type: integer
+          readOnly: true
+          description: Total prompt-cache write input tokens used by the Doctor session.
+        total_cache_read_input_tokens:
+          type: integer
+          readOnly: true
+          description: Total prompt-cache read input tokens used by the Doctor session.
+        total_estimated_cost_usd:
+          type: number
+          format: double
+          readOnly: true
+          description: Estimated LLM cost in USD for the Doctor session.
         created:
           type: string
           format: date-time
@@ -6303,6 +6354,11 @@ components:
       - message_count
       - modified
       - status
+      - total_cache_creation_input_tokens
+      - total_cache_read_input_tokens
+      - total_estimated_cost_usd
+      - total_input_tokens
+      - total_output_tokens
     DoctorSessionMessageRequestRequest:
       type: object
       description: Request body for sending a message to a Doctor session.
@@ -6804,11 +6860,14 @@ components:
           type: string
           format: decimal
           pattern: ^-?\d{0,8}(?:\.\d{0,2})?$
+        is_eligible_for_credits:
+          type: boolean
       required:
       - code
       - credit_amount
       - earning_cap
       - earning_cap_usd
+      - is_eligible_for_credits
       - referral_url
       - referred_count
       - referrer_credit_amount
@@ -7239,6 +7298,7 @@ components:
     OperationalStatusStateEnum:
       enum:
       - initializing
+      - migrating
       - provisioning
       - active
       - sleeping
@@ -7256,6 +7316,7 @@ components:
       type: string
       description: |-
         * `initializing` - initializing
+        * `migrating` - migrating
         * `provisioning` - provisioning
         * `active` - active
         * `sleeping` - sleeping

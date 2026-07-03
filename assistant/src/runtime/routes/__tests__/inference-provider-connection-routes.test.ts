@@ -29,9 +29,9 @@ mock.module("../../../util/logger.js", () => ({
 
 // ── Real imports (after mocks) ────────────────────────────────────────────────
 
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
-import { providerConnections } from "../../../memory/schema/inference.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import { providerConnections } from "../../../persistence/schema/inference.js";
 // Route policies are read directly off `route.policy` now (ATL-315
 // followup) — no registry lookup.
 import { BadRequestError, ConflictError, NotFoundError } from "../errors.js";

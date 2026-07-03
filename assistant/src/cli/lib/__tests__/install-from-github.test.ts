@@ -321,6 +321,7 @@ describe("installPlugin — install lifecycle", () => {
     expect(meta?.source.ref).toBe(OLD_SHA);
     expect(meta?.source.repo).toBe("caveman");
     expect(meta?.source.owner).toBe("JuliusBrussee");
+    expect(meta?.author).toBe("user");
   });
 
   test("--force preserves the existing install when the clone fails", async () => {
@@ -434,6 +435,108 @@ describe("installPlugin — marketplace resolution", () => {
     expect(meta.fingerprint.files["package.json"]).toMatch(/^[0-9a-f]{64}$/);
     expect(meta.fingerprint.files["install-meta.json"]).toBeUndefined();
     expect(meta.contentHash).toMatch(/^v2:[0-9a-f]{64}$/);
+  });
+
+  test("installs a plugin rooted at a sub-path, copying only that subtree", async () => {
+    // GIVEN a marketplace entry whose source pins a directory *within* a repo
+    // (a monorepo that ships several plugins) rather than the repo root.
+    const NESTED_SHA = "0f".repeat(20);
+    const NESTED_MANIFEST = {
+      name: "vellum-assistant",
+      plugins: [
+        {
+          name: "nested-plugin",
+          source: {
+            source: "github",
+            repo: "example-org/monorepo",
+            path: "packages/my-plugin",
+            ref: NESTED_SHA,
+          },
+          description: "A plugin that lives in a monorepo sub-directory.",
+        },
+      ],
+    };
+    const fetch = makeContentsFetch({ tree: {}, manifest: NESTED_MANIFEST });
+    // The clone carries files both at the repo root and under the pinned
+    // sub-path; only the sub-path subtree should be materialized.
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": '{"name":"monorepo-root"}',
+        "README.md": "# monorepo root",
+        "packages/my-plugin/package.json": '{"name":"nested-plugin"}',
+        "packages/my-plugin/README.md": "# nested plugin",
+        "packages/my-plugin/hooks/init.ts": "export default async () => {};",
+        "packages/other-plugin/package.json": '{"name":"other"}',
+      },
+      commit: NESTED_SHA,
+    });
+
+    // WHEN we install by name
+    const result = await installPlugin(
+      { name: "nested-plugin", ref: "main" },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN only the sub-path subtree lands, rooted at <pluginsDir>/nested-plugin
+    const target = join(pluginsDir, "nested-plugin");
+    expect(result.target).toBe(target);
+    expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
+      '{"name":"nested-plugin"}',
+    );
+    expect(existsSync(join(target, "README.md"))).toBe(true);
+    expect(existsSync(join(target, "hooks", "init.ts"))).toBe(true);
+    // AND the repo-root and sibling-package files are NOT copied in — the
+    // install is scoped to the pinned directory.
+    expect(result.fileCount).toBe(3);
+    expect(readFileSync(join(target, "package.json"), "utf-8")).not.toContain(
+      "monorepo-root",
+    );
+    expect(existsSync(join(target, "packages"))).toBe(false);
+
+    // AND provenance records the sub-path so an upgrade/diff re-resolves the
+    // same directory rather than the repo root.
+    const meta = readInstallMeta(target);
+    expect(meta?.source.owner).toBe("example-org");
+    expect(meta?.source.repo).toBe("monorepo");
+    expect(meta?.source.path).toBe("packages/my-plugin");
+    expect(meta?.source.ref).toBe(NESTED_SHA);
+  });
+
+  test("a sub-path that does not exist in the clone surfaces a clean not-found", async () => {
+    // GIVEN an entry pinning a directory the cloned ref doesn't contain
+    const MISSING_SHA = "1a".repeat(20);
+    const MISSING_PATH_MANIFEST = {
+      name: "vellum-assistant",
+      plugins: [
+        {
+          name: "nested-plugin",
+          source: {
+            source: "github",
+            repo: "example-org/monorepo",
+            path: "packages/does-not-exist",
+            ref: MISSING_SHA,
+          },
+        },
+      ],
+    };
+    const fetch = makeContentsFetch({
+      tree: {},
+      manifest: MISSING_PATH_MANIFEST,
+    });
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"monorepo-root"}' },
+      commit: MISSING_SHA,
+    });
+
+    // WHEN we install
+    // THEN the absent sub-path yields a hard not-found and nothing is staged
+    await expect(
+      installPlugin(
+        { name: "nested-plugin", ref: "main" },
+        { fetch, runGit, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginNotFoundError);
+    expect(readdirSync(pluginsDir)).toEqual([]);
   });
 
   test("refuses to install when the checked-out commit differs from the pinned SHA", async () => {
@@ -837,6 +940,165 @@ describe("installPlugin — marketplace resolution", () => {
   });
 });
 
+describe("installPlugin — direct (untrusted) install", () => {
+  let ws: string;
+  let pluginsDir: string;
+
+  beforeEach(() => {
+    ws = mkdtempSync(join(tmpdir(), "vellum-plugins-direct-"));
+    pluginsDir = join(ws, "plugins");
+    mkdirSync(pluginsDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(ws, { recursive: true, force: true });
+  });
+
+  test("installs from a caller-supplied source, bypassing the marketplace", async () => {
+    // GIVEN no marketplace manifest at all (a direct install must not consult it)
+    const fetch = makeContentsFetch({ tree: {} });
+    const calls: string[][] = [];
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"dev-plugin"}', "hooks/init.ts": "//" },
+      commit: "a".repeat(40),
+      calls,
+    });
+
+    // WHEN we install directly from owner/repo on its default branch (HEAD)
+    const result = await installPlugin(
+      {
+        name: "dev-plugin",
+        directSource: {
+          owner: "owner",
+          repo: "dev-plugin",
+          rootPath: "",
+          ref: "HEAD",
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the tree is materialized and provenance records the direct source.
+    const target = join(pluginsDir, "dev-plugin");
+    expect(result.target).toBe(target);
+    expect(result.fileCount).toBe(2);
+    // A non-SHA ref (HEAD/branch) does NOT trip the pinned-commit integrity
+    // check — the resolved commit is recorded as-is.
+    expect(result.ref).toBe("HEAD");
+    expect(result.commit).toBe("a".repeat(40));
+
+    const fetchCall = calls.find((c) => c[0] === "fetch");
+    expect(fetchCall?.at(-1)).toBe("HEAD");
+    const remoteCall = calls.find((c) => c[0] === "remote");
+    expect(remoteCall?.at(-1)).toBe("https://github.com/owner/dev-plugin.git");
+
+    const meta = readInstallMeta(target);
+    expect(meta?.source.owner).toBe("owner");
+    expect(meta?.source.repo).toBe("dev-plugin");
+    expect(meta?.source.ref).toBe("HEAD");
+    expect(meta?.commit).toBe("a".repeat(40));
+  });
+
+  test("never overlays a curated adapter stub, even if one matches the name", async () => {
+    // GIVEN a fetch that WOULD serve an adapter stub for the name, and a
+    // postinstall runner that fails the test if it is ever invoked
+    const fetch = makeContentsFetch({
+      tree: {
+        "plugins/caveman/package.json": JSON.stringify({
+          name: "caveman",
+          scripts: { postinstall: "bun ./postinstall.ts" },
+        }),
+        "plugins/caveman/postinstall.ts": "// adapter",
+      },
+    });
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"caveman-fork"}' },
+      commit: "b".repeat(40),
+    });
+    const runPostinstall: PostinstallRunner = async () => {
+      throw new Error("adapter stub must not run for a direct install");
+    };
+
+    // WHEN we install directly
+    await installPlugin(
+      {
+        name: "caveman",
+        directSource: {
+          owner: "someone",
+          repo: "caveman-fork",
+          rootPath: "",
+          ref: "HEAD",
+        },
+      },
+      { fetch, runGit, runPostinstall, workspacePluginsDir: pluginsDir },
+    );
+
+    // THEN the upstream manifest is installed verbatim — no stub transform ran
+    const pkg = readFileSync(
+      join(pluginsDir, "caveman", "package.json"),
+      "utf-8",
+    );
+    expect(pkg).toBe('{"name":"caveman-fork"}');
+  });
+
+  test("a direct install from a sub-path copies only that subtree", async () => {
+    const fetch = makeContentsFetch({ tree: {} });
+    const runGit = fakeGitRunner({
+      tree: {
+        "package.json": '{"name":"monorepo"}',
+        "packages/leaf/package.json": '{"name":"leaf"}',
+      },
+      commit: "c".repeat(40),
+    });
+
+    const result = await installPlugin(
+      {
+        name: "leaf",
+        directSource: {
+          owner: "owner",
+          repo: "monorepo",
+          rootPath: "packages/leaf",
+          ref: "main",
+        },
+      },
+      { fetch, runGit, workspacePluginsDir: pluginsDir },
+    );
+
+    const target = join(pluginsDir, "leaf");
+    expect(result.fileCount).toBe(1);
+    expect(readFileSync(join(target, "package.json"), "utf-8")).toBe(
+      '{"name":"leaf"}',
+    );
+    expect(existsSync(join(target, "packages"))).toBe(false);
+  });
+
+  test("a direct install pinned to a full SHA still enforces the integrity check", async () => {
+    // GIVEN a pinned SHA whose checked-out commit diverges
+    const fetch = makeContentsFetch({ tree: {} });
+    const runGit = fakeGitRunner({
+      tree: { "package.json": '{"name":"x"}' },
+      commit: "d".repeat(40),
+    });
+
+    // WHEN the direct ref is a full SHA, the resolved commit must match it
+    await expect(
+      installPlugin(
+        {
+          name: "x",
+          directSource: {
+            owner: "owner",
+            repo: "x",
+            rootPath: "",
+            ref: "e".repeat(40),
+          },
+        },
+        { fetch, runGit, workspacePluginsDir: pluginsDir },
+      ),
+    ).rejects.toBeInstanceOf(PluginSourceUnavailableError);
+    expect(readdirSync(pluginsDir)).toEqual([]);
+  });
+});
+
 describe("sanitizePluginName", () => {
   test.each([
     ["../escape"],
@@ -855,12 +1117,12 @@ describe("sanitizePluginName", () => {
     expect(sanitizePluginName("a")).toBe("a");
   });
 
-  test.each([
-    "default-advisor",
-    "default-memory-retrieval",
-    "default-",
-    "default-x",
-  ])("rejects reserved prefix name %p", (reserved) => {
-    expect(() => sanitizePluginName(reserved)).toThrow(InvalidPluginNameError);
-  });
+  test.each(["default-advisor", "default-memory", "default-", "default-x"])(
+    "rejects reserved prefix name %p",
+    (reserved) => {
+      expect(() => sanitizePluginName(reserved)).toThrow(
+        InvalidPluginNameError,
+      );
+    },
+  );
 });

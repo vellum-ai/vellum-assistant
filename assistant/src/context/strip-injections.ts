@@ -14,7 +14,7 @@
 import {
   MEMORY_SPOTLIGHT_PREFIX,
   MEMORY_SPOTLIGHT_SUFFIX,
-} from "../memory/memory-marker.js";
+} from "../plugins/defaults/memory/memory-marker.js";
 import type { Message } from "../providers/types.js";
 
 /**

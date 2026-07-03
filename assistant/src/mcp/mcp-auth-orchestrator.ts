@@ -21,6 +21,7 @@ import {
   setMcpAuthError,
   setMcpAuthPending,
 } from "./mcp-auth-state.js";
+import { getMcpHeaders } from "./mcp-header-store.js";
 import {
   type McpOAuthCallbackTransport,
   McpOAuthProvider,
@@ -80,6 +81,10 @@ export async function orchestrateMcpOAuthConnect(args: {
   // Register the pending callback in the daemon heap
   const { codePromise } = await provider.startCallbackServer();
 
+  // Resolve effective headers: credential store takes precedence, then config
+  const storedHeaders = await getMcpHeaders(serverId);
+  const effectiveHeaders = storedHeaders ?? transport.headers;
+
   // Build the MCP transport and client
   const serverUrl = new URL(transport.url);
   const TransportClass =
@@ -88,7 +93,7 @@ export async function orchestrateMcpOAuthConnect(args: {
       : StreamableHTTPClientTransport;
   const mcpTransport = new TransportClass(serverUrl, {
     authProvider: provider,
-    requestInit: transport.headers ? { headers: transport.headers } : undefined,
+    requestInit: effectiveHeaders ? { headers: effectiveHeaders } : undefined,
   });
   const client = new Client({ name: "vellum-assistant", version: "1.0.0" });
 

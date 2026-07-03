@@ -15,6 +15,7 @@ import {
 } from "../../config/env.js";
 import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import { loadSkillCatalog } from "../../config/skills.js";
+import { getGuardianDelivery } from "../../contacts/guardian-delivery-reader.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
 import {
   computeGatewayTarget,
@@ -42,7 +43,12 @@ import {
   type ManifestOverride,
   resolveExecutionTarget,
 } from "../../tools/execution-target.js";
-import { getAllTools, getTool, getToolOwner } from "../../tools/registry.js";
+import {
+  getAllTools,
+  getEnabledTools,
+  getTool,
+  getToolOwner,
+} from "../../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
@@ -303,8 +309,12 @@ async function handleOAuthConnectStart({ body = {} }: RouteHandlerArgs) {
 // Workspace files (list/read)
 // ---------------------------------------------------------------------------
 
-function getWorkspaceFiles(): string[] {
+async function getWorkspaceFiles(): Promise<string[]> {
   const files = ["IDENTITY.md", "SOUL.md", "skills/"];
+  // Warm the vellum guardian-delivery cache so the sync persona resolution
+  // below hits a fresh key instead of falling back to default.md on a cold or
+  // TTL-expired cache.
+  await getGuardianDelivery({ channelTypes: ["vellum"] });
   const guardianPath = resolveGuardianPersonaPath();
   if (guardianPath) {
     files.push(`users/${basename(guardianPath)}`);
@@ -312,9 +322,9 @@ function getWorkspaceFiles(): string[] {
   return files;
 }
 
-function handleWorkspaceFilesList() {
+async function handleWorkspaceFilesList() {
   const base = getWorkspaceDir();
-  const files = getWorkspaceFiles().map((name) => ({
+  const files = (await getWorkspaceFiles()).map((name) => ({
     path: name,
     name,
     exists: pathExists(join(base, name)),
@@ -392,17 +402,19 @@ interface ToolNamesListResponse {
 
 /**
  * Tool inventory. With no `conversationId`, reports every tool in the
- * global registry (plus skill-manifest tools not yet loaded, for the
- * permission-simulator catalog). With a `conversationId`, scopes the
- * inventory to the tools available to that conversation as of its most
- * recent turn — see {@link handleConversationToolList}.
+ * global registry that is currently active — tools contributed by a
+ * disabled plugin are filtered out at read time, so the listing matches
+ * what conversations can actually call (plus skill-manifest tools not yet
+ * loaded, for the permission-simulator catalog). With a `conversationId`,
+ * scopes the inventory to the tools available to that conversation as of
+ * its most recent turn — see {@link handleConversationToolList}.
  */
 function handleToolNamesList(conversationId?: string): ToolNamesListResponse {
   if (conversationId) {
     return handleConversationToolList(conversationId);
   }
 
-  const tools = getAllTools();
+  const tools = getEnabledTools();
   const nameSet = new Set(tools.map((t) => t.name));
   const schemas: Record<string, SchemaShape> = {};
 
@@ -511,11 +523,13 @@ function toolEntryForName(name: string): ToolListEntry {
  * Build the registered-tool inventory with the metadata a catalog view
  * needs: description, author-asserted risk band, category, and the
  * extension that contributed the tool. Sorted by name for stable output.
- * Covers only tools loaded into the registry; skill tools whose manifests
- * are present but not yet loaded appear in `names`/`schemas` but not here.
+ * Covers only tools loaded into the registry and currently active; tools
+ * from a disabled plugin are excluded (see {@link getEnabledTools}), and
+ * skill tools whose manifests are present but not yet loaded appear in
+ * `names`/`schemas` but not here.
  */
 function buildRegisteredToolEntries(): ToolListEntry[] {
-  return getAllTools()
+  return getEnabledTools()
     .map((tool) => toolEntryForName(tool.name))
     .sort((a, b) => a.name.localeCompare(b.name));
 }

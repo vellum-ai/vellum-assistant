@@ -1,10 +1,10 @@
 import { shouldSuppressGenericChatErrorNotice } from "@/domains/chat/utils/error-classification";
-import { handleConversationError } from "@/domains/chat/utils/stream-updaters/message-updaters";
 import { ERROR_MESSAGES } from "@/domains/chat/utils/chat";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import { patchConversation } from "@/utils/conversation-cache";
 import type {
   ConversationErrorEvent,
+  ConversationNoticeEvent,
   ErrorEvent,
 } from "@vellumai/assistant-api";
 
@@ -54,8 +54,6 @@ export function handleConversationErrorEvent(
   }
   ctx.endTurn({ conversationId: convId, reason: "error" });
 
-  ctx.setMessages(handleConversationError);
-
   ctx.setError({
     message: event.userMessage,
     code: event.code,
@@ -65,4 +63,15 @@ export function handleConversationErrorEvent(
   if (!isBannerError) {
     ctx.cancelAndClearStream();
   }
+}
+
+export function handleConversationNoticeEvent(
+  event: ConversationNoticeEvent,
+  ctx: StreamHandlerContext,
+): void {
+  ctx.setNotice({
+    message: event.userMessage,
+    code: event.code,
+    errorCategory: event.errorCategory,
+  });
 }

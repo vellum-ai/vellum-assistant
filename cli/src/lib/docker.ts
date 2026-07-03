@@ -23,7 +23,7 @@ import { buildHatchConfigValues, writeInitialConfig } from "./config-utils";
 import { buildServiceRunArgs } from "./statefulset.js";
 import type { Species } from "./constants";
 import { getOrCreateHostDeviceId } from "./device-id.js";
-import { getDefaultPorts } from "./environments/paths.js";
+import { ASSISTANT_INTERNAL_PORT, getDefaultPorts } from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { leaseGuardianToken } from "./guardian-token";
 import { logHatchNextSteps } from "./hatch-next-steps.js";
@@ -35,8 +35,9 @@ import {
   loadImageViaHost,
 } from "./host-image-loader.js";
 import {
-  fetchLatestStableVersion,
+  fetchLatestVersion,
   resolveImageRefs,
+  type ReleaseChannel,
 } from "./platform-releases.js";
 import {
   configureHatchProviderApiKey,
@@ -321,6 +322,15 @@ export interface HatchDockerParams {
    * connection.
    */
   assistantCaCertPath?: string;
+  /**
+   * Release channel to resolve published images from when hatching without a
+   * local source tree (the image-pull fallback). `stable` (default) keeps the
+   * latest-stable behavior; `preview` pulls the latest preview release. Only
+   * affects the pull path — a local source build ignores it. Falls back to
+   * the `VELLUM_HATCH_CHANNEL` env var when unset, so callers that hatch via
+   * env (e.g. evals) can opt in without changing the invocation.
+   */
+  channel?: ReleaseChannel;
 }
 
 export type DockerProviderCredentialSetupAction =
@@ -711,6 +721,7 @@ export async function startContainers(
     extraAssistantEnv?: Record<string, string>;
     extraGatewayEnv?: Record<string, string>;
     gatewayPort: number;
+    assistantPort: number;
     imageTags: Record<ServiceName, string>;
     instanceName: string;
     res: ReturnType<typeof dockerResourceNames>;
@@ -934,6 +945,7 @@ function startFileWatcher(opts: {
   extraAssistantEnv?: Record<string, string>;
   extraGatewayEnv?: Record<string, string>;
   gatewayPort: number;
+  assistantPort: number;
   imageTags: Record<ServiceName, string>;
   instanceName: string;
   repoRoot: string;
@@ -941,7 +953,7 @@ function startFileWatcher(opts: {
   netnsContainer?: string;
   assistantCaCertPath?: string;
 }): () => void {
-  const { gatewayPort, imageTags, instanceName, repoRoot, res } = opts;
+  const { gatewayPort, assistantPort, imageTags, instanceName, repoRoot, res } = opts;
 
   const { dirs: watchDirs, files: watchFiles } = collectWatchTargets(repoRoot);
 
@@ -957,6 +969,7 @@ function startFileWatcher(opts: {
     extraAssistantEnv: opts.extraAssistantEnv,
     extraGatewayEnv: opts.extraGatewayEnv,
     gatewayPort,
+    assistantPort,
     imageTags,
     instanceName,
     res,
@@ -1090,6 +1103,14 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
     flagEnvVars = {},
   } = params;
   let watch = params.watch ?? false;
+  // Resolve the release channel for the image-pull fallback: explicit param
+  // wins, then the VELLUM_HATCH_CHANNEL env var, else stable. Any value other
+  // than "preview" (case-insensitive) is treated as stable.
+  const channel: ReleaseChannel =
+    params.channel ??
+    (process.env.VELLUM_HATCH_CHANNEL?.trim().toLowerCase() === "preview"
+      ? "preview"
+      : "stable");
 
   resetLogFile("hatch.log");
   const provider =
@@ -1132,6 +1153,30 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
       if (gatewayPort !== preferredGatewayPort) {
         log(
           `Preferred gateway port ${preferredGatewayPort} is in use; allocated ${gatewayPort} for this instance.`,
+        );
+      }
+    }
+
+    // Allocate the assistant HTTP API host port. Same dynamic-allocation
+    // strategy as the gateway port: the env-default (production 7821 /
+    // non-prod overrides) is the *preferred* starting point, and we walk
+    // upward until we find a free port. Without this, two concurrent
+    // `vellum hatch --remote docker` on the same host collide on a fixed
+    // 7821 bind ("port is already allocated"). Unused when netnsContainer
+    // is set — no host ports are published in that mode.
+    let assistantPort: number;
+    if (params.netnsContainer) {
+      assistantPort = ASSISTANT_INTERNAL_PORT;
+    } else {
+      const preferredAssistantPort = getDefaultPorts(
+        getCurrentEnvironment(),
+      ).daemon;
+      assistantPort = await findOpenPort(preferredAssistantPort, {
+        exclude: [gatewayPort],
+      });
+      if (assistantPort !== preferredAssistantPort) {
+        log(
+          `Preferred assistant port ${preferredAssistantPort} is in use; allocated ${assistantPort} for this instance.`,
         );
       }
     }
@@ -1223,8 +1268,8 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
         // Resolve image refs from a remote source that may have dev/local
         // builds. If resolution is unavailable, fall back to the CLI's own
         // version so a default tag can still be resolved.
-        log("🔍 Fetching latest stable release...");
-        const latestVersion = await fetchLatestStableVersion();
+        log(`🔍 Fetching latest ${channel} release...`);
+        const latestVersion = await fetchLatestVersion(channel);
         let versionTag: string;
         if (latestVersion) {
           versionTag = latestVersion.startsWith("v")
@@ -1238,7 +1283,7 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
           );
         }
         log("🔍 Resolving image references...");
-        const resolved = await resolveImageRefs(versionTag, log);
+        const resolved = await resolveImageRefs(versionTag, log, channel);
         imageTags.assistant = resolved.imageTags.assistant;
         imageTags.gateway = resolved.imageTags.gateway;
         imageTags["credential-executor"] =
@@ -1404,6 +1449,7 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
         extraAssistantEnv,
         extraGatewayEnv,
         gatewayPort,
+        assistantPort,
         imageTags,
         instanceName,
         res,
@@ -1432,6 +1478,7 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
         gatewayDigest: imageDigests?.gateway,
         cesDigest: imageDigests?.["credential-executor"],
         networkName: res.network,
+        assistantPort,
       },
     };
     emitProgress(5, 6, "Saving configuration...");
@@ -1502,6 +1549,7 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
         extraAssistantEnv,
         extraGatewayEnv,
         gatewayPort,
+        assistantPort,
         imageTags,
         instanceName,
         repoRoot,

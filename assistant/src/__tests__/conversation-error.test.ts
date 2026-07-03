@@ -520,24 +520,6 @@ describe("classifyConversationError", () => {
     });
   });
 
-  describe("regenerate phase", () => {
-    it("returns REGENERATE_FAILED with nested classification info", () => {
-      const ctx: ErrorContext = { phase: "regenerate" };
-      const result = classifyConversationError(new Error("ECONNREFUSED"), ctx);
-      expect(result.code).toBe("REGENERATE_FAILED");
-      expect(result.retryable).toBe(true);
-      expect(result.userMessage).toContain("regenerate");
-      expect(result.errorCategory).toContain("regenerate:");
-    });
-
-    it("returns REGENERATE_FAILED for generic errors", () => {
-      const ctx: ErrorContext = { phase: "regenerate" };
-      const result = classifyConversationError(new Error("unknown issue"), ctx);
-      expect(result.code).toBe("REGENERATE_FAILED");
-      expect(result.retryable).toBe(true);
-    });
-  });
-
   describe("generic errors", () => {
     it("classifies unknown errors as CONVERSATION_PROCESSING_FAILED with error summary", () => {
       const result = classifyConversationError(
@@ -621,6 +603,24 @@ describe("classifyConversationError", () => {
       expect(result.code).toBe("PROVIDER_INVALID_KEY");
       expect(result.retryable).toBe(false);
       expect(result.errorCategory).toBe("provider_invalid_key");
+    });
+
+    it("classifies managed-proxy auth failures as managed credential refresh failures", () => {
+      providerRoutingSources.anthropic = "managed-proxy";
+      const err = new ProviderError(
+        'Anthropic API error (403): {"detail":"API key has expired."}',
+        "anthropic",
+        403,
+      );
+
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("MANAGED_KEY_INVALID");
+      expect(result.userMessage).toBe(
+        "Couldn't refresh assistant credentials.",
+      );
+      expect(result.retryable).toBe(false);
+      expect(result.errorCategory).toBe("managed_key_invalid");
     });
 
     it("classifies ProviderError 401 with 'invalid x-api-key' message as PROVIDER_INVALID_KEY", () => {

@@ -6,8 +6,8 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-import { initializeDb } from "../memory/db-init.js";
-import { rawRun, resetTestTables } from "../memory/raw-query.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { rawRun, resetTestTables } from "../persistence/raw-query.js";
 import {
   createComment,
   deleteComment,
@@ -31,12 +31,14 @@ const CONVERSATION_ID = "conv-test-123";
 function seedDocument(surfaceId: string = SURFACE_ID): void {
   const now = Date.now();
   rawRun(
+    "test:seedConversation",
     /*sql*/ `INSERT OR IGNORE INTO conversations (id, created_at, updated_at) VALUES (?, ?, ?)`,
     CONVERSATION_ID,
     now,
     now,
   );
   rawRun(
+    "test:seedDocument",
     /*sql*/ `INSERT OR IGNORE INTO documents (surface_id, conversation_id, title, content, word_count, created_at, updated_at)
      VALUES (?, ?, 'Test Doc', 'body', 2, ?, ?)`,
     surfaceId,
@@ -331,7 +333,11 @@ describe("cascade on document delete", () => {
     expect(listComments(SURFACE_ID)).toHaveLength(1);
 
     // Delete the document — FK cascade should remove comments.
-    rawRun(/*sql*/ `DELETE FROM documents WHERE surface_id = ?`, SURFACE_ID);
+    rawRun(
+      "test:deleteDocument",
+      /*sql*/ `DELETE FROM documents WHERE surface_id = ?`,
+      SURFACE_ID,
+    );
 
     expect(listComments(SURFACE_ID)).toHaveLength(0);
   });

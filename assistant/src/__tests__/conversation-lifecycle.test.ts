@@ -71,7 +71,7 @@ let mockDbMessages: Array<{
 let mockConversation: Record<string, unknown> | null = null;
 let nextMockMessageId = 1;
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
   updateConversationTitle: () => {},
@@ -106,7 +106,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
@@ -116,20 +116,17 @@ mock.module("../memory/conversation-queries.js", () => ({
 // unless this file is actively running (`mock.module` is process-global and
 // would otherwise leak into sibling files that use the real store).
 const realEverInjectedStore = {
-  ...(await import("../plugins/defaults/memory-v3-shadow/ever-injected-store.js")),
+  ...(await import("../plugins/defaults/memory/v3/ever-injected-store.js")),
 };
 let lifecycleStoreMockActive = false;
 let mockPrunedSlugs = new Set<string>();
-mock.module(
-  "../plugins/defaults/memory-v3-shadow/ever-injected-store.js",
-  () => ({
-    ...realEverInjectedStore,
-    getPrunedSlugs: (conversationId: string) =>
-      lifecycleStoreMockActive
-        ? mockPrunedSlugs
-        : realEverInjectedStore.getPrunedSlugs(conversationId),
-  }),
-);
+mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
+  ...realEverInjectedStore,
+  getPrunedSlugs: (conversationId: string) =>
+    lifecycleStoreMockActive
+      ? mockPrunedSlugs
+      : realEverInjectedStore.getPrunedSlugs(conversationId),
+}));
 
 import { Conversation } from "../daemon/conversation.js";
 

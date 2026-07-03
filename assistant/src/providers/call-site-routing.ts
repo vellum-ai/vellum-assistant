@@ -23,7 +23,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
 import {
   describeSubscriptionModelIncompatibility,
   isConnectionCompatibleWithModel,
@@ -34,6 +34,7 @@ import {
 } from "./connection-resolution.js";
 import { listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
+import { shouldUseNativeWebSearch } from "./registry.js";
 import type {
   Message,
   Provider,
@@ -43,6 +44,9 @@ import type {
 
 export class CallSiteRoutingProvider implements Provider {
   public readonly tokenEstimationProvider?: string;
+  // Forward native web-search capability so it survives the wrapper chain
+  // (callers like the advisor consult gate on it). Fixed at construction.
+  public readonly supportsNativeWebSearch?: boolean;
 
   // Per-call async context that tracks which provider is currently executing.
   // Using AsyncLocalStorage instead of a plain instance field means concurrent
@@ -94,6 +98,7 @@ export class CallSiteRoutingProvider implements Provider {
     ) => Promise<Provider | null>,
   ) {
     this.tokenEstimationProvider = defaultProvider.tokenEstimationProvider;
+    this.supportsNativeWebSearch = defaultProvider.supportsNativeWebSearch;
     if (defaultProvider.countInputTokens) {
       this.countInputTokens =
         defaultProvider.countInputTokens.bind(defaultProvider);
@@ -124,6 +129,46 @@ export class CallSiteRoutingProvider implements Provider {
     return isRouted
       ? this._activeProviderContext.run(target.name, doSend)
       : doSend();
+  }
+
+  /**
+   * Native web-search capability of the provider/model THIS call routes to.
+   *
+   * `selectProvider` picks the transport from the routed connection, but each
+   * leaf provider's static `supportsNativeWebSearch` was fixed to the DEFAULT
+   * (provider, model) at boot. Resolving the call-site here — same
+   * `resolveCallSiteConfig` inputs `selectProvider` uses — and recomputing
+   * `shouldUseNativeWebSearch(resolved.provider, resolved.model)` yields the
+   * capability of the routed target instead of the construction-time default.
+   *
+   * Falls back to the default provider's static flag when no `callSite` is set
+   * (the legacy short-circuit `selectProvider` also takes).
+   *
+   * Known limitation: this reports the *resolved* target's capability and does
+   * not replay `selectProvider`'s async soft-credential fallback. If the routed
+   * connection has a transient credential failure at send time, `selectProvider`
+   * falls back to the default provider while this probe still reports the routed
+   * target — so a non-native default + native routed target with a credential
+   * blip can attach `web_search` to the fallback non-native provider. The probe
+   * stays sync (the loop assembles tools synchronously) and the worst case is
+   * bounded: the advisor consult that hits it degrades benignly (the unhandled
+   * tool surfaces as a caught failure → "(advisor unavailable)"), not a crash.
+   */
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    const callSite = options?.config?.callSite;
+    if (!callSite) {
+      return this.defaultProvider.supportsNativeWebSearch === true;
+    }
+    const resolved = resolveCallSiteConfig(callSite, getConfig().llm, {
+      overrideProfile: options?.config?.overrideProfile,
+      forceOverrideProfile: options?.config?.forceOverrideProfile,
+      selectionSeed: options?.config?.selectionSeed,
+    });
+    return shouldUseNativeWebSearch(
+      getConfig(),
+      resolved.provider,
+      resolved.model,
+    );
   }
 
   /**

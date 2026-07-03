@@ -1,4 +1,9 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
+import {
+  contextBridge,
+  ipcRenderer,
+  webUtils,
+  type IpcRendererEvent,
+} from "electron";
 
 import type {
   Lockfile,
@@ -19,6 +24,7 @@ import type {
   HelperState,
   HotkeyEvent,
   LocalAssistantStatusResult,
+  LocalUpgradeOptions,
   LocalWakeOptions,
   NotificationActionEvent,
   PowerEvent,
@@ -100,7 +106,6 @@ const bridge: VellumBridge = {
   },
   auth: {
     startOAuth: (options: {
-      providerHint?: string;
       loginHint?: string;
       intent?: string;
     }): Promise<{ sessionToken: string }> =>
@@ -265,6 +270,11 @@ const bridge: VellumBridge = {
       ipcRenderer.send("vellum:status:connection", status);
     },
   },
+  identity: {
+    setName: (name: string): void => {
+      ipcRenderer.send("vellum:identity:name", name);
+    },
+  },
   icon: {
     setAvatar: (png: Uint8Array | null): void => {
       ipcRenderer.send("vellum:icon:setAvatar", png);
@@ -305,6 +315,16 @@ const bridge: VellumBridge = {
     wake: (assistantId: string, options?: LocalWakeOptions) =>
       ipcRenderer.invoke("vellum:localMode:wake", assistantId, options) as Promise<{
         ok: boolean;
+        error?: string;
+      }>,
+    upgrade: (assistantId: string, options?: LocalUpgradeOptions) =>
+      ipcRenderer.invoke(
+        "vellum:localMode:upgrade",
+        assistantId,
+        options,
+      ) as Promise<{
+        ok: boolean;
+        version?: string;
         error?: string;
       }>,
     status: (assistantId: string) =>
@@ -387,6 +407,19 @@ const bridge: VellumBridge = {
         ipcRenderer.send("vellum:fileOpen:unsubscribe");
         ipcRenderer.off("vellum:fileOpen:event", handler);
       };
+    },
+  },
+  paths: {
+    // Synchronous — `webUtils.getPathForFile` runs entirely inside the
+    // preload's renderer context (no IPC hop), which is required because
+    // `File` objects can't be serialized across the renderer↔main boundary.
+    getPathForFile: (file: File): string | null => {
+      try {
+        const path = webUtils.getPathForFile(file);
+        return path ? path : null;
+      } catch {
+        return null;
+      }
     },
   },
   feedback: {
@@ -494,6 +527,21 @@ const bridge: VellumBridge = {
       ipcRenderer.invoke(
         "vellum:dictationOverlay:getState",
       ) as Promise<DictationOverlayState | null>,
+    requestStop: (): void => {
+      ipcRenderer.send("vellum:dictationOverlay:requestStop");
+    },
+    onStopRequested: (callback) => {
+      const handler = () => {
+        callback();
+      };
+      ipcRenderer.on("vellum:dictationOverlay:stopRequested", handler);
+      return () => {
+        ipcRenderer.off("vellum:dictationOverlay:stopRequested", handler);
+      };
+    },
+    setInteractive: (interactive: boolean): void => {
+      ipcRenderer.send("vellum:dictationOverlay:setInteractive", interactive);
+    },
   },
   popout: {
     open: (conversationId: string): Promise<void> =>

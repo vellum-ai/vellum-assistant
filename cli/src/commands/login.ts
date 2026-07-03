@@ -1,4 +1,3 @@
-import { spawn } from "child_process";
 import { randomBytes } from "crypto";
 import { createServer } from "http";
 import type { AddressInfo } from "net";
@@ -8,9 +7,11 @@ import {
   loadAllAssistants,
   removeAssistantEntry,
   resolveAssistant,
+  saveAssistantEntry,
   setActiveAssistant,
 } from "../lib/assistant-config";
 import { computeDeviceId } from "../lib/guardian-token";
+import { openBrowser } from "../lib/open-browser";
 import {
   clearPlatformToken,
   ensureSelfHostedLocalRegistration,
@@ -167,24 +168,6 @@ function renderLoginPage(
   </div>
 </body>
 </html>`;
-}
-
-/**
- * Open a URL in the user's default browser.
- */
-function openBrowser(url: string): void {
-  const platform = process.platform;
-  const cmd =
-    platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
-  const args =
-    platform === "win32"
-      ? ["/c", "start", '""', url.replace(/&/g, "^&")]
-      : [url];
-  const child = spawn(cmd, args, { stdio: "ignore", detached: true });
-  child.on("error", () => {
-    // Silently ignore — the user can still copy the URL from the console
-  });
-  child.unref();
 }
 
 export interface LoopbackListener {
@@ -401,6 +384,7 @@ export async function login(): Promise<void> {
           fetchCurrentVersion(entry.runtimeUrl),
           fetchAssistantIngressUrl(entry.runtimeUrl, entry.bearerToken),
         ]);
+        const platformUrl = getPlatformUrl();
         const registration = await ensureSelfHostedLocalRegistration(
           token,
           orgId,
@@ -408,9 +392,15 @@ export async function login(): Promise<void> {
           entry.assistantId,
           "cli",
           assistantVersion,
-          getPlatformUrl(),
+          platformUrl,
           ingressUrl,
         );
+        saveAssistantEntry({
+          ...entry,
+          platformAssistantId: registration.assistant.id,
+          platformBaseUrl: platformUrl,
+          platformOrganizationId: orgId,
+        });
         console.log(
           `Registered assistant: ${registration.assistant.name} (${registration.assistant.id})`,
         );
@@ -451,7 +441,7 @@ export async function login(): Promise<void> {
           bearerToken: entry.bearerToken,
           assistantApiKey,
           platformAssistantId: registration.assistant.id,
-          platformBaseUrl: getPlatformUrl(),
+          platformBaseUrl: platformUrl,
           organizationId: orgId,
           userId: user.id,
           webhookSecret: registration.webhook_secret,

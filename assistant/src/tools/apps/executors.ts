@@ -8,10 +8,10 @@
  * ToolDefinition or ToolContext types.
  */
 
+import type { AppDefinition } from "../../apps/app-store.js";
+import { getAppDirPath } from "../../apps/app-store.js";
 import { compileApp } from "../../bundler/app-compiler.js";
 import { generateAppIcon } from "../../media/app-icon-generator.js";
-import type { AppDefinition } from "../../memory/app-store.js";
-import { getAppDirPath } from "../../memory/app-store.js";
 import { getLogger } from "../../util/logger.js";
 
 // ---------------------------------------------------------------------------

@@ -12,13 +12,10 @@
  *   non-allowlisted tool returns an error tool_result WITHOUT invoking the
  *   tool's executor (safety invariant), while allowlisted calls execute
  *   normally. The gate also covers the `skill_execute` indirection by
- *   gating the resolved inner tool name, and runs BEFORE every in-executor
- *   interception — including `switch_inference_profile`, which must not be
- *   able to switch `ctx.toolRoutedProfile` mid-wake (allowlist bypass +
- *   per-model prompt-cache parity break).
+ *   gating the resolved inner tool name.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterEach, describe, expect, mock, test } from "bun:test";
 
 import type { SkillProjectionCache } from "../daemon/conversation-skill-tools.js";
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
@@ -46,6 +43,7 @@ const baseConfig = {
 
 mock.module("../config/loader.js", () => ({
   getConfig: () => baseConfig,
+  getConfigReadOnly: () => baseConfig,
   loadConfig: () => baseConfig,
   invalidateConfigCache: () => {},
   loadRawConfig: () => ({}),
@@ -74,7 +72,7 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
   registerConversationSender: mock(() => {}),
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
   isMultifileApp: mock(() => false),
@@ -103,6 +101,11 @@ import {
   type SkillProjectionContext,
   type ToolSetupContext,
 } from "../daemon/conversation-tool-setup.js";
+import {
+  __clearRegistryForTesting,
+  registerPluginTools,
+} from "../tools/registry.js";
+import type { Tool } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -442,75 +445,6 @@ describe("createToolExecutor — execution-layer allowlist gate", () => {
     expect(calls).toHaveLength(0);
   });
 
-  test("execution mode: switch_inference_profile is rejected BEFORE its interception runs", async () => {
-    const { executor, calls } = makeCapturingExecutor();
-    const ctx = makeSetupCtx({
-      subagentAllowedTools: new Set(["remember"]),
-      subagentToolGateMode: "execution",
-    });
-    const toolFn = makeToolFn(executor, ctx);
-
-    const result = await toolFn("switch_inference_profile", {
-      profile: "speedy",
-    });
-
-    // The gate must fire before the interception: the rejection tool_result
-    // comes back (NOT the interception's "Switched to ..." / "not found"
-    // responses) and the routed profile is untouched — switching it mid-wake
-    // would bypass the allowlist and break per-model prompt-cache parity.
-    expect(result).toEqual({
-      content: "This background pass may only use: remember.",
-      isError: true,
-    });
-    expect(ctx.toolRoutedProfile).toBeUndefined();
-    expect(calls).toHaveLength(0);
-  });
-
-  test("switch_inference_profile interception still works when the gate is inert (regression)", async () => {
-    // No execution-mode allowlist (wire mode) — the interception must keep
-    // its historical behavior: switch the routed profile without ever
-    // touching the tool executor pipeline.
-    const { executor, calls } = makeCapturingExecutor();
-    const ctx = makeSetupCtx({
-      subagentAllowedTools: new Set(["remember"]),
-      subagentToolGateMode: "wire",
-    });
-    const toolFn = makeToolFn(executor, ctx);
-
-    const result = await toolFn("switch_inference_profile", {
-      profile: "speedy",
-    });
-
-    expect(result).toEqual({
-      content: "Switched to Speedy profile. Continue with your response.",
-      isError: false,
-    });
-    expect(ctx.toolRoutedProfile).toBe("speedy");
-    expect(calls).toHaveLength(0);
-  });
-
-  test("execution mode: allowlisted switch_inference_profile still reaches the interception", async () => {
-    // When the orchestrator explicitly allowlists the routing tool, the gate
-    // passes and the interception behaves normally.
-    const { executor, calls } = makeCapturingExecutor();
-    const ctx = makeSetupCtx({
-      subagentAllowedTools: new Set(["remember", "switch_inference_profile"]),
-      subagentToolGateMode: "execution",
-    });
-    const toolFn = makeToolFn(executor, ctx);
-
-    const result = await toolFn("switch_inference_profile", {
-      profile: "speedy",
-    });
-
-    expect(result).toEqual({
-      content: "Switched to Speedy profile. Continue with your response.",
-      isError: false,
-    });
-    expect(ctx.toolRoutedProfile).toBe("speedy");
-    expect(calls).toHaveLength(0);
-  });
-
   test("wire mode (and absent mode) leaves the executor path unchanged (regression)", async () => {
     // In wire mode the allowlist is enforced by filtering the wire defs (and
     // by the executor pipeline's own allowedToolNames gate) — the new
@@ -540,6 +474,78 @@ describe("createToolExecutor — execution-layer allowlist gate", () => {
     );
 
     const result = await toolFn("bash", { command: "echo hi" });
+
+    expect(result).toEqual({ content: "ok", isError: false });
+    expect(calls).toHaveLength(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Executor — per-chat plugin scope guard on the skill_execute dispatch path
+// ---------------------------------------------------------------------------
+
+describe("createToolExecutor — per-chat plugin scope (skill_execute dispatch)", () => {
+  function pluginTool(name: string): Tool {
+    return {
+      name,
+      description: name,
+      input_schema: { type: "object" },
+    } as unknown as Tool;
+  }
+
+  afterEach(() => {
+    __clearRegistryForTesting();
+  });
+
+  test("rejects a skill_execute inner tool owned by a plugin outside the effective set; executor never invoked", async () => {
+    registerPluginTools("p", [pluginTool("p_tool")]);
+    const { executor, calls } = makeCapturingExecutor();
+    // Scope excludes plugin "p" (only "other" + first-party defaults).
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({ enabledPlugins: ["other"] }),
+    );
+
+    const result = await toolFn("skill_execute", {
+      tool: "p_tool",
+      input: {},
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain(
+      'Tool "p_tool" belongs to a plugin that is not enabled',
+    );
+    expect(calls).toHaveLength(0);
+  });
+
+  test("allows a skill_execute inner tool whose plugin is in the effective set", async () => {
+    registerPluginTools("p", [pluginTool("p_tool")]);
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeSetupCtx({ enabledPlugins: ["p"] }),
+    );
+
+    const result = await toolFn("skill_execute", {
+      tool: "p_tool",
+      input: {},
+    });
+
+    expect(result).toEqual({ content: "ok", isError: false });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.name).toBe("p_tool");
+  });
+
+  test("null scope (no per-chat restriction) does not gate plugin tools", async () => {
+    registerPluginTools("p", [pluginTool("p_tool")]);
+    const { executor, calls } = makeCapturingExecutor();
+    // enabledPlugins absent → getEffectiveEnabledPluginSet returns null.
+    const toolFn = makeToolFn(executor, makeSetupCtx());
+
+    const result = await toolFn("skill_execute", {
+      tool: "p_tool",
+      input: {},
+    });
 
     expect(result).toEqual({ content: "ok", isError: false });
     expect(calls).toHaveLength(1);

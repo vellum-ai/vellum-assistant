@@ -18,12 +18,13 @@ import type {
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import type { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import type { PluginHookFn } from "../plugin-api/types.js";
+import type { JobHandler } from "../persistence/jobs-worker.js";
+import type { HookFunction } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
+import type { ConversationGraphMemory } from "./defaults/memory/graph/conversation-graph-memory.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
 
@@ -47,15 +48,6 @@ export interface PluginManifest {
    * own version at load time.
    */
   version: string;
-  /** Credential keys the plugin needs resolved before `init()` runs. */
-  requiresCredential?: string[];
-  /**
-   * Assistant feature-flag keys that must all be enabled for this plugin to
-   * activate. Checked by `bootstrapPlugins` via `isAssistantFeatureFlagEnabled`
-   * — if any listed flag is disabled, the plugin is skipped entirely for the
-   * boot (no `init()`, no tool/route/skill contributions, no shutdown hook).
-   */
-  requiresFlag?: string[];
   /**
    * Zod-compatible validator (or any parser-like object) for the plugin's
    * config block under `plugins.<name>`. Typed as `unknown` here — concrete
@@ -69,9 +61,10 @@ export interface PluginManifest {
 // existing internal call sites keep working. Plugin authors import these from
 // `@vellumai/plugin-api`.
 export type {
-  PluginHookFn,
-  PluginInitContext,
-  PluginShutdownContext,
+  HookFunction,
+  InitContext,
+  ShutdownContext,
+  ShutdownReason,
 } from "../plugin-api/types.js";
 
 // ─── Memory-graph result ─────────────────────────────────────────────────────
@@ -144,6 +137,13 @@ export interface TurnContext {
   readonly timestamp?: string;
   /** Human-readable interface label (e.g. "vellum", "telegram"). */
   readonly interfaceName?: string;
+  /**
+   * Client OS surface ("web" | "ios" | "macos"), reported independently of
+   * the transport interface. Rendered as the `client_os:` line so the model
+   * knows the platform even though the web/iOS/macOS apps share one `"web"`
+   * transport interface.
+   */
+  readonly clientOs?: string;
   /** Channel label gating response-discretion guidance in `<turn_context>`. */
   readonly channelName?: string;
   /**
@@ -335,6 +335,21 @@ export interface Injector {
  */
 export type PluginRouteRegistration = SkillRoute;
 
+/**
+ * A single background-job-handler entry: a job `type` string paired with the
+ * {@link JobHandler} that processes it. The memory plugin's handler list
+ * (`plugins/defaults/memory/job-handlers.ts`) is an array of these, registered
+ * directly into the worker's dispatch table from the plugin's `init` hook.
+ * `type` must be globally unique across every registered handler — dispatch is a
+ * keyed lookup.
+ */
+export interface JobHandlerEntry {
+  /** The job-queue type string this handler processes (globally unique). */
+  type: string;
+  /** Processes one claimed job of `type`. */
+  handler: JobHandler;
+}
+
 // ─── Plugin ──────────────────────────────────────────────────────────────────
 
 /**
@@ -345,14 +360,14 @@ export type PluginRouteRegistration = SkillRoute;
  * unknown keys are forward-compat scaffolding.
  *
  * See `assistant/src/daemon/external-plugins-bootstrap.ts` for the
- * full lifecycle, and {@link PluginHookFn} for the per-entry signature.
+ * full lifecycle, and {@link HookFunction} for the per-entry signature.
  */
 // The map stores hooks for arbitrary keys with arbitrary context shapes.
 // `any` (rather than `unknown`) is required so concrete plugin signatures
-// like `(ctx: PluginInitContext) => Promise<void>` and `() => Promise<void>`
+// like `(ctx: InitContext) => Promise<void>` and `() => Promise<void>`
 // both assign in/out of slot entries under strict-function-types contravariance.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export type PluginHooks = Record<string, PluginHookFn<any>>;
+export type PluginHooks = Record<string, HookFunction<any>>;
 
 /**
  * A registered plugin. Every field besides `manifest` is optional — a plugin
@@ -376,6 +391,15 @@ export interface Plugin {
   tools?: Tool[];
   /** HTTP route registrations served by the assistant. */
   routes?: PluginRouteRegistration[];
+  /**
+   * Runtime injectors contributed to the per-turn injection chain. Bootstrap
+   * registers these into the global injector registry before `init()` runs,
+   * symmetric with `tools`/`routes`. The registry unions every plugin's
+   * injectors and stable-sorts by ascending `order`, so contribution order
+   * does not affect the produced sequence except as the tiebreak among
+   * injectors sharing an `order`. See `plugins/injector-registry.ts`.
+   */
+  injectors?: readonly Injector[];
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────

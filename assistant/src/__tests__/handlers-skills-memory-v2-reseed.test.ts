@@ -23,6 +23,13 @@ const mockRefreshSkillCapabilityMemories = mock(
   (_config: { memory: { v2: { enabled: boolean } } }) => {},
 );
 
+// Programmable so the updateSkill success/failure branches can be exercised.
+const mockClawhubUpdate = mock(
+  async (_skillId: string): Promise<{ success: boolean; error?: string }> => ({
+    success: true,
+  }),
+);
+
 // ---------------------------------------------------------------------------
 // Mock modules — must be wired before importing module under test.
 // ---------------------------------------------------------------------------
@@ -79,7 +86,7 @@ mock.module("../skills/clawhub.js", () => ({
   clawhubInspectFile: mock(async () => ({})),
   clawhubInstall: mock(async () => ({ success: true })),
   clawhubSearch: mock(async () => ({ skills: [] })),
-  clawhubUpdate: mock(async () => ({ success: true })),
+  clawhubUpdate: mockClawhubUpdate,
   validateSlug: () => true,
 }));
 
@@ -148,7 +155,7 @@ mock.module("../skills/managed-store.js", () => ({
   validateManagedSkillId: () => null,
 }));
 
-mock.module("../memory/graph/capability-seed.js", () => ({
+mock.module("../plugins/defaults/memory/graph/capability-seed.js", () => ({
   deleteSkillCapabilityNode: () => {},
 }));
 
@@ -227,7 +234,7 @@ mock.module("../daemon/config-watcher.js", () => ({
 }));
 
 // Import after mocking
-const { installSkill, uninstallSkill } =
+const { installSkill, uninstallSkill, updateSkill } =
   await import("../daemon/handlers/skills.js");
 
 // ---------------------------------------------------------------------------
@@ -238,6 +245,8 @@ describe("v2 skill refresh delegation in skill handlers", () => {
   beforeEach(() => {
     configState.v2Enabled = true;
     mockRefreshSkillCapabilityMemories.mockClear();
+    mockClawhubUpdate.mockReset();
+    mockClawhubUpdate.mockImplementation(async () => ({ success: true }));
   });
 
   test("enabled config → refresh helper invoked with live config", async () => {
@@ -270,5 +279,27 @@ describe("v2 skill refresh delegation in skill handlers", () => {
     expect(mockRefreshSkillCapabilityMemories.mock.calls[0]?.[0]).toEqual({
       memory: { v2: { enabled: true } },
     });
+  });
+
+  test("successful update delegates to refresh helper with live config", async () => {
+    const result = await updateSkill("some-skill");
+
+    expect(result.success).toBe(true);
+    expect(mockRefreshSkillCapabilityMemories).toHaveBeenCalledTimes(1);
+    expect(mockRefreshSkillCapabilityMemories.mock.calls[0]?.[0]).toEqual({
+      memory: { v2: { enabled: true } },
+    });
+  });
+
+  test("failed update returns the error and does not refresh", async () => {
+    mockClawhubUpdate.mockImplementation(async () => ({
+      success: false,
+      error: "update failed",
+    }));
+
+    const result = await updateSkill("some-skill");
+
+    expect(result).toEqual({ success: false, error: "update failed" });
+    expect(mockRefreshSkillCapabilityMemories).not.toHaveBeenCalled();
   });
 });

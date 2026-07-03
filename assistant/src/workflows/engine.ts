@@ -638,6 +638,11 @@ export async function executeWorkflow(
   let inputTokens = existing ? existing.inputTokens : 0;
   let outputTokens = existing ? existing.outputTokens : 0;
   let capExceeded = false;
+  // Warn ONCE per run (not per leaf) the first time a schema leaf is launched:
+  // schema leaves run with no tools, so a judge panel that correctly passes its
+  // content inline shouldn't get a wall of warnings, but the author still gets a
+  // visible signal that these leaves cannot read.
+  let warnedSchemaLeafNoTools = false;
 
   /** Persist live counters so `getRun` reports them mid-flight. */
   const flushCounters = (): void => {
@@ -697,6 +702,23 @@ export async function executeWorkflow(
       // resolved capabilities always include a non-empty read-only baseline, so
       // forward `tools` only on the tool-leaf path; a schema leaf runs with none.
       const isSchemaLeaf = leafOpts.schema !== undefined;
+      if (isSchemaLeaf && !warnedSchemaLeafNoTools) {
+        warnedSchemaLeafNoTools = true;
+        // The forced-tool-choice structured-output path forwards NO tools, so a
+        // schema leaf has no file_read/file_list/recall/web_search — it cannot
+        // read files or look anything up. A schema leaf told to "read these
+        // files and compare" will answer from the model's prior, not real data
+        // (the source of confabulated output). Anything it must judge has to be
+        // passed inline in its prompt. Surfaced once per run as a backstop; the
+        // primary guidance lives in the workflows skill the author reads first.
+        log.warn(
+          { runId },
+          "Schema leaves run with NO tools (no file_read/file_list/recall/" +
+            "web_search) — they cannot read files or recall memory. Pass any " +
+            "content a schema leaf must judge INLINE in its prompt; a schema " +
+            "leaf asked to read or look something up will confabulate.",
+        );
+      }
       const result = await leafRunner({
         prompt,
         ...(leafOpts.label !== undefined ? { label: leafOpts.label } : {}),

@@ -2,7 +2,7 @@
  * Gateway-side polling loop for outbound voice verification session completion.
  *
  * When the assistant places an outbound call for guardian phone verification,
- * the relay server handles DTMF collection and consumes the verification session.
+ * the media-stream call flow handles DTMF collection and consumes the verification session.
  * However, the assistant process must never write to the contact/trust graph
  * (it is potentially prompt-injected), so no guardian binding is created there.
  *
@@ -29,6 +29,7 @@ import { existsSync } from "node:fs";
 
 import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
+import { noteIpcReachable, noteIpcTransportError } from "../ipc/ipc-health.js";
 import { getLogger } from "../logger.js";
 import { resolveIpcSocketPath } from "../ipc/socket-path.js";
 import {
@@ -60,6 +61,10 @@ export function startOutboundVoiceVerificationSync(): void {
   lastSyncAt = Date.now() - STARTUP_LOOKBACK_MS;
   timer = setInterval(() => {
     void syncOutboundVoiceVerifications().catch((err: unknown) => {
+      // Assistant-down timeouts are collapsed into a single shared down/up
+      // signal by the health tracker; only log errors it does not own.
+      if (noteIpcTransportError(err, "outbound-voice-verification-sync"))
+        return;
       log.warn({ err }, "Outbound voice verification sync error");
     });
   }, POLL_INTERVAL_MS);
@@ -103,6 +108,10 @@ async function syncOutboundVoiceVerifications(): Promise<void> {
     mode: "query",
     bind: [since],
   })) as DbProxyResult;
+
+  // The call returned, so the assistant IPC channel is reachable — clears any
+  // outstanding "down" state and logs the single recovery line.
+  noteIpcReachable();
 
   const row = result.rows?.[0];
   if (!row) {

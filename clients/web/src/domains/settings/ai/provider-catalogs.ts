@@ -191,9 +191,26 @@ export const EMAIL_BYO_PROVIDERS: readonly EmailByoProvider[] = [
 export const AVAILABLE_IMAGE_GEN_MODELS = [
   "gemini-3.1-flash-image-preview",
   "gemini-3-pro-image-preview",
+  "gpt-image-2",
 ] as const;
 
 export const IMAGE_GEN_MODEL_DISPLAY_NAMES: Record<string, string> = {
   "gemini-3.1-flash-image-preview": "Nano Banana 2",
   "gemini-3-pro-image-preview": "Nano Banana Pro",
+  "gpt-image-2": "GPT Image 2",
 };
+
+/**
+ * Image-generation provider for a model id, by prefix. Mirrors the daemon's
+ * `providerForImageModelPrefix` / `providerForModel` (`assistant/src/media/`):
+ * `gpt-*` / `dall-e-*` → openai, `gemini-*` → gemini, otherwise gemini.
+ */
+export function providerForImageGenModel(modelId: string): "openai" | "gemini" {
+  if (modelId.startsWith("gpt-") || modelId.startsWith("dall-e-")) {
+    return "openai";
+  }
+  if (modelId.startsWith("gemini-")) {
+    return "gemini";
+  }
+  return "gemini";
+}

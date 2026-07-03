@@ -13,7 +13,7 @@ import { join } from "node:path";
 
 import JSZip from "jszip";
 
-import { getApp, getAppDirPath, isMultifileApp } from "../memory/app-store.js";
+import { getApp, getAppDirPath, isMultifileApp } from "../apps/app-store.js";
 import { computeContentId } from "../util/content-id.js";
 import { getLogger } from "../util/logger.js";
 import { APP_VERSION } from "../version.js";

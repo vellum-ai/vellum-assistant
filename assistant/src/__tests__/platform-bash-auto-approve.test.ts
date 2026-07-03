@@ -96,8 +96,8 @@ mock.module("../permissions/checker.js", () => ({
 }));
 
 // Mock every export so downstream test files that dynamically import modules
-// with a static `from "../memory/tool-usage-store.js"` still see all symbols.
-mock.module("../memory/tool-usage-store.js", () => ({
+// with a static `from "../telemetry/tool-usage-store.js"` still see all symbols.
+mock.module("../telemetry/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
   getRecentInvocations: () => [],
   rotateToolInvocations: async () => 0,
@@ -123,8 +123,8 @@ mock.module("../tools/shared/filesystem/path-policy.js", () => ({
   hostPolicy: () => ({ ok: false }),
 }));
 
-import { initializeDb } from "../memory/db-init.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { ToolExecutor } from "../tools/executor.js";
 import type { ToolContext as TC } from "../tools/types.js";
 

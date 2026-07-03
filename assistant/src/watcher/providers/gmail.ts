@@ -9,6 +9,7 @@
 import {
   batchGetMessages,
   getProfile,
+  GMAIL_REQUIRED_SCOPES,
   listMessages,
 } from "../../messaging/providers/gmail/client.js";
 import type { GmailMessage } from "../../messaging/providers/gmail/types.js";
@@ -118,7 +119,9 @@ export const gmailProvider: WatcherProvider = {
   requiredCredentialService: "google",
 
   async getInitialWatermark(credentialService: string): Promise<string> {
-    const connection = await resolveOAuthConnection(credentialService);
+    const connection = await resolveOAuthConnection(credentialService, {
+      requiredScopes: GMAIL_REQUIRED_SCOPES,
+    });
     const profile = await getProfile(connection);
     if (!profile.historyId) {
       throw new Error("Gmail profile did not return a historyId");
@@ -132,7 +135,9 @@ export const gmailProvider: WatcherProvider = {
     _config: Record<string, unknown>,
     _watcherKey: string,
   ): Promise<FetchResult> {
-    const connection = await resolveOAuthConnection(credentialService);
+    const connection = await resolveOAuthConnection(credentialService, {
+      requiredScopes: GMAIL_REQUIRED_SCOPES,
+    });
 
     if (!watermark) {
       // No watermark — get initial position, return no items

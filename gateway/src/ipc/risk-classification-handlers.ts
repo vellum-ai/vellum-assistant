@@ -63,6 +63,7 @@ const ClassifyRiskSchema = z.object({
       pluginsDir: z.string().optional(),
       toolsDir: z.string().optional(),
       routesDir: z.string().optional(),
+      workflowsDir: z.string().optional(),
       actorTokenSigningKeyPath: z.string(),
       skillSourceDirs: z.array(z.string()),
     })
@@ -448,6 +449,7 @@ export async function handleClassifyRisk(
         pluginsDir: fileCtx?.pluginsDir ?? SENTINEL,
         toolsDir: fileCtx?.toolsDir ?? SENTINEL,
         routesDir: fileCtx?.routesDir ?? SENTINEL,
+        workflowsDir: fileCtx?.workflowsDir ?? SENTINEL,
         skillSourceDirs: fileCtx?.skillSourceDirs ?? [],
       };
 
@@ -558,13 +560,15 @@ export async function handleClassifyRisk(
       };
     }
 
-    // ── Unknown tool — use registry default risk level if provided ──────
+    // ── Fallback — registered tools use their registry default, truly
+    //    unknown tools get the "Unknown tool" warning. ──────────────────
     default: {
+      const hasRegistryDefault = params.registryDefaultRisk != null;
       return {
         risk: params.registryDefaultRisk ?? "medium",
-        reason: `Unknown tool: ${tool}`,
+        reason: hasRegistryDefault ? "" : `Unknown tool: ${tool}`,
         scopeOptions: [],
-        matchType: "unknown",
+        matchType: hasRegistryDefault ? "registry" : "unknown",
       };
     }
   }

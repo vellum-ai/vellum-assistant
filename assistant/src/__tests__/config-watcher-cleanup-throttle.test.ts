@@ -7,7 +7,7 @@
  * maybeEnqueueScheduledCleanupJobs (in jobs-worker) early-returns while
  * the throttle is still within its window.
  *
- * The shared throttle state lives in memory/cleanup-schedule-state.ts so
+ * The shared throttle state lives in persistence/cleanup-schedule-state.ts so
  * that config-watcher can reset it without pulling jobs-worker's large
  * transitive import graph into test modules. This test stubs the
  * schedule-state module so calls from config-watcher can be counted
@@ -113,7 +113,7 @@ describe("cleanupSettingsChanged", () => {
 // Track calls from config-watcher into the (mocked) cleanup-schedule-state.
 let resetCleanupScheduleThrottleCalls = 0;
 
-mock.module("../memory/cleanup-schedule-state.js", () => ({
+mock.module("../persistence/cleanup-schedule-state.js", () => ({
   resetCleanupScheduleThrottle: () => {
     resetCleanupScheduleThrottleCalls++;
   },
@@ -186,7 +186,7 @@ mock.module("../config/assistant-feature-flags.js", () => ({
   clearFeatureFlagOverridesCache: () => {},
 }));
 
-mock.module("../memory/embedding-backend.js", () => ({
+mock.module("../persistence/embeddings/embedding-backend.js", () => ({
   clearEmbeddingBackendCache: () => {},
 }));
 

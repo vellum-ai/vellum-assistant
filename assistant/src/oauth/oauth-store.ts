@@ -19,13 +19,13 @@ import {
 import { and, desc, eq, sql } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
-import { getDb } from "../memory/db-connection.js";
-import { rawChanges } from "../memory/raw-query.js";
+import { getDb } from "../persistence/db-connection.js";
+import { rawChanges } from "../persistence/raw-query.js";
 import {
   oauthApps,
   oauthConnections,
   oauthProviders,
-} from "../memory/schema/oauth.js";
+} from "../persistence/schema/oauth.js";
 import {
   deleteSecureKeyAsync,
   getSecureKeyAsync,
@@ -821,6 +821,20 @@ export function getActiveConnection(
   provider: string,
   options?: { clientId?: string; account?: string },
 ): OAuthConnectionRow | undefined {
+  return getActiveConnections(provider, options)[0];
+}
+
+/**
+ * Like {@link getActiveConnection}, but returns ALL matching active connections
+ * (most-recently-created first) instead of just the newest. Callers that must
+ * choose among multiple connections — e.g. picking the one that carries a
+ * specific set of granted scopes — use this; `getActiveConnection` is the
+ * single-result convenience over the same query.
+ */
+export function getActiveConnections(
+  provider: string,
+  options?: { clientId?: string; account?: string },
+): OAuthConnectionRow[] {
   const { clientId, account } = options ?? {};
   const db = getDb();
 
@@ -835,7 +849,7 @@ export function getActiveConnection(
 
   if (clientId) {
     const app = getAppByProviderAndClientId(provider, clientId);
-    if (!app) return undefined;
+    if (!app) return [];
     conditions.push(eq(oauthConnections.oauthAppId, app.id));
   }
 
@@ -844,8 +858,7 @@ export function getActiveConnection(
     .from(oauthConnections)
     .where(and(...conditions))
     .orderBy(desc(oauthConnections.createdAt), sql`rowid DESC`)
-    .limit(1)
-    .get();
+    .all();
 }
 
 /** @deprecated Use {@link getActiveConnection} instead. */

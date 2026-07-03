@@ -3,8 +3,8 @@
 // Source of truth: assistant/src/providers/model-catalog.ts, which
 // generates meta/llm-provider-catalog.json via
 //   cd assistant && bun run sync:llm-catalog
-// This file mirrors the subset the web UI needs (no ollama, no
-// pricing/vision/caching fields).
+// This file mirrors the subset the web UI needs (no pricing/vision/caching
+// fields).
 //
 // Parity is enforced by llm-model-catalog.test.ts: update the daemon
 // catalog first, run the sync, then mirror the change here.
@@ -53,6 +53,15 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "claude-opus-4-6",
       displayName: "Claude Opus 4.6",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "claude-sonnet-5",
+      displayName: "Claude Sonnet 5",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -222,6 +231,22 @@ export const MODELS_BY_PROVIDER = {
       longContextPricingThresholdTokens: 200_000,
     },
   ],
+  ollama: [
+    {
+      id: "llama3.2",
+      displayName: "Llama 3.2",
+      contextWindowTokens: 128_000,
+      defaultContextWindowTokens: 128_000,
+      maxOutputTokens: 4_096,
+    },
+    {
+      id: "mistral",
+      displayName: "Mistral",
+      contextWindowTokens: 32_768,
+      defaultContextWindowTokens: 32_768,
+      maxOutputTokens: 4_096,
+    },
+  ],
   fireworks: [
     {
       id: "accounts/fireworks/models/kimi-k2p6",
@@ -276,6 +301,24 @@ export const MODELS_BY_PROVIDER = {
       maxOutputTokens: 131_072,
       supportsThinking: true,
     },
+    {
+      id: "accounts/fireworks/models/deepseek-v4-flash",
+      displayName: "DeepSeek V4 Flash",
+      contextWindowTokens: 1_040_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 131_072,
+      supportsThinking: true,
+    },
+  ],
+  together: [
+    {
+      id: "MiniMaxAI/MiniMax-M3",
+      displayName: "MiniMax M3",
+      contextWindowTokens: 524_288,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 512_000,
+      supportsThinking: true,
+    },
   ],
   openrouter: [
     {
@@ -309,6 +352,15 @@ export const MODELS_BY_PROVIDER = {
     {
       id: "anthropic/claude-opus-4.6",
       displayName: "Claude Opus 4.6",
+      contextWindowTokens: 1_000_000,
+      defaultContextWindowTokens: 200_000,
+      maxOutputTokens: 128_000,
+      supportsThinking: true,
+      longContextPricingThresholdTokens: 200_000,
+    },
+    {
+      id: "anthropic/claude-sonnet-5",
+      displayName: "Claude Sonnet 5",
       contextWindowTokens: 1_000_000,
       defaultContextWindowTokens: 200_000,
       maxOutputTokens: 128_000,
@@ -614,7 +666,9 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
   anthropic: "claude-opus-4-8",
   openai: "gpt-5.5",
   gemini: "gemini-2.5-flash",
+  ollama: "llama3.2",
   fireworks: "accounts/fireworks/models/kimi-k2p5",
+  together: "MiniMaxAI/MiniMax-M3",
   openrouter: "x-ai/grok-4.20-beta",
   minimax: "MiniMax-M2.7",
   atlascloud: "deepseek-ai/deepseek-v4-pro",
@@ -623,8 +677,7 @@ export const DEFAULT_MODEL_BY_PROVIDER: Record<LlmProviderId, string> = {
 
 /**
  * Provider id → human-readable label. Covers every provider in the
- * daemon catalog (including ones not in MODELS_BY_PROVIDER such as
- * ollama). Consumers should fall back to the raw id on miss:
+ * daemon catalog. Consumers should fall back to the raw id on miss:
  *   PROVIDER_DISPLAY_NAMES[id] ?? id
  */
 export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
@@ -633,6 +686,7 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   gemini: "Google Gemini",
   ollama: "Ollama",
   fireworks: "Fireworks",
+  together: "Together AI",
   openrouter: "OpenRouter",
   "openai-compatible": "OpenAI-compatible",
   minimax: "MiniMax",
@@ -652,6 +706,7 @@ export const PROVIDER_SUPPORTS_PLATFORM_AUTH: Record<string, boolean> = {
   gemini: true,
   ollama: false,
   fireworks: true,
+  together: true,
   openrouter: false,
   "openai-compatible": false,
   minimax: false,

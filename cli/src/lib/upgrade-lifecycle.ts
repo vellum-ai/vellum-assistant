@@ -13,6 +13,7 @@ import {
   DOCKER_READY_TIMEOUT_MS,
   dockerResourceNames,
   GATEWAY_INTERNAL_PORT,
+  ASSISTANT_INTERNAL_PORT,
   startContainers,
   stopContainers,
 } from "./docker.js";
@@ -66,10 +67,14 @@ export async function captureUpgradeFailureLogs(
         // stream (docker logs writes container stdout→stdout, stderr→stderr)
         // are preserved in a single file. spawnSync avoids the execOutput
         // limitation of returning only stdout on success.
-        const result = spawnSync("docker", ["logs", "--tail", "500", container], {
-          encoding: "utf8",
-          maxBuffer: 10 * 1024 * 1024, // 10 MB
-        });
+        const result = spawnSync(
+          "docker",
+          ["logs", "--tail", "500", container],
+          {
+            encoding: "utf8",
+            maxBuffer: 10 * 1024 * 1024, // 10 MB
+          },
+        );
         const output = [result.stdout, result.stderr].filter(Boolean).join("");
         if (output) writeFileSync(join(logDir, filename), output);
       } catch {
@@ -127,7 +132,7 @@ export function buildUpgradeCommitMessage(options: {
   phase: "starting" | "complete";
   from: string;
   to: string;
-  topology: "docker" | "managed";
+  topology: "docker" | "local" | "managed";
   assistantId: string;
   result?: "success" | "failure";
 }): string {
@@ -300,10 +305,13 @@ export async function fetchAssistantIngressUrl(
 ): Promise<string | undefined> {
   if (!bearerToken) return undefined;
   try {
-    const resp = await loopbackSafeFetch(`${runtimeUrl}/integrations/ingress/config`, {
-      headers: { Authorization: `Bearer ${bearerToken}` },
-      signal: AbortSignal.timeout(5000),
-    });
+    const resp = await loopbackSafeFetch(
+      `${runtimeUrl}/integrations/ingress/config`,
+      {
+        headers: { Authorization: `Bearer ${bearerToken}` },
+        signal: AbortSignal.timeout(5000),
+      },
+    );
     if (resp.ok) {
       const body = (await resp.json()) as {
         publicBaseUrl?: string;
@@ -483,12 +491,15 @@ export async function rollbackMigrations(
       body.targetWorkspaceMigrationId = targetWorkspaceMigrationId;
     if (rollbackToRegistryCeiling) body.rollbackToRegistryCeiling = true;
 
-    const resp = await loopbackSafeFetch(`${gatewayUrl}/v1/admin/rollback-migrations`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(body),
-      signal: AbortSignal.timeout(120_000),
-    });
+    const resp = await loopbackSafeFetch(
+      `${gatewayUrl}/v1/admin/rollback-migrations`,
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(120_000),
+      },
+    );
     if (!resp.ok) {
       const text = await resp.text();
       console.warn(`⚠️  Migration rollback failed (${resp.status}): ${text}`);
@@ -675,6 +686,9 @@ export async function performDockerRollback(
     // use default
   }
 
+  // Recover the assistant host port from the entry, fall back to default.
+  const assistantPort = entry.containerInfo?.assistantPort ?? ASSISTANT_INTERNAL_PORT;
+
   // Broadcast SSE "starting" event
   console.log("📢 Notifying connected clients...");
   await broadcastUpgradeEvent(
@@ -736,6 +750,7 @@ export async function performDockerRollback(
       extraAssistantEnv,
       extraGatewayEnv,
       gatewayPort,
+      assistantPort,
       imageTags: targetImageTags,
       instanceName,
       res,
@@ -775,6 +790,7 @@ export async function performDockerRollback(
         gatewayDigest: newDigests?.gateway,
         cesDigest: newDigests?.["credential-executor"],
         networkName: res.network,
+        assistantPort,
       },
       previousContainerInfo: entry.containerInfo,
       previousDbMigrationVersion: preMigrationState.dbVersion,
@@ -812,7 +828,10 @@ export async function performDockerRollback(
     // Failure path — attempt auto-rollback to original version
     console.error(`\n❌ Containers failed to become ready within the timeout.`);
 
-    const logDir = await captureUpgradeFailureLogs(res, `${instanceName}-rollback-failure`);
+    const logDir = await captureUpgradeFailureLogs(
+      res,
+      `${instanceName}-rollback-failure`,
+    );
     if (logDir) {
       console.log(`📋 Container logs saved to: ${logDir}`);
     }
@@ -854,6 +873,7 @@ export async function performDockerRollback(
             extraAssistantEnv,
             extraGatewayEnv,
             gatewayPort,
+            assistantPort,
             imageTags: currentImageRefs,
             instanceName,
             res,
@@ -906,6 +926,7 @@ export async function performDockerRollback(
                 revertDigests?.["credential-executor"] ??
                 currentImageRefs["credential-executor"],
               networkName: res.network,
+              assistantPort,
             },
             previousContainerInfo: undefined,
             previousDbMigrationVersion: undefined,

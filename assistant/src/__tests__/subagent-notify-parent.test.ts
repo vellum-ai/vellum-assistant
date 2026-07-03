@@ -3,7 +3,9 @@ import { describe, expect, mock, test } from "bun:test";
 // ── Module mocks (must come before any imports that transitively load these) ──
 
 // Mock conversation-crud before importing tool executors that depend on it.
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},

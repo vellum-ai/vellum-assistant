@@ -1,6 +1,6 @@
 /**
- * Research-onboarding front door — collects first name, last name, and
- * occupation, then hands off to the assistant to research the person.
+ * Research-onboarding front door — collects name, role, and hobbies, then
+ * hands off to the assistant to research the person.
  *
  * SPIKE — research-onboarding flow.
  *
@@ -9,21 +9,41 @@
  */
 
 import { useState } from "react";
+import { ArrowRight } from "lucide-react";
 
+import { OnboardingEdgeCharacters } from "@/domains/onboarding/components/onboarding-edge-characters";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
+import { TagAutocompleteInput } from "@/domains/onboarding/components/onboarding-autocomplete";
+import { HOBBY_SUGGESTIONS } from "@/domains/onboarding/onboarding-suggestions";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 
 export interface ResearchOnboardingValues {
   firstName: string;
   lastName: string;
-  occupation: string;
+  role: string;
+  hobbies: string[];
 }
 
 interface ResearchOnboardingScreenProps {
   initialFirstName?: string;
   initialLastName?: string;
   onSubmit: (values: ResearchOnboardingValues) => void;
+}
+
+/**
+ * One animation cadence so every element rises in the same staggered rhythm.
+ *
+ * The descending `zIndex` keeps each field (and its absolutely-positioned
+ * autocomplete dropdown) painting above the rows below it: the entrance
+ * `animation` makes every row its own stacking context, so a later row would
+ * otherwise cover an earlier row's open dropdown.
+ */
+function riseIn(delaySeconds: number, zIndex?: number): React.CSSProperties {
+  return {
+    animation: `fadeInUp 0.4s ease-out ${delaySeconds}s both`,
+    ...(zIndex != null ? { position: "relative", zIndex } : {}),
+  };
 }
 
 export function ResearchOnboardingScreen({
@@ -33,78 +53,106 @@ export function ResearchOnboardingScreen({
 }: ResearchOnboardingScreenProps) {
   const [firstName, setFirstName] = useState(initialFirstName);
   const [lastName, setLastName] = useState(initialLastName);
-  const [occupation, setOccupation] = useState("");
+  const [role, setRole] = useState("");
+  const [hobbies, setHobbies] = useState<string[]>([]);
 
-  // First name + occupation are the minimum signal worth researching on.
-  const canSubmit =
-    firstName.trim().length > 0 && occupation.trim().length > 0;
+  // First name + role are the minimum signal worth researching on.
+  const canSubmit = firstName.trim().length > 0 && role.trim().length > 0;
 
   function handleSubmit() {
     if (!canSubmit) return;
-    onSubmit({ firstName, lastName, occupation });
+    onSubmit({ firstName, lastName, role, hobbies });
   }
 
   return (
+    // Force the dark palette for the onboarding flow regardless of app theme —
+    // `data-theme="dark"` re-declares the design tokens for this subtree (custom
+    // props inherit down). Matches the brand onboarding design.
+    <div data-theme="dark" className="h-full">
     <OnboardingLayout showCreatureFooter={false}>
+      <OnboardingEdgeCharacters />
       <form
-        className="mx-auto flex min-h-screen w-full max-w-md flex-col px-6 pb-40 text-[var(--content-default)]"
+        className="relative z-10 mx-auto flex min-h-screen w-full max-w-sm flex-col items-center justify-center px-6 py-16 text-[var(--content-default)]"
         onSubmit={(e) => {
           e.preventDefault();
           handleSubmit();
         }}
       >
-        <div className="flex flex-1 flex-col items-center pt-16">
-          <h1
-            className="text-center text-3xl font-semibold tracking-tight"
-            style={{ animation: "fadeInUp 0.3s ease-out 0.1s both" }}
-          >
-            Let&apos;s start with you.
-          </h1>
+        <h1
+          className="text-center font-serif text-[2.75rem] leading-[1.05] tracking-tight"
+          style={riseIn(0.05)}
+        >
+          Let&apos;s start with you.
+        </h1>
 
-          <p
-            className="mt-2 text-center text-body-medium-lighter text-[var(--content-secondary)]"
-            style={{ animation: "fadeInUp 0.3s ease-out 0.15s both" }}
-          >
-            A few details so I can get to know you before we dive in.
-          </p>
+        <p
+          className="mt-3 text-center text-body-medium-lighter text-[var(--content-secondary)]"
+          style={riseIn(0.12)}
+        >
+          A few details so I can get to know you.
+        </p>
 
-          <div
-            className="mt-8 flex w-full flex-col gap-6"
-            style={{ animation: "fadeInUp 0.3s ease-out 0.3s both" }}
-          >
+        <div className="mt-10 flex w-full flex-col gap-5">
+          <div style={riseIn(0.2, 40)}>
             <Input
-              label="First name"
-              placeholder="First name"
+              label={
+                <>
+                  What should I call you?
+                  <span
+                    aria-hidden
+                    className="text-[var(--system-negative-strong)]"
+                  >
+                    {" *"}
+                  </span>
+                </>
+              }
+              placeholder="Your name"
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
               autoFocus
+              required
               fullWidth
             />
+          </div>
+
+          <div style={riseIn(0.27, 30)}>
             <Input
-              label="Last name"
-              placeholder="Last name"
+              label="And your last name?"
+              placeholder="Your last name (optional)"
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
               fullWidth
             />
+          </div>
+
+          <div style={riseIn(0.34, 20)}>
             <Input
-              label="What do you do?"
-              placeholder="e.g. Product designer at a fintech startup"
-              value={occupation}
-              onChange={(e) => setOccupation(e.target.value)}
+              label="Your role"
+              placeholder="What do you do for work?"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              required
               fullWidth
+            />
+          </div>
+
+          <div style={riseIn(0.41, 10)}>
+            <TagAutocompleteInput
+              label="Any hobbies?"
+              placeholder="Cars, books, growing tomatoes?"
+              values={hobbies}
+              onChange={setHobbies}
+              suggestions={HOBBY_SUGGESTIONS}
             />
           </div>
         </div>
 
-        <div
-          className="flex w-full flex-col gap-2 pb-4"
-          style={{ animation: "fadeInUp 0.3s ease-out 0.3s both" }}
-        >
+        <div className="mt-10 w-full" style={riseIn(0.5)}>
           <Button
             type="submit"
             variant="primary"
             size="regular"
+            rightIcon={<ArrowRight size={16} />}
             fullWidth
             disabled={!canSubmit}
             className="h-11 text-base"
@@ -114,5 +162,6 @@ export function ResearchOnboardingScreen({
         </div>
       </form>
     </OnboardingLayout>
+    </div>
   );
 }

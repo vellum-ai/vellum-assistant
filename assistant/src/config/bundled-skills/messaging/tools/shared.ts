@@ -137,5 +137,8 @@ export async function getProviderConnection(
 ): Promise<OAuthConnection | undefined> {
   if (provider.resolveConnection) return provider.resolveConnection(account);
   if (await provider.isConnected?.()) return undefined;
-  return resolveOAuthConnection(provider.credentialService, { account });
+  return resolveOAuthConnection(provider.credentialService, {
+    account,
+    requiredScopes: provider.requiredScopes,
+  });
 }

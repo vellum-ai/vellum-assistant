@@ -39,15 +39,15 @@ mock.module("../config/loader.js", () => ({
 // Imports — after mocks
 // ---------------------------------------------------------------------------
 
-import { getConversationDirPath } from "../memory/conversation-disk-view.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getConversationDirPath } from "../persistence/conversation-disk-view.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   attachments,
   conversations,
   messageAttachments,
   messages,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { backfillConversationDiskViewMigration } from "../workspace/migrations/009-backfill-conversation-disk-view.js";
 
 await initializeDb();

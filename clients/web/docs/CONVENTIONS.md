@@ -441,6 +441,16 @@ conversations (Slack, email, Telegram) have keys like
    for external channel adapters; web-originated traffic uses
    `conversationId`.
 
+### Don't duplicate logic — one source of truth
+
+When the same logic (a derivation, formatter, guard, fetch sequence, or
+handler) appears in more than one place, extract it into a single named
+function/hook/util that every caller imports. Copy-pasted logic drifts —
+a bug fixed in one copy survives in the others — so extract on the
+**second** occurrence, share behavior rather than just types, and delete
+the originals in the same PR. Where the extracted code lives follows the
+decision rule below.
+
 ### Top-level shared directories
 
 Code used across multiple domains lives in top-level shared
@@ -620,6 +630,12 @@ Inline JSX that has its own concerns (visibility gating, animation,
 multi-prop wiring, conditional rendering beyond a one-liner) should be
 extracted into a named component. Trivial inline JSX (a single element,
 a static label) stays inline.
+
+An extracted component is a named component, and a named component lives
+in its own file — see [STYLE_GUIDE — One component per file](./STYLE_GUIDE.md#one-component-per-file).
+Don't append a second component as an extra export on its parent;
+co-locating is a deliberate, rare exception for a trivial helper private
+to its sibling.
 
 Reference: [React — Thinking in React: break the UI into a component hierarchy](https://react.dev/learn/thinking-in-react#step-1-break-the-ui-into-a-component-hierarchy)
 
@@ -898,6 +914,43 @@ calls with hardcoded backend prefixes unless the generated client
 cannot support the use case (e.g. SSE/streaming endpoints that need
 custom `EventSource` handling). If bypassing, add a comment explaining
 why.
+
+### Generated types are the source of truth
+
+Never hand-write a type for a value the codegen produces — a request
+body, a response shape, an enum from the schema. The generated types in
+`src/generated/` are the source of truth; import them (or derive with
+`Pick`/`Omit`/`extends` for a client view-model that adds client-only
+fields like a blob `previewUrl`). A hand-written copy silently drifts
+from the wire the moment the schema changes.
+
+If a type is **missing or wrong**, the fix is at the schema, not in the
+client: add or correct the route's `responseBody` (the daemon routes in
+`assistant/src/runtime/routes/*` declare zod `responseBody` schemas that
+drive the OpenAPI spec) and regenerate — do **not** paper over it with a
+hand-rolled type. A missing response-body schema is the usual reason a
+type isn't generated.
+
+```ts
+// Good — derive the client view-model from the generated shape
+import type { AttachmentsByIdGetResponse } from "@/generated/daemon/types.gen";
+export type AttachmentMetadata = Pick<
+  AttachmentsByIdGetResponse,
+  "id" | "filename" | "mimeType" | "sizeBytes"
+>;
+export interface DisplayAttachment extends AttachmentMetadata {
+  previewUrl: string | null; // client-only, not on the wire
+}
+
+// Avoid — re-declaring fields the schema already defines (drifts silently)
+export interface DisplayAttachment {
+  id: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  previewUrl: string | null;
+}
+```
 
 ---
 

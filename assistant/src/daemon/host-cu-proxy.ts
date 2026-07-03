@@ -16,8 +16,8 @@
 
 import { v4 as uuid } from "uuid";
 
-import { escapeAxTreeContent } from "../agent/loop.js";
 import { loadConfig } from "../config/loader.js";
+import { escapeAxTreeContent } from "../context/outbound-sanitize.js";
 import type { ContentBlock } from "../providers/types.js";
 import {
   assistantEventHub,
@@ -44,6 +44,56 @@ const MAX_HISTORY_ENTRIES = 10;
 const LOOP_DETECTION_WINDOW = 3;
 const CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD = 2;
 
+// computer_use_key combos that change only selection/cursor/clipboard state.
+// The AX tree models none of these, so they always produce an empty diff —
+// exempt them from the "NO VISIBLE EFFECT" signal (mirrors computer_use_wait).
+// Stored in canonical form (see canonicalizeKeyCombo): modifier aliases
+// normalized and ordered, so `cmd + a`, `command+a`, `alt+tab`, `tab+shift`
+// all match.
+const NO_AX_DIFF_KEY_COMBOS = new Set([
+  "cmd+a",
+  "cmd+c",
+  "up",
+  "down",
+  "left",
+  "right",
+  "shift+tab",
+  "option+tab",
+]);
+
+// Modifier aliases mirror the mac helper's ActionExecutor.pressKey so the
+// exemption check matches exactly what the helper will execute.
+const KEY_MODIFIER_ALIASES: Record<string, string> = {
+  cmd: "cmd",
+  command: "cmd",
+  option: "option",
+  alt: "option",
+  ctrl: "ctrl",
+  control: "ctrl",
+  shift: "shift",
+};
+const KEY_MODIFIER_ORDER = ["cmd", "ctrl", "option", "shift"];
+
+/**
+ * Normalize a key combo the way the mac helper does (lowercase, split on `+`,
+ * trim, alias modifiers) into a canonical `mods…+base` string with modifiers
+ * in a fixed order — so order/alias/whitespace variants compare equal.
+ */
+function canonicalizeKeyCombo(key: string): string {
+  const mods = new Set<string>();
+  let base = "";
+  for (const raw of key.toLowerCase().split("+")) {
+    const part = raw.trim();
+    if (part.length === 0) continue;
+    const mod = KEY_MODIFIER_ALIASES[part];
+    if (mod) mods.add(mod);
+    else base = part; // last non-modifier wins, matching the executor
+  }
+  return [...KEY_MODIFIER_ORDER.filter((m) => mods.has(m)), base]
+    .filter((s) => s.length > 0)
+    .join("+");
+}
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -67,6 +117,43 @@ export interface ActionRecord {
   toolName: string;
   input: Record<string, unknown>;
   reasoning?: string;
+}
+
+/**
+ * True when `action` is a computer_use_key press whose key only mutates
+ * selection/cursor/clipboard state — changes the AX tree cannot represent, so
+ * an empty diff is expected rather than a sign the action did nothing.
+ */
+function isNoDiffKeyAction(action: ActionRecord | undefined): boolean {
+  if (action?.toolName !== "computer_use_key") return false;
+  const key = action.input.key;
+  return (
+    typeof key === "string" &&
+    NO_AX_DIFF_KEY_COMBOS.has(canonicalizeKeyCombo(key))
+  );
+}
+
+/**
+ * Canonical signature for loop detection. Key presses collapse equivalent
+ * spellings (`cmd+a`, `command+a`, `cmd + a`) of the same combo so a stuck
+ * session retrying it with alias/whitespace variants is still caught —
+ * important now that exempt keys no longer emit no-effect warnings. Only the
+ * `key` value is normalized; all other input fields (e.g. the routing
+ * `target_client_id`) are preserved, so the same combo sent to different
+ * desktop clients is not mistaken for a repeat.
+ */
+function actionSignature(record: ActionRecord): string {
+  if (
+    record.toolName === "computer_use_key" &&
+    typeof record.input.key === "string"
+  ) {
+    const normalizedInput = {
+      ...record.input,
+      key: canonicalizeKeyCombo(record.input.key),
+    };
+    return `computer_use_key:${JSON.stringify(normalizedInput)}`;
+  }
+  return `${record.toolName}:${JSON.stringify(record.input)}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -385,8 +472,9 @@ export class HostCuProxy {
           ? this._actionHistory[this._actionHistory.length - 1]
           : undefined;
       const isWaitAction = lastAction?.toolName === "computer_use_wait";
+      const isNoDiffKey = isNoDiffKeyAction(lastAction);
 
-      if (!isWaitAction) {
+      if (!isWaitAction && !isNoDiffKey) {
         if (
           this._consecutiveUnchangedSteps >=
           CONSECUTIVE_UNCHANGED_WARNING_THRESHOLD
@@ -405,10 +493,9 @@ export class HostCuProxy {
 
     if (this._actionHistory.length >= LOOP_DETECTION_WINDOW) {
       const recent = this._actionHistory.slice(-LOOP_DETECTION_WINDOW);
+      const firstSignature = actionSignature(recent[0]);
       const allIdentical = recent.every(
-        (r) =>
-          r.toolName === recent[0].toolName &&
-          JSON.stringify(r.input) === JSON.stringify(recent[0].input),
+        (r) => actionSignature(r) === firstSignature,
       );
       if (allIdentical) {
         parts.push(
@@ -505,14 +592,18 @@ export class HostCuProxy {
 
   private updateStateFromObservation(obs: CuObservationResult): void {
     if (this._stepCount > 0) {
-      if (
-        obs.axDiff == null &&
-        this._previousAXTree != null &&
-        obs.axTree != null
-      ) {
-        this._consecutiveUnchangedSteps++;
-      } else if (obs.axDiff != null) {
+      const lastAction =
+        this._actionHistory.length > 0
+          ? this._actionHistory[this._actionHistory.length - 1]
+          : undefined;
+      if (obs.axDiff != null || isNoDiffKeyAction(lastAction)) {
+        // A real diff, or an exempt key whose effect is invisible by design,
+        // breaks the no-effect streak — clear it rather than preserving a
+        // stale count so an intervening cmd+a can't bridge two no-op actions
+        // into a false "consecutive" escalation.
         this._consecutiveUnchangedSteps = 0;
+      } else if (this._previousAXTree != null && obs.axTree != null) {
+        this._consecutiveUnchangedSteps++;
       }
     }
 

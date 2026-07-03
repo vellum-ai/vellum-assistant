@@ -10,10 +10,12 @@
 
 import { Sparkles } from "lucide-react";
 
+import type { ResearchSuggestion } from "@/domains/chat/onboarding-research/research-facts";
+
 interface ResearchSuggestionsProps {
-  suggestions: string[];
-  /** Start a new conversation with this suggestion sent on the user's behalf. */
-  onSelect: (suggestion: string) => void;
+  suggestions: ResearchSuggestion[];
+  /** Start a new conversation with the user-voiced prompt sent on their behalf. */
+  onSelect: (prompt: string) => void;
 }
 
 export function ResearchSuggestions({
@@ -29,15 +31,15 @@ export function ResearchSuggestions({
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
         {suggestions.slice(0, 4).map((suggestion, index) => (
           <button
-            key={`${index}-${suggestion}`}
+            key={`${index}-${suggestion.suggestion}`}
             type="button"
-            onClick={() => onSelect(suggestion)}
+            onClick={() => onSelect(suggestion.prompt)}
             className="flex cursor-pointer items-center gap-2.5 rounded-lg border border-[var(--border-base)] bg-[var(--surface-lift)] px-4 py-3 text-left transition-colors hover:border-[var(--border-element)] hover:bg-[var(--surface-base)]"
             style={{ animation: "fadeInUp 0.35s ease-out both" }}
           >
             <Sparkles className="size-4 shrink-0 text-[var(--content-tertiary)]" />
             <span className="text-[15px] leading-snug text-[var(--content-default)]">
-              {suggestion}
+              {suggestion.suggestion}
             </span>
           </button>
         ))}

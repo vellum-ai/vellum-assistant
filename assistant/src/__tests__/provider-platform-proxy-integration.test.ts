@@ -212,6 +212,7 @@ const MANAGED_FALLBACK_PROVIDERS: string[] = [
   "gemini",
   "openai",
   "fireworks",
+  "together",
 ];
 
 function enableManagedProxy() {
@@ -335,18 +336,25 @@ describe("managed proxy integration — credential precedence", () => {
       },
     );
 
-    test("managed bootstrap registers anthropic, openai, gemini, and fireworks", async () => {
+    test("managed bootstrap registers anthropic, openai, gemini, fireworks, and together", async () => {
       enableManagedProxy();
       mockProviderKeys = {};
       await initializeProviders(makeProvidersConfig("anthropic", "test-model"));
       expect(listProviders()).toEqual(
-        expect.arrayContaining(["anthropic", "openai", "gemini", "fireworks"]),
+        expect.arrayContaining([
+          "anthropic",
+          "openai",
+          "gemini",
+          "fireworks",
+          "together",
+        ]),
       );
-      expect(listProviders()).toHaveLength(4);
+      expect(listProviders()).toHaveLength(5);
       expect(getProviderRoutingSource("anthropic")).toBe("managed-proxy");
       expect(getProviderRoutingSource("openai")).toBe("managed-proxy");
       expect(getProviderRoutingSource("gemini")).toBe("managed-proxy");
       expect(getProviderRoutingSource("fireworks")).toBe("managed-proxy");
+      expect(getProviderRoutingSource("together")).toBe("managed-proxy");
       expect(getProviderRoutingSource("openrouter")).toBeUndefined();
     });
 
@@ -681,8 +689,14 @@ describe("config mode flip → provider reinit", () => {
 });
 
 describe("managed proxy integration — constants integrity", () => {
-  test("anthropic, openai, gemini, and fireworks have metadata with managed=true and a proxyPath", () => {
-    for (const provider of ["anthropic", "openai", "gemini", "fireworks"]) {
+  test("anthropic, openai, gemini, fireworks, and together have metadata with managed=true and a proxyPath", () => {
+    for (const provider of [
+      "anthropic",
+      "openai",
+      "gemini",
+      "fireworks",
+      "together",
+    ]) {
       const meta = PLATFORM_PROVIDER_META[provider];
       expect(meta).toBeDefined();
       expect(meta.managed).toBe(true);
@@ -712,6 +726,12 @@ describe("managed proxy integration — constants integrity", () => {
   test("fireworks routes through fireworks proxy path", () => {
     expect(PLATFORM_PROVIDER_META.fireworks.proxyPath).toBe(
       "/v1/runtime-proxy/fireworks",
+    );
+  });
+
+  test("together routes through together proxy path", () => {
+    expect(PLATFORM_PROVIDER_META.together.proxyPath).toBe(
+      "/v1/runtime-proxy/together",
     );
   });
 

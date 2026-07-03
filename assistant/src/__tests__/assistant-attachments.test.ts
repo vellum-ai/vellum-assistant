@@ -8,8 +8,11 @@ import {
   deduplicateDrafts,
   drainDirectiveDisplayBuffer,
   estimateBase64Bytes,
+  extractVellumLinks,
+  incompleteVellumLinkSuffixLength,
   inferMimeType,
   MAX_ASSISTANT_ATTACHMENT_BYTES,
+  stripVellumLinks,
   validateDrafts,
 } from "../daemon/assistant-attachments.js";
 
@@ -326,6 +329,258 @@ describe("cleanAssistantContent", () => {
     expect(result.cleanedContent).toHaveLength(1);
     expect((result.cleanedContent[0] as { text: string }).text).toBe(
       "real text",
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// extractVellumLinks
+// ---------------------------------------------------------------------------
+
+describe("extractVellumLinks", () => {
+  test("extracts workspace links", () => {
+    const text =
+      "Here is your report: [report.pdf](vellum://workspace/scratch/report.pdf)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].source).toBe("sandbox");
+    expect(result.directiveRequests[0].path).toBe("scratch/report.pdf");
+    expect(result.directiveRequests[0].filename).toBe("report.pdf");
+  });
+
+  test("extracts host links", () => {
+    const text = "[doc.pdf](vellum://host/Users/me/doc.pdf)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].source).toBe("host");
+    expect(result.directiveRequests[0].path).toBe("/Users/me/doc.pdf");
+    expect(result.directiveRequests[0].filename).toBe("doc.pdf");
+  });
+
+  test("extracts multiple links", () => {
+    const text = [
+      "Here are the files:",
+      "[a.png](vellum://workspace/scratch/a.png)",
+      "[b.pdf](vellum://host/tmp/b.pdf)",
+    ].join("\n");
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(2);
+    expect(result.directiveRequests[0].source).toBe("sandbox");
+    expect(result.directiveRequests[0].path).toBe("scratch/a.png");
+    expect(result.directiveRequests[1].source).toBe("host");
+    expect(result.directiveRequests[1].path).toBe("/tmp/b.pdf");
+  });
+
+  test("decodes URL-encoded spaces in workspace paths", () => {
+    const text =
+      "[file with spaces.txt](vellum://workspace/scratch/file%20with%20spaces.txt)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].source).toBe("sandbox");
+    expect(result.directiveRequests[0].path).toBe(
+      "scratch/file with spaces.txt",
+    );
+  });
+
+  test("decodes URL-encoded spaces in host paths", () => {
+    const text = "[my file.pdf](vellum://host/Users/me/my%20file.pdf)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].source).toBe("host");
+    expect(result.directiveRequests[0].path).toBe("/Users/me/my file.pdf");
+  });
+
+  test("warns on malformed percent-encoding instead of throwing", () => {
+    const text =
+      "[100% complete.txt](vellum://workspace/scratch/100%25complete.txt)";
+    const result = extractVellumLinks(text);
+
+    // %25 decodes to %, so this should succeed
+    expect(result.directiveRequests).toHaveLength(1);
+    expect(result.directiveRequests[0].path).toBe("scratch/100%complete.txt");
+  });
+
+  test("warns on malformed percent-encoding and skips the link", () => {
+    const text = "[bad file](vellum://workspace/scratch/100%complete.txt)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(0);
+    expect(result.parseWarnings).toHaveLength(1);
+    expect(result.parseWarnings[0]).toContain("malformed percent-encoding");
+  });
+
+  test("warns on empty workspace path", () => {
+    const text = "[file](vellum://workspace/)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(0);
+    expect(result.parseWarnings).toHaveLength(1);
+    expect(result.parseWarnings[0]).toContain("empty path");
+  });
+
+  test("warns on empty host path", () => {
+    const text = "[file](vellum://host/)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(0);
+    expect(result.parseWarnings).toHaveLength(1);
+    expect(result.parseWarnings[0]).toContain("empty path");
+  });
+
+  test("ignores non-vellum markdown links", () => {
+    const text = "[link](https://example.com)";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(0);
+    expect(result.parseWarnings).toHaveLength(0);
+  });
+
+  test("returns empty when no links present", () => {
+    const text = "Just some plain text with no links.";
+    const result = extractVellumLinks(text);
+
+    expect(result.directiveRequests).toHaveLength(0);
+    expect(result.parseWarnings).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cleanAssistantContent — vellum:// links
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// stripVellumLinks
+// ---------------------------------------------------------------------------
+
+describe("stripVellumLinks", () => {
+  test("replaces vellum:// links with their link text", () => {
+    const text =
+      "Here is the file: [report.pdf](vellum://workspace/scratch/report.pdf)";
+    expect(stripVellumLinks(text)).toBe("Here is the file: report.pdf");
+  });
+
+  test("handles multiple links", () => {
+    const text = [
+      "[a.png](vellum://workspace/scratch/a.png)",
+      "[b.pdf](vellum://host/tmp/b.pdf)",
+    ].join(" and ");
+    expect(stripVellumLinks(text)).toBe("a.png and b.pdf");
+  });
+
+  test("preserves text with no vellum links", () => {
+    const text = "Plain text with [link](https://example.com)";
+    expect(stripVellumLinks(text)).toBe(text);
+  });
+
+  test("handles link text that differs from path basename", () => {
+    const text = "[Quarterly Report](vellum://workspace/scratch/report.pdf)";
+    expect(stripVellumLinks(text)).toBe("Quarterly Report");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// incompleteVellumLinkSuffixLength
+// ---------------------------------------------------------------------------
+
+describe("incompleteVellumLinkSuffixLength", () => {
+  const suffix = (text: string) =>
+    text.slice(text.length - incompleteVellumLinkSuffixLength(text));
+
+  test("returns 0 for text with no trailing link", () => {
+    expect(incompleteVellumLinkSuffixLength("all done, no links here")).toBe(0);
+  });
+
+  test("returns 0 for a completed vellum link", () => {
+    expect(
+      incompleteVellumLinkSuffixLength(
+        "see [report.pdf](vellum://workspace/scratch/report.pdf)",
+      ),
+    ).toBe(0);
+  });
+
+  test("returns 0 for a completed link followed by trailing text", () => {
+    expect(
+      incompleteVellumLinkSuffixLength(
+        "[a.pdf](vellum://host/tmp/a.pdf) and more",
+      ),
+    ).toBe(0);
+  });
+
+  test.each([
+    ["mid path", "grab [a.pdf](vellum://host/tmp/a"],
+    ["at slash", "grab [a.pdf](vellum://host/"],
+    ["at authority", "grab [a.pdf](vellum://host"],
+    ["partial authority", "grab [a.pdf](vellum://ho"],
+    ["partial scheme", "grab [a.pdf](vel"],
+    ["open paren", "grab [a.pdf]("],
+    ["closed label", "grab [a.pdf]"],
+    ["open label", "grab [a.pd"],
+  ])("withholds an in-progress vellum link (%s)", (_name, text) => {
+    expect(suffix(text).startsWith("[")).toBe(true);
+    expect(
+      stripVellumLinks(
+        text.slice(0, text.length - incompleteVellumLinkSuffixLength(text)),
+      ),
+    ).not.toContain("vellum://");
+  });
+
+  test("withholds only the trailing in-progress link, not an earlier complete one", () => {
+    const text =
+      "[done.pdf](vellum://host/tmp/done.pdf) then [next](vellum://workspace/scratch/n";
+    expect(suffix(text)).toBe("[next](vellum://workspace/scratch/n");
+  });
+
+  test("stops withholding once the URL diverges from the vellum scheme", () => {
+    expect(
+      incompleteVellumLinkSuffixLength("see [site](https://example.com"),
+    ).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// cleanAssistantContent — vellum:// links
+// ---------------------------------------------------------------------------
+
+describe("cleanAssistantContent — vellum links", () => {
+  test("extracts vellum:// links as directives without stripping them", () => {
+    const content = [
+      {
+        type: "text",
+        text: "Here is your file: [report.pdf](vellum://workspace/scratch/report.pdf)",
+      },
+    ];
+    const result = cleanAssistantContent(content);
+
+    expect(result.directives).toHaveLength(1);
+    expect(result.directives[0].source).toBe("sandbox");
+    expect(result.directives[0].path).toBe("scratch/report.pdf");
+    // The link text is preserved (not stripped)
+    expect((result.cleanedContent[0] as { text: string }).text).toContain(
+      "[report.pdf](vellum://workspace/scratch/report.pdf)",
+    );
+  });
+
+  test("handles both vellum links and legacy tags in the same text", () => {
+    const content = [
+      {
+        type: "text",
+        text: '[report.pdf](vellum://workspace/scratch/report.pdf)\n<vellum-attachment path="extra.png" />',
+      },
+    ];
+    const result = cleanAssistantContent(content);
+
+    expect(result.directives).toHaveLength(2);
+    // vellum link is preserved, legacy tag is stripped
+    expect((result.cleanedContent[0] as { text: string }).text).toContain(
+      "[report.pdf](vellum://workspace/scratch/report.pdf)",
+    );
+    expect((result.cleanedContent[0] as { text: string }).text).not.toContain(
+      "<vellum-attachment",
     );
   });
 });

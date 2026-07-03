@@ -8,7 +8,7 @@ import type {
 import {
   getMaxSequence,
   persistTraceEvent,
-} from "../memory/trace-event-store.js";
+} from "../telemetry/trace-event-store.js";
 import { getLogger } from "../util/logger.js";
 import type { ServerMessage } from "./message-protocol.js";
 

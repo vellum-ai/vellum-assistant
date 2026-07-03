@@ -26,7 +26,7 @@
  * gateway's own database.
  */
 
-import { getSqlite } from "../../memory/db-connection.js";
+import { getSqlite } from "../../persistence/db-connection.js";
 import { RouteError } from "../../runtime/routes/errors.js";
 import { getLogger } from "../../util/logger.js";
 

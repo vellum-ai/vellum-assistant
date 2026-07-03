@@ -2,15 +2,13 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
-import {
-  DEFAULT_INJECTOR_ORDER,
-  defaultInjectors,
-} from "../plugins/defaults/memory-retrieval/injectors.js";
+import { DEFAULT_INJECTOR_ORDER } from "../plugins/defaults/injector-order.js";
+import { workspaceInjectors } from "../plugins/defaults/workspace/injectors.js";
 import type { Injector, TurnContext } from "../plugins/types.js";
 import { getConfigQuarantineNoticePath } from "../util/platform.js";
 
 function findInjector(name: string): Injector {
-  const injector = defaultInjectors.find(
+  const injector = workspaceInjectors.find(
     (candidate) => candidate.name === name,
   );
   if (!injector) {

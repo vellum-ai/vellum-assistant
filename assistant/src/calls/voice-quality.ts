@@ -1,6 +1,5 @@
 import { loadConfig } from "../config/loader.js";
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
-import { getTtsProvider } from "../tts/provider-registry.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import {
   getNativeTwilioVoiceSpec,
@@ -18,15 +17,13 @@ export interface VoiceQualityProfile {
 /**
  * Build a Twilio-compatible ElevenLabs voice string.
  *
- * Twilio ConversationRelay accepts:
+ * Twilio's native TTS voice attribute accepts:
  *   - bare voiceId
  *   - voiceId-model-speed_stability_similarity
  *
  * We default to bare voiceId unless a model is explicitly configured.
  * This avoids forcing model/tuning suffixes that may be rejected for some
  * voice + model combinations.
- *
- * See: https://www.twilio.com/docs/voice/conversationrelay/voice-configuration
  */
 export function buildElevenLabsVoiceSpec(config: {
   voiceId: string;
@@ -48,29 +45,54 @@ export function buildElevenLabsVoiceSpec(config: {
 }
 
 /**
+ * Resolve a valid native Twilio voice for the configured TTS provider.
+ *
+ * Returns the registered {@link NativeTwilioVoiceSpec} for `providerId` when one
+ * exists; otherwise — no builder registered (e.g. a synthesized-play provider
+ * like Fish Audio), or config unavailable — falls back to the ElevenLabs config
+ * block, or the shipped default voice. The result is always a non-empty,
+ * Twilio-valid `ttsProvider` + `voice`.
+ */
+function resolveNativeTwilioVoice(
+  cfg: ReturnType<typeof loadConfig>,
+  providerId: string,
+): { ttsProvider: string; voice: string } {
+  try {
+    const spec = getNativeTwilioVoiceSpec(providerId);
+    const resolved = resolveTtsConfig(cfg);
+    return {
+      ttsProvider: spec.twilioProviderName,
+      voice: spec.buildVoiceSpec(resolved.providerConfig),
+    };
+  } catch {
+    return {
+      ttsProvider: "ElevenLabs",
+      voice: buildElevenLabsVoiceSpec(
+        cfg.services?.tts?.providers?.elevenlabs ?? {
+          voiceId: DEFAULT_ELEVENLABS_VOICE_ID,
+        },
+      ),
+    };
+  }
+}
+
+/**
  * Resolve the effective voice quality profile from config.
  *
- * Uses the explicit call strategy from the TTS provider catalog to
- * determine the call path. The catalog's `callMode` field
- * (`"native-twilio"` vs `"synthesized-play"`) drives the decision
- * rather than inferring behavior from runtime `supportsStreaming`
- * capability.
+ * The profile always carries a valid, non-empty native Twilio voice:
  *
- * For **synthesized-play** providers (e.g. Fish Audio),
- * ConversationRelay needs a valid TTS provider in TwiML, so we set
- * `ttsProvider` to `"Google"` as a placeholder and leave `voice` empty
- * since actual audio is delivered via `play` messages.
- *
- * For **native-twilio** providers (e.g. ElevenLabs), `ttsProvider` and
- * `voice` are populated via the provider's registered
- * {@link NativeTwilioVoiceSpec} builder so Twilio handles TTS natively.
- * New native providers plug in by registering a voice-spec builder --
- * no edits to this module required.
+ * - **native-twilio** providers (e.g. ElevenLabs): the voice is built from
+ *   the provider's registered {@link NativeTwilioVoiceSpec} builder.
+ * - **synthesized-play** providers (e.g. Fish Audio): the daemon synthesizes
+ *   audio itself, so the native voice is a fallback only — an empty voice
+ *   makes Twilio reject a native-TTS turn with error 64106 ("TTS provider
+ *   rejected the request due to invalid parameters") and drop the call.
+ *   These providers have no registered native builder, so they resolve to
+ *   the ElevenLabs fallback voice.
  *
  * NOTE: STT provider and speech model are intentionally NOT part of this
- * profile. STT resolution is handled once in the voice webhook route
- * (`twilio-routes.ts`) via `resolveTelephonySttRouting()` to maintain a
- * single point of ownership.
+ * profile — the daemon owns STT on the media-stream transport (see
+ * `resolveTelephonySttCapability` in providers/speech-to-text/resolve.ts).
  */
 export function resolveVoiceQualityProfile(
   config?: ReturnType<typeof loadConfig>,
@@ -82,49 +104,10 @@ export function resolveVoiceQualityProfile(
   // Falls back to native ElevenLabs when config/catalog is unavailable.
   const strategy = resolveCallStrategy(cfg);
 
-  // Before committing to the catalog-derived strategy, verify the
-  // runtime provider is actually registered. If the provider registry
-  // hasn't been initialised (early startup, test mocks), fall back to
-  // native mode so this function and resolveCallTtsProvider agree on
-  // the same degraded-mode path.
-  let runtimeAvailable = false;
-  try {
-    const resolved = resolveTtsConfig(cfg);
-    getTtsProvider(resolved.provider);
-    runtimeAvailable = true;
-  } catch {
-    // Provider not registered — will fall through to native path below.
-  }
-
-  let ttsProvider: string;
-  let voiceSpec: string;
-
-  if (runtimeAvailable && strategy.callMode === "synthesized-play") {
-    // Synthesized providers stream audio via `play` messages.
-    // Twilio still needs a valid ttsProvider in TwiML, so use a
-    // placeholder and leave voice empty.
-    ttsProvider = "Google";
-    voiceSpec = "";
-  } else {
-    // Native providers: delegate voice-spec building to the
-    // provider's registered builder.
-    try {
-      const spec = getNativeTwilioVoiceSpec(strategy.providerId);
-      ttsProvider = spec.twilioProviderName;
-
-      const resolved = resolveTtsConfig(cfg);
-      voiceSpec = spec.buildVoiceSpec(resolved.providerConfig);
-    } catch {
-      // Voice-spec builder not registered or config unavailable --
-      // fall back to ElevenLabs using the config's elevenlabs block.
-      ttsProvider = "ElevenLabs";
-      voiceSpec = buildElevenLabsVoiceSpec(
-        cfg.services?.tts?.providers?.elevenlabs ?? {
-          voiceId: DEFAULT_ELEVENLABS_VOICE_ID,
-        },
-      );
-    }
-  }
+  const { ttsProvider, voice: voiceSpec } = resolveNativeTwilioVoice(
+    cfg,
+    strategy.providerId,
+  );
 
   return {
     language: voice.language,

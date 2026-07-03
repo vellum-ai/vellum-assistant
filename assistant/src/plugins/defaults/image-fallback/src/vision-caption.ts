@@ -16,7 +16,6 @@ import {
   type PluginLogger,
 } from "@vellumai/plugin-api";
 
-import { extractAllText } from "../../../../providers/provider-send-message.js";
 import {
   getCachedCaption,
   imageHash,
@@ -30,7 +29,8 @@ const CAPTION_SYSTEM_PROMPT =
   "Focus on the key visual content, text, charts, or UI elements that would be " +
   "relevant for a text-based assistant to understand and reason about.";
 
-const CAPTION_USER_PROMPT = "Describe this image concisely for a text-only assistant.";
+const CAPTION_USER_PROMPT =
+  "Describe this image concisely for a text-only assistant.";
 
 /**
  * Find a vision-capable, enabled profile key for captioning.
@@ -102,13 +102,21 @@ export async function captionImage(
       },
     );
 
-    const caption = extractAllText(response).trim();
+    // Vision captioning returns text content; concatenate any text blocks
+    // (effectively always one here, since tool use is disabled).
+    const caption = response.content
+      .flatMap((block) => (block.type === "text" ? [block.text] : []))
+      .join(" ")
+      .trim();
     if (caption.length > 0) {
       setCachedCaption(hash, caption);
       return caption;
     }
 
-    logger.warn({ plugin: "image-fallback" }, "Vision captioning returned empty text");
+    logger.warn(
+      { plugin: "image-fallback" },
+      "Vision captioning returned empty text",
+    );
     return null;
   } catch (err) {
     logger.warn(

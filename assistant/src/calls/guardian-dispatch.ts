@@ -7,12 +7,15 @@
  * 3. Records guardian_action_delivery rows from pipeline delivery results
  */
 
-import { findGuardianForChannel } from "../contacts/contact-store.js";
 import {
   createCanonicalGuardianRequest,
   listCanonicalGuardianDeliveries,
   listCanonicalGuardianRequests,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
@@ -86,14 +89,16 @@ async function dispatchGuardianQuestionInner(
   try {
     const expiresAt = Date.now() + getUserConsultationTimeoutMs();
 
-    // Voice decisions are handled in guardian conversations tied to the assistant-
-    // level guardian identity. Resolve the principal from the contacts table.
-    let guardianPrincipalId: string | undefined;
-
-    const guardianResult = findGuardianForChannel("vellum");
-    if (guardianResult?.contact.principalId) {
-      guardianPrincipalId = guardianResult.contact.principalId;
-    }
+    // Resolve the request principal from the gateway guardian delivery — the
+    // same source the submitting actor (guardian-action-routes /
+    // actor-trust-resolver) resolves, so they cannot diverge.
+    // applyCanonicalGuardianDecision requires strict equality with
+    // request.guardianPrincipalId; sharing this gateway source guarantees the
+    // stamped principal == the submitting principal.
+    const guardians = await getGuardianDelivery({ channelTypes: ["vellum"] });
+    const guardianPrincipalId = guardians
+      ? (guardianForChannel(guardians, "vellum")?.principalId ?? undefined)
+      : undefined;
 
     if (!guardianPrincipalId) {
       log.error(

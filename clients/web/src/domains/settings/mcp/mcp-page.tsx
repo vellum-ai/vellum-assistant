@@ -1,15 +1,21 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Cable, Loader2, Plus, RefreshCw } from "lucide-react";
 import { useCallback, useMemo, useState } from "react";
+import { useNavigate } from "react-router";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { navigateToNewConversation } from "@/utils/conversation-navigation";
 import { McpAddServerModal } from "./mcp-add-server-modal";
 import {
   addMcpServer,
   fetchMcpServers,
   fetchMcpToolsSummary,
+  pollMcpAuthStatus,
   reloadMcpServers,
   removeMcpServer,
+  revokeMcpOAuth,
+  startMcpAuth,
   updateMcpServer,
   type McpServerEntry,
   type McpToolsSummaryServer,
@@ -23,9 +29,19 @@ import { toast } from "@vellumai/design-library/components/toast";
 const MCP_SERVERS_KEY = "mcp-servers";
 const MCP_TOOLS_KEY = "mcp-tools-summary";
 
+/**
+ * First message auto-sent when a user without the add-server flag clicks the
+ * empty-state call to action — kicks off an assistant-guided MCP setup.
+ */
+const MCP_SETUP_PROMPT =
+  "Help me set up an MCP server to extend you with external tools.";
+
 function McpPageInner() {
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const mcpAddServerEnabled = useAssistantFeatureFlagStore.use.mcpAddServer();
+  const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
 
   const [addModalOpen, setAddModalOpen] = useState(false);
   const [configureServerId, setConfigureServerId] = useState<string | null>(null);
@@ -35,6 +51,8 @@ function McpPageInner() {
   const [isRemoving, setIsRemoving] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isReloading, setIsReloading] = useState(false);
+  const [authenticatingServerId, setAuthenticatingServerId] = useState<string | null>(null);
+  const [revokingServerId, setRevokingServerId] = useState<string | null>(null);
 
   const {
     data: serversData,
@@ -108,6 +126,65 @@ function McpPageInner() {
     }
   }, [removeServerId, assistantId, invalidateAll]);
 
+  const handleAuthenticate = useCallback(
+    async (serverId: string) => {
+      setAuthenticatingServerId(serverId);
+      let result;
+      try {
+        result = await startMcpAuth(assistantId, serverId);
+      } catch {
+        toast.error(`Failed to start authentication for ${serverId}`);
+        setAuthenticatingServerId(null);
+        return;
+      }
+      try {
+        if (result.already_authenticated) {
+          toast.success(`${serverId} is already authenticated`);
+          invalidateAll();
+          return;
+        }
+        window.open(result.auth_url, "_blank", "noopener,noreferrer");
+        const maxAttempts = 60;
+        for (let i = 0; i < maxAttempts; i++) {
+          await new Promise((resolve) => setTimeout(resolve, 3000));
+          const status = await pollMcpAuthStatus(assistantId, serverId);
+          if (status.status === "complete") {
+            toast.success(`${serverId} authenticated successfully`);
+            invalidateAll();
+            return;
+          }
+          if (status.status === "error") {
+            toast.error(status.error ?? `Authentication failed for ${serverId}`);
+            return;
+          }
+        }
+        toast.error(`Authentication timed out for ${serverId}`);
+      } catch {
+        toast.error(`Authentication polling failed for ${serverId}`);
+      } finally {
+        setAuthenticatingServerId(null);
+        invalidateAll();
+      }
+    },
+    [assistantId, invalidateAll],
+  );
+
+  const handleRevokeOAuth = useCallback(
+    async (serverId: string) => {
+      setRevokingServerId(serverId);
+      try {
+        await revokeMcpOAuth(assistantId, serverId);
+        invalidateAll();
+        toast.success(`OAuth credentials revoked for ${serverId}`);
+      } catch {
+        toast.error(`Failed to revoke OAuth for ${serverId}`);
+      } finally {
+        setRevokingServerId(null);
+      }
+    },
+    [assistantId, invalidateAll],
+  );
+
   const handleAdd = useCallback(
     async (config: {
       name: string;
@@ -115,7 +192,15 @@ function McpPageInner() {
       url?: string;
       command?: string;
       args?: string[];
+      headers?: Record<string, string>;
+      autoAuth?: boolean;
     }) => {
+      // Pre-open a popup synchronously while we still have user activation
+      // from the button click. Browsers block window.open after async calls.
+      const authWindow = config.autoAuth
+        ? window.open("about:blank", "_blank", "noopener")
+        : null;
+
       setIsAdding(true);
       try {
         await addMcpServer(assistantId, config);
@@ -124,8 +209,49 @@ function McpPageInner() {
         setAddModalOpen(false);
       } catch {
         toast.error(`Failed to add ${config.name}`);
-      } finally {
+        authWindow?.close();
         setIsAdding(false);
+        return;
+      }
+      setIsAdding(false);
+
+      if (config.autoAuth) {
+        setAuthenticatingServerId(config.name);
+        try {
+          const result = await startMcpAuth(assistantId, config.name);
+          if (result.already_authenticated) {
+            authWindow?.close();
+            toast.success(`${config.name} is already authenticated`);
+            invalidateAll();
+            return;
+          }
+          if (authWindow) {
+            authWindow.location.href = result.auth_url;
+          } else {
+            window.open(result.auth_url, "_blank", "noopener,noreferrer");
+          }
+          const maxAttempts = 60;
+          for (let i = 0; i < maxAttempts; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            const status = await pollMcpAuthStatus(assistantId, config.name);
+            if (status.status === "complete") {
+              toast.success(`${config.name} authenticated successfully`);
+              invalidateAll();
+              return;
+            }
+            if (status.status === "error") {
+              toast.error(status.error ?? `Authentication failed for ${config.name}`);
+              return;
+            }
+          }
+          toast.error(`Authentication timed out for ${config.name}`);
+        } catch {
+          authWindow?.close();
+          toast.error(`Failed to start authentication for ${config.name}`);
+        } finally {
+          setAuthenticatingServerId(null);
+          invalidateAll();
+        }
       }
     },
     [assistantId, invalidateAll],
@@ -136,8 +262,7 @@ function McpPageInner() {
       name: string;
       defaultRiskLevel?: string;
       maxTools?: number;
-      allowedTools?: string[] | null;
-      blockedTools?: string[] | null;
+      headers?: Record<string, string> | null;
     }) => {
       setIsSaving(true);
       try {
@@ -167,6 +292,14 @@ function McpPageInner() {
     }
   }, [assistantId, invalidateAll]);
 
+  const handleEmptyStateAction = useCallback(() => {
+    if (mcpAddServerEnabled) {
+      setAddModalOpen(true);
+    } else {
+      navigateToNewConversation(navigate, { prompt: MCP_SETUP_PROMPT });
+    }
+  }, [mcpAddServerEnabled, navigate]);
+
   const servers = serversData?.servers ?? [];
 
   return (
@@ -188,14 +321,16 @@ function McpPageInner() {
             tooltip="Reload all servers"
             aria-label="Reload MCP servers"
           />
-          <Button
-            variant="primary"
-            size="compact"
-            leftIcon={<Plus />}
-            onClick={() => setAddModalOpen(true)}
-          >
-            Add Server
-          </Button>
+          {mcpAddServerEnabled ? (
+            <Button
+              variant="primary"
+              size="compact"
+              leftIcon={<Plus />}
+              onClick={() => setAddModalOpen(true)}
+            >
+              Add Server
+            </Button>
+          ) : null}
         </div>
       </div>
 
@@ -216,13 +351,20 @@ function McpPageInner() {
           Failed to load MCP servers. Check that an assistant is running.
         </p>
       ) : servers.length === 0 ? (
-        <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border-element)] px-4 py-12 text-center">
+        <button
+          type="button"
+          onClick={handleEmptyStateAction}
+          disabled={!flagsHydrated}
+          className="flex w-full flex-col items-center gap-2 rounded-lg border border-dashed border-[var(--border-element)] px-4 py-12 text-center transition-colors hover:border-[var(--border-active)] hover:bg-[var(--surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ring)] disabled:pointer-events-none"
+        >
           <Cable className="h-6 w-6 text-[var(--content-disabled)]" />
           <p className="text-body-medium-default text-[var(--content-default)]">No MCP Servers</p>
           <p className="text-body-small-default text-[var(--content-tertiary)]">
-            Add an MCP server to extend your assistant with external tools.
+            {mcpAddServerEnabled
+              ? "Add an MCP server to extend your assistant with external tools."
+              : "Chat with your assistant to set up an MCP server."}
           </p>
-        </div>
+        </button>
       ) : (
         <div className="space-y-2">
           {servers.map((server) => (
@@ -233,18 +375,24 @@ function McpPageInner() {
               onToggleEnabled={handleToggleEnabled}
               onRemove={setRemoveServerId}
               onConfigure={setConfigureServerId}
+              onAuthenticate={handleAuthenticate}
+              onRevokeOAuth={handleRevokeOAuth}
               isUpdating={pendingMutations.has(server.id)}
+              isAuthenticating={authenticatingServerId === server.id}
+              isRevoking={revokingServerId === server.id}
             />
           ))}
         </div>
       )}
 
-      <McpAddServerModal
-        open={addModalOpen}
-        onClose={() => setAddModalOpen(false)}
-        onAdd={handleAdd}
-        isPending={isAdding}
-      />
+      {mcpAddServerEnabled ? (
+        <McpAddServerModal
+          open={addModalOpen}
+          onClose={() => setAddModalOpen(false)}
+          onAdd={handleAdd}
+          isPending={isAdding}
+        />
+      ) : null}
 
       <McpServerDetailModal
         server={configureServer}

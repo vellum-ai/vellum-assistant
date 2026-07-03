@@ -15,18 +15,18 @@ mock.module("../config/loader.js", () => ({
 
 import { eq } from "drizzle-orm";
 
-import { getMemoryDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getMemoryDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import {
+  _resetQdrantBreaker,
+  withQdrantBreaker,
+} from "../persistence/embeddings/qdrant-circuit-breaker.js";
 import {
   claimMemoryJobs,
   enqueueMemoryJob,
   type MemoryJobType,
-} from "../memory/jobs-store.js";
-import {
-  _resetQdrantBreaker,
-  withQdrantBreaker,
-} from "../memory/qdrant-circuit-breaker.js";
-import { memoryJobs } from "../memory/schema.js";
+} from "../persistence/jobs-store.js";
+import { memoryJobs } from "../persistence/schema/index.js";
 
 describe("claimMemoryJobs with Qdrant circuit breaker", () => {
   beforeAll(async () => {

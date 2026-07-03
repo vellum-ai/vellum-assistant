@@ -16,6 +16,7 @@ import type { AuthContext } from "../../runtime/auth/types.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { unwrapExternalContentForDisplay } from "../../security/untrusted-content.js";
 import { getLogger } from "../../util/logger.js";
+import { joinWithSpacing } from "../../util/text-spacing.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
 import type { ConversationTransportMetadata } from "../message-protocol.js";
 import type { TrustContext } from "../trust-context.js";
@@ -104,6 +105,8 @@ export interface SlackInboundMessageMetadata {
   displayName?: string;
   /** Canonical Slack external user id for the sender, when available. */
   actorExternalUserId?: string;
+  /** Slack team id the sender belongs to — the `recipient_team_id` for channel streaming. */
+  actorTeamId?: string;
   /** Raw Slack profile timezone for the sender, when supplied. */
   actorTimezone?: string;
   /** Compact Slack profile timezone label for the sender, when supplied. */
@@ -328,29 +331,6 @@ export function renderHistoryContent(
   const contentBlocks: ConversationContentBlock[] = [];
   let currentTextBlock: { type: "text"; text: string } | null = null;
 
-  function joinWithSpacing(parts: string[]): string {
-    let result = parts[0] ?? "";
-    for (let i = 1; i < parts.length; i++) {
-      const prev = result[result.length - 1];
-      const next = parts[i][0];
-      // Only insert a space when neither side already has whitespace
-      if (
-        prev &&
-        next &&
-        prev !== " " &&
-        prev !== "\n" &&
-        prev !== "\t" &&
-        next !== " " &&
-        next !== "\n" &&
-        next !== "\t"
-      ) {
-        result += " ";
-      }
-      result += parts[i];
-    }
-    return result;
-  }
-
   function finalizeSegment(): void {
     if (hasOpenSegment) {
       const joined = joinWithSpacing(currentSegmentParts);
@@ -453,6 +433,13 @@ export function renderHistoryContent(
       // time filter in cleanAssistantContent and migration 222.
       if (isPlaceholderSentinelText(displayText)) continue;
       textParts.push(displayText);
+      // A ui_surface card's plain-text fallback (flagged `_surfaceFallback` by
+      // the approval-card builder) is represented by the adjacent surface for
+      // surface-capable clients. Keep it in the flat `.text` body above (CLI,
+      // search, channel replies, non-surface clients) but don't emit it as a
+      // text segment or content block, or those clients would render the card
+      // AND its fallback text.
+      if (block._surfaceFallback === true) continue;
       ensureSegment();
       currentSegmentParts.push(displayText);
       seenText = true;
@@ -489,6 +476,8 @@ export function renderHistoryContent(
       // Extract persisted timing/confirmation metadata
       if (typeof block._startedAt === "number")
         entry.startedAt = block._startedAt;
+      if (typeof block._previewStartedAt === "number")
+        entry.previewStartedAt = block._previewStartedAt;
       if (typeof block._completedAt === "number")
         entry.completedAt = block._completedAt;
       const confirmationDecision = ConfirmationDecisionSchema.safeParse(
@@ -722,7 +711,7 @@ export function requestSecretStandalone(params: {
   return new Promise((resolve) => {
     const timer = setTimeout(() => {
       pendingInteractions.resolve(requestId, "cancelled");
-      resolve({ value: null, delivery: "store" });
+      resolve({ value: null, delivery: "store", reason: "timed_out" });
     }, config.timeouts.permissionTimeoutSec * 1000);
     pendingInteractions.register(requestId, {
       conversationId: params.conversationId,

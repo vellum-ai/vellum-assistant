@@ -26,6 +26,7 @@
 import { execFile } from "node:child_process";
 import {
   copyFileSync,
+  cpSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -45,6 +46,7 @@ import {
   computeFingerprint,
   type Fingerprint,
   parseFingerprint,
+  PRESERVED_ENTRIES,
 } from "./plugin-fingerprint.js";
 import {
   fetchMarketplaceEntries,
@@ -60,6 +62,14 @@ const PLUGIN_SOURCE_REPO = "vellum-assistant";
 const PLUGIN_SOURCE_PATH_PREFIX = "plugins";
 /** Default git ref to fetch from when callers don't override. */
 export const DEFAULT_PLUGIN_REF = "main";
+
+/** Full Git commit SHA — 40 hex chars (SHA-1) or 64 (SHA-256). */
+const FULL_COMMIT_SHA_RE = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+
+/** True when `ref` is a full, immutable commit SHA (not a branch/tag/HEAD). */
+export function isFullCommitSha(ref: string): boolean {
+  return FULL_COMMIT_SHA_RE.test(ref);
+}
 
 /** Entry shape returned by the GitHub Contents API for a directory listing. */
 interface GitHubContentEntry {
@@ -122,6 +132,17 @@ export interface InstallPluginOptions {
    * Unset for normal installs, which take the reviewed pin from the manifest.
    */
   readonly commitOverride?: string;
+  /**
+   * Install directly from these GitHub coordinates, bypassing the curated
+   * `plugins/marketplace.json` whitelist. The tree is materialized verbatim —
+   * no curated adapter stub is overlaid — and the source is *untrusted*, so the
+   * caller is responsible for surfacing a warning. Used to install a plugin not
+   * yet in the marketplace (typically one still under development). When set,
+   * {@link InstallPluginOptions.ref}, {@link InstallPluginOptions.commitOverride},
+   * and marketplace resolution are all skipped; `directSource.ref` selects the
+   * commit to clone (a branch, tag, `HEAD`, or full SHA).
+   */
+  readonly directSource?: PluginFetchSource;
 }
 
 /** Dependencies injected by the caller. */
@@ -367,20 +388,32 @@ export async function installPlugin(
   const marketplaceRef = opts.ref ?? DEFAULT_PLUGIN_REF;
   const force = opts.force ?? false;
 
-  const source = await resolvePluginSource(name, marketplaceRef, deps.fetch);
-  if (!source) {
-    throw new PluginNotFoundError(
-      name,
-      marketplaceRef,
-      "plugins/marketplace.json",
-    );
+  // A direct install bypasses the marketplace whitelist entirely: the source is
+  // supplied by the caller and the tree is materialized verbatim (no curated
+  // adapter stub). Otherwise the name is resolved against the reviewed manifest.
+  let effectiveSource: PluginFetchSource;
+  // Ref the curated adapter stub is fetched at, or `null` to skip the overlay.
+  let stubRef: string | null;
+  if (opts.directSource) {
+    effectiveSource = opts.directSource;
+    stubRef = null;
+  } else {
+    const source = await resolvePluginSource(name, marketplaceRef, deps.fetch);
+    if (!source) {
+      throw new PluginNotFoundError(
+        name,
+        marketplaceRef,
+        "plugins/marketplace.json",
+      );
+    }
+    // A commit override installs a specific plugin revision while still taking
+    // owner/repo/path (and the adapter stub, via `marketplaceRef`) from the
+    // manifest; otherwise the reviewed pin from the manifest is materialized.
+    effectiveSource = opts.commitOverride
+      ? { ...source, ref: opts.commitOverride }
+      : source;
+    stubRef = marketplaceRef;
   }
-  // A commit override installs a specific plugin revision while still taking
-  // owner/repo/path (and the adapter stub, via `marketplaceRef`) from the
-  // manifest; otherwise the reviewed pin from the manifest is materialized.
-  const effectiveSource: PluginFetchSource = opts.commitOverride
-    ? { ...source, ref: opts.commitOverride }
-    : source;
   const ref = effectiveSource.ref;
 
   const pluginsDir = deps.workspacePluginsDir ?? getWorkspacePluginsDir();
@@ -416,7 +449,7 @@ export async function installPlugin(
       {
         source: effectiveSource,
         name,
-        stubRef: marketplaceRef,
+        stubRef,
         destDir: stagingDir,
       },
       deps,
@@ -484,8 +517,8 @@ export function finalizeStagedInstall(
   // never hashes itself) — the baseline `plugins inspect` uses to detect later
   // local edits. The per-file fingerprint answers "which files changed"; the
   // whole-tree content hash is a compact integrity signal mirroring skills.
-  const fingerprint = computeFingerprint(stagingDir, [INSTALL_META_FILENAME]);
-  const contentHash = computeContentHash(stagingDir, [INSTALL_META_FILENAME]);
+  const fingerprint = computeFingerprint(stagingDir, PRESERVED_ENTRIES);
+  const contentHash = computeContentHash(stagingDir, PRESERVED_ENTRIES);
 
   // Record install provenance (source coordinates + resolved commit + content
   // digests) as a sidecar before the swap so it lands atomically with the
@@ -508,7 +541,24 @@ export function finalizeStagedInstall(
   // it, so the target's parent is no longer created as a side effect.
   const target = join(pluginsDir, name);
   mkdirSync(pluginsDir, { recursive: true });
+
+  // Copy preserved entries (config.json, data/, .disabled) from the existing
+  // install into the staging dir before the swap so user-owned state survives
+  // upgrades and reinstalls. Without this, the rm+rename below would destroy
+  // user config and runtime data.
   if (existsSync(target)) {
+    for (const entry of PRESERVED_ENTRIES) {
+      if (entry === INSTALL_META_FILENAME) continue; // sidecar is rewritten above
+      const src = join(target, entry);
+      if (!existsSync(src)) continue;
+      const dest = join(stagingDir, entry);
+      const stat = statSync(src);
+      if (stat.isDirectory()) {
+        cpSync(src, dest, { recursive: true });
+      } else {
+        copyFileSync(src, dest);
+      }
+    }
     rmSync(target, { recursive: true, force: true });
   }
   renameSync(stagingDir, target);
@@ -578,6 +628,12 @@ export interface InstallMeta {
    * {@link InstallMeta.fingerprint}.
    */
   readonly contentHash?: string;
+  /**
+   * Authorship provenance, mirroring the skills' `SkillInstallMeta.author`.
+   * GitHub installs are user-initiated, so they record `"user"`; this protects
+   * them from the usage-based prune that only targets `"assistant"` entries.
+   */
+  readonly author?: "assistant" | "user";
 
   /** Install name. Matches the plugins directory and `plugins install <name>`. */
   readonly name: string;
@@ -630,8 +686,13 @@ export async function materializePluginTree(
     readonly source: PluginFetchSource;
     /** Install name, used to locate the curated adapter stub. */
     readonly name: string;
-    /** Ref the curated adapter stub is fetched at (the canonical repo ref). */
-    readonly stubRef: string;
+    /**
+     * Ref the curated adapter stub is fetched at (the canonical repo ref), or
+     * `null` to skip the adapter overlay entirely. Direct (untrusted) installs
+     * pass `null`: they are materialized verbatim, never reshaped by a curated
+     * stub keyed on the install name.
+     */
+    readonly stubRef: string | null;
     /** Directory the tree is written into. */
     readonly destDir: string;
   },
@@ -646,7 +707,7 @@ export async function materializePluginTree(
   // plugin) that the Vellum loader can't run as-is. When we curate an adapter
   // stub for it, overlay the stub and run its transform so the materialized
   // tree is a valid Vellum plugin. Raw clones (no stub) are left untouched.
-  if (cloned.fileCount > 0) {
+  if (cloned.fileCount > 0 && opts.stubRef !== null) {
     await applyAdapterStub(opts.name, opts.stubRef, opts.destDir, deps);
   }
   return cloned;
@@ -732,11 +793,17 @@ async function copyExternalViaGit(
       }
     }
 
-    // Defense in depth: external marketplace refs are full commit SHAs (the
-    // manifest schema rejects mutable tags/branches), so the checked-out
-    // commit must equal the requested ref. If it ever diverges, refuse the
-    // install rather than materialize and `import()` unexpected code.
-    if (commit && commit.toLowerCase() !== source.ref.toLowerCase()) {
+    // Defense in depth: when the requested ref is a full commit SHA (every
+    // marketplace ref is — the manifest schema rejects mutable tags/branches),
+    // the checked-out commit must equal it. If it ever diverges, refuse the
+    // install rather than materialize and `import()` unexpected code. A direct
+    // install from a branch/tag/HEAD has no fixed SHA to compare against, so the
+    // check only applies to pinned refs.
+    if (
+      commit &&
+      isFullCommitSha(source.ref) &&
+      commit.toLowerCase() !== source.ref.toLowerCase()
+    ) {
       throw new PluginSourceUnavailableError(
         `git checkout of ${sourceLabel(source)} resolved to ${commit}, ` +
           `which does not match the pinned commit ${source.ref}`,
@@ -1169,6 +1236,7 @@ function writeInstallMeta(
     version: readStagedPackageVersion(stagingDir),
     sourceRepo: `${source.owner}/${source.repo}`,
     contentHash,
+    author: "user",
     name,
     source: {
       kind: "github",
@@ -1238,6 +1306,10 @@ export function readInstallMeta(pluginDir: string): InstallMeta | null {
     slug: optionalString(obj.slug),
     sourceRepo: optionalString(obj.sourceRepo),
     contentHash: optionalString(obj.contentHash),
+    author:
+      obj.author === "assistant" || obj.author === "user"
+        ? obj.author
+        : undefined,
     name: obj.name,
     source: {
       kind: typeof source.kind === "string" ? source.kind : "github",

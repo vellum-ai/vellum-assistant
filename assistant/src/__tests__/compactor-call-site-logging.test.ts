@@ -29,12 +29,14 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getMessages: () => [],
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentMetadataForMessage: () => [],
   getAttachmentContent: () => null,
 }));
@@ -48,7 +50,7 @@ const recordRequestLogCalls: Array<{
   callSite: string | undefined;
 }> = [];
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: (
     conversationId: string,
     requestPayload: string,

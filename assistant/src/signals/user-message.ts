@@ -15,6 +15,7 @@ import { readFileSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getOrCreateConversation } from "../daemon/conversation-store.js";
+import { supersedePendingInteractionsOnEnqueue } from "../daemon/handlers/conversations.js";
 import type { UserMessageAttachment } from "../daemon/message-types/shared.js";
 import {
   processMessageInBackground,
@@ -24,8 +25,8 @@ import {
 import {
   uploadFileBackedAttachment,
   validateAttachmentUpload,
-} from "../memory/attachments-store.js";
-import { getOrCreateConversation as getOrCreateConversationKey } from "../memory/conversation-key-store.js";
+} from "../persistence/attachments-store.js";
+import { getOrCreateConversation as getOrCreateConversationKey } from "../persistence/conversation-key-store.js";
 import { checkIngressForSecrets } from "../security/secret-ingress.js";
 import { getLogger } from "../util/logger.js";
 import { getSignalsDir } from "../util/platform.js";
@@ -131,6 +132,21 @@ async function dispatchUserMessage(params: {
         assistantMessageInterface: resolvedInterface,
       },
     });
+    if (!result.rejected) {
+      // Mirror the HTTP send path: a follow-up enqueued while the turn is busy
+      // auto-denies pending confirmations and supersedes a parked ask_question
+      // so it isn't stranded behind the prompt until the response backstop.
+      // Best-effort — the message is already queued, so a cleanup failure must
+      // not surface as an error that makes the CLI retry and enqueue a duplicate.
+      try {
+        supersedePendingInteractionsOnEnqueue(conversationId, requestId);
+      } catch (err) {
+        log.warn(
+          { err, conversationId },
+          "Post-enqueue supersession failed — queued message unaffected",
+        );
+      }
+    }
     return { accepted: !result.rejected };
   }
 

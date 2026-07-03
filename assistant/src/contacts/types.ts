@@ -30,20 +30,10 @@ export interface Contact {
   displayName: string;
   /** Free-text notes about this contact (e.g. relationship, communication preferences). */
   notes: string | null;
-  lastInteraction: number | null;
-  interactionCount: number;
+  role: ContactRole;
   createdAt: number;
   updatedAt: number;
-  role: ContactRole;
   contactType: ContactType;
-  /**
-   * Internal auth identity (e.g. "vellum-principal-<uuid>"). Only meaningful
-   * for guardian contacts — it ties the contact record to the auth layer so
-   * the system can verify "this API caller IS this guardian" via JWT
-   * actorPrincipalId. Always null for non-guardian contacts, which are
-   * identified by channel address instead.
-   */
-  principalId: string | null;
   /** Workspace-relative path to a per-user persona file for this contact. */
   userFile: string | null;
 }
@@ -63,16 +53,6 @@ export interface ContactChannel {
   address: string;
   isPrimary: boolean;
   externalChatId: string | null;
-  status: ChannelStatus;
-  policy: ChannelPolicy;
-  verifiedAt: number | null;
-  verifiedVia: string | null;
-  inviteId: string | null;
-  revokedReason: string | null;
-  blockedReason: string | null;
-  lastSeenAt: number | null;
-  interactionCount: number;
-  lastInteraction: number | null;
   updatedAt: number | null;
   createdAt: number;
 }

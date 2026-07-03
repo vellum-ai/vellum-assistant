@@ -9,19 +9,21 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useVisibleViewport } from "@/hooks/use-visible-viewport";
 import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useChannelSetupCloseNotify } from "@/domains/chat/hooks/use-channel-setup-close-notify";
 import {
   useAuthStore,
   useIsSessionInitializing,
   useHasPlatformSession,
 } from "@/stores/auth-store";
 import { handleLogout } from "@/lib/auth/handle-logout";
-import { getSelectedAssistant } from "@/lib/local-mode";
+import { getSelectedAssistant, isLocalMode } from "@/lib/local-mode";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { setMenuPlatformSession } from "@/runtime/menu";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 
 import { routes } from "@/utils/routes";
 import { shouldSuppressRootStatusBanner } from "@/utils/status-banner-visibility";
+import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useBookmarksSync } from "@/hooks/use-bookmarks-sync";
@@ -41,6 +43,7 @@ import { useViewerStore } from "@/stores/viewer-store";
 import { useAssistantAvatar } from "@/hooks/use-assistant-avatar";
 import { useDynamicFavicon } from "@/hooks/use-dynamic-favicon";
 import { useElectronIconSync } from "@/hooks/use-electron-icon-sync";
+import { useElectronIdentitySync } from "@/hooks/use-electron-identity-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
 import { isElectron } from "@/runtime/is-electron";
@@ -110,6 +113,11 @@ export function RootLayout() {
     sessionStatus,
     hasPlatformSession,
   });
+  // Channel-setup close auto-notify watcher. Mounted at this always-mounted
+  // layer (not the chat layout) so a wizard-visibility transition triggered
+  // from any route — including setMainView("chat") calls made while the chat
+  // layout is unmounted — still sends the close signal.
+  useChannelSetupCloseNotify();
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantVersion = useAssistantIdentityStore.use.version();
@@ -118,6 +126,12 @@ export function RootLayout() {
     (s) => s.assistantState.kind,
   );
   const isAssistantActive = assistantStateKind === "active";
+  // Hydrate the assistant identity store (name + version) at the app root so
+  // the name is ready on every authenticated route — chat, settings, logs —
+  // and the Electron window title / tray / About panel (published below by
+  // useElectronIdentitySync) track it everywhere, not only on chat routes.
+  // No-ops until an assistant id resolves in a fetchable lifecycle state.
+  useAssistantIdentityInit({ assistantId, assistantStateKind });
   useAssistantFeatureFlagSync(assistantId);
   useAssistantResourceSync(assistantId, isAssistantActive);
   useConversationSync(assistantId, isAssistantActive);
@@ -138,6 +152,7 @@ export function RootLayout() {
   // the live connection status to the menu-bar dot. Both no-op off Electron.
   useElectronIconSync(avatar.customImageUrl, avatar.components, avatar.traits);
   useElectronStatusSync();
+  useElectronIdentitySync();
   useElectronFeatureFlagBridge();
 
   // Size the Electron main window to the onboarding layout (440×630
@@ -199,6 +214,16 @@ export function RootLayout() {
         // goes through the platform selection path — not connectLocalAssistant,
         // which primes a local gateway and no-ops for managed assistants.
         void setSelectedAssistant(command.assistantId);
+      }
+    },
+    chooseAssistant: () => {
+      // The chooser route is local-only — navigation-resolver redirects
+      // platform users away — so platform sessions switch via the Switch
+      // Assistant picker on the settings page instead.
+      if (isLocalMode()) {
+        void navigate(`${routes.selectAssistant}?noAutoSkip=1`);
+      } else {
+        void navigate(routes.settings.general);
       }
     },
     createAssistant: () => {
@@ -294,7 +319,7 @@ export function RootLayout() {
     >
       <UpdateToast />
       {!electron && !isPopout && !suppressStatusBanner ? (
-        <StatusBanner placement="web" />
+        <StatusBanner placement="web" reserveTopSafeArea />
       ) : null}
       <div className="flex min-w-0 flex-col overflow-hidden w-full" style={{ flex: "1 1 0%", minHeight: 0 }}>
         <Outlet />

@@ -32,12 +32,12 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../memory/conversation-key-store.js", () => ({
+mock.module("../persistence/conversation-key-store.js", () => ({
   getOrCreateConversation: () => ({ conversationId: "conv-canonical-reply" }),
   getConversationByKey: () => null,
 }));
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
 }));
 
@@ -45,7 +45,7 @@ mock.module("../runtime/guardian-reply-router.js", () => ({
   routeGuardianReply: routeGuardianReplyMock,
 }));
 
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   createCanonicalGuardianRequest: () => ({
     id: "canonical-id",
     requestCode: "ABC123",
@@ -76,7 +76,9 @@ mock.module("../runtime/confirmation-request-guardian-bridge.js", () => ({
   bridgeConfirmationRequestToGuardian: async () => undefined,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   addMessage: (
     conversationId: string,
     role: string,
@@ -102,6 +104,18 @@ mock.module("../runtime/trust-context-resolver.js", () => ({
     ...(ctx as Record<string, unknown>),
     sourceChannel,
   }),
+}));
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => [
+    {
+      channelType: "vellum",
+      contactId: "guardian-contact",
+      principalId: "test-user",
+      address: "test-user",
+      status: "active",
+    },
+  ],
 }));
 
 import type { AuthContext } from "../runtime/auth/types.js";
@@ -306,6 +320,90 @@ describe("handleSendMessage canonical guardian reply interception", () => {
       .calls[0][0] as Record<string, unknown>;
     expect(routerCall.pendingScope).toEqual({ mode: "blocked" });
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
+    expect(runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+
+  test("hidden:true persists hidden metadata and still runs the turn", async () => {
+    listPendingByDestinationMock.mockReturnValue([]);
+    listCanonicalMock.mockReturnValue([]);
+    routeGuardianReplyMock.mockResolvedValue({
+      consumed: false,
+      decisionApplied: false,
+      type: "not_consumed",
+    });
+
+    const persistUserMessage = mock(async () => ({
+      id: "persisted-user-id",
+      deduplicated: false,
+    }));
+    const runAgentLoop = mock(async () => undefined);
+    const session = {
+      setTrustContext: () => {},
+      updateClient: () => {},
+      emitConfirmationStateChanged: () => {},
+      emitActivityState: () => {},
+      setTurnChannelContext: () => {},
+      setTurnInterfaceContext: () => {},
+      ensureActorScopedHistory: async () => {},
+      usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+      isProcessing: () => false,
+      hasAnyPendingConfirmation: () => false,
+      denyAllPendingConfirmations: () => {},
+      enqueueMessage: () => ({ queued: true, requestId: "queued-id" }),
+      persistUserMessage,
+      runAgentLoop,
+      getMessages: () => [] as unknown[],
+      assistantId: "self",
+      trustContext: undefined,
+      hasPendingConfirmation: () => false,
+      setHostBrowserProxy: () => {},
+      setHostCuProxy: () => {},
+      setHostAppControlProxy: () => {},
+      restoreBrowserProxyAvailability: () => {},
+      addPreactivatedSkillId: () => {},
+    } as unknown as import("../daemon/conversation.js").Conversation;
+
+    const req = new Request("http://localhost/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-vellum-actor-principal-id": "test-user",
+        "x-vellum-principal-type": "actor",
+      },
+      body: JSON.stringify({
+        conversationKey: "guardian-conversation-key",
+        content: "Hey, how are you? Show me what you can do.",
+        sourceChannel: "vellum",
+        interface: "web",
+        hidden: true,
+      }),
+    });
+
+    const res = await callHandler(
+      (args) =>
+        handleSendMessage(args, {
+          sendMessageDeps: {
+            getOrCreateConversation: async () => session,
+            assistantEventHub: { publish: async () => {} } as any,
+            resolveAttachments: () => [],
+          },
+        }),
+      req,
+      undefined,
+      202,
+    );
+
+    expect(res.status).toBe(202);
+    // The hidden message is persisted with metadata.hidden so the list-messages
+    // filter suppresses it from the UI transcript while keeping it in LLM-side
+    // history (see list-messages-hidden-metadata.test.ts for the filter).
+    expect(persistUserMessage).toHaveBeenCalledTimes(1);
+    const persistArgs = (persistUserMessage as any).mock.calls[0][0] as {
+      metadata?: { hidden?: boolean };
+    };
+    expect(persistArgs.metadata?.hidden).toBe(true);
+    // The turn still runs — the assistant's reply streams normally, so the chat
+    // reads as a proactive greeting.
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
   });
 

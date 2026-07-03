@@ -67,14 +67,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "workspace-tools-watcher",
-      "scope": "assistant",
-      "key": "workspace-tools-watcher",
-      "label": "Workspace tools file watcher",
-      "description": "Hot-reload workspace tool overrides under `<workspaceDir>/tools/` by watching the directory and re-registering tools as files change. When disabled, workspace tools still load from disk once at daemon startup, but live edits require a restart to take effect.",
-      "defaultEnabled": false
-    },
-    {
       "id": "settings-developer-nav",
       "scope": "assistant",
       "key": "settings-developer-nav",
@@ -227,14 +219,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "meet",
-      "scope": "assistant",
-      "key": "meet",
-      "label": "Google Meet",
-      "description": "Enables the Google Meet joining bot and the meet-join skill.",
-      "defaultEnabled": false
-    },
-    {
       "id": "scroll-debug-overlay",
       "scope": "client",
       "key": "scroll-debug-overlay",
@@ -275,27 +259,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "external-plugins",
-      "scope": "assistant",
-      "key": "external-plugins",
-      "label": "External Plugins",
-      "description": "Enable the external-plugin install path: the `assistant plugins` CLI subcommand and the declarative external-plugin loader convention (`<workspaceDir>/plugins/<name>/` directories containing `package.json` plus interface dirs). Gates an unstable surface that may change shape before stabilizing.",
-      "defaultEnabled": false
-    },
-    {
       "id": "velvet-theme",
       "scope": "client",
       "key": "velvet-theme",
       "label": "Velvet Theme",
       "description": "Show the Velvet theme option in the macOS appearance settings. Velvet is a dark-mode variant with red/pink accent colors.",
-      "defaultEnabled": false
-    },
-    {
-      "id": "query-complexity-routing",
-      "scope": "assistant",
-      "key": "query-complexity-routing",
-      "label": "Query Complexity Routing",
-      "description": "Automatically route user messages to the most appropriate inference profile based on query complexity. Simple queries use the speed profile, complex queries escalate to the quality profile. The user is notified of each switch and can opt out by pinning a profile on the conversation.",
       "defaultEnabled": false
     },
     {
@@ -387,12 +355,12 @@
       "defaultEnabled": false
     },
     {
-      "id": "memory-v3-shadow",
+      "id": "memory-v3-injection-gate",
       "scope": "assistant",
-      "key": "memory-v3-shadow",
-      "label": "Memory v3 Shadow",
-      "description": "When on, runs the new memory-v3 topic-tree retrieval alongside v2 in shadow mode: logs selections to memory_v3_selections, does not modify injected context. Off by default.",
-      "defaultEnabled": false
+      "key": "memory-v3-injection-gate",
+      "label": "Memory v3 injection gate",
+      "description": "Per-turn injection gate for memory v3: after the BM25F needle + dense cosine finder lanes run, skip the selectPool LLM call (inject nothing) when finder-lane scores fall below the configured thresholds (memory.v3.gate). Default on (flipped remotely July 2026); this registry value is the fallback when no platform snapshot is available.",
+      "defaultEnabled": true
     },
     {
       "id": "self-intro-greeting",
@@ -406,9 +374,17 @@
       "id": "research-onboarding",
       "scope": "client",
       "key": "research-onboarding",
-      "label": "Research onboarding (spike)",
-      "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. Off by default; enable locally via the feature-flags panel.",
-      "defaultEnabled": false
+      "label": "Research onboarding",
+      "description": "Replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including the \"Create my personality\" step and a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. On by default (GA); after consent, new web users (non-native, non-local-mode) are routed into this flow instead of the standard hatching path.",
+      "defaultEnabled": true
+    },
+    {
+      "id": "personality-onboarding",
+      "scope": "client",
+      "key": "personality-onboarding",
+      "label": "Personality onboarding step",
+      "description": "Show the \"Create my personality\" trait-slider step in the research-onboarding flow (between the pitch and the integration step). On continue it applies the sliders to the assistant's persona on a throwaway side conversation. When off, the step is skipped entirely. On by default (GA); only takes effect where the research-onboarding flow itself is enabled.",
+      "defaultEnabled": true
     },
     {
       "id": "channel-trust-floors",
@@ -419,11 +395,11 @@
       "defaultEnabled": false
     },
     {
-      "id": "mcp-settings",
+      "id": "mcp-add-server",
       "scope": "assistant",
-      "key": "mcp-settings",
-      "label": "MCP Settings",
-      "description": "Show the MCP page in Settings for managing Model Context Protocol server connections: view status, enable/disable, configure, and inspect registered tools per server.",
+      "key": "mcp-add-server",
+      "label": "MCP Add Server",
+      "description": "Show the Add Server action on the MCP settings page. The MCP page itself remains visible; this flag gates only creating new Model Context Protocol server connections.",
       "defaultEnabled": false
     },
     {
@@ -431,7 +407,15 @@
       "scope": "assistant",
       "key": "os-beta",
       "label": "OS Beta",
-      "description": "Enable the OS Beta model profile (GLM 5.2 / Fireworks) in the assistant's model profile selection.",
+      "description": "Enable the OS Beta model profile (MiniMax M3 / Together) in the assistant's model profile selection.",
+      "defaultEnabled": false
+    },
+    {
+      "id": "new-thread-suggestions",
+      "scope": "client",
+      "key": "new-thread-suggestions",
+      "label": "New-thread suggestions library",
+      "description": "Replace the empty-state conversation-starter chips with the scrollable, categorized suggestions library and detail drawer (currently mocked data).",
       "defaultEnabled": false
     }
   ]

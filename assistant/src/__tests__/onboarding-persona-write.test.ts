@@ -30,11 +30,24 @@ import {
 
 // ── Mock state ────────────────────────────────────────────────────
 
+interface GuardianDeliveryStub {
+  channelType: string;
+  address: string;
+  status: string;
+}
+
 let mockWorkspaceDir: string = "";
-let mockVellumGuardian: {
-  contact: { userFile: string | null };
-  channel: Record<string, unknown>;
-} | null = null;
+// Gateway guardian delivery cache; the guardian's userFile (local INFO) is
+// joined via findContactByAddress on the delivery's address.
+let mockGuardianDeliveries: GuardianDeliveryStub[] = [];
+let mockContactsByAddress: Record<string, { userFile: string | null }> = {};
+
+function seedVellumGuardian(userFile: string | null): void {
+  mockGuardianDeliveries = [
+    { channelType: "vellum", address: "vellum:self", status: "active" },
+  ];
+  mockContactsByAddress["vellum:vellum:self"] = { userFile };
+}
 
 // ── Mock modules (must precede imports from the module under test) ──
 
@@ -59,10 +72,20 @@ mock.module("../util/platform.js", () => ({
 }));
 
 mock.module("../contacts/contact-store.js", () => ({
-  findContactByAddress: () => null,
-  findGuardianForChannel: (channelType: string) =>
-    channelType === "vellum" ? mockVellumGuardian : null,
-  listGuardianChannels: () => null,
+  findContactByAddress: (channelType: string, address: string) =>
+    mockContactsByAddress[`${channelType}:${address}`] ?? null,
+}));
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  peekCachedGuardianDelivery: (input?: { channelTypes?: string[] }) => {
+    if (!input?.channelTypes) return mockGuardianDeliveries;
+    return mockGuardianDeliveries.filter((g) =>
+      input.channelTypes!.includes(g.channelType),
+    );
+  },
+  guardianForChannel: (list: GuardianDeliveryStub[], channelType: string) =>
+    list.find((g) => g.channelType === channelType && g.status === "active"),
+  anyGuardian: (list: GuardianDeliveryStub[]) => list[0],
 }));
 
 // Import AFTER mocks so the module under test binds to the stubbed
@@ -87,7 +110,8 @@ afterAll(() => {
 
 beforeEach(() => {
   mockWorkspaceDir = mkdtempSync(join(testRoot, "ws-"));
-  mockVellumGuardian = null;
+  mockGuardianDeliveries = [];
+  mockContactsByAddress = {};
 });
 
 afterEach(() => {
@@ -98,10 +122,7 @@ afterEach(() => {
 
 describe("writeOnboardingSection", () => {
   test("writes section to guardian persona file when it exists", () => {
-    mockVellumGuardian = {
-      contact: { userFile: "alice.md" },
-      channel: {},
-    };
+    seedVellumGuardian("alice.md");
     const guardianPath = workspacePath("users/alice.md");
     mkdirSync(workspacePath("users"), { recursive: true });
     writeFileSync(guardianPath, "# User Profile\n\n- **Name:** Alice\n");
@@ -123,7 +144,8 @@ describe("writeOnboardingSection", () => {
   });
 
   test("falls back to users/default.md when guardian path is null", () => {
-    mockVellumGuardian = null;
+    mockGuardianDeliveries = [];
+  mockContactsByAddress = {};
     mkdirSync(workspacePath("users"), { recursive: true });
     writeFileSync(
       workspacePath("users/default.md"),
@@ -147,7 +169,8 @@ describe("writeOnboardingSection", () => {
   });
 
   test("falls back to USER.md when no users/ files exist", () => {
-    mockVellumGuardian = null;
+    mockGuardianDeliveries = [];
+  mockContactsByAddress = {};
 
     writeOnboardingSection({
       preferredName: "Alice",
@@ -162,7 +185,8 @@ describe("writeOnboardingSection", () => {
   });
 
   test("creates file with header + section when target doesn't exist", () => {
-    mockVellumGuardian = null;
+    mockGuardianDeliveries = [];
+  mockContactsByAddress = {};
 
     writeOnboardingSection({
       preferredName: "Alice",
@@ -179,7 +203,8 @@ describe("writeOnboardingSection", () => {
   });
 
   test("idempotent: calling twice produces the same file content", () => {
-    mockVellumGuardian = null;
+    mockGuardianDeliveries = [];
+  mockContactsByAddress = {};
     const normalized = {
       preferredName: "Alice",
       commonWork: ["builds code, apps, or tools"],
@@ -196,7 +221,8 @@ describe("writeOnboardingSection", () => {
   });
 
   test("replaces existing onboarding section with updated data", () => {
-    mockVellumGuardian = null;
+    mockGuardianDeliveries = [];
+  mockContactsByAddress = {};
 
     writeOnboardingSection({
       preferredName: "Alice",
@@ -222,7 +248,8 @@ describe("writeOnboardingSection", () => {
   });
 
   test("preserves content outside the managed section", () => {
-    mockVellumGuardian = null;
+    mockGuardianDeliveries = [];
+  mockContactsByAddress = {};
     writeFileSync(
       workspacePath("USER.md"),
       "# User Profile\n\n- **Name:** Alice\n- **Role:** Engineer\n",
@@ -242,7 +269,8 @@ describe("writeOnboardingSection", () => {
   });
 
   test("omits empty fields", () => {
-    mockVellumGuardian = null;
+    mockGuardianDeliveries = [];
+  mockContactsByAddress = {};
 
     writeOnboardingSection({
       commonWork: [],
@@ -257,7 +285,8 @@ describe("writeOnboardingSection", () => {
   });
 
   test("omits preferredName when undefined", () => {
-    mockVellumGuardian = null;
+    mockGuardianDeliveries = [];
+  mockContactsByAddress = {};
 
     writeOnboardingSection({
       preferredName: undefined,
@@ -272,7 +301,8 @@ describe("writeOnboardingSection", () => {
   });
 
   test("preserves content after onboarding section when followed by another heading", () => {
-    mockVellumGuardian = null;
+    mockGuardianDeliveries = [];
+  mockContactsByAddress = {};
     writeFileSync(
       workspacePath("USER.md"),
       [

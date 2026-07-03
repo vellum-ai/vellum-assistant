@@ -52,6 +52,12 @@ export interface LocalWakeOptions {
   repairGuardian?: boolean;
 }
 
+export interface LocalUpgradeOptions {
+  version?: string;
+  latest?: boolean;
+  force?: boolean;
+}
+
 export interface VellumBridge {
   platform: "electron";
   app: {
@@ -64,7 +70,6 @@ export interface VellumBridge {
   };
   auth: {
     startOAuth(options: {
-      providerHint?: string;
       loginHint?: string;
       intent?: string;
     }): Promise<{ sessionToken: string }>;
@@ -140,6 +145,9 @@ export interface VellumBridge {
   status: {
     setConnection(status: AssistantStatus): void;
   };
+  identity: {
+    setName(name: string): void;
+  };
   icon: {
     setAvatar(png: Uint8Array | null): void;
   };
@@ -166,6 +174,10 @@ export interface VellumBridge {
       assistantId: string,
       options?: LocalWakeOptions,
     ): Promise<{ ok: boolean; error?: string }>;
+    upgrade(
+      assistantId: string,
+      options?: LocalUpgradeOptions,
+    ): Promise<{ ok: boolean; version?: string; error?: string }>;
     status(assistantId: string): Promise<LocalAssistantStatusResult>;
     guardianToken(
       assistantId: string,
@@ -191,6 +203,16 @@ export interface VellumBridge {
   fileOpen: {
     drain(): Promise<string[]>;
     onFile(callback: (filePath: string) => void): () => void;
+  };
+  paths: {
+    /**
+     * Resolve a renderer `File` object to its native filesystem path. Backed
+     * by Electron's `webUtils.getPathForFile`, which returns the absolute path
+     * for files (and folders) sourced from a real drag-drop or file-picker
+     * event. Returns `null` when no path is available (e.g. an in-memory
+     * `File` constructed from a Blob).
+     */
+    getPathForFile(file: File): string | null;
   };
   feedback: {
     diagnostics(): Promise<Record<string, unknown>>;
@@ -229,6 +251,9 @@ export interface VellumBridge {
     setState(state: DictationOverlayMessage): void;
     onState(callback: (state: DictationOverlayState) => void): () => void;
     getState(): Promise<DictationOverlayState | null>;
+    requestStop(): void;
+    onStopRequested(callback: () => void): () => void;
+    setInteractive(interactive: boolean): void;
   };
   popout: {
     open(conversationId: string): Promise<void>;

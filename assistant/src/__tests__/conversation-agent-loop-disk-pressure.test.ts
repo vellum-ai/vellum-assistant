@@ -86,7 +86,9 @@ mock.module("../daemon/disk-pressure-guard.js", () => ({
   getDiskPressureStatus: () => diskPressureStatus,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getConversation: () => ({
     id: "conv-123",
     conversationType: "background",
@@ -180,6 +182,7 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     getTurnChannelContext: () => null,
 
     buildCurrentSystemPrompt: () => "system prompt",
+    syncLoopSystemPrompt: () => {},
     modelOverride: undefined,
     graphMemory: {} as Context["graphMemory"],
     ...overrides,

@@ -20,6 +20,7 @@ const DEFAULT_PORTS = {
 
 export type LocalAssistantRuntimeState =
   | "healthy"
+  | "upgrading"
   | "sleeping"
   | "starting"
   | "crashed"

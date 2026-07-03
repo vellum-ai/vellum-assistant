@@ -14,9 +14,15 @@
  * marker is wrapped around the assistant-role memory message we emit on
  * successful compaction so those code paths keep working unchanged.
  */
+import type {
+  ContentBlock,
+  LLMCallSite,
+  Message,
+  Provider,
+} from "@vellumai/plugin-api";
+
 import { getConfig } from "../../../config/loader.js";
 import type { CompactionConfig } from "../../../config/schemas/compaction.js";
-import type { LLMCallSite } from "../../../config/schemas/llm.js";
 import type { ContextWindowConfig } from "../../../config/types.js";
 import {
   type CompactionRunArgs,
@@ -30,12 +36,7 @@ import {
 } from "../../../context/token-estimator.js";
 import { findConversationOrSubagent } from "../../../daemon/conversation-registry.js";
 import type { InjectionMode } from "../../../daemon/conversation-runtime-assembly.js";
-import type {
-  ContentBlock,
-  Message,
-  Provider,
-  ToolDefinition,
-} from "../../../providers/types.js";
+import type { ToolDefinition } from "../../../providers/types.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { getLogger } from "../../../util/logger.js";
 import {

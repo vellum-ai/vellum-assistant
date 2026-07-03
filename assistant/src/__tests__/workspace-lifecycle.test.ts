@@ -126,6 +126,26 @@ describe("Workspace git lifecycle (integration)", () => {
       .filter(Boolean);
   }
 
+  // Quiesce the fire-and-forget enrichment queue and clear any stale
+  // `.git/index.lock` its `git notes` subprocess can leave behind on some git
+  // versions. Enrichment runs git subprocesses asynchronously and outside the
+  // service mutex that guards the test's direct git reads, so it must be
+  // drained before the test reads the repo or commits again — otherwise an
+  // in-flight `git notes` write races those operations and the direct
+  // `git log` / `git rev-list` reads observe a transient, inconsistent repo.
+  async function drainEnrichment(): Promise<void> {
+    await getEnrichmentService().shutdown();
+    _resetEnrichmentService();
+    const lockPath = join(testDir, ".git", "index.lock");
+    if (existsSync(lockPath)) {
+      try {
+        unlinkSync(lockPath);
+      } catch {
+        /* race: already gone */
+      }
+    }
+  }
+
   test("full lifecycle: init → turns → heartbeat → history", async () => {
     const conversationId = "sess_lifecycle_test";
 
@@ -191,25 +211,10 @@ describe("Workspace git lifecycle (integration)", () => {
     await commitTurnChanges(testDir, conversationId, 3);
     expect(commitCount(testDir)).toBe(3); // Still 3
 
-    // Drain fire-and-forget enrichment from turn commits before heartbeat
-    // testing. Enrichment's writeNote() can leave a stale index.lock on
-    // some git versions (see heartbeat-service.ts:240-242), causing the
-    // heartbeat commit to fail with "index.lock: File exists".
-    await getEnrichmentService().shutdown();
-    _resetEnrichmentService();
-
-    // On CI, the enrichment service's spawned git child processes may still
-    // be alive briefly after the queue drains, holding index.lock. Remove it
-    // unconditionally and reset the circuit breaker so the heartbeat portion
+    // Drain fire-and-forget enrichment from the turn commits before exercising
+    // the heartbeat, then reset the circuit breaker so the heartbeat portion
     // starts clean.
-    const lockPath = join(testDir, ".git", "index.lock");
-    if (existsSync(lockPath)) {
-      try {
-        unlinkSync(lockPath);
-      } catch {
-        /* race: already gone */
-      }
-    }
+    await drainEnrichment();
     _resetBreaker(service);
 
     // ----------------------------------------------------------------
@@ -243,6 +248,12 @@ describe("Workspace git lifecycle (integration)", () => {
 
     const secondCheck = await heartbeat.check();
     expect(secondCheck.committed).toBe(1);
+
+    // The heartbeat commit enqueues its own fire-and-forget enrichment job.
+    // Drain it before the synchronous git reads below so its `git notes`
+    // subprocess cannot mutate .git concurrently with them.
+    await drainEnrichment();
+
     expect(commitCount(testDir)).toBe(4);
 
     const heartbeatMsg = lastCommitMessage(testDir);

@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import {
   isToolCallCompleted,
   isToolCallRunning,
+  perceivedStartedAt,
   toolCallRank,
 } from "@/domains/chat/utils/tool-call-status";
 import type { ConversationMessageToolCall } from "@vellumai/assistant-api";
@@ -16,6 +17,22 @@ function make(
     ...overrides,
   } as ConversationMessageToolCall;
 }
+
+describe("perceivedStartedAt", () => {
+  test("prefers previewStartedAt (first byte) over execution startedAt", () => {
+    expect(
+      perceivedStartedAt(make({ previewStartedAt: 1_000, startedAt: 21_000 })),
+    ).toBe(1_000);
+  });
+
+  test("falls back to execution startedAt when no preview timestamp", () => {
+    expect(perceivedStartedAt(make({ startedAt: 21_000 }))).toBe(21_000);
+  });
+
+  test("is undefined when neither timestamp is present", () => {
+    expect(perceivedStartedAt(make())).toBeUndefined();
+  });
+});
 
 describe("isToolCallRunning", () => {
   test("is running when neither result, completedAt, nor isError are set", () => {

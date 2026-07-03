@@ -25,6 +25,7 @@ interface CapturedConversationState {
   trustContext: unknown;
   authContext: unknown;
   assistantId: string | undefined;
+  enabledPlugins: string[] | null | undefined;
 }
 
 const capturedConversations: CapturedConversationState[] = [];
@@ -46,6 +47,7 @@ class FakeConversation {
       trustContext: undefined,
       authContext: undefined,
       assistantId: undefined,
+      enabledPlugins: undefined,
     };
     capturedConversations.push(this.capturedState);
   }
@@ -62,6 +64,9 @@ class FakeConversation {
   }
   setAssistantId(assistantId: string | null) {
     this.capturedState.assistantId = assistantId ?? undefined;
+  }
+  setEnabledPlugins(plugins: string[] | null) {
+    this.capturedState.enabledPlugins = plugins;
   }
   hasSystemPromptOverride = false;
   setSubagentAllowedTools() {}
@@ -101,7 +106,7 @@ mock.module("../daemon/conversation.js", () => ({
   Conversation: FakeConversation,
 }));
 
-mock.module("../memory/conversation-bootstrap.js", () => ({
+mock.module("../persistence/conversation-bootstrap.js", () => ({
   bootstrapConversation: () => ({ id: "conv-id" }),
 }));
 
@@ -149,7 +154,7 @@ mock.module("../providers/inference/connections.js", () => ({
   },
 }));
 
-mock.module("../memory/db-connection.js", () => ({
+mock.module("../persistence/db-connection.js", () => ({
   getDb: () => ({}),
 }));
 
@@ -327,6 +332,73 @@ describe("SubagentManager — provider call-site routing", () => {
     expect(createdConversation.assistantId).toBe("self");
     expect(createdConversation.trustContext).not.toBe(parentTrustContext);
     expect(createdConversation.authContext).not.toBe(parentAuthContext);
+  });
+
+  test("copies the parent's plugin scope into the spawned conversation (by value)", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        provider_connection: "anthropic-conn",
+        model: "claude-opus-4-7",
+      },
+    });
+
+    const parentScope = ["caveman", "data"];
+
+    capturedConversations.length = 0;
+    clearConversations();
+    const manager = new SubagentManager();
+    setConversation("parent-scoped", {
+      enabledPlugins: parentScope,
+      getAuthContext: () => undefined,
+      getCurrentSystemPrompt: () => "parent system",
+    } as any);
+
+    await manager.spawn(
+      {
+        parentConversationId: "parent-scoped",
+        label: "scoped",
+        objective: "use a plugin skill",
+      },
+      () => {},
+    );
+
+    const createdConversation = capturedConversations[0];
+    // The subagent inherits the parent chat's plugin scope so it can't reach
+    // plugins the user deselected in the parent.
+    expect(createdConversation?.enabledPlugins).toEqual(["caveman", "data"]);
+    // Copied by value so later parent/child edits don't alias one another.
+    expect(createdConversation?.enabledPlugins).not.toBe(parentScope);
+  });
+
+  test("propagates a null (unrestricted) parent scope unchanged", async () => {
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        provider_connection: "anthropic-conn",
+        model: "claude-opus-4-7",
+      },
+    });
+
+    capturedConversations.length = 0;
+    clearConversations();
+    const manager = new SubagentManager();
+    setConversation("parent-unscoped", {
+      enabledPlugins: null,
+      getAuthContext: () => undefined,
+      getCurrentSystemPrompt: () => "parent system",
+    } as any);
+
+    await manager.spawn(
+      {
+        parentConversationId: "parent-unscoped",
+        label: "unscoped",
+        objective: "use anything",
+      },
+      () => {},
+    );
+
+    expect(capturedConversations[0]?.enabledPlugins).toBeNull();
   });
 });
 

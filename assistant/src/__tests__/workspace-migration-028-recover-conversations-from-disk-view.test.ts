@@ -32,9 +32,9 @@ mock.module("../config/loader.js", () => ({
 // Imports — after mocks
 // ---------------------------------------------------------------------------
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations, messages } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations, messages } from "../persistence/schema/index.js";
 import { recoverConversationsFromDiskViewMigration } from "../workspace/migrations/028-recover-conversations-from-disk-view.js";
 
 await initializeDb();

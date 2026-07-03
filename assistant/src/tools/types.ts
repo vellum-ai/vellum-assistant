@@ -1,15 +1,4 @@
 import type { ApprovalRequired } from "@vellumai/service-contracts/credential-rpc";
-import type {
-  DiffInfo,
-  ExecutionTarget,
-  ProxyApprovalCallback,
-  SensitiveOutputBinding,
-  ToolExecutionErrorEvent as ContractsToolExecutionErrorEvent,
-  ToolExecutionStartEvent,
-  ToolPermissionDeniedEvent,
-  ToolPermissionPromptEvent,
-} from "@vellumai/skill-host-contracts";
-import { RiskLevel } from "@vellumai/skill-host-contracts";
 import { z } from "zod";
 
 import type { InterfaceId } from "../channels/types.js";
@@ -19,6 +8,17 @@ import type { SecretPromptResult } from "../permissions/secret-prompter.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import type { UsageAttributionSnapshot } from "../usage/attribution.js";
+import type {
+  DiffInfo,
+  ExecutionTarget,
+  ProxyApprovalCallback,
+  SensitiveOutputBinding,
+  ToolExecutionErrorEvent as ContractsToolExecutionErrorEvent,
+  ToolExecutionStartEvent,
+  ToolPermissionDeniedEvent,
+  ToolPermissionPromptEvent,
+} from "./tool-types.js";
+import { RiskLevel } from "./tool-types.js";
 
 export const DISK_PRESSURE_CLEANUP_TOOL_NAMES: ReadonlySet<string> = new Set([
   "bash",
@@ -37,11 +37,11 @@ export function isDiskPressureCleanupToolName(name: string): boolean {
 
 // ---------------------------------------------------------------------------
 // Re-exports + concrete overlays for types that live in
-// @vellumai/skill-host-contracts.
+// ./tool-types.js.
 //
-// The canonical declarations moved into the neutral contracts package as
-// part of the skill-isolation work. This file preserves existing import
-// paths (`"../tools/types.js"`) so all callers keep resolving.
+// The canonical declarations live in the neutral leaf module
+// `./tool-types.js`. This file preserves existing import paths
+// (`"../tools/types.js"`) so all callers keep resolving.
 //
 // Pure re-exports below cover types the contracts package could declare
 // without any assistant-side references. The remaining interfaces (`Tool`,
@@ -73,8 +73,8 @@ export type {
   ToolExecutionStartEvent,
   ToolPermissionDeniedEvent,
   ToolPermissionPromptEvent,
-} from "@vellumai/skill-host-contracts";
-export { RiskLevel } from "@vellumai/skill-host-contracts";
+} from "./tool-types.js";
+export { RiskLevel } from "./tool-types.js";
 
 // ---------------------------------------------------------------------------
 // Assistant-side concrete overlays
@@ -249,6 +249,26 @@ export function stringifyToolInput(input: Record<string, unknown>): string {
   }
 }
 
+/**
+ * Runtime context passed as the second argument to every tool's `execute`.
+ *
+ * The fields fall into two groups:
+ *
+ * - A small, stable core that we are comfortable exposing to any tool —
+ *   including workspace- and plugin-authored tools via `@vellumai/plugin-api`:
+ *   `conversationId`, `workingDir`, `requestId`, `signal`, `onOutput`,
+ *   `assistantId`, `isInteractive`.
+ * - Everything tagged `@legacy` below: host-internal routing, permission,
+ *   trust, requester-identity, proxy, and telemetry metadata that historically
+ *   accreted on this single context. These are NOT a surface we want third-party
+ *   tools to depend on; we are triaging them post-launch with the goal of
+ *   moving them off the public context (or removing them) over time. Grep for
+ *   `@legacy` to enumerate the set. Do not add new fields here — extend the
+ *   stable core only when a field is genuinely safe and stable to expose.
+ *
+ * The daemon constructs and passes the full object to every tool at runtime; a
+ * tool that only reads the stable core is unaffected by the eventual cleanup.
+ */
 export interface ToolContext {
   /** Identifier of the conversation this tool invocation belongs to. */
   conversationId: string;
@@ -262,23 +282,44 @@ export interface ToolContext {
   onOutput?: (chunk: string) => void;
   /** Logical assistant scope for multi-assistant routing. */
   assistantId?: string;
-  /** When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules. */
+  /** True when an interactive client is connected (not just a no-op callback). */
+  isInteractive?: boolean;
+  /**
+   * When set, the tool execution is part of a task run. Used to retrieve ephemeral permission rules.
+   * @legacy
+   */
   taskRunId?: string;
   /**
    * Model attribution snapshot for the conversation at invocation time
    * (provider/model/profile that issued this tool call). Used by tool
    * telemetry; never sent to the tool itself.
+   * @legacy
    */
   attribution?: UsageAttributionSnapshot | null;
-  /** Optional callback for tool lifecycle events (start/prompt/deny/execute/error). */
+  /**
+   * Optional callback for tool lifecycle events (start/prompt/deny/execute/error).
+   * @legacy
+   */
   onToolLifecycleEvent?: ToolLifecycleEventHandler;
-  /** Optional resolver for proxy tools - delegates execution to an external client. */
+  /**
+   * Optional resolver for proxy tools - delegates execution to an external client.
+   * @legacy
+   */
   proxyToolResolver?: ProxyToolResolver;
-  /** When set, only tools in this set may execute. Tools outside the set are blocked with an error. */
+  /**
+   * When set, only tools in this set may execute. Tools outside the set are blocked with an error.
+   * @legacy
+   */
   allowedToolNames?: Set<string>;
-  /** True when this turn is restricted to storage cleanup-safe tools. */
+  /**
+   * True when this turn is restricted to storage cleanup-safe tools.
+   * @legacy
+   */
   diskPressureCleanupModeActive?: boolean;
-  /** Prompt the user for a secret value via native SecureField UI. */
+  /**
+   * Prompt the user for a secret value via native SecureField UI.
+   * @legacy
+   */
   requestSecret?: (params: {
     service: string;
     field: string;
@@ -289,11 +330,15 @@ export interface ToolContext {
     allowedTools?: string[];
     allowedDomains?: string[];
   }) => Promise<SecretPromptResult>;
-  /** Optional callback to send a message to the connected client (e.g. open_url). */
+  /**
+   * Optional callback to send a message to the connected client (e.g. open_url).
+   * @legacy
+   */
   sendToClient?: (msg: { type: string; [key: string]: unknown }) => void;
-  /** True when an interactive client is connected (not just a no-op callback). */
-  isInteractive?: boolean;
-  /** When true, tools with side effects should always prompt for confirmation. */
+  /**
+   * When true, tools with side effects should always prompt for confirmation.
+   * @legacy
+   */
   forcePromptSideEffects?: boolean;
   /**
    * When true, the tool requires a fresh interactive approval for every
@@ -304,26 +349,57 @@ export interface ToolContext {
    * temporary override options in the prompt UI. Used by
    * `manage_secure_command_tool` to ensure a human reviews each secure
    * bundle installation.
+   * @legacy
    */
   requireFreshApproval?: boolean;
-  /** Approval callback for proxy policy decisions that require user confirmation. */
+  /**
+   * Approval callback for proxy policy decisions that require user confirmation.
+   * @legacy
+   */
   proxyApprovalCallback?: ProxyApprovalCallback;
-  /** Optional principal identifier propagated to sub-tool confirmation flows. */
+  /**
+   * Optional principal identifier propagated to sub-tool confirmation flows.
+   * @legacy
+   */
   principal?: string;
   /**
    * Trust classification of the actor who initiated this tool invocation.
    * Determines permission level: guardians self-approve, trusted contacts
    * may escalate to guardian for approval, unknown actors are fail-closed.
    * See {@link TrustClass} in actor-trust-resolver.ts for value semantics.
+   * @legacy
    */
   trustClass: TrustClass;
-  /** Channel through which the tool invocation originates (e.g. 'telegram', 'phone'). Used for scoped grant consumption. */
+  /**
+   * Channel through which the tool invocation originates (e.g. 'telegram', 'phone'). Used for scoped grant consumption.
+   * @legacy
+   */
   executionChannel?: string;
-  /** Voice/call session ID, if the invocation originates from a call. Used for scoped grant consumption. */
+  /**
+   * Origin tag of the turn driving this tool invocation (the conversation's
+   * `TitleOrigin`, e.g. "memory_retrospective"). Set for background-job turns
+   * that pass `requestOrigin` to `runBackgroundJob`, and for the
+   * memory-retrospective wake (which pins it via {@link WakeToolContextPin}).
+   * `buildPolicyContext` copies it onto the `PolicyContext` so the permission
+   * checker can scope narrow non-interactive auto-grants (e.g. retrospective
+   * skill authoring) to a specific internal origin. Unset for normal
+   * interactive turns.
+   */
+  requestOrigin?: string;
+  /**
+   * Voice/call session ID, if the invocation originates from a call. Used for scoped grant consumption.
+   * @legacy
+   */
   callSessionId?: string;
-  /** True when the tool invocation was triggered by a user clicking a surface action button (not a regular message). */
+  /**
+   * True when the tool invocation was triggered by a user clicking a surface action button (not a regular message).
+   * @legacy
+   */
   triggeredBySurfaceAction?: boolean;
-  /** True when the user explicitly approved this tool invocation via the interactive permission prompt (not auto-approved by trust rules or temporary overrides). */
+  /**
+   * True when the user explicitly approved this tool invocation via the interactive permission prompt (not auto-approved by trust rules or temporary overrides).
+   * @legacy
+   */
   approvedViaPrompt?: boolean;
   /**
    * True when the invocation is inside a scheduled task run whose
@@ -331,21 +407,43 @@ export interface ToolContext {
    * Tools that normally require a surface-action click (e.g. bulk archive,
    * unsubscribe) may treat this as equivalent consent, since the user
    * already reviewed the tool list when the task was saved.
+   * @legacy
    */
   batchAuthorizedByTask?: boolean;
-  /** External user ID of the requester (non-guardian actor). Used for scoped grant consumption. */
+  /**
+   * External user ID of the requester (non-guardian actor). Used for scoped grant consumption.
+   * @legacy
+   */
   requesterExternalUserId?: string;
-  /** Chat ID of the requester (non-guardian actor). Used for tool grant request escalation notifications. */
+  /**
+   * Chat ID of the requester (non-guardian actor). Used for tool grant request escalation notifications.
+   * @legacy
+   */
   requesterChatId?: string;
-  /** Human-readable identifier for the requester (e.g., @username). */
+  /**
+   * Human-readable identifier for the requester (e.g., @username).
+   * @legacy
+   */
   requesterIdentifier?: string;
-  /** Preferred display name for the requester. */
+  /**
+   * Preferred display name for the requester.
+   * @legacy
+   */
   requesterDisplayName?: string;
-  /** Slack channel ID for channel-scoped permission enforcement. When set, tools are checked against the channel's permission profile. */
+  /**
+   * Slack channel ID for channel-scoped permission enforcement. When set, tools are checked against the channel's permission profile.
+   * @legacy
+   */
   channelPermissionChannelId?: string;
-  /** The tool_use block ID from the LLM response, used to correlate confirmation prompts with specific tool invocations. */
+  /**
+   * The tool_use block ID from the LLM response, used to correlate confirmation prompts with specific tool invocations.
+   * @legacy
+   */
   toolUseId?: string;
-  /** True when the assistant is running as a platform-managed remote instance. Used to auto-approve sandboxed bash tools. */
+  /**
+   * True when the assistant is running as a platform-managed remote instance. Used to auto-approve sandboxed bash tools.
+   * @legacy
+   */
   isPlatformHosted?: boolean;
   /**
    * The interface ID of the connected client driving the current turn (e.g.
@@ -353,6 +451,7 @@ export interface ToolContext {
    * transport preference — for example, macOS-originated turns prefer the
    * user's real Chrome session via the paired extension before falling back
    * to cdp-inspect or local Playwright.
+   * @legacy
    */
   transportInterface?: InterfaceId;
   /**
@@ -363,6 +462,7 @@ export interface ToolContext {
    * has `inferenceProfile` set — the override only flows through the
    * in-memory `SubagentConfig.overrideProfile` chain. See
    * `executeSubagentSpawn` in tools/subagent/spawn.ts.
+   * @legacy
    */
   overrideProfile?: string;
   /**
@@ -371,6 +471,7 @@ export interface ToolContext {
    * default a spawned subagent's inference profile to the profile the invoking
    * turn resolved to, so subagents match whatever agent invoked them rather
    * than always falling back to the static `subagentSpawn` call-site default.
+   * @legacy
    */
   invokingCallSite?: LLMCallSite;
   /**
@@ -379,8 +480,21 @@ export interface ToolContext {
    * Used by host proxies to bind cross-client targeted execution to the same
    * authenticated user identity. May be undefined for legacy/internal flows
    * with no resolved actor identity.
+   * @legacy
    */
   sourceActorPrincipalId?: string;
+  /**
+   * The conversation's effective per-chat plugin scope, as produced by
+   * `getEffectiveEnabledPluginSet`: `null` means no per-chat restriction;
+   * otherwise a Set of allowed plugin ids (the user's selection unioned with
+   * the always-on first-party defaults). Skill-surface tools that resolve
+   * skills by id outside the per-turn projection — `skill_load` (body load)
+   * and `find_similar_skills` (discovery) — read this to drop skills owned by
+   * plugins outside the conversation's scope. Populated per tool call from the
+   * live conversation state.
+   * @legacy
+   */
+  enabledPluginSet?: Set<string> | null;
 }
 
 /**
@@ -449,6 +563,15 @@ export const ToolDefinitionSchema = z.object({
       ) => Promise<ToolExecutionResult>
     >()
     .optional(),
+  /**
+   * When true, this tool runs alone in its turn. If the model emits it
+   * alongside other tool calls, the agent loop executes only this one and
+   * defers the siblings — returning them un-run with a benign notice — so the
+   * model incorporates this tool's output before acting on anything else. The
+   * `advisor` tool sets this so its guidance lands before the agent commits to
+   * a path. Default false (the loop runs sibling calls concurrently as usual).
+   */
+  exclusive: z.boolean().optional(),
 });
 
 /**
@@ -460,8 +583,14 @@ export const ToolDefinitionSchema = z.object({
  */
 export type ToolDefinition = z.infer<typeof ToolDefinitionSchema>;
 
-/** Tool after the loader has derived its name and filled defaults. */
-export type Tool = Required<ToolDefinition>;
+/**
+ * Tool after the loader has derived its name and filled defaults. Every field
+ * is required except `exclusive`, which stays optional — most tools never set
+ * it, and the agent loop reads it as `?.exclusive === true`, so forcing every
+ * hand-built `Tool` (MCP/meet/test fixtures) to carry it would be noise.
+ */
+export type Tool = Required<Omit<ToolDefinition, "exclusive">> &
+  Pick<ToolDefinition, "exclusive">;
 
 /** The kind of extension that owns a tool. Core tools have no owner. */
 export type OwnerKind = "skill" | "mcp" | "plugin" | "workspace";

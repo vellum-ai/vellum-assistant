@@ -11,8 +11,8 @@ import { SubagentDetailResponseSchema } from "../../api/responses/subagent-detai
 import {
   getMessages,
   type MessageRow,
-} from "../../memory/conversation-crud.js";
-import { getConversationUsageTotals } from "../../memory/llm-usage-store.js";
+} from "../../persistence/conversation-crud.js";
+import { getConversationUsageTotals } from "../../persistence/llm-usage-store.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -39,6 +39,8 @@ export interface SubagentDetailResult {
     toolName?: string;
     isError?: boolean;
     messageId?: string;
+    toolUseId?: string;
+    input?: Record<string, unknown>;
   }>;
 }
 
@@ -112,6 +114,8 @@ export function parseSubagentMessages(
           type: "tool_use",
           content: JSON.stringify(input),
           toolName: name,
+          toolUseId: id || undefined,
+          input,
         });
         if (id) pendingTools.set(id, name);
       } else if (
@@ -147,6 +151,7 @@ export function parseSubagentMessages(
           content: resultContent,
           toolName: toolName ?? "unknown",
           isError,
+          toolUseId: toolUseId || undefined,
         });
       }
     }

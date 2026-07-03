@@ -7,9 +7,11 @@ import { describe, expect, mock, test } from "bun:test";
 
 import type { SkillSummary } from "../config/skills.js";
 import type { CatalogSkill } from "../skills/catalog-install.js";
+import type { SkillInstallMeta } from "../skills/install-meta.js";
 
 let mockSummaries: SkillSummary[] = [];
 let mockCachedCatalog: CatalogSkill[] = [];
+let mockInstallMeta: SkillInstallMeta | null = null;
 
 // ---------------------------------------------------------------------------
 // Module mocks — must be declared before importing the module under test
@@ -44,7 +46,7 @@ mock.module("../config/assistant-feature-flags.js", () => ({
 }));
 
 mock.module("../skills/install-meta.js", () => ({
-  readInstallMeta: () => null,
+  readInstallMeta: () => mockInstallMeta,
 }));
 
 mock.module("../skills/catalog-cache.js", () => ({
@@ -99,7 +101,7 @@ mock.module("../skills/managed-store.js", () => ({
   validateManagedSkillId: () => null,
 }));
 
-mock.module("../memory/graph/capability-seed.js", () => ({
+mock.module("../plugins/defaults/memory/graph/capability-seed.js", () => ({
   deleteSkillCapabilityNode: () => {},
   seedSkillGraphNodes: () => {},
   seedUninstalledCatalogSkillMemories: async () => {},
@@ -191,5 +193,35 @@ describe("listSkills — category precedence", () => {
 
     const [skill] = listSkills();
     expect(skill.category).toBe("system");
+  });
+});
+
+describe("listSkills — origin derivation", () => {
+  test("managed skill authored by the assistant reports the assistant-memory origin", () => {
+    mockSummaries = [makeSummary({ id: "retro-note", source: "managed" })];
+    mockCachedCatalog = [];
+    mockInstallMeta = {
+      origin: "custom",
+      installedAt: "2026-01-01T00:00:00.000Z",
+      author: "assistant",
+    };
+
+    const [skill] = listSkills();
+    expect(skill.origin).toBe("assistant-memory");
+    // Stays an installed (managed) skill so it remains deletable.
+    expect(skill.kind).toBe("installed");
+  });
+
+  test("managed skill without an assistant author keeps its custom origin", () => {
+    mockSummaries = [makeSummary({ id: "hand-rolled", source: "managed" })];
+    mockCachedCatalog = [];
+    mockInstallMeta = {
+      origin: "custom",
+      installedAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    const [skill] = listSkills();
+    expect(skill.origin).toBe("custom");
+    expect(skill.kind).toBe("installed");
   });
 });

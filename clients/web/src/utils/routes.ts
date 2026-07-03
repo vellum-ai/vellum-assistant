@@ -119,9 +119,20 @@ export const routes = {
   },
 
   home: r("/assistant/home"),
+  /**
+   * Schedules surface — the same Activity page as `home`, opened with the
+   * Schedules tab active. `detail` deep-links a single schedule's drawer.
+   * Path-based (not `?tab=`) so the tab and the focused schedule are
+   * bookmarkable and shareable. Both render `HomePageRoute`, which derives
+   * the active tab + selected schedule from the URL.
+   */
+  schedules: {
+    root: r("/assistant/schedules"),
+    detail: (scheduleId: string) =>
+      dyn(r("/assistant/schedules"), scheduleId),
+  },
   identity: r("/assistant/identity"),
   plugins: r("/assistant/plugins"),
-  plugin: (name: string) => dyn(r("/assistant/plugins"), name),
   skills: r("/assistant/skills"),
   workspace: r("/assistant/workspace"),
   library: {

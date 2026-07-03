@@ -17,11 +17,15 @@ export type SubagentStatus =
   | "awaiting_input"
   | "completed"
   | "failed"
-  | "aborted";
+  | "aborted"
+  // Assigned on daemon restart to a subagent that was still in flight when the
+  // process died. Terminal — the run is not auto-resumed; the parent is left to
+  // decide whether to re-spawn.
+  | "interrupted";
 
 /** Terminal states — once entered, a subagent cannot transition out. */
 export const TERMINAL_STATUSES: ReadonlySet<SubagentStatus> =
-  new Set<SubagentStatus>(["completed", "failed", "aborted"]);
+  new Set<SubagentStatus>(["completed", "failed", "aborted", "interrupted"]);
 
 // ── Config (spawn-time) ─────────────────────────────────────────────────
 
@@ -116,7 +120,8 @@ export type SubagentRole =
   | "researcher"
   | "coder"
   | "planner"
-  | "investigator";
+  | "investigator"
+  | "advisor";
 
 export interface SubagentRoleConfig {
   /**
@@ -180,7 +185,7 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
     },
     investigator: {
       allowedTools: [
-        "bash",
+        "code_search",
         "file_read",
         "file_list",
         "web_search",
@@ -191,11 +196,17 @@ export const SUBAGENT_ROLE_REGISTRY: Record<SubagentRole, SubagentRoleConfig> =
       skillIds: [],
       systemPromptPreamble: [
         "You are an investigation-focused subagent for root-cause analysis: debugging, log forensics, and tracing behavior across code.",
-        "Your shell access is for read-only investigation (grep, find, reading files and logs) — do not modify files or system state.",
-        "Working method: read whole files instead of many small line-range slices; prefer broad searches (e.g. grep -rn across a directory) over one-symbol-at-a-time queries.",
+        "You have read-only investigation tools only — there is no shell. Use code_search to search file contents across directories, file_list to enumerate paths, and file_read to read whole files and logs. You cannot modify files or system state.",
+        "Working method: read whole files instead of many small line-range slices; prefer broad code_search queries across a directory over one-symbol-at-a-time queries.",
         "Send notify_parent (urgency 'important') as soon as each finding is confirmed, so progress survives interruption.",
         "Your final message must be a compact root-cause report with these sections: Symptom, Root cause, Evidence (file:line references), Suggested fix, Open questions.",
         "If you approach context limits, stop investigating and produce the report from what you have — a partial report delivered is worth more than a complete investigation lost.",
       ].join(" "),
+    },
+    advisor: {
+      allowedTools: [],
+      skillIds: [],
+      systemPromptPreamble:
+        "You are a read-only senior advisor consulted for a one-shot strategic review. Read the inherited conversation, then return focused, high-leverage guidance in a single response. You have no tools — you cannot search, read files, or run commands — so reason from the context you were given.",
     },
   };

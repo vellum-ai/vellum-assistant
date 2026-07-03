@@ -8,34 +8,24 @@
 import { statSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  getApp,
+  getAppDirPath,
+  listAppFiles,
+  resolveAppDir,
+} from "../apps/app-store.js";
 import { type ChannelId, parseInterfaceId } from "../channels/types.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite, LLMConfig } from "../config/schemas/llm.js";
+import { findContactInfoById } from "../contacts/contact-store.js";
 import {
   NOW_SCRATCHPAD_STRIP_PREFIXES,
   stripSpotlightInjections,
   stripUserTextBlocksByPrefix,
 } from "../context/strip-injections.js";
 import { getDocumentsForConversation } from "../documents/document-store.js";
-import {
-  getApp,
-  getAppDirPath,
-  listAppFiles,
-  resolveAppDir,
-} from "../memory/app-store.js";
-import {
-  getMessages as defaultGetMessages,
-  type MessageRow,
-} from "../memory/conversation-crud.js";
-import { isBackgroundConversationType } from "../memory/conversation-types.js";
-import {
-  countMemoryPrefixBlocks,
-  extractMemoryPrefixBlocks,
-  getLiveGraphMemory,
-} from "../memory/graph/conversation-graph-memory.js";
-import { unwrapMemoryBlock, wrapMemoryBlock } from "../memory/memory-marker.js";
 import {
   readSlackMetadata,
   readSlackMetadataFromMessageMetadata,
@@ -48,31 +38,40 @@ import {
   type RenderedSlackTranscriptMessage,
   renderSlackTranscriptWithProvenance,
 } from "../messaging/providers/slack/render-transcript.js";
+import {
+  getMessages as defaultGetMessages,
+  type MessageRow,
+} from "../persistence/conversation-crud.js";
+import { isBackgroundConversationType } from "../persistence/conversation-types.js";
 import { createContextSummaryMessage } from "../plugins/defaults/compaction/window-manager.js";
-import { getInjectorChain } from "../plugins/defaults/memory-retrieval/injector-chain.js";
+import {
+  countMemoryPrefixBlocks,
+  extractMemoryPrefixBlocks,
+  getLiveGraphMemory,
+} from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import {
+  unwrapMemoryBlock,
+  wrapMemoryBlock,
+} from "../plugins/defaults/memory/memory-marker.js";
 import {
   MEMORY_V3_BLOCK_ID,
   MEMORY_V3_COMMIT_META_KEY,
-} from "../plugins/defaults/memory-v3-shadow/types.js";
+} from "../plugins/defaults/memory/v3/types.js";
+import { getRegisteredInjectors } from "../plugins/injector-registry.js";
 import type {
   InjectionBlock,
   InjectionPlacement,
   TurnContext,
 } from "../plugins/types.js";
 import type { ContentBlock, Message } from "../providers/types.js";
-import {
-  type ActorTrustContext,
-  resolveActorTrust,
-  type TrustClass,
-} from "../runtime/actor-trust-resolver.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
+import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
-import { channelStatusToMemberStatus } from "../runtime/routes/inbound-stages/acl-enforcement.js";
 import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
+import { getEffectiveEnabledPluginSet } from "./conversation-tool-setup.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
 import type {
   DynamicPageSurfaceData,
@@ -156,32 +155,8 @@ export function inboundActorContextFromTrustContext(
     actorMemberDisplayName: ctx.requesterMemberDisplayName,
     trustClass: ctx.trustClass,
     guardianIdentity: ctx.guardianExternalUserId,
-  };
-}
-
-/**
- * Construct an InboundActorContext from an ActorTrustContext (the new
- * unified trust resolver output from M1).
- */
-export function inboundActorContextFromTrust(
-  ctx: ActorTrustContext,
-): InboundActorContext {
-  return {
-    sourceChannel: ctx.actorMetadata.channel,
-    canonicalActorIdentity: ctx.canonicalSenderId,
-    actorIdentifier: ctx.actorMetadata.identifier,
-    actorDisplayName: ctx.actorMetadata.displayName,
-    actorSenderDisplayName: ctx.actorMetadata.senderDisplayName,
-    actorMemberDisplayName: ctx.actorMetadata.memberDisplayName,
-    trustClass: ctx.trustClass,
-    guardianIdentity: ctx.guardianBindingMatch?.guardianExternalUserId,
-    memberStatus: ctx.memberRecord
-      ? channelStatusToMemberStatus(ctx.memberRecord.channel.status)
-      : undefined,
-    memberPolicy: ctx.memberRecord?.channel.policy ?? undefined,
-    contactNotes: ctx.memberRecord?.contact.notes ?? undefined,
-    contactInteractionCount:
-      ctx.memberRecord?.contact.interactionCount ?? undefined,
+    memberStatus: ctx.memberStatus,
+    memberPolicy: ctx.memberPolicy,
   };
 }
 
@@ -190,38 +165,38 @@ export function inboundActorContextFromTrust(
  * conversation's trust context, for the unified `<turn_context>` actor section.
  *
  * Returns `null` when there is no trust context and on guardian (owner) turns —
- * the actor section is suppressed for the owner. When the trust context carries
- * enough identity to look up member status / policy and the guardian binding,
- * the unified actor-trust resolver is preferred; otherwise the context is
- * projected directly. Derives purely from the passed trust context, so callers
+ * the actor section is suppressed for the owner. ACL fields (trust class,
+ * member status/policy, guardian binding) and the gateway-owned interaction
+ * count come from the verdict-derived trust context; the INFO `notes` field is
+ * joined locally by contact ID. Derives purely from the passed trust context,
+ * so callers
  * self-resolve it from the live conversation rather than threading it.
  */
 export function resolveTurnInboundActorContext(
   trustContext: TrustContext | undefined,
-  assistantId: string | undefined,
 ): InboundActorContext | null {
   if (!trustContext) {
     return null;
   }
-  let resolved: InboundActorContext;
-  if (trustContext.requesterExternalUserId && trustContext.requesterChatId) {
-    const actorTrust = resolveActorTrust({
-      assistantId: assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID,
-      sourceChannel: trustContext.sourceChannel,
-      conversationExternalId: trustContext.requesterChatId,
-      actorExternalId: trustContext.requesterExternalUserId,
-      actorDisplayName: trustContext.requesterSenderDisplayName,
-    });
-    resolved = inboundActorContextFromTrust(actorTrust);
-  } else {
-    resolved = inboundActorContextFromTrustContext(trustContext);
+  const resolved = inboundActorContextFromTrustContext(trustContext);
+  if (resolved.trustClass === "guardian") {
+    return null;
   }
-  return resolved.trustClass === "guardian" ? null : resolved;
+  // Interaction count is gateway-owned telemetry, carried on the verdict-derived
+  // trust context; notes remain an INFO field joined locally by contact ID.
+  resolved.contactInteractionCount = trustContext.requesterInteractionCount;
+  if (trustContext.requesterContactId) {
+    const info = findContactInfoById(trustContext.requesterContactId);
+    if (info) {
+      resolved.contactNotes = info.notes ?? undefined;
+    }
+  }
+  return resolved;
 }
 
 /**
- * Render the `model_profile:` turn-context label for a turn from its resolved
- * inference profile key, for the unified `<turn_context>` block.
+ * Render the `model_profile:` turn-context label from the turn's profile
+ * notice key, for the unified `<turn_context>` block.
  *
  * Returns `null` when there is no key to announce (the caller gates this to the
  * turns where the active profile changed since the one last delivered to the
@@ -239,21 +214,23 @@ export function resolveTurnInboundActorContext(
  * random arm that can disagree with the model actually serving the turn.
  */
 export function resolveTurnModelProfileLabel(
-  modelProfileKey: string | null,
+  modelProfileNoticeKey: string | null,
   callSite: LLMCallSite,
   llm: LLMConfig,
   selectionSeed?: string,
 ): string | null {
-  if (modelProfileKey == null) {
+  if (modelProfileNoticeKey == null) {
     return null;
   }
-  const profileEntry = llm.profiles?.[modelProfileKey];
+  const profileEntry = llm.profiles?.[modelProfileNoticeKey];
   const resolved = resolveCallSiteConfig(callSite, llm, {
-    overrideProfile: modelProfileKey,
+    overrideProfile: modelProfileNoticeKey,
     selectionSeed,
   });
-  const label = profileEntry?.label ?? modelProfileKey;
-  return resolved.model ? `${label} (${resolved.model})` : label;
+  const label = profileEntry?.label ?? modelProfileNoticeKey;
+  return resolved.model && resolved.model !== label
+    ? `${label} (${resolved.model})`
+    : label;
 }
 
 /** Derive channel capabilities from source channel + interface identifiers. */
@@ -652,7 +629,7 @@ export function buildSubagentStatusBlock(
 }
 
 // The `<active_subagents>` block is emitted by the `subagent-status` default
-// injector (`plugins/defaults/memory-retrieval/injectors.ts`) as an `append-user-tail`
+// injector (`plugins/defaults/memory/injectors.ts`) as an `append-user-tail`
 // placement. `applyRuntimeInjections` resolves the block from the live
 // subagent manager keyed by the conversation, so callers do not pass it in.
 
@@ -1605,8 +1582,9 @@ export interface RuntimeInjectionResult {
 }
 
 /**
- * Run every {@link Injector} in the chain ({@link getInjectorChain}, already
- * sorted by ascending `order`) and return every non-null block it produced.
+ * Run every {@link Injector} in the chain ({@link getRegisteredInjectors},
+ * already sorted by ascending `order`) and return every non-null block it
+ * produced.
  *
  * `runMessages` is the turn's working message array, forwarded to each
  * injector so producers that need the current prompt contents read it from a
@@ -1618,13 +1596,19 @@ export interface RuntimeInjectionResult {
  * preserves ascending-`order` sort so downstream callers (notably
  * {@link applyRuntimeInjections}) can group blocks by `placement` and apply
  * them declaratively without losing per-injector ordering within each slot.
+ *
+ * `effectiveEnabledPlugins` carries the conversation's per-chat plugin scope:
+ * when non-null, injectors contributed by a plugin outside the set are excluded
+ * for this turn (see {@link getRegisteredInjectors}). `null`/omitted means no
+ * per-chat restriction.
  */
 async function collectInjectorBlocks(
   ctx: TurnContext,
   runMessages?: Message[],
+  effectiveEnabledPlugins?: Set<string> | null,
 ): Promise<InjectionBlock[]> {
   const out: InjectionBlock[] = [];
-  for (const injector of getInjectorChain()) {
+  for (const injector of getRegisteredInjectors(effectiveEnabledPlugins)) {
     const block = await injector.produce(ctx, runMessages);
     if (block) out.push(block);
   }
@@ -1963,6 +1947,14 @@ export async function applyRuntimeInjections(
   // field below from it rather than from orchestrator-computed options.
   const liveConversation = findConversationOrSubagent(conversationId);
 
+  // Per-chat plugin scope for this turn: when the conversation restricts its
+  // plugins (`enabledPlugins` non-null), injectors contributed by a plugin
+  // outside the set are excluded below. `null` (no live conversation, or no
+  // restriction) leaves the injector chain unchanged.
+  const effectiveEnabledPlugins = liveConversation
+    ? getEffectiveEnabledPluginSet(liveConversation)
+    : null;
+
   const channelCapabilities = liveConversation?.channelCapabilities ?? null;
   const slackConversation = channelCapabilities?.channel === "slack";
 
@@ -1977,6 +1969,13 @@ export async function applyRuntimeInjections(
       liveConversation.originInterface ??
       "web")
     : undefined;
+  // OS surface reported by the client, independent of the transport interface
+  // above. Drives the per-turn `client_os:` line so the model knows whether it
+  // is talking to the web, iOS, or macOS app (all sharing the `"web"`
+  // transport interface). Read the frozen per-turn snapshot (not the live
+  // `clientOs`) so a queued message from another surface can't perturb the
+  // in-flight turn — same anti-race pattern as `clientTimezone`.
+  const clientOs = liveConversation?.currentTurnClientOs ?? undefined;
   const channelName = liveConversation
     ? (liveConversation.currentTurnChannelContext?.userMessageChannel ??
       liveConversation.originChannel ??
@@ -2085,6 +2084,7 @@ export async function applyRuntimeInjections(
     activeDocuments,
     timestamp,
     interfaceName,
+    clientOs,
     channelName,
     actorContext: options.actorContext,
     configuredUserTimezone,
@@ -2106,7 +2106,11 @@ export async function applyRuntimeInjections(
     ...injectionInputs,
   };
 
-  const chainBlocks = await collectInjectorBlocks(turnCtx, runMessages);
+  const chainBlocks = await collectInjectorBlocks(
+    turnCtx,
+    runMessages,
+    effectiveEnabledPlugins,
+  );
 
   // Split the chain output by placement so the downstream assembly can
   // process each slot with the correct ordering rule.

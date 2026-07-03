@@ -54,6 +54,15 @@ export interface WakeToolContextPin {
   hasNoClient: boolean;
   /** The interface the source's live turns ran on (e.g. `"macos"`). */
   transportInterface?: InterfaceId;
+  /**
+   * Origin tag stamped onto `ToolContext.requestOrigin` for the duration of
+   * the wake (e.g. `"memory_retrospective"`). Wakes bypass `runAgentLoopImpl`,
+   * which is what normally sets `currentTurnRequestOrigin`, so the pin carries
+   * the origin through to `buildPolicyContext` → the permission checker's
+   * origin-scoped auto-grants. Applied and restored alongside the allowlist by
+   * `scopeWakeAllowedTools`. Unset for wakes that need no origin-scoped grant.
+   */
+  requestOrigin?: string;
 }
 
 /**
@@ -96,6 +105,14 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   callSessionId?: string;
   /** The interface ID of the connected client driving the current turn (e.g. "macos", "chrome-extension"). Propagated into ToolContext for browser backend selection. */
   readonly transportInterface?: InterfaceId;
+  /**
+   * The conversation's per-chat plugin scope (mirrors
+   * {@link Conversation.enabledPlugins}). `null`/absent means no per-chat
+   * restriction. Read per tool call to derive the effective enabled-plugin set
+   * (via `getEffectiveEnabledPluginSet`) for the `ToolContext.enabledPluginSet`
+   * field and the `skill_execute` dispatch guard.
+   */
+  readonly enabledPlugins?: string[] | null;
 
   /** Turn-scoped flag: true when any tool call in the current turn received explicit user approval via interactive prompt. Cleared at turn end. */
   approvedViaPromptThisTurn?: boolean;
@@ -125,10 +142,20 @@ export interface ToolSetupContext extends SurfaceConversationContext {
    */
   currentTurnOverrideProfile?: string;
   /**
-   * Set by the `switch_inference_profile` tool when the model self-selects a
-   * different profile mid-turn. Read by `readCurrentOverrideProfile` in the
-   * agent loop so the next LLM call uses the switched profile. Reset at
-   * turn start.
+   * Whether the current turn has no human present to answer clarification
+   * prompts. Resolved once per turn by the agent loop — honoring an explicit
+   * per-run `isInteractive` option (e.g. scheduled/background turns) over the
+   * live client state — so tool execution sees turn-level interactivity rather
+   * than re-deriving it from `hasNoClient`/`headlessLock`, which would read a
+   * scheduled turn running on a client-attached conversation as interactive.
    */
-  toolRoutedProfile?: string;
+  currentTurnIsNonInteractive?: boolean;
+  /**
+   * Origin tag of the current turn (the conversation's `TitleOrigin`, e.g.
+   * "memory_consolidation"), set by `runAgentLoop` from its `requestOrigin`
+   * option. Propagated into `ToolContext.requestOrigin` so the permission
+   * checker can scope narrow non-interactive auto-grants to a specific
+   * internal background origin. Absent for normal interactive turns.
+   */
+  currentTurnRequestOrigin?: string;
 }

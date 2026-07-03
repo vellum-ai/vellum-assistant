@@ -1,6 +1,7 @@
 import {
     ArrowDownToLine,
     Box,
+    Brain,
     Check,
     CheckCircle,
     Filter,
@@ -44,6 +45,7 @@ const ORIGIN_FILTERS: FilterOption[] = [
   { value: "clawhub", label: "Clawhub", icon: Globe },
   { value: "skillssh", label: "skills.sh", icon: Terminal },
   { value: "custom", label: "Custom", icon: User },
+  { value: "assistant-memory", label: "Assistant's Memory", icon: Brain },
 ];
 
 interface FilterBarProps {

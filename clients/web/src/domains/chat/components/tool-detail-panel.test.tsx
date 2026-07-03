@@ -6,7 +6,9 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { act, cleanup, fireEvent, render } from "@testing-library/react";
+import { act, cleanup, fireEvent, render as rtlRender } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactNode } from "react";
 
 // `ToolDetailPanel`'s thinking variant subscribes to the chat-session store,
 // which transitively pulls in the generated daemon SDK. Stub every endpoint it
@@ -32,8 +34,41 @@ const { useChatSessionStore } = await import(
 );
 import type { ToolDetailPayload } from "@/stores/viewer-store";
 import type { DisplayMessage } from "@/domains/chat/types/types";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+
+/** Wrap messages into a materialized-snapshot page. */
+function snap(messages: DisplayMessage[]): PaginatedHistoryResult {
+  return {
+    messages,
+    seq: null,
+    hasMore: false,
+    oldestTimestamp: null,
+    oldestMessageId: null,
+  };
+}
 
 const noop = () => {};
+
+let queryClient: QueryClient;
+
+function wrapper({ children }: { children: ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+}
+
+const render = (ui: Parameters<typeof rtlRender>[0]) =>
+  rtlRender(ui, { wrapper });
+
+/**
+ * Seed a committed message so the drawer's transcript resolves it. History now
+ * folds into the materialized snapshot, so this writes the snapshot.
+ */
+function seedHistory(messages: DisplayMessage[]) {
+  // History now folds into the materialized snapshot — the single source the
+  // drawer reads — so seed it there.
+  useChatSessionStore.setState({ snapshot: snap(messages) });
+}
 
 function makeDetail(overrides: Partial<ToolDetailPayload> = {}): ToolDetailPayload {
   return {
@@ -52,6 +87,9 @@ function makeDetail(overrides: Partial<ToolDetailPayload> = {}): ToolDetailPaylo
 let writeText: ReturnType<typeof mock>;
 
 beforeEach(() => {
+  queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
   writeText = mock(() => Promise.resolve());
   Object.defineProperty(navigator, "clipboard", {
     value: { writeText },
@@ -62,8 +100,9 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   act(() => {
-    useChatSessionStore.setState({ messages: [] });
+    useChatSessionStore.setState({ snapshot: null, optimisticSends: [] });
   });
+  queryClient.clear();
 });
 
 describe("ToolDetailPanel", () => {
@@ -178,13 +217,13 @@ describe("ToolDetailPanel", () => {
   test("thinking variant streams live reasoning from the chat-session store", () => {
     act(() => {
       useChatSessionStore.setState({
-        messages: [
+        snapshot: snap([
           {
             id: "m1",
             role: "assistant",
             contentBlocks: [{ type: "thinking", thinking: "live reasoning" }],
           },
-        ] as DisplayMessage[],
+        ] as DisplayMessage[]),
       });
     });
     const detail = makeDetail({
@@ -205,7 +244,7 @@ describe("ToolDetailPanel", () => {
     // Growing the store message updates the already-open drawer.
     act(() => {
       useChatSessionStore.setState({
-        messages: [
+        snapshot: snap([
           {
             id: "m1",
             role: "assistant",
@@ -213,7 +252,7 @@ describe("ToolDetailPanel", () => {
               { type: "thinking", thinking: "live reasoning, extended" },
             ],
           },
-        ] as DisplayMessage[],
+        ] as DisplayMessage[]),
       });
     });
     expect(getByText("live reasoning, extended")).toBeDefined();
@@ -233,10 +272,37 @@ describe("ToolDetailPanel", () => {
     expect(getByText("snapshot fallback")).toBeDefined();
   });
 
+  test("thinking variant keeps the full reasoning from the committed snapshot", () => {
+    // When a turn finishes, the committed row lives in the materialized
+    // snapshot. The drawer must keep rendering the full reasoning resolved from
+    // there, not snap back to the truncated open-time snapshot.
+    seedHistory([
+      {
+        id: "m1",
+        role: "assistant",
+        contentBlocks: [
+          { type: "thinking", thinking: "the full committed reasoning" },
+        ],
+      } as DisplayMessage,
+    ]);
+    const detail = makeDetail({
+      kind: "thinking",
+      title: "Thought process",
+      messageId: "m1",
+      thinkingGroupIndex: 0,
+      thinkingText: "stale partial snapshot",
+    });
+    const { getByText, queryByText } = render(
+      <ToolDetailPanel detail={detail} onClose={noop} />,
+    );
+    expect(getByText("the full committed reasoning")).toBeDefined();
+    expect(queryByText("stale partial snapshot")).toBeNull();
+  });
+
   test("thinking variant selects a single reasoning segment by item index", () => {
     act(() => {
       useChatSessionStore.setState({
-        messages: [
+        snapshot: snap([
           {
             id: "m1",
             role: "assistant",
@@ -249,7 +315,7 @@ describe("ToolDetailPanel", () => {
               { type: "thinking", thinking: "segment two" },
             ],
           },
-        ] as DisplayMessage[],
+        ] as DisplayMessage[]),
       });
     });
     const detail = makeDetail({

@@ -10,28 +10,47 @@ import { Toggle } from "@vellumai/design-library/components/toggle";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { ChevronRight } from "lucide-react";
 
-import { getModelsForProvider, PROVIDER_DISPLAY_NAMES } from "@/assistant/llm-model-catalog";
-import { configGetOptions, inferenceProviderconnectionsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  getModelsForProvider,
+  PROVIDER_DISPLAY_NAMES,
+} from "@/assistant/llm-model-catalog";
+import {
+  configGetOptions,
+  inferenceProviderconnectionsGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 
-import type { ProfileEntry, ProfilePatchEntry, ProfileStatus } from "@/generated/daemon/types.gen";
+import type {
+  ProfileEntry,
+  ProfilePatchEntry,
+  ProfileStatus,
+} from "@/generated/daemon/types.gen";
 
 import type { ProfileWithName } from "@/domains/settings/ai/utils";
 import {
-    ProfileAdvancedParams,
-    THINKING_LEVEL_INHERIT,
+  ProfileAdvancedParams,
+  THINKING_LEVEL_INHERIT,
 } from "@/domains/settings/ai/profile-advanced-params";
 import { ProfileEditorProviderSection } from "@/domains/settings/ai/profile-editor-provider-section";
-import { type GeminiThinkingLevel, isGeminiThinkingLevel, resolveProfileParamVisibility } from "@/domains/settings/ai/profile-param-visibility";
-import { AUTO_PROFILE_NAME } from "@/assistant/profile-pickers";
+import {
+  type GeminiThinkingLevel,
+  isGeminiThinkingLevel,
+  resolveProfileParamVisibility,
+} from "@/domains/settings/ai/profile-param-visibility";
 import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
-import type { ConnectionProvider, ProviderConnection } from "@/generated/daemon/types.gen";
+import { isProviderSelectableForAssistant } from "@/domains/settings/ai/provider-availability";
+import type {
+  ConnectionProvider,
+  ProviderConnection,
+} from "@/generated/daemon/types.gen";
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
+import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
 // of selecting a provider.
 const CREATE_NEW_PROVIDER_SENTINEL = "__create_new_provider__";
+type EffortSelection = "inherit" | NonNullable<ProfileEntry["effort"]>;
 
 export interface ProfileEditorModalProps {
   isOpen: boolean;
@@ -67,9 +86,9 @@ export interface ProfileEditorModalProps {
    *     delete-then-recreate cycle so omitted fields are reset to default.
    *   - `"merge"` (view mode): the parent skips the delete and sends a
    *     single deep-merge PATCH so unspecified fields (provider, model,
-   *     advanced params) survive. Required for managed-profile policy
-   *     edits — view mode sends only `{label, status}` and we must not
-   *     destroy the seed-owned fields.
+   *     advanced params) survive. View mode's only save is the managed
+   *     re-enable — `{status: "active"}` — and we must not destroy the
+   *     seed-owned fields.
    */
   onSave: (
     name: string,
@@ -147,28 +166,37 @@ function ProfileEditorModalInner({
   onSave,
   onCancel,
 }: ProfileEditorModalInnerProps) {
-  const [effectiveMode, setEffectiveMode] = useState<"create" | "edit" | "view">(mode);
-  const isReadOnly = effectiveMode === "view";
-  const isAutoProfile = profileName === AUTO_PROFILE_NAME;
+  const [effectiveMode, setEffectiveMode] = useState<
+    "create" | "edit" | "view"
+  >(mode);
+  // Managed profiles are read-only: no rename, no reshaping, no disabling —
+  // the only interactive control is the enable-only status toggle when the
+  // profile is disabled. The lock keys off the server-stamped `invariant`
+  // wire flag (the daemon stamps it exactly on the managed-source entries it
+  // freezes), so it must hold even if the parent opens the editor in edit
+  // mode. Customization goes through "Save As New", which switches
+  // `effectiveMode` to "create" and therefore drops the lock on the
+  // duplicate.
+  const isInvariant =
+    initialValues?.invariant === true && effectiveMode !== "create";
+  // The invariant lock forces read-only handling even in edit mode, so Save
+  // takes the partial-merge path and never the delete/recreate cycle the
+  // daemon rejects for managed profiles.
+  const isReadOnly = effectiveMode === "view" || isInvariant;
+  const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
 
-  // Managed profiles open the editor in view mode (mode === "view") so they
-  // can't be reshaped (provider, model, advanced params) — those are
-  // daemon-seeded. But the user is still allowed to rename them (label)
-  // and disable them (status) without leaving view mode, since those two
-  // fields are user policy, not daemon contract. The Save button at the
-  // footer is gated by `hasViewModeChanges` below so unchanged view-mode
-  // sessions stay close-only.
-  const initialLabel = initialValues?.label ?? "";
+  // Baseline for `hasViewModeChanges`: the enable flip is the only edit
+  // read-only mode permits.
   const initialStatus: ProfileStatus = initialValues?.status ?? "active";
 
   const [label, setLabel] = useState(initialValues?.label ?? "");
   const [description, setDescription] = useState(
     initialValues?.description ?? "",
   );
-  const [key, setKey] = useState(
-    mode === "create" ? "" : (profileName ?? ""),
-  );
-  const [provider, setProvider] = useState<NonNullable<ProfileEntry["provider"]> | "">(initialValues?.provider ?? "");
+  const [key, setKey] = useState(mode === "create" ? "" : (profileName ?? ""));
+  const [provider, setProvider] = useState<
+    NonNullable<ProfileEntry["provider"]> | ""
+  >(initialValues?.provider ?? "");
   const [model, setModel] = useState(initialValues?.model ?? "");
   // Per-profile provider-connection binding. Empty string means no explicit
   // binding — daemon falls back to its first-connection dispatch. Snake_case
@@ -176,11 +204,9 @@ function ProfileEditorModalInner({
   const [providerConnection, setProviderConnection] = useState(
     initialValues?.provider_connection ?? "",
   );
-  const [status, setStatus] = useState<ProfileStatus>(initialValues?.status ?? "active");
-  // Per-profile advisor toggle. Absent/null means ENABLED (default on); only an
-  // explicit `false` disables — so coalesce nil to `true`.
-  const initialAdvisorEnabled = initialValues?.advisorEnabled ?? true;
-  const [advisorEnabled, setAdvisorEnabled] = useState(initialAdvisorEnabled);
+  const [status, setStatus] = useState<ProfileStatus>(
+    initialValues?.status ?? "active",
+  );
   // Connections created inline this session, before the parent's `connections`
   // prop has refetched. Unioned into the available-connections set so a
   // just-created binding is treated as valid immediately — otherwise
@@ -197,47 +223,46 @@ function ProfileEditorModalInner({
   const [maxTokens, setMaxTokens] = useState<number | null>(
     initialValues?.maxTokens ?? null,
   );
-  const [contextWindowMaxInputTokens, setContextWindowMaxInputTokens] = useState<number | null>(
-    initialValues?.contextWindow?.maxInputTokens ?? null,
-  );
+  const [contextWindowMaxInputTokens, setContextWindowMaxInputTokens] =
+    useState<number | null>(
+      initialValues?.contextWindow?.maxInputTokens ?? null,
+    );
 
   // Advanced params — segment controls
-  // effort: "none" is the sentinel for "not overridden"
-  const [effort, setEffort] = useState<NonNullable<ProfileEntry["effort"]>>(initialValues?.effort ?? "none");
+  const [effort, setEffort] = useState<EffortSelection>(
+    initialValues?.effort ?? "inherit",
+  );
   // speed: "standard" is the sentinel for "not overridden"
-  const [speed, setSpeed] = useState<NonNullable<ProfileEntry["speed"]>>(initialValues?.speed ?? "standard");
+  const [speed, setSpeed] = useState<NonNullable<ProfileEntry["speed"]>>(
+    initialValues?.speed ?? "standard",
+  );
   // verbosity: defaults to "medium"; always included when visible
-  const [verbosity, setVerbosity] = useState<NonNullable<ProfileEntry["verbosity"]>>(initialValues?.verbosity ?? "medium");
+  const [verbosity, setVerbosity] = useState<
+    NonNullable<ProfileEntry["verbosity"]>
+  >(initialValues?.verbosity ?? "medium");
 
   // Advanced params — temperature
   const [temperatureEnabled, setTemperatureEnabled] = useState<boolean>(
     typeof initialValues?.temperature === "number",
   );
   const [temperature, setTemperature] = useState<number>(
-    typeof initialValues?.temperature === "number" ? initialValues.temperature : 0.7,
+    typeof initialValues?.temperature === "number"
+      ? initialValues.temperature
+      : 0.7,
   );
 
-  // Advanced params — top P. Top P is editable in view mode (managed
-  // profiles), so capture its initial enabled flag + value as the baseline
-  // `hasViewModeChanges` compares against — mirroring `initialAdvisorEnabled`.
-  const initialTopPEnabled = typeof initialValues?.topP === "number";
-  const initialTopP =
-    typeof initialValues?.topP === "number" ? initialValues.topP : 0.95;
-  const [topPEnabled, setTopPEnabled] = useState<boolean>(initialTopPEnabled);
-  const [topP, setTopP] = useState<number>(initialTopP);
+  // Advanced params — top P
+  const [topPEnabled, setTopPEnabled] = useState<boolean>(
+    typeof initialValues?.topP === "number",
+  );
+  const [topP, setTopP] = useState<number>(
+    typeof initialValues?.topP === "number" ? initialValues.topP : 0.95,
+  );
 
-  // True when in view mode and the user has touched one of the fields that
-  // view mode permits editing (label, status, advisor, Top P). Drives the
-  // view-mode Save button's enabled state and the partial-update save path.
-  // Top P is compared on both the enabled flag and the value so flipping the
-  // toggle or dragging the slider both arm Save.
-  const hasViewModeChanges =
-    isReadOnly &&
-    (label !== initialLabel ||
-      status !== initialStatus ||
-      advisorEnabled !== initialAdvisorEnabled ||
-      topPEnabled !== initialTopPEnabled ||
-      (topPEnabled && topP !== initialTopP));
+  // True when read-only mode's one permitted edit — the enable flip
+  // (disabled → active) — has been made. Drives the view-mode Save button's
+  // enabled state and the re-enable save path.
+  const hasViewModeChanges = isReadOnly && status !== initialStatus;
 
   // Advanced params — thinking
   const [thinkingEnabled, setThinkingEnabled] = useState<boolean>(
@@ -247,13 +272,20 @@ function ProfileEditorModalInner({
     initialValues?.thinking?.streamThinking ?? false,
   );
   // Gemini reasoning-depth knob. "default" = inherit the model default.
-  const [thinkingLevel, setThinkingLevel] = useState<GeminiThinkingLevel | typeof THINKING_LEVEL_INHERIT>(
-    isGeminiThinkingLevel(initialValues?.thinking?.level) ? initialValues.thinking.level : THINKING_LEVEL_INHERIT,
+  const [thinkingLevel, setThinkingLevel] = useState<
+    GeminiThinkingLevel | typeof THINKING_LEVEL_INHERIT
+  >(
+    isGeminiThinkingLevel(initialValues?.thinking?.level)
+      ? initialValues.thinking.level
+      : THINKING_LEVEL_INHERIT,
   );
 
   // Derived: selected model from catalog
   const selectedModel = useMemo(
-    () => (provider ? getModelsForProvider(provider).find((m) => m.id === model) ?? null : null),
+    () =>
+      provider
+        ? (getModelsForProvider(provider).find((m) => m.id === model) ?? null)
+        : null,
     [provider, model],
   );
 
@@ -338,14 +370,12 @@ function ProfileEditorModalInner({
       (c) => c.provider === newProvider,
     );
     setProviderConnection(
-      connectionsForProvider.length === 1
-        ? connectionsForProvider[0].name
-        : "",
+      connectionsForProvider.length === 1 ? connectionsForProvider[0].name : "",
     );
     // Reset all advanced params when provider changes
     setMaxTokens(null);
     setContextWindowMaxInputTokens(null);
-    setEffort("none");
+    setEffort("inherit");
     setSpeed("standard");
     setVerbosity("medium");
     setTemperatureEnabled(false);
@@ -366,11 +396,15 @@ function ProfileEditorModalInner({
         // "Any connection" — merge models from all connections and keep the
         // model if it exists in the merged set.
         const allModelIds = new Set(
-          availableConnectionsForProvider.flatMap((c) => (c.models ?? []).map((m) => m.id)),
+          availableConnectionsForProvider.flatMap((c) =>
+            (c.models ?? []).map((m) => m.id),
+          ),
         );
         if (!allModelIds.has(model)) setModel("");
       } else {
-        const conn = availableConnectionsForProvider.find((c) => c.name === newConnection);
+        const conn = availableConnectionsForProvider.find(
+          (c) => c.name === newConnection,
+        );
         const connModelIds = new Set((conn?.models ?? []).map((m) => m.id));
         if (!connModelIds.has(model)) setModel("");
       }
@@ -381,7 +415,9 @@ function ProfileEditorModalInner({
   // covers first-party providers; openai-compatible models live on the
   // connection, so fall back to those and finally to the id itself.
   function resolveModelDisplayName(modelId: string): string {
-    const catalogMatch = getModelsForProvider(provider).find((m) => m.id === modelId);
+    const catalogMatch = getModelsForProvider(provider).find(
+      (m) => m.id === modelId,
+    );
     if (catalogMatch) return catalogMatch.displayName;
     for (const conn of availableConnectionsForProvider) {
       const match = (conn.models ?? []).find((m) => m.id === modelId);
@@ -461,36 +497,17 @@ function ProfileEditorModalInner({
 
   async function handleSave() {
     if (isInvalid && !isReadOnly) return;
-    // View mode is reserved for managed profiles. The user can rename them
-    // (label) and disable them (status) without leaving view mode, but
-    // everything else (provider, model, advanced params, binding) belongs
-    // to the daemon seed and must NOT be in the request body — the daemon
-    // would reject the request as a managed-profile mutation otherwise.
-    //
-    // `mode: "merge"` tells the parent to skip its delete-then-recreate
-    // cycle and send a single deep-merge PATCH. Without this, the seed
-    // fields (provider, model, advanced params) would be destroyed by
-    // the recreate step that only writes back the partial `{label, status}`
-    // entry.
+    // Read-only (managed) profiles reach Save only via the enable flip — the
+    // daemon rejects every other mutation on them — so the body is exactly
+    // `{status: "active"}`. `mode: "merge"` tells the parent to skip its
+    // delete-then-recreate cycle and send a single deep-merge PATCH so the
+    // seed-owned fields (provider, model, advanced params) stay intact.
     if (isReadOnly) {
       if (!hasViewModeChanges) return;
       setSaving(true);
       setSaveError(null);
       try {
-        const entry: ProfileEntry = {
-          label: label.trim() || null,
-          status,
-          advisorEnabled,
-        };
-        // Top P is the one advanced param managed profiles may override.
-        // Mirror the create/edit build-entry logic: enabled → number,
-        // cleared → null. Only when the selected provider/model surfaces the
-        // control. `mode: "merge"` means sending just this changed subset
-        // leaves the seed-owned fields intact.
-        if (visibility.topP) {
-          entry.topP = topPEnabled ? topP : null;
-        }
-        await onSave(keyTrimmed, entry, { mode: "merge" });
+        await onSave(keyTrimmed, { status: "active" }, { mode: "merge" });
       } catch {
         setSaveError("Failed to save profile. Please try again.");
       } finally {
@@ -510,7 +527,8 @@ function ProfileEditorModalInner({
       // that connection's name so profiles always persist with an
       // explicit binding.
       const resolvedBinding =
-        providerConnection === "" && availableConnectionsForProvider.length === 1
+        providerConnection === "" &&
+        availableConnectionsForProvider.length === 1
           ? availableConnectionsForProvider[0].name
           : providerConnection;
       const effectiveBinding = connectionNotFound ? "" : resolvedBinding;
@@ -537,7 +555,7 @@ function ProfileEditorModalInner({
       if (visibility.contextWindow && contextWindowMaxInputTokens !== null) {
         entry.contextWindow = { maxInputTokens: contextWindowMaxInputTokens };
       }
-      if (visibility.effort && effort !== "none") {
+      if (visibility.effort && effort !== "inherit") {
         entry.effort = effort;
       }
       if (visibility.speed && speed !== "standard") {
@@ -565,12 +583,17 @@ function ProfileEditorModalInner({
       if (visibility.thinking) {
         entry.thinking = {
           enabled: thinkingEnabled,
-          ...(thinkingEnabled ? { streamThinking: thinkingStreamThinking } : {}),
+          ...(thinkingEnabled
+            ? { streamThinking: thinkingStreamThinking }
+            : {}),
         };
       }
       // Gemini: a chosen level implies thinking is on; "default" omits the
       // field so the daemon applies the model default.
-      if (visibility.thinkingLevel && thinkingLevel !== THINKING_LEVEL_INHERIT) {
+      if (
+        visibility.thinkingLevel &&
+        thinkingLevel !== THINKING_LEVEL_INHERIT
+      ) {
         entry.thinking = { enabled: true, level: thinkingLevel };
       }
       // Status — always include in edit mode; omit in create when active (default)
@@ -578,13 +601,6 @@ function ProfileEditorModalInner({
         entry.status = status;
       } else if (status !== "active") {
         entry.status = status;
-      }
-      // Advisor toggle — always include in edit mode; omit in create when
-      // enabled (absent/null already means enabled, so the default round-trips).
-      if (effectiveMode === "edit") {
-        entry.advisorEnabled = advisorEnabled;
-      } else if (!advisorEnabled) {
-        entry.advisorEnabled = advisorEnabled;
       }
       // Do NOT include source or name
       await onSave(keyTrimmed, entry);
@@ -619,6 +635,7 @@ function ProfileEditorModalInner({
         value={label}
         onChange={(e) => handleLabelChange(e.target.value)}
         placeholder="e.g. Fast & Cheap"
+        disabled={isReadOnly}
         fullWidth
       />
     </div>
@@ -667,30 +684,22 @@ function ProfileEditorModalInner({
     </div>
   );
 
-  const activeToggle = (
-    <Toggle
-      checked={status === "active"}
-      onChange={(v) => setStatus(v ? "active" : "disabled")}
-      label="Active"
-    />
-  );
+  // An active read-only (managed) profile shows no status toggle (it cannot
+  // be disabled); a disabled one keeps an enable-only toggle, mirroring the
+  // manage-profiles list item and the daemon's one-directional status rule.
+  const activeToggle =
+    !isReadOnly || status !== "active" ? (
+      <Toggle
+        checked={status === "active"}
+        onChange={(v) => setStatus(v ? "active" : "disabled")}
+        label="Active"
+      />
+    ) : null;
 
-  const advisorToggle = (
-    <Toggle
-      checked={advisorEnabled}
-      onChange={setAdvisorEnabled}
-      label="Advisor"
-      helperText="Let the model consult a stronger advisor model while using this profile."
-    />
-  );
-
-  const advancedParamsNode = !isAutoProfile ? (
+  const advancedParamsNode = (
     <ProfileAdvancedParams
       visibility={visibility}
       isReadOnly={isReadOnly}
-      // Top P is user policy on managed profiles too, so it stays editable in
-      // view mode while the other advanced params remain locked by isReadOnly.
-      topPReadOnly={false}
       model={model}
       selectedModel={selectedModel}
       defaultMaxOutputTokens={defaultMaxOutputTokens}
@@ -720,7 +729,7 @@ function ProfileEditorModalInner({
       thinkingLevel={thinkingLevel}
       onThinkingLevelChange={setThinkingLevel}
     />
-  ) : null;
+  );
 
   const saveErrorNode = saveError ? (
     <Typography
@@ -738,8 +747,19 @@ function ProfileEditorModalInner({
   // new provider" sentinel. First-run empty state shows ONLY the sentinel.
   const createModeProviderOptions = useMemo(() => {
     const seen = new Set<ConnectionProvider>();
-    const opts: { value: ConnectionProvider | typeof CREATE_NEW_PROVIDER_SENTINEL; label: string }[] = [];
+    const opts: {
+      value: ConnectionProvider | typeof CREATE_NEW_PROVIDER_SENTINEL;
+      label: string;
+    }[] = [];
     for (const c of effectiveConnections) {
+      if (
+        !isProviderSelectableForAssistant(
+          c.provider,
+          activeAssistantIsSelfHosted,
+        )
+      ) {
+        continue;
+      }
       if (!seen.has(c.provider)) {
         seen.add(c.provider);
         opts.push({
@@ -753,7 +773,7 @@ function ProfileEditorModalInner({
       label: "+ Create new provider",
     });
     return opts;
-  }, [effectiveConnections]);
+  }, [activeAssistantIsSelfHosted, effectiveConnections]);
 
   const createProviderSection = (
     <div className="space-y-4">
@@ -829,7 +849,7 @@ function ProfileEditorModalInner({
   // model-dependent (effort/thinking/token ranges resolve from the selected
   // model), so showing the disclosure before then is meaningless.
   const createAdvancedDisclosure =
-    !isAutoProfile && model !== "" && advancedParamsNode ? (
+    model !== "" ? (
       <div>
         <button
           type="button"
@@ -866,24 +886,12 @@ function ProfileEditorModalInner({
           // Create mode is provider-first: Provider (with inline create) ->
           // Model -> Name -> Key -> Description -> collapsed Advanced.
           <div className="space-y-4">
-            {isAutoProfile && (
-              <div className="rounded-lg bg-[var(--surface-info-subtle)] p-3">
-                <p className="text-body-small-default text-[var(--content-secondary)]">
-                  Auto mode routes each query to the best profile automatically
-                  — fast for simple questions, capable for complex ones. No
-                  provider or model configuration needed.
-                </p>
-              </div>
-            )}
-
-            {/* Provider + Connection + Model — hidden for the auto profile. */}
-            {!isAutoProfile && createProviderSection}
+            {createProviderSection}
 
             {displayNameField}
             {keyField}
             {descriptionField}
             {activeToggle}
-            {advisorToggle}
 
             {/* Advanced params — collapsed by default in create mode. */}
             {createAdvancedDisclosure}
@@ -899,36 +907,20 @@ function ProfileEditorModalInner({
             {descriptionField}
             {keyField}
             {activeToggle}
-            {advisorToggle}
 
-            {isAutoProfile && (
-              <div className="rounded-lg bg-[var(--surface-info-subtle)] p-3">
-                <p className="text-body-small-default text-[var(--content-secondary)]">
-                  Auto mode routes each query to the best profile automatically
-                  — fast for simple questions, capable for complex ones. No
-                  provider or model configuration needed.
-                </p>
-              </div>
-            )}
+            <ProfileEditorProviderSection
+              provider={provider}
+              model={model}
+              providerConnection={providerConnection}
+              onProviderChange={handleProviderChange}
+              onModelChange={handleModelChange}
+              onConnectionChange={handleConnectionChange}
+              connections={connections}
+              isReadOnly={isReadOnly}
+              availableConnectionsForProvider={availableConnectionsForProvider}
+              connectionNotFound={connectionNotFound}
+            />
 
-            {/* Provider, Connection, Model — hidden for the "auto" meta-profile
-                which has no provider/model of its own. */}
-            {!isAutoProfile && (
-              <ProfileEditorProviderSection
-                provider={provider}
-                model={model}
-                providerConnection={providerConnection}
-                onProviderChange={handleProviderChange}
-                onModelChange={handleModelChange}
-                onConnectionChange={handleConnectionChange}
-                connections={connections}
-                isReadOnly={isReadOnly}
-                availableConnectionsForProvider={availableConnectionsForProvider}
-                connectionNotFound={connectionNotFound}
-              />
-            )}
-
-            {/* Advanced params — hidden for the auto meta-profile */}
             {advancedParamsNode}
 
             {saveErrorNode}
@@ -937,12 +929,20 @@ function ProfileEditorModalInner({
       </Modal.Body>
 
       <Modal.Footer>
-        {effectiveMode === "view" ? (
+        {/* `isReadOnly` (not `effectiveMode === "view"`) picks the footer so
+            an invariant profile opened in edit mode still gets the safe
+            footer: Close, Save As New, and a Save gated by
+            `hasViewModeChanges` that only ever takes the merge path. */}
+        {isReadOnly ? (
           <>
-            <Button variant="outlined" onClick={onCancel} disabled={saving} data-testid="modal-cancel-btn">
+            <Button
+              variant="outlined"
+              onClick={onCancel}
+              disabled={saving}
+              data-testid="modal-cancel-btn"
+            >
               Close
             </Button>
-            {!isAutoProfile && (
             <Button
               variant="outlined"
               onClick={() => {
@@ -954,11 +954,9 @@ function ProfileEditorModalInner({
             >
               Save As New
             </Button>
-            )}
-            {/* Save in view mode persists ONLY label and status changes
-                (managed profile policy fields). The button is gated by
-                `hasViewModeChanges` so an unchanged view session can't
-                round-trip a no-op write. */}
+            {/* Save in view mode persists ONLY the status re-enable. The
+                button is gated by `hasViewModeChanges` so an unchanged view
+                session can't round-trip a no-op write. */}
             <Button
               variant="primary"
               onClick={() => void handleSave()}
@@ -970,7 +968,12 @@ function ProfileEditorModalInner({
           </>
         ) : (
           <>
-            <Button variant="outlined" onClick={onCancel} disabled={saving} data-testid="modal-cancel-btn">
+            <Button
+              variant="outlined"
+              onClick={onCancel}
+              disabled={saving}
+              data-testid="modal-cancel-btn"
+            >
               Cancel
             </Button>
             <Button

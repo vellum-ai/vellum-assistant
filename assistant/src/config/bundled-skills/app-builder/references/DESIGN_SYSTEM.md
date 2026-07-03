@@ -38,11 +38,6 @@ When the user wants a specific branded look, write complete CSS with hardcoded c
 
 ---
 
-## Theme detection in JavaScript
+## Theme and dark mode
 
-```javascript
-console.log(window.vellum.theme.mode); // 'light' or 'dark'
-window.addEventListener("vellum-theme-change", (e) => {
-  console.log("Theme:", e.detail.mode);
-});
-```
+The `--v-*` tokens switch between light and dark automatically, so token-based UI needs no dark-mode code. For custom (non-token) colors that must follow the theme, use `@media (prefers-color-scheme: dark)` in CSS.

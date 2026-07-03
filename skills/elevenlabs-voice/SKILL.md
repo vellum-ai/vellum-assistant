@@ -95,7 +95,7 @@ curl -s "https://api.elevenlabs.io/v2/voices?search=warm+female&page_size=10" \
 
 ### Custom and cloned voices
 
-If the user has created a custom voice or voice clone in their ElevenLabs account, they can use its voice ID directly. These voices work in both in-app TTS and Twilio ConversationRelay.
+If the user has created a custom voice or voice clone in their ElevenLabs account, they can use its voice ID directly. These voices work in both in-app TTS and phone calls.
 
 ### Preview voices
 
@@ -128,17 +128,13 @@ Lower stability makes the voice more expressive but less predictable - good for 
 
 ## Voice Model Tuning
 
-By default, the system sends a **bare** `voiceId` to Twilio ConversationRelay (no model/tuning suffix). This is the safest default across voice IDs.
-
-To optionally force Twilio's extended voice spec, set a model ID:
+By default, synthesis uses ElevenLabs' `eleven_multilingual_v2` model. To use a different model (e.g. a lower-latency one), set a model ID:
 
 ```bash
-assistant config set services.tts.providers.elevenlabs.voiceModelId "flash_v2_5"
+assistant config set services.tts.providers.elevenlabs.voiceModelId "eleven_flash_v2_5"
 ```
 
-When `voiceModelId` is set, the emitted voice string becomes: `voiceId-model-speed_stability_similarity`.
-
-To clear and revert to the bare voiceId default:
+To clear and revert to the default model:
 
 ```bash
 assistant config set services.tts.providers.elevenlabs.voiceModelId ""

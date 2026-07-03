@@ -22,9 +22,9 @@ let getMessagesImpl: (conversationId: string) => Array<{
 }> = () => [];
 let updateMessageContentSpy: (id: string, content: string) => void = () => {};
 
-const realCrud = await import("../memory/conversation-crud.js");
+const realCrud = await import("../persistence/conversation-crud.js");
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   ...realCrud,
   getMessages: (conversationId: string) => getMessagesImpl(conversationId),
   updateMessageContent: (id: string, content: string) =>

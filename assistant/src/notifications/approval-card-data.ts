@@ -16,9 +16,12 @@
 import {
   buildAccessRequestCardView,
   buildAccessRequestContractText,
+  buildIntroductionActionsForPayload,
   parseAccessRequestPayload,
 } from "./access-request-copy.js";
 import {
+  type ApprovalCardActionOption,
+  type ApprovalCardBlock,
   type ApprovalCardParams,
   buildApprovalCardBlocks,
 } from "./approval-card-builder.js";
@@ -96,7 +99,18 @@ export type ApprovalCardData = AccessRequestCardData | ToolApprovalCardData;
 function resolveAccessRequestCard(
   payload: Record<string, unknown>,
 ): ApprovalCardParams {
-  const view = buildAccessRequestCardView(parseAccessRequestPayload(payload));
+  const parsed = parseAccessRequestPayload(payload);
+  const view = buildAccessRequestCardView(parsed);
+
+  // Signal-driven introduction actions; the emphasis (primary lead,
+  // destructive Block) is resolved by introduction-policy and maps 1:1 onto
+  // the Surface style vocabulary.
+  const actions: ApprovalCardActionOption[] =
+    buildIntroductionActionsForPayload(parsed).map((action) => ({
+      id: action.id,
+      label: action.label,
+      style: action.emphasis,
+    }));
 
   const metadata: Array<{ label: string; value: string }> = [];
 
@@ -138,11 +152,12 @@ function resolveAccessRequestCard(
   return {
     surfaceIdPrefix: ACCESS_REQUEST_SURFACE_PREFIX,
     cardTitle: "Access Request",
-    requesterName: view.displayName,
+    primaryLine: view.displayName,
     subtitle: "Requesting access to the assistant",
     body,
     metadata,
     requestId: view.requestId,
+    actions,
     fallbackText: buildAccessRequestContractText(payload),
   };
 }
@@ -169,14 +184,22 @@ function isLenientToolApproval(payload: LenientToolApprovalPayload): boolean {
     payload.requestKind,
     payload.toolName,
   );
-  if (!modeResolution) return false;
+  if (!modeResolution) {
+    return false;
+  }
   return (
     modeResolution.mode === "approval" &&
     payload.requestKind !== "access_request"
   );
 }
 
-/** Shape a tool-approval/grant payload (strict or lenient) into card params. */
+/**
+ * Shape a tool-approval/grant payload (strict or lenient) into card params.
+ *
+ * The card is about the tool: the primary line names the tool awaiting
+ * approval. The requester appears only as metadata context, never as the
+ * subject of the decision.
+ */
 function extractToolApprovalCard(
   p: GuardianQuestionPayload | LenientToolApprovalPayload,
 ): ApprovalCardParams {
@@ -185,12 +208,16 @@ function extractToolApprovalCard(
   const rawRequester = nonEmpty(p.requesterIdentifier);
   const requester = rawRequester
     ? sanitizeIdentityField(rawRequester)
-    : "Someone";
+    : undefined;
 
   const isGrant = p.requestKind === "tool_grant_request";
 
+  // Who is asking is a fact the guardian weighs, so the row always renders:
+  // an unresolvable requester surfaces as "Unknown" rather than a silently
+  // missing row. In practice the producers always carry at least the raw
+  // channel user ID — this placeholder covers defensive/lenient parses.
   const metadata: Array<{ label: string; value: string }> = [];
-  metadata.push({ label: "Tool", value: toolName });
+  metadata.push({ label: "Requested by", value: requester ?? "Unknown" });
   const sourceChannel = nonEmpty(p.sourceChannel);
   if (sourceChannel) {
     metadata.push({ label: "Source", value: sourceChannel });
@@ -202,7 +229,8 @@ function extractToolApprovalCard(
 
   // Fallback text with request-code instructions for older clients.
   const baseFallback =
-    p.questionText ?? `${requester} is requesting approval to use ${toolName}`;
+    p.questionText ??
+    `Approve tool: ${toolName} (requested by ${requester ?? "Unknown"})`;
   let fallbackText = baseFallback;
   const requestCode = nonEmpty(p.requestCode);
   if (requestCode) {
@@ -221,10 +249,8 @@ function extractToolApprovalCard(
   return {
     surfaceIdPrefix: TOOL_APPROVAL_SURFACE_PREFIX,
     cardTitle: isGrant ? "Tool Grant Request" : "Tool Approval",
-    requesterName: requester,
-    subtitle: isGrant
-      ? "Requesting permission to use this tool"
-      : "Requesting approval to run this tool",
+    primaryLine: toolName,
+    subtitle: "Requires your approval to run",
     body,
     metadata,
     requestId: nonEmpty(p.requestId),
@@ -245,13 +271,19 @@ function resolveToolApprovalCard(
 ): ApprovalCardParams | null {
   const strict = parseGuardianQuestionPayload(payload);
   if (strict) {
-    if (!isToolApprovalPayload(strict)) return null;
+    if (!isToolApprovalPayload(strict)) {
+      return null;
+    }
     return extractToolApprovalCard(strict);
   }
 
   const lenient = LenientToolApprovalPayloadSchema.safeParse(payload);
-  if (!lenient.success) return null;
-  if (!isLenientToolApproval(lenient.data)) return null;
+  if (!lenient.success) {
+    return null;
+  }
+  if (!isLenientToolApproval(lenient.data)) {
+    return null;
+  }
   return extractToolApprovalCard(lenient.data);
 }
 
@@ -267,7 +299,9 @@ export function resolveApprovalCardData(
   sourceEventName: string,
   contextPayload: Record<string, unknown> | undefined,
 ): ApprovalCardData | null {
-  if (!contextPayload) return null;
+  if (!contextPayload) {
+    return null;
+  }
 
   if (sourceEventName === "ingress.access_request") {
     return {
@@ -285,7 +319,9 @@ export function resolveApprovalCardData(
 }
 
 /** Render resolved approval card data into Surface `[ui_surface, text]` blocks. */
-export function renderApprovalCardData(data: ApprovalCardData): unknown[] {
+export function renderApprovalCardData(
+  data: ApprovalCardData,
+): ApprovalCardBlock[] {
   return buildApprovalCardBlocks(data.card);
 }
 
@@ -300,7 +336,7 @@ export function renderApprovalCardData(data: ApprovalCardData): unknown[] {
  */
 export function buildAccessRequestSeedContentBlocks(
   payload: Record<string, unknown>,
-): unknown[] {
+): ApprovalCardBlock[] {
   return renderApprovalCardData({
     kind: "access_request",
     card: resolveAccessRequestCard(payload),
@@ -318,13 +354,13 @@ export function buildAccessRequestSeedContentBlocks(
  */
 export function buildToolApprovalSeedContentBlocks(
   payload: GuardianQuestionPayload,
-): unknown[] | null;
+): ApprovalCardBlock[] | null;
 export function buildToolApprovalSeedContentBlocks(
   payload: Record<string, unknown>,
-): unknown[] | null;
+): ApprovalCardBlock[] | null;
 export function buildToolApprovalSeedContentBlocks(
   payload: GuardianQuestionPayload | Record<string, unknown>,
-): unknown[] | null {
+): ApprovalCardBlock[] | null {
   const data = resolveApprovalCardData(
     "guardian.question",
     payload as Record<string, unknown>,

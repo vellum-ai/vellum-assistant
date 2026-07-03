@@ -69,30 +69,28 @@ mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => _testApprovalConversationGenerator,
 }));
 
-import { upsertContact } from "../contacts/contact-store.js";
-import type { Conversation } from "../daemon/conversation.js";
 import {
   createCanonicalGuardianDelivery,
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import * as deliveryChannels from "../memory/delivery-channels.js";
-import {
-  createApprovalRequest,
-  getAllPendingApprovalsByGuardianChat,
-} from "../memory/guardian-approvals.js";
-import { resetTestTables } from "../memory/raw-query.js";
-import { conversations } from "../memory/schema.js";
+} from "../contacts/canonical-guardian-store.js";
+import type { Conversation } from "../daemon/conversation.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import * as deliveryChannels from "../persistence/delivery-channels.js";
+import { resetTestTables } from "../persistence/raw-query.js";
+import { conversations } from "../persistence/schema/index.js";
 import { initAuthSigningKey } from "../runtime/auth/token-service.js";
 import * as gatewayClient from "../runtime/gateway-client.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
-import { sweepExpiredGuardianApprovals } from "../runtime/routes/channel-guardian-routes.js";
 import { _setTestPollMaxWait } from "../runtime/routes/channel-route-shared.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
-import { handleChannelInbound } from "./helpers/channel-test-adapter.js";
+import {
+  handleChannelInbound,
+  seedContactChannel,
+} from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
+import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 
 await initializeDb();
 initAuthSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
@@ -125,7 +123,6 @@ function resetTables(): void {
     "scoped_approval_grants",
     "canonical_guardian_deliveries",
     "canonical_guardian_requests",
-    "channel_guardian_approval_requests",
     "channel_verification_sessions",
     "conversation_keys",
     "message_runs",
@@ -135,6 +132,7 @@ function resetTables(): void {
     "contact_channels",
     "contacts",
   );
+  resetGatewayAclStore();
   deliveryChannels.resetAllRunDeliveryClaims();
   pendingInteractions.clear();
 }
@@ -218,22 +216,19 @@ function makeInboundRequest(overrides: Record<string, unknown> = {}): Request {
 const noopProcessMessage = mock(async () => ({ messageId: "msg-1" }));
 
 function ensureTestContact(): void {
-  upsertContact({
+  seedContactChannel({
+    sourceChannel: "telegram",
+    externalUserId: "telegram-user-default",
     displayName: "Test User",
-    channels: [
-      {
-        type: "telegram",
-        address: "telegram-user-default",
-        status: "active",
-        policy: "allow",
-      },
-      {
-        type: "slack",
-        address: "slack-user-default",
-        status: "active",
-        policy: "allow",
-      },
-    ],
+    status: "active",
+    policy: "allow",
+  });
+  seedContactChannel({
+    sourceChannel: "slack",
+    externalUserId: "slack-user-default",
+    displayName: "Test User",
+    status: "active",
+    policy: "allow",
   });
 }
 
@@ -1041,289 +1036,13 @@ describe("plain-text channel approval decisions", () => {
 // 21. Guardian decision scoping — callback for older request
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("guardian decision scoping — multiple pending approvals", () => {
-  test("callback for older request resolves to the correct approval request", async () => {
-    createGuardianBinding({
-      channel: "telegram",
-      guardianExternalUserId: "guardian-scope-user",
-      guardianDeliveryChatId: "guardian-scope-chat",
-      guardianPrincipalId: "guardian-scope-user",
-    });
-
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const olderConvId = "conv-scope-older";
-    const newerConvId = "conv-scope-newer";
-    ensureConversation(olderConvId);
-    ensureConversation(newerConvId);
-
-    // Register pending interactions and create guardian approval requests
-    const olderSession = registerPendingInteraction(
-      "req-older",
-      olderConvId,
-      "shell",
-    );
-    createApprovalRequest({
-      runId: "run-older",
-      requestId: "req-older",
-      conversationId: olderConvId,
-      channel: "telegram",
-      requesterExternalUserId: "requester-a",
-      requesterChatId: "chat-requester-a",
-      guardianExternalUserId: "guardian-scope-user",
-      guardianChatId: "guardian-scope-chat",
-      toolName: "shell",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    const newerSession = registerPendingInteraction(
-      "req-newer",
-      newerConvId,
-      "browser",
-    );
-    createApprovalRequest({
-      runId: "run-newer",
-      requestId: "req-newer",
-      conversationId: newerConvId,
-      channel: "telegram",
-      requesterExternalUserId: "requester-b",
-      requesterChatId: "chat-requester-b",
-      guardianExternalUserId: "guardian-scope-user",
-      guardianChatId: "guardian-scope-chat",
-      toolName: "browser",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    // The guardian clicks the approval button for the OLDER request
-    const req = makeInboundRequest({
-      content: "",
-      conversationExternalId: "guardian-scope-chat",
-      callbackData: "apr:req-older:approve_once",
-      actorExternalId: "guardian-scope-user",
-    });
-
-    const res = await handleChannelInbound(req, noopProcessMessage);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.approval).toBe("guardian_decision_applied");
-
-    // The older request's session should have been called
-    expect(olderSession).toHaveBeenCalledWith("req-older", "allow", {
-      decisionContext: undefined,
-    });
-
-    // The newer request's session should NOT have been called
-    expect(newerSession).not.toHaveBeenCalled();
-
-    deliverSpy.mockRestore();
-  });
-});
-
 // ═══════════════════════════════════════════════════════════════════════════
 // 22. Ambiguous plain-text decision with multiple pending requests
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("ambiguous plain-text decision with multiple pending requests", () => {
-  test("does not apply plain-text decision to wrong request when multiple pending", async () => {
-    createGuardianBinding({
-      channel: "telegram",
-      guardianExternalUserId: "guardian-ambig-user",
-      guardianDeliveryChatId: "guardian-ambig-chat",
-      guardianPrincipalId: "guardian-ambig-user",
-    });
-
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const convA = "conv-ambig-a";
-    const convB = "conv-ambig-b";
-    ensureConversation(convA);
-    ensureConversation(convB);
-
-    const sessionA = registerPendingInteraction("req-ambig-a", convA, "shell");
-    createApprovalRequest({
-      runId: "run-ambig-a",
-      requestId: "req-ambig-a",
-      conversationId: convA,
-      channel: "telegram",
-      requesterExternalUserId: "requester-x",
-      requesterChatId: "chat-requester-x",
-      guardianExternalUserId: "guardian-ambig-user",
-      guardianChatId: "guardian-ambig-chat",
-      toolName: "shell",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    const sessionB = registerPendingInteraction(
-      "req-ambig-b",
-      convB,
-      "browser",
-    );
-    createApprovalRequest({
-      runId: "run-ambig-b",
-      requestId: "req-ambig-b",
-      conversationId: convB,
-      channel: "telegram",
-      requesterExternalUserId: "requester-y",
-      requesterChatId: "chat-requester-y",
-      guardianExternalUserId: "guardian-ambig-user",
-      guardianChatId: "guardian-ambig-chat",
-      toolName: "browser",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    // Conversational engine that returns keep_pending for disambiguation
-    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
-      disposition: "keep_pending" as const,
-      replyText: "You have 2 pending requests. Which one?",
-    }));
-    setTestApprovalConversationGenerator(mockConversationGenerator);
-
-    // Guardian sends plain-text "yes" — ambiguous because two approvals are pending
-    const req = makeInboundRequest({
-      content: "yes",
-      conversationExternalId: "guardian-ambig-chat",
-      actorExternalId: "guardian-ambig-user",
-    });
-
-    const res = await handleChannelInbound(
-      req,
-      noopProcessMessage,
-      "self",
-      undefined,
-    );
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.approval).toBe("assistant_turn");
-
-    // Neither session should have been called — disambiguation was required
-    expect(sessionA).not.toHaveBeenCalled();
-    expect(sessionB).not.toHaveBeenCalled();
-
-    // The conversational engine should have been called with both pending approvals
-    expect(mockConversationGenerator).toHaveBeenCalledTimes(1);
-    const engineCtx = mockConversationGenerator.mock.calls[0][0] as Record<
-      string,
-      unknown
-    >;
-    expect(engineCtx.pendingApprovals as Array<unknown>).toHaveLength(2);
-
-    deliverSpy.mockRestore();
-  });
-});
-
 // ═══════════════════════════════════════════════════════════════════════════
 // 23. Expired guardian approval auto-denies and transitions to terminal status
 // ═══════════════════════════════════════════════════════════════════════════
-
-describe("expired guardian approval auto-denies via sweep", () => {
-  test("sweepExpiredGuardianApprovals auto-denies and notifies both parties", async () => {
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const convId = "conv-expiry-sweep";
-    ensureConversation(convId);
-
-    // Register a pending interaction so the sweep can resolve the session
-    const sessionMock = registerPendingInteraction(
-      "req-exp-1",
-      convId,
-      "shell",
-    );
-
-    createApprovalRequest({
-      runId: "run-exp-1",
-      requestId: "req-exp-1",
-      conversationId: convId,
-      channel: "telegram",
-      requesterExternalUserId: "requester-exp",
-      requesterChatId: "chat-requester-exp",
-      guardianExternalUserId: "guardian-exp-user",
-      guardianChatId: "guardian-exp-chat",
-      toolName: "shell",
-      expiresAt: Date.now() - 1000, // already expired
-    });
-
-    // Run the sweep
-    sweepExpiredGuardianApprovals();
-
-    // Wait for async notifications
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    // The session should have been denied
-    expect(sessionMock).toHaveBeenCalledWith("req-exp-1", "deny", {
-      decisionContext: undefined,
-    });
-
-    // Both requester and guardian should have been notified
-    const requesterNotify = deliverSpy.mock.calls.filter(
-      (call) =>
-        typeof call[1] === "object" &&
-        (call[1] as { chatId?: string }).chatId === "chat-requester-exp" &&
-        (call[1] as { text?: string }).text?.includes("expired"),
-    );
-    expect(requesterNotify.length).toBeGreaterThanOrEqual(1);
-
-    const guardianNotify = deliverSpy.mock.calls.filter(
-      (call) =>
-        typeof call[1] === "object" &&
-        (call[1] as { chatId?: string }).chatId === "guardian-exp-chat" &&
-        (call[1] as { text?: string }).text?.includes("expired"),
-    );
-    expect(guardianNotify.length).toBeGreaterThanOrEqual(1);
-
-    // Verify the delivery URL is constructed per-channel
-    const allDeliverCalls = deliverSpy.mock.calls;
-    for (const call of allDeliverCalls) {
-      expect(call[0]).toBe("/deliver/telegram");
-    }
-
-    deliverSpy.mockRestore();
-  });
-
-  test("non-expired approvals are not affected by the sweep", async () => {
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const convId = "conv-not-expired";
-    ensureConversation(convId);
-
-    const sessionMock = registerPendingInteraction("req-ne-1", convId, "shell");
-
-    createApprovalRequest({
-      runId: "run-ne-1",
-      requestId: "req-ne-1",
-      conversationId: convId,
-      channel: "telegram",
-      requesterExternalUserId: "requester-ne",
-      requesterChatId: "chat-requester-ne",
-      guardianExternalUserId: "guardian-ne-user",
-      guardianChatId: "guardian-ne-chat",
-      toolName: "shell",
-      expiresAt: Date.now() + 300_000, // still valid
-    });
-
-    sweepExpiredGuardianApprovals();
-
-    await new Promise((resolve) => setTimeout(resolve, 10));
-
-    // The session should NOT have been called
-    expect(sessionMock).not.toHaveBeenCalled();
-
-    deliverSpy.mockRestore();
-  });
-});
 
 // ═══════════════════════════════════════════════════════════════════════════
 // 24. Deliver-once idempotency guard
@@ -1590,317 +1309,6 @@ describe("conversational approval engine — standard path", () => {
 // Guardian conversational approval engine tests
 // ═══════════════════════════════════════════════════════════════════════════
 
-describe("guardian conversational approval via conversation engine", () => {
-  test("guardian follow-up clarification: engine returns keep_pending", async () => {
-    createGuardianBinding({
-      channel: "telegram",
-      guardianExternalUserId: "guardian-conv-user",
-      guardianDeliveryChatId: "guardian-conv-chat",
-      guardianPrincipalId: "guardian-conv-user",
-    });
-
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const convId = "conv-guardian-clarify";
-    ensureConversation(convId);
-
-    const sessionMock = registerPendingInteraction(
-      "req-gclarify-1",
-      convId,
-      "shell",
-    );
-    createApprovalRequest({
-      runId: "run-gclarify-1",
-      requestId: "req-gclarify-1",
-      conversationId: convId,
-      channel: "telegram",
-      requesterExternalUserId: "requester-clarify",
-      requesterChatId: "chat-requester-clarify",
-      guardianExternalUserId: "guardian-conv-user",
-      guardianChatId: "guardian-conv-chat",
-      toolName: "shell",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
-      disposition: "keep_pending" as const,
-      replyText: "Could you clarify which action you want me to approve?",
-    }));
-    setTestApprovalConversationGenerator(mockConversationGenerator);
-
-    const req = makeInboundRequest({
-      content: "hmm what does this do?",
-      conversationExternalId: "guardian-conv-chat",
-      actorExternalId: "guardian-conv-user",
-    });
-
-    const res = await handleChannelInbound(
-      req,
-      noopProcessMessage,
-      "self",
-      undefined,
-    );
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.approval).toBe("assistant_turn");
-
-    // The engine should have been called with role: 'guardian'
-    expect(mockConversationGenerator).toHaveBeenCalledTimes(1);
-    const callCtx = mockConversationGenerator.mock.calls[0][0] as Record<
-      string,
-      unknown
-    >;
-    expect(callCtx.role).toBe("guardian");
-    expect(callCtx.allowedActions).toEqual(["approve_once", "reject"]);
-    expect(callCtx.userMessage).toBe("hmm what does this do?");
-
-    // The session should NOT have received a decision
-    expect(sessionMock).not.toHaveBeenCalled();
-
-    // The approval should still be pending
-    const pending = getAllPendingApprovalsByGuardianChat(
-      "telegram",
-      "guardian-conv-chat",
-    );
-    expect(pending).toHaveLength(1);
-
-    deliverSpy.mockRestore();
-  });
-
-  test("guardian natural-language approval: engine returns approve_once", async () => {
-    createGuardianBinding({
-      channel: "telegram",
-      guardianExternalUserId: "guardian-nlp-user",
-      guardianDeliveryChatId: "guardian-nlp-chat",
-      guardianPrincipalId: "guardian-nlp-user",
-    });
-
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const convId = "conv-guardian-nlp";
-    ensureConversation(convId);
-
-    const sessionMock = registerPendingInteraction(
-      "req-gnlp-1",
-      convId,
-      "shell",
-    );
-    createApprovalRequest({
-      runId: "run-gnlp-1",
-      requestId: "req-gnlp-1",
-      conversationId: convId,
-      channel: "telegram",
-      requesterExternalUserId: "requester-nlp",
-      requesterChatId: "chat-requester-nlp",
-      guardianExternalUserId: "guardian-nlp-user",
-      guardianChatId: "guardian-nlp-chat",
-      toolName: "shell",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
-      disposition: "approve_once" as const,
-      replyText: "Approved! The shell command will proceed.",
-    }));
-    setTestApprovalConversationGenerator(mockConversationGenerator);
-
-    const req = makeInboundRequest({
-      content: "yes go ahead and run it",
-      conversationExternalId: "guardian-nlp-chat",
-      actorExternalId: "guardian-nlp-user",
-    });
-
-    const res = await handleChannelInbound(
-      req,
-      noopProcessMessage,
-      "self",
-      undefined,
-    );
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.approval).toBe("guardian_decision_applied");
-
-    // The session should have received an 'allow' decision
-    expect(sessionMock).toHaveBeenCalledWith("req-gnlp-1", "allow", {
-      decisionContext: undefined,
-    });
-
-    // The approval record should have been updated (no longer pending)
-    const pending = getAllPendingApprovalsByGuardianChat(
-      "telegram",
-      "guardian-nlp-chat",
-    );
-    expect(pending).toHaveLength(0);
-
-    // The engine context only allows approve_once and reject
-    const callCtx = mockConversationGenerator.mock.calls[0][0] as Record<
-      string,
-      unknown
-    >;
-    expect(callCtx.allowedActions).toEqual(["approve_once", "reject"]);
-
-    deliverSpy.mockRestore();
-  });
-
-  test("guardian callback button approve_always is mapped to approve_once (backward compat)", async () => {
-    createGuardianBinding({
-      channel: "telegram",
-      guardianExternalUserId: "guardian-dg-user",
-      guardianDeliveryChatId: "guardian-dg-chat",
-      guardianPrincipalId: "guardian-dg-user",
-    });
-
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const convId = "conv-guardian-downgrade";
-    ensureConversation(convId);
-
-    const sessionMock = registerPendingInteraction(
-      "req-gdg-1",
-      convId,
-      "shell",
-    );
-    createApprovalRequest({
-      runId: "run-gdg-1",
-      requestId: "req-gdg-1",
-      conversationId: convId,
-      channel: "telegram",
-      requesterExternalUserId: "requester-dg",
-      requesterChatId: "chat-requester-dg",
-      guardianExternalUserId: "guardian-dg-user",
-      guardianChatId: "guardian-dg-chat",
-      toolName: "shell",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    // Guardian sends an approve_always callback — legacy action is mapped to
-    // approve_once by LEGACY_CALLBACK_MAP for backward compat with in-flight buttons.
-    const req = makeInboundRequest({
-      content: "",
-      conversationExternalId: "guardian-dg-chat",
-      callbackData: "apr:req-gdg-1:approve_always",
-      actorExternalId: "guardian-dg-user",
-    });
-
-    const res = await handleChannelInbound(req, noopProcessMessage, "self");
-    const body = (await res.json()) as Record<string, unknown>;
-
-    // The legacy action is canonicalized to approve_once — the pending
-    // interaction IS resolved (backward compat).
-    expect(body.accepted).toBe(true);
-    expect(sessionMock).toHaveBeenCalled();
-
-    deliverSpy.mockRestore();
-  });
-
-  test("multi-pending guardian disambiguation: engine requests clarification", async () => {
-    createGuardianBinding({
-      channel: "telegram",
-      guardianExternalUserId: "guardian-multi-user",
-      guardianDeliveryChatId: "guardian-multi-chat",
-      guardianPrincipalId: "guardian-multi-user",
-    });
-
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const convA = "conv-multi-a";
-    const convB = "conv-multi-b";
-    ensureConversation(convA);
-    ensureConversation(convB);
-
-    const sessionA = registerPendingInteraction("req-multi-a", convA, "shell");
-    createApprovalRequest({
-      runId: "run-multi-a",
-      requestId: "req-multi-a",
-      conversationId: convA,
-      channel: "telegram",
-      requesterExternalUserId: "requester-multi-a",
-      requesterChatId: "chat-requester-multi-a",
-      guardianExternalUserId: "guardian-multi-user",
-      guardianChatId: "guardian-multi-chat",
-      toolName: "shell",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    const sessionB = registerPendingInteraction(
-      "req-multi-b",
-      convB,
-      "file_edit",
-    );
-    createApprovalRequest({
-      runId: "run-multi-b",
-      requestId: "req-multi-b",
-      conversationId: convB,
-      channel: "telegram",
-      requesterExternalUserId: "requester-multi-b",
-      requesterChatId: "chat-requester-multi-b",
-      guardianExternalUserId: "guardian-multi-user",
-      guardianChatId: "guardian-multi-chat",
-      toolName: "file_edit",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    // Engine returns keep_pending for disambiguation
-    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
-      disposition: "keep_pending" as const,
-      replyText: "You have 2 pending requests: shell and file_edit. Which one?",
-    }));
-    setTestApprovalConversationGenerator(mockConversationGenerator);
-
-    const req = makeInboundRequest({
-      content: "approve it",
-      conversationExternalId: "guardian-multi-chat",
-      actorExternalId: "guardian-multi-user",
-    });
-
-    const res = await handleChannelInbound(
-      req,
-      noopProcessMessage,
-      "self",
-      undefined,
-    );
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.approval).toBe("assistant_turn");
-
-    // Neither session should have been called
-    expect(sessionA).not.toHaveBeenCalled();
-    expect(sessionB).not.toHaveBeenCalled();
-
-    // The engine should have received both pending approvals
-    expect(mockConversationGenerator).toHaveBeenCalledTimes(1);
-    const engineCtx = mockConversationGenerator.mock.calls[0][0] as Record<
-      string,
-      unknown
-    >;
-    expect(engineCtx.pendingApprovals as Array<unknown>).toHaveLength(2);
-    expect(engineCtx.role).toBe("guardian");
-
-    // Disambiguation reply delivered to guardian
-    const disambigCall = deliverSpy.mock.calls.find((call) =>
-      (call[1] as { text?: string }).text?.includes("2 pending requests"),
-    );
-    expect(disambigCall).toBeTruthy();
-
-    deliverSpy.mockRestore();
-  });
-});
-
 // ═══════════════════════════════════════════════════════════════════════════
 // keep_pending must remain conversational (no deterministic fallback)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1965,386 +1373,9 @@ describe("keep_pending remains conversational — standard path", () => {
   });
 });
 
-describe("keep_pending remains conversational — guardian path", () => {
-  test('guardian explicit "yes" with keep_pending returns assistant_turn without applying a decision', async () => {
-    createGuardianBinding({
-      channel: "telegram",
-      guardianExternalUserId: "guardian-user-fb",
-      guardianDeliveryChatId: "guardian-chat-fb",
-      guardianPrincipalId: "guardian-user-fb",
-    });
-
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const convId = "conv-gfb-1";
-    ensureConversation(convId);
-
-    const sessionMock = registerPendingInteraction(
-      "req-gfb-1",
-      convId,
-      "shell",
-    );
-    createApprovalRequest({
-      runId: "run-gfb-1",
-      requestId: "req-gfb-1",
-      conversationId: convId,
-      channel: "telegram",
-      requesterExternalUserId: "requester-user-fb",
-      requesterChatId: "requester-chat-fb",
-      guardianExternalUserId: "guardian-user-fb",
-      guardianChatId: "guardian-chat-fb",
-      toolName: "shell",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
-      disposition: "keep_pending" as const,
-      replyText: "Which run are you approving?",
-    }));
-    setTestApprovalConversationGenerator(mockConversationGenerator);
-
-    const guardianReq = makeInboundRequest({
-      content: "yes",
-      conversationExternalId: "guardian-chat-fb",
-      actorExternalId: "guardian-user-fb",
-    });
-    const res = await handleChannelInbound(
-      guardianReq,
-      noopProcessMessage,
-      "self",
-      undefined,
-    );
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.approval).toBe("assistant_turn");
-    expect(sessionMock).not.toHaveBeenCalled();
-
-    const followupReply = deliverSpy.mock.calls.find((call) =>
-      (call[1] as { text?: string }).text?.includes(
-        "Which run are you approving",
-      ),
-    );
-    expect(followupReply).toBeDefined();
-
-    deliverSpy.mockRestore();
-  });
-});
-
 // ═══════════════════════════════════════════════════════════════════════════
 // Requester cancel of guardian-gated pending request
 // ═══════════════════════════════════════════════════════════════════════════
-
-describe("requester cancel of guardian-gated pending request", () => {
-  beforeEach(() => {
-    createGuardianBinding({
-      channel: "telegram",
-      guardianExternalUserId: "guardian-cancel",
-      guardianDeliveryChatId: "guardian-cancel-chat",
-      guardianPrincipalId: "guardian-cancel",
-    });
-    upsertContact({
-      displayName: "Requester Cancel User",
-      channels: [
-        {
-          type: "telegram",
-          address: "requester-cancel-user",
-          status: "active",
-          policy: "allow",
-        },
-      ],
-    });
-  });
-
-  test('requester explicit "deny" can cancel when the conversation engine returns reject', async () => {
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    // Create requester conversation
-    const initReq = makeInboundRequest({
-      content: "init",
-      conversationExternalId: "requester-cancel-chat",
-      actorExternalId: "requester-cancel-user",
-    });
-    await handleChannelInbound(initReq, noopProcessMessage);
-
-    const db = getDb();
-    const events = db.$client
-      .prepare("SELECT conversation_id FROM channel_inbound_events")
-      .all() as Array<{ conversation_id: string }>;
-    const conversationId = events[0]?.conversation_id;
-    ensureConversation(conversationId!);
-
-    const sessionMock = registerPendingInteraction(
-      "req-cancel-1",
-      conversationId!,
-      "shell",
-    );
-
-    createApprovalRequest({
-      runId: "run-cancel-1",
-      requestId: "req-cancel-1",
-      conversationId: conversationId!,
-      channel: "telegram",
-      requesterExternalUserId: "requester-cancel-user",
-      requesterChatId: "requester-cancel-chat",
-      guardianExternalUserId: "guardian-cancel",
-      guardianChatId: "guardian-cancel-chat",
-      toolName: "shell",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    deliverSpy.mockClear();
-
-    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
-      disposition: "reject" as const,
-      replyText: "Cancelling this request now.",
-    }));
-    setTestApprovalConversationGenerator(mockConversationGenerator);
-
-    const req = makeInboundRequest({
-      content: "deny",
-      conversationExternalId: "requester-cancel-chat",
-      actorExternalId: "requester-cancel-user",
-    });
-    const res = await handleChannelInbound(
-      req,
-      noopProcessMessage,
-      "self",
-      undefined,
-    );
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-cancel-1", "deny", {
-      decisionContext: undefined,
-    });
-
-    // Requester should have been notified
-    const requesterReply = deliverSpy.mock.calls.find(
-      (call) =>
-        (call[1] as { chatId?: string }).chatId === "requester-cancel-chat",
-    );
-    expect(requesterReply).toBeDefined();
-
-    // Guardian should have been notified of the cancellation
-    const guardianNotice = deliverSpy.mock.calls.find(
-      (call) =>
-        (call[1] as { chatId?: string }).chatId === "guardian-cancel-chat",
-    );
-    expect(guardianNotice).toBeDefined();
-
-    deliverSpy.mockRestore();
-  });
-
-  test('requester "nevermind" via conversational engine cancels guardian-gated request', async () => {
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const initReq = makeInboundRequest({
-      content: "init",
-      conversationExternalId: "requester-cancel-chat",
-      actorExternalId: "requester-cancel-user",
-    });
-    await handleChannelInbound(initReq, noopProcessMessage);
-
-    const db = getDb();
-    const events = db.$client
-      .prepare("SELECT conversation_id FROM channel_inbound_events")
-      .all() as Array<{ conversation_id: string }>;
-    const conversationId = events[0]?.conversation_id;
-    ensureConversation(conversationId!);
-
-    const sessionMock = registerPendingInteraction(
-      "req-cancel-2",
-      conversationId!,
-      "shell",
-    );
-
-    createApprovalRequest({
-      runId: "run-cancel-2",
-      requestId: "req-cancel-2",
-      conversationId: conversationId!,
-      channel: "telegram",
-      requesterExternalUserId: "requester-cancel-user",
-      requesterChatId: "requester-cancel-chat",
-      guardianExternalUserId: "guardian-cancel",
-      guardianChatId: "guardian-cancel-chat",
-      toolName: "shell",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    deliverSpy.mockClear();
-
-    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
-      disposition: "reject" as const,
-      replyText: "OK, I have cancelled the pending request.",
-    }));
-    setTestApprovalConversationGenerator(mockConversationGenerator);
-
-    const req = makeInboundRequest({
-      content: "actually never mind, cancel it",
-      conversationExternalId: "requester-cancel-chat",
-      actorExternalId: "requester-cancel-user",
-    });
-    const res = await handleChannelInbound(
-      req,
-      noopProcessMessage,
-      "self",
-      undefined,
-    );
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.approval).toBe("decision_applied");
-    expect(sessionMock).toHaveBeenCalledWith("req-cancel-2", "deny", {
-      decisionContext: undefined,
-    });
-
-    // Engine should have been called with reject-only allowed actions
-    expect(mockConversationGenerator).toHaveBeenCalledTimes(1);
-    const engineCtx = mockConversationGenerator.mock.calls[0][0] as Record<
-      string,
-      unknown
-    >;
-    expect(engineCtx.allowedActions).toEqual(["reject"]);
-
-    deliverSpy.mockRestore();
-  });
-
-  test("requester non-cancel message with keep_pending returns conversational reply", async () => {
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const initReq = makeInboundRequest({
-      content: "init",
-      conversationExternalId: "requester-cancel-chat",
-      actorExternalId: "requester-cancel-user",
-    });
-    await handleChannelInbound(initReq, noopProcessMessage);
-
-    const db = getDb();
-    const events = db.$client
-      .prepare("SELECT conversation_id FROM channel_inbound_events")
-      .all() as Array<{ conversation_id: string }>;
-    const conversationId = events[0]?.conversation_id;
-    ensureConversation(conversationId!);
-
-    const sessionMock = registerPendingInteraction(
-      "req-cancel-3",
-      conversationId!,
-      "shell",
-    );
-
-    createApprovalRequest({
-      runId: "run-cancel-3",
-      requestId: "req-cancel-3",
-      conversationId: conversationId!,
-      channel: "telegram",
-      requesterExternalUserId: "requester-cancel-user",
-      requesterChatId: "requester-cancel-chat",
-      guardianExternalUserId: "guardian-cancel",
-      guardianChatId: "guardian-cancel-chat",
-      toolName: "shell",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    deliverSpy.mockClear();
-
-    const mockConversationGenerator = mock(async (_ctx: unknown) => ({
-      disposition: "keep_pending" as const,
-      replyText: "Still waiting.",
-    }));
-    setTestApprovalConversationGenerator(mockConversationGenerator);
-
-    const req = makeInboundRequest({
-      content: "what is happening?",
-      conversationExternalId: "requester-cancel-chat",
-      actorExternalId: "requester-cancel-user",
-    });
-    const res = await handleChannelInbound(
-      req,
-      noopProcessMessage,
-      "self",
-      undefined,
-    );
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.approval).toBe("assistant_turn");
-    expect(sessionMock).not.toHaveBeenCalled();
-
-    const pendingReply = deliverSpy.mock.calls.find((call) =>
-      (call[1] as { text?: string }).text?.includes("Still waiting."),
-    );
-    expect(pendingReply).toBeDefined();
-
-    deliverSpy.mockRestore();
-  });
-
-  test('requester "approve" is blocked — self-approval not allowed even during cancel check', async () => {
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const initReq = makeInboundRequest({
-      content: "init",
-      conversationExternalId: "requester-cancel-chat",
-      actorExternalId: "requester-cancel-user",
-    });
-    await handleChannelInbound(initReq, noopProcessMessage);
-
-    const db = getDb();
-    const events = db.$client
-      .prepare("SELECT conversation_id FROM channel_inbound_events")
-      .all() as Array<{ conversation_id: string }>;
-    const conversationId = events[0]?.conversation_id;
-    ensureConversation(conversationId!);
-
-    registerPendingInteraction("req-cancel-4", conversationId!, "shell");
-
-    createApprovalRequest({
-      runId: "run-cancel-4",
-      requestId: "req-cancel-4",
-      conversationId: conversationId!,
-      channel: "telegram",
-      requesterExternalUserId: "requester-cancel-user",
-      requesterChatId: "requester-cancel-chat",
-      guardianExternalUserId: "guardian-cancel",
-      guardianChatId: "guardian-cancel-chat",
-      toolName: "shell",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    deliverSpy.mockClear();
-
-    // Requester tries to self-approve while guardian approval is pending.
-    const req = makeInboundRequest({
-      content: "approve",
-      conversationExternalId: "requester-cancel-chat",
-      actorExternalId: "requester-cancel-user",
-    });
-    const res = await handleChannelInbound(req, noopProcessMessage);
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    // Should get the guardian-pending notice, NOT decision_applied
-    expect(body.approval).toBe("assistant_turn");
-
-    deliverSpy.mockRestore();
-  });
-});
 
 // ═══════════════════════════════════════════════════════════════════════════
 // Engine decision race condition — standard path
@@ -2408,82 +1439,6 @@ describe("engine decision race condition — standard path", () => {
       (call[1] as { text?: string }).text?.includes("Approved!"),
     );
     expect(approvedReply).toBeUndefined();
-
-    // A stale notice should have been delivered instead
-    const staleReply = deliverSpy.mock.calls.find((call) =>
-      (call[1] as { text?: string }).text?.includes("already been resolved"),
-    );
-    expect(staleReply).toBeDefined();
-
-    deliverSpy.mockRestore();
-  });
-});
-
-describe("engine decision race condition — guardian path", () => {
-  test("returns stale_ignored when guardian engine approves but interaction was already resolved", async () => {
-    createGuardianBinding({
-      channel: "telegram",
-      guardianExternalUserId: "guardian-race-user",
-      guardianDeliveryChatId: "guardian-race-chat",
-      guardianPrincipalId: "guardian-race-user",
-    });
-
-    const deliverSpy = spyOn(
-      gatewayClient,
-      "deliverChannelReply",
-    ).mockResolvedValue({ ok: true });
-
-    const convId = "conv-guardian-race";
-    ensureConversation(convId);
-
-    registerPendingInteraction("req-grc-1", convId, "shell");
-    createApprovalRequest({
-      runId: "run-grc-1",
-      requestId: "req-grc-1",
-      conversationId: convId,
-      channel: "telegram",
-      requesterExternalUserId: "requester-race-user",
-      requesterChatId: "requester-race-chat",
-      guardianExternalUserId: "guardian-race-user",
-      guardianChatId: "guardian-race-chat",
-      toolName: "shell",
-      expiresAt: Date.now() + 300_000,
-    });
-
-    deliverSpy.mockClear();
-
-    // Guardian engine returns approve_once, but resolves the pending interaction
-    // to simulate a concurrent resolution (expiry sweep or requester cancel)
-    const mockConversationGenerator = mock(async (_ctx: unknown) => {
-      pendingInteractions.resolve("req-grc-1");
-      return {
-        disposition: "approve_once" as const,
-        replyText: "Approved the request.",
-      };
-    });
-    setTestApprovalConversationGenerator(mockConversationGenerator);
-
-    const guardianReq = makeInboundRequest({
-      content: "approve it",
-      conversationExternalId: "guardian-race-chat",
-      actorExternalId: "guardian-race-user",
-    });
-    const res = await handleChannelInbound(
-      guardianReq,
-      noopProcessMessage,
-      "self",
-      undefined,
-    );
-    const body = (await res.json()) as Record<string, unknown>;
-
-    expect(body.accepted).toBe(true);
-    expect(body.approval).toBe("stale_ignored");
-
-    // The engine's "Approved the request." should NOT be delivered
-    const optimisticReply = deliverSpy.mock.calls.find((call) =>
-      (call[1] as { text?: string }).text?.includes("Approved the request"),
-    );
-    expect(optimisticReply).toBeUndefined();
 
     // A stale notice should have been delivered instead
     const staleReply = deliverSpy.mock.calls.find((call) =>
@@ -2972,16 +1927,12 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
       guardianDeliveryChatId: "guardian-tc-selfapproval-chat",
       guardianPrincipalId: "guardian-tc-selfapproval",
     });
-    upsertContact({
+    seedContactChannel({
+      sourceChannel: "telegram",
+      externalUserId: "tc-selfapproval-user",
       displayName: "TC Self-Approval User",
-      channels: [
-        {
-          type: "telegram",
-          address: "tc-selfapproval-user",
-          status: "active",
-          policy: "allow",
-        },
-      ],
+      status: "active",
+      policy: "allow",
     });
   });
 
@@ -3006,10 +1957,10 @@ describe("trusted-contact self-approval blocked before guardian approval row exi
     const conversationId = events[0]?.conversation_id;
     ensureConversation(conversationId!);
 
-    // Register a pending interaction — but do NOT create a guardian approval
-    // row in channelGuardianApprovalRequests. This simulates the window
-    // between the pending confirmation being created (isInteractive=true)
-    // and the guardian approval prompt being delivered.
+    // Register a pending interaction — but do NOT create a canonical guardian
+    // request row. This simulates the window between the pending confirmation
+    // being created (isInteractive=true) and the guardian approval prompt being
+    // delivered.
     const sessionMock = registerPendingInteraction(
       "req-tc-selfapproval-1",
       conversationId!,

@@ -8,12 +8,12 @@ import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import type { DrizzleDb } from "../../memory/db-connection.js";
-import { getSqliteFrom } from "../../memory/db-connection.js";
-import { migrateCreateProviderConnections } from "../../memory/migrations/243-provider-connections.js";
-import { migrateProviderConnectionStatusLabel } from "../../memory/migrations/244-provider-connection-status-label.js";
-import { migrateProviderConnectionBaseUrlAndModels } from "../../memory/migrations/250-provider-connection-base-url-and-models.js";
-import * as schema from "../../memory/schema.js";
+import type { DrizzleDb } from "../../persistence/db-connection.js";
+import { getSqliteFrom } from "../../persistence/db-connection.js";
+import { migrateCreateProviderConnections } from "../../persistence/migrations/243-provider-connections.js";
+import { migrateProviderConnectionStatusLabel } from "../../persistence/migrations/244-provider-connection-status-label.js";
+import { migrateProviderConnectionBaseUrlAndModels } from "../../persistence/migrations/250-provider-connection-base-url-and-models.js";
+import * as schema from "../../persistence/schema/index.js";
 import { AuthSchema } from "../inference/auth.js";
 import {
   createConnection,

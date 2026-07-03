@@ -1,7 +1,7 @@
 /**
  * Resolves per-channel destination endpoints for notification delivery.
  *
- * Reads guardian delivery info from the contacts table.
+ * Reads guardian delivery info from the gateway-backed guardian list.
  *
  * - Vellum: no external endpoint needed — delivery goes through the event
  *   broadcast mechanism to connected desktop/mobile clients. The
@@ -11,13 +11,38 @@
  *   sourced from the guardian contact's channel record.
  */
 
+import type { GuardianDelivery } from "@vellumai/gateway-client";
+
 import { isNotificationDeliverable } from "../channels/config.js";
 import type { ChannelId } from "../channels/types.js";
-import { findGuardianForChannel } from "../contacts/contact-store.js";
+import { guardianForChannel } from "../contacts/guardian-delivery-reader.js";
 import { getLogger } from "../util/logger.js";
 import type { ChannelDestination, NotificationChannel } from "./types.js";
 
 const log = getLogger("destination-resolver");
+
+/** Guardian delivery endpoint for a channel, flattened from either source. */
+interface ResolvedGuardian {
+  principalId?: string;
+  address: string;
+  externalChatId?: string;
+}
+
+/** Resolve the guardian delivery endpoint for a channel from the gateway list. */
+function resolveGuardian(
+  guardians: GuardianDelivery[] | null,
+  channelType: string,
+): ResolvedGuardian | undefined {
+  const g = guardians
+    ? guardianForChannel(guardians, channelType)
+    : undefined;
+  if (!g) return undefined;
+  return {
+    principalId: g.principalId ?? undefined,
+    address: g.address,
+    externalChatId: g.externalChatId ?? undefined,
+  };
+}
 
 /**
  * Resolve destination information for each requested channel.
@@ -26,9 +51,13 @@ const log = getLogger("destination-resolver");
  * the function skips non-deliverable channels via `isNotificationDeliverable`.
  * Returns a map keyed by `NotificationChannel`. Channels that cannot be
  * resolved (e.g. no Telegram binding configured) are omitted from the result.
+ *
+ * `guardians` is the gateway-resolved guardian list; a channel with no entry
+ * in the list is omitted from the result.
  */
 export function resolveDestinations(
   channels: readonly (ChannelId | NotificationChannel)[],
+  guardians: GuardianDelivery[] | null,
 ): Map<NotificationChannel, ChannelDestination> {
   const result = new Map<NotificationChannel, ChannelDestination>();
 
@@ -43,10 +72,10 @@ export function resolveDestinations(
         // Vellum delivery is local — no external endpoint required.
         // Include the guardianPrincipalId so the adapter can annotate
         // guardian-sensitive notifications for scoped delivery.
-        const guardianResult = findGuardianForChannel("vellum");
+        const guardian = resolveGuardian(guardians, "vellum");
         const metadata: Record<string, unknown> = {};
-        if (guardianResult) {
-          metadata.guardianPrincipalId = guardianResult.contact.principalId;
+        if (guardian?.principalId) {
+          metadata.guardianPrincipalId = guardian.principalId;
         }
         result.set("vellum", {
           channel: "vellum",
@@ -55,7 +84,7 @@ export function resolveDestinations(
         log.debug(
           {
             channel: "vellum",
-            source: "contacts",
+            source: "guardian-delivery",
             hasEndpoint: false,
           },
           "destination resolved",
@@ -63,52 +92,52 @@ export function resolveDestinations(
         break;
       }
       case "telegram": {
-        const guardianResult = findGuardianForChannel(channel);
-        if (guardianResult && guardianResult.channel.externalChatId) {
-          const externalChatId = guardianResult.channel.externalChatId;
+        const guardian = resolveGuardian(guardians, channel);
+        if (guardian?.externalChatId) {
+          const externalChatId = guardian.externalChatId;
           result.set(channel as NotificationChannel, {
             channel: channel as NotificationChannel,
             endpoint: externalChatId,
             metadata: {
-              externalUserId: guardianResult.channel.address,
+              externalUserId: guardian.address,
             },
             bindingContext: {
               sourceChannel: channel as NotificationChannel,
               externalChatId,
-              externalUserId: guardianResult.channel.address,
+              externalUserId: guardian.address,
             },
           });
         }
         log.debug(
           {
             channel,
-            source: "contacts",
-            hasEndpoint: !!guardianResult?.channel.externalChatId,
+            source: "guardian-delivery",
+            hasEndpoint: !!guardian?.externalChatId,
           },
           "destination resolved",
         );
         break;
       }
       case "slack": {
-        const guardianResult = findGuardianForChannel("slack");
-        const chatId = guardianResult?.channel.externalChatId;
+        const guardian = resolveGuardian(guardians, "slack");
+        const chatId = guardian?.externalChatId;
         // Slack bindings can originate from app_mention in shared channels.
         // Only route notifications to DM channels (IDs starting with "D")
         // to prevent leaking notifications into shared workspaces.
-        if (guardianResult && chatId && isSlackDmChannel(chatId)) {
+        if (guardian && chatId && isSlackDmChannel(chatId)) {
           result.set("slack", {
             channel: "slack",
             endpoint: chatId,
             metadata: {
-              externalUserId: guardianResult.channel.address,
+              externalUserId: guardian.address,
             },
             bindingContext: {
               sourceChannel: "slack",
               externalChatId: chatId,
-              externalUserId: guardianResult.channel.address,
+              externalUserId: guardian.address,
             },
           });
-        } else if (guardianResult && chatId) {
+        } else if (guardian && chatId) {
           log.warn(
             { channel: "slack", chatId },
             "skipping non-DM Slack channel for notification delivery",
@@ -117,7 +146,7 @@ export function resolveDestinations(
         log.debug(
           {
             channel: "slack",
-            source: "contacts",
+            source: "guardian-delivery",
             hasEndpoint: !!(chatId && isSlackDmChannel(chatId)),
           },
           "destination resolved",
@@ -128,11 +157,10 @@ export function resolveDestinations(
         // Platform delivery goes through the daemon's VellumPlatformClient —
         // no external binding needed. Include guardianPrincipalId so the
         // adapter can scope guardian-sensitive notifications.
-        const platformGuardian = findGuardianForChannel("vellum");
+        const platformGuardian = resolveGuardian(guardians, "vellum");
         const platformMeta: Record<string, unknown> = {};
-        if (platformGuardian) {
-          platformMeta.guardianPrincipalId =
-            platformGuardian.contact.principalId;
+        if (platformGuardian?.principalId) {
+          platformMeta.guardianPrincipalId = platformGuardian.principalId;
         }
         result.set("platform", {
           channel: "platform",
@@ -140,7 +168,7 @@ export function resolveDestinations(
             Object.keys(platformMeta).length > 0 ? platformMeta : undefined,
         });
         log.debug(
-          { channel: "platform", source: "contacts", hasEndpoint: false },
+          { channel: "platform", source: "guardian-delivery", hasEndpoint: false },
           "destination resolved",
         );
         break;

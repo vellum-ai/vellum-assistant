@@ -509,10 +509,13 @@ describe("resolveCallSiteConfig", () => {
     expect(resolved.model).toBe("claude-opus-4-7");
   });
 
-  test("thinking and contextWindow deep-merge across all five layers for non-main call sites", () => {
+  test("thinking and contextWindow deep-merge across the contributing layers for non-main call sites", () => {
     // Each layer touches a different leaf inside `thinking` and
     // `contextWindow.overflowRecovery` so we can verify deep merge composes
     // every contribution rather than wholesale-replacing the nested objects.
+    // The call site pins `siteProfile`, so the active profile is excluded — its
+    // leaves fall through to default while override, site profile, and the
+    // call-site fragment still compose.
     const llm = LLMSchema.parse({
       default: fullDefault,
       profiles: {
@@ -539,13 +542,15 @@ describe("resolveCallSiteConfig", () => {
     const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
       overrideProfile: "override",
     });
-    // Each layer's leaf survives because no higher layer touches it.
-    expect(resolved.thinking.enabled).toBe(false); // active
+    // Override, site profile, and the call-site fragment each contribute a leaf.
     expect(resolved.thinking.streamThinking).toBe(false); // override
-    expect(resolved.contextWindow.overflowRecovery.maxAttempts).toBe(7); // active
     expect(resolved.contextWindow.overflowRecovery.safetyMarginRatio).toBe(0.1); // override
     expect(resolved.contextWindow.targetBudgetRatio).toBe(0.5); // siteProfile
     expect(resolved.contextWindow.compactThreshold).toBe(0.9); // callsite
+    // The active profile is excluded (the call site pins its own profile), so
+    // its leaves fall through to default instead of contributing.
+    expect(resolved.thinking.enabled).toBe(true); // default, NOT active's false
+    expect(resolved.contextWindow.overflowRecovery.maxAttempts).toBe(3); // default, NOT active's 7
     // Untouched leaves at depth 2 fall through to default.
     expect(resolved.contextWindow.overflowRecovery.enabled).toBe(true);
     expect(
@@ -582,7 +587,9 @@ describe("resolveCallSiteConfig", () => {
     // Lower layers contribute fields the site fragment does not touch.
     expect(resolved.verbosity).toBe("high"); // from siteProfile
     expect(resolved.speed).toBe("fast"); // from override
-    expect(resolved.effort).toBe("low"); // from active
+    // The active profile is excluded when the call site pins its own profile,
+    // so `effort` falls through to default rather than active's "low".
+    expect(resolved.effort).toBe("max"); // default, NOT active's "low"
   });
 
   test("mainAgent activeProfile overrides static call-site defaults", () => {
@@ -1432,6 +1439,199 @@ describe("resolveCallSiteConfig logitBias provenance", () => {
       activeProfile: "plain",
     });
     expect(resolveCallSiteConfig("mainAgent", llm).logitBias).toBeUndefined();
+  });
+});
+
+describe("resolveCallSiteConfig sampling-param provenance (temperature / top_p)", () => {
+  // Mirrors production: the active `balanced` profile carries `topP: 0.95` (a
+  // MiniMax tuning), while background call sites resolve to the Anthropic
+  // `cost-optimized` profile. A field-by-field deep-merge would leak the active
+  // profile's `top_p` onto those Anthropic requests.
+  const balancedActive = LLMSchema.parse({
+    default: fullDefault,
+    profiles: {
+      balanced: {
+        provider: "together",
+        model: "MiniMaxAI/MiniMax-M3",
+        topP: 0.95,
+      },
+      "cost-optimized": {
+        provider: "anthropic",
+        model: "claude-haiku-4-5-20251001",
+        effort: "low",
+        thinking: { enabled: false },
+      },
+    },
+    activeProfile: "balanced",
+  });
+
+  test("active profile's top_p does not leak into a profile-pinned call site (Option 1 + 2)", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        balanced: {
+          provider: "together",
+          model: "MiniMaxAI/MiniMax-M3",
+          topP: 0.95,
+        },
+        "cost-optimized": {
+          provider: "anthropic",
+          model: "claude-haiku-4-5-20251001",
+        },
+      },
+      activeProfile: "balanced",
+      callSites: { memoryExtraction: { profile: "cost-optimized" } },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    expect(resolved.provider).toBe("anthropic");
+    expect(resolved.model).toBe("claude-haiku-4-5-20251001");
+    // balanced (active) is shadowed by the pinned cost-optimized profile, so
+    // its top_p must not ride along onto the Anthropic request.
+    expect(resolved.topP).toBeNull();
+  });
+
+  test("homeGreeting / commitMessage resolve to a temperature with NO top_p", () => {
+    const greeting = resolveCallSiteConfig("homeGreeting", balancedActive);
+    expect(greeting.model).toBe("claude-haiku-4-5-20251001");
+    // Per-call-site temperature from CALL_SITE_DEFAULTS survives.
+    expect(greeting.temperature).toBe(0.7);
+    // The active profile's top_p does NOT — both together would trip
+    // Anthropic's "temperature and top_p cannot both be specified".
+    expect(greeting.topP).toBeNull();
+
+    const commit = resolveCallSiteConfig("commitMessage", balancedActive);
+    expect(commit.temperature).toBe(0.2);
+    expect(commit.topP).toBeNull();
+  });
+
+  test("profile-less call site still inherits the active profile's provider AND sampling", () => {
+    // `workflowLeaf` pins no profile, so the active profile is the legitimate
+    // fallback (Option 1 keeps it): it supplies provider/model and its own
+    // (coherent, same-provider) sampling.
+    const resolved = resolveCallSiteConfig("workflowLeaf", balancedActive);
+    expect(resolved.provider).toBe("together");
+    expect(resolved.model).toBe("MiniMaxAI/MiniMax-M3");
+    expect(resolved.topP).toBe(0.95);
+  });
+
+  test("mainAgent keeps the active profile's top_p (balanced wins there)", () => {
+    const resolved = resolveCallSiteConfig("mainAgent", balancedActive);
+    expect(resolved.model).toBe("MiniMaxAI/MiniMax-M3");
+    expect(resolved.topP).toBe(0.95);
+  });
+
+  test("an explicit call-site temperature override still wins over the winning profile", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: { nucleus: { topP: 0.9, temperature: 0.1 } },
+      callSites: { memoryExtraction: { profile: "nucleus", temperature: 0.5 } },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm);
+    // Call-site override wins for the field it sets.
+    expect(resolved.temperature).toBe(0.5);
+    // The winning profile's top_p (no call-site override) still applies.
+    expect(resolved.topP).toBe(0.9);
+  });
+
+  test("a higher-precedence profile that omits top_p clears a lower profile's top_p (Option 2)", () => {
+    // No site profile is involved here, so the active profile IS folded in —
+    // this isolates Option 2: the override profile wins and omits top_p, so
+    // balanced's 0.95 must be cleared rather than surviving the merge.
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        balanced: {
+          provider: "together",
+          model: "MiniMaxAI/MiniMax-M3",
+          topP: 0.95,
+        },
+        plain: { provider: "anthropic", model: "claude-opus-4-7" },
+      },
+      activeProfile: "balanced",
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm, {
+      overrideProfile: "plain",
+    });
+    expect(resolved.model).toBe("claude-opus-4-7");
+    expect(resolved.topP).toBeNull();
+  });
+
+  test("forceOverrideProfile: an explicit call-site temperature survives a forced profile silent on sampling", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        active: { verbosity: "low" },
+        sitep: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
+        forced: { model: "claude-opus-4-7", effort: "high" },
+      },
+      callSites: {
+        memoryExtraction: {
+          profile: "sitep",
+          temperature: 0.7,
+          maxTokens: 1000,
+        },
+      },
+      activeProfile: "active",
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
+      overrideProfile: "forced",
+      forceOverrideProfile: true,
+    });
+    // The forced profile floats to the top for fields it sets.
+    expect(resolved.model).toBe("claude-opus-4-7");
+    expect(resolved.effort).toBe("high");
+    // It is silent on temperature, so the deliberate call-site value survives —
+    // consistent with sibling call-site fields like maxTokens (which flow
+    // through the deep-merge).
+    expect(resolved.temperature).toBe(0.7);
+    expect(resolved.maxTokens).toBe(1000);
+  });
+
+  test("forceOverrideProfile: a forced profile that sets temperature wins over the call-site override", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: {
+        sitep: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
+        forced: { model: "claude-opus-4-7", temperature: 0.1 },
+      },
+      callSites: {
+        memoryExtraction: { profile: "sitep", temperature: 0.7 },
+      },
+    });
+    const resolved = resolveCallSiteConfig("memoryExtraction", llm, {
+      overrideProfile: "forced",
+      forceOverrideProfile: true,
+    });
+    // The forced profile explicitly sets temperature, so it floats above the
+    // call-site override.
+    expect(resolved.temperature).toBe(0.1);
+  });
+
+  test("mainAgent: an explicit call-site temperature survives an active profile silent on sampling", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: { active: { model: "claude-sonnet-4-7" } },
+      callSites: { mainAgent: { temperature: 0.5 } },
+      activeProfile: "active",
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    // The active profile floats above the call-site for mainAgent but is silent
+    // on temperature, so the deliberate call-site value survives.
+    expect(resolved.model).toBe("claude-sonnet-4-7");
+    expect(resolved.temperature).toBe(0.5);
+  });
+
+  test("mainAgent: the active profile's explicit temperature wins over a call-site temperature", () => {
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: { active: { model: "claude-sonnet-4-7", temperature: 0.2 } },
+      callSites: { mainAgent: { temperature: 0.5 } },
+      activeProfile: "active",
+    });
+    const resolved = resolveCallSiteConfig("mainAgent", llm);
+    // For mainAgent the active profile floats above the call-site override, so
+    // its explicit temperature wins.
+    expect(resolved.temperature).toBe(0.2);
   });
 });
 

@@ -69,6 +69,7 @@ import { installNotifications } from "./notifications";
 import { installPermissionHandler } from "./permissions";
 import { installPermissionsService } from "./permissions-service";
 import { installPowerEvents } from "./power-events";
+import { installIdentityIpc } from "./identity";
 import { installConnectivityIpc, installStatusIpc } from "./status";
 import { installTextInsertionIpc } from "./textInsertion";
 import { installTray } from "./tray";
@@ -81,14 +82,19 @@ import { hardenedWebPreferences } from "./windows";
 // from the Swift `Vellum.app` / `Vellum Local.app` / `Vellum Dev.app`
 // installs the developer may also be running.
 //
-// Caveat: `app.setName()` does NOT change the Dock / Cmd-Tab label.
-// Those come from the running binary's `CFBundleName` — in dev the
-// binary is `node_modules/electron/dist/Electron.app`, so the Dock
-// says "Electron". That's cosmetic and acceptable for dev runs; the
-// userData split is what actually prevents collision with Swift
-// installs. Packaged builds get a real `productName` from
-// electron-builder, which writes `CFBundleName`, at which point
-// Dock / Cmd-Tab pick up the real name too.
+// Caveat: `app.setName()` does NOT change the Dock / Cmd-Tab label —
+// those come from the running binary's `CFBundleName`. In dev the binary
+// is `node_modules/electron/dist/Electron.app`, whose `CFBundleName` is
+// stamped to "Vellum Electron" by `scripts/prepare-electron-dev-app.ts`
+// (which also busts the macOS Dock display-name cache so the relabel
+// actually surfaces instead of the stale stock "Electron"). The userData
+// split is what prevents collision with Swift installs. Packaged builds
+// get a real `productName` from electron-builder, which writes
+// `CFBundleName`, so Dock / Cmd-Tab pick up the real name there too. The
+// per-assistant name (e.g. "Aria") can't ride the Dock tile — it isn't
+// known at launch and `CFBundleName` is read once — so it drives the
+// window title, the menu-bar tray, and the About panel instead (see
+// `./identity`).
 //
 // Gated on `!app.isPackaged` so a packaged build keeps its
 // electron-builder-derived `CFBundleName` instead of being overridden
@@ -397,6 +403,10 @@ app
     installLoginItemIpc();
     installHotkeyHelper();
     installPermissionsService();
+    // Register the identity (assistant name) channel before About, the Tray,
+    // and the main window install so their initial render reflects any name
+    // the renderer publishes during bootstrap.
+    installIdentityIpc();
     installAbout();
     installAutoUpdate();
     installFeedbackIpc();

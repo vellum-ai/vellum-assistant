@@ -47,6 +47,13 @@ body {
   100% { transform: none; opacity: 1; }
 }
 
+/* Onboarding edge characters popping into place — a quick scale-up with a soft
+   overshoot (paired with a spring-ish cubic-bezier at the call site). */
+@keyframes character-pop-in {
+  0% { transform: scale(0); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
 /* Home Activity detail drawer (schedule / heartbeat / notification) sliding
    in from the right. Ends at `transform: none` for the same containing-block
    reason as fadeInUp above (the panel hosts fixed Dropdown/tooltip layers). */

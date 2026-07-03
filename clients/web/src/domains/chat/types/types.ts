@@ -30,6 +30,13 @@ export interface SlackMessageSender {
   isBot?: boolean;
 }
 
+export interface SlackReaction {
+  emoji: string;
+  op: "added" | "removed";
+  actorDisplayName?: string;
+  targetChannelTs: string;
+}
+
 export interface SlackRuntimeMessage {
   channelId: string;
   channelName?: string;
@@ -38,6 +45,8 @@ export interface SlackRuntimeMessage {
   sender?: SlackMessageSender;
   messageLink?: SlackMessageLink;
   threadLink?: SlackMessageLink;
+  eventKind?: "message" | "reaction";
+  reaction?: SlackReaction;
 }
 
 /**
@@ -136,6 +145,13 @@ export interface DisplayMessage {
   /** True for daemon-injected subagent lifecycle notifications that should
    *  not render as user bubbles. Matches macOS `isSubagentNotification`. */
   isSubagentNotification?: boolean;
+  /** True for daemon-injected ACP-run lifecycle notifications; suppressed from
+   *  the transcript like {@link isSubagentNotification}. */
+  isAcpNotification?: boolean;
+  /** True for any wake trigger row (`<background_event source="...">`, e.g.
+   *  defer/schedule/webhook/background-tool); suppressed from the transcript
+   *  like {@link isSubagentNotification} — the wake card shows it instead. */
+  isBackgroundEventNotification?: boolean;
 }
 
 /**

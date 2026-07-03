@@ -36,7 +36,7 @@ mock.module("../../config/env.js", () => ({
 }));
 
 mock.module("../../runtime/local-actor-identity.js", () => ({
-  findLocalGuardianPrincipalId: () => fakeLocalPrincipalId,
+  findLocalGuardianPrincipalIdFromStore: () => fakeLocalPrincipalId,
 }));
 
 // ── Real imports (after mocks) ────────────────────────────────────────────

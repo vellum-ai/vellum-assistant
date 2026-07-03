@@ -9,11 +9,15 @@
  * propagated unless `throwOnError` is enabled.
  */
 
+import type { GuardianDelivery } from "@vellumai/gateway-client";
 import { v4 as uuid } from "uuid";
 
 import { getDeliverableChannels } from "../channels/config.js";
-import { findGuardianForChannel } from "../contacts/contact-store.js";
-import type { ConversationCreateType } from "../memory/conversation-crud.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../contacts/guardian-delivery-reader.js";
+import type { ConversationCreateType } from "../persistence/conversation-crud.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
 import { getLogger } from "../util/logger.js";
 import { VellumAdapter } from "./adapters/macos.js";
@@ -27,6 +31,7 @@ import {
 import { enforceRoutingIntent, evaluateSignal } from "./decision-engine.js";
 import { updateDecision } from "./decisions-store.js";
 import {
+  checkSourceActiveSuppression,
   type DeterministicCheckContext,
   runDeterministicChecks,
 } from "./deterministic-checks.js";
@@ -88,8 +93,27 @@ export function getBroadcaster(): NotificationBroadcaster {
 
 // ── Connected channels resolution ──────────────────────────────────────
 
-function getConnectedChannels(): NotificationChannel[] {
+/**
+ * Resolve a binding-based channel's delivery endpoint (externalChatId) the
+ * SAME way destination-resolver's `resolveGuardian` does: from the gateway
+ * guardian delivery for this channel. Keeping connectivity aligned with
+ * delivery prevents a channel being marked connected but then skipped with no
+ * destination (or vice-versa).
+ */
+function resolveChannelChatId(
+  guardians: GuardianDelivery[] | null,
+  channelType: string,
+): string | undefined {
+  const g = guardians ? guardianForChannel(guardians, channelType) : undefined;
+  return g?.externalChatId ?? undefined;
+}
+
+export async function getConnectedChannels(): Promise<NotificationChannel[]> {
   const channels: NotificationChannel[] = [];
+
+  // Guardian bindings (ACL) come from the gateway pull; null ⇒ gateway
+  // unreachable, so binding-based connectivity falls back to the local read.
+  const guardians = await getGuardianDelivery();
 
   // getDeliverableChannels() returns ChannelId[] but every returned channel
   // has deliveryEnabled: true, making it a valid NotificationChannel at
@@ -109,24 +133,20 @@ function getConnectedChannels(): NotificationChannel[] {
         channels.push(channel);
         break;
       case "telegram": {
-        // A binding-based channel is connected when the guardian has an
-        // active channel entry with a valid delivery endpoint. The
-        // externalChatId check ensures we don't report a channel as
-        // connected when the contacts record exists but lacks the
-        // delivery address the destination-resolver needs.
-        const guardian = findGuardianForChannel(channel);
-        if (guardian && guardian.channel.externalChatId) {
+        // Connected when the resolved guardian has a delivery endpoint —
+        // mirroring destination-resolver so we never mark connected what
+        // can't be delivered.
+        if (resolveChannelChatId(guardians, channel)) {
           channels.push(channel);
         }
         break;
       }
       case "slack": {
         // Slack bindings can originate from shared channels (app_mention).
-        // Only consider Slack connected when the stored chat ID is a DM
-        // channel (D-prefixed) to prevent leaking notifications.
-        const slackGuardian = findGuardianForChannel("slack");
-        const chatId = slackGuardian?.channel.externalChatId;
-        if (slackGuardian && chatId && chatId.startsWith("D")) {
+        // Only consider Slack connected when the resolved chat ID is a DM
+        // channel (D-prefixed), matching destination-resolver's DM gate.
+        const chatId = resolveChannelChatId(guardians, "slack");
+        if (chatId && chatId.startsWith("D")) {
           channels.push(channel);
         }
         break;
@@ -209,7 +229,12 @@ export interface EmitSignalResult {
 
 /**
  * Emit a notification signal through the full pipeline:
- * createEvent -> evaluateSignal -> runDeterministicChecks -> dispatchDecision.
+ * createEvent -> (source-active pre-gate) -> evaluateSignal ->
+ * runDeterministicChecks -> dispatchDecision.
+ *
+ * Source-active suppression runs before the decision engine: it depends only
+ * on the signal, so a statically-suppressed signal short-circuits here without
+ * paying for an LLM inference whose result would be discarded downstream.
  *
  * Fire-and-forget safe by default: errors are caught and logged unless
  * `throwOnError` is enabled by the caller.
@@ -261,8 +286,30 @@ export async function emitNotificationSignal<TEventName extends string>(
       };
     }
 
+    // Step 1.5: Source-active pre-gate. visibleInSourceNow is a hard invariant
+    // the decision engine cannot override, and it depends only on the signal —
+    // so when it is set, the outcome is predetermined: suppress. Short-circuit
+    // before the (LLM-backed) decision stage so statically-suppressed signals
+    // (e.g. trusted-contact verification_sent) never incur an inference, a
+    // discarded decision row, or an LLM-dependent home-feed mirror. The event
+    // row persisted above preserves the lifecycle/audit trail.
+    const sourceActiveCheck = checkSourceActiveSuppression(signal);
+    if (!sourceActiveCheck.passed) {
+      log.info(
+        { signalId, reason: sourceActiveCheck.reason },
+        "Signal suppressed before decision stage (source-active)",
+      );
+      return {
+        signalId,
+        deduplicated: false,
+        dispatched: false,
+        reason: `Signal suppressed: ${sourceActiveCheck.reason}`,
+        deliveryResults: [],
+      };
+    }
+
     // Step 2: Evaluate the signal through the decision engine
-    const connectedChannels = getConnectedChannels();
+    const connectedChannels = await getConnectedChannels();
 
     log.debug(
       {

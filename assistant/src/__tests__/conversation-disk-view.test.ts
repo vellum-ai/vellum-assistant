@@ -42,14 +42,14 @@ mock.module("../config/loader.js", () => ({
 import {
   linkAttachmentToMessage,
   uploadAttachment,
-} from "../memory/attachments-store.js";
+} from "../persistence/attachments-store.js";
 import {
   addMessage,
   createConversation,
   deleteMessageById,
   relinkAttachments,
   updateMessageContent,
-} from "../memory/conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import {
   flattenContentBlocks,
   getConversationDirName,
@@ -60,10 +60,10 @@ import {
   resolveUniqueFilename,
   syncMessageToDisk,
   updateMetaFile,
-} from "../memory/conversation-disk-view.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { rawRun } from "../memory/raw-query.js";
+} from "../persistence/conversation-disk-view.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { rawRun } from "../persistence/raw-query.js";
 await initializeDb();
 
 function resetTables() {
@@ -552,6 +552,7 @@ describe("syncMessageToDisk", () => {
     });
     const att = uploadAttachment("repair.png", "image/png", "iVBORw0K");
     rawRun(
+      "test:linkAttachment",
       `INSERT INTO message_attachments (id, message_id, attachment_id, position, created_at)
        VALUES (?, ?, ?, ?, ?)`,
       `manual-link-${msg.id}`,

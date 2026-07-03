@@ -57,33 +57,41 @@ export interface PluginLogger {
  * empty model that with `| null`, not `| undefined`.
  *
  * Each known hook key has a documented context shape:
- *   - `init` — {@link PluginInitContext}
- *   - `shutdown` — {@link PluginShutdownContext}
+ *   - `init` — {@link InitContext}
+ *   - `shutdown` — {@link ShutdownContext}
  *   - `user-prompt-submit` — {@link UserPromptSubmitContext}
  *   - `pre-model-call` — {@link PreModelCallContext}
  *   - `post-tool-use` — {@link PostToolUseContext}
  *   - `stop` — {@link StopContext}
  *   - `post-model-call` — {@link PostModelCallContext}
  */
-export type PluginHookFn<TCtx = unknown> = (
+export type HookFunction<TCtx = unknown> = (
   ctx: TCtx,
 ) => Promise<Partial<TCtx> | void>;
 
 // ─── Init context ────────────────────────────────────────────────────────────
 
 /**
- * Context passed to `Plugin.init()` during bootstrap. Carries resolved
- * config/credentials, a pino-compatible logger scoped to the plugin, a
- * per-plugin writable data directory, and the assistant's version metadata.
+ * Context passed to `Plugin.init()` during bootstrap. Carries the resolved
+ * config, a pino-compatible logger scoped to the plugin, a per-plugin
+ * writable data directory, and the assistant's version metadata.
+ *
+ * For user-installed plugins, config is read from `<pluginDir>/config.json`
+ * and `pluginStorageDir` points at `<pluginDir>/data/`. For first-party
+ * default plugins and standalone workspace hooks, config comes from the
+ * global `config.plugins.<name>` block and `pluginStorageDir` points at
+ * `<workspaceDir>/plugins-data/<name>/`.
  */
-export interface PluginInitContext {
+export interface InitContext {
   /** Parsed config for this plugin (may be `unknown` until the manifest validates). */
   config: unknown;
-  /** Resolved credential values keyed by the entries of `manifest.requiresCredential`. */
-  credentials: Record<string, string>;
   /** Pino-compatible child logger bound to `{ plugin: <name> }`. */
   logger: PluginLogger;
-  /** Absolute path to `<workspaceDir>/plugins-data/<plugin>/` (created by bootstrap). */
+  /**
+   * Absolute path to the per-plugin writable data directory. For user plugins
+   * this is `<pluginDir>/data/`; for defaults and workspace hooks it falls back
+   * to `<workspaceDir>/plugins-data/<plugin>/`. Created by bootstrap.
+   */
   pluginStorageDir: string;
   /**
    * Assistant semver. Plugins can compare against this for defensive
@@ -126,20 +134,32 @@ export interface ModelProfileInfo {
 // ─── Shutdown context ────────────────────────────────────────────────────────
 
 /**
- * Context passed to the `shutdown` hook during daemon teardown. Kept
- * intentionally narrower than {@link PluginInitContext} — most teardown
- * paths only need to know which assistant version they're shutting
- * down against (e.g. for version-conditional cleanup of state files
- * written by a previous boot).
+ * Why a plugin's `shutdown` hook is firing.
  *
- * Additional fields may be added as concrete plugin needs surface; the
- * `assistantVersion` field mirrors the init context's so plugins that
- * stash a version stamp at init can compare against the same name on
- * tear-down without keeping their own copy.
+ * - `shutdown` — the daemon is tearing down (process exit).
+ * - `uninstall` — the plugin's directory was removed at runtime.
+ * - `disable` — the plugin was disabled at runtime (e.g. a `.disabled`
+ *   sentinel was added, or a feature flag turned it off).
  */
-export interface PluginShutdownContext {
+export type ShutdownReason = "shutdown" | "uninstall" | "disable";
+
+/**
+ * Context passed to the `shutdown` hook. Kept intentionally narrower than
+ * {@link InitContext} — teardown paths only need to know which assistant
+ * version they're shutting down against (e.g. for version-conditional cleanup
+ * of state files written by a previous boot) and {@link ShutdownReason why}
+ * they're being torn down (so a plugin can, e.g., delete its state on
+ * `uninstall` but preserve it across a plain `shutdown`).
+ *
+ * The `assistantVersion` field mirrors the init context's so plugins that stash
+ * a version stamp at init can compare against the same name on tear-down
+ * without keeping their own copy.
+ */
+export interface ShutdownContext {
   /** Assistant semver for compatibility checks inside the plugin. */
   assistantVersion: string;
+  /** Why the plugin is shutting down. */
+  reason: ShutdownReason;
 }
 
 // ─── User-prompt-submit hook context ─────────────────────────────────────────
@@ -153,7 +173,7 @@ export interface PluginShutdownContext {
  *
  * The hook may transform `latestMessages` either by mutating it in place
  * (`push` / `splice` / `length = 0`) or by returning a new context with
- * a fresh `latestMessages` array — see {@link PluginHookFn}'s polymorphic
+ * a fresh `latestMessages` array — see {@link HookFunction}'s polymorphic
  * return shape. The daemon threads the final `latestMessages` value into
  * `agentLoop.run()` as the run-messages argument.
  *
@@ -174,6 +194,14 @@ export interface UserPromptSubmitContext {
    * attach turn-scoped metadata to the originating message (e.g. recording an
    * injected memory block so it survives a conversation reload) key off this
    * row id rather than the in-memory message arrays, whose entries carry no id.
+   *
+   * @deprecated This field is always identical to {@link requestId}; use
+   *   `requestId` instead. Every path that starts an agent loop persists the
+   *   triggering user message under the turn's request ID before running, so
+   *   the message row id and the request's correlation ID are the same UUID.
+   *   This holds for the standard submit, queue-drain, subagent, voice, wake,
+   *   and conversation-analysis paths alike. This field will be removed in a
+   *   future API version.
    */
   readonly userMessageId: string;
   /**
@@ -181,17 +209,20 @@ export interface UserPromptSubmitContext {
    * runtime injection forward it onto the injector turn context so the
    * assembled blocks are attributed to the originating request; it is fixed
    * for the turn and cannot be recovered from the message arrays.
+   *
+   * As of the requestId/userMessageId merge, this value is also the
+   * persisted row ID of the user message, so hooks that previously
+   * keyed off {@link userMessageId} can use `requestId` directly.
    */
   readonly requestId: string;
   /**
-   * Active inference profile key to surface in this turn's context, or `null`
-   * when the profile is unchanged since the one last announced to the model.
-   * Hooks that emit the `model_profile` grounding line resolve the
-   * human-readable label (and model id) from this key via the workspace LLM
-   * config rather than receiving the rendered string — the key is the minimal
-   * turn input the message arrays cannot carry.
+   * Effective inference profile identity for the model this turn will use.
+   * Named-profile configs receive a profile key; profileless configs receive
+   * the resolved model id. Hooks that need model capabilities should resolve
+   * them from this value rather than the workspace active profile, because a
+   * conversation can be pinned to a different profile.
    */
-  readonly modelProfileKey: string | null;
+  readonly modelProfileKey: string;
   /**
    * Whether the turn has no human present to answer clarification questions
    * (e.g. a scheduled, background, or headless run). Resolved once at turn
@@ -212,6 +243,13 @@ export interface UserPromptSubmitContext {
    * it from the message arrays.
    */
   readonly prompt: string;
+  /**
+   * True when the triggering message is a transcript-suppressed machine
+   * signal (`metadata.hidden` — e.g. the channel-setup wizard-close marker)
+   * rather than something the user typed. Hooks that treat `prompt` as
+   * user speech (e.g. title generation) should skip these turns.
+   */
+  readonly isHiddenPrompt?: boolean;
   /**
    * The user's original message list, immutable for the hook. Plugins
    * may snapshot or compare against this but MUST NOT mutate it.
@@ -246,7 +284,7 @@ export interface UserPromptSubmitContext {
  * their own injected context the same way.
  *
  * The hook re-injects by mutating `history` in place (or returning a new
- * context with a replacement `history`) — see {@link PluginHookFn}'s
+ * context with a replacement `history`) — see {@link HookFunction}'s
  * polymorphic return shape. The agent loop reads the settled `history` back off
  * the context and resumes the turn from it. Multiple plugins' hooks chain in
  * registration order, each seeing the previous plugin's edits.
@@ -277,13 +315,10 @@ export interface PostCompactContext {
    */
   readonly isNonInteractive: boolean;
   /**
-   * Active inference profile key to surface in the re-injected context, or
-   * `null` when the profile is unchanged since the one last announced to the
-   * model. Mirrors {@link UserPromptSubmitContext.modelProfileKey}: hooks that
-   * emit the `model_profile` grounding line resolve the human-readable label
-   * from this key rather than receiving the rendered string.
+   * Effective inference profile identity for the model the compacted turn will
+   * keep using. Mirrors {@link UserPromptSubmitContext.modelProfileKey}.
    */
-  readonly modelProfileKey: string | null;
+  readonly modelProfileKey: string;
   /**
    * Volume of runtime injection to re-apply. `"full"` restores the complete
    * runtime context; `"minimal"` is the reduced volume overflow recovery's
@@ -303,7 +338,7 @@ export interface PostCompactContext {
  *
  * The hook may transform the result either by mutating `toolResponse` in
  * place (e.g. reassigning `toolResponse.content`) or by returning a new
- * context with a fresh `toolResponse` — see {@link PluginHookFn}'s
+ * context with a fresh `toolResponse` — see {@link HookFunction}'s
  * polymorphic return shape. The daemon threads the final `toolResponse`
  * into the provider-bound history.
  *
@@ -347,9 +382,28 @@ export interface PostToolUseContext {
    * Model id reported by the provider for the assistant turn that issued
    * this tool call (e.g. `claude-opus-4-8`,
    * `accounts/fireworks/models/kimi-k2p6`). Hooks use it to vary coaching by
-   * model family — some models need earlier or firmer steering than others.
+   * model family — each plugin owns its own model policy (e.g. which families
+   * need firmer steering) and matches against this string directly.
    */
   readonly model: string;
+  /**
+   * The LLM call site driving this turn — `mainAgent` for a live user-facing
+   * turn, `subagentSpawn` for a subagent, or a background site (e.g.
+   * `heartbeatAgent`, `titleGenerate`). `null` when the run tagged none. A hook
+   * that should only act on a live user-facing turn gates on
+   * `callSite === "mainAgent"`; one that should skip subagents checks
+   * `callSite === "subagentSpawn"`.
+   */
+  readonly callSite: LLMCallSite | null;
+  /**
+   * Whether the connected client can render dynamic UI surfaces this turn —
+   * `true` unless the channel explicitly lacks the capability (SMS, phone,
+   * email, and most chat bridges). A fact about what the model can *do* this
+   * turn, not who is calling: a hook that prompts a surface tool (e.g. the
+   * `ui_show` progress card) gates on this so it does not coach the model
+   * toward a tool the channel filters out of the tool set.
+   */
+  readonly supportsDynamicUi: boolean;
   /**
    * The model's context-window size in tokens. Plugins derive their own
    * character budget from this (e.g. a share of the window) rather than

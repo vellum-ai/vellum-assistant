@@ -3,7 +3,7 @@
  * `@vellumai/gateway-client/ipc-client`.
  *
  * Usage:
- *   import { mockGatewayIpc, resetMockGatewayIpc } from "../__tests__/mock-gateway-ipc.js";
+ *   import { mockGatewayIpc, resetMockGatewayIpc } from "./mock-gateway-ipc.js";
  *
  *   beforeEach(() => resetMockGatewayIpc());
  *   afterEach(() => resetMockGatewayIpc());

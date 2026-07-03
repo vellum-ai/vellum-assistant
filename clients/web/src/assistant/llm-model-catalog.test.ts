@@ -83,14 +83,11 @@ function comparableModel(model: MetaCatalogModel) {
 }
 
 describe("parity with meta/llm-provider-catalog.json", () => {
-  // Intentional asymmetries between the web mirror and the meta catalog:
-  // - the web mirror omits daemon-only providers (ollama);
-  // - openai-compatible has a per-connection model list, so its (empty)
-  //   catalog entry is excluded from model/default comparisons.
+  // Intentional asymmetry between the web mirror and the meta catalog:
+  // openai-compatible has a per-connection model list, so its (empty)
+  // catalog entry is excluded from model/default comparisons.
   // Field parity therefore iterates web keys, not meta providers; the
   // coverage test below guards the reverse direction.
-  const DAEMON_ONLY_PROVIDERS = new Set(["ollama"]);
-
   const metaCatalog: MetaCatalog = JSON.parse(
     readFileSync(META_CATALOG_PATH, "utf-8"),
   );
@@ -101,12 +98,11 @@ describe("parity with meta/llm-provider-catalog.json", () => {
     Object.keys(MODELS_BY_PROVIDER) as LlmProviderId[]
   ).filter((id) => id !== "openai-compatible");
 
-  test("every meta provider except daemon-only ones exists in the web mirror", () => {
+  test("every meta provider exists in the web mirror", () => {
     // This is the original MiniMax bug: a provider added to the daemon
     // catalog but never mirrored here, leaving an empty Model dropdown.
     const webKeys = new Set<string>(Object.keys(MODELS_BY_PROVIDER));
     for (const provider of metaCatalog.providers) {
-      if (DAEMON_ONLY_PROVIDERS.has(provider.id)) continue;
       expect(
         webKeys.has(provider.id),
         `meta provider "${provider.id}" is missing from MODELS_BY_PROVIDER`,

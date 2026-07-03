@@ -1,37 +1,30 @@
 import { useQuery } from "@tanstack/react-query";
-import {
-    ChevronDown,
-    Loader2,
-    Search,
-    Sparkles,
-} from "lucide-react";
+import { Tabs } from "@vellumai/design-library/components/tabs";
+import { Input } from "@vellumai/design-library/components/input";
+import { Notice } from "@vellumai/design-library/components/notice";
+import { Popover } from "@vellumai/design-library/components/popover";
+import { toast } from "@vellumai/design-library/components/toast";
+import { ChevronDown, Loader2, Search, Sparkles } from "lucide-react";
 import { Suspense, useEffect, useMemo, useState } from "react";
-
 import { useNavigate, useSearchParams } from "react-router";
 
 import { type Assistant, getAssistant } from "@/assistant/api";
 import { IntegrationDetailModal } from "@/domains/settings/components/integration-detail-modal";
 import { IntegrationRow } from "@/domains/settings/components/integration-row";
+import { McpPage } from "@/domains/settings/mcp/mcp-page";
 import { assistantsOauthConnectionsListOptions } from "@/generated/api/@tanstack/react-query.gen";
 import type { OAuthConnection } from "@/generated/api/types.gen";
 import { oauthProvidersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useManagedOAuthPlatformAssistantId } from "@/hooks/use-managed-oauth-platform-assistant-id";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
 import { captureError } from "@/lib/sentry/capture-error";
+import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { routes } from "@/utils/routes";
-import { Input } from "@vellumai/design-library/components/input";
-import { Notice } from "@vellumai/design-library/components/notice";
-import { Popover } from "@vellumai/design-library/components/popover";
-import { toast } from "@vellumai/design-library/components/toast";
-
-import {
-    getLocalSetting,
-    setLocalSetting,
-} from "@/utils/local-settings";
 
 const BANNER_STORAGE_KEY = "vellum:integrations:bannerDismissed";
 
 type IntegrationFilter = "all" | "enabled" | "not-enabled";
+type IntegrationsTab = "oauth" | "mcp";
 
 const FILTER_OPTIONS: Array<{ value: IntegrationFilter; label: string }> = [
   { value: "all", label: "All" },
@@ -44,6 +37,10 @@ function connectionForProvider(
   providerKey: string,
 ): OAuthConnection | null {
   return connections?.find((c) => c.provider === providerKey) ?? null;
+}
+
+function parseIntegrationsTab(value: string | null): IntegrationsTab {
+  return value === "mcp" ? "mcp" : "oauth";
 }
 
 function IntegrationsPanelInner() {
@@ -167,6 +164,7 @@ function IntegrationsPanelInner() {
   const filteredProviders = useMemo(() => {
     const needle = searchText.trim().toLowerCase();
     let list = managedProviders.filter((provider) => {
+      if (provider.provider_key === "slack") return false;
       if (!needle) {
         return true;
       }
@@ -383,11 +381,36 @@ function IntegrationsPanelInner() {
 }
 
 export function IntegrationsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const activeTab = parseIntegrationsTab(searchParams.get("tab"));
+
+  const handleTabChange = (value: string) => {
+    const nextTab = parseIntegrationsTab(value);
+    const next = new URLSearchParams(searchParams);
+    if (nextTab === "mcp") {
+      next.set("tab", "mcp");
+    } else {
+      next.delete("tab");
+    }
+    setSearchParams(next, { replace: true });
+  };
+
   return (
     <div className="space-y-6">
-      <Suspense>
-        <IntegrationsPanelInner />
-      </Suspense>
+      <Tabs.Root value={activeTab} onValueChange={handleTabChange}>
+        <Tabs.List>
+          <Tabs.Trigger value="oauth">OAuth</Tabs.Trigger>
+          <Tabs.Trigger value="mcp">MCP</Tabs.Trigger>
+        </Tabs.List>
+        <Tabs.Panel value="oauth" className="pt-4">
+          <Suspense>
+            <IntegrationsPanelInner />
+          </Suspense>
+        </Tabs.Panel>
+        <Tabs.Panel value="mcp" className="pt-4">
+          <McpPage />
+        </Tabs.Panel>
+      </Tabs.Root>
     </div>
   );
 }

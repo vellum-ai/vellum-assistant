@@ -1,6 +1,12 @@
+import * as Sentry from "@sentry/node";
 import { v4 as uuid } from "uuid";
+import { z } from "zod";
 
-import { isActivationSession } from "../memory/activation-session-store.js";
+import { SurfaceActionSchema } from "../api/events/ui-surface-show.js";
+import {
+  CardSurfaceDataSchema,
+  FileUploadSurfaceDataSchema,
+} from "../api/surfaces.js";
 import {
   addAppConversationId,
   getApp,
@@ -11,12 +17,13 @@ import {
   resolveAppDir,
   resolveEffectiveAppHtml,
   updateApp,
-} from "../memory/app-store.js";
+} from "../apps/app-store.js";
+import { recordActivationEvent } from "../onboarding/onboarding-events-store.js";
 import {
   getMessages,
   updateMessageContent,
-} from "../memory/conversation-crud.js";
-import { recordActivationEvent } from "../memory/onboarding-events-store.js";
+} from "../persistence/conversation-crud.js";
+import { isActivationSession } from "../plugins/defaults/memory/activation-session-store.js";
 import {
   assistantEventHub,
   broadcastMessage,
@@ -52,6 +59,7 @@ import type {
   ConfirmationSurfaceData,
   CopyBlockSurfaceData,
   DynamicPageSurfaceData,
+  FileUploadSurfaceData,
   FormSurfaceData,
   ListSurfaceData,
   OAuthConnectSurfaceData,
@@ -69,6 +77,16 @@ import type { UserMessageAttachment } from "./message-types/shared.js";
 import type { TrustContext } from "./trust-context.js";
 
 const log = getLogger("conversation-surfaces");
+
+// Tolerant variant of SurfaceActionSchema for parsing raw model output.
+// The canonical schema rejects unknown style values; this one coerces them
+// to "secondary" so a single mistyped style doesn't drop all actions.
+const ModelActionSchema = SurfaceActionSchema.extend({
+  style: z
+    .enum(["primary", "secondary", "destructive"])
+    .catch("secondary")
+    .optional(),
+});
 
 const MAX_UNDO_DEPTH = 10;
 
@@ -472,6 +490,27 @@ function normalizeDynamicPageShowData(
   return normalized as unknown as DynamicPageSurfaceData;
 }
 
+/** First entry that is a non-empty (trimmed) string, else undefined. */
+function firstNonEmptyString(values: unknown[]): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/** All non-empty (trimmed) strings from the values list. */
+function allNonEmptyStrings(values: unknown[]): string[] {
+  const result: string[] = [];
+  for (const value of values) {
+    if (typeof value === "string" && value.trim().length > 0) {
+      result.push(value);
+    }
+  }
+  return result;
+}
+
 function normalizeCardShowData(
   input: Record<string, unknown>,
   rawData: Record<string, unknown>,
@@ -507,6 +546,131 @@ function normalizeCardShowData(
     normalized.body = input.body;
   }
 
+  // The model sees every surface type's schema in the ui_show tool description,
+  // so it frequently borrows keys from sibling surfaces when emitting a card.
+  // Recover those into the canonical card fields, checking both data-level and
+  // top-level (input) placement. Multiple matches are concatenated (body) or
+  // first-wins (title/subtitle); all alias keys are deleted afterward so they
+  // don't appear as droppedKeys noise.
+  //
+  // body aliases: copy_block's `text`, confirmation's `message`, generic
+  // `content`, and cross-surface `description` (choice/form/oauth/work_result/
+  // dynamic_page — 5 types use it), work_result's `summary`, confirmation's
+  // `detail`.
+  const bodyAliasKeys = [
+    "text",
+    "message",
+    "content",
+    "description",
+    "summary",
+    "detail",
+  ] as const;
+  if (typeof normalized.body !== "string" || normalized.body.trim() === "") {
+    const candidates = allNonEmptyStrings(
+      bodyAliasKeys.map((k) => {
+        const dataVal = normalized[k];
+        if (typeof dataVal === "string" && dataVal.trim().length > 0)
+          return dataVal;
+        return input[k];
+      }),
+    );
+    if (candidates.length > 0) {
+      // Temporary: concatenate all matching aliases so no content is lost.
+      // A future pass should define per-alias semantic roles (e.g. summary
+      // as a subtitle, detail as supplementary) once production telemetry
+      // reveals which combinations actually occur.
+      normalized.body = candidates.join("\n\n");
+      const usedAliases = bodyAliasKeys.filter(
+        (k) =>
+          (typeof normalized[k] === "string" &&
+            (normalized[k] as string).trim().length > 0) ||
+          (typeof input[k] === "string" &&
+            (input[k] as string).trim().length > 0),
+      );
+      try {
+        Sentry.withScope((scope) => {
+          scope.setLevel("info");
+          scope.setTag("card_normalization", "alias_recovery");
+          scope.setTag("target_field", "body");
+          scope.setContext("card_normalization", {
+            used_aliases: usedAliases,
+            candidate_count: candidates.length,
+          });
+          Sentry.captureMessage("card_normalization:alias_recovery:body");
+        });
+      } catch {
+        // Never let telemetry break card rendering.
+      }
+    }
+  }
+  for (const key of bodyAliasKeys) {
+    delete normalized[key];
+  }
+
+  // title aliases: natural synonyms the model reaches for when it doesn't
+  // use `title` verbatim.
+  const titleAliasKeys = ["heading", "header", "name"] as const;
+  if (typeof normalized.title !== "string" || normalized.title.trim() === "") {
+    const aliased = firstNonEmptyString([
+      ...titleAliasKeys.map((k) => normalized[k]),
+      ...titleAliasKeys.map((k) => input[k]),
+    ]);
+    if (aliased !== undefined) {
+      normalized.title = aliased;
+      try {
+        Sentry.withScope((scope) => {
+          scope.setLevel("info");
+          scope.setTag("card_normalization", "alias_recovery");
+          scope.setTag("target_field", "title");
+          Sentry.captureMessage("card_normalization:alias_recovery:title");
+        });
+      } catch {
+        // Never let telemetry break card rendering.
+      }
+    }
+  }
+  for (const key of titleAliasKeys) {
+    delete normalized[key];
+  }
+
+  // subtitle aliases: table's `caption`, natural synonym `subheading`.
+  if (
+    typeof normalized.subtitle !== "string" &&
+    typeof input.subtitle === "string"
+  ) {
+    normalized.subtitle = input.subtitle;
+  }
+  const subtitleAliasKeys = ["subheading", "caption"] as const;
+  if (
+    typeof normalized.subtitle !== "string" ||
+    normalized.subtitle.trim() === ""
+  ) {
+    const aliased = firstNonEmptyString([
+      ...subtitleAliasKeys.map((k) => normalized[k]),
+      ...subtitleAliasKeys.map((k) => input[k]),
+    ]);
+    if (aliased !== undefined) {
+      normalized.subtitle = aliased;
+      try {
+        Sentry.withScope((scope) => {
+          scope.setLevel("info");
+          scope.setTag("card_normalization", "alias_recovery");
+          scope.setTag("target_field", "subtitle");
+          Sentry.captureMessage("card_normalization:alias_recovery:subtitle");
+        });
+      } catch {
+        // Never let telemetry break card rendering.
+      }
+    }
+  }
+  for (const key of subtitleAliasKeys) {
+    delete normalized[key];
+  }
+
+  if (!Array.isArray(normalized.metadata) && Array.isArray(input.metadata)) {
+    normalized.metadata = input.metadata;
+  }
+
   // task_progress cards: additional fallbacks for title from templateData.
   if (
     normalized.template === "task_progress" &&
@@ -533,7 +697,49 @@ function normalizeCardShowData(
     ensureTaskProgressTemplateData(normalized);
   }
 
-  return normalized as unknown as CardSurfaceData;
+  // Parse, don't assert. The old `as unknown as CardSurfaceData` accepted any
+  // shape, so anything the model nested under an unmodelled key was carried
+  // through unread. Parsing draws the boundary; the dropped-key log surfaces
+  // the shapes we still don't recover, so the recovery list above can grow from
+  // real traffic rather than guesswork.
+  const droppedKeys = Object.keys(normalized).filter(
+    (key) => !(key in CardSurfaceDataSchema.shape),
+  );
+  if (droppedKeys.length > 0) {
+    log.warn(
+      { droppedKeys },
+      "ui_show card data carried keys the card contract does not model; their content will not render",
+    );
+    try {
+      Sentry.withScope((scope) => {
+        scope.setLevel("warning");
+        scope.setTag("card_normalization", "dropped_keys");
+        scope.setContext("card_normalization", {
+          dropped_count: droppedKeys.length,
+        });
+        // Key names are model-controlled, so they ride in `extra`, which
+        // beforeSend redacts (it does not scrub `contexts`) — see instrument.ts.
+        scope.setExtra("dropped_keys", droppedKeys);
+        Sentry.captureMessage("card_normalization:dropped_keys");
+      });
+    } catch {
+      // Never let telemetry break card rendering.
+    }
+  }
+  const parsed = CardSurfaceDataSchema.safeParse(normalized);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  log.warn(
+    { issues: parsed.error.issues },
+    "ui_show card data failed CardSurfaceDataSchema; rendering only the fields that validated",
+  );
+  return CardSurfaceDataSchema.parse({
+    title: typeof normalized.title === "string" ? normalized.title : undefined,
+    subtitle:
+      typeof normalized.subtitle === "string" ? normalized.subtitle : undefined,
+    body: typeof normalized.body === "string" ? normalized.body : undefined,
+  });
 }
 
 function normalizeTaskProgressCardPatch(
@@ -652,6 +858,24 @@ function normalizeOAuthConnectShowData(
       ? { logoUrl: rawData.logoUrl }
       : {}),
   };
+}
+
+function normalizeFileUploadShowData(
+  rawData: Record<string, unknown>,
+): FileUploadSurfaceData {
+  // Parse against the canonical schema so the surface carries the shape the
+  // renderer expects. The schema is tolerant (every field optional and coerced)
+  // and recovers the common malformed `acceptedTypes` shapes — a comma-joined or
+  // bare string — into the `string[]` the renderer requires.
+  const parsed = FileUploadSurfaceDataSchema.safeParse(rawData);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  log.warn(
+    { issues: parsed.error.issues },
+    "ui_show file_upload data failed FileUploadSurfaceDataSchema; rendering an empty file_upload surface",
+  );
+  return {};
 }
 
 function buildChoiceActions(data: ChoiceSurfaceData): Array<{
@@ -1131,6 +1355,113 @@ export function cleanupStandaloneSurface(
 }
 
 /**
+ * How long to wait for a client to acknowledge an `open_panel` command
+ * before reporting failure to the model. The ack round-trip is one SSE
+ * delivery plus one HTTP POST, so this is generous — it only elapses when
+ * no connected client rendered the panel (event dropped, no client
+ * listening, or a client build that predates panel acknowledgment).
+ */
+const OPEN_PANEL_ACK_TIMEOUT_MS = 10_000;
+
+/**
+ * Open the channel-setup drawer on a connected client and wait for the
+ * client's acknowledgment.
+ *
+ * `open_panel` is a side-effect-only command: it is never persisted to the
+ * transcript, so a dropped event is unrecoverable by reload. The ack is what
+ * makes the emitting tool result truthful — "displayed" must mean a client
+ * actually rendered the drawer, not merely that the event was emitted.
+ *
+ * Reuses the standalone-surface pending machinery: the client responds via
+ * the existing surface-action route (`actionId: "ack"` on success, `"nack"`
+ * with `data.reason` when it received the event but could not open the
+ * panel), which `handleSurfaceAction` intercepts and resolves without an
+ * LLM turn. The surface-state entry exists only so the surface-action route
+ * can resolve the owning conversation by `surfaceId`; `cleanupStandaloneSurface`
+ * removes it on every outcome.
+ */
+export function openChannelSetupPanel(
+  ctx: SurfaceConversationContext,
+  surfaceId: string,
+  data: Record<string, unknown>,
+  options?: { signal?: AbortSignal; timeoutMs?: number },
+): Promise<InteractiveUiResult> {
+  if (!canShowInteractiveUi(ctx) || !ctx.pendingStandaloneSurfaces) {
+    log.warn(
+      {
+        conversationId: ctx.conversationId,
+        hasNoClient: ctx.hasNoClient,
+        channel: ctx.channelCapabilities?.channel,
+      },
+      "channel_setup panel: no interactive UI capability; failing closed",
+    );
+    return Promise.resolve({
+      status: "cancelled" as const,
+      surfaceId,
+      cancellationReason: "no_interactive_surface" as const,
+    });
+  }
+  const pendingMap = ctx.pendingStandaloneSurfaces;
+  const signal = options?.signal;
+  const timeoutMs = options?.timeoutMs ?? OPEN_PANEL_ACK_TIMEOUT_MS;
+
+  if (signal?.aborted) {
+    return Promise.resolve({
+      status: "cancelled" as const,
+      surfaceId,
+      cancellationReason: "resolver_unavailable" as const,
+    });
+  }
+
+  return new Promise<InteractiveUiResult>((resolve) => {
+    const settle = (result: InteractiveUiResult) => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve(result);
+    };
+
+    const timer = setTimeout(() => {
+      cleanupStandaloneSurface(ctx, surfaceId);
+      log.warn(
+        { conversationId: ctx.conversationId, surfaceId, timeoutMs },
+        "channel_setup panel: no client acknowledged open_panel",
+      );
+      settle({ status: "timed_out", surfaceId });
+    }, timeoutMs);
+
+    const onAbort = () => {
+      cleanupStandaloneSurface(ctx, surfaceId);
+      settle({
+        status: "cancelled",
+        surfaceId,
+        cancellationReason: "resolver_unavailable",
+      });
+    };
+    signal?.addEventListener("abort", onAbort, { once: true });
+
+    pendingMap.set(surfaceId, {
+      resolve: settle,
+      timer,
+      surfaceType: "channel_setup",
+    });
+    // Registered so the surface-action route's by-surfaceId conversation
+    // lookup finds this conversation when the ack arrives without a
+    // conversationId. Cleared by cleanupStandaloneSurface on all outcomes.
+    ctx.surfaceState.set(surfaceId, {
+      surfaceType: "channel_setup",
+      data: data as SurfaceData,
+    });
+
+    ctx.sendToClient({
+      type: "open_panel",
+      panelType: "channel_setup",
+      data,
+      conversationId: ctx.conversationId,
+      surfaceId,
+    });
+  });
+}
+
+/**
  * Handle content_changed action from document editor.
  * Auto-saves the document content to the app store.
  */
@@ -1520,6 +1851,10 @@ export async function handleSurfaceAction(
   surfaceId: string,
   actionId: string,
   data?: Record<string, unknown>,
+  // JWT-verified committer principal; threaded so enqueued turns can
+  // reconstruct the same-user binding for host proxies (CU / app-control),
+  // mirroring the normal message path.
+  sourceActorPrincipalId?: string,
 ): Promise<SurfaceActionResult> {
   // ── Standalone surface interception ──────────────────────────────
   // Daemon-driven surfaces (from `requestInteractiveUi`) register a
@@ -1558,6 +1893,20 @@ export async function handleSurfaceAction(
         : {}),
       summary,
     };
+
+    // channel_setup pendings are protocol-level acknowledgments for the
+    // `open_panel` command, not user-facing surfaces: nothing was rendered
+    // in the transcript, so there is no completion to broadcast, persist,
+    // or count as an activation commit. Resolve and clean up only.
+    if (standalone.surfaceType === "channel_setup") {
+      cleanupStandaloneSurface(ctx, surfaceId);
+      standalone.resolve(result);
+      log.info(
+        { conversationId: ctx.conversationId, surfaceId, actionId, status },
+        "open_panel acknowledgment resolved",
+      );
+      return { accepted: true, conversationId: ctx.conversationId };
+    }
 
     broadcastMessage({
       type: "ui_surface_complete",
@@ -1812,6 +2161,7 @@ export async function handleSurfaceAction(
       requestId,
       activeSurfaceId: surfaceId,
       displayContent,
+      sourceActorPrincipalId,
     });
 
     if (result.rejected) {
@@ -1868,6 +2218,7 @@ export async function handleSurfaceAction(
         requestId,
         activeSurfaceId: surfaceId,
         displayContent,
+        sourceActorPrincipalId,
       })
       .catch((err) => {
         const message = err instanceof Error ? err.message : String(err);
@@ -2058,6 +2409,7 @@ export async function handleSurfaceAction(
     requestId,
     activeSurfaceId: surfaceId,
     displayContent,
+    sourceActorPrincipalId,
   });
   if (result.rejected) {
     ctx.surfaceActionRequestIds.delete(requestId);
@@ -2161,6 +2513,7 @@ export async function handleSurfaceAction(
       requestId,
       activeSurfaceId: surfaceId,
       displayContent,
+      sourceActorPrincipalId,
     })
     .catch((err) => {
       const message = err instanceof Error ? err.message : String(err);
@@ -2693,9 +3046,67 @@ export async function surfaceProxyResolver(
     const surfaceType = input.surface_type as SurfaceType;
     const title = typeof input.title === "string" ? input.title : undefined;
     const rawData = isPlainObject(input.data) ? input.data : {};
-    const data = (
+
+    // channel_setup is a side-effect-only command: it opens the channel setup
+    // drawer on the client. Emitted as `open_panel` (not `ui_surface_show`)
+    // so the rolling-snapshot reducer never folds it into the transcript.
+    // Because the event is never persisted, success is gated on a client
+    // acknowledgment — "displayed" must mean a client actually rendered the
+    // drawer, otherwise the model announces a panel the user cannot see.
+    if (surfaceType === "channel_setup") {
+      const ack = await openChannelSetupPanel(
+        ctx,
+        surfaceId,
+        rawData as Record<string, unknown>,
+        { signal },
+      );
+
+      if (ack.status === "submitted" && ack.actionId === "ack") {
+        return {
+          content: JSON.stringify({ surfaceId, status: "displayed" }),
+          isError: false,
+        };
+      }
+
+      if (ack.status === "submitted") {
+        // Client received the event but could not open the panel (nack).
+        const reason =
+          typeof ack.submittedData?.reason === "string"
+            ? ack.submittedData.reason
+            : "unknown";
+        return {
+          content: `The channel setup panel could not be opened by the connected client (reason: ${reason}). Do NOT tell the user the panel is open. Troubleshoot with the user (e.g. ask them to reopen or refresh the Vellum app), then retry ui_show.`,
+          isError: true,
+        };
+      }
+
+      if (ack.status === "timed_out") {
+        return {
+          content:
+            "No connected client confirmed opening the channel setup panel. Do NOT tell the user the panel is open. The user's app may be closed, viewing a different conversation, or running a version that cannot show this panel. Ask the user to open this conversation in the Vellum app (web or desktop), then retry ui_show.",
+          isError: true,
+        };
+      }
+
+      // cancelled — no interactive client, or the turn was aborted.
+      return {
+        content:
+          "The channel setup panel could not be opened — no connected client can render interactive UI. Do NOT tell the user the panel is open. Ask the user to open the Vellum app (web or desktop), then retry ui_show.",
+        isError: true,
+      };
+    }
+
+    // Each surface type that has a canonical Zod schema gets parsed through it;
+    // the rest pass through raw until migrated (LUM-2134 scope). The per-type
+    // normalizers validate+recover; the union cast at the end is only for the
+    // unmigrated branches that still return hand-written interfaces.
+    const cardData =
       surfaceType === "card"
         ? normalizeCardShowData(input, rawData)
+        : undefined;
+    const data: SurfaceData =
+      cardData !== undefined
+        ? cardData
         : surfaceType === "choice"
           ? normalizeChoiceShowData(rawData)
           : surfaceType === "copy_block"
@@ -2704,21 +3115,54 @@ export async function surfaceProxyResolver(
               ? normalizeOAuthConnectShowData(rawData)
               : surfaceType === "dynamic_page"
                 ? normalizeDynamicPageShowData(input, rawData)
-                : rawData
-    ) as SurfaceData;
-    const inputActions = input.actions as
-      | Array<{
-          id: string;
-          label: string;
-          style?: string;
-          data?: Record<string, unknown>;
-        }>
-      | undefined;
+                : surfaceType === "file_upload"
+                  ? normalizeFileUploadShowData(rawData)
+                  : (rawData as SurfaceData);
+    // Parse actions through the schema instead of typecasting raw model output.
+    // The model may place actions inside `data` instead of the top-level
+    // `actions` param — recover them so they aren't silently dropped.
+    const rawActions = Array.isArray(input.actions)
+      ? input.actions
+      : Array.isArray(rawData.actions)
+        ? rawData.actions
+        : undefined;
+    let inputActions: z.infer<typeof ModelActionSchema>[] | undefined;
+    if (rawActions) {
+      const valid: z.infer<typeof ModelActionSchema>[] = [];
+      for (const raw of rawActions) {
+        const result = ModelActionSchema.safeParse(raw);
+        if (result.success) {
+          valid.push(result.data);
+        } else {
+          try {
+            Sentry.withScope((scope) => {
+              scope.setLevel("warning");
+              scope.setTag("card_normalization", "action_parse_failure");
+              scope.setContext("card_normalization", {
+                issue_paths: result.error.issues.map((i) => i.path.join(".")),
+              });
+              // raw object keys are model-controlled, so they ride in `extra`,
+              // which beforeSend redacts (it does not scrub `contexts`) — see
+              // instrument.ts.
+              scope.setExtra(
+                "raw_keys",
+                typeof raw === "object" && raw !== null
+                  ? Object.keys(raw)
+                  : [typeof raw],
+              );
+              Sentry.captureMessage("card_normalization:action_parse_failure");
+            });
+          } catch {
+            // Never let telemetry break card rendering.
+          }
+        }
+      }
+      inputActions = valid.length > 0 ? valid : undefined;
+    }
     const actions =
       surfaceType === "choice"
         ? buildChoiceActions(data as ChoiceSurfaceData)
         : inputActions;
-    // Interactive surfaces default to awaiting user action.
     const hasActions = Array.isArray(actions) && actions.length > 0;
     if (surfaceType === "choice" && !hasActions) {
       return {
@@ -2726,6 +3170,52 @@ export async function surfaceProxyResolver(
           "choice surfaces require at least one option with both id and title.",
         isError: true,
       };
+    }
+    if (cardData !== undefined) {
+      const hasTitle =
+        (typeof title === "string" && title.trim().length > 0) ||
+        (typeof cardData.title === "string" &&
+          cardData.title.trim().length > 0);
+      const hasBody =
+        typeof cardData.body === "string" && cardData.body.trim().length > 0;
+      const hasSubtitle =
+        typeof cardData.subtitle === "string" &&
+        cardData.subtitle.trim().length > 0;
+      const hasMetadata =
+        Array.isArray(cardData.metadata) && cardData.metadata.length > 0;
+      const hasTemplate = typeof cardData.template === "string";
+      if (
+        !hasTitle &&
+        !hasBody &&
+        !hasSubtitle &&
+        !hasMetadata &&
+        !hasTemplate &&
+        !hasActions
+      ) {
+        try {
+          Sentry.withScope((scope) => {
+            scope.setLevel("warning");
+            scope.setTag("card_normalization", "empty_card_rejected");
+            scope.setContext("card_normalization", {
+              surface_type: surfaceType,
+              has_title: hasTitle,
+              has_body: hasBody,
+              has_subtitle: hasSubtitle,
+              has_metadata: hasMetadata,
+              has_template: hasTemplate,
+              has_actions: hasActions,
+            });
+            Sentry.captureMessage("card_normalization:empty_card_rejected");
+          });
+        } catch {
+          // Never let telemetry break card rendering.
+        }
+        return {
+          content:
+            "Error: ui_show card requires content — provide `data.body`, a `template` (e.g. task_progress with steps), `data.metadata`, `data.subtitle`, a `title`, or `actions`. The surface was not displayed because it carried no renderable content. Resend ui_show with populated card content.",
+          isError: true,
+        };
+      }
     }
     const oauthProviderKey =
       surfaceType === "oauth_connect"
@@ -2741,6 +3231,7 @@ export async function surfaceProxyResolver(
         isError: true,
       };
     }
+
     const isInteractive =
       surfaceType === "card"
         ? hasActions
@@ -2777,10 +3268,7 @@ export async function surfaceProxyResolver(
     const mappedActions = actions?.map((a) => ({
       id: a.id,
       label: a.label,
-      style: (a.style ?? "secondary") as
-        | "primary"
-        | "secondary"
-        | "destructive",
+      style: a.style ?? "secondary",
       ...(a.data ? { data: a.data } : {}),
     }));
 
@@ -2896,7 +3384,26 @@ export async function surfaceProxyResolver(
         const currentHtml = (stored.data as DynamicPageSurfaceData).html;
         pushUndoState(ctx.surfaceUndoStacks, surfaceId, currentHtml);
       }
-      mergedData = { ...stored.data, ...patch } as SurfaceData;
+      const rawMerged = { ...stored.data, ...patch };
+      if (stored.surfaceType === "card") {
+        // Validate the merged card data through the canonical schema so
+        // malformed patches (e.g. metadata as a string) are caught here
+        // instead of crashing the client's safeParse.
+        const parsed = CardSurfaceDataSchema.safeParse(rawMerged);
+        mergedData = parsed.success
+          ? parsed.data
+          : (CardSurfaceDataSchema.safeParse(stored.data).data ?? {});
+        if (!parsed.success) {
+          log.warn(
+            { surfaceId, issues: parsed.error.issues },
+            "ui_update card patch produced invalid merged data; reverting to stored data",
+          );
+        }
+      } else {
+        // Other surface types lack canonical Zod schemas (LUM-2134 scope).
+        // The raw merge is the best we can do until they're migrated.
+        mergedData = rawMerged as SurfaceData;
+      }
       stored.data = mergedData;
     } else {
       mergedData = patch as unknown as SurfaceData;

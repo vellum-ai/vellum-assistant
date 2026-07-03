@@ -26,6 +26,7 @@ interface ProcessMessageCall {
   requestId?: string;
   activeSurfaceId?: string;
   displayContent?: string;
+  sourceActorPrincipalId?: string;
 }
 
 function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext & {
@@ -69,6 +70,7 @@ function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext & {
         requestId: options.requestId,
         activeSurfaceId: options.activeSurfaceId,
         displayContent: options.displayContent,
+        sourceActorPrincipalId: options.sourceActorPrincipalId,
       });
       return "msg-1";
     },
@@ -141,6 +143,69 @@ describe("surface action delivery to assistant", () => {
 
     // Verify the requestId was tracked as a surface action
     expect(ctx.surfaceActionRequestIds.size).toBe(1);
+  });
+
+  test("idle pending follow-up path threads submitter principal into processMessage", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    await surfaceProxyResolver(ctx, "ui_show", {
+      surface_type: "table",
+      title: "Items",
+      data: {
+        columns: [{ id: "name", label: "Name" }],
+        rows: [{ id: "r1", cells: { name: "Item 1" } }],
+      },
+      actions: [{ id: "archive", label: "Archive" }],
+    });
+
+    const showMessage = sent.find(
+      (msg): msg is UiSurfaceShow => msg.type === "ui_surface_show",
+    ) as UiSurfaceShow;
+    const surfaceId = showMessage.surfaceId;
+
+    await handleSurfaceAction(
+      ctx,
+      surfaceId,
+      "archive",
+      { selectedIds: ["r1"] },
+      "principal-committer",
+    );
+
+    expect(ctx.processMessageCalls.length).toBe(1);
+    expect(ctx.processMessageCalls[0].sourceActorPrincipalId).toBe(
+      "principal-committer",
+    );
+  });
+
+  test("idle history-restored path threads submitter principal into processMessage", async () => {
+    const sent: ServerMessage[] = [];
+    const ctx = makeContext(sent);
+
+    // History-restored surface: surfaceState exists, pendingSurfaceActions
+    // does not — exercises the immediate (idle) fallthrough.
+    ctx.surfaceState.set("hist-surface-p", {
+      surfaceType: "table",
+      data: {
+        columns: [{ id: "col", label: "Col" }],
+        rows: [],
+      } as unknown as SurfaceData,
+      title: "History Table",
+      actions: [{ id: "delete", label: "Delete" }],
+    });
+
+    await handleSurfaceAction(
+      ctx,
+      "hist-surface-p",
+      "delete",
+      { selectedIds: ["row-1"] },
+      "principal-committer",
+    );
+
+    expect(ctx.processMessageCalls.length).toBe(1);
+    expect(ctx.processMessageCalls[0].sourceActorPrincipalId).toBe(
+      "principal-committer",
+    );
   });
 
   test("table action without selection data still triggers processMessage", async () => {

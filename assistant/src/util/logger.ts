@@ -49,6 +49,15 @@ function logFilePathForDate(dir: string, date: Date): string {
   return join(dir, `${LOG_FILE_PREFIX}${formatDate(date)}${LOG_FILE_SUFFIX}`);
 }
 
+/**
+ * Returns the path to today's log file (`<logsDir>/assistant-YYYY-MM-DD.log`).
+ * Used by callers that need to open the same file the logger writes to, e.g.
+ * the memory worker spawner piping the child's stderr into the log file.
+ */
+export function getCurrentLogFilePath(): string {
+  return logFilePathForDate(getLogsDir(), new Date());
+}
+
 export function pruneOldLogFiles(dir: string, retentionDays: number): number {
   if (!existsSync(dir)) return 0;
 

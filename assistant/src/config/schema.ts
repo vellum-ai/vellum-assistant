@@ -42,12 +42,15 @@ import {
 } from "./schemas/logging.js";
 import { McpConfigSchema } from "./schemas/mcp.js";
 import { MemoryConfigSchema } from "./schemas/memory.js";
+import { MigrationsConfigSchema } from "./schemas/migrations.js";
+import { MonitoringConfigSchema } from "./schemas/monitoring.js";
 import { NotificationsConfigSchema } from "./schemas/notifications.js";
 import {
   DaemonConfigSchema,
   PlatformConfigSchema,
   UiConfigSchema,
 } from "./schemas/platform.js";
+import { SchedulesConfigSchema } from "./schemas/schedules.js";
 import { SecretDetectionConfigSchema } from "./schemas/security.js";
 import { ServicesSchema } from "./schemas/services.js";
 import { SkillsConfigSchema } from "./schemas/skills.js";
@@ -63,6 +66,13 @@ export const AssistantConfigSchema = z
   .object({
     services: ServicesSchema.default(ServicesSchema.parse({})),
     memory: MemoryConfigSchema.default(MemoryConfigSchema.parse({})),
+    monitoring: MonitoringConfigSchema.default(
+      MonitoringConfigSchema.parse({}),
+    ),
+    schedules: SchedulesConfigSchema.default(SchedulesConfigSchema.parse({})),
+    migrations: MigrationsConfigSchema.default(
+      MigrationsConfigSchema.parse({}),
+    ),
     dataDir: z
       .string({ error: "dataDir must be a string" })
       .default(getDataDir())

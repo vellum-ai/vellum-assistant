@@ -1,9 +1,39 @@
-import { writeFileSync } from "node:fs";
-import { afterEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import { invalidateConfigCache } from "../config/loader.js";
-import { getModelProfiles } from "../plugin-api/index.js";
-import { getWorkspaceConfigPath } from "../util/platform.js";
+interface MockProfileEntry {
+  label?: string;
+  description?: string;
+  provider?: string;
+  model?: string;
+  status?: string;
+  mix?: unknown;
+}
+
+let mockProfiles: Record<string, MockProfileEntry> = {};
+let mockActiveProfile: string | undefined;
+let mockProfileOrder: string[] | undefined;
+
+const realConfigLoader = await import("../config/loader.js");
+
+mock.module("../config/loader.js", () => ({
+  ...realConfigLoader,
+  getConfig: () => ({
+    llm: {
+      profiles: mockProfiles,
+      activeProfile: mockActiveProfile,
+      profileOrder: mockProfileOrder,
+    },
+  }),
+  getConfigReadOnly: () => ({
+    llm: {
+      profiles: mockProfiles,
+      activeProfile: mockActiveProfile,
+      profileOrder: mockProfileOrder,
+    },
+  }),
+}));
+
+const { getModelProfiles } = await import("../plugin-api/index.js");
 
 /**
  * `getModelProfiles()` — the runtime handle a plugin (e.g. a model router) calls
@@ -14,14 +44,23 @@ import { getWorkspaceConfigPath } from "../util/platform.js";
  * description → null, isActive → `llm.activeProfile`).
  */
 
-function writeFixtureConfig(config: Record<string, unknown>): void {
-  writeFileSync(getWorkspaceConfigPath(), JSON.stringify(config), "utf-8");
-  invalidateConfigCache();
+function writeFixtureConfig(config: {
+  llm?: {
+    profiles?: Record<string, MockProfileEntry>;
+    activeProfile?: string;
+    profileOrder?: string[];
+  };
+}): void {
+  mockProfiles = config.llm?.profiles ?? {};
+  mockActiveProfile = config.llm?.activeProfile;
+  mockProfileOrder = config.llm?.profileOrder;
 }
 
 describe("getModelProfiles", () => {
-  afterEach(() => {
-    invalidateConfigCache();
+  beforeEach(() => {
+    mockProfiles = {};
+    mockActiveProfile = undefined;
+    mockProfileOrder = undefined;
   });
 
   test("orders profiles by profileOrder then the remaining keys alphabetically", () => {
@@ -29,7 +68,12 @@ describe("getModelProfiles", () => {
     // ("balanced") and a key that resolves to no profile ("ghost").
     writeFixtureConfig({
       llm: {
-        profiles: { zeta: {}, alpha: {}, balanced: {}, "cost-optimized": {} },
+        profiles: {
+          zeta: { provider: "anthropic" },
+          alpha: { provider: "anthropic" },
+          balanced: { provider: "anthropic" },
+          "cost-optimized": { provider: "anthropic" },
+        },
         profileOrder: ["balanced", "cost-optimized", "balanced", "ghost"],
       },
     });
@@ -45,8 +89,8 @@ describe("getModelProfiles", () => {
     writeFixtureConfig({
       llm: {
         profiles: {
-          alpha: {},
-          beta: {},
+          alpha: { provider: "anthropic" },
+          beta: { provider: "anthropic" },
           blend: {
             mix: [
               { profile: "alpha", weight: 1 },
@@ -72,14 +116,14 @@ describe("getModelProfiles", () => {
     writeFixtureConfig({
       llm: {
         profiles: {
-          alpha: {},
+          alpha: { provider: "anthropic" },
           blend: {
             mix: [
               { profile: "alpha", weight: 1 },
               { profile: "beta", weight: 1 },
             ],
           },
-          beta: {},
+          beta: { provider: "anthropic" },
         },
         profileOrder: ["alpha", "blend", "beta"],
         activeProfile: "blend",
@@ -98,8 +142,8 @@ describe("getModelProfiles", () => {
     writeFixtureConfig({
       llm: {
         profiles: {
-          alpha: { status: "active" },
-          beta: { status: "disabled" },
+          alpha: { provider: "anthropic", status: "active" },
+          beta: { provider: "anthropic", status: "disabled" },
         },
         profileOrder: ["alpha", "beta"],
       },
@@ -117,7 +161,10 @@ describe("getModelProfiles", () => {
     // GIVEN a workspace where one profile sets a label and one does not.
     writeFixtureConfig({
       llm: {
-        profiles: { balanced: { label: "Balanced" }, terse: {} },
+        profiles: {
+          balanced: { provider: "anthropic", label: "Balanced" },
+          terse: { provider: "anthropic" },
+        },
         profileOrder: ["balanced", "terse"],
       },
     });
@@ -134,7 +181,10 @@ describe("getModelProfiles", () => {
     // GIVEN a workspace whose activeProfile is "beta".
     writeFixtureConfig({
       llm: {
-        profiles: { alpha: {}, beta: {} },
+        profiles: {
+          alpha: { provider: "anthropic" },
+          beta: { provider: "anthropic" },
+        },
         profileOrder: ["alpha", "beta"],
         activeProfile: "beta",
       },
@@ -153,8 +203,11 @@ describe("getModelProfiles", () => {
     writeFixtureConfig({
       llm: {
         profiles: {
-          documented: { description: "Cheaper models, slower" },
-          bare: {},
+          documented: {
+            provider: "anthropic",
+            description: "Cheaper models, slower",
+          },
+          bare: { provider: "anthropic" },
         },
         profileOrder: ["documented", "bare"],
       },

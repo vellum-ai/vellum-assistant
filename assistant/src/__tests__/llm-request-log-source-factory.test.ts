@@ -39,9 +39,9 @@ afterAll(() => {
   currentConfig = LOCAL_DEFAULT_CONFIG;
 });
 
-import { getLlmRequestLogSource } from "../memory/llm-request-log-source.js";
-import { ClickHouseLlmRequestLogSource } from "../memory/llm-request-log-source-clickhouse.js";
-import { LocalLlmRequestLogSource } from "../memory/llm-request-log-source-local.js";
+import { getLlmRequestLogSource } from "../persistence/llm-request-log-source.js";
+import { ClickHouseLlmRequestLogSource } from "../persistence/llm-request-log-source-clickhouse.js";
+import { LocalLlmRequestLogSource } from "../persistence/llm-request-log-source-local.js";
 
 describe("getLlmRequestLogSource factory", () => {
   test("returns LocalLlmRequestLogSource when readSource is 'local'", async () => {

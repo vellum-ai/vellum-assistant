@@ -2,6 +2,7 @@
   "entry": ["src/**/*.test.ts", "src/**/__tests__/**/*.ts"],
   "project": ["src/**/*.ts"],
   "ignoreDependencies": [
+    "@slack/types",
     "@vellumai/assistant-client",
     "@vellumai/ces-client",
     "@vellumai/gateway-client",

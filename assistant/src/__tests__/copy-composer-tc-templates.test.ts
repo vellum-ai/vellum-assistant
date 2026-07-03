@@ -234,6 +234,23 @@ describe("guardian_decision fallback copy", () => {
     expect(copy.body.length).toBeLessThan(longName.length);
     expect(copy.body).toContain("…");
   });
+
+  test("degrades to generic copy when the payload fails to parse", () => {
+    // A payload that doesn't match the schema (here, an out-of-range
+    // `decision`) is not trusted for identity rendering — the template must
+    // still produce safe, generic copy rather than throw or leak fields.
+    const signal = buildGuardianDecisionSignal({
+      decision: "totally-bogus",
+      requesterDisplayName: "Alice",
+    });
+    const result = composeFallbackCopy(signal, ["vellum"]);
+    const copy = result.vellum!;
+
+    expect(copy.title).toBe("Trusted Contact Decision");
+    expect(copy.body).toBe(
+      "Someone's access request has been denied by a guardian.",
+    );
+  });
 });
 
 // ── denied template ──────────────────────────────────────────────────────────

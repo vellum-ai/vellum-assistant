@@ -2,10 +2,10 @@
  * Persist image data to the workspace attachments directory.
  *
  * When the active model is text-only, the image-fallback plugin captions the
- * image and substitutes a text block. Saving the raw image to disk and
- * referencing the path in the caption text means a future turn with a
- * vision-capable model (or a subagent) could still access the original image
- * via file_read, and the user can find the image at a known location.
+ * image and substitutes a text block. Saving the raw image to a known,
+ * content-hash-deduped location means the original survives the text
+ * substitution and stays findable on disk for the user (or a subagent with a
+ * vision-capable model that reads it via file_read).
  */
 
 import { existsSync, mkdirSync, writeFileSync } from "node:fs";
@@ -36,10 +36,7 @@ function extensionForMediaType(mediaType: string): string {
  * Save an image's base64 data to the attachments dir if not already present.
  * Returns the absolute file path, or `null` when the write fails.
  */
-export function persistImage(
-  data: string,
-  mediaType: string,
-): string | null {
+export function persistImage(data: string, mediaType: string): string | null {
   try {
     mkdirSync(ATTACHMENTS_DIR, { recursive: true });
 

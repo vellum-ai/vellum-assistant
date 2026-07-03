@@ -45,7 +45,6 @@ import {
   recordDiagnostic,
 } from "@/lib/diagnostics";
 import type { DisplayMessage } from "@/domains/chat/types/types";
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import type { ReconcileActiveConversationResult } from "@/domains/chat/hooks/use-message-reconciliation";
 import { setImpersonatedAssistantVersion } from "@/lib/backwards-compat/impersonate-version-flag";
 import { classifyScrollPosition } from "@/domains/chat/transcript/transcript-scroll-utils";
@@ -751,8 +750,9 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
 
   function getScrollState(): ChatDebugScrollState {
     const capturedAt = new Date().toISOString();
-    const { messages } = useChatSessionStore.getState();
-    const itemCount = messages.length;
+    // The rendered transcript item count (snapshot ⊕ optimistic sends), kept in
+    // sync by chat-route-content — the count of what's actually on screen.
+    const itemCount = refs.transcriptItemsRef.current?.length ?? 0;
     const pagination = refs.getScrollPagination();
 
     const el = refs.transcriptRef.current?.getScrollElement() ?? null;

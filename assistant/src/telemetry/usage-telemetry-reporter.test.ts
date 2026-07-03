@@ -18,7 +18,7 @@ const mockSetMemoryCheckpoint = mock<(key: string, value: string) => void>(
   () => {},
 );
 
-mock.module("../memory/checkpoints.js", () => ({
+mock.module("../persistence/checkpoints.js", () => ({
   getMemoryCheckpoint: mockGetMemoryCheckpoint,
   setMemoryCheckpoint: mockSetMemoryCheckpoint,
 }));
@@ -26,11 +26,11 @@ mock.module("../memory/checkpoints.js", () => ({
 const mockQueryUnreportedUsageEvents = mock(
   () =>
     [] as ReturnType<
-      typeof import("../memory/llm-usage-store.js").queryUnreportedUsageEvents
+      typeof import("../persistence/llm-usage-store.js").queryUnreportedUsageEvents
     >,
 );
 
-mock.module("../memory/llm-usage-store.js", () => ({
+mock.module("../persistence/llm-usage-store.js", () => ({
   queryUnreportedUsageEvents: mockQueryUnreportedUsageEvents,
 }));
 
@@ -48,7 +48,7 @@ const mockQueryUnreportedTurnEvents = mock(
     }[],
 );
 
-mock.module("../memory/turn-events-store.js", () => ({
+mock.module("./turn-events-store.js", () => ({
   queryUnreportedTurnEvents: mockQueryUnreportedTurnEvents,
 }));
 
@@ -166,7 +166,7 @@ const mockIsTurnSettled = mock(
   }): boolean => true,
 );
 
-mock.module("../memory/turn-trace-store.js", () => ({
+mock.module("./turn-trace-store.js", () => ({
   assembleBoundedTurnTrace: mockAssembleBoundedTurnTrace,
   isTurnSettled: mockIsTurnSettled,
 }));
@@ -180,7 +180,7 @@ const mockQueryUnreportedLifecycleEvents = mock(
     }[],
 );
 
-mock.module("../memory/lifecycle-events-store.js", () => ({
+mock.module("../persistence/lifecycle-events-store.js", () => ({
   queryUnreportedLifecycleEvents: mockQueryUnreportedLifecycleEvents,
 }));
 
@@ -205,7 +205,7 @@ const mockQueryUnreportedOnboardingEvents = mock(
     }[],
 );
 
-mock.module("../memory/onboarding-events-store.js", () => ({
+mock.module("../onboarding/onboarding-events-store.js", () => ({
   queryUnreportedOnboardingEvents: mockQueryUnreportedOnboardingEvents,
 }));
 
@@ -224,21 +224,21 @@ import {
   TOOL_INVOCATION_PII_SENTINEL as TOOL_PII_SENTINEL,
   type ToolInvocationSeedSpec,
 } from "../__tests__/test-support/tool-invocation-seed.js";
-import { recordAuthFallbackCounts } from "../memory/auth-fallback-events-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   authFallbackEvents,
   conversations,
   skillLoadedEvents,
   toolInvocations,
-} from "../memory/schema.js";
-import { recordSkillLoadedEvent } from "../memory/skill-loaded-events-store.js";
+} from "../persistence/schema/index.js";
+import { recordAuthFallbackCounts } from "../security/auth-fallback-events-store.js";
 import type { UsageEvent } from "../usage/types.js";
 import {
   ACTIVATION_FUNNEL_VERSION,
   buildActivationDaemonEventId,
 } from "./activation-funnel.js";
+import { recordSkillLoadedEvent } from "./skill-loaded-events-store.js";
 import { UsageTelemetryReporter } from "./usage-telemetry-reporter.js";
 
 await initializeDb();
@@ -1547,11 +1547,11 @@ describe("UsageTelemetryReporter", () => {
     // No HTTP call should have been made
     expect(mockFetch).not.toHaveBeenCalled();
 
-    // All 7 timestamp watermarks should have been advanced, and all 7 ID
+    // All 8 timestamp watermarks should have been advanced, and all 8 ID
     // watermarks pinned to the high-sorting sentinel (a truthy value keeps
     // the compound-cursor branch active while closing its same-millisecond
     // arm against opt-out rows).
-    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(14);
+    expect(mockSetMemoryCheckpoint).toHaveBeenCalledTimes(16);
 
     const calls = mockSetMemoryCheckpoint.mock.calls;
     const keys = calls.map((c) => c[0]);
@@ -1563,6 +1563,7 @@ describe("UsageTelemetryReporter", () => {
       "auth_fallback",
       "tool_executed",
       "skill_loaded",
+      "watchdog",
     ];
     for (const eventType of eventTypes) {
       expect(keys).toContain(`telemetry:${eventType}:last_reported_at`);

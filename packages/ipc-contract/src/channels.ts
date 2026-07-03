@@ -51,6 +51,9 @@ export const COMMAND_EVENT = "vellum:command";
 // Status
 export const STATUS_CONNECTION = "vellum:status:connection";
 
+// Identity
+export const IDENTITY_NAME = "vellum:identity:name";
+
 // Icon / avatar
 export const ICON_SET_AVATAR = "vellum:icon:setAvatar";
 
@@ -65,6 +68,7 @@ export const LOCAL_MODE_REPLACE_PLATFORM = "vellum:localMode:replacePlatformAssi
 export const LOCAL_MODE_RETIRE = "vellum:localMode:retire";
 export const LOCAL_MODE_SLEEP = "vellum:localMode:sleep";
 export const LOCAL_MODE_WAKE = "vellum:localMode:wake";
+export const LOCAL_MODE_UPGRADE = "vellum:localMode:upgrade";
 export const LOCAL_MODE_STATUS = "vellum:localMode:status";
 export const LOCAL_MODE_GUARDIAN_TOKEN = "vellum:localMode:guardianToken";
 
@@ -121,6 +125,12 @@ export const COMMAND_PALETTE_SELECT = "vellum:commandPalette:select";
 export const DICTATION_OVERLAY_SET_STATE = "vellum:dictationOverlay:setState";
 export const DICTATION_OVERLAY_STATE_EVENT = "vellum:dictationOverlay:state";
 export const DICTATION_OVERLAY_GET_STATE = "vellum:dictationOverlay:getState";
+export const DICTATION_OVERLAY_REQUEST_STOP =
+  "vellum:dictationOverlay:requestStop";
+export const DICTATION_OVERLAY_STOP_REQUESTED =
+  "vellum:dictationOverlay:stopRequested";
+export const DICTATION_OVERLAY_SET_INTERACTIVE =
+  "vellum:dictationOverlay:setInteractive";
 
 // Popout
 export const POPOUT_OPEN = "vellum:popout:open";

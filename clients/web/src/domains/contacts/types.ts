@@ -3,6 +3,10 @@ import type {
   ChannelsReadinessGetResponse,
   ContactsGetResponse,
 } from "@/generated/daemon/types.gen";
+import type { SetupChannelId } from "@/types/channel-types";
+
+// Re-export shared channel types for domain consumers.
+export { SETUP_CHANNEL_IDS, isSetupChannelId, type SetupChannelId } from "@/types/channel-types";
 
 // ---------------------------------------------------------------------------
 // Types derived from the generated daemon SDK
@@ -28,7 +32,7 @@ export type ContactSelection =
 export interface ContactSummary {
   id: string;
   displayName: string;
-  role: "guardian" | "assistant" | string;
+  role: string;
   contactType?: string | null;
   channelTypes?: string[];
 }
@@ -36,7 +40,7 @@ export interface ContactSummary {
 export type ChannelStatus = "ready" | "incomplete" | "not_configured";
 
 export interface AssistantChannelState {
-  key: "slack" | "telegram" | "phone";
+  key: SetupChannelId;
   status: ChannelStatus;
   address?: string;
   warning?: string;

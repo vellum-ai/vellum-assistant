@@ -16,7 +16,7 @@ import { gunzipSync } from "node:zlib";
 
 import { getPlatformBaseUrl } from "../config/env.js";
 import { loadSkillCatalog } from "../config/skills.js";
-import { deleteSkillCapabilityNode } from "../memory/graph/capability-seed.js";
+import { deleteSkillCapabilityNode } from "../plugins/defaults/memory/graph/capability-seed.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
@@ -508,6 +508,7 @@ export async function installSkillLocally(
       installedAt: new Date().toISOString(),
       ...(catalogEntry.version ? { version: catalogEntry.version } : {}),
       ...(contactId ? { installedBy: contactId } : {}),
+      author: "user",
       contentHash: computeSkillHash(stagedDir) ?? undefined,
     });
 

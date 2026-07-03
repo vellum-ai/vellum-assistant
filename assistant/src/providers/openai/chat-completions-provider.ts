@@ -7,6 +7,7 @@ import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { createStreamTimeout } from "../stream-timeout.js";
+import { createToolProgressEmitter } from "../tool-progress-events.js";
 import type {
   ContentBlock,
   Message,
@@ -22,6 +23,11 @@ import {
   isUnparseableToolArgs,
   wrapUnparseableToolArgs,
 } from "../unparseable-tool-args.js";
+import {
+  captureRawErrorBodyFetch,
+  formatNormalizedOpenAIAPIError,
+  normalizeOpenAIAPIError,
+} from "./api-error-normalization.js";
 import {
   coerceObjectParamsToJsonString,
   decodeCoercedObjectArgs,
@@ -43,6 +49,7 @@ import {
  */
 export function detectOpenAICompatibleContextOverflow(
   error: InstanceType<typeof OpenAI.APIError>,
+  extraMessage?: string,
 ): { actualTokens?: number; maxTokens?: number } | null {
   // OpenAI-compatible providers use 400 (most) or 413 (rarer payload-too-large).
   const status = error.status;
@@ -53,7 +60,9 @@ export function detectOpenAICompatibleContextOverflow(
     /context_length_exceeded|context_window_exceeded|input_too_long|prompt_too_long/i.test(
       code,
     );
-  const message = error.message ?? "";
+  // Include the normalized upstream message: the SDK's `error.message` is often
+  // generic ("400 Provider returned error") while the real signal is in the body.
+  const message = `${error.message ?? ""} ${extraMessage ?? ""}`;
   const messageMatches =
     /context.?length.?exceeded|context.?window.?exceeded|prompt.?is.?too.?long|prompt_too_long|input.?too.?long|too.?many.?(?:input.?)?tokens|maximum.?context/i.test(
       message,
@@ -62,53 +71,6 @@ export function detectOpenAICompatibleContextOverflow(
   // OpenAI-compatible providers rarely report usable token counts; best-effort extract.
   return extractOverflowTokensFromMessage(message);
 }
-
-/**
- * Build the human-readable error string surfaced from an
- * `OpenAI.APIError`. The SDK's `error.message` is typically a one-line
- * summary like `"400 Provider returned error"` — useless when the
- * upstream is OpenRouter (which wraps the real downstream error on
- * `error.error.metadata.raw`) or any provider that returns nested
- * structured details.
- *
- * Returns `{ detail, requestId }` where `detail` includes the JSON body
- * (truncated) and `requestId` is the upstream correlation header when
- * present. Callers fold these into the thrown `ProviderError` so log
- * lines actually identify the failure without re-running the request.
- *
- * Exported for tests.
- */
-export function extractApiErrorDetail(
-  error: InstanceType<typeof OpenAI.APIError>,
-): { detail: string; requestId: string | undefined } {
-  const body = (error as { error?: unknown }).error;
-  let detail = "";
-  if (body !== undefined && body !== null) {
-    try {
-      const serialized = typeof body === "string" ? body : JSON.stringify(body);
-      if (serialized && serialized !== "{}") {
-        detail =
-          serialized.length > MAX_API_ERROR_DETAIL_CHARS
-            ? `${serialized.slice(0, MAX_API_ERROR_DETAIL_CHARS)}…`
-            : serialized;
-      }
-    } catch {
-      // Body had a cycle or threw on toJSON — fall through with empty detail.
-    }
-  }
-  const requestId = readHeader(error.headers, [
-    "x-request-id",
-    "x-openrouter-request-id",
-    "openai-request-id",
-    "x-amzn-requestid",
-  ]);
-  return { detail, requestId };
-}
-
-/** Cap on the inline-rendered body to keep log lines readable while still
- *  surfacing the meaningful upstream payload. Tuned to comfortably hold
- *  OpenRouter's `error.metadata.raw` strings, which are typically <1KB. */
-const MAX_API_ERROR_DETAIL_CHARS = 2000;
 
 const VISION_NOT_SUPPORTED_PATTERNS = [
   /no endpoints found that support image input/i,
@@ -121,8 +83,9 @@ const VISION_NOT_SUPPORTED_PATTERNS = [
 
 export function detectVisionNotSupported(
   error: InstanceType<typeof OpenAI.APIError>,
+  extraMessage?: string,
 ): boolean {
-  const haystack = `${error.message} ${JSON.stringify((error as { error?: unknown }).error ?? "")}`;
+  const haystack = `${error.message} ${extraMessage ?? ""} ${JSON.stringify((error as { error?: unknown }).error ?? "")}`;
   return VISION_NOT_SUPPORTED_PATTERNS.some((re) => re.test(haystack));
 }
 
@@ -145,34 +108,6 @@ export function detectVisionNotSupported(
  * `isPlaceholderSentinelText`.
  */
 export const EMPTY_ASSISTANT_TURN_PLACEHOLDER = PLACEHOLDER_EMPTY_TURN.slice(1);
-
-/**
- * Read the first matching header from an SDK error's headers object,
- * tolerating both Map-like (`Headers.get()`) and plain-object shapes.
- * Mirrors the shape-tolerance already in `extractRetryAfterMs`.
- */
-function readHeader(
-  headers: unknown,
-  names: readonly string[],
-): string | undefined {
-  if (!headers) return undefined;
-  const getter =
-    typeof (headers as { get?: unknown }).get === "function"
-      ? (headers as { get(name: string): string | null }).get.bind(headers)
-      : undefined;
-  for (const name of names) {
-    let value: string | null | undefined;
-    if (getter) {
-      value = getter(name);
-    } else if (typeof headers === "object") {
-      const record = headers as Record<string, unknown>;
-      const raw = record[name] ?? record[name.toLowerCase()];
-      value = typeof raw === "string" ? raw : undefined;
-    }
-    if (typeof value === "string" && value.length > 0) return value;
-  }
-  return undefined;
-}
 
 export interface OpenAIChatCompletionsProviderOptions {
   baseURL?: string;
@@ -342,6 +277,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
       apiKey,
       baseURL: options.baseURL,
       timeout: sdkTimeoutMs,
+      // Capture the raw non-2xx body before the SDK parses (and drops) it.
+      fetch: captureRawErrorBodyFetch,
     });
     this.model = model;
     this.extraCreateParams = options.extraCreateParams ?? {};
@@ -526,6 +463,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
         number,
         { id: string; name: string; args: string }
       >();
+      const toolProgress = createToolProgressEmitter(onEvent);
       let finishReason = "unknown";
       let responseModel = modelOverride ?? this.model;
       let promptTokens = 0;
@@ -615,7 +553,15 @@ export class OpenAIChatCompletionsProvider implements Provider {
                 const entry = toolCallMap.get(tc.index)!;
                 if (tc.id) entry.id = tc.id;
                 if (tc.function?.name) entry.name += tc.function.name;
-                if (tc.function?.arguments) entry.args += tc.function.arguments;
+                toolProgress.emitPreviewStart(entry.id, entry.name);
+                if (tc.function?.arguments) {
+                  entry.args += tc.function.arguments;
+                  toolProgress.emitInputJsonDelta(
+                    entry.id,
+                    entry.name,
+                    entry.args,
+                  );
+                }
               }
             }
 
@@ -670,6 +616,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
         content.push({ type: "text", text: finalContent });
       }
       for (const [, tc] of toolCallMap) {
+        toolProgress.emitInputJsonDelta(tc.id, tc.name, tc.args, {
+          force: true,
+        });
         let input: Record<string, unknown>;
         try {
           input = JSON.parse(tc.args);
@@ -763,11 +712,16 @@ export class OpenAIChatCompletionsProvider implements Provider {
           ? signal.reason
           : undefined;
       if (error instanceof OpenAI.APIError) {
-        const { detail, requestId } = extractApiErrorDetail(error);
-        const detailSuffix = detail ? ` ${detail}` : "";
-        const requestIdSuffix = requestId ? ` [request_id=${requestId}]` : "";
-        const formattedMessage = `${this.providerLabel} API error (${error.status}): ${error.message}${detailSuffix}${requestIdSuffix}`;
-        const overflow = detectOpenAICompatibleContextOverflow(error);
+        const normalized = normalizeOpenAIAPIError(error);
+        const formattedMessage = formatNormalizedOpenAIAPIError(
+          this.providerLabel,
+          error.status,
+          normalized,
+        );
+        const overflow = detectOpenAICompatibleContextOverflow(
+          error,
+          normalized.message,
+        );
         if (overflow) {
           throw new ContextOverflowError(formattedMessage, this.name, {
             actualTokens: overflow.actualTokens,
@@ -776,7 +730,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
             cause: error,
           });
         }
-        if (detectVisionNotSupported(error)) {
+        if (detectVisionNotSupported(error, normalized.message)) {
           const model = modelOverride ?? this.model;
           throw new ProviderError(
             `This model (${model}) doesn't support image input. Remove the image or switch to a vision-capable model.`,
@@ -789,10 +743,23 @@ export class OpenAIChatCompletionsProvider implements Provider {
         const errorOptions: {
           retryAfterMs?: number;
           abortReason?: unknown;
+          apiErrorCode?: string;
+          apiErrorType?: string;
+          apiErrorParam?: string;
+          requestId?: string;
+          rawBody?: string;
         } = {};
         if (retryAfterMs !== undefined)
           errorOptions.retryAfterMs = retryAfterMs;
         if (abortReason) errorOptions.abortReason = abortReason;
+        if (normalized.apiErrorCode)
+          errorOptions.apiErrorCode = normalized.apiErrorCode;
+        if (normalized.apiErrorType)
+          errorOptions.apiErrorType = normalized.apiErrorType;
+        if (normalized.apiErrorParam)
+          errorOptions.apiErrorParam = normalized.apiErrorParam;
+        if (normalized.requestId) errorOptions.requestId = normalized.requestId;
+        if (normalized.rawBody) errorOptions.rawBody = normalized.rawBody;
         throw new ProviderError(
           formattedMessage,
           this.name,

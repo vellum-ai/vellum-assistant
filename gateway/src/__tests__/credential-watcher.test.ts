@@ -254,6 +254,35 @@ async function startGateway(): Promise<void> {
   );
 }
 
+async function fetchTelegramWebhook(base: string): Promise<{
+  status: number;
+  body: Record<string, unknown>;
+}> {
+  const res = await fetch(`${base}/webhooks/telegram`, {
+    method: "POST",
+  });
+  return {
+    status: res.status,
+    body: (await res.json()) as Record<string, unknown>,
+  };
+}
+
+async function waitForTelegramWebhookPastStartup(base: string): Promise<{
+  status: number;
+  body: Record<string, unknown>;
+}> {
+  const deadline = Date.now() + 5_000;
+  let last: { status: number; body: Record<string, unknown> } | null = null;
+  while (Date.now() < deadline) {
+    last = await fetchTelegramWebhook(base);
+    if (last.body.status !== "starting") return last;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(
+    `Telegram webhook stayed behind startup gate: ${JSON.stringify(last)}`,
+  );
+}
+
 afterEach(async () => {
   fakeAssistantIpc?.close();
   fakeAssistantIpc = null;
@@ -295,12 +324,9 @@ describe("gateway telegram hot-reload (e2e)", () => {
     const base = `http://localhost:${port}`;
 
     // --- Step 1: confirm Telegram is NOT configured ---
-    const before = await fetch(`${base}/webhooks/telegram`, {
-      method: "POST",
-    });
+    const before = await waitForTelegramWebhookPastStartup(base);
     expect(before.status).toBe(503);
-    const beforeBody = (await before.json()) as { error: string };
-    expect(beforeBody.error).toBe("Telegram integration not configured");
+    expect(before.body.error).toBe("Telegram integration not configured");
 
     // --- Step 2: simulate daemon writing credentials ---
     writeEncryptedStore("fake-bot-token:ABC123", "fake-webhook-secret");
@@ -331,9 +357,7 @@ describe("gateway telegram hot-reload (e2e)", () => {
 
     const base = `http://localhost:${port}`;
 
-    const before = await fetch(`${base}/webhooks/telegram`, {
-      method: "POST",
-    });
+    const before = await waitForTelegramWebhookPastStartup(base);
     expect(before.status).toBe(503);
 
     // First rewrite after startup stales a file-scoped fs.watch() subscription
@@ -372,12 +396,9 @@ describe("gateway telegram hot-reload (e2e)", () => {
     const base = `http://localhost:${port}`;
 
     // --- Step 1: confirm Telegram is NOT configured ---
-    const before = await fetch(`${base}/webhooks/telegram`, {
-      method: "POST",
-    });
+    const before = await waitForTelegramWebhookPastStartup(base);
     expect(before.status).toBe(503);
-    const beforeBody = (await before.json()) as { error: string };
-    expect(beforeBody.error).toBe("Telegram integration not configured");
+    expect(before.body.error).toBe("Telegram integration not configured");
 
     // --- Step 2: simulate daemon writing v2 credentials ---
     writeEncryptedStoreV2("fake-v2-bot-token:XYZ", "fake-v2-webhook-secret");

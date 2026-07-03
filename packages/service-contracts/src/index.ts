@@ -18,6 +18,7 @@
  * module so that both sides can depend on it without circular references.
  */
 
+export * from "./channels.js";
 export * from "./transport.js";
 export * from "./error.js";
 export * from "./handles.js";

@@ -1,0 +1,26 @@
+diff --git a/dist/index.js b/dist/index.js
+index 2611540cc52bf7c234f485e9f15dfe946264589e..2725720cd4d7bc76b72df9daaa64ace580bd893a 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -79,7 +79,7 @@ var DismissableLayer = React.forwardRef(
+     const [node, setNode] = React.useState(null);
+     const ownerDocument = node?.ownerDocument ?? globalThis?.document;
+     const [, force] = React.useState({});
+-    const composedRefs = (0, import_react_compose_refs.useComposedRefs)(forwardedRef, (node2) => setNode(node2));
++    const composedRefs = (0, import_react_compose_refs.useComposedRefs)(forwardedRef, setNode);
+     const layers = Array.from(context.layers);
+     const [highestLayerWithOutsidePointerEventsDisabled] = [...context.layersWithOutsidePointerEventsDisabled].slice(-1);
+     const highestLayerWithOutsidePointerEventsDisabledIndex = layers.indexOf(highestLayerWithOutsidePointerEventsDisabled);
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 9d19cc7984803f74cbc01de8edd80622d21a5314..e94d661d129e47de73274edfa4d83233496b43cf 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -40,7 +40,7 @@ var DismissableLayer = React.forwardRef(
+     const [node, setNode] = React.useState(null);
+     const ownerDocument = node?.ownerDocument ?? globalThis?.document;
+     const [, force] = React.useState({});
+-    const composedRefs = useComposedRefs(forwardedRef, (node2) => setNode(node2));
++    const composedRefs = useComposedRefs(forwardedRef, setNode);
+     const layers = Array.from(context.layers);
+     const [highestLayerWithOutsidePointerEventsDisabled] = [...context.layersWithOutsidePointerEventsDisabled].slice(-1);
+     const highestLayerWithOutsidePointerEventsDisabledIndex = layers.indexOf(highestLayerWithOutsidePointerEventsDisabled);

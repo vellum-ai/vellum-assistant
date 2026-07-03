@@ -10,12 +10,14 @@ import type { GatewayInboundEvent } from "../types.js";
 /**
  * Resolved Slack user info for populating actor fields.
  */
-interface SlackUserInfo {
+export interface SlackUserInfo {
   displayName: string;
   username: string;
   timezone?: string;
   timezoneLabel?: string;
   timezoneOffsetSeconds?: number;
+  /** The sender is a bot user (Slack `users.info` `is_bot`). */
+  isBot?: boolean;
   isStranger?: boolean;
   isRestricted?: boolean;
 }
@@ -27,6 +29,7 @@ export type SlackUserActorFields = Pick<
   | "timezone"
   | "timezoneLabel"
   | "timezoneOffsetSeconds"
+  | "isBot"
   | "isStranger"
   | "isRestricted"
 >;
@@ -161,6 +164,7 @@ export async function resolveSlackUser(
           tz?: string;
           tz_label?: string;
           tz_offset?: number;
+          is_bot?: boolean;
           is_stranger?: boolean;
           is_restricted?: boolean;
           is_ultra_restricted?: boolean;
@@ -185,12 +189,16 @@ export async function resolveSlackUser(
           ? data.user.tz_offset
           : undefined;
 
-      const isStranger = data.user.is_stranger === true ? true : undefined;
+      // Explicit booleans, not presence flags: a successful users.info is a
+      // positive identity resolution, so `false` means "Slack says this user
+      // is a regular workspace member". When resolution fails these fields
+      // are absent entirely (unknown), and downstream trust policy must fail
+      // toward the handshake rather than treating the sender as vouched.
+      const isBot = data.user.is_bot === true;
+      const isStranger = data.user.is_stranger === true;
       const isRestricted =
         data.user.is_restricted === true ||
-        data.user.is_ultra_restricted === true
-          ? true
-          : undefined;
+        data.user.is_ultra_restricted === true;
 
       const info: SlackUserInfo = {
         displayName,
@@ -200,8 +208,9 @@ export async function resolveSlackUser(
         ...(timezoneOffsetSeconds !== undefined
           ? { timezoneOffsetSeconds }
           : {}),
-        ...(isStranger !== undefined ? { isStranger } : {}),
-        ...(isRestricted !== undefined ? { isRestricted } : {}),
+        isBot,
+        isStranger,
+        isRestricted,
       };
       cacheSet(
         userInfoCache,
@@ -342,6 +351,17 @@ export interface SlackFile {
 }
 
 /**
+ * Slack `bot_profile` object attached to bot-authored messages
+ * (subset relevant to sender classification).
+ */
+export interface SlackBotProfile {
+  id?: string;
+  name?: string;
+  app_id?: string;
+  team_id?: string;
+}
+
+/**
  * Slack `app_mention` event shape (subset relevant to normalization).
  */
 export interface SlackAppMentionEvent {
@@ -354,6 +374,11 @@ export interface SlackAppMentionEvent {
   client_msg_id?: string;
   event_ts?: string;
   files?: SlackFile[];
+  /** Team ID of the mentioning user's workspace. */
+  team?: string;
+  /** Present when the message was authored by a bot/app. */
+  bot_id?: string;
+  bot_profile?: SlackBotProfile;
 }
 
 /**
@@ -371,6 +396,9 @@ export interface SlackDirectMessageEvent {
   client_msg_id?: string;
   event_ts?: string;
   files?: SlackFile[];
+  /** Present when the message was authored by a bot/app. */
+  bot_id?: string;
+  bot_profile?: SlackBotProfile;
 }
 
 /**
@@ -389,6 +417,11 @@ export interface SlackChannelMessageEvent {
   client_msg_id?: string;
   event_ts?: string;
   files?: SlackFile[];
+  /** Team ID of the sending user's workspace. */
+  team?: string;
+  /** Present when the message was authored by a bot/app. */
+  bot_id?: string;
+  bot_profile?: SlackBotProfile;
 }
 
 /**
@@ -470,6 +503,7 @@ export function slackUserActorFields(
     ...(userInfo.timezoneOffsetSeconds !== undefined
       ? { timezoneOffsetSeconds: userInfo.timezoneOffsetSeconds }
       : {}),
+    ...(userInfo.isBot !== undefined ? { isBot: userInfo.isBot } : {}),
     ...(userInfo.isStranger !== undefined
       ? { isStranger: userInfo.isStranger }
       : {}),
@@ -512,6 +546,56 @@ function extractSlackFileMap(
     : undefined;
 }
 
+/**
+ * Descriptor for a bot/app sender, derived from the message's `bot_id` /
+ * `bot_profile` and the resolved user profile's `is_bot` flag. Present on a
+ * normalized event only when the sender is a bot.
+ */
+export interface SlackBotSenderInfo {
+  botId?: string;
+  botName?: string;
+  appId?: string;
+  teamId?: string;
+}
+
+/**
+ * Classify a Slack message sender as a bot/app.
+ *
+ * Slack marks bot-authored messages with `bot_id` (and usually a
+ * `bot_profile`); bot users are also flagged `is_bot` on `users.info`.
+ * Returns undefined for human senders.
+ */
+export function slackBotSenderInfo(
+  event: { bot_id?: string; bot_profile?: SlackBotProfile },
+  userInfo?: SlackUserInfo,
+): SlackBotSenderInfo | undefined {
+  if (!event.bot_id && userInfo?.isBot !== true) return undefined;
+  const botName = event.bot_profile?.name ?? userInfo?.displayName;
+  return {
+    ...(event.bot_id ? { botId: event.bot_id } : {}),
+    ...(botName ? { botName } : {}),
+    ...(event.bot_profile?.app_id ? { appId: event.bot_profile.app_id } : {}),
+    ...(event.bot_profile?.team_id
+      ? { teamId: event.bot_profile.team_id }
+      : {}),
+  };
+}
+
+/**
+ * Human-readable contact note for a bot sender. Slack does not expose which
+ * user owns/installed an app, so the note carries what Slack does provide:
+ * the bot's name, Slack app ID, and workspace ID.
+ */
+export function slackBotContactNote(botSender: SlackBotSenderInfo): string {
+  const details = [
+    ...(botSender.appId ? [`Slack app ${botSender.appId}`] : []),
+    ...(botSender.teamId ? [`workspace ${botSender.teamId}`] : []),
+  ];
+  const name = botSender.botName ? ` "${botSender.botName}"` : "";
+  const suffix = details.length > 0 ? ` (${details.join(", ")})` : "";
+  return `Automated Slack bot${name}${suffix} — messages from this contact are sent by an app, not a person.`;
+}
+
 export type NormalizedSlackEvent = {
   event: GatewayInboundEvent;
   routing: RouteResult;
@@ -521,7 +605,39 @@ export type NormalizedSlackEvent = {
   channel: string;
   /** Original Slack file objects keyed by file ID, for download in the I/O layer. */
   slackFiles?: Map<string, SlackFile>;
+  /** Present when the sender is a bot/app rather than a person. */
+  botSender?: SlackBotSenderInfo;
 };
+
+/**
+ * Merge a freshly resolved user profile into an already-normalized event.
+ *
+ * Normalization uses a cache-only user lookup, so a cold cache can leave the
+ * actor unenriched. Besides display/trust fields, this re-runs bot-sender
+ * classification against the original event: a bot user whose message carries
+ * no top-level `bot_id` is only detectable via the profile's `is_bot`, which
+ * is unavailable until this fetch completes.
+ */
+export function enrichNormalizedActor(
+  normalized: NormalizedSlackEvent,
+  userInfo: SlackUserInfo,
+): void {
+  const actor = normalized.event.actor;
+  Object.assign(actor, slackUserActorFields(userInfo));
+  if (!normalized.botSender) {
+    const botSender = slackBotSenderInfo(
+      normalized.event.raw as {
+        bot_id?: string;
+        bot_profile?: SlackBotProfile;
+      },
+      userInfo,
+    );
+    if (botSender) {
+      normalized.botSender = botSender;
+      actor.isBot = true;
+    }
+  }
+}
 
 /**
  * Normalize a Slack DM (`message` with `channel_type: "im"`) into the
@@ -574,6 +690,7 @@ export function normalizeSlackDirectMessage(
     botToken && event.user
       ? resolveSlackUserSync(event.user, botToken)
       : undefined;
+  const botSender = slackBotSenderInfo(event, userInfo);
   const content = renderSlackInboundText(event.text, renderContext);
 
   return {
@@ -590,6 +707,7 @@ export function normalizeSlackDirectMessage(
       actor: {
         actorExternalId: event.user,
         ...(userInfo ? slackUserActorFields(userInfo) : {}),
+        ...(botSender ? { isBot: true } : {}),
       },
       source: {
         updateId: eventId,
@@ -603,6 +721,7 @@ export function normalizeSlackDirectMessage(
     ...(event.thread_ts ? { threadTs: event.thread_ts } : {}),
     channel: event.channel,
     ...(slackFiles ? { slackFiles } : {}),
+    ...(botSender ? { botSender } : {}),
   };
 }
 
@@ -641,6 +760,7 @@ export function normalizeSlackChannelMessage(
     botToken && event.user
       ? resolveSlackUserSync(event.user, botToken)
       : undefined;
+  const botSender = slackBotSenderInfo(event, userInfo);
 
   return {
     event: {
@@ -656,6 +776,8 @@ export function normalizeSlackChannelMessage(
       actor: {
         actorExternalId: event.user,
         ...(userInfo ? slackUserActorFields(userInfo) : {}),
+        ...(event.team ? { teamId: event.team } : {}),
+        ...(botSender ? { isBot: true } : {}),
       },
       source: {
         updateId: eventId,
@@ -669,6 +791,7 @@ export function normalizeSlackChannelMessage(
     threadTs: event.thread_ts ?? event.ts,
     channel: event.channel,
     ...(slackFiles ? { slackFiles } : {}),
+    ...(botSender ? { botSender } : {}),
   };
 }
 
@@ -702,6 +825,7 @@ export function normalizeSlackAppMention(
     botToken && event.user
       ? resolveSlackUserSync(event.user, botToken)
       : undefined;
+  const botSender = slackBotSenderInfo(event, userInfo);
 
   return {
     event: {
@@ -717,6 +841,8 @@ export function normalizeSlackAppMention(
       actor: {
         actorExternalId: event.user,
         ...(userInfo ? slackUserActorFields(userInfo) : {}),
+        ...(event.team ? { teamId: event.team } : {}),
+        ...(botSender ? { isBot: true } : {}),
       },
       source: {
         updateId: eventId,
@@ -729,6 +855,7 @@ export function normalizeSlackAppMention(
     threadTs: event.thread_ts ?? event.ts,
     channel: event.channel,
     ...(slackFiles ? { slackFiles } : {}),
+    ...(botSender ? { botSender } : {}),
   };
 }
 

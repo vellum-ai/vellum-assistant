@@ -3,7 +3,6 @@ import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { removeTestDbFiles } from "./assert-not-live-db.js";
 import { makeMockLogger } from "./helpers/mock-logger.js";
 
 const originalBunTest = process.env.BUN_TEST;
@@ -12,14 +11,12 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-import { _resetDisplayOrderMigrationForTests } from "../memory/conversation-display-order-migration.js";
-import { _resetGroupMigrationForTests } from "../memory/conversation-group-migration.js";
-import { getSqliteFrom } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { migrateAddConversationInferenceProfile } from "../memory/migrations/227-add-conversation-inference-profile.js";
-import { migrateRenameInferenceProfileSnakeCase } from "../memory/migrations/228-rename-inference-profile-snake-case.js";
-import * as schema from "../memory/schema.js";
-import { getDbPath } from "../util/platform.js";
+import { _resetDisplayOrderMigrationForTests } from "../persistence/conversation-display-order-migration.js";
+import { _resetGroupMigrationForTests } from "../persistence/conversation-group-migration.js";
+import { getSqliteFrom } from "../persistence/db-connection.js";
+import { migrateAddConversationInferenceProfile } from "../persistence/migrations/227-add-conversation-inference-profile.js";
+import { migrateRenameInferenceProfileSnakeCase } from "../persistence/migrations/228-rename-inference-profile-snake-case.js";
+import * as schema from "../persistence/schema/index.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 
 function createTestDb() {
@@ -73,7 +70,6 @@ function resetMigrationTestDb(): void {
   // again. Otherwise downstream tests hit `no such column: group_id`.
   _resetGroupMigrationForTests();
   _resetDisplayOrderMigrationForTests();
-  removeTestDbFiles(getDbPath());
 }
 
 describe("conversation inference profile migration", () => {
@@ -87,10 +83,14 @@ describe("conversation inference profile migration", () => {
     resetMigrationTestDb();
   });
 
-  test("fresh DB initialization includes nullable inference_profile column", async () => {
-    await initializeDb();
+  test("fresh DB initialization includes nullable inference_profile column", () => {
+    const db = createTestDb();
+    const raw = getSqliteFrom(db);
 
-    const raw = new Database(getDbPath());
+    bootstrapPreInferenceProfileConversations(raw);
+    migrateAddConversationInferenceProfile(db);
+    migrateRenameInferenceProfileSnakeCase(db);
+
     const columns = getColumnNames(raw);
     // Migration 228 renames the camelCase column added by 227 to snake_case to
     // match the rest of the table.
@@ -106,7 +106,6 @@ describe("conversation inference profile migration", () => {
 
     expect(inferenceProfileColumn).toBeDefined();
     expect(inferenceProfileColumn?.notnull).toBe(0);
-    raw.close();
   });
 
   test("migration upgrades the previous schema without disturbing existing rows", () => {

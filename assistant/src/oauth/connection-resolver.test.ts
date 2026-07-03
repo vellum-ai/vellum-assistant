@@ -6,6 +6,9 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 let mockProvider: Record<string, unknown> | undefined;
 let mockConnection: Record<string, unknown> | undefined;
+let mockConnections:
+  | Array<Record<string, unknown> & { clientId?: string; accountInfo?: string }>
+  | undefined;
 let mockAccessToken: string | undefined;
 let mockConfig: Record<string, unknown> = {};
 let mockPlatformClient: Record<string, unknown> | null = null;
@@ -24,15 +27,17 @@ mock.module("../util/logger.js", () => ({
 
 mock.module("./oauth-store.js", () => ({
   getProvider: () => mockProvider,
-  getActiveConnection: (
+  getActiveConnections: (
     _pk: string,
     opts?: { clientId?: string; account?: string },
   ) => {
-    if (opts?.clientId && mockConnection?.clientId !== opts.clientId)
-      return undefined;
-    if (opts?.account && mockConnection?.accountInfo !== opts.account)
-      return undefined;
-    return mockConnection;
+    // Default to the single mockConnection unless a test sets an explicit list.
+    const rows = mockConnections ?? (mockConnection ? [mockConnection] : []);
+    return rows.filter((row) => {
+      if (opts?.clientId && row.clientId !== opts.clientId) return false;
+      if (opts?.account && row.accountInfo !== opts.account) return false;
+      return true;
+    });
   },
 }));
 
@@ -131,6 +136,7 @@ function setupDefaults(): void {
       "google-oauth": { mode: "managed" },
     },
   };
+  mockConnections = undefined;
   mockPlatformClient = makeMockClient();
   syncManualTokenCalls = [];
 }
@@ -291,6 +297,168 @@ describe("resolveOAuthConnection", () => {
     expect(mockConnection.accountInfo).toBe("@example_bot");
     expect(result).toBeInstanceOf(BYOOAuthConnection);
     expect(result.id).toBe("conn-telegram");
+  });
+});
+
+describe("resolveOAuthConnection scope-awareness", () => {
+  const GMAIL_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
+  const GMAIL_FULL_ACCESS_SCOPE = "https://mail.google.com/";
+  const CALENDAR_ONLY = [
+    "https://www.googleapis.com/auth/calendar.events",
+    "https://www.googleapis.com/auth/userinfo.email",
+  ];
+  const FULL_BUNDLE = [GMAIL_SCOPE, ...CALENDAR_ONLY];
+
+  function clientReturning(results: unknown[]) {
+    return {
+      ...makeMockClient(),
+      fetch: mock(
+        async () => new Response(JSON.stringify({ results }), { status: 200 }),
+      ),
+    };
+  }
+
+  beforeEach(() => {
+    setupDefaults();
+    mockProvider!.managedServiceConfigKey = "google-oauth";
+  });
+
+  test("managed: rejects a Calendar-only connection when Gmail scope is required", async () => {
+    mockPlatformClient = clientReturning([
+      { id: "cal-only", account_label: null, scopes_granted: CALENDAR_ONLY },
+    ]);
+
+    await expect(
+      resolveOAuthConnection("google", { requiredScopes: [GMAIL_SCOPE] }),
+    ).rejects.toThrow(/missing required access.*gmail\.readonly/s);
+  });
+
+  test("managed: resolves when a connection carries the required Gmail scope", async () => {
+    mockPlatformClient = clientReturning([
+      { id: "full", account_label: null, scopes_granted: FULL_BUNDLE },
+    ]);
+
+    const result = await resolveOAuthConnection("google", {
+      requiredScopes: [GMAIL_SCOPE],
+    });
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+  });
+
+  test("managed: treats full Gmail access as covering Gmail read access", async () => {
+    mockPlatformClient = clientReturning([
+      {
+        id: "full-gmail-access",
+        account_label: null,
+        scopes_granted: [GMAIL_FULL_ACCESS_SCOPE],
+      },
+    ]);
+
+    const result = await resolveOAuthConnection("google", {
+      requiredScopes: [GMAIL_SCOPE],
+    });
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+  });
+
+  test("managed: unknown scope data never blocks (back-compat)", async () => {
+    // Older connections report no scopes_granted — must not be rejected.
+    mockPlatformClient = clientReturning([
+      { id: "legacy", account_label: null },
+    ]);
+
+    const result = await resolveOAuthConnection("google", {
+      requiredScopes: [GMAIL_SCOPE],
+    });
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+  });
+
+  test("managed: prefers a scope-satisfying connection over a narrow one", async () => {
+    const fullClient = clientReturning([
+      { id: "cal-only", account_label: null, scopes_granted: CALENDAR_ONLY },
+      { id: "full", account_label: null, scopes_granted: FULL_BUNDLE },
+    ]);
+    mockPlatformClient = fullClient;
+
+    const result = await resolveOAuthConnection("google", {
+      requiredScopes: [GMAIL_SCOPE],
+    });
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+    // PlatformOAuthConnection is keyed by provider, so assert resolution
+    // succeeded (it would have thrown if only the narrow connection matched).
+    expect(result.provider).toBe("google");
+  });
+
+  test("managed: no requiredScopes preserves prior behavior", async () => {
+    mockPlatformClient = clientReturning([
+      { id: "cal-only", account_label: null, scopes_granted: CALENDAR_ONLY },
+    ]);
+
+    const result = await resolveOAuthConnection("google");
+    expect(result).toBeInstanceOf(PlatformOAuthConnection);
+  });
+
+  test("BYO: rejects when granted scopes are known and missing the requirement", async () => {
+    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
+      mode: "your-own",
+    };
+    mockConnection!.grantedScopes = JSON.stringify(CALENDAR_ONLY);
+
+    await expect(
+      resolveOAuthConnection("google", { requiredScopes: [GMAIL_SCOPE] }),
+    ).rejects.toThrow(/missing required access/);
+  });
+
+  test("BYO: treats full Gmail access as covering Gmail read access", async () => {
+    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
+      mode: "your-own",
+    };
+    mockConnection!.grantedScopes = JSON.stringify([GMAIL_FULL_ACCESS_SCOPE]);
+
+    const result = await resolveOAuthConnection("google", {
+      requiredScopes: [GMAIL_SCOPE],
+    });
+    expect(result).toBeInstanceOf(BYOOAuthConnection);
+  });
+
+  test("BYO: unknown granted scopes never block", async () => {
+    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
+      mode: "your-own",
+    };
+    mockConnection!.grantedScopes = JSON.stringify([]);
+
+    const result = await resolveOAuthConnection("google", {
+      requiredScopes: [GMAIL_SCOPE],
+    });
+    expect(result).toBeInstanceOf(BYOOAuthConnection);
+  });
+
+  test("BYO: picks an older scope-satisfying connection over a newer narrow one", async () => {
+    (mockConfig.services as Record<string, unknown>)["google-oauth"] = {
+      mode: "your-own",
+    };
+    // Newest first (matching the store's ordering): a Calendar-only row, then
+    // an older row that carries the Gmail scope. The narrow row must not win.
+    mockConnections = [
+      {
+        id: "cal-only",
+        provider: "google",
+        accountInfo: "user@example.com",
+        grantedScopes: JSON.stringify(CALENDAR_ONLY),
+        status: "active",
+      },
+      {
+        id: "full",
+        provider: "google",
+        accountInfo: "user@example.com",
+        grantedScopes: JSON.stringify(FULL_BUNDLE),
+        status: "active",
+      },
+    ];
+
+    const result = await resolveOAuthConnection("google", {
+      requiredScopes: [GMAIL_SCOPE],
+    });
+    expect(result).toBeInstanceOf(BYOOAuthConnection);
+    expect(result.id).toBe("full");
   });
 });
 

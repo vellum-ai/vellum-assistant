@@ -378,8 +378,34 @@ describe("resolveVoiceQualityProfile", () => {
       },
     };
     const profile = resolveVoiceQualityProfile();
-    expect(profile.ttsProvider).toBe("Google");
-    expect(profile.voice).toBe("");
+    expect(profile.ttsProvider).toBe("ElevenLabs");
+    expect(profile.voice).toBe(DEFAULT_ELEVENLABS_VOICE_ID);
+  });
+
+  test("synthesized-play TwiML carries a non-empty native fallback voice (64106 regression)", () => {
+    // Regression for the dropped-call bug: when a synthesized-play provider's
+    // mid-call synthesis fails, the controller falls back to native token TTS.
+    // If the TwiML voice is empty, Twilio rejects the turn with error 64106
+    // ("TTS provider rejected the request due to invalid parameters") and the
+    // call drops. The profile must expose a real ElevenLabs fallback voice.
+    mockConfig = {
+      calls: {
+        voice: { language: "en-US", transcriptionProvider: "Deepgram" },
+      },
+      services: {
+        tts: {
+          provider: "fish-audio",
+          providers: {
+            elevenlabs: { voiceId: "fallback-voice-xyz" },
+            "fish-audio": { referenceId: "ref-123" },
+          },
+        },
+      },
+    };
+    const profile = resolveVoiceQualityProfile();
+    expect(profile.ttsProvider).toBe("ElevenLabs");
+    expect(profile.voice).toBe("fallback-voice-xyz");
+    expect(profile.voice).not.toBe("");
   });
 
   test("preserves language setting for synthesized providers", () => {
@@ -403,8 +429,8 @@ describe("resolveVoiceQualityProfile", () => {
     };
     const profile = resolveVoiceQualityProfile();
     expect(profile.language).toBe("ja-JP");
-    // STT fields (transcriptionProvider, speechModel) are resolved separately
-    // in twilio-routes.ts via resolveTelephonySttRouting() — not on this profile.
+    // STT fields (transcriptionProvider, speechModel) are not part of the
+    // profile — the daemon resolves STT via resolveTelephonySttCapability().
   });
 
   // -- Canonical-only behavior (no legacy fallback) -----------------------
@@ -429,8 +455,8 @@ describe("resolveVoiceQualityProfile", () => {
     };
     const profile = resolveVoiceQualityProfile();
     // Should resolve to fish-audio from canonical config
-    expect(profile.ttsProvider).toBe("Google");
-    expect(profile.voice).toBe("");
+    expect(profile.ttsProvider).toBe("ElevenLabs");
+    expect(profile.voice).toBe(DEFAULT_ELEVENLABS_VOICE_ID);
   });
 
   // -- Strategy-based behavior (explicit call strategy) -------------------
@@ -457,8 +483,8 @@ describe("resolveVoiceQualityProfile", () => {
       },
     };
     const profile = resolveVoiceQualityProfile();
-    expect(profile.ttsProvider).toBe("Google");
-    expect(profile.voice).toBe("");
+    expect(profile.ttsProvider).toBe("ElevenLabs");
+    expect(profile.voice).toBe(DEFAULT_ELEVENLABS_VOICE_ID);
   });
 
   test("native-twilio strategy delegates voice-spec to registered builder", () => {
@@ -567,10 +593,10 @@ describe("resolveVoiceQualityProfile", () => {
       },
     };
     const profile = resolveVoiceQualityProfile();
-    // Deepgram is synthesized-play in the catalog, so Twilio gets the
-    // placeholder ttsProvider and an empty voice string.
-    expect(profile.ttsProvider).toBe("Google");
-    expect(profile.voice).toBe("");
+    // Deepgram is synthesized-play in the catalog. The TwiML still carries the
+    // ElevenLabs fallback voice so a synthesis failure can speak natively.
+    expect(profile.ttsProvider).toBe("ElevenLabs");
+    expect(profile.voice).toBe(DEFAULT_ELEVENLABS_VOICE_ID);
   });
 
   test("Deepgram preserves language setting on synthesized-play path", () => {
@@ -594,7 +620,7 @@ describe("resolveVoiceQualityProfile", () => {
     };
     const profile = resolveVoiceQualityProfile();
     expect(profile.language).toBe("fr-FR");
-    expect(profile.ttsProvider).toBe("Google");
-    expect(profile.voice).toBe("");
+    expect(profile.ttsProvider).toBe("ElevenLabs");
+    expect(profile.voice).toBe(DEFAULT_ELEVENLABS_VOICE_ID);
   });
 });

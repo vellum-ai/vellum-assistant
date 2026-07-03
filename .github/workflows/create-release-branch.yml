@@ -2,13 +2,13 @@ name: Create Release Branch
 
 on:
   schedule:
-    # ~9am ET every Tuesday and Friday — two entries cover EDT (UTC-4) and EST
-    # (UTC-5); the schedule-guard job drops whichever entry isn't actually 9am ET.
-    # Scheduled a few minutes before the hour because GitHub delays cron jobs
-    # queued at the top of the hour (often by 30-60+ minutes); an off-peak
-    # minute keeps the actual start close to 9am ET.
-    - cron: "52 12 * * 2,5"
-    - cron: "52 13 * * 2,5"
+    # Release at 9am ET every Tuesday and Friday. Two entries cover EDT (UTC-4)
+    # and EST (UTC-5); schedule-guard picks the one matching today's offset and
+    # drops the other. Scheduled at 7:50am ET (~70 min early) so GitHub's
+    # variable cron delay can't push us past 9am; schedule-guard then sleeps off
+    # the remaining buffer so the release lands at exactly 9am ET.
+    - cron: "50 11 * * 2,5"  # EDT: 7:50am ET
+    - cron: "50 12 * * 2,5"  # EST: 7:50am ET
   workflow_dispatch:
     inputs:
       bump:
@@ -19,6 +19,10 @@ on:
           - patch
           - minor
           - major
+          # hotfix: patch bump cut from the latest *release tag's* commit
+          # (not main HEAD), committed with [skip ci] so no staging release runs
+          # until hotfixes are manually cherry-picked onto the branch.
+          - hotfix
 
 concurrency:
   group: release
@@ -27,32 +31,40 @@ concurrency:
 jobs:
   schedule-guard:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 90
     outputs:
       should-run: ${{ steps.check.outputs.should-run }}
     steps:
-      - name: Only proceed at 9am ET
+      - name: Wait until 9am ET, then decide
         id: check
         run: |
           if [ "${{ github.event_name }}" != "schedule" ]; then
             echo "should-run=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Two cron entries fire (12:52 and 13:52 UTC) to cover EDT/EST. Run
+          # Two cron entries fire (11:50 and 12:50 UTC) to cover EDT/EST. Run
           # only the entry matching today's Eastern offset so the release fires
-          # once at 9am ET. Keying off the triggering cron (not the wall-clock
-          # hour at job start) keeps this correct even when GitHub delays the
-          # scheduled run past the top of the hour.
+          # once. Keying off the triggering cron (not the wall-clock hour at job
+          # start) stays correct even when GitHub delays the scheduled run.
           OFFSET=$(TZ=America/New_York date +%z)
           if [ "$OFFSET" = "-0400" ]; then
-            EXPECTED="52 12 * * 2,5"  # EDT: ~9am ET = 12:52 UTC
+            EXPECTED="50 11 * * 2,5"  # EDT: 7:50am ET = 11:50 UTC
           else
-            EXPECTED="52 13 * * 2,5"  # EST: ~9am ET = 13:52 UTC
+            EXPECTED="50 12 * * 2,5"  # EST: 7:50am ET = 12:50 UTC
           fi
-          if [ "${{ github.event.schedule }}" = "$EXPECTED" ]; then
-            echo "should-run=true" >> "$GITHUB_OUTPUT"
-          else
+          if [ "${{ github.event.schedule }}" != "$EXPECTED" ]; then
             echo "should-run=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "should-run=true" >> "$GITHUB_OUTPUT"
+          # Crons are scheduled ~70 min early to absorb GitHub's variable delay;
+          # sleep off whatever buffer remains so downstream jobs start at 9am ET.
+          # If GitHub already delayed us past 9am, proceed immediately.
+          TARGET=$(TZ=America/New_York date -d 'today 09:00' +%s)
+          NOW=$(date +%s)
+          if [ "$NOW" -lt "$TARGET" ]; then
+            echo "Waiting $((TARGET - NOW))s until 9:00am ET"
+            sleep $((TARGET - NOW))
           fi
 
   compute-version:
@@ -62,6 +74,8 @@ jobs:
     timeout-minutes: 5
     outputs:
       version: ${{ steps.compute.outputs.version }}
+      base-ref: ${{ steps.compute.outputs.base-ref }}
+      skip-ci: ${{ steps.compute.outputs.skip-ci }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -70,6 +84,8 @@ jobs:
       - name: Compute version from bump type
         id: compute
         run: |
+          BUMP="${{ inputs.bump || 'patch' }}"
+
           LATEST_TAG=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | head -1)
           if [ -z "$LATEST_TAG" ]; then
             LATEST_TAG="v0.0.0"
@@ -77,14 +93,29 @@ jobs:
           LATEST_VERSION=${LATEST_TAG#v}
           IFS='.' read -r MAJOR MINOR PATCH <<< "$LATEST_VERSION"
 
-          case "${{ inputs.bump || 'patch' }}" in
+          case "$BUMP" in
             major) MAJOR=$((MAJOR + 1)); MINOR=0; PATCH=0 ;;
             minor) MINOR=$((MINOR + 1)); PATCH=0 ;;
-            patch) PATCH=$((PATCH + 1)) ;;
+            patch|hotfix) PATCH=$((PATCH + 1)) ;;
           esac
 
           VERSION="${MAJOR}.${MINOR}.${PATCH}"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+          # A hotfix is a patch release cut from the latest release tag's commit
+          # rather than from main HEAD, and committed with [skip ci] so the push
+          # doesn't kick off a staging release — the branch is meant to receive
+          # manually cherry-picked fixes first. patch/minor/major all cut from
+          # main HEAD and run CI as usual (base-ref empty, skip-ci false).
+          if [ "$BUMP" = "hotfix" ]; then
+            BASE_REF=$(git rev-list -n 1 "$LATEST_TAG")
+            echo "Hotfix: branching from $LATEST_TAG ($BASE_REF)"
+            echo "base-ref=$BASE_REF" >> "$GITHUB_OUTPUT"
+            echo "skip-ci=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "base-ref=" >> "$GITHUB_OUTPUT"
+            echo "skip-ci=false" >> "$GITHUB_OUTPUT"
+          fi
 
   notify-failure:
     name: Slack Notification (Release Branch Failed)
@@ -140,6 +171,14 @@ jobs:
         run: |
           VERSION="${{ needs.compute-version.outputs.version }}"
           BRANCH="release/v$VERSION"
+
+          # Hotfix branches are pushed with [skip ci], so no release.yml run is
+          # triggered — don't waste ~3 minutes polling for one. Point at the
+          # branch instead.
+          if [ "${{ needs.compute-version.outputs.skip-ci }}" = "true" ]; then
+            echo "run_url=${{ github.server_url }}/${{ github.repository }}/tree/$BRANCH" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
 
           # Poll for the release workflow run triggered by the branch push
           RUN_URL=""
@@ -214,6 +253,14 @@ jobs:
           token: ${{ steps.app-token.outputs.token }}
           fetch-depth: 0
 
+      # Hotfix releases install + generate from the latest release tag's tree,
+      # not main HEAD. Check out that commit before installing so lockfiles and
+      # node_modules match. For patch/minor/major, base-ref is empty and this is
+      # a no-op (we stay on main HEAD).
+      - name: Check out hotfix base ref
+        if: ${{ needs.compute-version.outputs.base-ref != '' }}
+        run: git checkout "${{ needs.compute-version.outputs.base-ref }}"
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
@@ -236,6 +283,8 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
         run: |
           VERSION="${{ needs.compute-version.outputs.version }}"
+          BASE_REF="${{ needs.compute-version.outputs.base-ref }}"
+          SKIP_CI="${{ needs.compute-version.outputs.skip-ci }}"
           BRANCH="release/v$VERSION"
           CHERRY_PICK_BRANCH="cherry-pick/$BRANCH"
 
@@ -254,7 +303,15 @@ jobs:
             git push origin --delete "$BRANCH"
           fi
 
-          git checkout -b "$BRANCH"
+          # Hotfix releases branch from the latest release tag's commit so the
+          # patch contains only the released code (plus fixes cherry-picked
+          # later). Other bump types branch from the checked-out main HEAD.
+          if [ -n "$BASE_REF" ]; then
+            echo "Creating $BRANCH from $BASE_REF"
+            git checkout -b "$BRANCH" "$BASE_REF"
+          else
+            git checkout -b "$BRANCH"
+          fi
 
           # Bump all package.json files
           # NOTE: Service + client versions stay in sync. The Electron macOS app
@@ -281,8 +338,16 @@ jobs:
           # Regenerate OpenAPI spec with the new version
           cd assistant && bun run generate:openapi && cd ..
 
+          # Hotfix commits carry [skip ci] so pushing the branch doesn't trigger
+          # a staging release run — the branch is cut quietly and only releases
+          # once fixes have been cherry-picked and CI is run intentionally.
+          COMMIT_MSG="Release v$VERSION"
+          if [ "$SKIP_CI" = "true" ]; then
+            COMMIT_MSG="Release v$VERSION [skip ci]"
+          fi
+
           git add -A
           if ! git diff --cached --quiet; then
-            git commit -m "Release v$VERSION"
+            git commit -m "$COMMIT_MSG"
           fi
           git push --no-verify origin "$BRANCH"

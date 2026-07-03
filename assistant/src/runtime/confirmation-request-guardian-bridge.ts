@@ -12,8 +12,8 @@
  * canonical records.
  */
 
+import type { CanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import type { CanonicalGuardianRequest } from "../memory/canonical-guardian-store.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,
@@ -70,9 +70,9 @@ export type BridgeConfirmationRequestResult =
  *
  * Fire-and-forget safe: notification emission errors are logged but not propagated.
  */
-export function bridgeConfirmationRequestToGuardian(
+export async function bridgeConfirmationRequestToGuardian(
   params: BridgeConfirmationRequestParams,
-): BridgeConfirmationRequestResult {
+): Promise<BridgeConfirmationRequestResult> {
   const {
     canonicalRequest,
     trustContext,
@@ -100,7 +100,7 @@ export function bridgeConfirmationRequestToGuardian(
   }
 
   const sourceChannel = trustContext.sourceChannel;
-  const binding = getGuardianBinding(assistantId, sourceChannel);
+  const binding = await getGuardianBinding(assistantId, sourceChannel);
   if (!binding) {
     log.debug(
       { sourceChannel, assistantId },

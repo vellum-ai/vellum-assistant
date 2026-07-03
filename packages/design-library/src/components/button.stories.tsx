@@ -9,7 +9,7 @@ const meta: Meta<typeof Button> = {
   argTypes: {
     variant: {
       control: "select",
-      options: ["primary", "outlined", "ghost", "danger", "dangerOutline", "dangerGhost"],
+      options: ["primary", "outlined", "ghost", "link", "danger", "dangerOutline", "dangerGhost"],
     },
     size: {
       control: "select",
@@ -47,6 +47,15 @@ export const DangerOutline: Story = {
 
 export const DangerGhost: Story = {
   args: { variant: "dangerGhost", children: "Danger ghost" },
+};
+
+export const Link: Story = {
+  render: () => (
+    <p style={{ fontSize: 14 }}>
+      Already have a Slack app?{" "}
+      <Button variant="link">Skip to next step</Button>
+    </p>
+  ),
 };
 
 export const Compact: Story = {
@@ -89,6 +98,7 @@ export const AllVariants: Story = {
       <Button variant="danger">Danger</Button>
       <Button variant="dangerOutline">Danger outline</Button>
       <Button variant="dangerGhost">Danger ghost</Button>
+      <Button variant="link">Link</Button>
     </div>
   ),
 };

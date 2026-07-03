@@ -5,6 +5,7 @@
  * to these functions so business logic lives in one place.
  */
 
+import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
 import { loadConfig } from "../config/loader.js";
 import { VALID_CALLER_IDENTITY_MODES } from "../config/schema.js";
 import type { AssistantConfig } from "../config/types.js";
@@ -13,11 +14,10 @@ import {
   getTwilioStatusCallbackUrl,
   getTwilioVoiceWebhookUrl,
 } from "../inbound/public-ingress-urls.js";
-import { getConversation } from "../memory/conversation-crud.js";
-import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { queueGenerateConversationTitle } from "../memory/conversation-title-service.js";
-import { upsertBinding } from "../memory/external-conversation-store.js";
-import { revokeScopedApprovalGrantsForContext } from "../memory/scoped-approval-grants.js";
+import { getConversation } from "../persistence/conversation-crud.js";
+import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
+import { queueGenerateConversationTitle } from "../persistence/conversation-title-service.js";
+import { upsertBinding } from "../persistence/external-conversation-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { isGuardian } from "../runtime/channel-verification-service.js";
 import { credentialKey } from "../security/credential-key.js";
@@ -25,7 +25,7 @@ import { getSecureKeyAsync } from "../security/secure-keys.js";
 import { getLogger } from "../util/logger.js";
 import { upsertActiveCallLease } from "./active-call-lease.js";
 import { isDeniedNumber } from "./call-constants.js";
-import { addPointerMessage } from "./call-pointer-messages.js";
+import { postPointerMessageSafe } from "./call-pointer-messages.js";
 import { getCallController, unregisterCallController } from "./call-state.js";
 import { isTerminalState } from "./call-state-machine.js";
 import {
@@ -39,30 +39,14 @@ import {
   updateCallSession,
 } from "./call-store.js";
 import { activeMediaStreamSessions } from "./media-stream-server.js";
-import { activeRelayConnections } from "./relay-server.js";
 import { getTwilioConfig } from "./twilio-config.js";
-import { TwilioConversationRelayProvider } from "./twilio-provider.js";
+import { TwilioVoiceProvider } from "./twilio-provider.js";
 import type { CallSession } from "./types.js";
 import { preflightVoiceIngress } from "./voice-ingress-preflight.js";
 
 const log = getLogger("call-domain");
 
 const E164_REGEX = /^\+\d+$/;
-
-function postFailedCallPointer(
-  conversationId: string,
-  phoneNumber: string,
-  reason: string,
-): void {
-  addPointerMessage(conversationId, "failed", phoneNumber, {
-    reason,
-  }).catch((pointerErr) => {
-    log.warn(
-      { conversationId, err: pointerErr },
-      "Failed to post call-failed pointer message",
-    );
-  });
-}
 
 // ── Result types ─────────────────────────────────────────────────────
 
@@ -228,7 +212,7 @@ export async function resolveCallerIdentity(
   }
 
   // Verify the user number is eligible as a caller ID with Twilio
-  const provider = new TwilioConversationRelayProvider();
+  const provider = new TwilioVoiceProvider();
   const eligibility = await provider.checkCallerIdEligibility(userNumber);
   if (!eligibility.eligible) {
     log.warn(
@@ -267,9 +251,9 @@ type CreateInboundVoiceSessionResult = {
  * returned without creating a duplicate. This handles Twilio webhook
  * replays gracefully.
  */
-export function createInboundVoiceSession(
+export async function createInboundVoiceSession(
   input: CreateInboundVoiceSessionInput,
-): CreateInboundVoiceSessionResult {
+): Promise<CreateInboundVoiceSessionResult> {
   const {
     callSid,
     fromNumber,
@@ -312,7 +296,7 @@ export function createInboundVoiceSession(
   updateCallSession(session.id, { providerCallSid: callSid });
   session.providerCallSid = callSid;
 
-  const callerIsGuardian = isGuardian(assistantId, "phone", fromNumber);
+  const callerIsGuardian = await isGuardian(assistantId, "phone", fromNumber);
   const metadataHints: string[] = [
     callerIsGuardian
       ? "Caller is the guardian"
@@ -428,12 +412,14 @@ export async function startCall(
 
     const preflightResult = await preflightVoiceIngress();
     if (!preflightResult.ok) {
-      postFailedCallPointer(conversationId, phoneNumber, preflightResult.error);
+      postPointerMessageSafe(conversationId, "failed", phoneNumber, {
+        reason: preflightResult.error,
+      });
       return preflightResult;
     }
 
     const ingressConfig = preflightResult.ingressConfig;
-    const provider = new TwilioConversationRelayProvider();
+    const provider = new TwilioVoiceProvider();
 
     const session = createCallSession({
       conversationId,
@@ -531,12 +517,7 @@ export async function startCall(
     );
 
     // Post a concise pointer message in the initiating conversation
-    addPointerMessage(conversationId, "started", phoneNumber).catch((err) => {
-      log.warn(
-        { conversationId, err },
-        "Failed to post call-started pointer message",
-      );
-    });
+    postPointerMessageSafe(conversationId, "started", phoneNumber);
 
     return {
       ok: true,
@@ -569,7 +550,9 @@ export async function startCall(
       });
     }
 
-    postFailedCallPointer(conversationId, phoneNumber, msg);
+    postPointerMessageSafe(conversationId, "failed", phoneNumber, {
+      reason: msg,
+    });
 
     return { ok: false, error: `Error initiating call: ${msg}`, status: 500 };
   }
@@ -662,7 +645,7 @@ export async function cancelCall(
   // Terminate the call via the provider API
   if (session.providerCallSid) {
     try {
-      const provider = new TwilioConversationRelayProvider();
+      const provider = new TwilioVoiceProvider();
       await provider.endCall(session.providerCallSid);
     } catch (endErr) {
       log.warn(
@@ -670,14 +653,6 @@ export async function cancelCall(
         "Failed to terminate call via provider API — proceeding with cleanup",
       );
     }
-  }
-
-  // End the relay connection if active
-  const relayConnection = activeRelayConnections.get(callSessionId);
-  if (relayConnection) {
-    relayConnection.endSession(reason);
-    relayConnection.destroy();
-    activeRelayConnections.delete(callSessionId);
   }
 
   // End the media-stream session if active
@@ -914,7 +889,8 @@ type StartVerificationCallResult =
  *
  * Creates a minimal call session with a voice channel binding and
  * passes `verificationSessionId` as a custom parameter so the
- * relay server can detect this is a guardian verification call.
+ * media-stream server's `routeSetup` can detect this is a guardian
+ * verification call.
  */
 export async function startVerificationCall(
   input: StartVerificationCallInput,
@@ -933,7 +909,7 @@ export async function startVerificationCall(
 
   try {
     const config = loadConfig();
-    const provider = new TwilioConversationRelayProvider();
+    const provider = new TwilioVoiceProvider();
 
     // Resolve the assistant's Twilio number as the caller ID
     const identityResult = await resolveCallerIdentity(config);
@@ -1045,8 +1021,8 @@ type StartInviteCallResult = { ok: true; callSid: string } | CallError;
  * Initiate an outbound call to deliver a voice invite to a contact.
  *
  * Creates a minimal call session with a voice channel binding and
- * passes invite-specific custom parameters so the relay server can
- * detect this is an invite redemption call.
+ * passes invite-specific custom parameters so the media-stream
+ * server's `routeSetup` can detect this is an invite redemption call.
  */
 export async function startInviteCall(
   input: StartInviteCallInput,
@@ -1065,7 +1041,7 @@ export async function startInviteCall(
 
   try {
     const config = loadConfig();
-    const provider = new TwilioConversationRelayProvider();
+    const provider = new TwilioVoiceProvider();
 
     // Resolve the assistant's Twilio number as the caller ID
     const identityResult = await resolveCallerIdentity(config);

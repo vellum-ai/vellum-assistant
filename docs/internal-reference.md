@@ -535,7 +535,7 @@ VELLUM_DAEMON_URL=http://localhost:8741 open -a Vellum
 
 ### Claude Code Workflow
 
-This repo includes Claude Code slash commands (in `.claude/commands/`) for agent-driven development.
+This repo includes Claude Code slash commands for agent-driven development. Most are shared from the [`claude-skills`](https://github.com/vellum-ai/claude-skills) repo via symlinks; repo-local commands live in `.claude/skills/<name>/` as local skill directories (see `.claude/README.md`).
 
 #### Single-task commands
 
@@ -642,48 +642,35 @@ New users download `vellum-assistant.dmg` from the [releases page](https://githu
 
 ## Telephony STT Architecture
 
-Telephony speech-to-text is driven by the unified `services.stt.provider` configuration. The voice webhook generates provider-conditional TwiML at call setup time, selecting between two Twilio integration paths based on the active STT provider's capabilities.
+Telephony speech-to-text is driven by the unified `services.stt.provider` configuration. Every call connects over Twilio Media Streams: the voice webhook emits `<Connect><Stream>` TwiML, and the daemon transcribes the raw mu-law audio itself.
 
 ### Overview
 
-The telephony STT routing resolver (`assistant/src/calls/telephony-stt-routing.ts`) reads `services.stt.provider` from config and maps it to a discriminated strategy:
+The media-stream STT session (`assistant/src/calls/media-stream-stt-session.ts`) selects a transcription mode once per call:
 
-- **`conversation-relay-native`** — Providers natively supported by Twilio ConversationRelay (Deepgram, Google). TwiML emits `<Connect><ConversationRelay>` with `transcriptionProvider` and `speechModel` attributes. Twilio handles audio ingestion and transcription; the daemon receives transcribed text.
+- **Streaming** (default) — when `calls.voice.telephonyStreaming` is enabled and the configured provider resolves a streaming transcriber (`resolveStreamingTranscriber()`), inbound audio is decoded (mu-law → PCM16, resampled 8 kHz → 16 kHz) and fed to the provider's realtime adapter. Replies trigger only on utterance-boundary finals; barge-in fires from local energy VAD, never from transcriber partials.
 
-- **`media-stream-custom`** — Providers not natively supported by Twilio (OpenAI Whisper). TwiML emits `<Connect><Stream>` pointing to the daemon's media-stream server. Raw audio flows from Twilio through the gateway's WebSocket proxy to the daemon, which transcribes server-side via the provider's batch API.
+- **Batch fallback** — otherwise turns are segmented with the energy-based `MediaTurnDetector` and each completed turn is transcribed via the provider's batch API.
 
-Both paths share the same `CallController`, `voice-session-bridge`, and `RunOrchestrator` pipeline downstream of transcription. The only difference is where audio-to-text conversion happens (Twilio-side vs daemon-side).
+Both modes share the same `CallController`, `voice-session-bridge`, and `RunOrchestrator` pipeline downstream of transcription.
 
-### Provider-Conditional Routing
-
-| `services.stt.provider` | Strategy                    | TwiML Element                  | Audio Path                                         |
-| ------------------------ | --------------------------- | ------------------------------ | -------------------------------------------------- |
-| `deepgram`               | `conversation-relay-native` | `<Connect><ConversationRelay>` | Twilio transcribes natively; daemon receives text   |
-| `google-gemini`          | `conversation-relay-native` | `<Connect><ConversationRelay>` | Twilio transcribes natively; daemon receives text   |
-| `openai-whisper`         | `media-stream-custom`       | `<Connect><Stream>`            | Raw audio to daemon; server-side batch transcription |
-| `xai`                    | `media-stream-custom`       | `<Connect><Stream>`            | Raw audio to daemon; server-side batch transcription |
-
-Model normalization for Twilio-native providers:
-- Deepgram defaults `speechModel` to `"nova-3"` when unset.
-- Google leaves `speechModel` undefined when unset. The legacy Deepgram default `"nova-3"` is treated as unset for Google so workspaces that switched providers do not send a Deepgram model name to Google's API.
+A credential preflight (`resolveTelephonyCredentialReadiness()` in `assistant/src/calls/telephony-credential-preflight.ts`) gates every call: it requires a credentialed, telephony-capable STT provider and a media-stream-playable TTS provider. Inbound calls that fail the preflight receive `<Say>` setup-required copy plus `<Hangup/>`; outbound placement fails before dialing via `preflightVoiceIngress()`.
 
 Workspace migration `034-remove-calls-voice-transcription-provider` preserves existing Google STT preferences from the former `calls.voice.transcriptionProvider` key into `services.stt.provider`.
 
 ### Troubleshooting Matrix
 
-| Symptom | Likely Provider | Check | Expected Log |
-| ------- | --------------- | ----- | ------------ |
-| Call connects but no transcription | Deepgram / Google | Verify Deepgram or Google API key is configured in credential store | `[twilio-routes] telephony STT strategy resolved: conversation-relay-native` |
-| Call connects, TTS works, but STT silent | OpenAI Whisper | Verify OpenAI API key is configured; check media-stream server is reachable via gateway | `[twilio-routes] telephony STT strategy resolved: media-stream-custom` |
-| TwiML error / call drops immediately | Any | Check `services.stt.provider` is a recognized catalog entry | `[twilio-routes] unknown STT provider — cannot resolve telephony routing` |
-| Deepgram transcription uses wrong model | Deepgram | The routing resolver defaults Deepgram to `nova-3`; custom model overrides are set via `services.stt.providers.deepgram` config | `speechModel="nova-3"` in TwiML output |
-| Google transcription sends Deepgram model | Google | Model normalization should suppress `nova-3` for Google; verify migration 034 ran | `speechModel` attribute absent from TwiML |
-| Media-stream WebSocket fails to connect | OpenAI Whisper | Verify gateway `/webhooks/twilio/media-stream` route is deployed and reachable | `[gateway] media-stream WebSocket proxy connected` |
-| Audio heard but transcription garbled | OpenAI Whisper | Check audio transcode pipeline (`media-stream-audio-transcode.ts`); verify sample rate matches provider expectations | `[media-stream-stt-session] transcription result` |
+| Symptom | Check | Where to Look |
+| ------- | ----- | ------------- |
+| Inbound call answers with "setup required" and hangs up | STT or TTS credentials missing — the credential preflight failed | `telephony_credential_preflight_failed` call event with the `missing` provider details |
+| Outbound call fails before dialing | Same preflight; the tool error names the missing provider credential | Calling tool result / `preflightVoiceIngress()` failure message |
+| Call connects, TTS works, but STT silent | Verify the configured STT provider's API key; check the media-stream server is reachable via gateway | `media-stream-stt-session` logs |
+| Media-stream WebSocket fails to connect | Verify gateway `/webhooks/twilio/media-stream` route is deployed and reachable | `[gateway] media-stream WebSocket proxy connected` |
+| Audio heard but transcription garbled | Check audio transcode pipeline (`media-stream-audio-transcode.ts`); verify sample rate matches provider expectations | `[media-stream-stt-session] transcription result` |
 
 ### Twilio Media-Stream Troubleshooting
 
-This section covers debugging media-stream calls that use the `media-stream-custom` STT strategy (OpenAI Whisper). The media-stream path handles raw audio ingestion, speech-aware turn segmentation, and server-side transcription.
+This section covers debugging media-stream calls. The media-stream path handles raw audio ingestion, speech-aware turn segmentation, and daemon-side transcription.
 
 #### Key Log Markers
 
@@ -944,4 +931,4 @@ Use this checklist when rolling out conversation STT streaming to macOS and iOS.
 - [ ] Verify no regressions in voice mode (OpenAIVoiceService) -- voice mode does not use conversation streaming.
 - [ ] Verify gateway logs show `"Upstream STT stream WS connected"` for each streaming session.
 - [ ] Verify daemon logs show `"STT stream session started"` with the correct provider.
-- [ ] Verify no `<ConversationRelay>` or telephony STT paths are affected by conversation streaming changes.
+- [ ] Verify telephony media-stream STT paths are not affected by conversation streaming changes.

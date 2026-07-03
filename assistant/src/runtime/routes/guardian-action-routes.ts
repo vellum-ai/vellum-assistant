@@ -14,15 +14,15 @@
 import { z } from "zod";
 
 import { isHttpAuthDisabled } from "../../config/env.js";
-import { findGuardianForChannel } from "../../contacts/contact-store.js";
 import {
   type CanonicalGuardianRequest,
   listPendingRequestsByConversationScope,
-} from "../../memory/canonical-guardian-store.js";
+} from "../../contacts/canonical-guardian-store.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
 import type { GuardianDecisionPrompt } from "../guardian-decision-types.js";
 import { buildOneTimeDecisionActions } from "../guardian-decision-types.js";
+import { findLocalGuardianPrincipalId } from "../local-actor-identity.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -73,16 +73,15 @@ async function handleGuardianActionDecision({
   // Resolve the actor's guardian principal ID. The HTTP adapter injects it
   // from the AuthContext via the x-vellum-actor-principal-id header.
   // For dev bypass (HTTP auth disabled) the synthetic "dev-bypass" principal
-  // won't match the real guardian binding, so fall back to the local guardian
-  // binding to avoid identity_mismatch.
+  // won't match the real guardian binding, so resolve the local guardian
+  // principal to avoid identity_mismatch.
   let guardianPrincipalId: string | undefined =
     headers["x-vellum-actor-principal-id"] ?? undefined;
   if (
     isHttpAuthDisabled() &&
     headers["x-vellum-actor-principal-id"] === "dev-bypass"
   ) {
-    const binding = findGuardianForChannel("vellum");
-    guardianPrincipalId = binding?.contact.principalId ?? undefined;
+    guardianPrincipalId = (await findLocalGuardianPrincipalId()) ?? undefined;
   }
 
   const result = await processGuardianDecision({

@@ -11,3 +11,4 @@ native/hotkey-helper/.build/
 native/mac-helper/.build/
 resources/cli-lockfile
 resources/.vellum-mac-helper.source-hash
+resources/.vellum-mac-helper*.Info.plist

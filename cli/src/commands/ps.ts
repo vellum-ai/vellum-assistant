@@ -10,7 +10,6 @@ import {
   getDaemonPidPath,
   loadAllAssistants,
   lookupAssistantByIdentifier,
-  resolveCloud,
   type AssistantEntry,
 } from "../lib/assistant-config";
 import { parseAssistantTargetArg } from "../lib/assistant-target-args.js";
@@ -381,7 +380,7 @@ async function getDockerProcesses(entry: AssistantEntry): Promise<TableRow[]> {
 }
 
 async function showAssistantProcesses(entry: AssistantEntry): Promise<void> {
-  const cloud = resolveCloud(entry);
+  const cloud = entry.cloud;
 
   console.log(`Processes for ${formatAssistantReference(entry)} (${cloud}):\n`);
 

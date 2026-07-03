@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import { matchRoutes } from "react-router";
 
 mock.module("@/generated/gateway/@tanstack/react-query.gen", () => ({
@@ -6,7 +6,22 @@ mock.module("@/generated/gateway/@tanstack/react-query.gen", () => ({
   assistantFeatureFlagsGetQueryKey: () => ["assistant-flags"],
 }));
 
+const originalWarn = console.warn;
+console.warn = (...args: Parameters<typeof console.warn>) => {
+  if (
+    typeof args[0] === "string" &&
+    args[0].includes("KaTeX doesn't work in quirks mode")
+  ) {
+    return;
+  }
+  originalWarn(...args);
+};
+
 const { getRouterBasename, routeTree } = await import("@/routes");
+
+afterAll(() => {
+  console.warn = originalWarn;
+});
 
 afterEach(() => {
   window.__VELLUM_CONFIG__ = undefined;
@@ -31,6 +46,14 @@ function hasRouteMiddleware(path: string, basename?: string): boolean {
   return matches.some((m) =>
     Array.isArray((m.route as { middleware?: unknown }).middleware),
   );
+}
+
+function leafRouteComponentName(path: string): string | undefined {
+  const matches = matchRoutes(routeTree as never, path) ?? [];
+  const leaf = matches.at(-1)?.route as
+    | { Component?: { name?: string } }
+    | undefined;
+  return leaf?.Component?.name;
 }
 
 describe("account route compact-window grouping", () => {
@@ -82,5 +105,32 @@ describe("remote web pairing route", () => {
         "/assistant-123",
       ),
     ).toBe(false);
+  });
+});
+
+describe("schedules routes", () => {
+  // The Schedules tab and per-schedule deep links render the same lazy
+  // HomePageRoute as /home, inside the auth-protected assistant tree.
+  test.each([
+    "/assistant/schedules",
+    "/assistant/schedules/sch_123",
+  ])("%s matches inside the auth-protected app tree", (path) => {
+    const matches = matchRoutes(routeTree as never, path) ?? [];
+    expect(matches.length).toBeGreaterThan(0);
+    expect(matches.at(-1)?.pathname).toBe(path);
+    expect(hasRouteMiddleware(path)).toBe(true);
+  });
+
+  test("captures the schedule id as a route param", () => {
+    const matches = matchRoutes(routeTree as never, "/assistant/schedules/sch_123") ?? [];
+    expect(matches.at(-1)?.params.scheduleId).toBe("sch_123");
+  });
+});
+
+describe("settings route compatibility", () => {
+  test("legacy MCP settings URL redirects to the Integrations MCP tab", () => {
+    expect(leafRouteComponentName("/assistant/settings/mcp")).toBe(
+      "McpSettingsRedirect",
+    );
   });
 });

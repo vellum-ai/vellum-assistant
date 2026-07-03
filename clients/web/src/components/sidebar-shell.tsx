@@ -3,6 +3,7 @@ import { type ReactNode, useCallback, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { Button, Typography } from "@vellumai/design-library";
 
+import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
 import { useEdgeSwipeBack } from "@/hooks/use-edge-swipe-back";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -116,8 +117,12 @@ export function SidebarShell({
       </div>
 
       {electron ? (
-        <div className="shrink-0 pb-4 empty:hidden">
+        <div className="flex shrink-0 flex-col gap-2 pb-4 empty:hidden">
           <StatusBanner placement="electron" className="px-0 pt-0" />
+          <RuntimeUpgradeBanner
+            placement="electron"
+            className="px-0 pt-0"
+          />
         </div>
       ) : null}
 

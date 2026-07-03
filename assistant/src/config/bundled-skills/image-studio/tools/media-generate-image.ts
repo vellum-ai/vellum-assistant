@@ -1,4 +1,3 @@
-import { getConfig } from "../../../../config/loader.js";
 import { resolveImageGenCredentials } from "../../../../media/image-credentials.js";
 import {
   describeImageModels,
@@ -9,13 +8,14 @@ import {
   mapImageGenError,
   providerForModel,
 } from "../../../../media/image-service.js";
-import { getFilePathBySourcePath } from "../../../../memory/attachments-store.js";
+import { getFilePathBySourcePath } from "../../../../persistence/attachments-store.js";
 import type { ImageContent } from "../../../../providers/types.js";
 import { sandboxPolicy } from "../../../../tools/shared/filesystem/path-policy.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+import { getConfig } from "../../../loader.js";
 
 export async function run(
   input: Record<string, unknown>,

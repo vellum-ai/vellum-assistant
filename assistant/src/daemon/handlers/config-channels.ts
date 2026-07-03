@@ -1,16 +1,24 @@
 import { createHash, randomBytes } from "node:crypto";
 
+import type { GuardianDelivery } from "@vellumai/gateway-client";
+import { MarkChannelRevokedIpcResponseSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
+
 import { startVerificationCall } from "../../calls/call-domain.js";
 import type { ChannelId } from "../../channels/types.js";
 import {
   findContactChannel,
-  findGuardianForChannel,
   getChannelById,
   getContact,
 } from "../../contacts/contact-store.js";
-import { revokeMember } from "../../contacts/contacts-write.js";
-import type { ChannelStatus } from "../../contacts/types.js";
-import { getBindingByChannelChat } from "../../memory/external-conversation-store.js";
+import { gatewayContactChannelState } from "../../contacts/gateway-channel-read.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../contacts/guardian-delivery-reader.js";
+import { notifyContactsChanged } from "../../contacts/notify-contacts-changed.js";
+import type { ContactChannel } from "../../contacts/types.js";
+import { ipcCallPersistent } from "../../ipc/gateway-client.js";
+import { getBindingByChannelChat } from "../../persistence/external-conversation-store.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../runtime/assistant-scope.js";
@@ -25,7 +33,7 @@ import {
   findActiveSession,
   getGuardianBinding,
   getPendingSession,
-  revokeBinding,
+  isGuardianBoundForChannel,
   revokePendingSessions,
   updateSessionDelivery,
 } from "../../runtime/channel-verification-service.js";
@@ -74,22 +82,44 @@ export function getReadinessService(): ChannelReadinessService {
 }
 
 // ---------------------------------------------------------------------------
+// Gateway delivery lookup
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve the gateway-owned delivery (ACL source of truth) for a contact
+ * channel, matching on type and either address or externalChatId. Returns
+ * `undefined` when the gateway is unreachable or has no binding for it.
+ */
+async function deliveryForChannel(
+  channel: Pick<ContactChannel, "type" | "address" | "externalChatId">,
+): Promise<GuardianDelivery | undefined> {
+  const guardians = await getGuardianDelivery({ channelTypes: [channel.type] });
+  if (!guardians) return undefined;
+  return guardians.find(
+    (g) =>
+      g.channelType === channel.type &&
+      ((channel.address && g.address === channel.address) ||
+        (channel.externalChatId != null &&
+          g.externalChatId === channel.externalChatId)),
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Extracted business logic functions
 // ---------------------------------------------------------------------------
 
-export function createInboundChallenge(
+export async function createInboundChallenge(
   channel?: ChannelId,
   rebind?: boolean,
   conversationId?: string,
-): ChannelVerificationSessionResult {
-  const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
+): Promise<ChannelVerificationSessionResult> {
   const resolvedChannel = channel ?? "telegram";
 
-  const existingBinding = getGuardianBinding(
-    resolvedAssistantId,
-    resolvedChannel,
-  );
-  if (existingBinding && !rebind) {
+  // Gateway-backed presence guard: block re-binding when a guardian is already
+  // bound. Null-list (gateway unreachable) is treated as bound, so a transient
+  // miss blocks rather than letting a second binding through.
+  const alreadyBound = await isGuardianBoundForChannel(resolvedChannel);
+  if (alreadyBound && !rebind) {
     return {
       success: false,
       error: "already_bound",
@@ -112,18 +142,25 @@ export function createInboundChallenge(
   };
 }
 
-export function getVerificationStatus(
+export async function getVerificationStatus(
   channel?: ChannelId,
-): ChannelVerificationSessionResult {
+): Promise<ChannelVerificationSessionResult> {
   const resolvedAssistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
-  const binding = getGuardianBinding(resolvedAssistantId, resolvedChannel);
+  const binding = await getGuardianBinding(
+    resolvedAssistantId,
+    resolvedChannel,
+  );
 
-  // Read the contact directly to get displayName — getGuardianBinding is a
-  // compatibility shim that doesn't carry metadataJson.
-  const guardianResult = findGuardianForChannel(resolvedChannel);
-  const bindingDisplayName = guardianResult?.contact.displayName;
+  // Read the guardian displayName from the gateway delivery — getGuardianBinding
+  // is a compatibility shim that doesn't carry metadataJson.
+  const guardians = await getGuardianDelivery({
+    channelTypes: [resolvedChannel],
+  });
+  const bindingDisplayName = guardians
+    ? (guardianForChannel(guardians, resolvedChannel)?.displayName ?? undefined)
+    : undefined;
   const guardianDisplayName = resolveGuardianName(bindingDisplayName);
 
   // Resolve username from external conversation store.
@@ -171,24 +208,25 @@ export function getVerificationStatus(
 // Revoke verification binding
 // ---------------------------------------------------------------------------
 
-export function revokeVerificationForChannel(
+export async function revokeVerificationForChannel(
   channel?: ChannelId,
-): ChannelVerificationSessionResult {
+): Promise<ChannelVerificationSessionResult> {
   const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
   const resolvedChannel = channel ?? "telegram";
 
-  // Cancel any active outbound session so revoke is a complete teardown.
+  // Session teardown stays assistant-side — it is session state, not the ACL
+  // outcome. Cancel any active outbound session and pending challenges first
+  // (the macOS app uses action: "revoke" to cancel an in-flight challenge even
+  // before a binding exists, e.g. during verification setup).
   cancelOutbound({ channel: resolvedChannel });
-
-  // Always revoke pending challenges first — the macOS app uses
-  // action: "revoke" to cancel an in-flight challenge even before
-  // a binding exists (e.g. during verification setup).
   revokePendingSessions(resolvedChannel);
 
-  // Capture binding before revoking so we can revoke the guardian's
-  // contact record — without this, the guardian would still pass
-  // the ACL check after unbinding.
-  const bindingBeforeRevoke = getGuardianBinding(assistantId, resolvedChannel);
+  // Capture binding before revoking so we can downgrade the guardian's
+  // channel — without this, the guardian would still pass the ACL check.
+  const bindingBeforeRevoke = await getGuardianBinding(
+    assistantId,
+    resolvedChannel,
+  );
   if (!bindingBeforeRevoke) {
     return {
       success: true,
@@ -197,29 +235,38 @@ export function revokeVerificationForChannel(
     };
   }
 
-  // Revoke the member BEFORE the guardian binding so that
-  // revokeMember sees the channel as active/pending and sets the
-  // correct revokedReason ("guardian_binding_revoked"). If the guardian binding
-  // is revoked first, the channel is already marked revoked and the member
-  // revocation becomes a no-op (wrong reason or skipped entirely).
   const contactResult = findContactChannel({
     channelType: resolvedChannel,
     address: bindingBeforeRevoke.guardianExternalUserId,
     externalChatId: bindingBeforeRevoke.guardianDeliveryChatId,
   });
 
+  // Relay the ACL downgrade to the gateway (source of truth). The gateway's
+  // mark_channel_revoked enforces the guardian guard and dual-writes the
+  // contact-channel status back to the assistant DB. Gate on the gateway
+  // delivery's live status, not the assistant DB column, so a redundant revoke
+  // is still skipped for an already-revoked binding.
   if (contactResult) {
-    const channelStatus: ChannelStatus = contactResult.channel.status;
+    const delivery = await deliveryForChannel(contactResult.channel);
+    const deliveryStatus = delivery?.status;
     if (
-      channelStatus === "active" ||
-      channelStatus === "pending" ||
-      channelStatus === "unverified"
+      deliveryStatus === "active" ||
+      deliveryStatus === "pending" ||
+      deliveryStatus === "unverified"
     ) {
-      revokeMember(contactResult.channel.id, "guardian_binding_revoked");
+      const result = await ipcCallPersistent("mark_channel_revoked", {
+        contactChannelId: contactResult.channel.id,
+        reason: "guardian_binding_revoked",
+      });
+      const parsed = MarkChannelRevokedIpcResponseSchema.parse(result);
+      if (!parsed.ok) {
+        throw new Error("mark_channel_revoked relay returned ok: false");
+      }
+      // Emit the invalidation so open client views stop showing the channel
+      // as active after the gateway dual-writes it to "revoked".
+      notifyContactsChanged();
     }
   }
-
-  revokeBinding(assistantId, resolvedChannel);
 
   return {
     success: true,
@@ -280,7 +327,10 @@ export async function verifyTrustedContact(
     };
   }
 
-  if (channel.status === "active" && channel.verifiedAt != null) {
+  // Already-verified short-circuit derived from the gateway contact-channel read
+  // (ACL SoT), which covers all contacts — not just guardian deliveries.
+  const gwState = await gatewayContactChannelState(channel);
+  if (gwState?.status === "active" && gwState.verifiedAt != null) {
     return {
       success: false,
       error: "already_verified",
@@ -565,7 +615,7 @@ export async function handleChannelVerificationSession(
           ...publicResult,
         });
       } else {
-        const result = createInboundChallenge(
+        const result = await createInboundChallenge(
           channel,
           msg.rebind,
           msg.conversationId,
@@ -576,7 +626,7 @@ export async function handleChannelVerificationSession(
         });
       }
     } else if (msg.action === "status") {
-      const result = getVerificationStatus(channel);
+      const result = await getVerificationStatus(channel);
       broadcastMessage({
         type: "channel_verification_session_response",
         ...result,
@@ -590,7 +640,7 @@ export async function handleChannelVerificationSession(
         channel,
       });
     } else if (msg.action === "revoke") {
-      const result = revokeVerificationForChannel(channel);
+      const result = await revokeVerificationForChannel(channel);
       broadcastMessage({
         type: "channel_verification_session_response",
         ...result,

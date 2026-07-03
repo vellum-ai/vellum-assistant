@@ -167,6 +167,15 @@ mock.module("./status", () => ({
   PULSE_FRAME_INTERVAL_MS: 80,
 }));
 
+// Mock the identity module so `tray.ts`'s import of it doesn't pull in the
+// real `./ipc` → `electron` chain (the electron mock above omits `ipcMain`).
+// Mirrors the `./status` mock: the tray reads the name for its tooltip/header
+// and subscribes for live updates.
+mock.module("./identity", () => ({
+  getName: () => null,
+  onNameChange: () => () => undefined,
+}));
+
 const { installTray, __resetForTesting } = await import("./tray");
 
 const handlers = {

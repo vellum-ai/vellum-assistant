@@ -43,6 +43,11 @@ mock.module("../../util/logger.js", () => ({
 // workspace directory.
 
 import {
+  gatewayAclByChannelId,
+  resetGatewayAclStore,
+} from "../../__tests__/helpers/gateway-acl-store.js";
+import { seedContactChannel } from "../../__tests__/helpers/seed-contact-channel.js";
+import {
   invalidateConfigCache,
   loadRawConfig,
   saveRawConfig,
@@ -57,8 +62,8 @@ import {
   getA2AConfig,
   setA2AConfig,
 } from "../../daemon/handlers/config-a2a.js";
-import { getSqlite } from "../../memory/db-connection.js";
-import { initializeDb } from "../../memory/db-init.js";
+import { getSqlite } from "../../persistence/db-connection.js";
+import { initializeDb } from "../../persistence/db-init.js";
 import type { A2AMessage, Artifact } from "../protocol-types.js";
 import {
   completeWithArtifacts,
@@ -80,12 +85,21 @@ const originalFetch = globalThis.fetch;
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** Read a channel's gateway ACL row to assert the gateway-resolved trust. */
+function aclColumns(
+  channelId: string,
+): { status: string; policy: string } | null {
+  const row = gatewayAclByChannelId(channelId);
+  return row ? { status: row.status, policy: row.policy } : null;
+}
+
 function resetTables(): void {
   const sqlite = getSqlite();
   sqlite.run("DELETE FROM a2a_tasks");
   sqlite.run("DELETE FROM assistant_contact_metadata");
   sqlite.run("DELETE FROM contact_channels");
   sqlite.run("DELETE FROM contacts");
+  resetGatewayAclStore();
 }
 
 function setConfigEnabled(enabled: boolean): void {
@@ -164,17 +178,16 @@ describe("e2e: trusted contact setup", () => {
         {
           type: "a2a",
           address: "assistant-b",
-          status: "active",
-          policy: "allow",
         },
       ],
     });
 
+    // upsertContact persists the a2a channel identity; the gateway owns the ACL
+    // status verdict.
     const contact = findContactByAddress("a2a", "assistant-b");
     expect(contact).not.toBeNull();
     expect(contact!.channels.some((ch) => ch.type === "a2a")).toBe(true);
     const a2aChannel = contact!.channels.find((ch) => ch.type === "a2a");
-    expect(a2aChannel!.status).toBe("active");
     expect(a2aChannel!.address).toBe("assistant-b");
   });
 });
@@ -355,21 +368,13 @@ describe("e2e: unknown sender blocked (ACL enforcement)", () => {
   });
 
   test("trusted contact exists with active a2a channel — ACL passes", async () => {
-    const { upsertContact } = await import("../../contacts/contact-store.js");
-
     // Pre-create a trusted contact for the sender
-    upsertContact({
+    seedContactChannel({
+      sourceChannel: "a2a",
+      externalUserId: "trusted-assistant",
       displayName: "Trusted Bot",
-      contactType: "assistant",
-      role: "contact",
-      channels: [
-        {
-          type: "a2a",
-          address: "trusted-assistant",
-          status: "active",
-          policy: "allow",
-        },
-      ],
+      status: "active",
+      policy: "allow",
     });
 
     // Verify the contact exists (the ACL check the runtime performs)
@@ -378,8 +383,9 @@ describe("e2e: unknown sender blocked (ACL enforcement)", () => {
 
     const a2aChannel = contact!.channels.find((ch) => ch.type === "a2a");
     expect(a2aChannel).toBeTruthy();
-    expect(a2aChannel!.status).toBe("active");
-    expect(a2aChannel!.policy).toBe("allow");
+    const acl = aclColumns(a2aChannel!.id);
+    expect(acl!.status).toBe("active");
+    expect(acl!.policy).toBe("allow");
 
     // A task from this sender would pass the ACL check
     const msg = makeRequestMessage();
@@ -391,28 +397,21 @@ describe("e2e: unknown sender blocked (ACL enforcement)", () => {
   });
 
   test("contact exists but channel is blocked — ACL would reject", async () => {
-    const { upsertContact } = await import("../../contacts/contact-store.js");
-
-    upsertContact({
+    seedContactChannel({
+      sourceChannel: "a2a",
+      externalUserId: "blocked-assistant",
       displayName: "Blocked Bot",
-      contactType: "assistant",
-      role: "contact",
-      channels: [
-        {
-          type: "a2a",
-          address: "blocked-assistant",
-          status: "blocked",
-          policy: "deny",
-        },
-      ],
+      status: "blocked",
+      policy: "deny",
     });
 
     const contact = findContactByAddress("a2a", "blocked-assistant");
     expect(contact).not.toBeNull();
 
     const a2aChannel = contact!.channels.find((ch) => ch.type === "a2a");
-    expect(a2aChannel!.status).toBe("blocked");
-    expect(a2aChannel!.policy).toBe("deny");
+    const acl = aclColumns(a2aChannel!.id);
+    expect(acl!.status).toBe("blocked");
+    expect(acl!.policy).toBe("deny");
   });
 });
 
@@ -507,26 +506,19 @@ describe("e2e: full A2A round-trip", () => {
     setConfigEnabled(true);
 
     // Step 1: Create trusted contact for Assistant B (platform-mediated)
-    upsertContact({
+    seedContactChannel({
+      sourceChannel: "a2a",
+      externalUserId: "assistant-b",
       displayName: "Assistant B",
-      contactType: "assistant",
-      role: "contact",
-      channels: [
-        {
-          type: "a2a",
-          address: "assistant-b",
-          status: "active",
-          policy: "allow",
-        },
-      ],
+      status: "active",
+      policy: "allow",
     });
 
     // Step 2: Verify trusted contact was created
     const contact = findContactByAddress("a2a", "assistant-b");
     expect(contact).not.toBeNull();
-    expect(contact!.channels.find((ch) => ch.type === "a2a")!.status).toBe(
-      "active",
-    );
+    const a2aChannel = contact!.channels.find((ch) => ch.type === "a2a")!;
+    expect(aclColumns(a2aChannel.id)!.status).toBe("active");
 
     // Step 3: Simulate inbound A2A message from B (as if B sent us a request)
     const inboundMsg = makeRequestMessage({

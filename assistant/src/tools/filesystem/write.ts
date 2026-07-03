@@ -1,9 +1,9 @@
 import { join, resolve, sep } from "node:path";
 
-import { getAppsDir } from "../../memory/app-store.js";
-import { enqueuePkbIndexJob } from "../../memory/jobs/embed-pkb-file.js";
-import { PKB_WORKSPACE_SCOPE } from "../../memory/pkb/types.js";
+import { getAppsDir } from "../../apps/app-store.js";
 import { RiskLevel } from "../../permissions/types.js";
+import { enqueuePkbIndexJob } from "../../plugins/defaults/memory/jobs/embed-pkb-file.js";
+import { PKB_WORKSPACE_SCOPE } from "../../plugins/defaults/memory/pkb/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { registerTool } from "../registry.js";
@@ -29,7 +29,8 @@ const logger = getLogger("file-write");
  * never blocks the app-builder workflow it redirects to.
  */
 const STANDALONE_HTML_RE = /<!doctype\s+html|<html[\s>]/i;
-const INLINE_SCRIPT_RE = /<script\b(?![^>]*\bsrc=)[^>]*>[\s\S]{400,}?<\/script>/i;
+const INLINE_SCRIPT_RE =
+  /<script\b(?![^>]*\bsrc=)[^>]*>[\s\S]{400,}?<\/script>/i;
 
 function isSelfContainedArtifactHtml(path: string, content: string): boolean {
   if (!/\.html?$/i.test(path)) return false;

@@ -1,6 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 
 import {
+  DICTATION_OVERLAY_ALWAYS_ON_TOP_LEVEL,
   DONE_HIDE_MS,
   ERROR_HIDE_MS,
   createDictationOverlayController,
@@ -177,5 +178,11 @@ describe("positionDictationOverlayInWorkArea", () => {
       x: 580,
       y: 50,
     });
+  });
+});
+
+describe("dictation overlay window level", () => {
+  test("uses the screen-saver level so it stays above focused app windows", () => {
+    expect(DICTATION_OVERLAY_ALWAYS_ON_TOP_LEVEL).toBe("screen-saver");
   });
 });

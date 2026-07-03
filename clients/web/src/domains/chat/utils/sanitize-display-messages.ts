@@ -12,7 +12,6 @@
 
 import { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "@vellumai/assistant-api";
 
-import { sortedByTimestamp } from "@/domains/chat/utils/message-sorting";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
 import { isToolCallRunning } from "@/domains/chat/utils/tool-call-status";
 import { mapMessageToolCalls } from "@/domains/chat/utils/map-message-tool-calls";
@@ -22,7 +21,6 @@ export function sanitizeDisplayMessages(
   messages: DisplayMessage[],
 ): DisplayMessage[] {
   const pipeline = [
-    sortByTimestamp,
     removeInvalidMessages,
     removeDuplicateTrailingAssistant,
     repairDanglingToolCalls,
@@ -32,34 +30,7 @@ export function sanitizeDisplayMessages(
 }
 
 // -----------------------------------------------------------------------------
-// Hack #1 — defensive ascending-timestamp sort at the render boundary
-// -----------------------------------------------------------------------------
-// Why it exists: the internal mutators (stream handlers, reconcile, message
-// merge, etc.) try to keep `messages` sorted, but several paths can land
-// rows out of order:
-//   - multi-row server clusters that share the same `daemonMessageId`,
-//   - late `tool_result` events for an earlier bubble,
-//   - history pages stitched around an in-flight stream.
-// Sorting here guarantees the user always sees messages in chronological
-// order regardless of which write path landed last.
-//
-// `sortedByTimestamp` is stable: rows without a `timestamp` keep their
-// original slot, and equal timestamps preserve insertion order — so
-// streaming bubbles don't flicker.
-//
-// SHORT TERM until: the assistant backend merges multi-row clusters
-// server-side so the client never sees the fragmented rows.
-// -----------------------------------------------------------------------------
-function sortByTimestamp(messages: DisplayMessage[]): DisplayMessage[] {
-  // Thin wrapper around `sortedByTimestamp` so this file owns all three
-  // pipeline steps locally. `sortedByTimestamp` is still consumed by
-  // `reconcile.ts`; when that cleanup lands and reconcile is deleted, the
-  // import can collapse without touching the pipeline shape.
-  return sortedByTimestamp(messages);
-}
-
-// -----------------------------------------------------------------------------
-// Hack #2 — drop blank / phantom user rows
+// Drop blank / phantom user rows
 // -----------------------------------------------------------------------------
 // Why it exists: two upstream emission patterns leave us with user rows that
 // have nothing to render:

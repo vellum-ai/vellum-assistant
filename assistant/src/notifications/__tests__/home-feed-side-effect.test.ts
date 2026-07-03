@@ -22,7 +22,7 @@ mock.module("../../home/feed-writer.js", () => ({
   },
 }));
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   getConversation: (id: string) => {
     conversationLookups.push(id);
     if (conversationLookupShouldThrow) {

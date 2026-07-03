@@ -13,8 +13,8 @@ import {
   getAppFileAtVersion,
   getAppHistory,
   restoreAppVersion,
-} from "../memory/app-git-service.js";
-import { createApp, getAppDirPath, updateApp } from "../memory/app-store.js";
+} from "../apps/app-git-service.js";
+import { createApp, getAppDirPath, updateApp } from "../apps/app-store.js";
 
 describe("App Git History", () => {
   beforeEach(() => {

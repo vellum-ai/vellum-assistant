@@ -4,6 +4,7 @@ import { ChevronDown } from "lucide-react";
 import type { ChatHeaderSupplements } from "@/components/layout/chat-layout-slots-store";
 import { ConversationActionsMenu } from "@/domains/chat/components/conversation-actions-menu";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { ChannelIcon } from "@/utils/channel-presentation";
 import type { Conversation } from "@/types/conversation-types";
 
 interface ChatConversationHeaderProps {
@@ -43,6 +44,12 @@ export function ChatConversationHeader({
   const isReadonly = isChannelConversation(activeConversation);
   const isPinned = activeConversation.isPinned || activeConversation.groupId === "system:pinned";
   const isArchived = activeConversation.archivedAt != null;
+
+  // Channel tag — icon + label identifying the originating external
+  // channel (Slack, Telegram, …). Slack uses its brand glyph; other
+  // channels use a neutral Lucide icon from the presentation registry.
+  const channelHeaderLabel = headerSupplements?.channelHeaderLabel ?? null;
+  const channelHeaderChannelId = headerSupplements?.channelHeaderChannelId ?? null;
 
   return (
     <ConversationActionsMenu
@@ -101,13 +108,20 @@ export function ChatConversationHeader({
           className="min-w-0"
         >
           <span className="flex min-w-0 items-center gap-1.5">
-            {headerSupplements?.slackHeaderLabel ? (
-              <img
-                src="/images/integrations/slack.svg"
-                alt=""
-                aria-hidden="true"
-                className="h-3.5 w-3.5 shrink-0"
-              />
+            {channelHeaderLabel ? (
+              channelHeaderChannelId === "slack" ? (
+                <img
+                  src="/images/integrations/slack.svg"
+                  alt=""
+                  aria-hidden="true"
+                  className="h-3.5 w-3.5 shrink-0"
+                />
+              ) : (
+                <ChannelIcon
+                  channelId={channelHeaderChannelId}
+                  className="h-3.5 w-3.5 shrink-0 text-[var(--content-tertiary)]"
+                />
+              )
             ) : null}
             <span className="min-w-0 max-w-[220px] truncate leading-6">
               {isArchived && (
@@ -117,9 +131,9 @@ export function ChatConversationHeader({
               )}
               {activeConversation.title ?? "Untitled"}
             </span>
-            {headerSupplements?.slackHeaderLabel ? (
+            {channelHeaderLabel ? (
               <span className="hidden max-w-[160px] shrink truncate leading-6 text-[var(--content-tertiary)] sm:inline">
-                ({headerSupplements.slackHeaderLabel})
+                ({channelHeaderLabel})
               </span>
             ) : null}
           </span>

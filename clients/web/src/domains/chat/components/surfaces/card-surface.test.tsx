@@ -200,4 +200,55 @@ describe("CardSurface", () => {
     expect(rendered).not.toContain("%");
     expect(rendered).toContain("Details");
   });
+
+  test("a body-less card renders its title (no loading spinner)", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={surface({
+          title: "Heads up",
+          data: { title: "Heads up" },
+          actions: [],
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    // A title-only card is a valid card (the daemon recovers misplaced content
+    // before it gets here); render the title, not a fake loading affordance.
+    expect(rendered).toContain("Heads up");
+    expect(rendered).not.toContain("animate-spin");
+  });
+
+  test("a title-only card with actions renders both title and actions", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={surface({
+          title: "Restart the server?",
+          data: { title: "Restart the server?" },
+          actions: [{ id: "yes", label: "Yes", style: "primary" }],
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(rendered).toContain("Restart the server?");
+    expect(rendered).toContain("Yes");
+  });
+
+  test("a card with body and actions renders both", () => {
+    const rendered = renderToStaticMarkup(
+      <CardSurface
+        surface={surface({
+          title: "Confirm",
+          data: { title: "Confirm", body: "Are you sure?" },
+          actions: [{ id: "ok", label: "OK", style: "primary" }],
+        })}
+        onAction={() => undefined}
+      />,
+    );
+
+    expect(rendered).toContain("Confirm");
+    expect(rendered).toContain("Are you sure?");
+    expect(rendered).toContain("OK");
+  });
 });

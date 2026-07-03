@@ -84,12 +84,24 @@ globalThis.fetch = (async (
   return originalFetch(input, init as never);
 }) as unknown as typeof fetch;
 
+// Guardian-delivery reader mock — the inbound challenge guard reads guardian
+// existence from the gateway. These tests seed no binding, so report an empty
+// list (not bound) rather than a null that would fail closed as already-bound.
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => [],
+  getGuardianDeliveryFresh: async () => [],
+  guardianForChannel: (
+    list: Array<{ channelType: string; status: string }>,
+    channelType: string,
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+}));
+
 // ---------------------------------------------------------------------------
 // Now import modules under test (after mocks are in place)
 // ---------------------------------------------------------------------------
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { updateSessionDelivery } from "../runtime/channel-verification-service.js";
 import {
   handleCancelVerificationSession,
@@ -115,11 +127,6 @@ afterAll(() => {
 function resetTables(): void {
   const db = getDb();
   db.run("DELETE FROM channel_verification_sessions");
-  try {
-    db.run("DELETE FROM channel_guardian_approval_requests");
-  } catch {
-    /* table may not exist */
-  }
   try {
     db.run("DELETE FROM channel_guardian_rate_limits");
   } catch {

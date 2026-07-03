@@ -2,20 +2,20 @@
  * Guardian binding helpers for gateway-owned verification.
  *
  * Provides lookup, conflict detection, and revocation of existing bindings.
- * Binding creation uses the existing createGuardianBinding from
- * gateway/src/auth/guardian-bootstrap.ts which already dual-writes.
+ * Binding creation uses createGuardianBinding from
+ * gateway/src/auth/guardian-bootstrap.ts (gateway-authoritative).
  *
- * All assistant DB access is via raw SQL (assistantDbQuery/assistantDbRun).
+ * Guardian lookups and revokes read and write the gateway DB, the source of
+ * truth for ACL.
  */
 
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
-import { assistantDbQuery, assistantDbRun } from "../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../db/connection.js";
-import { contactChannels as gwContactChannels } from "../db/schema.js";
-import { getLogger } from "../logger.js";
-
-const log = getLogger("verification-bindings");
+import {
+  contacts as gwContacts,
+  contactChannels as gwContactChannels,
+} from "../db/schema.js";
 
 // ---------------------------------------------------------------------------
 // Lookup
@@ -27,15 +27,23 @@ const log = getLogger("verification-bindings");
 export async function getExistingGuardianBinding(
   channel: string,
 ): Promise<{ address: string } | null> {
-  const rows = await assistantDbQuery<{ address: string }>(
-    `SELECT cc.address
-     FROM contacts c
-     JOIN contact_channels cc ON cc.contact_id = c.id
-     WHERE c.role = 'guardian' AND cc.type = ? AND cc.status = 'active'
-     LIMIT 1`,
-    [channel],
-  );
-  return rows[0] ?? null;
+  const row = getGatewayDb()
+    .select({ address: gwContactChannels.address })
+    .from(gwContacts)
+    .innerJoin(
+      gwContactChannels,
+      eq(gwContactChannels.contactId, gwContacts.id),
+    )
+    .where(
+      and(
+        eq(gwContacts.role, "guardian"),
+        eq(gwContactChannels.type, channel),
+        eq(gwContactChannels.status, "active"),
+      ),
+    )
+    .limit(1)
+    .get();
+  return row ? { address: row.address } : null;
 }
 
 /**
@@ -57,16 +65,24 @@ export async function getExistingGuardianBinding(
 export async function getMostRecentChannelGuardianTimestamp(
   channel: string,
 ): Promise<number | null> {
-  const rows = await assistantDbQuery<{ maxUpdatedAt: number | null }>(
-    `SELECT MAX(COALESCE(cc.updated_at, cc.created_at)) AS maxUpdatedAt
-     FROM contacts c
-     JOIN contact_channels cc ON cc.contact_id = c.id
-     WHERE c.role = 'guardian'
-       AND cc.type = ?
-       AND cc.status IN ('active', 'revoked')`,
-    [channel],
-  );
-  return rows[0]?.maxUpdatedAt ?? null;
+  const row = getGatewayDb()
+    .select({
+      maxUpdatedAt: sql<number | null>`MAX(COALESCE(${gwContactChannels.updatedAt}, ${gwContactChannels.createdAt}))`,
+    })
+    .from(gwContacts)
+    .innerJoin(
+      gwContactChannels,
+      eq(gwContactChannels.contactId, gwContacts.id),
+    )
+    .where(
+      and(
+        eq(gwContacts.role, "guardian"),
+        eq(gwContactChannels.type, channel),
+        inArray(gwContactChannels.status, ["active", "revoked"]),
+      ),
+    )
+    .get();
+  return row?.maxUpdatedAt ?? null;
 }
 
 /**
@@ -76,19 +92,27 @@ export async function getMostRecentChannelGuardianTimestamp(
 export async function resolveCanonicalPrincipal(
   fallback: string,
 ): Promise<string> {
-  const rows = await assistantDbQuery<{ principalId: string | null }>(
-    `SELECT c.principal_id AS principalId
-     FROM contacts c
-     JOIN contact_channels cc ON cc.contact_id = c.id
-     WHERE c.role = 'guardian' AND cc.type = 'vellum' AND cc.status = 'active'
-     LIMIT 1`,
-    [],
-  );
-  return rows[0]?.principalId ?? fallback;
+  const row = getGatewayDb()
+    .select({ principalId: gwContacts.principalId })
+    .from(gwContacts)
+    .innerJoin(
+      gwContactChannels,
+      eq(gwContactChannels.contactId, gwContacts.id),
+    )
+    .where(
+      and(
+        eq(gwContacts.role, "guardian"),
+        eq(gwContactChannels.type, "vellum"),
+        eq(gwContactChannels.status, "active"),
+      ),
+    )
+    .limit(1)
+    .get();
+  return row?.principalId ?? fallback;
 }
 
 // ---------------------------------------------------------------------------
-// Revocation (dual-write)
+// Revocation
 // ---------------------------------------------------------------------------
 
 /**
@@ -100,40 +124,31 @@ export async function revokeExistingChannelGuardian(
 ): Promise<void> {
   const now = Date.now();
 
-  const revokedRows = await assistantDbQuery<{ id: string }>(
-    `SELECT cc.id
-     FROM contacts c
-     JOIN contact_channels cc ON cc.contact_id = c.id
-     WHERE c.role = 'guardian' AND cc.type = ? AND cc.status = 'active'`,
-    [channel],
-  );
+  const revokedRows = getGatewayDb()
+    .select({ id: gwContactChannels.id, address: gwContactChannels.address })
+    .from(gwContacts)
+    .innerJoin(
+      gwContactChannels,
+      eq(gwContactChannels.contactId, gwContacts.id),
+    )
+    .where(
+      and(
+        eq(gwContacts.role, "guardian"),
+        eq(gwContactChannels.type, channel),
+        eq(gwContactChannels.status, "active"),
+      ),
+    )
+    .all();
 
   if (revokedRows.length === 0) return;
 
-  const ids = revokedRows.map((r) => r.id);
-  const placeholders = ids.map(() => "?").join(", ");
-
-  await assistantDbRun(
-    `UPDATE contact_channels
-     SET status = 'revoked', policy = 'deny', updated_at = ?
-     WHERE id IN (${placeholders})`,
-    [now, ...ids],
-  );
-
-  // Gateway DB dual-write
-  try {
-    const gwDb = getGatewayDb();
-    for (const id of ids) {
-      gwDb
-        .update(gwContactChannels)
-        .set({ status: "revoked", policy: "deny", updatedAt: now })
-        .where(eq(gwContactChannels.id, id))
-        .run();
-    }
-  } catch (gwErr) {
-    log.warn(
-      { err: gwErr },
-      "Gateway DB revoke dual-write failed (best-effort)",
-    );
+  // Gateway DB is the source of truth.
+  const gwDb = getGatewayDb();
+  for (const { id } of revokedRows) {
+    gwDb
+      .update(gwContactChannels)
+      .set({ status: "revoked", policy: "deny", updatedAt: now })
+      .where(eq(gwContactChannels.id, id))
+      .run();
   }
 }

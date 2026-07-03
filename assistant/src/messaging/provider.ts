@@ -29,6 +29,16 @@ export interface MessagingProvider {
   /** Credential service name for token-manager (e.g. 'slack'). */
   credentialService: string;
 
+  /**
+   * Scopes a connection must carry for this provider's tools to work. Set when
+   * the credential service bundles several products behind one OAuth app and
+   * this provider only works with a subset (e.g. Gmail under the shared
+   * 'google' service needs Gmail scopes, not Calendar-only). Forwarded as
+   * `requiredScopes` to {@link resolveOAuthConnection} so a narrowly-scoped
+   * connection fails with an actionable "reconnect" error instead of a 403.
+   */
+  requiredScopes?: string[];
+
   // ── Universal operations (every platform must implement) ──────────
 
   testConnection(connection?: OAuthConnection): Promise<ConnectionInfo>;

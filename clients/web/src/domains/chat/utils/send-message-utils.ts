@@ -29,9 +29,24 @@ const OPTIMISTIC_COMPLETION_SURFACE_TYPES = [
   "task_preferences",
 ];
 
+interface SupersededInteractionCleanupContext {
+  hasPendingConfirmation: boolean;
+  hasUncompletedVisibleSurface: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Pure updater functions — no React state, fully testable
 // ---------------------------------------------------------------------------
+
+export function shouldCleanupSupersededInteractions(
+  uiContext: SupersededInteractionCleanupContext | null | undefined,
+): boolean {
+  return (
+    uiContext == null ||
+    uiContext.hasPendingConfirmation ||
+    uiContext.hasUncompletedVisibleSurface
+  );
+}
 
 /**
  * Remove `pendingConfirmation` from a specific request ID's tool calls.

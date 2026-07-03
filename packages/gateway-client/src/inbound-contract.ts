@@ -13,6 +13,7 @@
 import { z } from "zod";
 
 import { AdmissionPolicySchema } from "./admission-policy-contract.js";
+import { TrustVerdictSchema } from "./trust-verdict-contract.js";
 
 // ---------------------------------------------------------------------------
 // Command intent (channel-initiated commands, e.g. Telegram /start)
@@ -68,6 +69,11 @@ export const SourceMetadataSchema = z
     slackBotMentioned: z.boolean().optional(),
     /** Slack workspace/team ID. */
     account: z.string().optional(),
+    /**
+     * Slack-specific: team ID the inbound actor belongs to. Threads to the
+     * daemon as the `recipient_team_id` for channel reply streaming.
+     */
+    actorTeamId: z.string().optional(),
 
     /**
      * Per-channel inbound admission policy attached by the gateway. The
@@ -77,7 +83,19 @@ export const SourceMetadataSchema = z
      */
     admissionPolicy: AdmissionPolicySchema.optional(),
 
+    /**
+     * Per-actor trust verdict resolved by the gateway from its ACL DB;
+     * absent until the gateway stamps it. Consumers must treat absence as
+     * "not provided", never as a decision.
+     */
+    trustVerdict: TrustVerdictSchema.optional(),
+
     // Email-specific fields
+    /**
+     * Ingress provider that delivered the email to the gateway
+     * (e.g. "mailgun", "resend", or "platform" for the Vellum relay).
+     */
+    emailProvider: z.string().optional(),
     /** Email subject line. */
     emailSubject: z.string().optional(),
     /** Email recipient address. */

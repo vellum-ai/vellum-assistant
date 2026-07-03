@@ -13,21 +13,13 @@
 import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
 import { getPlatformOrganizationId, getPlatformUserId } from "../config/env.js";
 import { getConfig } from "../config/loader.js";
-import { queryUnreportedAuthFallbackEvents } from "../memory/auth-fallback-events-store.js";
+import { queryUnreportedOnboardingEvents } from "../onboarding/onboarding-events-store.js";
 import {
   getMemoryCheckpoint,
   setMemoryCheckpoint,
-} from "../memory/checkpoints.js";
-import { queryUnreportedLifecycleEvents } from "../memory/lifecycle-events-store.js";
-import { queryUnreportedUsageEvents } from "../memory/llm-usage-store.js";
-import { queryUnreportedOnboardingEvents } from "../memory/onboarding-events-store.js";
-import { queryUnreportedSkillLoadedEvents } from "../memory/skill-loaded-events-store.js";
-import { queryUnreportedToolExecutedEvents } from "../memory/tool-executed-events-store.js";
-import { queryUnreportedTurnEvents } from "../memory/turn-events-store.js";
-import {
-  assembleBoundedTurnTrace,
-  isTurnSettled,
-} from "../memory/turn-trace-store.js";
+} from "../persistence/checkpoints.js";
+import { queryUnreportedLifecycleEvents } from "../persistence/lifecycle-events-store.js";
+import { queryUnreportedUsageEvents } from "../persistence/llm-usage-store.js";
 import { VellumPlatformClient } from "../platform/client.js";
 import {
   getCachedShareAnalytics,
@@ -35,6 +27,7 @@ import {
   getCachedShareDiagnosticsVersion,
 } from "../platform/consent-cache.js";
 import { arePlatformFeaturesEnabled } from "../platform/feature-gate.js";
+import { queryUnreportedAuthFallbackEvents } from "../security/auth-fallback-events-store.js";
 import type { UsageAttributionProfileSource } from "../usage/types.js";
 import { getDeviceId } from "../util/device-id.js";
 import { getLogger } from "../util/logger.js";
@@ -43,8 +36,13 @@ import {
   type ActivationStepName,
   buildActivationDaemonEventId,
 } from "./activation-funnel.js";
+import { queryUnreportedSkillLoadedEvents } from "./skill-loaded-events-store.js";
+import { queryUnreportedToolExecutedEvents } from "./tool-executed-events-store.js";
 import { isDiagnosticsConsentVersionEligible } from "./trace-collection-policy.js";
+import { queryUnreportedTurnEvents } from "./turn-events-store.js";
+import { assembleBoundedTurnTrace, isTurnSettled } from "./turn-trace-store.js";
 import type { TelemetryEvent, TurnTelemetryClientInfo } from "./types.js";
+import { queryUnreportedWatchdogEvents } from "./watchdog-events-store.js";
 
 const log = getLogger("usage-telemetry");
 
@@ -76,6 +74,9 @@ const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK =
   "telemetry:skill_loaded:last_reported_at";
 const CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID =
   "telemetry:skill_loaded:last_reported_id";
+const CHECKPOINT_KEY_WATCHDOG_WATERMARK = "telemetry:watchdog:last_reported_at";
+const CHECKPOINT_KEY_WATCHDOG_WATERMARK_ID =
+  "telemetry:watchdog:last_reported_id";
 // Written into the `*_id` watermark checkpoints by the opt-out flush branch.
 // Sorts lexicographically above every real row ID (all event stores generate
 // lowercase v4 UUIDs), so the compound cursor's same-millisecond arm
@@ -100,6 +101,7 @@ const WATERMARK_KEY_PAIRS: ReadonlyArray<readonly [string, string]> = [
     CHECKPOINT_KEY_SKILL_LOADED_WATERMARK,
     CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID,
   ],
+  [CHECKPOINT_KEY_WATCHDOG_WATERMARK, CHECKPOINT_KEY_WATCHDOG_WATERMARK_ID],
 ];
 const REPORT_INTERVAL_MS = 5 * 60 * 1000;
 const INITIAL_FLUSH_DELAY_MS = 30_000; // Delay first flush to let CES handshake complete
@@ -117,10 +119,73 @@ export function getUsageTelemetryReporter(): UsageTelemetryReporter | null {
   return _instance;
 }
 
-export function setUsageTelemetryReporter(
-  reporter: UsageTelemetryReporter | null,
-): void {
-  _instance = reporter;
+/**
+ * Construct and start the singleton usage telemetry reporter. No-op in dev mode
+ * (VELLUM_DEV=1) and idempotent if already started.
+ *
+ * Started even when share_analytics consent is opted out: flush() re-checks
+ * consent each cycle and, when opted out, sends nothing but advances all
+ * watermarks (including the final flush in stop()). New opted-out
+ * tool_invocations rows are already unreportable by construction — the audit
+ * listener persists NULL telemetry columns for them, which the tool_executed
+ * projection filters out — so the opted-out flushes are defense in depth there
+ * (covering rows recorded under builds that predate that write-time gate) and
+ * remain the primary guard for the always-on tables without a write-time gate
+ * (llm_usage, turn events). Not gated on DB readiness: getDb() can still work
+ * when initializeDb() failed mid-migration, in which case the audit listener
+ * keeps writing rows the opt-out branch must keep covered. The reporter is
+ * degraded-mode safe — its constructor and flush() treat DB errors as non-fatal.
+ */
+export function startUsageTelemetryReporter(): void {
+  if (process.env.VELLUM_DEV === "1") return;
+  if (_instance) return;
+  _instance = new UsageTelemetryReporter();
+  _instance.start();
+  log.info("Usage telemetry reporter started");
+}
+
+/**
+ * Stop the singleton usage telemetry reporter (final flush + timer teardown)
+ * and clear it. No-op when the reporter was never started (e.g. dev mode).
+ */
+export async function stopUsageTelemetryReporter(): Promise<void> {
+  if (!_instance) return;
+  try {
+    await _instance.stop();
+  } finally {
+    _instance = null;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Parse a stored `watchdog_events.detail` JSON text column into the object the
+ * platform expects. Returns null for a null column or an unparseable/corrupted
+ * blob (mirroring the turn `client` metadata parse: a bad blob emits null
+ * rather than failing the batch). A non-object (e.g. a bare number or string)
+ * also resolves to null, since the platform serializer treats `detail` as a
+ * JSON object bag.
+ */
+function parseWatchdogDetail(
+  raw: string | null,
+): Record<string, unknown> | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+    return null;
+  } catch {
+    log.warn(
+      { rawDetail: raw.slice(0, 200) },
+      "Telemetry watchdog: failed to parse detail; emitting null",
+    );
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -307,13 +372,23 @@ export class UsageTelemetryReporter {
         undefined;
 
       // Read skill-loaded watermark (compound cursor: createdAt + id).
-      // Brand-new table, so the standard 0 default is safe.
+      // Writes are gated on share_analytics consent, so opted-out rows
+      // cannot exist and the standard 0 default is safe.
       const skillLoadedWatermark = Number(
         getMemoryCheckpoint(CHECKPOINT_KEY_SKILL_LOADED_WATERMARK) ?? "0",
       );
       const skillLoadedWatermarkId =
         getMemoryCheckpoint(CHECKPOINT_KEY_SKILL_LOADED_WATERMARK_ID) ??
         undefined;
+
+      // Read watchdog watermark (compound cursor: createdAt + id).
+      // Writes are gated on share_analytics consent, so opted-out rows
+      // cannot exist and the standard 0 default is safe.
+      const watchdogWatermark = Number(
+        getMemoryCheckpoint(CHECKPOINT_KEY_WATCHDOG_WATERMARK) ?? "0",
+      );
+      const watchdogWatermarkId =
+        getMemoryCheckpoint(CHECKPOINT_KEY_WATCHDOG_WATERMARK_ID) ?? undefined;
 
       // Query unreported events
       const events = queryUnreportedUsageEvents(
@@ -349,6 +424,11 @@ export class UsageTelemetryReporter {
       const skillLoadedEvents = queryUnreportedSkillLoadedEvents(
         skillLoadedWatermark,
         skillLoadedWatermarkId,
+        BATCH_SIZE,
+      );
+      const watchdogEvents = queryUnreportedWatchdogEvents(
+        watchdogWatermark,
+        watchdogWatermarkId,
         BATCH_SIZE,
       );
 
@@ -418,7 +498,8 @@ export class UsageTelemetryReporter {
         onboardingEvents.length === 0 &&
         authFallbackEvents.length === 0 &&
         toolExecutedEvents.length === 0 &&
-        skillLoadedEvents.length === 0
+        skillLoadedEvents.length === 0 &&
+        watchdogEvents.length === 0
       )
         return;
 
@@ -442,6 +523,7 @@ export class UsageTelemetryReporter {
           authFallbackCount: authFallbackEvents.length,
           toolExecutedCount: toolExecutedEvents.length,
           skillLoadedCount: skillLoadedEvents.length,
+          watchdogCount: watchdogEvents.length,
         },
         "Telemetry flush: resolved auth context",
       );
@@ -674,6 +756,23 @@ export class UsageTelemetryReporter {
             assistant_version: APP_VERSION,
           }),
         ),
+        ...watchdogEvents.map(
+          (e): TelemetryEvent => ({
+            type: "watchdog",
+            daemon_event_id: e.id,
+            recorded_at: e.createdAt,
+            check_name: e.checkName,
+            value: e.value,
+            // `detail` is stored as JSON text; parse defensively so a
+            // corrupted blob never fails the batch flush. A parse failure
+            // emits null rather than dropping the event.
+            detail: parseWatchdogDetail(e.detail),
+            // `watchdog_events` has no record-time version column — same
+            // upload-time APP_VERSION stamping as the other non-llm_usage
+            // event types.
+            assistant_version: APP_VERSION,
+          }),
+        ),
       ];
 
       const organizationId = getPlatformOrganizationId() || undefined;
@@ -796,6 +895,19 @@ export class UsageTelemetryReporter {
         );
       }
 
+      // Advance watchdog watermark (compound cursor)
+      if (watchdogEvents.length > 0) {
+        const lastWatchdog = watchdogEvents[watchdogEvents.length - 1];
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_WATCHDOG_WATERMARK,
+          String(lastWatchdog.createdAt),
+        );
+        setMemoryCheckpoint(
+          CHECKPOINT_KEY_WATCHDOG_WATERMARK_ID,
+          lastWatchdog.id,
+        );
+      }
+
       // If we got a full batch of any type, there may be more — recurse.
       // Turns use the REPORTED count: when the completeness barrier truncates
       // the batch, the deferred turns must wait for a later flush (by which
@@ -808,7 +920,8 @@ export class UsageTelemetryReporter {
         onboardingEvents.length === BATCH_SIZE ||
         authFallbackEvents.length === BATCH_SIZE ||
         toolExecutedEvents.length === BATCH_SIZE ||
-        skillLoadedEvents.length === BATCH_SIZE
+        skillLoadedEvents.length === BATCH_SIZE ||
+        watchdogEvents.length === BATCH_SIZE
       ) {
         await this._doFlush(batchCount + 1);
       }

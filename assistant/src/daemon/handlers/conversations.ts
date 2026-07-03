@@ -1,15 +1,17 @@
-import { v4 as uuid } from "uuid";
-
 import { peekAcpSessionManager } from "../../acp/index.js";
-import { clearAll, getConversation } from "../../memory/conversation-crud.js";
-import { resolveConversationId } from "../../memory/conversation-key-store.js";
+import { resolveCanonicalGuardianRequest } from "../../contacts/canonical-guardian-store.js";
+import {
+  clearAll,
+  getConversation,
+} from "../../persistence/conversation-crud.js";
+import { resolveConversationId } from "../../persistence/conversation-key-store.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import { resolveCapabilities } from "../../runtime/capabilities.js";
+import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { getSubagentManager } from "../../subagent/index.js";
 import { createAbortReason } from "../../util/abort-reasons.js";
 import { UserError } from "../../util/errors.js";
-import { truncate } from "../../util/truncate.js";
-import { regenerate } from "../conversation-history.js";
+import { touchConversation } from "../conversation-evictor.js";
 import {
   buildSlashContext,
   formatCleanResult,
@@ -22,7 +24,6 @@ import { resolveSlash } from "../conversation-slash.js";
 import {
   clearAllActiveConversations,
   getOrCreateConversation,
-  touchConversation,
 } from "../conversation-store.js";
 import type { ConfirmationResponse } from "../message-protocol.js";
 import { normalizeConversationType } from "../message-protocol.js";
@@ -232,54 +233,6 @@ export async function resolveMetaSlashCommand(
   }
 }
 
-/**
- * Regenerate the last assistant response for a conversation. The caller provides
- * a `sendEvent` callback for delivering streaming events via HTTP/SSE.
- * Returns null if the conversation does not exist. Restores evicted conversations
- * from the database when needed. Throws on regeneration errors.
- */
-export async function regenerateResponse(
-  conversationId: string,
-): Promise<{ requestId: string } | null> {
-  // The caller may pass a conversation key (e.g. the macOS client's local
-  // conversation ID) instead of the daemon's internal conversation ID. Resolve
-  // to the internal ID so all downstream lookups succeed.
-  const resolvedId = resolveConversationId(conversationId);
-  if (!resolvedId) {
-    return null;
-  }
-  conversationId = resolvedId;
-  const conversation = await getOrCreateConversation(conversationId);
-  touchConversation(conversationId);
-  conversation.updateClient(broadcastMessage, false);
-  getSubagentManager().updateParentSender(conversationId, broadcastMessage);
-  const requestId = uuid();
-  conversation.traceEmitter.emit("request_received", "Regenerate requested", {
-    requestId,
-    status: "info",
-    attributes: { source: "regenerate" },
-  });
-  try {
-    await regenerate(conversation, requestId);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    log.error({ err, conversationId }, "Error regenerating message");
-    conversation.traceEmitter.emit(
-      "request_error",
-      truncate(message, 200, ""),
-      {
-        requestId,
-        status: "error",
-        attributes: {
-          errorClass: err instanceof Error ? err.constructor.name : "Error",
-          message: truncate(message, 500, ""),
-        },
-      },
-    );
-    throw err;
-  }
-  return { requestId };
-}
 // ---------------------------------------------------------------------------
 // Shared business logic (transport-agnostic)
 // ---------------------------------------------------------------------------
@@ -387,6 +340,81 @@ export function steerToMessage(
   conversation.denyAllPendingConfirmations();
 
   return { steered: true };
+}
+
+/**
+ * Supersede an open `ask_question` prompt when a new chat message is enqueued
+ * for the same conversation.
+ *
+ * A queued message while a clarification question is open means the user chose
+ * to move on rather than answer it. Steering to that message aborts the parked
+ * turn — which settles the open question via its turn-abort signal — repairs
+ * the dangling `tool_use`, and drains the message, instead of stranding it
+ * behind a prompt no one is going to answer. Only `ask_question` prompts
+ * (`kind: "question"`) trigger this; pending confirmations are handled
+ * separately by the enqueue path's auto-deny.
+ *
+ * Returns `true` when a parked question was found and a steer was issued.
+ */
+export function steerOnEnqueuedMessageIfQuestionParked(
+  conversationId: string,
+  enqueuedRequestId: string,
+): boolean {
+  const hasParkedQuestion = pendingInteractions
+    .getByConversation(conversationId)
+    .some((interaction) => interaction.kind === "question");
+  if (!hasParkedQuestion) return false;
+  steerToMessage(conversationId, enqueuedRequestId);
+  return true;
+}
+
+/**
+ * Supersede interactions left pending by an in-flight turn when a new message
+ * is enqueued for a busy conversation. Centralized so every ingress path (the
+ * HTTP send handler and the CLI signal path) gets identical handling:
+ *
+ *  1. Auto-deny pending confirmations — notify the client and sync the
+ *     canonical guardian record *before* clearing the prompter-owned
+ *     confirmations, so a later guardian reply can't match a stale "pending"
+ *     record and fail with `pending_interaction_not_found`.
+ *  2. Supersede a parked ask_question by steering to the enqueued message.
+ *
+ * Order matters: the steer aborts the turn, which denies the prompter's
+ * confirmations as a side effect, so the canonical/notification sync must run
+ * first. `removeByConversation` preserves `question` entries, so the parked
+ * question is still registered for the steer even after the confirmation sweep.
+ */
+export function supersedePendingInteractionsOnEnqueue(
+  conversationId: string,
+  enqueuedRequestId: string,
+): void {
+  const conversation = findConversation(conversationId);
+  if (!conversation) return;
+
+  if (conversation.hasAnyPendingConfirmation()) {
+    for (const interaction of pendingInteractions.getByConversation(
+      conversationId,
+    )) {
+      if (interaction.kind === "confirmation") {
+        // sendToClient (wired to the SSE hub) delivers the denial to clients.
+        conversation.emitConfirmationStateChanged({
+          conversationId,
+          requestId: interaction.requestId,
+          state: "denied" as const,
+          source: "auto_deny" as const,
+        });
+        // Sync the canonical guardian record so stale "pending" rows aren't
+        // matched by later guardian reply routing.
+        resolveCanonicalGuardianRequest(interaction.requestId, "pending", {
+          status: "denied",
+        });
+      }
+    }
+    conversation.denyAllPendingConfirmations();
+    pendingInteractions.removeByConversation(conversationId);
+  }
+
+  steerOnEnqueuedMessageIfQuestionParked(conversationId, enqueuedRequestId);
 }
 
 // ---------------------------------------------------------------------------

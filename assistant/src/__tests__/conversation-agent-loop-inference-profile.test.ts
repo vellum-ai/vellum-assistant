@@ -34,12 +34,12 @@ import { makeMockLogger } from "./helpers/mock-logger.js";
 // module mocks).
 const conversationCrudRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
   ) as Record<string, unknown>),
 };
 const conversationDiskViewRealSnapshot = {
   ...(createRequire(import.meta.url)(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
   ) as Record<string, unknown>),
 };
 
@@ -146,7 +146,9 @@ let mockConversationRow: {
   title: null,
 };
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   setConversationHistoryStrippedAt: () => {},
   updateConversationUsage: () => {},
@@ -190,7 +192,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-disk-view.js", () => ({
+mock.module("../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
   rebuildConversationDiskViewFromDbState: () => {},
 }));
@@ -207,13 +209,13 @@ mock.module("../memory/retriever.js", () => ({
   injectMemoryRecallAsUserBlock: (msgs: Message[]) => msgs,
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => null,
   listAppFiles: () => [],
   getAppsDir: () => "/tmp/apps",
 }));
 
-mock.module("../memory/app-git-service.js", () => ({
+mock.module("../apps/app-git-service.js", () => ({
   commitAppTurnChanges: () => Promise.resolve(),
 }));
 
@@ -350,7 +352,7 @@ mock.module("../memory/archive-store.js", () => ({
   }),
 }));
 
-mock.module("../memory/llm-request-log-store.js", () => ({
+mock.module("../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: () => {},
   backfillMessageIdOnLogs: () => {},
 }));
@@ -508,6 +510,7 @@ function makeCtx(
     }),
 
     buildCurrentSystemPrompt: () => "system prompt",
+    syncLoopSystemPrompt: () => {},
     modelOverride: undefined,
 
     graphMemory: {
@@ -554,11 +557,11 @@ afterAll(() => {
   // Restore real module mocks for downstream files; see the snapshot
   // block near the top of this file for why this is necessary.
   mock.module(
-    "../memory/conversation-crud.js",
+    "../persistence/conversation-crud.js",
     () => conversationCrudRealSnapshot,
   );
   mock.module(
-    "../memory/conversation-disk-view.js",
+    "../persistence/conversation-disk-view.js",
     () => conversationDiskViewRealSnapshot,
   );
 });
@@ -665,5 +668,33 @@ describe("runAgentLoopImpl — per-conversation inferenceProfile", () => {
     expect(captured[0].resolvedOverrideProfile).toBe("quality-optimized");
     expect(captured[0].resolvedMaxInputTokens).toBe(50000);
     expect(ctx.currentTurnOverrideProfile).toBeUndefined();
+  });
+});
+
+describe("runAgentLoopImpl — subagent call site default", () => {
+  test("a subagent conversation defaults to the subagentSpawn call site", async () => {
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, { isSubagent: true });
+
+    // No explicit callSite (mirrors the generic queue-drain path) — a subagent
+    // turn must still resolve as subagentSpawn, not mainAgent.
+    await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+    expect(captured.length).toBeGreaterThan(0);
+    for (const call of captured) {
+      expect(call.callSite).toBe("subagentSpawn");
+    }
+  });
+
+  test("a non-subagent conversation defaults to the mainAgent call site", async () => {
+    const captured: CapturedAgentLoopRun[] = [];
+    const ctx = makeCtx(captured, { isSubagent: false });
+
+    await runAgentLoopImpl(ctx, "hello", "msg-1", () => {});
+
+    expect(captured.length).toBeGreaterThan(0);
+    for (const call of captured) {
+      expect(call.callSite).toBe("mainAgent");
+    }
   });
 });

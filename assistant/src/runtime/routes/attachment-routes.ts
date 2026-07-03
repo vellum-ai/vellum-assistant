@@ -2,11 +2,17 @@
  * Route handlers for attachment upload, download, and deletion.
  */
 import {
+  closeSync,
   copyFileSync,
   existsSync,
   mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
   realpathSync,
   statSync,
+  unlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { join, resolve, sep } from "node:path";
 
@@ -20,12 +26,17 @@ import {
   uploadAttachment,
   uploadAttachmentFromBytes,
   uploadFileBackedAttachment,
-} from "../../memory/attachments-store.js";
+} from "../../persistence/attachments-store.js";
 import {
   AttachmentUploadError,
   getFilePathForAttachment,
   validateAttachmentUpload,
-} from "../../memory/attachments-store.js";
+} from "../../persistence/attachments-store.js";
+import {
+  isHeifImage,
+  jpegFilenameFor,
+  normalizeImageBytes,
+} from "../../util/image-conversion.js";
 import { getWorkspaceDir } from "../../util/platform.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
@@ -44,6 +55,18 @@ const MAX_UPLOAD_BODY_BYTES = 150 * 1024 * 1024;
 
 /** 100 MB — maximum file size for file-backed uploads (matches client memorySafetyLimit). */
 const MAX_FILE_BACKED_UPLOAD_BYTES = 100 * 1024 * 1024;
+
+/** Read the first `length` bytes of a file without loading the rest. */
+function readFileHead(path: string, length: number): Buffer {
+  const fd = openSync(path, "r");
+  try {
+    const head = Buffer.alloc(length);
+    const bytesRead = readSync(fd, head, 0, length, 0);
+    return head.subarray(0, bytesRead);
+  } finally {
+    closeSync(fd);
+  }
+}
 
 function resolveCanonicalPath(filePath: string): string {
   try {
@@ -118,14 +141,29 @@ export function resolveAllowedFileBackedAttachmentPath(
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 
 /**
+ * Canonical attachment metadata shape, shared by the upload and get-by-id route
+ * response schemas so the generated client type is a single source of truth
+ * (camelCase, matching the rest of the daemon API and the get-by-id response).
+ */
+export const attachmentMetadataSchema = z.object({
+  id: z.string(),
+  filename: z.string(),
+  mimeType: z.string(),
+  sizeBytes: z.number(),
+  kind: z.string(),
+});
+
+/**
  * Build the standard JSON success payload for an uploaded attachment.
  */
-function attachmentPayload(attachment: StoredAttachment) {
+function attachmentPayload(
+  attachment: StoredAttachment,
+): z.infer<typeof attachmentMetadataSchema> {
   return {
     id: attachment.id,
-    original_filename: attachment.originalFilename,
-    mime_type: attachment.mimeType,
-    size_bytes: attachment.sizeBytes,
+    filename: attachment.originalFilename,
+    mimeType: attachment.mimeType,
+    sizeBytes: attachment.sizeBytes,
     kind: attachment.kind,
   };
 }
@@ -300,6 +338,8 @@ function handleJsonUpload(
 
   if (filePath && typeof filePath === "string" && (!data || data === "")) {
     let resolvedPath = resolveAllowedFileBackedAttachmentPath(filePath);
+    let storedFilename = filename;
+    let storedMimeType = mimeType;
 
     if (!resolvedPath) {
       const canonicalSource = resolveCanonicalPath(filePath);
@@ -320,8 +360,34 @@ function handleJsonUpload(
       );
       mkdirSync(workspaceAttachmentsDir, { recursive: true });
       const destFilename = `${Date.now()}-${filename.replace(/[^a-zA-Z0-9._-]/g, "_")}`;
-      const destPath = join(workspaceAttachmentsDir, destFilename);
+      let destPath = join(workspaceAttachmentsDir, destFilename);
       copyFileSync(canonicalSource, destPath);
+      // The staged copy is daemon-owned, so HEIF/HEIC content can be stored
+      // as a JPEG master without mutating the caller's file. Allowlisted
+      // in-place paths (recordings, conversation attachments) are registered
+      // verbatim — the daemon does not own those files. The head sniff keeps
+      // non-HEIF files (e.g. large videos) from being read into memory.
+      try {
+        if (isHeifImage(readFileHead(destPath, 12))) {
+          const norm = normalizeImageBytes(mimeType, readFileSync(destPath));
+          if (
+            norm.converted &&
+            norm.bytes.length <= MAX_FILE_BACKED_UPLOAD_BYTES
+          ) {
+            const convertedPath = join(
+              workspaceAttachmentsDir,
+              jpegFilenameFor(destFilename),
+            );
+            writeFileSync(convertedPath, norm.bytes);
+            unlinkSync(destPath);
+            destPath = convertedPath;
+            storedFilename = jpegFilenameFor(filename);
+            storedMimeType = norm.mimeType;
+          }
+        }
+      } catch {
+        // Conversion is best-effort; the raw copy is registered on failure.
+      }
       resolvedPath = resolveCanonicalPath(destPath);
     }
 
@@ -330,8 +396,8 @@ function handleJsonUpload(
     }
     const sizeBytes = statSync(resolvedPath).size;
     attachment = uploadFileBackedAttachment(
-      filename,
-      mimeType,
+      storedFilename,
+      storedMimeType,
       resolvedPath,
       sizeBytes,
     );
@@ -700,12 +766,7 @@ export const ROUTES: RouteDefinition[] = [
     summary: "Get attachment metadata",
     description: "Return metadata and optional base64 data for an attachment.",
     tags: ["attachments"],
-    responseBody: z.object({
-      id: z.string(),
-      filename: z.string(),
-      mimeType: z.string(),
-      sizeBytes: z.number(),
-      kind: z.string(),
+    responseBody: attachmentMetadataSchema.extend({
       data: z.string().describe("Base64-encoded content").nullable(),
       fileBacked: z.boolean().optional(),
     }),
@@ -745,13 +806,7 @@ export const ROUTES: RouteDefinition[] = [
         required: ["file", "filename", "mimeType"],
       },
     },
-    responseBody: z.object({
-      id: z.string(),
-      original_filename: z.string(),
-      mime_type: z.string(),
-      size_bytes: z.number(),
-      kind: z.string(),
-    }),
+    responseBody: attachmentMetadataSchema,
     handler: handleUploadAttachmentRoute,
   },
   {

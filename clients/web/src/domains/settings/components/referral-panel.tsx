@@ -42,13 +42,17 @@ export function ReferralPanel() {
     });
   }, []);
 
-  const subtitle = data
-    ? `Share Vellum with friends - you'll each earn ${stripDecimals(
-        data.referrer_credit_amount,
-      )} credits when they sign up, up to ${stripDecimals(
-        data.earning_cap,
-      )} total.`
-    : "Share Vellum with friends and earn credits for every signup.";
+  const creditsGated = data?.is_eligible_for_credits === false;
+
+  const subtitle = creditsGated
+    ? "Invite friends to Vellum. You'll start earning referral credits once you've purchased credits or upgraded to Pro."
+    : data
+      ? `Share Vellum with friends - you'll each earn ${stripDecimals(
+          data.referrer_credit_amount,
+        )} credits when they sign up, up to ${stripDecimals(
+          data.earning_cap,
+        )} total.`
+      : "Share Vellum with friends and earn credits for every signup.";
 
   return (
     <Card padding="md" id={REFERRAL_PANEL_ANCHOR_ID}>
@@ -69,6 +73,14 @@ export function ReferralPanel() {
             {subtitle}
           </Typography>
         </div>
+
+        {creditsGated && (
+          <Notice tone="info">
+            You're not currently earning referral credits. Buy credits or
+            upgrade to Pro to start earning — your invite link still works in
+            the meantime.
+          </Notice>
+        )}
 
         {isLoading ? (
           <div className="flex items-center gap-2 text-body-medium-lighter text-[var(--content-tertiary)]">

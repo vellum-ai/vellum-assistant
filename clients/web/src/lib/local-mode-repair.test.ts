@@ -18,13 +18,25 @@ mock.module("@/runtime/local-mode-host", () => ({
   ...host,
   fetchGuardianTokenHost: (id: string) => fetchGuardianTokenHost(id),
   wakeLocalAssistantHost: (id: string) => wakeLocalAssistantHost(id),
+  // The post-wake reload reads back the lockfile; serve the in-store copy so the
+  // retry resolves the selected assistant rather than hitting the real host.
+  loadLockfileHost: async () =>
+    useLockfileStore.getState().lockfile ?? {
+      assistants: [],
+      activeAssistant: null,
+    },
 }));
 
 mock.module("@/lib/auth/gateway-session", () => ({
   clearGatewayToken: () => {},
   ensureGatewayToken: async () => {},
   getGatewayToken: () => "gateway-tok",
-  getLocalTokenUrl: () => "http://127.0.0.1:7830/token",
+  // Mirror the real chain (token URL derives from the assistant's gateway port)
+  // so a portless entry yields no URL until wake records one.
+  getLocalTokenUrl: (a?: LockfileAssistant) => {
+    const port = a?.resources?.gatewayPort;
+    return port == null ? undefined : `http://127.0.0.1:${port}/token`;
+  },
 }));
 
 mock.module("@/lib/self-hosted/connection", () => ({
@@ -62,6 +74,7 @@ beforeEach(() => {
 afterEach(() => {
   useLockfileStore.setState({ lockfile: null });
   localStorage.clear();
+  process.env.VITE_PLATFORM_MODE = "true";
 });
 
 describe("primeLocalGatewayConnectionWithRepair", () => {
@@ -122,5 +135,43 @@ describe("primeLocalGatewayConnectionWithRepair", () => {
     expect(err).toBeInstanceOf(GuardianTokenError);
     expect((err as InstanceType<typeof GuardianTokenError>).status).toBe(403);
     expect(wakeLocalAssistantHost).not.toHaveBeenCalled();
+  });
+
+  test("recovers a portless legacy assistant: wakes, reloads the port, then retries", async () => {
+    // The Swift→Electron import case: a legacy entry reaches the renderer with
+    // no recorded gateway port, so the first prime can't resolve a gateway.
+    process.env.VITE_PLATFORM_MODE = "";
+    const portless: LockfileAssistant = {
+      assistantId: "local-a",
+      cloud: "local",
+    } as LockfileAssistant;
+    useLockfileStore.setState({
+      lockfile: { assistants: [portless], activeAssistant: "local-a" },
+    });
+
+    // Wake establishes the daemon + gateway and records the port; model that by
+    // writing the resolved entry back to the store the post-wake reload reads.
+    wakeLocalAssistantHost = mock(async (_id: string) => {
+      useLockfileStore.setState({
+        lockfile: {
+          assistants: [
+            {
+              ...portless,
+              resources: { gatewayPort: 7830, daemonPort: 7831 },
+            },
+          ],
+          activeAssistant: "local-a",
+        },
+      });
+      return { ok: true };
+    });
+
+    await primeLocalGatewayConnectionWithRepair();
+
+    expect(wakeLocalAssistantHost).toHaveBeenCalledTimes(1);
+    expect(wakeLocalAssistantHost).toHaveBeenCalledWith("local-a");
+    // The first attempt fails at gateway resolution, before any token fetch; the
+    // guardian token is fetched only on the retry, once the port resolves.
+    expect(fetchGuardianTokenHost).toHaveBeenCalledTimes(1);
   });
 });

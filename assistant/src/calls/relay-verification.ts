@@ -1,10 +1,10 @@
 /**
- * Extracted verification logic for the ConversationRelay voice pipeline.
+ * Verification logic for the voice call setup pipeline.
  *
  * These pure-ish functions encapsulate the decision-making for guardian code
- * verification and invite code redemption without directly mutating relay
- * connection state. They return structured result objects that the caller
- * (RelayConnection) interprets to drive side-effects (TTS, session updates,
+ * verification and invite code redemption without mutating call-session
+ * state. They return structured result objects that the caller
+ * (CallSetupFlow) interprets to drive side-effects (TTS, session updates,
  * timer scheduling, etc.).
  */
 
@@ -12,11 +12,11 @@ import {
   getGuardianBinding,
   validateAndConsumeVerification,
 } from "../runtime/channel-verification-service.js";
-import { redeemVoiceInviteCode } from "../runtime/invite-service.js";
 import {
   composeVerificationVoice,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/verification-templates.js";
+import { redeemVoiceInviteViaGateway } from "./gateway-invite-reader.js";
 import type { CallEventType } from "./types.js";
 
 // ── parseDigitsFromSpeech ──────────────────────────────────────────────
@@ -112,9 +112,9 @@ type VerificationCallResult =
  * so the caller can apply side-effects (state mutations, TTS, session
  * updates) without this function needing access to the relay connection.
  */
-export function attemptVerificationCode(
+export async function attemptVerificationCode(
   params: VerificationCallParams,
-): VerificationCallResult {
+): Promise<VerificationCallResult> {
   const {
     verificationAssistantId,
     verificationFromNumber,
@@ -142,7 +142,7 @@ export function attemptVerificationCode(
     let canonicalPrincipal: string | undefined;
 
     if (result.verificationType === "guardian") {
-      const existingBinding = getGuardianBinding(
+      const existingBinding = await getGuardianBinding(
         verificationAssistantId,
         "phone",
       );
@@ -155,7 +155,7 @@ export function attemptVerificationCode(
         };
       } else {
         // Resolve canonical principal from the vellum channel binding
-        const vellumBinding = getGuardianBinding(
+        const vellumBinding = await getGuardianBinding(
           verificationAssistantId,
           "vellum",
         );
@@ -221,10 +221,10 @@ export function attemptVerificationCode(
 // ── Invite code redemption ─────────────────────────────────────────────
 
 interface InviteRedemptionParams {
-  inviteRedemptionAssistantId: string;
   inviteRedemptionFromNumber: string;
   enteredCode: string;
-  inviteRedemptionGuardianName: string | null;
+  /** Resolved guardian label used in the failure TTS message. */
+  guardianLabel: string;
 }
 
 type InviteRedemptionResult =
@@ -232,7 +232,7 @@ type InviteRedemptionResult =
       outcome: "success";
       memberId: string;
       type: "redeemed" | "already_member";
-      inviteId?: string;
+      inviteId: string;
     }
   | {
       outcome: "failure";
@@ -240,39 +240,32 @@ type InviteRedemptionResult =
     };
 
 /**
- * Validate an entered invite code against active voice invites for the
- * caller. Returns a structured result so the caller can handle state
- * mutations and session updates.
+ * Redeem an entered invite code for the caller at the gateway — the single
+ * lifecycle authority for voice invites. Fails CLOSED: any gateway failure is
+ * the generic failure outcome with no local fallback. Returns a structured
+ * result so the caller can handle state mutations and session updates.
  */
 export async function attemptInviteCodeRedemption(
   params: InviteRedemptionParams,
 ): Promise<InviteRedemptionResult> {
-  const {
-    inviteRedemptionAssistantId,
+  const { inviteRedemptionFromNumber, enteredCode, guardianLabel } = params;
+
+  const result = await redeemVoiceInviteViaGateway(
     inviteRedemptionFromNumber,
     enteredCode,
-    inviteRedemptionGuardianName,
-  } = params;
-
-  const result = await redeemVoiceInviteCode({
-    assistantId: inviteRedemptionAssistantId,
-    callerExternalUserId: inviteRedemptionFromNumber,
-    sourceChannel: "phone",
-    code: enteredCode,
-  });
+  );
 
   if (result.ok) {
     return {
       outcome: "success",
-      memberId: result.memberId,
-      type: result.type,
-      ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
+      memberId: result.outcome.contactId,
+      type: result.outcome.result,
+      inviteId: result.outcome.inviteId,
     };
   }
 
-  const displayGuardian = inviteRedemptionGuardianName ?? "your contact";
   return {
     outcome: "failure",
-    ttsMessage: `Sorry, the code you provided is incorrect or has since expired. Please ask ${displayGuardian} for a new code. Goodbye.`,
+    ttsMessage: `Sorry, the code you provided is incorrect or has since expired. Please ask ${guardianLabel} for a new code. Goodbye.`,
   };
 }

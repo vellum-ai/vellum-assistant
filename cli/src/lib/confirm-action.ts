@@ -18,6 +18,9 @@ export function canPromptForConfirmation(): boolean {
  * Show `prompt` and resolve true on Enter, false on Esc/q/Ctrl-C. Restores the
  * prior stdin raw/paused state on exit. Caller must gate on
  * {@link canPromptForConfirmation} first.
+ *
+ * `unref()`s stdin on cleanup so the resumed handle doesn't keep the process
+ * alive after the prompt resolves.
  */
 export async function confirmAction(prompt: string): Promise<boolean> {
   const stdin = process.stdin;
@@ -36,6 +39,7 @@ export async function confirmAction(prompt: string): Promise<boolean> {
       if (wasPaused) {
         stdin.pause();
       }
+      stdin.unref?.();
       stdout.write("\n");
     };
 

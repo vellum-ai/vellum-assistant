@@ -13,13 +13,14 @@
  * so a rejected image cannot resurface and re-reject on every later turn.
  */
 
+import type { ContentBlock, Message } from "@vellumai/plugin-api";
+
 import { optimizeImageForTransport } from "../../../agent/image-optimize.js";
 import { parseImageDimensions } from "../../../context/image-dimensions.js";
 import {
   getMessages,
   updateMessageContent,
-} from "../../../memory/conversation-crud.js";
-import type { ContentBlock, Message } from "../../../providers/types.js";
+} from "../../../persistence/conversation-crud.js";
 import { getLogger } from "../../../util/logger.js";
 
 const log = getLogger("image-recovery");
@@ -195,7 +196,9 @@ export function recoverOversizedImages(
             {
               ...b,
               contentBlocks: b.contentBlocks.map((cb) =>
-                cb.type === "image" ? (oversizedImageReplacement(cb) ?? cb) : cb,
+                cb.type === "image"
+                  ? (oversizedImageReplacement(cb) ?? cb)
+                  : cb,
               ),
             },
           ];

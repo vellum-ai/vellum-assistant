@@ -17,9 +17,9 @@ import {
   createBookmark,
   deleteBookmarkByMessageId,
   listBookmarks,
-} from "../../memory/bookmark-crud.js";
-import { getMessageById } from "../../memory/conversation-crud.js";
-import { getDb } from "../../memory/db-connection.js";
+} from "../../persistence/bookmark-crud.js";
+import { getMessageById } from "../../persistence/conversation-crud.js";
+import { getDb } from "../../persistence/db-connection.js";
 import { getLogger } from "../../util/logger.js";
 import { buildAssistantEvent } from "../assistant-event.js";
 import { assistantEventHub } from "../assistant-event-hub.js";

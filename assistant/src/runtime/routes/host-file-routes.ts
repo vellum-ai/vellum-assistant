@@ -26,7 +26,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // POST /v1/host-file-result
 // ---------------------------------------------------------------------------
 
-function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
+async function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
   if (!body || typeof body !== "object") {
     throw new BadRequestError("Request body is required");
   }
@@ -76,9 +76,10 @@ function handleHostFileResult({ body, headers }: RouteHandlerArgs) {
     // match the actor that opened the target client's SSE stream. This blocks
     // cross-user submissions even if a different user somehow obtains the
     // target client id.
-    const submittingActorPrincipalId = resolveActorPrincipalIdForLocalGuardian(
-      headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
-    );
+    const submittingActorPrincipalId =
+      await resolveActorPrincipalIdForLocalGuardian(
+        headerMap["x-vellum-actor-principal-id"]?.trim() || undefined,
+      );
     enforceSameActorOrThrow({
       sourceActorPrincipalId: submittingActorPrincipalId,
       targetActorPrincipalId: peeked.targetActorPrincipalId,

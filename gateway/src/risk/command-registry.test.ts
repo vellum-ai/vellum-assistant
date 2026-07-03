@@ -613,6 +613,8 @@ describe("command-registry", () => {
       expect(getAssistantPath("plugins install").baseRisk).toBe("high");
       expect(getAssistantPath("plugins upgrade").baseRisk).toBe("high");
       expect(getAssistantPath("plugins uninstall").baseRisk).toBe("medium");
+      expect(getAssistantPath("plugins enable").baseRisk).toBe("medium");
+      expect(getAssistantPath("plugins disable").baseRisk).toBe("medium");
     });
 
     test("assistant schedules update escalates to high for script payloads", () => {
@@ -626,6 +628,23 @@ describe("command-registry", () => {
       expect(scriptRule!.risk).toBe("high");
 
       const modeRule = updateSpec.argRules!.find(
+        (r) => r.flags?.includes("--mode") && r.valuePattern === "^script$",
+      );
+      expect(modeRule).toBeDefined();
+      expect(modeRule!.risk).toBe("high");
+    });
+
+    test("assistant schedules create escalates to high for script payloads", () => {
+      const createSpec = getAssistantPath("schedules create");
+      expect(createSpec.argRules).toBeDefined();
+
+      const scriptRule = createSpec.argRules!.find((r) =>
+        r.flags?.includes("--script"),
+      );
+      expect(scriptRule).toBeDefined();
+      expect(scriptRule!.risk).toBe("high");
+
+      const modeRule = createSpec.argRules!.find(
         (r) => r.flags?.includes("--mode") && r.valuePattern === "^script$",
       );
       expect(modeRule).toBeDefined();

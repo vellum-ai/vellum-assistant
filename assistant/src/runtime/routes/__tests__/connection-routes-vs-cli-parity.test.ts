@@ -26,9 +26,9 @@ mock.module("../../../util/logger.js", () => ({
 
 // ── Real imports ──────────────────────────────────────────────────────────────
 
-import { getDb } from "../../../memory/db-connection.js";
-import { initializeDb } from "../../../memory/db-init.js";
-import { providerConnections } from "../../../memory/schema/inference.js";
+import { getDb } from "../../../persistence/db-connection.js";
+import { initializeDb } from "../../../persistence/db-init.js";
+import { providerConnections } from "../../../persistence/schema/inference.js";
 import {
   createConnection,
   getConnection,

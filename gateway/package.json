@@ -1,6 +1,6 @@
 {
   "name": "@vellumai/vellum-gateway",
-  "version": "0.10.0",
+  "version": "0.10.5",
   "license": "MIT",
   "type": "module",
   "exports": {
@@ -26,6 +26,7 @@
     "postinstall": "cd .. && (git config core.hooksPath || git config core.hooksPath .githooks 2>/dev/null || true) && ([ -f meta/feature-flags/sync-bundled-copies.ts ] && bun run meta/feature-flags/sync-bundled-copies.ts 2>/dev/null || true)"
   },
   "dependencies": {
+    "@slack/types": "2.21.1",
     "@vellumai/assistant-client": "file:../packages/assistant-client",
     "@vellumai/ces-client": "file:../packages/ces-client",
     "@vellumai/gateway-client": "file:../packages/gateway-client",

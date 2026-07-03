@@ -26,7 +26,6 @@ mock.module("../daemon/handlers/conversations.js", () => ({
   clearAllConversations: async () => 0,
   switchConversation: async () => null,
   undoLastMessage: async () => null,
-  regenerateResponse: async () => null,
 }));
 
 import type { Database } from "bun:sqlite";
@@ -34,13 +33,13 @@ import type { Database } from "bun:sqlite";
 import {
   createConversation,
   getConversation,
-} from "../memory/conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import {
   getDb,
   getLogsSqlite,
   getMemorySqlite,
-} from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { createSchedule, getSchedule } from "../schedule/schedule-store.js";
 
@@ -69,8 +68,8 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
     getRawDb().run("DELETE FROM conversations");
   });
 
-  test("deleting a conversation with a scheduleJobId removes the schedule", () => {
-    const schedule = createSchedule({
+  test("deleting a conversation with a scheduleJobId removes the schedule", async () => {
+    const schedule = await createSchedule({
       name: "Daily standup",
       expression: "0 9 * * 1-5",
       message: "Time for standup!",
@@ -83,7 +82,7 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
 
     expect(getSchedule(schedule.id)).not.toBeNull();
 
-    deleteRoute.handler({
+    await deleteRoute.handler({
       pathParams: { id: conv.id },
       body: {},
       headers: {},
@@ -93,8 +92,8 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
     expect(getConversation(conv.id)).toBeNull();
   });
 
-  test("deleting a conversation without a scheduleJobId does not affect schedules", () => {
-    const schedule = createSchedule({
+  test("deleting a conversation without a scheduleJobId does not affect schedules", async () => {
+    const schedule = await createSchedule({
       name: "Unrelated schedule",
       expression: "0 12 * * *",
       message: "Noon check",
@@ -102,7 +101,7 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
 
     const conv = createConversation("no-schedule-conv");
 
-    deleteRoute.handler({
+    await deleteRoute.handler({
       pathParams: { id: conv.id },
       body: {},
       headers: {},
@@ -112,8 +111,8 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
     expect(getConversation(conv.id)).toBeNull();
   });
 
-  test("deleting a conversation with a schedule also removes its cron_runs", () => {
-    const schedule = createSchedule({
+  test("deleting a conversation with a schedule also removes its cron_runs", async () => {
+    const schedule = await createSchedule({
       name: "Recurring job",
       expression: "0 9 * * *",
       message: "Daily task",
@@ -137,7 +136,7 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
       .get();
     expect(runBefore).not.toBeNull();
 
-    deleteRoute.handler({
+    await deleteRoute.handler({
       pathParams: { id: conv.id },
       body: {},
       headers: {},
@@ -150,8 +149,8 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
     expect(runAfter).toBeNull();
   });
 
-  test("deleting one of multiple conversations sharing a schedule preserves the schedule", () => {
-    const schedule = createSchedule({
+  test("deleting one of multiple conversations sharing a schedule preserves the schedule", async () => {
+    const schedule = await createSchedule({
       name: "Recurring daily",
       expression: "0 9 * * *",
       message: "Daily task",
@@ -166,7 +165,7 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
       scheduleJobId: schedule.id,
     });
 
-    deleteRoute.handler({
+    await deleteRoute.handler({
       pathParams: { id: conv1.id },
       body: {},
       headers: {},
@@ -175,13 +174,13 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
     expect(getSchedule(schedule.id)).not.toBeNull();
   });
 
-  test("deleting one scheduled conversation does not affect other schedules", () => {
-    const scheduleA = createSchedule({
+  test("deleting one scheduled conversation does not affect other schedules", async () => {
+    const scheduleA = await createSchedule({
       name: "Schedule A",
       expression: "0 9 * * *",
       message: "Task A",
     });
-    const scheduleB = createSchedule({
+    const scheduleB = await createSchedule({
       name: "Schedule B",
       expression: "0 17 * * *",
       message: "Task B",
@@ -196,7 +195,7 @@ describe("DELETE /conversations/:id — schedule cleanup", () => {
       scheduleJobId: scheduleB.id,
     });
 
-    deleteRoute.handler({
+    await deleteRoute.handler({
       pathParams: { id: convA.id },
       body: {},
       headers: {},
@@ -222,8 +221,8 @@ describe("POST /conversations/:id/wipe — schedule cleanup", () => {
     getRawDb().run("DELETE FROM conversations");
   });
 
-  test("wiping a conversation with a scheduleJobId removes the schedule", () => {
-    const schedule = createSchedule({
+  test("wiping a conversation with a scheduleJobId removes the schedule", async () => {
+    const schedule = await createSchedule({
       name: "Wipe-test schedule",
       expression: "0 9 * * 1-5",
       message: "Time for standup!",
@@ -236,7 +235,7 @@ describe("POST /conversations/:id/wipe — schedule cleanup", () => {
 
     expect(getSchedule(schedule.id)).not.toBeNull();
 
-    wipeRoute.handler({
+    await wipeRoute.handler({
       pathParams: { id: conv.id },
       body: {},
       headers: {},
@@ -245,8 +244,8 @@ describe("POST /conversations/:id/wipe — schedule cleanup", () => {
     expect(getSchedule(schedule.id)).toBeNull();
   });
 
-  test("wiping a conversation without a scheduleJobId does not affect schedules", () => {
-    const schedule = createSchedule({
+  test("wiping a conversation without a scheduleJobId does not affect schedules", async () => {
+    const schedule = await createSchedule({
       name: "Unrelated schedule",
       expression: "0 12 * * *",
       message: "Noon check",
@@ -254,7 +253,7 @@ describe("POST /conversations/:id/wipe — schedule cleanup", () => {
 
     const conv = createConversation("no-schedule-wipe");
 
-    wipeRoute.handler({
+    await wipeRoute.handler({
       pathParams: { id: conv.id },
       body: {},
       headers: {},

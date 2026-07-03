@@ -4,6 +4,7 @@ import type { CompactionCircuitClosedEvent } from "../../api/events/compaction-c
 import type { CompactionCircuitOpenEvent } from "../../api/events/compaction-circuit-open.js";
 import type { ConversationErrorEvent } from "../../api/events/conversation-error.js";
 import type { ConversationListInvalidatedEvent } from "../../api/events/conversation-list-invalidated.js";
+import type { ConversationNoticeEvent } from "../../api/events/conversation-notice.js";
 import type { ConversationTitleUpdatedEvent } from "../../api/events/conversation-title-updated.js";
 import type { GenerationCancelledEvent } from "../../api/events/generation-cancelled.js";
 import type { GenerationHandoffEvent } from "../../api/events/generation-handoff.js";
@@ -40,6 +41,16 @@ interface BaseTransportMetadata {
   chatType?: string;
   /** IANA timezone reported by the active client for the current turn. */
   clientTimezone?: string;
+  /**
+   * The client's operating-system surface ("web" | "ios" | "macos"),
+   * reported independently of {@link interfaceId}. The web bundle ships to a
+   * browser, the Capacitor iOS shell, and the Electron macOS app, all on the
+   * same `"web"` transport interface — `clientOs` is what tells the assistant
+   * which OS it is actually talking to (rendered as the `client_os:` line in
+   * the per-turn context) WITHOUT perturbing transport/host-proxy capability
+   * inference, which keys off `interfaceId`.
+   */
+  clientOs?: string;
 }
 
 /**
@@ -543,6 +554,7 @@ export type _ConversationsServerMessages =
   | CompactionCircuitOpenEvent
   | CompactionCircuitClosedEvent
   | ConversationErrorEvent
+  | ConversationNoticeEvent
   | ConversationInfo
   | ConversationTitleUpdatedEvent
   | ConversationListResponse

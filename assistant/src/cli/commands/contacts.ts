@@ -8,13 +8,16 @@ import { shouldOutputJson, writeOutput } from "../output.js";
 // IPC response shapes
 // ---------------------------------------------------------------------------
 
+// ACL fields (role, status, policy) are gateway-owned and not hydrated by the
+// daemon-native filtered reads (`--query`/`--channel-address`/`--channel-type`),
+// so they are optional here. The unfiltered default read carries them.
 interface ContactChannel {
   id: string;
   contactId: string;
   type: string;
   address: string;
-  status: string;
-  policy: string;
+  status?: string;
+  policy?: string;
   isPrimary?: boolean;
   revokedReason?: string | null;
   blockedReason?: string | null;
@@ -23,13 +26,13 @@ interface ContactChannel {
 interface ContactWithChannels {
   id: string;
   displayName: string;
-  role: string;
+  role?: string;
   contactType: string;
   notes?: string;
   principalId?: string;
   createdAt: string | number;
   updatedAt: string | number;
-  interactionCount: number;
+  interactionCount: number | null;
   channels: ContactChannel[];
 }
 
@@ -56,7 +59,7 @@ function formatContactTable(contacts: ContactWithChannels[]): string {
   const rows = contacts.map((c) => [
     c.id,
     c.displayName,
-    `${c.role}/${c.contactType}`,
+    `${c.role ?? "—"}/${c.contactType}`,
     String(c.channels.length),
   ]);
 
@@ -81,8 +84,8 @@ function formatChannelTable(channels: ContactChannel[]): string {
   const rows = channels.map((ch) => {
     const flags = [
       ch.isPrimary ? "primary" : null,
-      ch.status !== "active" ? ch.status : null,
-      ch.policy !== "allow" ? ch.policy : null,
+      ch.status && ch.status !== "active" ? ch.status : null,
+      ch.policy && ch.policy !== "allow" ? ch.policy : null,
     ]
       .filter(Boolean)
       .join(", ");
@@ -124,13 +127,13 @@ function formatContactDetail(
   const lines: string[] = [];
   lines.push(`ID:           ${c.id}`);
   lines.push(`Display Name: ${c.displayName}`);
-  lines.push(`Role:         ${c.role}`);
+  if (c.role) lines.push(`Role:         ${c.role}`);
   lines.push(`Type:         ${c.contactType}`);
   if (c.notes) lines.push(`Notes:        ${c.notes}`);
   if (c.principalId) lines.push(`Principal:    ${c.principalId}`);
   lines.push(`Created:      ${new Date(c.createdAt).toISOString()}`);
   lines.push(`Updated:      ${new Date(c.updatedAt).toISOString()}`);
-  lines.push(`Interactions: ${c.interactionCount}`);
+  lines.push(`Interactions: ${c.interactionCount ?? 0}`);
   if (c.channels.length > 0) {
     lines.push("");
     lines.push("Channels:");
@@ -615,20 +618,8 @@ Examples:
         .option("--max-uses <n>", "Max redemptions")
         .option("--expires-in-ms <ms>", "Expiry duration in milliseconds")
         .option(
-          "--contact-name <name>",
-          "Contact name for personalizing instructions",
-        )
-        .option(
           "--expected-external-user-id <id>",
           "E.164 phone number (required for voice invites)",
-        )
-        .option(
-          "--friend-name <name>",
-          "Friend name (required for voice invites)",
-        )
-        .option(
-          "--guardian-name <name>",
-          "Guardian name (required for voice invites)",
         )
         .requiredOption(
           "--contact-id <id>",
@@ -640,20 +631,20 @@ Examples:
 Creates a new invite token for the specified source channel. The --source-channel
 flag is required and must be one of: telegram, phone, email, whatsapp.
 
+The invitee's display name is read from the bound contact (--contact-id);
+the guardian label is resolved at runtime. There are no free-text name flags.
+
 Optional fields:
   --note                        Free-text note attached to the invite
   --max-uses                    Maximum number of times the invite can be redeemed
   --expires-in-ms               Expiry duration in milliseconds from creation
-  --contact-name                Name used to personalize invite instructions
 
-Voice invites require three additional fields:
+Voice invites also require:
   --expected-external-user-id   E.164 phone number of the expected caller (e.g. +15551234567)
-  --friend-name                 Name the contact uses for the assistant's owner
-  --guardian-name                Name of the guardian associated with this invite
 
 Examples:
-  $ assistant contacts invites create --source-channel telegram --note "For Alice" --max-uses 1
-  $ assistant contacts invites create --source-channel phone --expected-external-user-id "+15551234567" --friend-name "Alice" --guardian-name "Bob" --contact-name "Alice Smith"`,
+  $ assistant contacts invites create --source-channel telegram --contact-id <id> --note "For Alice" --max-uses 1
+  $ assistant contacts invites create --source-channel phone --contact-id <id> --expected-external-user-id "+15551234567"`,
         )
         .action(
           async (
@@ -662,10 +653,7 @@ Examples:
               note?: string;
               maxUses?: string;
               expiresInMs?: string;
-              contactName?: string;
               expectedExternalUserId?: string;
-              friendName?: string;
-              guardianName?: string;
               contactId: string;
             },
             cmd: Command,
@@ -704,10 +692,7 @@ Examples:
                 note: opts.note,
                 maxUses,
                 expiresInMs,
-                contactName: opts.contactName,
                 expectedExternalUserId: opts.expectedExternalUserId,
-                friendName: opts.friendName,
-                guardianName: opts.guardianName,
                 contactId: opts.contactId,
               },
             });

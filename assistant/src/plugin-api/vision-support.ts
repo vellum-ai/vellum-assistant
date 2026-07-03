@@ -3,10 +3,17 @@
  *
  * A plugin that gates image processing on vision capability (e.g. an
  * image-to-text fallback for text-only models) calls {@link doesSupportVision}
- * instead of hardcoding model names. The function resolves the effective
- * (provider, model) for a profile — merging with `llm.default` to fill gaps,
- * inferring the provider for model-only profiles via the catalog — and then
- * looks up `supportsVision` in the model catalog.
+ * instead of hardcoding model names. One entry point serves both shapes a
+ * caller might hold:
+ * - a concrete model id (e.g. the provider-reported model that just ran), and
+ * - a profile — either a {@link ModelProfileInfo} or a bare profile key —
+ *   resolved through `llm.profiles` to an effective `(provider, model)`.
+ *
+ * A bare string is tried as a model id first and then as a profile key, so the
+ * two callers share one function. Resolution returns `false` when nothing
+ * resolves (rather than failing open): a consumer gating an image→text
+ * fallback wants an unknown model treated as "can't show images" — caption it —
+ * over silently shipping a raw image to a provider that may reject it.
  */
 
 import { getConfig } from "../config/loader.js";
@@ -17,59 +24,90 @@ import {
 import type { ModelProfileInfo } from "./types.js";
 
 /**
- * Whether a profile's resolved model can process image input.
+ * Whether the given model or profile can process image input.
  *
- * Resolution mirrors the host's call-site resolver:
- * - The profile's `(provider, model)` fields are merged over `llm.default` so
- *   a profile that only sets `model` (or only `provider`) inherits the other
- *   from the workspace default.
- * - When `provider` is still missing but `model` is a known catalog model,
- *   the provider is inferred via `getCatalogProviderForModel` (same logic as
- *   the resolver's `withImpliedProviderForKnownModel`).
- * - For a mix profile, returns `true` if any constituent arm supports vision
- *   (the mix can route to it) and `false` only if every arm is text-only.
- * - Unknown `(provider, model)` pairs default to `true` (fail-open), matching
- *   the config GET route's `enrichProfilesWithVisionFlag`.
+ * `modelOrProfile` may be a concrete model id, a profile key, or a
+ * {@link ModelProfileInfo}. A bare string is resolved as a model id first and,
+ * failing that, as a profile key. Returns `false` when nothing resolves.
  */
-export function doesSupportVision(profile: ModelProfileInfo): boolean {
-  const { llm } = getConfig();
-  const entry = llm.profiles[profile.key];
-  if (entry == null) return true;
+export function doesSupportVision(
+  modelOrProfile: ModelProfileInfo | string,
+): boolean {
+  if (typeof modelOrProfile === "string") {
+    // Concrete model id first, then fall back to treating it as a profile key.
+    return (
+      modelVision(modelOrProfile) ?? profileVision(modelOrProfile) ?? false
+    );
+  }
+  return profileVision(modelOrProfile.key) ?? false;
+}
 
-  // Mix: fail-open if any arm supports vision.
+/**
+ * Catalog vision flag for a concrete model id, or `undefined` when the catalog
+ * doesn't know the model. The same model id carries the same capability under
+ * every provider that offers it, so the first catalog match wins.
+ */
+function modelVision(model: string): boolean | undefined {
+  for (const provider of PROVIDER_CATALOG) {
+    const catalogModel = provider.models.find((m) => m.id === model);
+    if (catalogModel != null) return catalogModel.supportsVision ?? false;
+  }
+  return undefined;
+}
+
+/**
+ * Resolve a profile key through `llm.profiles` to its vision capability, or
+ * `undefined` when the key is unknown or resolves to a model the catalog
+ * doesn't know. A mix profile resolves to `true` if any arm supports vision
+ * (the mix can route to it) and `false` only once every arm is a known
+ * text-only model.
+ */
+function profileVision(profileKey: string): boolean | undefined {
+  const { llm } = getConfig();
+  const entry = llm.profiles[profileKey];
+  if (entry == null) return undefined;
+
   if (entry.mix != null) {
-    return entry.mix.some((arm) => {
+    let sawUnknown = false;
+    for (const arm of entry.mix) {
       const armEntry = llm.profiles[arm.profile];
-      if (armEntry == null) return true;
-      return resolveEntrySupportsVision(armEntry, llm);
-    });
+      const armVision =
+        armEntry == null ? undefined : resolveEntryVision(armEntry, llm);
+      if (armVision === true) return true;
+      if (armVision == null) sawUnknown = true;
+    }
+    return sawUnknown ? undefined : false;
   }
 
-  return resolveEntrySupportsVision(entry, llm);
+  return resolveEntryVision(entry, llm);
 }
 
 /**
  * Resolve whether a concrete (non-mix) profile entry supports vision by
- * merging its fields over `llm.default` and inferring the provider when
- * only the model is set.
+ * merging its fields over `llm.default` and inferring the provider when only
+ * the model is set. Returns `undefined` when the effective `(provider, model)`
+ * can't be determined or isn't in the catalog.
  */
-function resolveEntrySupportsVision(
+function resolveEntryVision(
   entry: { provider?: string; model?: string },
   llm: { default?: { provider?: string; model?: string } },
-): boolean {
+): boolean | undefined {
   const provider = entry.provider ?? llm.default?.provider;
   const model = entry.model ?? llm.default?.model;
 
   // Infer provider from model when missing (mirrors the resolver's
   // withImpliedProviderForKnownModel).
   const effectiveProvider =
-    provider ?? (typeof model === "string" ? getCatalogProviderForModel(model) : undefined);
+    provider ??
+    (typeof model === "string" ? getCatalogProviderForModel(model) : undefined);
 
   if (typeof effectiveProvider !== "string" || typeof model !== "string") {
-    return true; // fail-open
+    return undefined;
   }
 
-  const catalogProvider = PROVIDER_CATALOG.find((p) => p.id === effectiveProvider);
+  const catalogProvider = PROVIDER_CATALOG.find(
+    (p) => p.id === effectiveProvider,
+  );
   const catalogModel = catalogProvider?.models.find((m) => m.id === model);
-  return catalogModel?.supportsVision ?? true;
+  return catalogModel?.supportsVision;
 }

@@ -1,4 +1,4 @@
-import { recordUsageEvent } from "../memory/llm-usage-store.js";
+import { recordUsageEvent } from "../persistence/llm-usage-store.js";
 import { resolveUsageAttribution } from "../usage/attribution.js";
 import {
   buildPricingUsageFromResponse,
@@ -18,6 +18,9 @@ const log = getLogger("provider-usage-tracking");
 export class UsageTrackingProvider implements Provider {
   public readonly name: string;
   public readonly tokenEstimationProvider?: string;
+  // Forward native web-search capability so it survives the wrapper chain
+  // (callers like the advisor consult gate on it). Fixed at construction.
+  public readonly supportsNativeWebSearch?: boolean;
   // Forward the optional token-counting endpoint so the capability survives
   // the wrapper chain. Bound straight to the inner provider — count_tokens is
   // not billed, so there's no usage to track.
@@ -26,9 +29,16 @@ export class UsageTrackingProvider implements Provider {
   constructor(private readonly inner: Provider) {
     this.name = inner.name;
     this.tokenEstimationProvider = inner.tokenEstimationProvider;
+    this.supportsNativeWebSearch = inner.supportsNativeWebSearch;
     if (inner.countInputTokens) {
       this.countInputTokens = inner.countInputTokens.bind(inner);
     }
+  }
+
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    return this.inner.supportsNativeWebSearchFor
+      ? this.inner.supportsNativeWebSearchFor(options)
+      : this.inner.supportsNativeWebSearch === true;
   }
 
   async sendMessage(

@@ -8,6 +8,7 @@ import {
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
   selectLatestHistorySession,
+  serializeSessionToText,
 } from "@/domains/settings/components/panels/doctor-history";
 import type { ChatEntry } from "@/domains/settings/components/panels/doctor-history";
 
@@ -361,6 +362,189 @@ describe("hasPendingBackup", () => {
 
   test("returns false for empty entries", () => {
     expect(hasPendingBackup([])).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// serializeSessionToText
+// ---------------------------------------------------------------------------
+
+describe("serializeSessionToText", () => {
+  test("returns empty string for empty entries", () => {
+    // GIVEN an empty entries array
+    const entries: ChatEntry[] = [];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN the result is empty
+    expect(result).toBe("");
+  });
+
+  test("serializes user and assistant messages with role prefixes", () => {
+    // GIVEN user and assistant entries
+    const entries: ChatEntry[] = [
+      { id: "1", kind: "user", content: "help me", timestamp: 0 },
+      { id: "2", kind: "assistant", content: "sure thing", timestamp: 0 },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN each entry has the correct prefix, separated by double newlines
+    expect(result).toBe("User: help me\n\nDoctor: sure thing");
+  });
+
+  test("serializes tool_call with input and output", () => {
+    // GIVEN a tool_call entry with input and result
+    const entries: ChatEntry[] = [
+      {
+        id: "1",
+        kind: "tool_call",
+        content: "search",
+        timestamp: 0,
+        meta: {
+          toolName: "search",
+          input: { q: "hello" },
+          toolCallId: "tc-1",
+          status: "completed",
+          result: "found it",
+          isError: false,
+        },
+      },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN it includes tool name, input, and output
+    expect(result).toContain("Tool Call: search");
+    expect(result).toContain("Input:");
+    expect(result).toContain('"q": "hello"');
+    expect(result).toContain("Output: found it");
+  });
+
+  test("serializes tool_call error result with Error label", () => {
+    // GIVEN a tool_call entry with an error result
+    const entries: ChatEntry[] = [
+      {
+        id: "1",
+        kind: "tool_call",
+        content: "rm",
+        timestamp: 0,
+        meta: {
+          toolName: "rm",
+          input: {},
+          toolCallId: "tc-1",
+          status: "error",
+          result: "permission denied",
+          isError: true,
+        },
+      },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN the result is labeled as Error
+    expect(result).toContain("Error: permission denied");
+  });
+
+  test("serializes approval with description and input", () => {
+    // GIVEN an approval entry with description and input
+    const entries: ChatEntry[] = [
+      {
+        id: "1",
+        kind: "approval",
+        content: "delete_thing",
+        timestamp: 0,
+        meta: {
+          toolName: "delete_thing",
+          input: { target: "workspace" },
+          toolCallId: "ap-1",
+          description: "Delete x permanently",
+        },
+      },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN it includes tool name, description, and input
+    expect(result).toContain("Approval Required: delete_thing — Delete x permanently");
+    expect(result).toContain("Input:");
+    expect(result).toContain('"target": "workspace"');
+  });
+
+  test("serializes error entry with Error prefix", () => {
+    // GIVEN an error entry
+    const entries: ChatEntry[] = [
+      { id: "1", kind: "error", content: "connection lost", timestamp: 0 },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN it has the Error prefix
+    expect(result).toBe("Error: connection lost");
+  });
+
+  test("serializes status entry with separator formatting", () => {
+    // GIVEN a status entry
+    const entries: ChatEntry[] = [
+      { id: "1", kind: "status", content: "Session completed", timestamp: 0 },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN it uses separator formatting
+    expect(result).toBe("--- Session completed ---");
+  });
+
+  test("serializes backup_prompt with tool name", () => {
+    // GIVEN a backup_prompt entry
+    const entries: ChatEntry[] = [
+      {
+        id: "1",
+        kind: "backup_prompt",
+        content: "modify_config",
+        timestamp: 0,
+        meta: { toolName: "modify_config" },
+      },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN it includes the tool name
+    expect(result).toBe("Backup Prompt: modify_config");
+  });
+
+  test("serializes a full session in order with double newline separators", () => {
+    // GIVEN a mixed session timeline
+    const entries: ChatEntry[] = [
+      { id: "1", kind: "user", content: "fix my assistant", timestamp: 0 },
+      { id: "2", kind: "assistant", content: "Looking into it...", timestamp: 0 },
+      {
+        id: "3",
+        kind: "tool_call",
+        content: "inspect",
+        timestamp: 0,
+        meta: { toolName: "inspect", input: {}, toolCallId: "tc-1", status: "completed" },
+      },
+      { id: "4", kind: "assistant", content: "Found the issue.", timestamp: 0 },
+      { id: "5", kind: "status", content: "Session completed", timestamp: 0 },
+    ];
+
+    // WHEN we serialize
+    const result = serializeSessionToText(entries);
+
+    // THEN all entries are present in order separated by double newlines
+    const parts = result.split("\n\n");
+    expect(parts).toHaveLength(5);
+    expect(parts[0]).toBe("User: fix my assistant");
+    expect(parts[4]).toBe("--- Session completed ---");
   });
 });
 

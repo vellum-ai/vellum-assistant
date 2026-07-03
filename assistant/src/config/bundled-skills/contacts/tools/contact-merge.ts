@@ -1,10 +1,17 @@
-import type { ContactWithChannels } from "../../../../contacts/types.js";
+import type { ContactRead } from "@vellumai/gateway-client/gateway-ipc-contracts";
+
 import { cliIpcCall } from "../../../../ipc/cli-client.js";
 import { resolveGuardianName } from "../../../../prompts/user-reference.js";
 import type {
   ToolContext,
   ToolExecutionResult,
 } from "../../../../tools/types.js";
+
+function guardianAwareName(contact: Pick<ContactRead, "role" | "displayName">) {
+  return contact.role === "guardian"
+    ? resolveGuardianName(contact.displayName)
+    : contact.displayName;
+}
 
 export async function executeContactMerge(
   input: Record<string, unknown>,
@@ -22,10 +29,10 @@ export async function executeContactMerge(
 
   // Validate both contacts exist before merging
   const [keepRes, mergeRes] = await Promise.all([
-    cliIpcCall<{ contact: ContactWithChannels }>("getContact", {
+    cliIpcCall<{ contact: ContactRead }>("getContact", {
       pathParams: { id: keepId },
     }),
-    cliIpcCall<{ contact: ContactWithChannels }>("getContact", {
+    cliIpcCall<{ contact: ContactRead }>("getContact", {
       pathParams: { id: mergeId },
     }),
   ]);
@@ -42,7 +49,7 @@ export async function executeContactMerge(
 
   const mergeResult = await cliIpcCall<{
     ok: boolean;
-    contact: ContactWithChannels;
+    contact: ContactRead;
   }>("merge_contacts", {
     body: { keepId, mergeId },
   });
@@ -51,19 +58,22 @@ export async function executeContactMerge(
     return { content: `Error: ${mergeResult.error}`, isError: true };
   }
 
-  const merged = mergeResult.result!.contact;
-  const displayName =
-    merged.role === "guardian"
-      ? resolveGuardianName(merged.displayName)
-      : merged.displayName;
-  const keepName =
-    keepContact.role === "guardian"
-      ? resolveGuardianName(keepContact.displayName)
-      : keepContact.displayName;
-  const mergeName =
-    mergeContact.role === "guardian"
-      ? resolveGuardianName(mergeContact.displayName)
-      : mergeContact.displayName;
+  const mergedId = mergeResult.result!.contact.id;
+
+  // Re-read the surviving contact through the gateway-relayed read so role and
+  // interactionCount come from the gateway ContactRead.
+  const mergedRes = await cliIpcCall<{ contact: ContactRead }>("getContact", {
+    pathParams: { id: mergedId },
+  });
+
+  if (!mergedRes.ok) {
+    return { content: `Error: ${mergedRes.error}`, isError: true };
+  }
+
+  const merged = mergedRes.result!.contact;
+  const displayName = guardianAwareName(merged);
+  const keepName = guardianAwareName(keepContact);
+  const mergeName = guardianAwareName(mergeContact);
 
   const channelList = merged.channels
     .map(
@@ -78,7 +88,7 @@ export async function executeContactMerge(
       ``,
       `Surviving contact (${merged.id}):`,
       `  Name: ${displayName}`,
-      `  Interactions: ${merged.interactionCount}`,
+      `  Interactions: ${merged.interactionCount ?? 0}`,
       merged.notes ? `  Notes: ${merged.notes}` : null,
       merged.channels.length > 0 ? `  Channels:\n${channelList}` : null,
       ``,

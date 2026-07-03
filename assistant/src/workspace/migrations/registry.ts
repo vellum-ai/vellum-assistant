@@ -106,6 +106,21 @@ import { enableMemoryV3LiveForNewWorkspacesMigration } from "./105-enable-memory
 import { dropCollectUsageDataMigration } from "./106-drop-collect-usage-data.js";
 import { dropSendDiagnosticsMigration } from "./107-drop-send-diagnostics.js";
 import { dropBalancedEconomyProfileMigration } from "./108-drop-balanced-economy-profile.js";
+import { swapQualityProfileToGlm52Migration } from "./109-swap-quality-profile-to-glm-5p2.js";
+import { flipBalancedProfileToTogetherMigration } from "./110-flip-balanced-profile-to-together.js";
+import { pruneSeededCallsiteDefaultsMigration } from "./111-prune-seeded-callsite-defaults.js";
+import { removeAdvisorCallsiteOverrideMigration } from "./112-remove-advisor-callsite-override.js";
+import { swapBalancedProfileToGlm52Migration } from "./113-swap-balanced-profile-to-glm-5p2.js";
+import { swapQualityProfileToOpusMigration } from "./114-swap-quality-profile-to-opus.js";
+import { dropFrontierProfileMigration } from "./115-drop-frontier-profile.js";
+import { renameMemoryPluginDisabledSentinelMigration } from "./116-rename-memory-plugin-disabled-sentinel.js";
+import { normalizeStaleLeanMemoryV3DefaultsMigration } from "./117-normalize-stale-lean-memory-v3-defaults.js";
+import { seedNowMdMigration } from "./118-seed-now-md.js";
+import { stripPersistedMemoryV3TuningDefaultsMigration } from "./119-strip-persisted-memory-v3-tuning-defaults.js";
+import { reviseOnboardingThreadsMigration } from "./120-revise-onboarding-threads.js";
+import { seedDefaultUserGuardrailsMigration } from "./121-seed-default-user-guardrails.js";
+import { relocateDefaultUserBoundaryMigration } from "./122-relocate-default-user-boundary.js";
+import { swapQualityProfileToFableMigration } from "./123-swap-quality-profile-to-fable.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -223,4 +238,19 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   dropCollectUsageDataMigration,
   dropSendDiagnosticsMigration,
   dropBalancedEconomyProfileMigration,
+  swapQualityProfileToGlm52Migration,
+  flipBalancedProfileToTogetherMigration,
+  pruneSeededCallsiteDefaultsMigration,
+  removeAdvisorCallsiteOverrideMigration,
+  swapBalancedProfileToGlm52Migration,
+  swapQualityProfileToOpusMigration,
+  dropFrontierProfileMigration,
+  renameMemoryPluginDisabledSentinelMigration,
+  normalizeStaleLeanMemoryV3DefaultsMigration,
+  seedNowMdMigration,
+  stripPersistedMemoryV3TuningDefaultsMigration,
+  reviseOnboardingThreadsMigration,
+  seedDefaultUserGuardrailsMigration,
+  relocateDefaultUserBoundaryMigration,
+  swapQualityProfileToFableMigration,
 ];

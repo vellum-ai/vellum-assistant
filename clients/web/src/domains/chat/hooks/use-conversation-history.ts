@@ -1,42 +1,47 @@
 /**
- * Conversation history lifecycle — TanStack Query data sync.
+ * Conversation history lifecycle — TanStack Query side-effects.
  *
- * Bridges `useHistoryPagination` (TanStack Query infinite query) and the
- * `useChatSessionStore` (Zustand):
+ * Runs `useHistoryPagination` (the infinite query that owns persisted history)
+ * and reacts to two transitions. History is never copied into client state —
+ * the transcript reads the query cache directly (`useTranscriptMessages`).
  *
- * - When TQ delivers data (from cache or network), applies it to the shared
- *   `messages` state, reconstructs subagent state, restores pending
- *   interactions, refreshes surface content, and detects auto-greet.
+ * - **A newly committed snapshot** (`dataUpdatedAt` advances): records the seq
+ *   baseline + cold-start replay anchor for the live stream, reconstructs
+ *   subagent state, restores any pending interaction the snapshot carries, and
+ *   refreshes embedded surface content into the query cache.
  *
- * - Conversation-switch resets are handled by the store's
- *   `switchToConversation()` action — this hook only consumes the
- *   `switchResetPending` / `lastAppliedDataTimestamp` coordination fields
- *   set by that action.
+ * - **The turn returning to idle**: the finished turn is now persisted
+ *   server-side, so invalidate history. The committed-snapshot effect then
+ *   reseeds the materialized snapshot from the authoritative server copy,
+ *   replacing the client-folded turn with canonical ids/ordering.
+ *
+ * Conversation-switch resets are owned by the store's `switchToConversation()`.
  *
  * @see {@link https://tanstack.com/query/latest/docs/framework/react/guides/infinite-queries}
  */
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { startTransition, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
+
+import { type InfiniteData, useQueryClient } from "@tanstack/react-query";
 
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
-import { reconcileMessagesWithSeq } from "@/domains/chat/utils/reconcile-with-seq";
 import {
   extractWirePendingConfirmation,
   extractWirePendingQuestion,
 } from "@/domains/chat/utils/chat";
-import { filterDismissedSurfaces } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { mapMessageSurfaces } from "@/domains/chat/utils/map-message-surfaces";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { recordServerSeq } from "@/lib/streaming/server-seq";
-import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
+import { recordLocalSeq } from "@/lib/streaming/local-seq";
 import { anchorColdStartReplay } from "@/lib/streaming/cold-anchor";
-import { summarizeDisplayMessages } from "@/domains/chat/utils/diagnostics";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import type { SubagentStatus } from "@vellumai/assistant-api";
+import { reconcileSubagentStoreFromNotifications } from "@/domains/chat/hooks/reconcile-subagent-hydration";
+import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 
 import {
   parsePendingSecretState,
@@ -46,9 +51,15 @@ import type { AssistantStateKind } from "@/domains/chat/types";
 import { getPendingInteractions } from "@/domains/chat/api/interactions";
 import { fetchSurfaceContent } from "@/domains/chat/api/surfaces";
 import {
+  conversationHistoryQueryKey,
   useHistoryPagination,
   type HistoryPaginationResult,
 } from "@/domains/chat/transcript/use-history-pagination";
+import type { PaginatedHistoryResult } from "@/domains/chat/transcript/types";
+import {
+  registerHistoryCachePatcher,
+  type MessagesUpdater,
+} from "@/domains/chat/transcript/patch-transcript-messages";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,6 +75,23 @@ export interface ConversationHistoryResult {
   pagination: HistoryPaginationResult;
 }
 
+type HistoryCache = InfiniteData<PaginatedHistoryResult>;
+
+/**
+ * Structural equality for surface `data` payloads. Both sides come from the
+ * same daemon surface-content endpoint, so a stable JSON serialization compares
+ * correctly here. Used to skip no-op surface-content cache writes that would
+ * otherwise re-trigger the `dataUpdatedAt`-keyed snapshot effect and loop.
+ */
+function surfaceContentEqual(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  try {
+    return JSON.stringify(a) === JSON.stringify(b);
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -73,26 +101,20 @@ export function useConversationHistory({
   assistantStateKind,
   activeConversationId,
 }: UseConversationHistoryParams): ConversationHistoryResult {
-  // -------------------------------------------------------------------------
-  // TanStack Query for history fetching + caching + pagination
-  // -------------------------------------------------------------------------
+  const queryClient = useQueryClient();
+
   const pagination = useHistoryPagination({
     assistantId,
     conversationId: activeConversationId,
     enabled: assistantStateKind === "active" && !!assistantId && !!activeConversationId,
   });
 
-  // -------------------------------------------------------------------------
-  // Store actions (stable references — safe in dependency arrays)
-  // -------------------------------------------------------------------------
-  const setMessages = useChatSessionStore.use.setMessages();
-  const setTranscriptPagination = useChatSessionStore.use.setTranscriptPagination();
   const setIsLoadingHistory = useChatSessionStore.use.setIsLoadingHistory();
+  const setTranscriptPagination = useChatSessionStore.use.setTranscriptPagination();
   const setError = useChatSessionStore.use.setError();
 
   // -------------------------------------------------------------------------
-  // Conversation-switch reset — calls the store action when the active
-  // conversation changes.
+  // Conversation-switch reset — delegated to the store action.
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (assistantStateKind !== "active" || !assistantId || !activeConversationId) {
@@ -105,168 +127,180 @@ export function useConversationHistory({
   }, [assistantStateKind, assistantId, activeConversationId]);
 
   // -------------------------------------------------------------------------
-  // Apply TanStack Query data to messages state
+  // Register the history-cache writer for `patchTranscriptMessages`, so
+  // imperative actions (confirmation cleanup, surface completion) can reach a
+  // row that has already been handed off to the history cache — not just the
+  // live turn. The updater no-ops on pages that don't contain the row, so the
+  // cache ref stays stable when the target is live-only.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    const store = useChatSessionStore.getState();
-    if (!pagination.isSuccess || pagination.dataUpdatedAt === store.lastAppliedDataTimestamp) {
+    if (!assistantId || !activeConversationId) {
+      registerHistoryCachePatcher(null);
       return;
     }
-    if (!assistantId || !activeConversationId) return;
+    const key = conversationHistoryQueryKey(assistantId, activeConversationId);
+    registerHistoryCachePatcher((updater: MessagesUpdater) => {
+      queryClient.setQueryData<HistoryCache>(key, (old) => {
+        if (!old) return old;
+        let changed = false;
+        const pages = old.pages.map((page) => {
+          const next = updater(page.messages);
+          if (next === page.messages) return page;
+          changed = true;
+          return { ...page, messages: next };
+        });
+        // Return `undefined` (a setQueryData no-op) when no page changed —
+        // a live-turn-only patch must not bump this query's dataUpdatedAt,
+        // or it would needlessly re-trigger the dataUpdatedAt-keyed snapshot
+        // effect (subagent rebuild + surface re-verify) on every patch.
+        return changed ? { ...old, pages } : undefined;
+      });
+    });
+    return () => registerHistoryCachePatcher(null);
+  }, [assistantId, activeConversationId, queryClient]);
 
-    useChatSessionStore.getState().setLastAppliedDataTimestamp(pagination.dataUpdatedAt);
+  // -------------------------------------------------------------------------
+  // React to a newly committed snapshot. Keyed on `dataUpdatedAt` so it runs
+  // once per committed query result. The transcript reads history from the
+  // cache; this effect only fires the side effects that ride on a snapshot.
+  // The reads of `pagination.*` below are all from the same committed result,
+  // so they are consistent at this `dataUpdatedAt`.
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!pagination.isSuccess || !assistantId || !activeConversationId) {
+      return;
+    }
 
-    // Record the accepted snapshot's seq as the conversation baseline. This
-    // is the point where TanStack Query's committed latest page is applied to
-    // client state, so an out-of-order or aborted fetch (which never becomes
-    // committed query data) can't regress the baseline. Older-page loads keep
-    // the same `latestPage`, so re-running here records the same seq.
+    // Seq baseline (replay idempotency) + cold-start ring-replay anchor.
     const latestPageSeq = pagination.latestPage?.seq ?? null;
-    // Capture the local seq `L` before advancing it so the merge below
-    // can tell whether this page moved the frontier (`S > L`).
-    const priorLocalSeq = getLocalSeq(activeConversationId);
     recordServerSeq(activeConversationId, latestPageSeq);
     recordLocalSeq(activeConversationId, latestPageSeq);
-    // On a cold session, anchor the live SSE connection at this snapshot
-    // watermark so the daemon ring-replays events emitted between the
-    // snapshot and the stream attaching. No-op once the connection is warm
-    // (cursor already seeded) or when the snapshot reports no seq.
     anchorColdStartReplay(latestPageSeq);
 
-    const isFreshSwitch = store.switchResetPending;
-    if (isFreshSwitch) {
-      useChatSessionStore.getState().consumeSwitchReset();
-    }
+    // Seed (or reseed) the materialized snapshot from the committed history,
+    // replaying any buffered events that raced the fetch. This is the single
+    // source the transcript renders from (⊕ optimistic sends). See
+    // `chat-session-store`.
+    useChatSessionStore.getState().seedSnapshot(activeConversationId, {
+      messages: pagination.messages,
+      seq: latestPageSeq,
+      hasMore: pagination.hasMore,
+      oldestTimestamp: pagination.oldestLoadedTimestamp,
+      oldestMessageId: pagination.latestPage?.oldestMessageId ?? null,
+      // The daemon's authoritative per-conversation `processing` flag must
+      // ride every (re)seed: the stream reducer can only advance a defined
+      // flag (`nextProcessingState` pins `undefined` forever), and the
+      // `snapshotProcessing === false` close-gate in
+      // `shouldShowThinkingIndicator` / `canStopGeneration` starves without it.
+      processing: pagination.latestPage?.processing,
+    });
+
+    setIsLoadingHistory(false);
+    setTranscriptPagination({
+      hasMore: pagination.hasMore,
+      oldestTimestamp: pagination.oldestLoadedTimestamp,
+      isLoadingOlder: pagination.isFetchingOlderPages,
+    });
 
     recordDiagnostic("history_tq_data_apply", {
       assistantId,
       conversationId: activeConversationId,
-      isFreshSwitch,
-      pageCount: pagination.latestPage ? 1 : 0,
       messageCount: pagination.messages.length,
     });
 
-    if (pagination.messages.length > 0) {
-      const dismissedSurfaceIds = useChatSessionStore.getState().dismissedSurfaceIds;
-      const filteredMessages = filterDismissedSurfaces(
-        pagination.messages,
-        dismissedSurfaceIds,
-      );
-
-      recordDiagnostic("history_tq_set_messages", {
-        assistantId,
-        conversationId: activeConversationId,
-        isFreshSwitch,
-        dismissedSurfaceCount: dismissedSurfaceIds.size,
-        filteredMessages: summarizeDisplayMessages(filteredMessages),
-      });
-
-      startTransition(() => {
-        setMessages((prev) => {
-          const nextMessages =
-            isFreshSwitch || prev.length === 0
-              ? filteredMessages
-              : reconcileMessagesWithSeq(prev, filteredMessages, {
-                  serverSeq: latestPageSeq,
-                  localSeq: priorLocalSeq,
-                  oldestPageTimestamp: pagination.oldestLoadedTimestamp,
-                });
-          return nextMessages;
-        });
-        setTranscriptPagination({
-          hasMore: pagination.hasMore,
-          oldestTimestamp: pagination.oldestLoadedTimestamp,
-          isLoadingOlder: pagination.isFetchingOlderPages,
-          isPinnedToLatest: true,
-        });
-        setIsLoadingHistory(false);
-      });
-
-      // Refresh surface content for embedded surfaces.
-      const requestedConversationForSurfaces = activeConversationId;
-      for (const msg of filteredMessages) {
-        if (!msg.surfaces) continue;
-        for (const surface of msg.surfaces) {
-          fetchSurfaceContent(assistantId, surface.surfaceId, activeConversationId).then(
-            (fresh) => {
-              if (!fresh) return;
-              if (useChatSessionStore.getState().previousConversationId !== requestedConversationForSurfaces) return;
-              setMessages((prev) => {
-                for (let i = prev.length - 1; i >= 0; i--) {
-                  if (
-                    !prev[i]!.surfaces?.some(
-                      (s) => s.surfaceId === fresh.surfaceId,
-                    )
-                  ) {
-                    continue;
-                  }
-                  const updated = [...prev];
-                  updated[i] = mapMessageSurfaces(prev[i]!, (s) =>
-                    s.surfaceId === fresh.surfaceId
-                      ? {
-                          ...s,
-                          data: fresh.data,
-                          title: fresh.title ?? s.title,
-                        }
-                      : s,
-                  );
-                  return updated;
-                }
-                return prev;
-              });
-            },
-          );
-        }
+    // Restore an in-flight confirmation the snapshot carries on a tool call (a
+    // cold reconnect rides the snapshot rather than a replayed event). Skipped
+    // when a prompt is already active so a live confirmation is never clobbered.
+    const wirePendingConfirmation = extractWirePendingConfirmation(
+      pagination.messages,
+    );
+    if (
+      wirePendingConfirmation &&
+      !useInteractionStore.getState().pendingConfirmation
+    ) {
+      const interactionStore = useInteractionStore.getState();
+      interactionStore.showConfirmation(wirePendingConfirmation);
+      if (wirePendingConfirmation.toolUseId) {
+        interactionStore.setInlineConfirmationToolCallId(
+          wirePendingConfirmation.toolUseId,
+        );
       }
-      // Restore an in-flight confirmation the snapshot carries on a tool call
-      // (stamped by the daemon from the pending-interactions registry at render
-      // time). On a cold reconnect the prompt rides the snapshot rather than a
-      // replayed `confirmation_request` event, and binding it to its tool call
-      // restores the inline card on the right chip. Skipped when a prompt is
-      // already active so a live in-progress confirmation is never clobbered.
-      const wirePendingConfirmation =
-        extractWirePendingConfirmation(filteredMessages);
-      if (
-        wirePendingConfirmation &&
-        !useInteractionStore.getState().pendingConfirmation
-      ) {
-        const interactionStore = useInteractionStore.getState();
-        interactionStore.showConfirmation(wirePendingConfirmation);
-        if (wirePendingConfirmation.toolUseId) {
-          interactionStore.setInlineConfirmationToolCallId(
-            wirePendingConfirmation.toolUseId,
-          );
-        }
-      }
-
-      // Restore an in-flight ask_question prompt the snapshot carries on a tool
-      // call (stamped by the daemon from the pending-interactions registry at
-      // render time). On a cold reconnect — e.g. the live `question_request`
-      // event was broadcast while no SSE client was connected — the prompt
-      // rides the snapshot rather than a replayed event. Skipped when a prompt
-      // is already active so a live in-progress question is never clobbered.
-      const wirePendingQuestion = extractWirePendingQuestion(filteredMessages);
-      if (
-        wirePendingQuestion &&
-        !useInteractionStore.getState().pendingQuestion
-      ) {
-        useInteractionStore.getState().showQuestion(wirePendingQuestion);
-      }
-    } else {
-      recordDiagnostic("history_tq_empty", {
-        assistantId,
-        conversationId: activeConversationId,
-      });
-      setIsLoadingHistory(false);
     }
 
-    // Reconstruct subagent state from history notifications.
-    const notifications = pagination.latestPage?.subagentNotifications;
+    // Restore an in-flight ask_question prompt the snapshot carries (same cold
+    // reconnect path). Skipped when a prompt is already active.
+    const wirePendingQuestion = extractWirePendingQuestion(pagination.messages);
+    if (wirePendingQuestion && !useInteractionStore.getState().pendingQuestion) {
+      useInteractionStore.getState().showQuestion(wirePendingQuestion);
+    }
+
+    // Refresh embedded surface content into the history cache.
+    const requestedConversationForSurfaces = activeConversationId;
+    for (const msg of pagination.messages) {
+      if (!msg.surfaces) continue;
+      for (const surface of msg.surfaces) {
+        fetchSurfaceContent(
+          assistantId,
+          surface.surfaceId,
+          activeConversationId,
+        ).then((fresh) => {
+          if (!fresh) return;
+          if (
+            useConversationStore.getState().activeConversationId !==
+            requestedConversationForSurfaces
+          ) {
+            return;
+          }
+          queryClient.setQueryData<HistoryCache>(
+            conversationHistoryQueryKey(
+              assistantId,
+              requestedConversationForSurfaces,
+            ),
+            (old) => {
+              if (!old) return old;
+              // Only write when the fetched content actually differs from what
+              // the cache already holds. `setQueryData` bumps the query's
+              // `dataUpdatedAt` unconditionally (even for deep-equal data), and
+              // the snapshot effect below is keyed on `dataUpdatedAt` — so
+              // writing back unchanged content would re-trigger the effect,
+              // re-fetch the surface, and loop. Returning `undefined` when
+              // nothing changed makes `setQueryData` a no-op and breaks it.
+              let changed = false;
+              const pages = old.pages.map((page) => ({
+                ...page,
+                messages: page.messages.map((m) => {
+                  if (
+                    !m.surfaces?.some((s) => s.surfaceId === fresh.surfaceId)
+                  ) {
+                    return m;
+                  }
+                  return mapMessageSurfaces(m, (s) => {
+                    if (s.surfaceId !== fresh.surfaceId) return s;
+                    const nextTitle = fresh.title ?? s.title;
+                    if (
+                      surfaceContentEqual(s.data, fresh.data) &&
+                      s.title === nextTitle
+                    ) {
+                      return s;
+                    }
+                    changed = true;
+                    return { ...s, data: fresh.data, title: nextTitle };
+                  });
+                }),
+              }));
+              return changed ? { ...old, pages } : undefined;
+            },
+          );
+        });
+      }
+    }
+
+    // Reconstruct subagent state from notifications across all loaded pages —
+    // not just the latest page, or a subagent whose notification is in an older
+    // page (e.g. one aborted early) gets an avatar badge but no inline row.
+    const notifications = pagination.subagentNotifications;
     if (notifications && notifications.length > 0) {
-      const deduped = new Map<
-        string,
-        (typeof notifications)[number]
-      >();
+      const deduped = new Map<string, (typeof notifications)[number]>();
       for (const n of notifications) {
         const existing = deduped.get(n.subagentId);
         if (existing) {
@@ -279,20 +313,21 @@ export function useConversationHistory({
         }
       }
 
-      const subagentStore = useSubagentStore.getState();
-      subagentStore.reset();
-      for (const n of deduped.values()) {
-        subagentStore.spawnSubagent({
-          subagentId: n.subagentId,
-          label: n.label,
-          objective: "",
-          status: (n.status as SubagentStatus) || "completed",
-          error: n.error,
-          conversationId: n.conversationId,
-          timestamp: Date.now(),
-          parentMessageId: n.parentMessageId,
-        });
-      }
+      reconcileSubagentStoreFromNotifications(
+        useSubagentStore.getState(),
+        deduped.values(),
+        Date.now(),
+      );
+    }
+
+    // Seed background-task cards from the durable history aggregate: the
+    // daemon's in-memory completed ring doesn't survive a restart, so live
+    // `/background-tools` rehydration alone can't rebuild a finished card.
+    // `seedFromHistory` is a terminal-wins, idempotent merge (never clobbers a
+    // live entry); retiring stays owned by `useBackgroundTaskRehydration`.
+    const completions = pagination.backgroundToolCompletions;
+    if (completions && completions.length > 0) {
+      useBackgroundTaskStore.getState().seedFromHistory(completions);
     }
 
     // Restore pending interactions (secrets, confirmations).
@@ -303,7 +338,10 @@ export function useConversationHistory({
           assistantId,
           requestedConversationId,
         );
-        if (useConversationStore.getState().activeConversationId !== requestedConversationId) {
+        if (
+          useConversationStore.getState().activeConversationId !==
+          requestedConversationId
+        ) {
           return;
         }
         const parsed_secret = interactions.pendingSecret
@@ -332,42 +370,55 @@ export function useConversationHistory({
         // Keep attention key on failure.
       }
     })();
-  }, [
-    pagination.isSuccess,
-    pagination.dataUpdatedAt,
-    pagination.messages,
-    pagination.latestPage,
-    pagination.hasMore,
-    pagination.oldestLoadedTimestamp,
-    pagination.isFetchingOlderPages,
-    assistantId,
-    activeConversationId,
-    setMessages,
-    setTranscriptPagination,
-    setIsLoadingHistory,
-    setError,
-  ]);
+    // `pagination.*` other than `dataUpdatedAt` intentionally excluded: they all
+    // update together on a committed result, and listing the volatile ones (e.g.
+    // `isFetchingOlderPages`) would re-run these side effects on older-page loads.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pagination.dataUpdatedAt, assistantId, activeConversationId]);
+
+  // -------------------------------------------------------------------------
+  // Turn-end reseed. When a turn finishes, the persisted copy is authoritative,
+  // so invalidate history; the committed-snapshot effect above reseeds the
+  // materialized snapshot from the server copy (replacing the client-folded
+  // turn). The monotonic seq baseline makes the reseed a no-op when nothing new
+  // landed, and the buffered event tail is replayed so anything that raced the
+  // fetch isn't lost.
+  // -------------------------------------------------------------------------
+  const refetchHistoryOnTurnEnd = useCallback(() => {
+    if (!assistantId || !activeConversationId) return;
+    void pagination.invalidate();
+  }, [assistantId, activeConversationId, pagination]);
+
+  // A turn is in progress for the active conversation when either the local
+  // turn store is sending (a `useSendMessage` turn this client started) or the
+  // conversation is flagged processing. The processing flag also covers
+  // passively-observed turns the local flow never initiated — external channels
+  // (phone, Slack, Telegram) and other-client sends — where `turnPhase` stays
+  // idle. Refetch on the combined falling edge; for local sends both signals
+  // clear together in `endTurn`, so it fires exactly once per turn.
+  const turnPhase = useTurnStore.use.phase();
+  const processingConversationIds =
+    useConversationStore.use.processingConversationIds();
+  const activeInProgress =
+    isSending(turnPhase) ||
+    (!!activeConversationId &&
+      processingConversationIds.has(activeConversationId));
+  const wasInProgressRef = useRef(false);
+  useEffect(() => {
+    const justFinished = wasInProgressRef.current && !activeInProgress;
+    wasInProgressRef.current = activeInProgress;
+    if (justFinished) refetchHistoryOnTurnEnd();
+  }, [activeInProgress, refetchHistoryOnTurnEnd]);
 
   // -------------------------------------------------------------------------
   // Refetch history when the SSE connection reopens after a disconnect.
   //
-  // The daemon's replay ring only holds ~30s of events, so a connection
-  // that reopens later than that (e.g. the device slept or the tab was
-  // backgrounded — routine for this app) can't be ring-replayed. The
-  // daemon then goes live silently and relies on the consumer's seq-gap
-  // detector to notice and refetch, but that detector only fires on the
-  // next conversation-scoped live event. An idle conversation receives
-  // no such event, so the persisted tail emitted before the disconnect
-  // stays invisible until the query remounts on a manual refresh.
-  //
-  // `refetchOnReconnect`/`refetchOnWindowFocus` are off (they key off the
-  // browser's network/focus state, not this app's SSE reconnect), so the
-  // reopen itself is the signal to refetch. Invalidating the query routes
-  // the catch-up through the same fetch-and-merge path as the initial
-  // load, which the monotonic seq merge makes a no-op when nothing new
-  // landed. `"fresh"`/`"anchor"` reopens are skipped: the first connect's
-  // `refetchOnMount` already loaded the snapshot, and the anchor bounce
-  // fires immediately after that load with the ring still warm.
+  // The daemon's replay ring only holds ~30s of events, so a connection that
+  // reopens later than that (device slept, tab backgrounded) can't be
+  // ring-replayed. Invalidating routes the catch-up through the normal fetch
+  // path; the monotonic seq baseline makes it a no-op when nothing landed.
+  // `"fresh"`/`"anchor"` reopens are skipped: the first connect's
+  // `refetchOnMount` already loaded the snapshot.
   // -------------------------------------------------------------------------
   useBusSubscription("sse.opened", ({ assistantId: openedAssistantId, cause }) => {
     if (cause === "fresh" || cause === "anchor") return;
@@ -383,7 +434,7 @@ export function useConversationHistory({
   });
 
   // -------------------------------------------------------------------------
-  // Sync older-page loading state (both true → false transitions)
+  // Sync older-page loading state into the pagination mirror.
   // -------------------------------------------------------------------------
   useEffect(() => {
     setTranscriptPagination((prev) => {
@@ -393,7 +444,7 @@ export function useConversationHistory({
   }, [pagination.isFetchingOlderPages, setTranscriptPagination]);
 
   // -------------------------------------------------------------------------
-  // Handle TanStack Query errors
+  // Surface TanStack Query errors.
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (!pagination.isError || !pagination.error) return;

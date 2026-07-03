@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import { parseLockfile, type Lockfile } from "./lockfile-contract";
+import {
+  KNOWN_CLOUDS,
+  parseLockfile,
+  resolveCloud,
+  SENSITIVE_KEYS,
+  type Lockfile,
+} from "./lockfile-contract";
 
 describe("parseLockfile", () => {
   test("passes through a fully-populated lockfile", () => {
@@ -15,6 +21,9 @@ describe("parseLockfile", () => {
           species: "vellum",
           hatchedAt: "2026-01-01T00:00:00.000Z",
           organizationId: "org_1",
+          platformAssistantId: "platform-assistant-1",
+          platformBaseUrl: "https://platform.example.com",
+          platformOrganizationId: "org_1",
           resources: { gatewayPort: 7777, daemonPort: 7778 },
         },
       ],
@@ -42,24 +51,30 @@ describe("parseLockfile", () => {
 
   test("salvages a legacy entry that has only an assistantId", () => {
     // The oldest persisted entries carry just the identity; the CLI fills the
-    // rest in lazily. assistantId is the only required field, so the entry
-    // must survive intact rather than being discarded.
+    // rest in lazily. assistantId is the only required field, so the entry must
+    // survive — normalized to the default `local` cloud.
     const parsed = parseLockfile({
       activeAssistant: "asst_1",
       assistants: [{ assistantId: "asst_1" }],
     });
-    expect(parsed.assistants).toEqual([{ assistantId: "asst_1" }]);
+    expect(parsed.assistants).toEqual([
+      { assistantId: "asst_1", cloud: "local" },
+    ]);
   });
 
   test("salvages an entry whose cloud and runtimeUrl are absent", () => {
     // Older CLI builds predate the `cloud` field and persisted the runtime URL
     // under a different key (`localUrl`), so a real on-disk entry can lack both
-    // modeled fields. It must still be returned (the macOS↔CLI skew window).
+    // modeled fields. It must still be returned, normalized to `local`.
     const parsed = parseLockfile({
       activeAssistant: null,
-      assistants: [{ assistantId: "asst_1", localUrl: "http://127.0.0.1:7777" }],
+      assistants: [
+        { assistantId: "asst_1", localUrl: "http://127.0.0.1:7777" },
+      ],
     });
-    expect(parsed.assistants).toEqual([{ assistantId: "asst_1" }]);
+    expect(parsed.assistants).toEqual([
+      { assistantId: "asst_1", cloud: "local" },
+    ]);
   });
 
   test("drops malformed entries but salvages valid siblings", () => {
@@ -111,7 +126,9 @@ describe("parseLockfile", () => {
   });
 
   test("coerces a non-string activeAssistant to null", () => {
-    expect(parseLockfile({ assistants: [], activeAssistant: 7 }).activeAssistant).toBeNull();
+    expect(
+      parseLockfile({ assistants: [], activeAssistant: 7 }).activeAssistant,
+    ).toBeNull();
     expect(parseLockfile({ assistants: [] }).activeAssistant).toBeNull();
   });
 
@@ -124,9 +141,9 @@ describe("parseLockfile", () => {
   });
 
   test("drops a mistyped optional field but keeps the entry", () => {
-    // assistantId is the only required field. A mistyped optional field (here
-    // cloud / runtimeUrl) is dropped from the result, but the entry survives on
-    // the strength of its identity rather than being discarded wholesale.
+    // assistantId is the only required field. A mistyped optional field is
+    // dropped from the result, but the entry survives on the strength of its
+    // identity. (A mistyped `cloud` is dropped, then re-normalized to `local`.)
     const raw = {
       assistants: [
         { assistantId: "asst_1", cloud: 7, runtimeUrl: "http://a" }, // cloud not a string
@@ -135,7 +152,7 @@ describe("parseLockfile", () => {
       activeAssistant: null,
     };
     expect(parseLockfile(raw).assistants).toEqual([
-      { assistantId: "asst_1", runtimeUrl: "http://a" },
+      { assistantId: "asst_1", cloud: "local", runtimeUrl: "http://a" },
       { assistantId: "asst_2", cloud: "local" },
     ]);
   });
@@ -188,5 +205,133 @@ describe("parseLockfile", () => {
       runtimeUrl: "http://a",
     });
     expect(assistant?.resources).toBeUndefined();
+  });
+
+  test("keeps local runtime resource fields when well-typed", () => {
+    const raw = {
+      assistants: [
+        {
+          assistantId: "asst_1",
+          cloud: "local",
+          runtimeUrl: "http://a",
+          resources: {
+            gatewayPort: 7777,
+            daemonPort: 7778,
+            runtimeVersion: "v0.8.13",
+            runtimeInstallDir: "/tmp/vellum/runtime/0.8.13",
+          },
+        },
+      ],
+      activeAssistant: null,
+    };
+    expect(parseLockfile(raw).assistants[0]?.resources).toEqual({
+      gatewayPort: 7777,
+      daemonPort: 7778,
+      runtimeVersion: "v0.8.13",
+      runtimeInstallDir: "/tmp/vellum/runtime/0.8.13",
+    });
+  });
+
+  test("strips sensitive and host-only fields from resources", () => {
+    const raw = {
+      assistants: [
+        {
+          assistantId: "asst_1",
+          cloud: "local",
+          resources: {
+            instanceDir: "/data",
+            gatewayPort: 7777,
+            daemonPort: 7778,
+            runtimeVersion: "v0.8.13",
+            runtimeInstallDir: "/tmp/vellum/runtime/0.8.13",
+            qdrantPort: 7779,
+            cesPort: 7780,
+            signingKey: "hunter2",
+          },
+        },
+      ],
+      activeAssistant: null,
+    };
+    expect(parseLockfile(raw).assistants[0]?.resources).toEqual({
+      instanceDir: "/data",
+      gatewayPort: 7777,
+      daemonPort: 7778,
+      runtimeVersion: "v0.8.13",
+      runtimeInstallDir: "/tmp/vellum/runtime/0.8.13",
+    });
+  });
+
+  test("resolves cloud from legacy remote markers when the field is absent", () => {
+    // Pre-`cloud` remote entries encode topology in `project` (gcp) / `sshUser`
+    // (custom). The parser resolves these so a cloudless remote entry is never
+    // mistaken for a local one; a cloudless entry with no markers normalizes to
+    // `local`. The raw markers are not carried through.
+    const raw = {
+      assistants: [
+        { assistantId: "gcp_1", project: "my-proj", runtimeUrl: "https://a" },
+        { assistantId: "ssh_1", sshUser: "deploy", runtimeUrl: "https://b" },
+        { assistantId: "local_1", runtimeUrl: "http://localhost:7830" },
+      ],
+      activeAssistant: null,
+    };
+    expect(parseLockfile(raw).assistants).toEqual([
+      { assistantId: "gcp_1", cloud: "gcp", runtimeUrl: "https://a" },
+      { assistantId: "ssh_1", cloud: "custom", runtimeUrl: "https://b" },
+      {
+        assistantId: "local_1",
+        cloud: "local",
+        runtimeUrl: "http://localhost:7830",
+      },
+    ]);
+  });
+
+  test("prefers an explicit cloud over legacy remote markers", () => {
+    const raw = {
+      assistants: [
+        { assistantId: "a", cloud: "vellum", project: "stale-proj" },
+      ],
+      activeAssistant: null,
+    };
+    expect(parseLockfile(raw).assistants).toEqual([
+      { assistantId: "a", cloud: "vellum" },
+    ]);
+  });
+});
+
+describe("resolveCloud", () => {
+  test("prefers an explicit cloud", () => {
+    expect(resolveCloud({ cloud: "vellum", project: "p", sshUser: "u" })).toBe(
+      "vellum",
+    );
+  });
+
+  test("falls back to legacy markers, then local", () => {
+    expect(resolveCloud({ project: "p" })).toBe("gcp");
+    expect(resolveCloud({ sshUser: "u" })).toBe("custom");
+    expect(resolveCloud({})).toBe("local");
+    expect(resolveCloud({ cloud: "" })).toBe("local");
+  });
+});
+
+describe("taxonomy", () => {
+  test("KNOWN_CLOUDS covers the documented topologies", () => {
+    expect(KNOWN_CLOUDS).toEqual([
+      "local",
+      "docker",
+      "apple-container",
+      "vellum",
+      "gcp",
+      "aws",
+      "custom",
+      "paired",
+    ]);
+  });
+
+  test("SENSITIVE_KEYS lists the redacted secrets", () => {
+    expect(SENSITIVE_KEYS).toEqual([
+      "signingKey",
+      "bearerToken",
+      "guardianBootstrapSecret",
+    ]);
   });
 });

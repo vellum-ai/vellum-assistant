@@ -249,7 +249,111 @@ final class MacHelper: @unchecked Sendable {
     }
 
     private func handleCommand(_ line: String) {
+        // Computer-use and app-control dispatch are async + @MainActor, so they
+        // can't go through the synchronous JsonRpcRouter. Peek at the method and
+        // hand the raw line off to an async dispatcher (which re-parses inside
+        // the Task so no non-Sendable JSON value crosses the isolation boundary).
+        if let data = line.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let method = object["method"] as? String,
+           method == "cu.perform" || method == "appControl.perform" {
+            if method == "cu.perform" {
+                dispatchCuPerform(line: line)
+            } else {
+                dispatchAppControlPerform(line: line)
+            }
+            return
+        }
         writeLine(router.handle(line: line))
+    }
+
+    private func dispatchCuPerform(line: String) {
+        Task { @MainActor in
+            let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+            let id = object?["id"] ?? NSNull()
+            let params = object?["params"] as? [String: Any] ?? [:]
+            guard
+                let requestId = params["requestId"] as? String,
+                let conversationId = params["conversationId"] as? String,
+                let toolName = params["toolName"] as? String
+            else {
+                self.writeResponse(JsonRpcCodec.errorResponse(
+                    id: id,
+                    code: JsonRpcErrorCode.invalidParams,
+                    message: "cu.perform requires requestId, conversationId, toolName"
+                ))
+                return
+            }
+            let input = params["input"] as? [String: Any] ?? [:]
+            let stepNumber = (params["stepNumber"] as? NSNumber)?.intValue ?? 0
+            let reasoning = params["reasoning"] as? String
+            let payload = await HostCuActionRunner.perform(
+                requestId: requestId,
+                conversationId: conversationId,
+                toolName: toolName,
+                input: input,
+                stepNumber: stepNumber,
+                reasoning: reasoning
+            )
+            self.writeResponse(
+                JsonRpcCodec.successResponse(id: id, result: payload.toDictionary())
+            )
+        }
+    }
+
+    private func dispatchAppControlPerform(line: String) {
+        Task { @MainActor in
+            let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any]
+            let id = object?["id"] ?? NSNull()
+            let params = object?["params"] as? [String: Any] ?? [:]
+            guard let requestId = params["requestId"] as? String else {
+                self.writeResponse(JsonRpcCodec.errorResponse(
+                    id: id,
+                    code: JsonRpcErrorCode.invalidParams,
+                    message: "appControl.perform requires requestId"
+                ))
+                return
+            }
+            // The daemon sends `{requestId, conversationId, toolName, input:{...}}`
+            // where `input` already carries the `tool` discriminator. Decode from
+            // that sub-dict, falling back to the top-level params (so a toolName
+            // discriminator can still be derived).
+            let toolDict = params["input"] as? [String: Any] ?? params
+            do {
+                let input = try HostAppControlInput.from(dictionary: toolDict)
+                let payload = await AppControlExecutor.perform(
+                    requestId: requestId,
+                    input: input
+                )
+                self.writeResponse(
+                    JsonRpcCodec.successResponse(id: id, result: payload.toDictionary())
+                )
+            } catch let error as JsonRpcDispatchError {
+                let message: String
+                if case let .invalidParams(reason) = error { message = reason }
+                else if case let .internalError(reason) = error { message = reason }
+                else { message = "Invalid params" }
+                self.writeResponse(JsonRpcCodec.errorResponse(
+                    id: id,
+                    code: JsonRpcErrorCode.invalidParams,
+                    message: message
+                ))
+            } catch {
+                self.writeResponse(JsonRpcCodec.errorResponse(
+                    id: id,
+                    code: JsonRpcErrorCode.internalError,
+                    message: error.localizedDescription
+                ))
+            }
+        }
+    }
+
+    private func writeResponse(_ object: [String: Any]) {
+        do {
+            writeLine(try JsonRpcCodec.encodeLine(object))
+        } catch {
+            log("Failed to encode response: \(error.localizedDescription)")
+        }
     }
 
     /// Start/stop local speech-recognition partials (`dictation.partial`

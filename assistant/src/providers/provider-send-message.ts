@@ -7,7 +7,7 @@
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { getDb } from "../memory/db-connection.js";
+import { getDb } from "../persistence/db-connection.js";
 import { getLogger } from "../util/logger.js";
 import {
   describeSubscriptionModelIncompatibility,
@@ -43,6 +43,9 @@ let lazyInitPromise: Promise<void> | null = null;
 export class CallSiteConfiguredProvider implements Provider {
   public readonly name: string;
   public readonly tokenEstimationProvider?: string;
+  // Forward native web-search capability so it survives the wrapper chain
+  // (callers like the advisor consult gate on it). Fixed at construction.
+  public readonly supportsNativeWebSearch?: boolean;
 
   constructor(
     private readonly inner: Provider,
@@ -52,6 +55,13 @@ export class CallSiteConfiguredProvider implements Provider {
   ) {
     this.name = inner.name;
     this.tokenEstimationProvider = inner.tokenEstimationProvider;
+    this.supportsNativeWebSearch = inner.supportsNativeWebSearch;
+  }
+
+  supportsNativeWebSearchFor(options?: SendMessageOptions): boolean {
+    return this.inner.supportsNativeWebSearchFor
+      ? this.inner.supportsNativeWebSearchFor(options)
+      : this.inner.supportsNativeWebSearch === true;
   }
 
   sendMessage(

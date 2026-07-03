@@ -14,7 +14,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { _parseDeletedCount as parseDeletedCount } from "../memory/job-handlers/cleanup.js";
+import { _parseDeletedCount as parseDeletedCount } from "../persistence/job-handlers/cleanup.js";
 
 describe("parseDeletedCount", () => {
   test("bare integer on its own line", () => {

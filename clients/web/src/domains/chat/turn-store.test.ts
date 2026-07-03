@@ -20,10 +20,7 @@ import {
 // ---------------------------------------------------------------------------
 
 /** Apply a sequence of events to a state, returning the final state. */
-function applyEvents(
-  state: TurnState,
-  events: DomainEvent[],
-): TurnState {
+function applyEvents(state: TurnState, events: DomainEvent[]): TurnState {
   return events.reduce(turnReducer, state);
 }
 
@@ -376,7 +373,10 @@ describe("TOOL_ACTIVITY_METADATA", () => {
       activeTurnId: "t-1",
       liveWebActivity: { "tc-1": sampleMetadata },
     };
-    const state = turnReducer(withActivity, { type: "POLL_RECONCILED", turnId: "t-1" });
+    const state = turnReducer(withActivity, {
+      type: "POLL_RECONCILED",
+      turnId: "t-1",
+    });
     expect(state.liveWebActivity).toEqual({});
   });
 
@@ -527,7 +527,10 @@ describe("ACTIVITY_STATE_THINKING", () => {
   test("statusText updates when a new thinking event arrives", () => {
     const first = applyEvents(INITIAL_TURN_STATE, [
       { type: "USER_SEND_REQUESTED", turnId: "t-1" },
-      { type: "ACTIVITY_STATE_THINKING", statusText: "Processing bash results" },
+      {
+        type: "ACTIVITY_STATE_THINKING",
+        statusText: "Processing bash results",
+      },
     ]);
     expect(first.statusText).toBe("Processing bash results");
     const second = turnReducer(first, {
@@ -547,7 +550,10 @@ describe("UI surface events", () => {
     const thinking = turnReducer(INITIAL_TURN_STATE, {
       type: "USER_SEND_REQUESTED",
     });
-    const state = turnReducer(thinking, { type: "UI_SURFACE_SHOW", interactive: true });
+    const state = turnReducer(thinking, {
+      type: "UI_SURFACE_SHOW",
+      interactive: true,
+    });
     expect(state.phase).toBe("awaiting_user_input");
   });
 
@@ -555,7 +561,10 @@ describe("UI surface events", () => {
     const thinking = turnReducer(INITIAL_TURN_STATE, {
       type: "USER_SEND_REQUESTED",
     });
-    const state = turnReducer(thinking, { type: "UI_SURFACE_SHOW", interactive: false });
+    const state = turnReducer(thinking, {
+      type: "UI_SURFACE_SHOW",
+      interactive: false,
+    });
     expect(state.phase).toBe("thinking");
   });
 
@@ -955,7 +964,6 @@ describe("TURN_RESET", () => {
       lastTerminalReason: "error",
       statusText: null,
       liveWebActivity: {},
-      autoRoutedProfileLabel: null,
     };
     const state = turnReducer(dirty, { type: "TURN_RESET" });
     expect(state).toEqual(INITIAL_TURN_STATE);
@@ -1223,7 +1231,13 @@ describe("shouldShowThinkingIndicator", () => {
     const thinking = turnReducer(INITIAL_TURN_STATE, {
       type: "USER_SEND_REQUESTED",
     });
-    expect(shouldShowThinkingIndicator(thinking.phase, thinking.activeToolCallCount, defaultCtx)).toBe(true);
+    expect(
+      shouldShowThinkingIndicator(
+        thinking.phase,
+        thinking.activeToolCallCount,
+        defaultCtx,
+      ),
+    ).toBe(true);
   });
 
   test("fallback: visible in streaming phase when no streaming message exists yet", () => {
@@ -1237,10 +1251,14 @@ describe("shouldShowThinkingIndicator", () => {
     expect(streaming.phase).toBe("streaming");
     expect(isThinking(streaming.phase)).toBe(false);
     expect(
-      shouldShowThinkingIndicator(streaming.phase, streaming.activeToolCallCount, {
-        ...defaultCtx,
-        hasStreamingAssistantMessage: false,
-      }),
+      shouldShowThinkingIndicator(
+        streaming.phase,
+        streaming.activeToolCallCount,
+        {
+          ...defaultCtx,
+          hasStreamingAssistantMessage: false,
+        },
+      ),
     ).toBe(true);
   });
 
@@ -1250,10 +1268,14 @@ describe("shouldShowThinkingIndicator", () => {
       { type: "ASSISTANT_TEXT_DELTA" },
     ]);
     expect(
-      shouldShowThinkingIndicator(streaming.phase, streaming.activeToolCallCount, {
-        ...defaultCtx,
-        hasStreamingAssistantMessage: true,
-      }),
+      shouldShowThinkingIndicator(
+        streaming.phase,
+        streaming.activeToolCallCount,
+        {
+          ...defaultCtx,
+          hasStreamingAssistantMessage: true,
+        },
+      ),
     ).toBe(false);
   });
 
@@ -1265,10 +1287,14 @@ describe("shouldShowThinkingIndicator", () => {
       type: "USER_SEND_REQUESTED",
     });
     expect(
-      shouldShowThinkingIndicator(thinking.phase, thinking.activeToolCallCount, {
-        ...defaultCtx,
-        hasStreamingAssistantMessage: true,
-      }),
+      shouldShowThinkingIndicator(
+        thinking.phase,
+        thinking.activeToolCallCount,
+        {
+          ...defaultCtx,
+          hasStreamingAssistantMessage: true,
+        },
+      ),
     ).toBe(true);
   });
 
@@ -1277,7 +1303,13 @@ describe("shouldShowThinkingIndicator", () => {
       { type: "USER_SEND_REQUESTED" },
       { type: "TOOL_USE_START" },
     ]);
-    expect(shouldShowThinkingIndicator(withTools.phase, withTools.activeToolCallCount, defaultCtx)).toBe(false);
+    expect(
+      shouldShowThinkingIndicator(
+        withTools.phase,
+        withTools.activeToolCallCount,
+        defaultCtx,
+      ),
+    ).toBe(false);
   });
 
   test("hidden during awaiting_user_input when the matching pending flag is set (secret/confirmation/question/contact/surface)", () => {
@@ -1287,45 +1319,77 @@ describe("shouldShowThinkingIndicator", () => {
     ]);
     expect(awaiting.phase).toBe("awaiting_user_input");
     expect(
-      shouldShowThinkingIndicator(awaiting.phase, awaiting.activeToolCallCount, { ...defaultCtx, hasPendingSecret: true }),
+      shouldShowThinkingIndicator(
+        awaiting.phase,
+        awaiting.activeToolCallCount,
+        { ...defaultCtx, hasPendingSecret: true },
+      ),
     ).toBe(false);
     expect(
-      shouldShowThinkingIndicator(awaiting.phase, awaiting.activeToolCallCount, { ...defaultCtx, hasPendingConfirmation: true }),
+      shouldShowThinkingIndicator(
+        awaiting.phase,
+        awaiting.activeToolCallCount,
+        { ...defaultCtx, hasPendingConfirmation: true },
+      ),
     ).toBe(false);
     expect(
-      shouldShowThinkingIndicator(awaiting.phase, awaiting.activeToolCallCount, { ...defaultCtx, hasPendingQuestion: true }),
+      shouldShowThinkingIndicator(
+        awaiting.phase,
+        awaiting.activeToolCallCount,
+        { ...defaultCtx, hasPendingQuestion: true },
+      ),
     ).toBe(false);
     expect(
-      shouldShowThinkingIndicator(awaiting.phase, awaiting.activeToolCallCount, { ...defaultCtx, hasPendingContactRequest: true }),
+      shouldShowThinkingIndicator(
+        awaiting.phase,
+        awaiting.activeToolCallCount,
+        { ...defaultCtx, hasPendingContactRequest: true },
+      ),
     ).toBe(false);
     expect(
-      shouldShowThinkingIndicator(awaiting.phase, awaiting.activeToolCallCount, { ...defaultCtx, hasUncompletedVisibleSurface: true }),
+      shouldShowThinkingIndicator(
+        awaiting.phase,
+        awaiting.activeToolCallCount,
+        { ...defaultCtx, hasUncompletedVisibleSurface: true },
+      ),
     ).toBe(false);
   });
 
   test("hidden when idle", () => {
-    expect(shouldShowThinkingIndicator(INITIAL_TURN_STATE.phase, INITIAL_TURN_STATE.activeToolCallCount, defaultCtx)).toBe(
-      false,
-    );
+    expect(
+      shouldShowThinkingIndicator(
+        INITIAL_TURN_STATE.phase,
+        INITIAL_TURN_STATE.activeToolCallCount,
+        defaultCtx,
+      ),
+    ).toBe(false);
   });
 
   test("shows after switching back to a processing conversation that has no assistant response yet", () => {
     expect(
-      shouldShowThinkingIndicator(INITIAL_TURN_STATE.phase, INITIAL_TURN_STATE.activeToolCallCount, {
-        ...defaultCtx,
-        activeConversationIsProcessing: true,
-        hasPendingAssistantResponse: true,
-      }),
+      shouldShowThinkingIndicator(
+        INITIAL_TURN_STATE.phase,
+        INITIAL_TURN_STATE.activeToolCallCount,
+        {
+          ...defaultCtx,
+          activeConversationIsProcessing: true,
+          hasPendingAssistantResponse: true,
+        },
+      ),
     ).toBe(true);
   });
 
   test("does not show restored processing dots once the conversation has assistant progress", () => {
     expect(
-      shouldShowThinkingIndicator(INITIAL_TURN_STATE.phase, INITIAL_TURN_STATE.activeToolCallCount, {
-        ...defaultCtx,
-        activeConversationIsProcessing: true,
-        hasPendingAssistantResponse: false,
-      }),
+      shouldShowThinkingIndicator(
+        INITIAL_TURN_STATE.phase,
+        INITIAL_TURN_STATE.activeToolCallCount,
+        {
+          ...defaultCtx,
+          activeConversationIsProcessing: true,
+          hasPendingAssistantResponse: false,
+        },
+      ),
     ).toBe(false);
   });
 
@@ -1343,10 +1407,14 @@ describe("shouldShowThinkingIndicator", () => {
     ]);
     expect(afterTool.phase).toBe("thinking");
     expect(
-      shouldShowThinkingIndicator(afterTool.phase, afterTool.activeToolCallCount, {
-        ...defaultCtx,
-        hasStreamingAssistantMessage: true,
-      }),
+      shouldShowThinkingIndicator(
+        afterTool.phase,
+        afterTool.activeToolCallCount,
+        {
+          ...defaultCtx,
+          hasStreamingAssistantMessage: true,
+        },
+      ),
     ).toBe(true);
   });
 
@@ -1363,11 +1431,15 @@ describe("shouldShowThinkingIndicator", () => {
     ]);
     expect(afterTool.phase).toBe("thinking");
     expect(
-      shouldShowThinkingIndicator(afterTool.phase, afterTool.activeToolCallCount, {
-        ...defaultCtx,
-        hasStreamingAssistantMessage: true,
-        hasStreamingAssistantThinking: true,
-      }),
+      shouldShowThinkingIndicator(
+        afterTool.phase,
+        afterTool.activeToolCallCount,
+        {
+          ...defaultCtx,
+          hasStreamingAssistantMessage: true,
+          hasStreamingAssistantThinking: true,
+        },
+      ),
     ).toBe(false);
   });
 
@@ -1379,22 +1451,30 @@ describe("shouldShowThinkingIndicator", () => {
       { type: "ACTIVITY_STATE_THINKING" },
     ]);
     expect(
-      shouldShowThinkingIndicator(thinking.phase, thinking.activeToolCallCount, {
-        ...defaultCtx,
-        hasStreamingAssistantMessage: true,
-        hasStreamingAssistantThinking: false,
-      }),
+      shouldShowThinkingIndicator(
+        thinking.phase,
+        thinking.activeToolCallCount,
+        {
+          ...defaultCtx,
+          hasStreamingAssistantMessage: true,
+          hasStreamingAssistantThinking: false,
+        },
+      ),
     ).toBe(true);
   });
 
   test("restored processing dots do not compete with pending interaction UI", () => {
     expect(
-      shouldShowThinkingIndicator(INITIAL_TURN_STATE.phase, INITIAL_TURN_STATE.activeToolCallCount, {
-        ...defaultCtx,
-        activeConversationIsProcessing: true,
-        hasPendingAssistantResponse: true,
-        hasPendingConfirmation: true,
-      }),
+      shouldShowThinkingIndicator(
+        INITIAL_TURN_STATE.phase,
+        INITIAL_TURN_STATE.activeToolCallCount,
+        {
+          ...defaultCtx,
+          activeConversationIsProcessing: true,
+          hasPendingAssistantResponse: true,
+          hasPendingConfirmation: true,
+        },
+      ),
     ).toBe(false);
   });
 });

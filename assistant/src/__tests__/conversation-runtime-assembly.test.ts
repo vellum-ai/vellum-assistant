@@ -33,6 +33,37 @@ mock.module("../config/loader.js", () => ({
   },
 }));
 
+// `resolveTurnInboundActorContext` reads the INFO `notes` field via a local
+// contactId join (interaction count now comes from the gateway verdict). Stub
+// the join so the actor-context tests can stage it without standing up the
+// contacts schema.
+const realContactStoreForAssemblyTest =
+  await import("../contacts/contact-store.js");
+let contactInfoById: Record<string, { notes: string | null }> = {};
+mock.module("../contacts/contact-store.js", () => ({
+  ...realContactStoreForAssemblyTest,
+  findContactInfoById: (contactId: string) =>
+    contactInfoById[contactId] ?? null,
+}));
+
+// `resolveTurnInboundActorContext` must NOT re-resolve ACL via the actor-trust
+// resolver on the fresh-inbound path. Track calls so the tests can assert it
+// is never invoked.
+const realActorTrustResolverForAssemblyTest =
+  await import("../runtime/actor-trust-resolver.js");
+let resolveActorTrustCalls = 0;
+mock.module("../runtime/actor-trust-resolver.js", () => ({
+  ...realActorTrustResolverForAssemblyTest,
+  resolveActorTrust: (
+    ...args: Parameters<
+      typeof realActorTrustResolverForAssemblyTest.resolveActorTrust
+    >
+  ) => {
+    resolveActorTrustCalls += 1;
+    return realActorTrustResolverForAssemblyTest.resolveActorTrust(...args);
+  },
+}));
+
 // PKB search is mocked so the reminder-hints tests can assert behavior
 // without standing up Qdrant. The mock returns whatever is staged in
 // `pkbSearchResults` / `pkbSearchThrows` for the enclosing test.
@@ -42,7 +73,7 @@ let pkbSearchResults: Array<{
   hybridScore?: number;
 }> = [];
 let pkbSearchThrows: Error | null = null;
-mock.module("../memory/pkb/pkb-search.js", () => ({
+mock.module("../plugins/defaults/memory/pkb/pkb-search.js", () => ({
   searchPkbFiles: async () => {
     if (pkbSearchThrows) throw pkbSearchThrows;
     return pkbSearchResults;
@@ -99,22 +130,23 @@ import {
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import type { MessageRow } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
-import { getPkbRoot } from "../memory/pkb/types.js";
-import { conversations, messages } from "../memory/schema.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
 import { parentAlias } from "../messaging/providers/slack/render-transcript.js";
-import postCompact from "../plugins/defaults/memory-retrieval/hooks/post-compact.js";
+import type { MessageRow } from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations, messages } from "../persistence/schema/index.js";
+import { registerDefaultPluginInjectors } from "../plugins/defaults/index.js";
+import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
+import postCompact from "../plugins/defaults/memory/hooks/post-compact.js";
+import { getPkbRoot } from "../plugins/defaults/memory/pkb/types.js";
 import {
   buildUnifiedTurnContextBlock,
   type UnifiedTurnContextOptions,
-} from "../plugins/defaults/memory-retrieval/unified-turn-context.js";
+} from "../plugins/defaults/turn-context/unified-turn-context.js";
 import type { Message } from "../providers/types.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
 import { getSubagentManager } from "../subagent/index.js";
@@ -125,6 +157,12 @@ import { getWorkspacePromptPath } from "../util/platform.js";
 // reading the live conversation's persisted message rows, so the schema must
 // exist before any Slack-channel assembly test runs.
 await initializeDb();
+
+// Populate the injector registry with the default plugins' injectors the way
+// bootstrap does in production, so the `applyRuntimeInjections` suites below
+// walk a non-empty chain. Registered at module load (before any describe runs)
+// because the chain-driving tests span multiple `describe` blocks.
+registerDefaultPluginInjectors();
 
 // The pkb-reminder injector derives PKB-active state from the workspace itself
 // — `readPkbContext()` returning content behind the personal-memory trust gate
@@ -1064,7 +1102,7 @@ describe("applyRuntimeInjections — injection mode", () => {
       requestId: "reinject-req",
       conversationId: "injection-mode-conv",
       isNonInteractive: false,
-      modelProfileKey: null,
+      modelProfileKey: "balanced",
     };
     await postCompact(postCompactCtx);
     const result = postCompactCtx.history;
@@ -1476,6 +1514,11 @@ describe("applyRuntimeInjections with nowScratchpad", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveTurnInboundActorContext", () => {
+  beforeEach(() => {
+    contactInfoById = {};
+    resolveActorTrustCalls = 0;
+  });
+
   /**
    * No trust context means there is no inbound actor to ground the turn on, so
    * the actor section is suppressed.
@@ -1483,7 +1526,7 @@ describe("resolveTurnInboundActorContext", () => {
   test("returns null when there is no trust context", () => {
     // GIVEN a turn with no trust context
     // WHEN the inbound actor context is resolved
-    const actorContext = resolveTurnInboundActorContext(undefined, "asst-1");
+    const actorContext = resolveTurnInboundActorContext(undefined);
 
     // THEN there is no actor context to inject
     expect(actorContext).toBeNull();
@@ -1494,8 +1537,7 @@ describe("resolveTurnInboundActorContext", () => {
    * only renders actor fields for non-guardian actors.
    */
   test("returns null on guardian turns", () => {
-    // GIVEN a guardian trust context (no requester chat id, so the direct
-    // projection branch is taken)
+    // GIVEN a guardian trust context
     const trustContext: TrustContext = {
       sourceChannel: "vellum",
       trustClass: "guardian",
@@ -1503,40 +1545,100 @@ describe("resolveTurnInboundActorContext", () => {
     };
 
     // WHEN the inbound actor context is resolved
-    const actorContext = resolveTurnInboundActorContext(trustContext, "asst-1");
+    const actorContext = resolveTurnInboundActorContext(trustContext);
 
     // THEN the actor section is suppressed for the owner
     expect(actorContext).toBeNull();
   });
 
   /**
-   * A non-guardian trust context without the identity fields needed for the
-   * unified actor-trust lookup is projected directly into the actor context.
+   * ACL fields (trust class, member status/policy, guardian identity) project
+   * from the verdict-derived trust context — without re-resolving via the
+   * actor-trust resolver.
    */
-  test("projects a non-guardian trust context directly", () => {
-    // GIVEN a trusted-contact trust context lacking requester chat/user ids
+  test("projects ACL from the verdict-derived trust context", () => {
+    // GIVEN a trusted-contact trust context carrying verdict-derived ACL fields
     const trustContext: TrustContext = {
       sourceChannel: "telegram",
       trustClass: "trusted_contact",
       requesterIdentifier: "@bob_handle",
       requesterDisplayName: "Bob",
       requesterSenderDisplayName: "Bobby",
+      requesterExternalUserId: "tg-123",
+      requesterChatId: "chat-1",
+      memberStatus: "active",
+      memberPolicy: "allow",
     };
 
     // WHEN the inbound actor context is resolved
-    const actorContext = resolveTurnInboundActorContext(trustContext, "asst-1");
+    const actorContext = resolveTurnInboundActorContext(trustContext);
 
-    // THEN the trust context is projected into the model-facing actor context
+    // THEN ACL is projected from the context and no ACL re-read happened
     expect(actorContext).toEqual({
       sourceChannel: "telegram",
-      canonicalActorIdentity: null,
+      canonicalActorIdentity: "tg-123",
       actorIdentifier: "@bob_handle",
       actorDisplayName: "Bob",
       actorSenderDisplayName: "Bobby",
       actorMemberDisplayName: undefined,
       trustClass: "trusted_contact",
       guardianIdentity: undefined,
+      memberStatus: "active",
+      memberPolicy: "allow",
     });
+    expect(resolveActorTrustCalls).toBe(0);
+  });
+
+  /**
+   * The INFO `notes` field is joined locally by the verdict-stamped contact ID,
+   * while the interaction count is gateway-owned and carried on the verdict
+   * (never re-resolved through the ACL store or the local aggregation).
+   */
+  test("notes come from the local join; interaction count from the verdict", () => {
+    // GIVEN a contact whose notes are available by id
+    contactInfoById["contact-42"] = { notes: "prefers async updates" };
+    const trustContext: TrustContext = {
+      sourceChannel: "telegram",
+      trustClass: "trusted_contact",
+      requesterExternalUserId: "tg-123",
+      requesterChatId: "chat-1",
+      requesterContactId: "contact-42",
+      memberStatus: "active",
+      memberPolicy: "allow",
+      // Gateway-owned interaction telemetry, stamped from the trust verdict.
+      requesterInteractionCount: 7,
+    };
+
+    // WHEN the inbound actor context is resolved
+    const actorContext = resolveTurnInboundActorContext(trustContext);
+
+    // THEN notes come from the local join, the count from the verdict, and ACL
+    // stays verdict-derived
+    expect(actorContext?.contactNotes).toBe("prefers async updates");
+    expect(actorContext?.contactInteractionCount).toBe(7);
+    expect(actorContext?.memberStatus).toBe("active");
+    expect(resolveActorTrustCalls).toBe(0);
+  });
+
+  /**
+   * A verdict without member telemetry (unknown sender) leaves the interaction
+   * count undefined rather than reviving a local assistant-DB read.
+   */
+  test("interaction count is undefined when the verdict carries none", () => {
+    contactInfoById["contact-99"] = { notes: "some note" };
+    const trustContext: TrustContext = {
+      sourceChannel: "telegram",
+      trustClass: "trusted_contact",
+      requesterExternalUserId: "tg-999",
+      requesterChatId: "chat-9",
+      requesterContactId: "contact-99",
+      // No requesterInteractionCount stamped.
+    };
+
+    const actorContext = resolveTurnInboundActorContext(trustContext);
+
+    expect(actorContext?.contactNotes).toBe("some note");
+    expect(actorContext?.contactInteractionCount).toBeUndefined();
   });
 });
 
@@ -1546,16 +1648,16 @@ describe("resolveTurnInboundActorContext", () => {
 
 describe("resolveTurnModelProfileLabel", () => {
   /**
-   * A null key means the active profile is unchanged since the last notified
-   * one, so there is no `model_profile` line to render this turn.
+   * A null notice key means there is no `model_profile` line to render this
+   * turn.
    */
-  test("returns null when the profile key is null", () => {
-    // GIVEN a turn whose profile is unchanged since the last notification
+  test("returns null when the profile notice key is null", () => {
+    // GIVEN a turn without a profile notice to render
     const llm = LLMSchema.parse({
       default: { provider: "anthropic", model: "claude-sonnet-4-7" },
     });
 
-    // WHEN the label is resolved for a null key
+    // WHEN the label is resolved for a null notice key
     const label = resolveTurnModelProfileLabel(null, "mainAgent", llm);
 
     // THEN there is no profile line to inject
@@ -2659,7 +2761,7 @@ describe("applyRuntimeInjections — PKB relevance hints", () => {
   const pkbRoot = getPkbRoot();
 
   // The pkb-reminder injector reads the dense/sparse PKB query pair off the
-  // conversation's live graph handle (the memory-retrieval hook records it
+  // conversation's live graph handle (the memory plugin's hook records it
   // there during retrieval), not from the injection options. Register a handle
   // for the fallback conversation id `applyRuntimeInjections` synthesizes and
   // seed it with a query vector so the hint-search branch runs.

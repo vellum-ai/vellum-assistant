@@ -13,15 +13,18 @@ import { resolveAgentWithAutoInstall } from "../../acp/auto-install.js";
 import { getAcpSessionManager } from "../../acp/index.js";
 import { prepareAgentEnv } from "../../acp/prepare-agent-env.js";
 import { formatResolveFailure } from "../../acp/resolve-agent.js";
-import { AcpResumeError } from "../../acp/session-manager.js";
+import {
+  AcpResumeError,
+  AcpSessionNotFoundError,
+} from "../../acp/session-manager.js";
 import type { AcpSessionState } from "../../acp/types.js";
 import { getConfig } from "../../config/loader.js";
-import { getDb } from "../../memory/db-connection.js";
-import { rawChanges } from "../../memory/raw-query.js";
-import { acpSessionHistory } from "../../memory/schema.js";
 import type { UserDecision } from "../../permissions/types.js";
-import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { rawChanges } from "../../persistence/raw-query.js";
+import { acpSessionHistory } from "../../persistence/schema/index.js";
 import { getLogger } from "../../util/logger.js";
+import { broadcastMessage } from "../assistant-event-hub.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import * as pendingInteractions from "../pending-interactions.js";
 import {
@@ -29,6 +32,7 @@ import {
   ConflictError,
   FailedDependencyError,
   ForbiddenError,
+  InternalError,
   NotFoundError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -50,6 +54,14 @@ const sessionEntrySchema = z.object({
   completedAt: z.number().nullable().optional(),
   error: z.string().nullable().optional(),
   stopReason: z.string().nullable().optional(),
+  task: z.string().optional(),
+  parentToolUseId: z.string().optional(),
+  usedTokens: z.number().optional(),
+  contextSize: z.number().optional(),
+  costAmount: z.number().optional(),
+  costCurrency: z.string().optional(),
+  inputTokens: z.number().optional(),
+  outputTokens: z.number().optional(),
   eventLog: z.array(z.unknown()).optional(),
 });
 
@@ -379,8 +391,16 @@ async function cancelSession({ pathParams }: RouteHandlerArgs) {
   const manager = getAcpSessionManager();
   try {
     await manager.cancel(id);
-  } catch {
-    throw new NotFoundError("ACP session not found");
+  } catch (err) {
+    // Only a genuinely unknown session is a 404. A protocol-cancel failure on a
+    // still-live session is a real error, not a missing session, so it surfaces
+    // as a 500 rather than a misleading not-found.
+    if (err instanceof AcpSessionNotFoundError) {
+      throw new NotFoundError("ACP session not found");
+    }
+    throw new InternalError(
+      err instanceof Error ? err.message : "Failed to cancel ACP session",
+    );
   }
   return { acpSessionId: id, cancelled: true };
 }
@@ -689,6 +709,15 @@ function listMergedSessions(opts: {
       completedAt: s.completedAt ?? null,
       error: s.error ?? null,
       stopReason: s.stopReason ?? null,
+      task: s.task,
+      parentToolUseId: s.parentToolUseId,
+      usedTokens: s.latestUsage?.usedTokens,
+      contextSize: s.latestUsage?.contextSize,
+      costAmount: s.latestUsage?.costAmount,
+      costCurrency: s.latestUsage?.costCurrency,
+      inputTokens: s.latestUsage?.inputTokens,
+      outputTokens: s.latestUsage?.outputTokens,
+      eventLog: manager.getBufferedUpdates(s.id),
     });
   }
 
@@ -722,6 +751,8 @@ function listMergedSessions(opts: {
         "Failed to parse event_log_json for ACP session history row",
       );
     }
+    // Rows predating the usage migration carry NULLs for these columns and
+    // degrade to undefined.
     merged.set(row.id, {
       id: row.id,
       agentId: row.agentId,
@@ -732,6 +763,14 @@ function listMergedSessions(opts: {
       completedAt: row.completedAt,
       error: row.error,
       stopReason: row.stopReason,
+      task: row.task ?? undefined,
+      parentToolUseId: row.parentToolUseId ?? undefined,
+      usedTokens: row.usedTokens ?? undefined,
+      contextSize: row.contextSize ?? undefined,
+      costAmount: row.costAmount ?? undefined,
+      costCurrency: row.costCurrency ?? undefined,
+      inputTokens: row.inputTokens ?? undefined,
+      outputTokens: row.outputTokens ?? undefined,
       eventLog,
     });
   }

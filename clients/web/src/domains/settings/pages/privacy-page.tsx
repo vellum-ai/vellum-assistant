@@ -1,6 +1,5 @@
 import { useState } from "react";
 
-import { ChannelPolicyCard } from "@/components/channel-policy/channel-policy-card";
 import { DetailCard } from "@/components/detail-card";
 import { SettingRow } from "@/components/setting-row";
 import { SystemPermissionsCard } from "@/components/system-permissions-card";
@@ -9,7 +8,6 @@ import { BiometricSettingsCard } from "@/domains/settings/components/biometric-s
 import { RiskToleranceSettings } from "@/domains/settings/components/risk-tolerance-settings";
 import { TrustRules } from "@/domains/settings/components/trust-rules/trust-rules";
 import { usePlatformGate } from "@/hooks/use-platform-gate";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import {
   useAuthStore,
   useHasConfirmedPlatformSession,
@@ -45,7 +43,6 @@ export function PrivacyPage() {
   // platformHostedOnly so the divider visibility matches the gate inside
   // `AccessConsentSetting` exactly.
   const platformGate = usePlatformGate({ platformHostedOnly: true });
-  const channelTrustFloors = useAssistantFeatureFlagStore.use.channelTrustFloors();
   // The Share toggles control telemetry (browser Sentry, daemon analytics) that
   // only runs with a probe-confirmed live platform session, so gate both the
   // visibility and the consent write on it — matching `sentry-control.ts`. A
@@ -86,7 +83,6 @@ export function PrivacyPage() {
       <BiometricSettingsCard />
       <SystemPermissionsCard />
       <TrustRules />
-      {channelTrustFloors && <ChannelPolicyCard />}
       <RiskToleranceSettings />
       <DetailCard
         title="Privacy"

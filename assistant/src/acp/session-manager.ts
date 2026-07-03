@@ -11,13 +11,14 @@ import { eq, inArray } from "drizzle-orm";
 import { findConversation } from "../daemon/conversation-registry.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { AcpSessionUpdate } from "../daemon/message-types/acp.js";
-import { getDb } from "../memory/db-connection.js";
-import { acpSessionHistory } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { acpSessionHistory } from "../persistence/schema/index.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 import { AcpAgentProcess } from "./agent-process.js";
 import { resolveAgentWithAutoInstall } from "./auto-install.js";
 import { VellumAcpClientHandler } from "./client-handler.js";
+import { deriveFailureError } from "./failure-error.js";
 import { prepareAgentEnv } from "./prepare-agent-env.js";
 import { formatResolveFailure } from "./resolve-agent.js";
 import { claudeResumeHint } from "./resume-hint.js";
@@ -72,6 +73,10 @@ interface SessionEntry {
   currentPrompt: Promise<unknown> | null;
   parentConversationId: string;
   cwd: string;
+  /** Tool-use id of the `acp_spawn` call that spawned this session, if any. */
+  parentToolUseId?: string;
+  /** Objective text the session was spawned with, if known. */
+  task?: string;
   /** Resolved adapter command basename (e.g. "claude-agent-acp"). Used to
    *  gate resume hints to the only adapter (claude-agent-acp) whose CLI
    *  accepts `--resume`. */
@@ -191,6 +196,7 @@ export class AcpSessionManager {
     cwd: string,
     parentConversationId: string,
     sendToVellum: (msg: ServerMessage) => void,
+    parentToolUseId?: string,
   ): Promise<{ acpSessionId: string; protocolSessionId: string }> {
     this.assertCapacity();
 
@@ -214,6 +220,8 @@ export class AcpSessionManager {
       cwd,
       startedAt: Date.now(),
       sendToVellum,
+      parentToolUseId,
+      task,
     });
     const { process: agentProcess, state } = entry;
 
@@ -268,6 +276,8 @@ export class AcpSessionManager {
     cwd: string;
     startedAt: number;
     sendToVellum: (msg: ServerMessage) => void;
+    parentToolUseId?: string;
+    task?: string;
   }): SessionEntry {
     const { acpSessionId } = opts;
 
@@ -280,6 +290,20 @@ export class AcpSessionManager {
     const wrappedSend = (msg: ServerMessage) => {
       if (msg.type === "acp_session_update") {
         this.appendToBuffer(acpSessionId, msg);
+      } else if (msg.type === "acp_session_usage") {
+        // Track the latest usage gauge so a terminal transition can persist
+        // the final snapshot.
+        const state = this.sessions.get(acpSessionId)?.state;
+        if (state) {
+          state.latestUsage = {
+            usedTokens: msg.usedTokens,
+            contextSize: msg.contextSize,
+            costAmount: msg.costAmount,
+            costCurrency: msg.costCurrency,
+            inputTokens: msg.inputTokens ?? state.latestUsage?.inputTokens,
+            outputTokens: msg.outputTokens ?? state.latestUsage?.outputTokens,
+          };
+        }
       }
       opts.sendToVellum(msg);
     };
@@ -303,6 +327,8 @@ export class AcpSessionManager {
       parentConversationId: opts.parentConversationId,
       status: "initializing",
       startedAt: opts.startedAt,
+      task: opts.task,
+      parentToolUseId: opts.parentToolUseId,
     };
 
     const entry: SessionEntry = {
@@ -313,6 +339,8 @@ export class AcpSessionManager {
       currentPrompt: null,
       parentConversationId: opts.parentConversationId,
       cwd: opts.cwd,
+      parentToolUseId: opts.parentToolUseId,
+      task: opts.task,
       command: basename(opts.agentConfig.command),
     };
 
@@ -332,6 +360,8 @@ export class AcpSessionManager {
       acpSessionId,
       agent: entry.state.agentId,
       parentConversationId: entry.parentConversationId,
+      parentToolUseId: entry.parentToolUseId,
+      task: entry.task,
     });
   }
 
@@ -457,6 +487,13 @@ export class AcpSessionManager {
       cwd: row.cwd,
       startedAt: row.startedAt,
       sendToVellum,
+      // Carry the persisted metadata onto the fresh in-memory state so the
+      // next terminal upsert rewrites the same values instead of NULLing
+      // them. A resumed run only emits a usage_update if it does fresh work;
+      // without seeding, a resume->re-terminate would clobber the stored
+      // task/parentToolUseId/usage.
+      task: row.task ?? undefined,
+      parentToolUseId: row.parentToolUseId ?? undefined,
     });
 
     log.info(
@@ -465,14 +502,35 @@ export class AcpSessionManager {
     );
     const { process: agentProcess, state } = entry;
 
+    // Seed the latest usage snapshot from the persisted columns. A fresh
+    // usage_update during the resumed run overwrites this; if none fires the
+    // prior snapshot is re-persisted on terminal transition. Pre-migration
+    // rows have null token columns and leave latestUsage undefined.
+    if (row.usedTokens !== null && row.contextSize !== null) {
+      state.latestUsage = {
+        usedTokens: row.usedTokens,
+        contextSize: row.contextSize,
+        costAmount: row.costAmount ?? undefined,
+        costCurrency: row.costCurrency ?? undefined,
+        inputTokens: row.inputTokens ?? undefined,
+        outputTokens: row.outputTokens ?? undefined,
+      };
+    }
+
     // Re-seed the ring buffer from the persisted event log, routed through
     // appendToBuffer so the count/byte caps still apply. The terminal
-    // upsert then persists the merged (old + new) log.
+    // upsert then persists the merged (old + new) log. Track the highest
+    // persisted seq and advance the fresh handler's counter to it so live
+    // updates after resume continue strictly increasing instead of resetting
+    // to 1 (which the web client would drop as seq <= highWaterMark).
+    let maxSeq = 0;
     try {
       const persisted = JSON.parse(row.eventLogJson) as unknown;
       if (Array.isArray(persisted)) {
         for (const update of persisted) {
           this.appendToBuffer(acpSessionId, update as AcpSessionUpdate);
+          const seq = (update as AcpSessionUpdate)?.seq;
+          if (typeof seq === "number" && seq > maxSeq) maxSeq = seq;
         }
       }
     } catch (err) {
@@ -481,6 +539,8 @@ export class AcpSessionManager {
         "Failed to re-seed ACP event buffer from persisted history",
       );
     }
+    // Seed before the child process spawns so no live update can fire first.
+    entry.clientHandler.seedSeq(maxSeq);
 
     try {
       log.info(
@@ -680,9 +740,28 @@ export class AcpSessionManager {
     if (!entry) {
       throw new AcpSessionNotFoundError(acpSessionId);
     }
-    await entry.process.cancel(entry.state.acpSessionId);
+    // Mark cancelled BEFORE awaiting the protocol cancel. If the in-flight
+    // prompt rejects during this window, its catch handler must already see
+    // "cancelled" so it neither overwrites the status with "failed" nor wakes
+    // the parent — no model activity may follow a user stop.
+    const prevStatus = entry.state.status;
+    const prevCompletedAt = entry.state.completedAt;
     entry.state.status = "cancelled";
     entry.state.completedAt = Date.now();
+    try {
+      await entry.process.cancel(entry.state.acpSessionId);
+    } catch (err) {
+      // The protocol cancel failed (e.g. the adapter connection is already
+      // down): the session was NOT actually cancelled, so restore the prior
+      // status. Otherwise the still-running prompt's eventual completion would
+      // be wrongly suppressed and persisted as cancelled. Rethrow so the caller
+      // reports failure and the client rolls back its optimistic cancel.
+      if (this.sessions.get(acpSessionId) === entry) {
+        entry.state.status = prevStatus;
+        entry.state.completedAt = prevCompletedAt;
+      }
+      throw err;
+    }
     // Re-check the map after the await: the in-flight prompt's handler may
     // have already torn the session down while process.cancel was pending.
     if (!entry.currentPrompt && this.sessions.get(acpSessionId) === entry) {
@@ -793,6 +872,18 @@ export class AcpSessionManager {
   }
 
   /**
+   * Returns the live ring buffer for an active session as wire-shaped
+   * `AcpSessionUpdate[]` (each carrying `seq`), matching exactly what
+   * `persistTerminal` serializes to `eventLogJson` on terminal transition.
+   * Empty array for unknown/already-torn-down ids.
+   */
+  getBufferedUpdates(acpSessionId: string): AcpSessionUpdate[] {
+    const buffer = this.eventBuffers.get(acpSessionId);
+    if (!buffer) return [];
+    return buffer.map((b) => b.update);
+  }
+
+  /**
    * Appends a wire-shaped update to the ring buffer, evicting oldest events
    * when either the count or aggregate-byte cap is exceeded. Byte
    * accounting tracks the sum of element JSON sizes; the cap is a soft
@@ -830,6 +921,17 @@ export class AcpSessionManager {
     // Serialize only the wire-shaped updates — drop the byte-size accounting
     // metadata so persisted rows match the protocol shape clients receive.
     const eventLogJson = JSON.stringify(buffer.map((b) => b.update));
+    const usage = entry.state.latestUsage;
+    const usageColumns = {
+      task: entry.state.task ?? null,
+      parentToolUseId: entry.state.parentToolUseId ?? null,
+      usedTokens: usage?.usedTokens ?? null,
+      contextSize: usage?.contextSize ?? null,
+      costAmount: usage?.costAmount ?? null,
+      costCurrency: usage?.costCurrency ?? null,
+      inputTokens: usage?.inputTokens ?? null,
+      outputTokens: usage?.outputTokens ?? null,
+    };
     try {
       getDb()
         .insert(acpSessionHistory)
@@ -845,6 +947,7 @@ export class AcpSessionManager {
           error: entry.state.error ?? null,
           eventLogJson,
           cwd: entry.cwd,
+          ...usageColumns,
         })
         .onConflictDoUpdate({
           target: acpSessionHistory.id,
@@ -855,6 +958,7 @@ export class AcpSessionManager {
             error: entry.state.error ?? null,
             eventLogJson,
             cwd: entry.cwd,
+            ...usageColumns,
           },
         })
         .run();
@@ -879,6 +983,10 @@ export class AcpSessionManager {
     message: string,
   ): Promise<unknown> {
     log.info({ acpSessionId, messageLen: message.length }, "ACP firing prompt");
+    // Checkpoint stderr before the prompt so a failure derives only from stderr
+    // this prompt produced — not lines retained from startup, resume, or an
+    // earlier (possibly cancelled) prompt.
+    const stderrMark = entry.process.markStderr();
     const promptPromise = entry.process
       .prompt(acpProtocolSessionId, message)
       .then((response) => {
@@ -893,6 +1001,34 @@ export class AcpSessionManager {
             current.state.stopReason = response.stopReason;
           }
           current.currentPrompt = null;
+
+          // `PromptResponse.usage` carries cumulative input/output totals across
+          // all turns. Overwrite (not accumulate) onto the latest usage gauge so
+          // the terminal persist captures them, and emit so clients see the final
+          // counts. Reuse the most recent context-window snapshot for
+          // usedTokens/contextSize, which the prompt response does not report.
+          const usage = response.usage;
+          if (usage) {
+            const prior = current.state.latestUsage;
+            current.state.latestUsage = {
+              usedTokens: prior?.usedTokens ?? 0,
+              contextSize: prior?.contextSize ?? 0,
+              costAmount: prior?.costAmount,
+              costCurrency: prior?.costCurrency,
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+            };
+            current.sendToVellum({
+              type: "acp_session_usage",
+              acpSessionId,
+              usedTokens: current.state.latestUsage.usedTokens,
+              contextSize: current.state.latestUsage.contextSize,
+              costAmount: current.state.latestUsage.costAmount,
+              costCurrency: current.state.latestUsage.costCurrency,
+              inputTokens: usage.inputTokens,
+              outputTokens: usage.outputTokens,
+            });
+          }
           log.info(
             { acpSessionId, stopReason: response.stopReason },
             "ACP prompt completed",
@@ -911,44 +1047,22 @@ export class AcpSessionManager {
           // kill the agent process.
           this.teardownSession(acpSessionId, current);
 
-          // Notify parent session so the LLM sees the agent's output
+          // Notify parent session so the LLM sees the agent's output.
           const agentLabel = current.state.agentId;
           const responseText = current.clientHandler.responseText;
-          const sessionId = current.state.acpSessionId;
           const hint = claudeResumeHint(
             current.command,
             current.cwd,
-            sessionId,
+            current.state.acpSessionId,
           );
           const resumeHint = hint ? `\n\n${hint}` : "";
-          const notifyMessage = `[ACP agent "${agentLabel}" completed]\n\n${responseText}${resumeHint}`;
-          const parentConversation = findConversation(
-            current.parentConversationId,
-          );
-          if (parentConversation) {
-            const enqueueResult = parentConversation.enqueueMessage({
-              content: notifyMessage,
-            });
-            if (!enqueueResult.queued && !enqueueResult.rejected) {
-              parentConversation
-                .persistUserMessage({ content: notifyMessage })
-                .then(({ id: messageId }) =>
-                  parentConversation.runAgentLoop(notifyMessage, messageId),
-                )
-                .catch((err) => {
-                  log.error(
-                    {
-                      parentConversationId: current.parentConversationId,
-                      err,
-                    },
-                    "Failed to process ACP notification in parent",
-                  );
-                });
-            }
-          } else {
-            log.warn(
-              { parentConversationId: current.parentConversationId },
-              "ACP agent finished but parent conversation not found",
+          // Skip when cancelled: a prompt can win the cancel race by resolving
+          // normally, but a user stop must not enqueue a completion and wake the
+          // parent (mirrors the failure-path gate below).
+          if (current.state.status !== "cancelled") {
+            this.notifyParent(
+              current,
+              `[ACP agent "${agentLabel}" completed]\n\n${responseText}${resumeHint}`,
             );
           }
         }
@@ -958,17 +1072,26 @@ export class AcpSessionManager {
         // Same guards: entry must exist, prompt must be current, and status
         // must not have been set to "cancelled".
         if (current && current.currentPrompt === promptPromise) {
+          // The ack message is often a generic "Internal error"; recover the
+          // real cause from the adapter's retained stderr.
+          const failureMessage = deriveFailureError(
+            err.message,
+            current.process.stderrSince(stderrMark),
+          );
           if (current.state.status !== "cancelled") {
             current.state.status = "failed";
             current.state.completedAt = Date.now();
-            current.state.error = err.message;
+            current.state.error = failureMessage;
           }
           current.currentPrompt = null;
-          log.error({ acpSessionId, error: err.message }, "ACP prompt failed");
+          log.error(
+            { acpSessionId, error: err.message, failureMessage },
+            "ACP prompt failed",
+          );
           current.sendToVellum({
             type: "acp_session_error",
             acpSessionId,
-            error: err.message,
+            error: failureMessage,
           });
 
           // Persist the terminal row before teardown clears the buffer.
@@ -976,10 +1099,66 @@ export class AcpSessionManager {
 
           // Free the session slot and deny any pending permissions.
           this.teardownSession(acpSessionId, current);
+
+          // Wake the parent with the failure (mirrors the success path) so
+          // the assistant reports it instead of silently re-spawning. Skip
+          // when cancelled: a user-cancelled run tears down silently and must
+          // not inject a turn. teardownSession leaves state intact, so the
+          // agentId read below is still valid.
+          if (current.state.status !== "cancelled") {
+            this.notifyParent(
+              current,
+              `[ACP agent "${current.state.agentId}" failed]\n\n${failureMessage}`,
+            );
+          }
         }
       });
 
     return promptPromise;
+  }
+
+  /**
+   * Injects an ACP run's outcome into its parent conversation. Shared by the
+   * success and failure paths of firePromptInBackground so a hard failure
+   * reaches the parent (and its inline card) exactly like a completion does.
+   *
+   * The message carries `acpNotification` metadata so the daemon skips its
+   * user_message_echo and the client filters it from the rendered transcript —
+   * the user sees the run through its inline card, not a raw chat turn, while
+   * the LLM still receives the text.
+   *
+   * Reads `entry.state.acpSessionId`/`agentId`, which teardownSession leaves
+   * intact, so callers may invoke this after tearing the session down.
+   */
+  private notifyParent(entry: SessionEntry, message: string): void {
+    const acpNotification = {
+      acpSessionId: entry.state.acpSessionId,
+      agent: entry.state.agentId,
+    };
+    const parentConversation = findConversation(entry.parentConversationId);
+    if (!parentConversation) {
+      log.warn(
+        { parentConversationId: entry.parentConversationId },
+        "ACP agent finished but parent conversation not found",
+      );
+      return;
+    }
+    const enqueueResult = parentConversation.enqueueMessage({
+      content: message,
+      metadata: { acpNotification },
+    });
+    if (enqueueResult.queued || enqueueResult.rejected) return;
+    parentConversation
+      .persistUserMessage({ content: message, metadata: { acpNotification } })
+      .then(({ id: messageId }) =>
+        parentConversation.runAgentLoop(message, messageId),
+      )
+      .catch((err) => {
+        log.error(
+          { parentConversationId: entry.parentConversationId, err },
+          "Failed to process ACP notification in parent",
+        );
+      });
   }
 
   /**

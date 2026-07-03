@@ -22,10 +22,10 @@ import { ProviderEditorApiKeySection } from "@/domains/settings/ai/provider-edit
 import {
     AUTH_TYPE_DISPLAY_NAMES,
     type AuthType,
-    CONNECTION_PROVIDERS,
     connectionSaveErrorMessage,
     parseCredentialRef,
 } from "@/domains/settings/ai/provider-editor-constants";
+import { useSelectableConnectionProviders } from "@/domains/settings/ai/provider-availability";
 import { secretPlaceholder } from "@/domains/settings/ai/secret-placeholder";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useProviderCredentialsList } from "@/domains/settings/ai/use-provider-credentials-list";
@@ -116,12 +116,13 @@ export function ProviderEditorContent({
   const [error, setError] = useState<string | null>(null);
 
   const isOpenAICompatible = provider === "openai-compatible";
+  const selectableConnectionProviders = useSelectableConnectionProviders();
   const connectionProviderOptions = useMemo(() => {
-    if (provider && !CONNECTION_PROVIDERS.includes(provider)) {
-      return [...CONNECTION_PROVIDERS, provider];
+    if (provider && !selectableConnectionProviders.includes(provider)) {
+      return [...selectableConnectionProviders, provider];
     }
-    return CONNECTION_PROVIDERS;
-  }, [provider]);
+    return selectableConnectionProviders;
+  }, [provider, selectableConnectionProviders]);
 
   const { handleLabelChange, resetDirty } =
     useLabelKeySync(effectiveMode, setLabel, setName);
@@ -310,7 +311,16 @@ export function ProviderEditorContent({
         body: input,
       });
       if (!updateRes?.ok) {
-        setError(connectionSaveErrorMessage(updateRes?.status, name.trim()));
+        let serverMessage: string | undefined;
+        try {
+          const body = await updateRes?.json();
+          if (typeof body?.error?.message === "string") {
+            serverMessage = body.error.message;
+          }
+        } catch {
+          // Response body not JSON-parseable; fall through to generic message.
+        }
+        setError(serverMessage || connectionSaveErrorMessage(updateRes?.status, name.trim()));
         return;
       }
       if (!updated) {

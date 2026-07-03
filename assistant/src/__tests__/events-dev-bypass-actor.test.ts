@@ -29,7 +29,13 @@ mock.module("../config/env.js", () => ({
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({
-  findLocalGuardianPrincipalId: () => fakeGuardianPrincipalId,
+  findLocalGuardianPrincipalIdFromStore: () => fakeGuardianPrincipalId,
+  resolveActorPrincipalIdForLocalGuardianSync: (
+    rawHeader: string | undefined,
+  ) => {
+    if (rawHeader !== "dev-bypass" || !fakeHttpAuthDisabled) return rawHeader;
+    return fakeGuardianPrincipalId;
+  },
 }));
 
 mock.module("../util/logger.js", () => ({

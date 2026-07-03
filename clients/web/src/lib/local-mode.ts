@@ -205,11 +205,27 @@ export async function saveLockfileAssistant(assistant: {
   runtimeUrl: string;
   hatchedAt: string;
   organizationId?: string;
+  platformAssistantId?: string;
+  platformBaseUrl?: string;
+  platformOrganizationId?: string;
 }): Promise<void> {
   const result = await saveLockfileAssistantHost(
     assistant,
     assistant.assistantId,
   );
+  if (result.ok) {
+    commitLockfile(result.lockfile);
+  }
+}
+
+/**
+ * Update an existing assistant entry without changing the lockfile's active
+ * assistant pointer.
+ */
+export async function updateLockfileAssistant(
+  assistant: LockfileAssistant,
+): Promise<void> {
+  const result = await saveLockfileAssistantHost({ ...assistant }, undefined);
   if (result.ok) {
     commitLockfile(result.lockfile);
   }
@@ -319,8 +335,22 @@ export function hasAssistants(): boolean {
   return getLockfile().assistants.length > 0;
 }
 
+/**
+ * A local-kind assistant, by origin: a plain on-machine assistant the web client
+ * drives through its local flows (gateway connect, wake, local retire) — cloud
+ * `"local"`. (Legacy entries that predate the `cloud` field are normalized to
+ * `"local"` at the parse seam, so `cloud` is always set by the time it reaches
+ * here.) Identity only — whether it currently has a reachable gateway is a
+ * separate, connect-time question (see `getLocalGatewayUrl`).
+ *
+ * Deliberately excludes the externally-managed container runtimes (`docker`,
+ * `apple-container`) and remote self-hosted clouds (`paired`/`gcp`/`aws`/
+ * `custom`, reached at their own `runtimeUrl`), along with platform (`vellum`):
+ * the web client manages none of those through its local flows. See the
+ * `KNOWN_CLOUDS` taxonomy in `@vellumai/local-mode/contract`.
+ */
 export function isLocalAssistant(a: LockfileAssistant): boolean {
-  return a.cloud !== "vellum" && a.resources?.gatewayPort != null;
+  return a.cloud === "local";
 }
 
 export function isPlatformAssistant(a: LockfileAssistant): boolean {
@@ -328,26 +358,17 @@ export function isPlatformAssistant(a: LockfileAssistant): boolean {
 }
 
 /**
- * A plain local assistant the vellum CLI can start directly: cloud `"local"` or
- * unset (legacy entries the CLI treats as local), with a gateway port. `vellum
- * wake` operates only on these — it returns early for Docker containers and
- * refuses apple-container entries — so the "Wake up" affordance and
- * guardian-repair recovery must both be limited to them.
+ * Whether `vellum wake` can start or repair the assistant with this id. Wake
+ * operates only on plain local assistants (the {@link isLocalAssistant} set) —
+ * it refuses Docker and apple-container entries — so the "Wake up" and
+ * guardian-repair affordances are limited to them. A missing gateway port does
+ * NOT disqualify: wake is what (re)establishes it.
  */
 export function isCliWakeableAssistant(assistantId: string): boolean {
   const entry = getLockfile().assistants.find(
     (a) => a.assistantId === assistantId,
   );
-  if (!entry || !isLocalAssistant(entry)) return false;
-  return entry.cloud == null || entry.cloud === "local";
-}
-
-/**
- * True when the CLI's `wake --repair-guardian` can re-provision this assistant's
- * guardian token — the same plain-local set `vellum wake` operates on.
- */
-export function isGuardianRepairable(assistantId: string): boolean {
-  return isCliWakeableAssistant(assistantId);
+  return !!entry && isLocalAssistant(entry);
 }
 
 export function getLocalAssistants(): LockfileAssistant[] {
@@ -411,22 +432,52 @@ export function gatewayProxyUrl(port: number): string {
 }
 
 /**
+ * Whether this runtime should reach `assistant` over a local gateway: a
+ * local-kind assistant, in local (non-remote-gateway) mode. Whether that gateway
+ * is currently resolvable — a recorded port — is a separate question answered by
+ * `getLocalGatewayUrl`.
+ */
+function expectsLocalGateway(
+  assistant: LockfileAssistant | undefined,
+): assistant is LockfileAssistant {
+  return (
+    !!assistant &&
+    isLocalMode() &&
+    !isRemoteGatewayMode() &&
+    isLocalAssistant(assistant)
+  );
+}
+
+/**
  * Return the local gateway proxy URL for the given assistant (default: the
- * selected one), or `undefined` when not in local mode / not a local
- * assistant.
+ * selected one), or `undefined` when this runtime doesn't reach it over a local
+ * gateway or the gateway port hasn't been recorded yet.
  */
 export function getLocalGatewayUrl(
   assistant: LockfileAssistant | undefined = getSelectedAssistant(),
 ): string | undefined {
-  if (!isLocalMode()) return undefined;
-  if (isRemoteGatewayMode()) return undefined;
-  if (!assistant || !isLocalAssistant(assistant)) return undefined;
-  return gatewayProxyUrl(assistant.resources!.gatewayPort);
+  if (!expectsLocalGateway(assistant)) return undefined;
+  const gatewayPort = assistant.resources?.gatewayPort;
+  if (gatewayPort == null) return undefined;
+  return gatewayProxyUrl(gatewayPort);
 }
 
 // ---------------------------------------------------------------------------
 // Gateway connection setup
 // ---------------------------------------------------------------------------
+
+/**
+ * A local assistant has no resolvable local gateway — e.g. a legacy/migrated
+ * entry whose gateway port was never recorded. Recoverable by waking it (the
+ * CLI/daemon establishes the daemon + gateway and records the port), so connect
+ * flows treat it as a repairable connect error rather than a silent dead end.
+ */
+export class UnresolvedLocalGatewayError extends Error {
+  constructor(assistantId: string) {
+    super(`Local assistant ${assistantId} has no resolved gateway`);
+    this.name = "UnresolvedLocalGatewayError";
+  }
+}
 
 /**
  * Acquire a gateway token and prime the self-hosted connection for the given
@@ -442,7 +493,15 @@ export async function primeLocalGatewayConnection(
 ): Promise<void> {
   const assistant = target ?? getSelectedAssistant();
   const tokenUrl = getLocalTokenUrl(assistant);
-  if (!tokenUrl) return;
+  if (!tokenUrl) {
+    // A local assistant we recognize but can't resolve a gateway for (no port)
+    // is recoverable by waking it — surface that instead of silently leaving
+    // the session unconnected. Non-local / non-local-mode cases stay no-ops.
+    if (expectsLocalGateway(assistant)) {
+      throw new UnresolvedLocalGatewayError(assistant.assistantId);
+    }
+    return;
+  }
   const guardianToken = assistant
     ? await fetchGuardianTokenHost(assistant.assistantId)
     : undefined;
@@ -491,6 +550,12 @@ export async function primeLocalGatewayConnectionWithRepair(
     if (!assistantId) throw error;
     const repair = await wakeLocalAssistantHost(assistantId);
     if (!repair.ok) throw error;
-    await primeLocalGatewayConnection(target);
+    // Wake may have established resources the renderer hadn't recorded (a legacy
+    // entry's gateway port) — reload so the retry resolves the fresh gateway.
+    const lockfile = await loadLockfile();
+    const refreshed = lockfile.assistants.find(
+      (a) => a.assistantId === assistantId,
+    );
+    await primeLocalGatewayConnection(refreshed ?? target);
   }
 }

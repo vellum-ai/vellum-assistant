@@ -6,6 +6,10 @@ import {
     AgreementsCard,
     PrivacyPreferencesCard,
 } from "@/domains/onboarding/components/consent-controls";
+import {
+    privacyChangeNotes,
+    tosChangeNotes,
+} from "@/domains/onboarding/consent-changelog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import {
     useAnalyticsConsentCurrent,
@@ -18,7 +22,11 @@ import {
 import { hardNavigate } from "@/lib/auth/hard-navigate";
 import { isElectron } from "@/runtime/is-electron";
 import { useAuthStore, useHasPlatformSession } from "@/stores/auth-store";
-import { saveConsent } from "@/utils/onboarding-cleanup";
+import {
+    PRIVACY_CONSENT_VERSION,
+    TOS_CONSENT_VERSION,
+    saveConsent,
+} from "@/utils/onboarding-cleanup";
 import { sanitizeReturnTo } from "@/utils/return-to";
 import { routes } from "@/utils/routes";
 import { Button } from "@vellumai/design-library/components/button";
@@ -148,6 +156,8 @@ export function ReviewTermsScreen() {
             tosAccepted={tosAccepted}
             onPrivacyChange={setPrivacyConsent}
             onTosChange={setTosAccepted}
+            privacyNotes={showPrivacy ? privacyChangeNotes(PRIVACY_CONSENT_VERSION) : []}
+            tosNotes={showTos ? tosChangeNotes(TOS_CONSENT_VERSION) : []}
             className="mt-6 w-full"
             style={{ animation: "fadeInUp 0.5s ease-out 0.36s both" }}
           />

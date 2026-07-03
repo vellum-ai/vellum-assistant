@@ -24,10 +24,12 @@ import {
   CheckCircle2,
   Code,
   FileText,
+  Globe,
   Monitor,
   Pen,
   Plug,
   Sparkles,
+  SquareTerminal,
   UserPlus,
   type LucideIcon,
 } from "lucide-react";
@@ -37,13 +39,18 @@ import { Tooltip, Typography } from "@vellumai/design-library";
 
 import type { IconName } from "@/domains/chat/components/tool-progress-card/derive-step-label";
 import { ThreeDotIndicator } from "@/domains/chat/components/tool-progress-card/three-dot-indicator";
-import { formatMs, type ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
+import {
+  formatMs,
+  type ToolCallCardStep,
+} from "@/domains/chat/utils/tool-call-card-utils";
 import { cn } from "@/utils/misc";
 
 /** Concrete lucide icon for each `IconName` produced by `deriveStepLabel`. */
 export const ICON_MAP: Record<IconName, LucideIcon> = {
   code: Code,
+  terminal: SquareTerminal,
   file: FileText,
+  globe: Globe,
   pen: Pen,
   monitor: Monitor,
   plug: Plug,
@@ -169,7 +176,7 @@ function PhaseDurationLabel({
 }
 
 /** Total of `formatMs`-style labels, re-formatted via `formatMs`. */
-function sumDurationLabels(labels: string[]): string {
+export function sumDurationLabels(labels: string[]): string {
   let total = 0;
   let anyPresent = false;
   for (const label of labels) {
@@ -200,7 +207,9 @@ type PhaseHeaderStatus = "completed" | "failed" | "running";
  * "Searched the web"), so we treat any `web_search` step with that title
  * as in-flight. `thinking` is always neutral (no in-flight signal carried).
  */
-function phaseHeaderStatus(steps: ToolCallCardStep[]): PhaseHeaderStatus {
+export function phaseHeaderStatus(
+  steps: ToolCallCardStep[],
+): PhaseHeaderStatus {
   if (steps.length === 0) return "running";
   let failed = false;
   for (const step of steps) {
@@ -224,7 +233,7 @@ function phaseHeaderStatus(steps: ToolCallCardStep[]): PhaseHeaderStatus {
 }
 
 /** Phase-grouped section as consumed by the renderer. */
-interface PhaseSection {
+export interface PhaseSection {
   label: string;
   steps: ToolCallCardStep[];
 }
@@ -389,18 +398,7 @@ function TimelinePhaseSection({
       data-phase-label={section.label}
       className="relative flex flex-col gap-2"
     >
-      {/* Connector line at the node's center x. It starts BELOW this node
-          (`top-6`) and runs to the section bottom (`bottom-0`), which lands a
-          small, consistent gap before the next node — the timeline reads as
-          evenly-spaced segments rather than one line touching every circle.
-          The last section renders none (nothing trails below the final
-          circle). */}
-      {!isLast && (
-        <div
-          aria-hidden
-          className="absolute bottom-0 left-[6.5px] top-6 w-px bg-[var(--border-element)]"
-        />
-      )}
+      {!isLast && <TimelineConnector />}
       {/* Header row: circular node + label share ONE items-center row so the
           icon is vertically centered with the title regardless of line-height;
           the duration is pushed to the right edge. */}
@@ -442,11 +440,34 @@ function TimelinePhaseSection({
 }
 
 /**
+ * The vertical connector line joining one timeline node down to the next. Sits
+ * at the node's center x (`left-[6.5px]`: the 14px icon at the section's left →
+ * center ≈ 7px). It starts BELOW this node (`top-6`) and runs to the section
+ * bottom (`bottom-0`), landing a small, consistent gap before the next node —
+ * the timeline reads as evenly-spaced segments rather than one line touching
+ * every circle. Render only for non-last sections (nothing trails below the
+ * final circle). Shared by the main-chat timeline and the subagent timeline so
+ * the geometry stays in one place; callers may pass `className` to tweak it
+ * (e.g. the subagent timeline extends the bottom for a tighter segment gap).
+ */
+export function TimelineConnector({ className }: { className?: string }) {
+  return (
+    <div
+      aria-hidden
+      className={cn(
+        "absolute bottom-0 left-[6.5px] top-6 w-px bg-[var(--border-element)]",
+        className,
+      )}
+    />
+  );
+}
+
+/**
  * A timeline status node — the circular status icon. The connector lines start
  * below / end above each node (with a small gap), so the icon never needs to
  * mask the line passing behind it.
  */
-function TimelineNode({
+export function TimelineNode({
   status,
   isThinking,
 }: {
@@ -504,9 +525,15 @@ function TimelineNodeIcon({
   return <ThreeDotIndicator data-testid={testId} className="shrink-0" />;
 }
 
-/** Stable key for a step descriptor — mirrors the dispatcher card helper. */
-function stepKey(step: ToolCallCardStep, idx: number): string {
-  if (step.kind === "tool") return step.toolCallId;
+/**
+ * Stable per-step key — a tool step's non-empty `toolCallId`, else the
+ * positional `${kind}-${idx}` fallback. Historical/older subagent events can
+ * carry an empty `toolCallId` (see `use-subagent-card-data.ts`), so guarding on
+ * a non-empty string keeps keys unique instead of collapsing every empty-id
+ * tool step onto the same `""` key. Shared with the subagent phase timeline.
+ */
+export function stepKey(step: ToolCallCardStep, idx: number): string {
+  if (step.kind === "tool" && step.toolCallId) return step.toolCallId;
   return `${step.kind}-${idx}`;
 }
 
@@ -571,6 +598,31 @@ function PhaseHeaderRow({
 }
 
 /**
+ * Whether {@link DefaultStepPill} renders a non-null body for a step — the
+ * single source of truth for "does this step produce a pill". Consumers that
+ * gate UI on whether a step is worth revealing (e.g. row expandability in the
+ * subagent timeline) call this so they can never drift from the rendering:
+ *
+ *  - `thinking` → always renders a pill.
+ *  - `tool` → renders only when `info` is non-empty (status is ignored: a
+ *    failing tool step with no `info` still has nothing to show).
+ *  - `tool_error` / `web_search_error` → always render a message.
+ *  - `web_search` → always renders its title.
+ */
+export function stepRendersPill(step: ToolCallCardStep): boolean {
+  switch (step.kind) {
+    case "thinking":
+      return true;
+    case "tool":
+      return step.info.length > 0;
+    case "tool_error":
+    case "web_search_error":
+    case "web_search":
+      return true;
+  }
+}
+
+/**
  * Default per-step pill rendering — a single bordered pill containing the
  * step's icon (when available) and its primary text. Matches Figma
  * `5010-103135` — 100px radius, 10px/6px padding, `--surface-base` border.
@@ -595,7 +647,7 @@ export function DefaultStepPill({ step }: { step: ToolCallCardStep }) {
     // pill entirely rather than duplicating the phase header's title — e.g.
     // a skill call with no skill name shouldn't render a literal "Using a
     // skill" pill underneath a "Using a skill" phase header.
-    if (!step.info) return null;
+    if (!stepRendersPill(step)) return null;
     return (
       <StepPill>
         <Glyph

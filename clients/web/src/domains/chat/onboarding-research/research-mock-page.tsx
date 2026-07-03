@@ -5,8 +5,8 @@
  *
  * Renders the exact same `ResearchResultsView` as the live overlay, driven by
  * static fixtures + local state instead of the chat/turn stores — so we can
- * iterate on layout, copy, and the remove / deeper-dive / suggestion-click
- * interactions instantly, without running the real (slow) research job.
+ * iterate on layout, copy, and the remove / suggestion-click interactions
+ * instantly, without running the real (slow) research job.
  *
  * Suggestion clicks use the real navigation path, so this also reproduces the
  * "start a new conversation with the message sent" behavior in isolation.
@@ -25,6 +25,7 @@ import { ResearchResultsView } from "@/domains/chat/onboarding-research/research
 import type {
   RemovalReason,
   ResearchFact,
+  ResearchSuggestion,
 } from "@/domains/chat/onboarding-research/research-facts";
 
 // Fictional fixture — no real names/handles/identifying data (root AGENTS.md);
@@ -60,11 +61,23 @@ const MOCK_CLAIMS: ResearchFact[] = [
   },
 ];
 
-const MOCK_SUGGESTIONS = [
-  "Summarize this week's AI model releases for me",
-  "Draft a technical blog post from your latest notes",
-  "Build a tracker for competitor product launches",
-  "Analyze a CSV of metrics and surface the trends",
+const MOCK_SUGGESTIONS: ResearchSuggestion[] = [
+  {
+    suggestion: "I'll summarize this week's AI model releases for you",
+    prompt: "Summarize this week's AI model releases for me.",
+  },
+  {
+    suggestion: "I'll draft a technical blog post from your latest notes",
+    prompt: "Draft a technical blog post from my latest notes.",
+  },
+  {
+    suggestion: "I'll build you a tracker for competitor product launches",
+    prompt: "Build me a tracker for competitor product launches.",
+  },
+  {
+    suggestion: "I'll analyze a CSV of metrics and surface the trends",
+    prompt: "Analyze a CSV of metrics for me and surface the trends.",
+  },
 ];
 
 function faviconService(domain: string): string {
@@ -80,7 +93,6 @@ export function ResearchMockPage() {
   const [removals, setRemovals] = useState<Map<number, RemovalReason | null>>(
     () => new Map(),
   );
-  const [deeperDiveResolved, setDeeperDiveResolved] = useState(false);
 
   const items = MOCK_CLAIMS.map((fact, index) => ({ fact, index }));
 
@@ -126,8 +138,7 @@ export function ResearchMockPage() {
         removals={removals}
         suggestions={MOCK_SUGGESTIONS}
         resultsTitle="Here's what I know about you. You can remove any that aren't true:"
-        showDeeperDiveCard={!deeperDiveResolved}
-        showSuggestions={deeperDiveResolved}
+        showSuggestions
         canContinue
         resolveFavicon={faviconService}
         onRemove={(index) =>
@@ -146,8 +157,6 @@ export function ResearchMockPage() {
             return next;
           })
         }
-        onDeeperDive={() => setDeeperDiveResolved(true)}
-        onGoodForNow={() => setDeeperDiveResolved(true)}
         onSuggestionClick={handleSuggestionClick}
         onContinue={() => navigate(routes.assistant)}
       />

@@ -296,4 +296,24 @@ describe("executeBrowserStatus", () => {
     expect(extension.available).toBe(true);
     expect(extension.details.transport).toBe("extension-ws");
   });
+
+  test("reports extension as connected when probe fails on the Chrome Web Store / extensions gallery", async () => {
+    mockSingletonProxy = { isAvailable: () => true, hasExtensionClient: () => true, request: () => {} };
+    probeOutcomes[BROWSER_STATUS_MODE.EXTENSION] = "fail";
+    probeErrors[BROWSER_STATUS_MODE.EXTENSION] = new CdpError(
+      "cdp_error",
+      "The extensions gallery cannot be scripted.",
+    );
+
+    const result = await executeBrowserStatus({}, makeContext());
+    expect(result.isError).toBe(false);
+    const payload = JSON.parse(result.content);
+    const extension = payload.modes.find(
+      (m: { mode: string }) => m.mode === BROWSER_STATUS_MODE.EXTENSION,
+    );
+    expect(extension).toBeDefined();
+    expect(extension.available).toBe(true);
+    expect(extension.verified).toBe("active_probe");
+    expect(extension.details.restrictedActiveTab).toBe(true);
+  });
 });

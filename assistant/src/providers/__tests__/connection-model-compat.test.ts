@@ -84,7 +84,7 @@ mock.module("../../config/loader.js", () => ({
 }));
 
 const mockDbSentinel = { __mock: "db" };
-mock.module("../../memory/db-connection.js", () => ({
+mock.module("../../persistence/db-connection.js", () => ({
   getDb: () => mockDbSentinel,
 }));
 

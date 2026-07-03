@@ -3,10 +3,10 @@
  *
  * Mirrors the CLI's `vellum login` browser flow: navigates to the
  * platform's login page, which authenticates via WorkOS and redirects
- * back to `http://127.0.0.1:{port}/callback?state=...&session_token=...`.
- * The local web server forwards `/callback` to the SPA's
- * `PlatformLoopbackPage` which validates the state and installs the
- * session cookie.
+ * back to `http://localhost:{port}/callback?state=...&session_token=...`.
+ * The local web server forwards `/callback` to the SPA's `PlatformLoopbackPage`,
+ * which validates the state and registers the token with the local server so
+ * its platform proxy can authenticate — no browser session cookie is used.
  */
 
 const FALLBACK_WEB_URL = "https://www.vellum.ai";
@@ -19,7 +19,8 @@ interface VellumConfig {
 }
 
 function getLocalConfig(): { webUrl: string } {
-  const injected = (window as unknown as { __VELLUM_CONFIG__?: VellumConfig }).__VELLUM_CONFIG__;
+  const injected = (window as unknown as { __VELLUM_CONFIG__?: VellumConfig })
+    .__VELLUM_CONFIG__;
   if (injected?.webUrl) return { webUrl: injected.webUrl };
   return { webUrl: FALLBACK_WEB_URL };
 }

@@ -33,7 +33,8 @@ import { createServer, type Server, type Socket } from "node:net";
 
 import { ensureSocketDir, SocketWatchdog } from "@vellumai/ipc-server-utils";
 
-import { findLocalGuardianPrincipalId } from "../runtime/local-actor-identity.js";
+import type { PrincipalType } from "../runtime/auth/types.js";
+import { findLocalGuardianPrincipalIdFromStore } from "../runtime/local-actor-identity.js";
 import { RouteError } from "../runtime/routes/errors.js";
 import { ROUTES } from "../runtime/routes/index.js";
 import type {
@@ -50,6 +51,8 @@ import {
   writeStreamChunk,
   writeStreamEnd,
 } from "./ipc-framing.js";
+import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
+import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
 import {
   type DbProxyTransactionParams,
@@ -204,15 +207,34 @@ export class AssistantIpcServer {
     );
 
     // IPC-only invite methods (see ipc/routes/invite-ipc-routes.ts). The
-    // gateway calls these back over IPC to mint tokens / redeem voice + token
-    // invites (assistant-owned secrets). No HTTP surface; never in ROUTES.
+    // gateway calls these back over IPC to mirror redeemed-invite contact
+    // info locally. No HTTP surface; never in ROUTES.
     for (const [operationId, handler] of Object.entries(INVITE_IPC_METHODS)) {
+      this.methods.set(operationId, handler);
+    }
+
+    // IPC-only contact INFO-READ methods (see ipc/routes/contacts-info-ipc-routes.ts).
+    // The gateway calls these to read assistant-owned info fields + channel
+    // identity, replacing raw db_proxy SELECTs. No HTTP surface; never in ROUTES.
+    for (const [operationId, handler] of Object.entries(
+      CONTACTS_INFO_IPC_METHODS,
+    )) {
+      this.methods.set(operationId, handler);
+    }
+
+    // IPC-only contact identity-mirror methods (see
+    // ipc/routes/contacts-mirror-ipc-routes.ts). The gateway calls these back
+    // over IPC to mirror single-row contact/channel identity locally after a
+    // gateway-owned ACL write. No HTTP surface; never in ROUTES.
+    for (const [operationId, handler] of Object.entries(
+      CONTACTS_MIRROR_IPC_METHODS,
+    )) {
       this.methods.set(operationId, handler);
     }
 
     this.methods.set("$cancel", (params) => {
       const targetId = (params as { targetId?: string }).targetId;
-      if (targetId) this.abortControllers.get(targetId)?.abort();
+      if (targetId) {this.abortControllers.get(targetId)?.abort();}
       return null;
     });
 
@@ -254,11 +276,11 @@ export class AssistantIpcServer {
   stop(): void {
     this.watchdog.stop();
 
-    for (const ctrl of this.abortControllers.values()) ctrl.abort();
+    for (const ctrl of this.abortControllers.values()) {ctrl.abort();}
     this.abortControllers.clear();
 
     for (const client of this.clients) {
-      if (!client.destroyed) client.destroy();
+      if (!client.destroyed) {client.destroy();}
     }
     this.clients.clear();
 
@@ -594,7 +616,7 @@ export class AssistantIpcServer {
     response: IpcResponse,
     binary?: Uint8Array,
   ): void {
-    if (socket.destroyed) return;
+    if (socket.destroyed) {return;}
     if (reader.isLegacy) {
       writeLegacyMessage(socket, response);
     } else {
@@ -608,50 +630,95 @@ export class AssistantIpcServer {
 // ---------------------------------------------------------------------------
 
 /**
- * Inject a synthetic `x-vellum-actor-principal-id` header from the local
- * guardian principal when the caller hasn't already provided one.
+ * Resolve an IPC caller's identity headers, mirroring what the HTTP adapter
+ * derives from the verified `AuthContext`: `x-vellum-principal-type` and a
+ * synthetic `x-vellum-actor-principal-id` for the local guardian. Handlers read
+ * the resolved identity from `headers` (the single source of truth across both
+ * transports); they never trust the request body.
  *
- * Local IPC is intra-process and owned by the same user as the daemon, so
- * routes that consume `headers["x-vellum-actor-principal-id"]` (e.g. the
- * same-user filter on `GET /v1/clients`) need an actor identity to function
- * over IPC. The HTTP adapter does this from the verified `AuthContext`
- * (`http-adapter.ts`); this helper mirrors that convention for IPC.
- *
- * Existing headers from the caller (e.g. the gateway's IPC runtime proxy,
- * which forwards real `x-vellum-*` headers from the authenticated HTTP
- * request) are preserved — we only fill in the gap for direct CLI/local
- * IPC callers.
+ * Principal type comes from the gateway-forwarded `x-vellum-principal-type`,
+ * else `svc_gateway` for a gateway-proxied request (marked by
+ * `x-vellum-proxy-server: ipc`, which a direct CLI never sends), else `local`.
+ * Routes that elevate trust gate on `local`, so a remote caller arriving with
+ * no verified principal must resolve to `svc_gateway`, never `local`.
  */
-function injectLocalActorHeader(
+export function injectLocalActorHeader(
   params: Record<string, unknown> | undefined,
 ): RouteHandlerArgs {
   const args = (params ?? {}) as RouteHandlerArgs;
   const existingHeaders = args.headers;
-  if (existingHeaders?.["x-vellum-actor-principal-id"]) {
-    return args;
-  }
-
-  // Defensive: the guardian lookup queries the contacts table, which may
-  // not yet exist on a very early boot path or in test fixtures that don't
-  // initialize the DB. A failure here must not block IPC dispatch — routes
-  // that require the header will fail-closed on their own.
-  let localActor: string | undefined;
-  try {
-    localActor = findLocalGuardianPrincipalId();
-  } catch (err) {
-    log.debug(
-      { err },
-      "failed to resolve local actor principal for IPC header injection",
-    );
-    return args;
-  }
-  if (!localActor) return args;
-
-  return {
-    ...args,
-    headers: {
-      ...existingHeaders,
-      "x-vellum-actor-principal-id": localActor,
-    },
+  const forwardedPrincipal = existingHeaders?.["x-vellum-principal-type"] as
+    | PrincipalType
+    | undefined;
+  const isGatewayProxied = existingHeaders?.["x-vellum-proxy-server"] === "ipc";
+  const headers: Record<string, string> = {
+    ...existingHeaders,
+    "x-vellum-principal-type":
+      forwardedPrincipal ?? (isGatewayProxied ? "svc_gateway" : "local"),
   };
+
+  // Fill the local guardian's actor id for direct callers that lack one.
+  // Defensive: the lookup queries the contacts table, which may not exist on a
+  // very early boot path or in test fixtures without a DB — a failure must not
+  // block dispatch, so routes requiring the header fail-closed on their own.
+  if (!headers["x-vellum-actor-principal-id"]) {
+    try {
+      const localActor = findLocalGuardianPrincipalIdFromStore();
+      if (localActor) {headers["x-vellum-actor-principal-id"] = localActor;}
+    } catch (err) {
+      log.debug(
+        { err },
+        "failed to resolve local actor principal for IPC header injection",
+      );
+    }
+  }
+
+  return { ...args, headers };
+}
+
+// ── Process-level singleton ───────────────────────────────────────────────
+
+let instance: AssistantIpcServer | null = null;
+
+function isEaddrInUse(err: unknown): boolean {
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "code" in err &&
+    (err as NodeJS.ErrnoException).code === "EADDRINUSE"
+  );
+}
+
+/**
+ * Start the daemon's CLI IPC server.
+ *
+ * Throws on EADDRINUSE: another daemon already holds the socket, so this
+ * process must abort startup rather than run as an unmanageable duplicate
+ * (invisible to health checks, unreachable by stop commands) while its
+ * background jobs hit the shared database. Any other bind failure is non-fatal
+ * — startup continues with degraded CLI connectivity.
+ */
+export async function startCliIpcServer(): Promise<void> {
+  instance = new AssistantIpcServer();
+  try {
+    await instance.start();
+  } catch (err) {
+    if (isEaddrInUse(err)) {
+      log.error(
+        { err },
+        "CLI IPC socket already in use by another daemon — aborting startup to prevent duplicate processing",
+      );
+      throw err;
+    }
+    log.warn(
+      { err },
+      "CLI IPC server failed to start — continuing startup with degraded CLI connectivity",
+    );
+  }
+}
+
+/** Stop the CLI IPC server during daemon shutdown. */
+export function stopCliIpcServer(): void {
+  instance?.stop();
+  instance = null;
 }

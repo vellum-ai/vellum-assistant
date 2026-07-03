@@ -21,16 +21,16 @@ import { eq } from "drizzle-orm";
 import {
   getConversationByKey,
   setConversationKey,
-} from "../memory/conversation-key-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-key-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import {
   clearPayload,
   findMessageBySourceId,
   linkMessage,
   recordInbound,
   storePayload,
-} from "../memory/delivery-crud.js";
+} from "../persistence/delivery-crud.js";
 import {
   acknowledgeDelivery,
   getDeadLetterEvents,
@@ -41,19 +41,19 @@ import {
   recordDeliveryFailure,
   recordProcessingFailure,
   replayDeadLetters,
-} from "../memory/delivery-status.js";
+} from "../persistence/delivery-status.js";
 import {
   getBindingByChannelChat,
   getBindingByChannelChatThread,
   upsertBinding,
-} from "../memory/external-conversation-store.js";
-import { RETRY_MAX_ATTEMPTS } from "../memory/job-utils.js";
+} from "../persistence/external-conversation-store.js";
+import { RETRY_MAX_ATTEMPTS } from "../persistence/job-utils.js";
 import {
   channelInboundEvents,
   conversations,
   externalConversationBindings,
   messages,
-} from "../memory/schema.js";
+} from "../persistence/schema/index.js";
 import { buildConversationDetailResponse } from "../runtime/services/conversation-serializer.js";
 import { handleDeleteConversation } from "./helpers/channel-test-adapter.js";
 
@@ -491,6 +491,34 @@ describe("channel-delivery-store", () => {
         },
       },
     });
+  });
+
+  test("conversation detail omits Slack metadata for non-Slack channels", () => {
+    const result = recordInbound("telegram", "tg-chat-1", "msg-1", {
+      sourceThreadId: "9001",
+    });
+
+    upsertBinding({
+      conversationId: result.conversationId,
+      sourceChannel: "telegram",
+      externalChatId: "tg-chat-1",
+      externalChatName: "Family",
+      externalThreadId: "9001",
+    });
+
+    const detail = buildConversationDetailResponse(result.conversationId);
+    const binding = detail?.conversation.channelBinding;
+
+    // The channel-neutral fields pass through for any source channel...
+    expect(binding).toMatchObject({
+      sourceChannel: "telegram",
+      externalChatId: "tg-chat-1",
+      externalChatName: "Family",
+      externalThreadId: "9001",
+    });
+    // ...but Slack-only deep-link metadata is not synthesized.
+    expect(binding).not.toHaveProperty("slackThread");
+    expect(binding).not.toHaveProperty("slackChannel");
   });
 
   test("binding upsert preserves existing chat name when incoming name is missing", () => {

@@ -18,23 +18,25 @@
 import type { SourceMetadata } from "@vellumai/gateway-client";
 
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
+import { getGuardianDeliveryFresh } from "../../../contacts/guardian-delivery-reader.js";
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../../daemon/disk-pressure-policy.js";
-import { addMessage } from "../../../memory/conversation-crud.js";
-import {
-  clearPayload,
-  linkMessage,
-  recordInbound,
-} from "../../../memory/delivery-crud.js";
-import { markProcessed } from "../../../memory/delivery-status.js";
-import { upsertBinding } from "../../../memory/external-conversation-store.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,
 } from "../../../messaging/providers/slack/message-metadata.js";
+import { addMessage } from "../../../persistence/conversation-crud.js";
+import {
+  clearPayload,
+  linkMessage,
+  recordInbound,
+} from "../../../persistence/delivery-crud.js";
+import { markProcessed } from "../../../persistence/delivery-status.js";
+import { upsertBinding } from "../../../persistence/external-conversation-store.js";
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import type { ApprovalConversationGenerator } from "../../http-types.js";
+import { setMemberVerdict } from "../../member-verdict-cache.js";
 import { resolveTrustContext } from "../../trust-context-resolver.js";
 import { handleGuardianReplyIntercept } from "./guardian-reply-intercept.js";
 
@@ -125,6 +127,23 @@ export async function handleSlackReactionIntercept(
     slackChannelName,
     approvalConversationGenerator,
   } = params;
+
+  // Warm the channel-specific guardian-delivery cache before the SYNC trust
+  // resolve below. The sync resolver reads the IO-free cache snapshot; on a
+  // cold process only `vellum` is warmed at startup, so a Slack guardian
+  // reaction would otherwise misclassify as `unknown` and drop. Read fresh:
+  // gateway-side binding writes don't invalidate the daemon cache, so a stale
+  // empty snapshot would otherwise survive the TTL. This await runs in the
+  // already-async intercept, off the sync resolver's hot path.
+  await getGuardianDeliveryFresh({ channelTypes: [sourceChannel] });
+
+  // Reactions carry the gateway-stamped verdict but skip getInboundTrustVerdict,
+  // which warms the member-verdict cache the sync resolver reads. Seed it from
+  // the stamped verdict so an active non-guardian contact's reaction resolves
+  // instead of failing closed to `unknown` on a cold cache.
+  if (sourceMetadata?.trustVerdict) {
+    setMemberVerdict(sourceChannel, rawSenderId, sourceMetadata.trustVerdict);
+  }
 
   // Classify the reactor. No timezone enrichment — reactions never drive an
   // agent turn, so only the trust class / guardian principal matter.

@@ -36,16 +36,35 @@ mock.module("../prompts/system-prompt.js", () => ({
   buildCoreIdentityContext: () => null,
 }));
 
-// ── Guardian contact mock ────────────────────────────────────────────
+// ── Guardian binding + contact notes mocks ───────────────────────────
 
-let mockGuardianResult: {
-  contact: { notes: string | null };
-  channels: Record<string, unknown>[];
-} | null = null;
+// Guardian binding (ACL) is resolved via the gateway pull; notes (INFO) are
+// joined locally by contactId. Tests drive both via mutable slots.
+let guardianDeliveryFixture: Array<{ contactId: string }> = [];
+let contactInfoFixture: Record<string, { notes: string | null } | null> = {};
+
+mock.module("../contacts/guardian-delivery-reader.js", () => ({
+  getGuardianDelivery: async () => guardianDeliveryFixture,
+  anyGuardian: (list: Array<{ contactId: string }>) => list[0],
+}));
 
 mock.module("../contacts/contact-store.js", () => ({
-  listGuardianChannels: () => mockGuardianResult,
+  findContactInfoById: (contactId: string) =>
+    contactInfoFixture[contactId] ?? null,
 }));
+
+const GUARDIAN_CONTACT_ID = "guardian-contact-1";
+
+/** Bind a guardian with the given notes (or no guardian when notes is null). */
+function setGuardian(notes: string | null | undefined): void {
+  if (notes === undefined) {
+    guardianDeliveryFixture = [];
+    contactInfoFixture = {};
+    return;
+  }
+  guardianDeliveryFixture = [{ contactId: GUARDIAN_CONTACT_ID }];
+  contactInfoFixture = { [GUARDIAN_CONTACT_ID]: { notes } };
+}
 
 // ── Provider mock with system prompt capture ──────────────────────────
 
@@ -134,15 +153,12 @@ describe("recipient context in notification decision engine", () => {
   beforeEach(() => {
     configuredProvider = null;
     extractedToolUse = null;
-    mockGuardianResult = null;
+    setGuardian(undefined);
     capturedSystemPrompt = undefined;
   });
 
   test("guardian contact notes appear in system prompt as <recipient-context>", async () => {
-    mockGuardianResult = {
-      contact: { notes: "Prefers formal tone. Address as Dr. Smith." },
-      channels: [{ type: "vellum" }],
-    };
+    setGuardian("Prefers formal tone. Address as Dr. Smith.");
     setupLLMProvider();
 
     const signal = makeSignal();
@@ -157,7 +173,7 @@ describe("recipient context in notification decision engine", () => {
   });
 
   test("recipient-context is omitted when no guardian exists", async () => {
-    mockGuardianResult = null;
+    setGuardian(undefined);
     setupLLMProvider();
 
     const signal = makeSignal();
@@ -169,10 +185,7 @@ describe("recipient context in notification decision engine", () => {
   });
 
   test("recipient-context is omitted when guardian notes are null", async () => {
-    mockGuardianResult = {
-      contact: { notes: null },
-      channels: [{ type: "vellum" }],
-    };
+    setGuardian(null);
     setupLLMProvider();
 
     const signal = makeSignal();
@@ -184,10 +197,7 @@ describe("recipient context in notification decision engine", () => {
   });
 
   test("recipient-context is omitted when guardian notes are empty string", async () => {
-    mockGuardianResult = {
-      contact: { notes: "" },
-      channels: [{ type: "vellum" }],
-    };
+    setGuardian("");
     setupLLMProvider();
 
     const signal = makeSignal();
@@ -199,10 +209,7 @@ describe("recipient context in notification decision engine", () => {
   });
 
   test("large guardian notes are truncated to prevent oversized prompts", async () => {
-    mockGuardianResult = {
-      contact: { notes: "N".repeat(3000) },
-      channels: [{ type: "vellum" }],
-    };
+    setGuardian("N".repeat(3000));
     setupLLMProvider();
 
     const signal = makeSignal();
@@ -226,10 +233,7 @@ describe("recipient context in notification decision engine", () => {
   });
 
   test("fallback path works correctly without recipient context", async () => {
-    mockGuardianResult = {
-      contact: { notes: "Prefers formal tone." },
-      channels: [{ type: "vellum" }],
-    };
+    setGuardian("Prefers formal tone.");
     // null provider forces fallback path
     configuredProvider = null;
 
@@ -247,10 +251,7 @@ describe("recipient context in notification decision engine", () => {
   });
 
   test("recipient-context appears after user-preferences in prompt", async () => {
-    mockGuardianResult = {
-      contact: { notes: "Prefers brief updates." },
-      channels: [{ type: "vellum" }],
-    };
+    setGuardian("Prefers brief updates.");
     setupLLMProvider();
 
     const signal = makeSignal();

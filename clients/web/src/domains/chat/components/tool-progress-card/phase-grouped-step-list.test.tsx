@@ -11,7 +11,11 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { cleanup, render } from "@testing-library/react";
 
-import { PhaseGroupedStepList } from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
+import {
+  PhaseGroupedStepList,
+  phaseHeaderStatus,
+  sumDurationLabels,
+} from "@/domains/chat/components/tool-progress-card/phase-grouped-step-list";
 import type { ToolCallCardStep } from "@/domains/chat/utils/tool-call-card-utils";
 
 afterEach(() => {
@@ -37,7 +41,7 @@ function bash(
     title: "Working",
     info: command,
     activity: "",
-    iconName: "code",
+    iconName: "terminal",
     durationLabel: duration,
     toolCallId,
     status,
@@ -371,5 +375,43 @@ describe("PhaseGroupedStepList — phase header total duration", () => {
     // THEN the duration renders without the tooltip hover trigger
     expect(header.textContent).toContain("3s");
     expect(header.querySelector(".cursor-default")).toBeNull();
+  });
+});
+
+describe("phaseHeaderStatus", () => {
+  test("returns 'running' when any step is running (precedence over failure)", () => {
+    const steps: ToolCallCardStep[] = [
+      bash("rm -rf /nope", "error", "1s", "tc-a"),
+      bash("sleep 5", "running", "", "tc-b"),
+    ];
+    expect(phaseHeaderStatus(steps)).toBe("running");
+  });
+
+  test("returns 'failed' when a step errored or was denied with none running", () => {
+    expect(
+      phaseHeaderStatus([bash("rm -rf /nope", "error", "1s", "tc-a")]),
+    ).toBe("failed");
+    expect(
+      phaseHeaderStatus([bash("sudo rm -rf /", "denied", "", "tc-b")]),
+    ).toBe("failed");
+  });
+
+  test("returns 'completed' otherwise", () => {
+    const steps: ToolCallCardStep[] = [
+      bash("ls", "completed", "1s", "tc-a"),
+      bash("pwd", "completed", "2s", "tc-b"),
+    ];
+    expect(phaseHeaderStatus(steps)).toBe("completed");
+  });
+});
+
+describe("sumDurationLabels", () => {
+  test("sums non-empty labels and re-formats the total", () => {
+    expect(sumDurationLabels(["3s", "2s"])).toBe("5s");
+  });
+
+  test("returns an empty string for an empty or all-empty input", () => {
+    expect(sumDurationLabels([])).toBe("");
+    expect(sumDurationLabels(["", ""])).toBe("");
   });
 });

@@ -50,6 +50,8 @@ mock.module("@/utils/device-settings", () => ({
 import {
   TOS_CONSENT_VERSION,
   PRIVACY_CONSENT_VERSION,
+  ANALYTICS_CONSENT_VERSION,
+  DIAGNOSTICS_CONSENT_VERSION,
   clearConsentForUser,
   persistToggleConsent,
   resolveServerConsent,
@@ -69,18 +71,18 @@ function makeConsent(overrides: Partial<UserConsent> = {}): UserConsent {
     ai_data_sharing_accepted_at: null,
     share_analytics: true,
     share_diagnostics: true,
-    share_analytics_accepted_version: PRIVACY_CONSENT_VERSION,
+    share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
     share_analytics_accepted_at: null,
-    share_diagnostics_accepted_version: PRIVACY_CONSENT_VERSION,
+    share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
     share_diagnostics_accepted_at: null,
     ...overrides,
   };
 }
 
 const analyticsKey = (userId: string) =>
-  `device:consent:share_analytics:v${PRIVACY_CONSENT_VERSION}:${userId}`;
+  `device:consent:share_analytics:v${ANALYTICS_CONSENT_VERSION}:${userId}`;
 const diagnosticsKey = (userId: string) =>
-  `device:consent:share_diagnostics:v${PRIVACY_CONSENT_VERSION}:${userId}`;
+  `device:consent:share_diagnostics:v${DIAGNOSTICS_CONSENT_VERSION}:${userId}`;
 
 beforeEach(() => {
   storeState.setTosAccepted.mockReset();
@@ -95,10 +97,51 @@ beforeEach(() => {
 });
 
 describe("resolveServerConsent", () => {
-  test("reports current toggles when versions match PRIVACY_CONSENT_VERSION", () => {
+  test("reports current toggles when versions match their own version constants", () => {
     const r = resolveServerConsent(makeConsent());
     expect(r.analyticsCurrent).toBe(true);
     expect(r.diagnosticsCurrent).toBe(true);
+  });
+
+  test("a privacy bump leaves the data-capture toggles current (frozen versions)", () => {
+    // The toggle versions are frozen at the prior privacy version "2026-06-18".
+    // A user who consented under it has stale privacy artifacts after the bump,
+    // but their capture-consent stays current and must not be re-prompted.
+    const r = resolveServerConsent(
+      makeConsent({
+        privacy_policy_accepted_version: "2026-06-18",
+        ai_data_sharing_accepted_version: "2026-06-18",
+        share_analytics_accepted_version: "2026-06-18",
+        share_diagnostics_accepted_version: "2026-06-18",
+        tos_accepted_version: "2026-06-08",
+      }),
+    );
+    expect(r.analyticsCurrent).toBe(true);
+    expect(r.diagnosticsCurrent).toBe(true);
+    expect(r.privacy).toBe(false);
+    expect(r.tos).toBe(true);
+  });
+
+  test("a record fully at the current versions resolves every axis current", () => {
+    const r = resolveServerConsent(makeConsent());
+    expect(r.tos).toBe(true);
+    expect(r.privacy).toBe(true);
+    expect(r.analyticsCurrent).toBe(true);
+    expect(r.diagnosticsCurrent).toBe(true);
+  });
+
+  test("the data-capture toggles freeze at the prior privacy version (no re-prompt)", () => {
+    // Guards the no-re-prompt guarantee: the toggle versions must stay pinned to
+    // the value existing acks/device keys were stamped under. A careless future
+    // edit that re-points them at the bumped privacy version fails here.
+    expect(ANALYTICS_CONSENT_VERSION).toBe("2026-06-18");
+    expect(DIAGNOSTICS_CONSENT_VERSION).toBe("2026-06-18");
+    expect(analyticsKey("user-1")).toBe(
+      "device:consent:share_analytics:v2026-06-18:user-1",
+    );
+    expect(diagnosticsKey("user-1")).toBe(
+      "device:consent:share_diagnostics:v2026-06-18:user-1",
+    );
   });
 
   test("reports stale toggles for mismatched versions", () => {
@@ -128,6 +171,57 @@ describe("resolveServerConsent", () => {
     expect(resolveServerConsent(null).diagnosticsCurrent).toBe(false);
     expect(resolveServerConsent(undefined).analyticsCurrent).toBe(false);
     expect(resolveServerConsent(undefined).diagnosticsCurrent).toBe(false);
+  });
+
+  // A server version newer than this build's constant counts as current on
+  // every axis (currency is monotonic `>=`, not exact equality).
+  test("a version NEWER than this build's constant resolves current on every axis", () => {
+    const r = resolveServerConsent(
+      makeConsent({
+        tos_accepted_version: "2099-01-01",
+        privacy_policy_accepted_version: "2099-01-01",
+        ai_data_sharing_accepted_version: "2099-01-01",
+        share_analytics_accepted_version: "2099-01-01",
+        share_diagnostics_accepted_version: "2099-01-01",
+      }),
+    );
+    expect(r.tos).toBe(true);
+    expect(r.privacy).toBe(true);
+    expect(r.analyticsCurrent).toBe(true);
+    expect(r.diagnosticsCurrent).toBe(true);
+  });
+
+  test("privacy needs BOTH artifacts current — a single stale artifact is stale", () => {
+    // ai_data_sharing newer than the privacy version, but privacy_policy older.
+    expect(
+      resolveServerConsent(
+        makeConsent({
+          privacy_policy_accepted_version: "2020-01-01",
+          ai_data_sharing_accepted_version: "2099-01-01",
+        }),
+      ).privacy,
+    ).toBe(false);
+    // ...and the mirror case.
+    expect(
+      resolveServerConsent(
+        makeConsent({
+          privacy_policy_accepted_version: "2099-01-01",
+          ai_data_sharing_accepted_version: "2020-01-01",
+        }),
+      ).privacy,
+    ).toBe(false);
+  });
+
+  test("a version OLDER than this build's constant resolves stale", () => {
+    const r = resolveServerConsent(
+      makeConsent({
+        tos_accepted_version: "2020-01-01",
+        privacy_policy_accepted_version: "2020-01-01",
+        ai_data_sharing_accepted_version: "2020-01-01",
+      }),
+    );
+    expect(r.tos).toBe(false);
+    expect(r.privacy).toBe(false);
   });
 
   test("keeps the existing value/tos/privacy fields", () => {
@@ -332,8 +426,8 @@ describe("saveConsent", () => {
     });
     expect(patchConsentMock).toHaveBeenCalledTimes(1);
     const body = patchConsentMock.mock.calls[0][0];
-    expect(body.share_analytics_accepted_version).toBe(PRIVACY_CONSENT_VERSION);
-    expect(body.share_diagnostics_accepted_version).toBe(PRIVACY_CONSENT_VERSION);
+    expect(body.share_analytics_accepted_version).toBe(ANALYTICS_CONSENT_VERSION);
+    expect(body.share_diagnostics_accepted_version).toBe(DIAGNOSTICS_CONSENT_VERSION);
   });
 
   test("ToS stamps the ToS version; the privacy checkbox stamps privacy policy + AI data sharing", () => {
@@ -392,7 +486,7 @@ describe("savePreferenceToggle", () => {
     expect(localStorage.getItem(diagnosticsKey("user-1"))).toBeNull();
     const body = patchConsentMock.mock.calls[0][0];
     expect(body.share_analytics).toBe(true);
-    expect(body.share_analytics_accepted_version).toBe(PRIVACY_CONSENT_VERSION);
+    expect(body.share_analytics_accepted_version).toBe(ANALYTICS_CONSENT_VERSION);
   });
 
   test("stamps the diagnostics version and sets its flag only", () => {
@@ -401,7 +495,7 @@ describe("savePreferenceToggle", () => {
     expect(storeState.setAnalyticsConsentCurrent).not.toHaveBeenCalled();
     const body = patchConsentMock.mock.calls[0][0];
     expect(body.share_diagnostics).toBe(false);
-    expect(body.share_diagnostics_accepted_version).toBe(PRIVACY_CONSENT_VERSION);
+    expect(body.share_diagnostics_accepted_version).toBe(DIAGNOSTICS_CONSENT_VERSION);
   });
 
   test("offline persists the on/off value but skips the currency stamp, ack key, and server patch", () => {

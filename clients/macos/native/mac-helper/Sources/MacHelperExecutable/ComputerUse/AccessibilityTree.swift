@@ -1,0 +1,669 @@
+import ApplicationServices
+import AppKit
+import os
+
+private let log = Logger(subsystem: "ai.vellum.mac-helper", category: "AXTree")
+
+struct AXElement: Identifiable, Sendable {
+    let id: Int
+    let role: String
+    let title: String?
+    let value: String?
+    let frame: CGRect
+    let isEnabled: Bool
+    let isFocused: Bool
+    let children: [AXElement]
+    let roleDescription: String?
+    let identifier: String?
+    let url: String?
+    let placeholderValue: String?
+}
+
+struct WindowInfo: Sendable {
+    let elements: [AXElement]
+    let windowTitle: String
+    let appName: String
+}
+
+protocol AccessibilityTreeProviding: Sendable {
+    func enumerateCurrentWindow() async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)?
+    func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int) async -> [WindowInfo]
+}
+
+/// Enumerates macOS accessibility trees for the focused window and any
+/// secondary windows of interest. All AX IPC runs off the main thread so a
+/// slow or unresponsive target app cannot stall the caller past the system
+/// AppHang threshold — AX operations are synchronous Mach IPC bound to the
+/// *target* process's run loop, not the caller's, so running them on a
+/// background queue keeps the caller responsive without changing AX semantics.
+///
+/// Thread safety: each caller is expected to create a fresh enumerator and
+/// await calls on it sequentially. Under that invariant, instance state
+/// (`nextId`, `lastTargetPid`, `totalElementsEnumerated`) has no cross-task
+/// contention. Static caches (`_enhancedAXEnabled`, `_lastFocusedPID`) are
+/// shared across enumerators and are guarded by `stateLock`.
+final class AccessibilityTreeEnumerator: AccessibilityTreeProviding, @unchecked Sendable {
+    private var nextId = 1
+    /// PID of the last successfully enumerated target app, used to resolve the
+    /// correct app when our own window is frontmost.
+    private var lastTargetPid: pid_t?
+
+    /// Track total elements enumerated in current call to prevent infinite loops
+    private var totalElementsEnumerated = 0
+    /// Maximum elements to enumerate before bailing out (protects against circular refs)
+    private let maxElementsPerEnumeration = 10000
+
+    /// Per-call timeout (in seconds) for AX API calls to a target app. If the
+    /// target is unresponsive, each `AXUIElement*` call returns
+    /// `kAXErrorCannotComplete` after this duration instead of blocking
+    /// indefinitely. Sized to bound worst-case latency in fallback paths that
+    /// probe multiple apps, while staying generous enough for slow/heavy
+    /// targets (Chrome with many tabs, Electron during GC) where individual
+    /// attribute reads can momentarily take upwards of 1s.
+    private static let axMessagingTimeoutSeconds: Float = 3.0
+
+    static let interactiveRoles: Set<String> = [
+        "AXButton", "AXTextField", "AXTextArea", "AXCheckBox", "AXRadioButton",
+        "AXPopUpButton", "AXComboBox", "AXSlider", "AXLink", "AXMenuItem",
+        "AXMenuButton", "AXIncrementor", "AXDisclosureTriangle", "AXTab",
+        "AXTabGroup", "AXSegmentedControl"
+    ]
+
+    private static let containerRoles: Set<String> = [
+        "AXGroup", "AXScrollArea", "AXSplitGroup", "AXTabGroup", "AXToolbar",
+        "AXTable", "AXOutline", "AXList", "AXBrowser", "AXWebArea", "AXRow",
+        "AXCell", "AXSheet", "AXDrawer",
+        // Web content containers (Chrome, Safari, Electron)
+        "AXSection", "AXForm", "AXLandmarkMain", "AXLandmarkNavigation",
+        "AXLandmarkBanner", "AXLandmarkContentInfo", "AXLandmarkSearch",
+        "AXArticle", "AXDocument", "AXApplication"
+    ]
+
+    /// Guards the shared static caches below. Accessed from the detached tasks
+    /// that run AX enumeration, so every read/write goes through this lock.
+    private static let stateLock = NSLock()
+
+    /// Set of app PIDs where we've already enabled enhanced AX. Guarded by `stateLock`.
+    private nonisolated(unsafe) static var _enhancedAXEnabled: Set<pid_t> = []
+
+    /// Tracks the last non-self focused app PID, written by the live enumerate
+    /// path and read for fast lookup in enumeratePreviousApp(). Guarded by `stateLock`.
+    private nonisolated(unsafe) static var _lastFocusedPID: pid_t?
+
+    /// Atomically insert `pid` into the enhanced-AX cache.
+    /// Returns true if the PID was newly inserted (caller should set the attribute).
+    private static func markEnhancedAXIfNeeded(pid: pid_t) -> Bool {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _enhancedAXEnabled.insert(pid).inserted
+    }
+
+    private static func setLastFocusedPID(_ pid: pid_t?) {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        _lastFocusedPID = pid
+    }
+
+    private static func getLastFocusedPID() -> pid_t? {
+        stateLock.lock()
+        defer { stateLock.unlock() }
+        return _lastFocusedPID
+    }
+
+    /// PID of the Electron app that spawned this helper. Computer use observes
+    /// the app *behind* our own UI, and when a CU request is issued from the
+    /// chat the frontmost app is that Electron process — the helper itself is
+    /// LSUIElement/prohibited and never frontmost, so a `Bundle.main` check
+    /// alone never matches. `getppid()` is the host app's PID for the helper's
+    /// lifetime.
+    private static let hostAppPid: pid_t = getppid()
+
+    /// True when `app` is this helper or the Electron host app — neither should
+    /// be observed or controlled by computer use.
+    static func isOwnOrHostApp(_ app: NSRunningApplication) -> Bool {
+        if app.processIdentifier == hostAppPid { return true }
+        if let myId = Bundle.main.bundleIdentifier, app.bundleIdentifier == myId {
+            return true
+        }
+        return false
+    }
+
+    /// PID of the front-most on-screen, layer-0 window not owned by this helper
+    /// or the Electron host — i.e. the app visible behind our UI. `CGWindowList`
+    /// returns windows in front-to-back z-order, so the first match is topmost.
+    static func topmostNonHostWindowPID() -> pid_t? {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard
+            let windows = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
+                as? [[String: Any]]
+        else { return nil }
+        let myPID = ProcessInfo.processInfo.processIdentifier
+        let hostPID = getppid()
+        for window in windows {
+            guard
+                let layer = window[kCGWindowLayer as String] as? Int, layer == 0,
+                let ownerPID = window[kCGWindowOwnerPID as String] as? Int
+            else { continue }
+            let pid = pid_t(ownerPID)
+            if pid == myPID || pid == hostPID { continue }
+            return pid
+        }
+        return nil
+    }
+
+    /// Enumerate the focused window of the frontmost non-self app.
+    ///
+    /// Runs the synchronous AX work on a detached task so a slow or
+    /// unresponsive target app cannot block the caller (typically
+    /// `@MainActor`) on Mach IPC.
+    func enumerateCurrentWindow() async -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+        await Task.detached { [self] in
+            enumerateCurrentWindowSync()
+        }.value
+    }
+
+    private func enumerateCurrentWindowSync() -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+        guard let frontApp = NSWorkspace.shared.frontmostApplication else {
+            log.warning("No frontmost application found")
+            return nil
+        }
+
+        log.debug("Frontmost app: \(frontApp.localizedName ?? "?", privacy: .public) (\(frontApp.bundleIdentifier ?? "no-bundle-id", privacy: .public))")
+
+        // Skip our own helper and the Electron host app — computer use targets
+        // the window behind our UI. Otherwise track the frontmost PID so
+        // enumeratePreviousApp() can reuse it next time we're frontmost.
+        if Self.isOwnOrHostApp(frontApp) {
+            log.info("Skipping own/host app, looking for previous app")
+            return enumeratePreviousAppSync()
+        }
+        Self.setLastFocusedPID(frontApp.processIdentifier)
+
+        let pid = frontApp.processIdentifier
+        let appName = frontApp.localizedName ?? "Unknown"
+        let appElement = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeoutSeconds)
+
+        // Tell apps (especially Chrome, Electron) to expose full web content AX tree.
+        // This is what real assistive technologies do.
+        if Self.markEnhancedAXIfNeeded(pid: pid) {
+            let result = AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
+            log.info("Set AXEnhancedUserInterface on \(appName, privacy: .public) (pid \(pid)): \(result == .success ? "success" : "failed (\(result.rawValue))")")
+        }
+
+        var windowValue: CFTypeRef?
+        let windowResult = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowValue)
+        guard windowResult == .success, let windowRef = windowValue else {
+            log.warning("Failed to get focused window for \(appName, privacy: .public) (pid \(pid)): AXError \(windowResult.rawValue)")
+            if windowResult.rawValue == -25211 {
+                log.error("AX API disabled — Accessibility permission likely not granted for this executable")
+            }
+            return nil
+        }
+        guard CFGetTypeID(windowRef) == AXUIElementGetTypeID() else { return nil }
+        let windowElement = windowRef as! AXUIElement
+
+        let windowTitle = getStringAttribute(windowElement, kAXTitleAttribute as CFString) ?? "Untitled"
+
+        nextId = 1
+        totalElementsEnumerated = 0
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
+
+        let flat = AccessibilityTreeEnumerator.flattenElements(elements)
+        let interactive = flat.filter { Self.interactiveRoles.contains($0.role) }
+        log.info("Enumerated \(appName, privacy: .public): \(flat.count) total, \(interactive.count) interactive, maxId=\(self.nextId - 1)")
+
+        lastTargetPid = pid
+        return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
+    }
+
+    /// When our own app is focused, find the previously-active app's window
+    /// instead. Prefers the tracked last-focused PID so the agent returns to
+    /// the correct window rather than an arbitrary app from the running-apps
+    /// list, and falls back to probing every regular running app so
+    /// observation remains correct when the tracker is stale (e.g., on
+    /// startup or after a missed workspace activation). Each per-app call
+    /// is individually bounded by `axMessagingTimeoutSeconds`.
+    private func enumeratePreviousAppSync() -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+        let trackedPID = Self.getLastFocusedPID()
+
+        // Fast path: try the tracked last-focused PID first.
+        if let trackedPID {
+            log.debug("enumeratePreviousApp: trying tracked PID \(trackedPID)")
+            if let result = enumerateAppByPIDSync(trackedPID) {
+                return result
+            }
+            log.debug("enumeratePreviousApp: tracked PID \(trackedPID) failed, falling back to iteration")
+        }
+
+        // z-order fallback: the front-most on-screen window not owned by the
+        // helper or the Electron host is exactly what the screenshot shows, so
+        // the AX tree must describe that same app. This is correct even before
+        // the last-focused PID is tracked (e.g. the first request after startup),
+        // where iterating running apps could otherwise pick an unrelated app and
+        // desync the AX tree from the screenshot.
+        if let topPID = Self.topmostNonHostWindowPID(), topPID != trackedPID,
+           let result = enumerateAppByPIDSync(topPID) {
+            return result
+        }
+
+        let runningApps = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && !Self.isOwnOrHostApp($0) && !$0.isTerminated }
+
+        // Try the last-known target app next for deterministic behavior.
+        if let targetPid = lastTargetPid,
+           targetPid != trackedPID,
+           runningApps.contains(where: { $0.processIdentifier == targetPid }),
+           let result = enumerateAppByPIDSync(targetPid) {
+            return result
+        }
+
+        for app in runningApps {
+            let pid = app.processIdentifier
+            if pid == trackedPID { continue } // already tried
+            if pid == lastTargetPid { continue } // already tried
+            if let result = enumerateAppByPIDSync(pid) {
+                return result
+            }
+        }
+        return nil
+    }
+
+    /// Try to enumerate the focused window for a specific PID.
+    /// Returns nil if the app has no focused window or yields no elements.
+    private func enumerateAppByPIDSync(_ pid: pid_t) -> (elements: [AXElement], windowTitle: String, appName: String, pid: pid_t)? {
+        let appElement = AXUIElementCreateApplication(pid)
+        AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeoutSeconds)
+
+        if Self.markEnhancedAXIfNeeded(pid: pid) {
+            AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
+        }
+
+        var windowValue: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(appElement, kAXFocusedWindowAttribute as CFString, &windowValue)
+        guard result == .success, let windowRef = windowValue else {
+            let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "Unknown"
+            log.debug("enumerateAppByPID: no focused window for \(appName, privacy: .public) (pid \(pid)): AXError \(result.rawValue)")
+            return nil
+        }
+        guard CFGetTypeID(windowRef) == AXUIElementGetTypeID() else { return nil }
+        let windowElement = windowRef as! AXUIElement
+
+        let windowTitle = getStringAttribute(windowElement, kAXTitleAttribute as CFString) ?? "Untitled"
+        let appName = NSRunningApplication(processIdentifier: pid)?.localizedName ?? "Unknown"
+
+        nextId = 1
+        totalElementsEnumerated = 0
+        let elements = enumerateElementSafely(element: windowElement, depth: 0, maxDepth: 25)
+
+        guard !elements.isEmpty else { return nil }
+        lastTargetPid = pid
+        return (elements: elements, windowTitle: windowTitle, appName: appName, pid: pid)
+    }
+
+    /// Enumerate the focused windows of up to `maxWindows` non-primary apps,
+    /// useful for cross-app observation. Runs off the main thread for the
+    /// same reason as `enumerateCurrentWindow()`.
+    func enumerateSecondaryWindows(excludingPID: pid_t?, maxWindows: Int = 2) async -> [WindowInfo] {
+        await Task.detached { [self] in
+            enumerateSecondaryWindowsSync(excludingPID: excludingPID, maxWindows: maxWindows)
+        }.value
+    }
+
+    private func enumerateSecondaryWindowsSync(excludingPID: pid_t?, maxWindows: Int) -> [WindowInfo] {
+        let runningApps = NSWorkspace.shared.runningApplications
+            .filter { app in
+                app.activationPolicy == .regular
+                    && !app.isTerminated
+                    && !Self.isOwnOrHostApp(app)
+                    && (excludingPID == nil || app.processIdentifier != excludingPID)
+            }
+
+        var results: [WindowInfo] = []
+        for app in runningApps {
+            guard results.count < maxWindows else { break }
+            let pid = app.processIdentifier
+            let appElement = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(appElement, Self.axMessagingTimeoutSeconds)
+
+            if Self.markEnhancedAXIfNeeded(pid: pid) {
+                AXUIElementSetAttributeValue(appElement, "AXEnhancedUserInterface" as CFString, true as CFTypeRef)
+            }
+
+            // Get all windows for this app and find the first visible one
+            var windowsRef: CFTypeRef?
+            guard AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsRef) == .success,
+                  let windows = windowsRef as? [AXUIElement],
+                  !windows.isEmpty else { continue }
+
+            // Find a window that is on the main display (skip external monitors)
+            let mainDisplayBounds = CGDisplayBounds(CGMainDisplayID())
+            guard let visibleWindow = windows.first(where: {
+                let frame = getFrameAttribute($0)
+                return frame.width > 50 && frame.height > 50 && frame.intersects(mainDisplayBounds)
+            }) else { continue }
+
+            let windowTitle = getStringAttribute(visibleWindow, kAXTitleAttribute as CFString) ?? "Untitled"
+            let appName = app.localizedName ?? "Unknown"
+
+            nextId = 1
+            totalElementsEnumerated = 0
+            let elements = enumerateElementSafely(element: visibleWindow, depth: 0, maxDepth: 15) // shallower for secondary
+            guard !elements.isEmpty else { continue }
+
+            results.append(WindowInfo(elements: elements, windowTitle: windowTitle, appName: appName))
+            log.info("Secondary window: \(appName, privacy: .public) — \"\(windowTitle)\"")
+        }
+
+        return results
+    }
+
+    /// Safe wrapper around enumerateElement that prevents infinite loops.
+    /// File save dialogs (especially with Downloads) can have corrupted AX trees or circular references.
+    private func enumerateElementSafely(element: AXUIElement, depth: Int, maxDepth: Int) -> [AXElement] {
+        // Bail out if we've processed too many elements (circular reference protection)
+        guard totalElementsEnumerated < maxElementsPerEnumeration else {
+            log.warning("Hit max element limit (\(self.maxElementsPerEnumeration)) during enumeration — stopping to prevent infinite loop")
+            return []
+        }
+
+        totalElementsEnumerated += 1
+        return enumerateElement(element: element, depth: depth, maxDepth: maxDepth)
+    }
+
+    private func enumerateElement(element: AXUIElement, depth: Int, maxDepth: Int) -> [AXElement] {
+        guard depth < maxDepth else { return [] }
+
+        let role = getStringAttribute(element, kAXRoleAttribute as CFString) ?? ""
+        let title = getStringAttribute(element, kAXTitleAttribute as CFString)
+            ?? getStringAttribute(element, kAXDescriptionAttribute as CFString)
+        let value = getValueAttribute(element)
+        let roleDescription = getStringAttribute(element, kAXRoleDescriptionAttribute as CFString)
+        let identifier = getStringAttribute(element, kAXIdentifierAttribute as CFString)
+        let placeholderValue = getStringAttribute(element, kAXPlaceholderValueAttribute as CFString)
+        let isEnabled = getBoolAttribute(element, kAXEnabledAttribute as CFString) ?? true
+        let isFocused = getBoolAttribute(element, kAXFocusedAttribute as CFString) ?? false
+        let frame = getFrameAttribute(element)
+        let url = getStringAttribute(element, "AXURL" as CFString)
+
+        let isInteractive = Self.interactiveRoles.contains(role)
+        let isContainer = Self.containerRoles.contains(role)
+        let hasTextContent = (title != nil && !title!.isEmpty) || (value != nil && !value!.isEmpty)
+        let isStaticText = role == "AXStaticText" || role == "AXHeading"
+
+        // Enumerate children with safety checks
+        var childElements: [AXElement] = []
+        var childrenRef: CFTypeRef?
+
+        if AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &childrenRef) == .success,
+           let children = childrenRef as? [AXUIElement] {
+            // Sanity check: if children array is suspiciously large, it might be corrupted
+            // Skip children enumeration but continue processing current element
+            if children.count >= 1000 {
+                log.warning("Element has \(children.count) children — likely corrupted, skipping children enumeration")
+            } else {
+                for (index, child) in children.enumerated() {
+                    // Stop if we've hit the limit mid-enumeration
+                    guard totalElementsEnumerated < maxElementsPerEnumeration else {
+                        log.warning("Hit element limit while enumerating children (\(index)/\(children.count) processed)")
+                        break
+                    }
+
+                    // Recursively enumerate with the safe wrapper
+                    childElements.append(contentsOf: enumerateElementSafely(element: child, depth: depth + 1, maxDepth: maxDepth))
+                }
+            }
+        }
+
+        if isInteractive {
+            let id = nextId
+            nextId += 1
+            return [AXElement(
+                id: id,
+                role: role,
+                title: title,
+                value: value,
+                frame: frame,
+                isEnabled: isEnabled,
+                isFocused: isFocused,
+                children: [], // Flatten interactive elements
+                roleDescription: roleDescription,
+                identifier: identifier,
+                url: url,
+                placeholderValue: placeholderValue
+            )]
+        }
+
+        if isStaticText && hasTextContent {
+            let id = nextId
+            nextId += 1
+            return [AXElement(
+                id: id,
+                role: role,
+                title: title,
+                value: value,
+                frame: frame,
+                isEnabled: isEnabled,
+                isFocused: isFocused,
+                children: [],
+                roleDescription: roleDescription,
+                identifier: identifier,
+                url: url,
+                placeholderValue: placeholderValue
+            )]
+        }
+
+        if isContainer && !childElements.isEmpty {
+            let id = nextId
+            nextId += 1
+            return [AXElement(
+                id: id,
+                role: role,
+                title: title,
+                value: value,
+                frame: frame,
+                isEnabled: isEnabled,
+                isFocused: isFocused,
+                children: childElements,
+                roleDescription: roleDescription,
+                identifier: identifier,
+                url: url,
+                placeholderValue: placeholderValue
+            )]
+        }
+
+        // Skip this element but keep children
+        return childElements
+    }
+
+    // MARK: - AX Attribute Helpers
+
+    private func getStringAttribute(_ element: AXUIElement, _ attribute: CFString) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else { return nil }
+        return value as? String
+    }
+
+    private func getBoolAttribute(_ element: AXUIElement, _ attribute: CFString) -> Bool? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, attribute, &value) == .success else { return nil }
+        return (value as? NSNumber)?.boolValue
+    }
+
+    private func getValueAttribute(_ element: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXValueAttribute as CFString, &value) == .success else { return nil }
+        if let str = value as? String { return str }
+        if let num = value as? NSNumber { return num.stringValue }
+        return nil
+    }
+
+    private func getFrameAttribute(_ element: AXUIElement) -> CGRect {
+        var positionValue: CFTypeRef?
+        var sizeValue: CFTypeRef?
+
+        guard AXUIElementCopyAttributeValue(element, kAXPositionAttribute as CFString, &positionValue) == .success,
+              AXUIElementCopyAttributeValue(element, kAXSizeAttribute as CFString, &sizeValue) == .success
+        else { return .zero }
+
+        var point = CGPoint.zero
+        var size = CGSize.zero
+
+        if let posRef = positionValue, CFGetTypeID(posRef) == AXValueGetTypeID() {
+            AXValueGetValue(posRef as! AXValue, .cgPoint, &point)
+        }
+        if let sizeRef = sizeValue, CFGetTypeID(sizeRef) == AXValueGetTypeID() {
+            AXValueGetValue(sizeRef as! AXValue, .cgSize, &size)
+        }
+
+        return CGRect(origin: point, size: size)
+    }
+
+    // MARK: - Formatting
+
+    static func formatAXTree(elements: [AXElement], windowTitle: String, appName: String) -> String {
+        var lines: [String] = []
+        lines.append("Window: \"\(windowTitle)\" (\(appName))")
+
+        var interactive: [String] = []
+        var staticTexts: [String] = []
+        var prunedCount = 0
+        collectFormatted(elements: elements, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
+
+        if !interactive.isEmpty {
+            lines.append("Interactive elements:")
+            for line in interactive {
+                lines.append("  \(line)")
+            }
+            if prunedCount > 0 {
+                lines.append("  (\(prunedCount) unlabeled elements hidden)")
+            }
+        }
+
+        if !staticTexts.isEmpty {
+            lines.append("")
+            lines.append("Visible text:")
+            for text in staticTexts.prefix(30) {
+                lines.append("  \(text)")
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    /// Roles that represent text inputs — always shown even without a title,
+    /// since the model may need to click/type in them.
+    private static let textInputRoles: Set<String> = [
+        "AXTextField", "AXTextArea", "AXComboBox"
+    ]
+
+    private static func collectFormatted(elements: [AXElement], interactive: inout [String], staticTexts: inout [String], prunedCount: inout Int) {
+        for element in elements {
+            let isInteractiveRole = interactiveRoles.contains(element.role)
+            let isText = element.role == "AXStaticText" || element.role == "AXHeading"
+
+            if isInteractiveRole {
+                // Skip unlabeled non-text elements — the model can't meaningfully target
+                // "button at (431, 56)" without knowing what it does.
+                let hasTitle = element.title != nil && !element.title!.isEmpty
+                let isTextInput = textInputRoles.contains(element.role)
+                let hasPlaceholder = element.placeholderValue != nil && !element.placeholderValue!.isEmpty
+                let hasUrl = element.url != nil && !element.url!.isEmpty
+
+                if !hasTitle && !isTextInput && !element.isFocused && !hasPlaceholder && !hasUrl {
+                    prunedCount += 1
+                    collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
+                    continue
+                }
+
+                let cleanedRole = cleanRole(element.role)
+                let centerX = Int(element.frame.midX)
+                let centerY = Int(element.frame.midY)
+                var line = "[\(element.id)] \(cleanedRole)"
+                if let title = element.title, !title.isEmpty {
+                    line += " \"\(title)\""
+                }
+                line += " at (\(centerX), \(centerY))"
+                if element.isFocused { line += " FOCUSED" }
+                if !element.isEnabled { line += " disabled" }
+                if let value = element.value, !value.isEmpty {
+                    let truncated = value.count > 50 ? String(value.prefix(50)) + "..." : value
+                    line += " value: \"\(truncated)\""
+                } else if let placeholder = element.placeholderValue, !placeholder.isEmpty {
+                    line += " placeholder: \"\(placeholder)\""
+                }
+                if let url = element.url, !url.isEmpty {
+                    line += " → \(url)"
+                }
+                interactive.append(line)
+            } else if isText {
+                if let title = element.title, !title.isEmpty {
+                    staticTexts.append(title)
+                } else if let value = element.value, !value.isEmpty {
+                    staticTexts.append(value)
+                }
+            }
+
+            collectFormatted(elements: element.children, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
+        }
+    }
+
+    private static func cleanRole(_ role: String) -> String {
+        var cleaned = role
+        if cleaned.hasPrefix("AX") {
+            cleaned = String(cleaned.dropFirst(2))
+        }
+        // Split camelCase
+        var result = ""
+        for char in cleaned {
+            if char.isUppercase && !result.isEmpty {
+                result += " "
+            }
+            result += String(char).lowercased()
+        }
+        return result
+    }
+
+    /// Format secondary windows into a compact text representation.
+    /// Uses a condensed format (interactive elements only) to minimize token cost.
+    static func formatSecondaryWindows(_ windows: [WindowInfo]) -> String? {
+        guard !windows.isEmpty else { return nil }
+
+        var lines: [String] = ["OTHER VISIBLE WINDOWS:"]
+        for window in windows {
+            lines.append("")
+            lines.append("  Window: \"\(window.windowTitle)\" (\(window.appName))")
+
+            var interactive: [String] = []
+            var staticTexts: [String] = []
+            var prunedCount = 0
+            collectFormatted(elements: window.elements, interactive: &interactive, staticTexts: &staticTexts, prunedCount: &prunedCount)
+
+            if !interactive.isEmpty {
+                for line in interactive.prefix(15) { // Cap per window to limit tokens
+                    lines.append("    \(line)")
+                }
+                if interactive.count > 15 {
+                    lines.append("    ... and \(interactive.count - 15) more elements")
+                }
+            }
+
+            if !staticTexts.isEmpty {
+                for text in staticTexts.prefix(10) {
+                    lines.append("    \(text)")
+                }
+            }
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    static func flattenElements(_ elements: [AXElement]) -> [AXElement] {
+        var result: [AXElement] = []
+        for element in elements {
+            result.append(element)
+            result.append(contentsOf: flattenElements(element.children))
+        }
+        return result
+    }
+}

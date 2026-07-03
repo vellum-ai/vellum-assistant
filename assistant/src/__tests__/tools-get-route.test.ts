@@ -8,7 +8,9 @@
  * the tool object.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import type { Conversation } from "../daemon/conversation.js";
 import {
@@ -25,6 +27,7 @@ import {
   registerTool,
 } from "../tools/registry.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
+import { getWorkspacePluginsDir } from "../util/platform.js";
 
 interface ToolListEntry {
   name: string;
@@ -78,10 +81,26 @@ function registerFakeConversation(id: string, toolNames: string[]): void {
   } as unknown as Conversation);
 }
 
+/** Drop a `.disabled` sentinel into a plugin's workspace directory. */
+function disablePluginSentinel(name: string): void {
+  const dir = join(getWorkspacePluginsDir(), name);
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, ".disabled"), "");
+}
+
 describe("GET /tools", () => {
   beforeEach(() => {
     __resetRegistryForTesting();
     clearConversations();
+  });
+
+  afterEach(() => {
+    // Remove any `.disabled` sentinels written during a test so plugin
+    // disabled-state never leaks across cases.
+    rmSync(join(getWorkspacePluginsDir(), "git-workflow"), {
+      recursive: true,
+      force: true,
+    });
   });
 
   test("returns each registered tool's metadata, sorted by name, with core source", async () => {
@@ -138,6 +157,30 @@ describe("GET /tools", () => {
     expect(sourceOf("p_tool")).toBe("plugin:echo");
     expect(sourceOf("m_tool")).toBe("mcp:linear");
     expect(sourceOf("s_tool")).toBe("skill:my-skill");
+  });
+
+  test("excludes tools contributed by a disabled plugin", async () => {
+    // GIVEN a core tool and a plugin tool, both initially registered
+    registerTool(makeFakeTool("a_core_tool"));
+    registerPluginTools("git-workflow", [makeFakeTool("gw_tool")]);
+
+    // THEN the plugin tool is visible before disabling
+    const before = (await handler({})) as ToolsGetResponse;
+    expect(before.names).toContain("gw_tool");
+    expect(before.tools.some((t) => t.name === "gw_tool")).toBe(true);
+    expect(before.schemas.gw_tool).toBeDefined();
+
+    // WHEN the plugin is disabled via its `.disabled` sentinel
+    disablePluginSentinel("git-workflow");
+
+    // THEN the plugin's tool drops from names, schemas, and the metadata
+    // array on the next call — no daemon restart required — while the core
+    // tool stays put.
+    const after = (await handler({})) as ToolsGetResponse;
+    expect(after.names).not.toContain("gw_tool");
+    expect(after.tools.some((t) => t.name === "gw_tool")).toBe(false);
+    expect(after.schemas.gw_tool).toBeUndefined();
+    expect(after.names).toContain("a_core_tool");
   });
 
   test("with conversationId, scopes to the conversation's tool snapshot and resolves metadata from the registry", async () => {

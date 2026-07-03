@@ -9,42 +9,40 @@
  */
 
 import {
+  RedeemInviteByTokenRequestSchema,
+  RedeemVoiceInviteRequestSchema,
+} from "@vellumai/gateway-client";
+import type { ContactRead } from "@vellumai/gateway-client/gateway-ipc-contracts";
+import {
   GetContactIpcResponseSchema,
   ListContactsIpcResponseSchema,
+  UpdateContactChannelIpcResponseSchema,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
 import { z } from "zod";
 
 import {
-  getAssistantContactMetadata,
-  getChannelById,
-  getContact,
   listContacts,
   mergeContacts,
   searchContacts,
-  updateChannelStatus,
 } from "../../contacts/contact-store.js";
+import { getGuardianContactIds } from "../../contacts/guardian-contact-reader.js";
 import type {
-  ChannelPolicy,
-  ChannelStatus,
+  ContactChannel,
   ContactRole,
   ContactType,
+  ContactWithChannels,
 } from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { getLogger } from "../../util/logger.js";
-import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS, GATEWAY_PRINCIPALS } from "../auth/route-policy.js";
 import {
-  redeemIngressInvite,
-  redeemVoiceInviteCode,
+  composeInvitePresentation,
+  resolveInviteGuardianName,
   triggerInviteCall,
 } from "../invite-service.js";
-import {
-  BadRequestError,
-  ConflictError,
-  NotFoundError,
-  RouteError,
-} from "./errors.js";
+import { BadRequestError, NotFoundError, RouteError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("contact-routes");
@@ -78,6 +76,26 @@ function withGuardianNameOverride<
   return contact;
 }
 
+/**
+ * Stamp `role` from the gateway guardian id set on DAEMON-NATIVE reads, whose
+ * `role` is the neutral `"contact"` default (search / contactType-filtered).
+ * Fail-soft: empty set → everyone is `"contact"`.
+ *
+ * NOT applied to gateway-relayed reads (`contacts_list_rich`/`_get_rich`),
+ * which already carry a gateway-sourced `role`. Re-deriving there would let a
+ * stale/empty 30s id-set cache DOWNGRADE a freshly-rebound guardian to
+ * `"contact"` during a rebind.
+ */
+function withGatewayRole<T extends { id: string; role: string }>(
+  contact: T,
+  guardianIds: ReadonlySet<string>,
+): T {
+  return {
+    ...contact,
+    role: guardianIds.has(contact.id) ? "guardian" : "contact",
+  };
+}
+
 /** Adds `externalUserId` (= `address`) to each channel for older macOS clients. */
 function withChannelCompat<T extends { channels: { address: string }[] }>(
   contact: T,
@@ -91,48 +109,62 @@ function withChannelCompat<T extends { channels: { address: string }[] }>(
   };
 }
 
-/** Compose both response transforms (guardian display name + channel compat). */
+/** Compose the response transforms, then apply the guardian display-name
+ * override (keyed off the role that's correct for this path) and the channel
+ * compat field. Also coerces nullable gateway-sourced fields to their DB
+ * defaults so the response satisfies the strict enum schema even in degraded
+ * mode (assistant DB unreachable → gateway soft-fail join produces nulls).
+ *
+ * `guardianIds` controls where `role` comes from:
+ *   - omitted (gateway-relayed reads): TRUST the gateway-sourced `role` already
+ *     on the `ContactRead`. Never re-derive — a stale/empty id-set cache must
+ *     not downgrade a relayed guardian to `"contact"`.
+ *   - provided (daemon-native reads): role is the neutral `"contact"` default,
+ *     so derive it from the gateway guardian id set.
+ */
 function prepareContactResponse<
   T extends {
+    id: string;
     role: string;
     displayName: string;
+    contactType?: string | null;
     channels: { address: string }[];
   },
->(contact: T): T {
-  return withChannelCompat(withGuardianNameOverride(contact));
+>(contact: T, guardianIds?: ReadonlySet<string>): T {
+  const coerced =
+    contact.contactType == null
+      ? { ...contact, contactType: "human" as T["contactType"] }
+      : contact;
+  const withRole = guardianIds
+    ? withGatewayRole(coerced, guardianIds)
+    : coerced;
+  return withChannelCompat(withGuardianNameOverride(withRole));
 }
 
 const VALID_CONTACT_TYPES: readonly ContactType[] = ["human", "assistant"];
 
-const VALID_CHANNEL_STATUSES: readonly ChannelStatus[] = [
-  "active",
-  "pending",
-  "revoked",
-  "blocked",
-  "unverified",
-];
-const VALID_CHANNEL_POLICIES: readonly ChannelPolicy[] = [
-  "allow",
-  "deny",
-  "escalate",
-];
-
 function isContactType(value: string): value is ContactType {
   return (VALID_CONTACT_TYPES as readonly string[]).includes(value);
-}
-
-function isChannelStatus(value: string): value is ChannelStatus {
-  return (VALID_CHANNEL_STATUSES as readonly string[]).includes(value);
-}
-
-function isChannelPolicy(value: string): value is ChannelPolicy {
-  return (VALID_CHANNEL_POLICIES as readonly string[]).includes(value);
 }
 
 // ---------------------------------------------------------------------------
 // Response schemas (drive OpenAPI spec → codegen → typed SDK)
 // ---------------------------------------------------------------------------
 
+// Channel ACL fields (status/policy/verifiedAt/verifiedVia/revokedReason/
+// blockedReason) are gateway-owned and present ONLY on gateway-relayed reads
+// (`contacts_list_rich`/`contacts_get_rich`). Daemon-native filtered reads
+// (search / contactType) omit them, so they are `.optional()`. Contact-level
+// `role` is gateway-sourced: relayed reads trust the role on the `ContactRead`,
+// while daemon-native reads derive it from the gateway guardian id set at the
+// serve layer (see prepareContactResponse). Interaction telemetry
+// (lastSeenAt/interactionCount/lastInteraction) is gateway-owned: relayed reads
+// carry it directly, and daemon-native reads batch-hydrate it from the gateway
+// (see hydrateTelemetryFromGateway). On a gateway fail-soft the count
+// `interactionCount` defaults to 0 (never served as null, so callers render a
+// real number); the `lastSeenAt`/`lastInteraction` timestamps degrade to null.
+// The timestamp fields stay `.nullable()`; `interactionCount` is kept nullable
+// defensively for the relay path, but is never emitted null.
 const contactChannelSchema = z.object({
   id: z.string(),
   contactId: z.string(),
@@ -141,25 +173,25 @@ const contactChannelSchema = z.object({
   isPrimary: z.boolean(),
   /** @deprecated Echoes `address` for backwards compatibility with older macOS clients. */
   externalUserId: z.string().nullable(),
-  status: z.string(),
-  policy: z.string(),
-  verifiedAt: z.number().nullable(),
-  verifiedVia: z.string().nullable(),
+  status: z.string().optional(),
+  policy: z.string().optional(),
+  verifiedAt: z.number().nullable().optional(),
+  verifiedVia: z.string().nullable().optional(),
   lastSeenAt: z.number().nullable(),
-  interactionCount: z.number(),
+  interactionCount: z.number().nullable(),
   lastInteraction: z.number().nullable(),
-  revokedReason: z.string().nullable(),
-  blockedReason: z.string().nullable(),
+  revokedReason: z.string().nullable().optional(),
+  blockedReason: z.string().nullable().optional(),
 });
 
 const contactSchema = z.object({
   id: z.string(),
   displayName: z.string(),
-  role: z.string(),
+  role: z.enum(["guardian", "contact"]),
   notes: z.string().nullable().optional(),
-  contactType: z.string().nullable().optional(),
+  contactType: z.enum(["human", "assistant"]),
   lastInteraction: z.number().nullable().optional(),
-  interactionCount: z.number(),
+  interactionCount: z.number().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
   channels: z.array(contactChannelSchema),
@@ -171,35 +203,118 @@ const contactSchema = z.object({
 
 /**
  * Relay a non-search contact list read to the gateway (source of truth for ACL
- * fields), falling back to the assistant DB on IPC failure. Shared by the GET
- * `contacts` list and the `search_contacts` no-filter case so both serve
- * gateway-sourced data consistently.
+ * fields). Shared by the GET `contacts` list and the `search_contacts`
+ * no-filter case so both serve gateway-sourced data consistently. Fail-closed:
+ * a relay failure surfaces as an error rather than reading ACL from the
+ * assistant DB.
  */
-async function relayListContacts(
-  limit: number,
-  role: ContactRole | undefined,
-) {
+async function relayListContacts(limit: number, role: ContactRole | undefined) {
   try {
     const result = await ipcCallPersistent("contacts_list_rich", {
       limit,
       ...(role ? { role } : {}),
     });
     const { contacts } = ListContactsIpcResponseSchema.parse(result);
+    // Relayed reads carry a gateway-sourced role — trust it (omit guardianIds),
+    // so the guardian id set is not consulted here.
     return {
       ok: true,
-      contacts: contacts.map(prepareContactResponse),
+      contacts: contacts.map((c) => prepareContactResponse(c)),
     };
+  } catch (err) {
+    rethrowGatewayError(err);
+  }
+}
+
+/**
+ * A daemon-native contact read whose gateway-owned interaction telemetry has
+ * been overlaid. `interactionCount` is a count, so it defaults to 0 on the
+ * gateway fail-soft/id-miss path (matching the gateway's NOT NULL DEFAULT 0
+ * column) — consumers never see `null` and render a real number. The
+ * `lastSeenAt`/`lastInteraction` timestamps stay nullable: a "never" timestamp
+ * is legitimately absent.
+ */
+type ContactWithGatewayTelemetry = Omit<ContactWithChannels, "channels"> & {
+  interactionCount: number;
+  lastInteraction: number | null;
+  channels: Array<
+    ContactChannel & {
+      lastSeenAt: number | null;
+      interactionCount: number;
+      lastInteraction: number | null;
+    }
+  >;
+};
+
+/**
+ * Key channels by (type, lower(address)) for the id-miss telemetry fallback.
+ * Matches the gateway's UNIQUE(type, address) NOCASE collation; the NUL
+ * delimiter cannot appear in either field, so keys never collide.
+ */
+function channelKey(type: string, address: string): string {
+  return `${type}\u0000${address.toLowerCase()}`;
+}
+
+/**
+ * Overlay gateway-owned interaction telemetry onto daemon-native contact reads
+ * (search / contactType-filtered), which bypass the gateway list relay. The
+ * daemon still owns the FILTERING (gateway-native search/contactType is
+ * design-blocked), but telemetry (contact + channel
+ * interactionCount/lastInteraction, channel lastSeenAt) is gateway-owned — so
+ * batch-fetch it via `contacts_list_rich` keyed by the filtered id set and
+ * overlay it, keeping the local assistant-DB aggregation out of the served
+ * payload. Fail-soft: if the gateway read fails or omits a contact, its
+ * interaction counts degrade to 0 and its timestamps to null rather than
+ * falling back to the local assistant-DB aggregation.
+ */
+async function hydrateTelemetryFromGateway(
+  contacts: ContactWithChannels[],
+): Promise<ContactWithGatewayTelemetry[]> {
+  if (contacts.length === 0) return [];
+
+  const gatewayById = new Map<string, ContactRead>();
+  try {
+    const result = await ipcCallPersistent("contacts_list_rich", {
+      ids: contacts.map((c) => c.id),
+    });
+    const { contacts: rich } = ListContactsIpcResponseSchema.parse(result);
+    for (const c of rich) gatewayById.set(c.id, c);
   } catch (err) {
     log.warn(
       { err },
-      "relayListContacts: gateway relay failed; falling back to assistant DB",
+      "hydrateTelemetryFromGateway: gateway telemetry read failed; serving 0 counts / null timestamps",
     );
-    const contacts = listContacts(limit, role);
-    return {
-      ok: true,
-      contacts: contacts.map(prepareContactResponse),
-    };
   }
+
+  return contacts.map((c) => {
+    const gw = gatewayById.get(c.id);
+    const gwChannelById = new Map(
+      (gw?.channels ?? []).map((ch) => [ch.id, ch]),
+    );
+    // Local channel UUIDs can diverge from the gateway's for the same
+    // (type, address) (legacy pre-alignment channels), so an id-miss falls back
+    // to a (type, lower(address)) match — mirroring the gateway's
+    // overlayAclOntoContacts. UNIQUE(type, address) collates NOCASE gateway-side.
+    const gwChannelByTypeAddress = new Map(
+      (gw?.channels ?? []).map((ch) => [channelKey(ch.type, ch.address), ch]),
+    );
+    return {
+      ...c,
+      interactionCount: gw?.interactionCount ?? 0,
+      lastInteraction: gw?.lastInteraction ?? null,
+      channels: c.channels.map((ch) => {
+        const gwCh =
+          gwChannelById.get(ch.id) ??
+          gwChannelByTypeAddress.get(channelKey(ch.type, ch.address));
+        return {
+          ...ch,
+          lastSeenAt: gwCh?.lastSeenAt ?? null,
+          interactionCount: gwCh?.interactionCount ?? 0,
+          lastInteraction: gwCh?.lastInteraction ?? null,
+        };
+      }),
+    };
+  });
 }
 
 export async function handleListContacts(queryParams: Record<string, string>) {
@@ -225,17 +340,23 @@ export async function handleListContacts(queryParams: Record<string, string>) {
     log.debug(
       "handleListContacts: search served daemon-native (gateway-native search is design-blocked)",
     );
-    const contacts = searchContacts({
-      query,
-      channelAddress,
-      channelType,
-      role,
-      contactType,
-      limit,
-    });
+    // Telemetry hydration and the guardian-id read (for role derivation) both
+    // hit the gateway and are independent — run them concurrently.
+    const [contacts, guardianIds] = await Promise.all([
+      hydrateTelemetryFromGateway(
+        searchContacts({
+          query,
+          channelAddress,
+          channelType,
+          contactType,
+          limit,
+        }),
+      ),
+      getGuardianContactIds(),
+    ]);
     return {
       ok: true,
-      contacts: contacts.map(prepareContactResponse),
+      contacts: contacts.map((c) => prepareContactResponse(c, guardianIds)),
     };
   }
 
@@ -247,10 +368,15 @@ export async function handleListContacts(queryParams: Record<string, string>) {
     log.debug(
       "handleListContacts: contactType-filtered read served daemon-native (gateway-native contactType filtering is design-blocked, pending ACL classification)",
     );
-    const contacts = listContacts(limit, role, contactType);
+    // Telemetry hydration and the guardian-id read (for role derivation) both
+    // hit the gateway and are independent — run them concurrently.
+    const [contacts, guardianIds] = await Promise.all([
+      hydrateTelemetryFromGateway(listContacts(limit, contactType)),
+      getGuardianContactIds(),
+    ]);
     return {
       ok: true,
-      contacts: contacts.map(prepareContactResponse),
+      contacts: contacts.map((c) => prepareContactResponse(c, guardianIds)),
     };
   }
 
@@ -266,31 +392,17 @@ export async function handleGetContact(contactId: string) {
     }
     const { contact, assistantMetadata } =
       GetContactIpcResponseSchema.parse(result);
+    // Relayed read: trust the gateway-sourced role (omit guardianIds).
     return {
       ok: true,
       contact: prepareContactResponse(contact),
       assistantMetadata: assistantMetadata ?? undefined,
     };
   } catch (err) {
-    // A clean not-found is a real 404 — don't fall back or mask it.
+    // A clean not-found is a real 404. Any other relay failure fails closed
+    // rather than reading ACL from the assistant DB.
     if (err instanceof NotFoundError) throw err;
-    log.warn(
-      { err, contactId },
-      "handleGetContact: gateway relay failed; falling back to assistant DB",
-    );
-    const contact = getContact(contactId);
-    if (!contact) {
-      throw new NotFoundError(`Contact "${contactId}" not found`);
-    }
-    const assistantMeta =
-      contact.contactType === "assistant"
-        ? getAssistantContactMetadata(contact.id)
-        : undefined;
-    return {
-      ok: true,
-      contact: prepareContactResponse(contact),
-      assistantMetadata: assistantMeta ?? undefined,
-    };
+    rethrowGatewayError(err);
   }
 }
 
@@ -298,19 +410,14 @@ export async function handleGetContact(contactId: string) {
 // Invite handlers (transport-agnostic)
 // ---------------------------------------------------------------------------
 
-// The gateway owns the canonical invite write path. These CLI handlers relay
-// to the gateway IPC methods via `ipcCallPersistent`; the assistant DB is
-// written only by the gateway. (Redemption stays daemon-local — see the redeem route.)
+// The gateway owns the canonical invite lifecycle: mint, list, revoke, and
+// redemption. These CLI handlers relay via `ipcCallPersistent`; the daemon
+// then layers the presentation fields (share link, LLM guardian instruction,
+// channel handle) onto the gateway's one-time create payload.
 
-// The invite-CREATE relay needs a generous timeout: the gateway's `invites_mint`
-// handler calls `createIngressInvite` → `generateInviteInstruction`, which can spend
-// up to GENERATION_TIMEOUT_MS (~5s) waiting on an LLM before falling back. The default
-// 5s persistent-IPC timeout can fire mid-mint, so the caller sees a spurious failure
-// even though the gateway is still writing the invite. 30s safely exceeds the inner
-// ~5s fallback plus IPC overhead on both nested hops. (List/revoke keep the default.)
-const INVITE_CREATE_RELAY_TIMEOUT_MS = 30_000;
-
-export async function handleListInvites({ queryParams = {} }: RouteHandlerArgs) {
+export async function handleListInvites({
+  queryParams = {},
+}: RouteHandlerArgs) {
   try {
     const result = (await ipcCallPersistent("invites_list", {
       ...(queryParams.sourceChannel
@@ -325,35 +432,46 @@ export async function handleListInvites({ queryParams = {} }: RouteHandlerArgs) 
 }
 
 export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
+  const contactId = body.contactId as string;
+  const sourceChannel = body.sourceChannel as string | undefined;
+  // The guardian display label on voice invites is daemon-resolved and passed
+  // through to the gateway, which stores it and never interprets it.
+  const guardianName =
+    sourceChannel === "phone" ? resolveInviteGuardianName() : undefined;
+  let result: { invite: Record<string, unknown>; rawToken?: string };
   try {
-    const result = (await ipcCallPersistent(
-      "invites_create",
-      {
-        contactId: body.contactId as string,
-        sourceChannel: body.sourceChannel as string | undefined,
-        note: body.note as string | undefined,
-        maxUses: body.maxUses as number | undefined,
-        expiresInMs: body.expiresInMs as number | undefined,
-        contactName: body.contactName as string | undefined,
-        expectedExternalUserId: body.expectedExternalUserId as
-          | string
-          | undefined,
-        friendName: body.friendName as string | undefined,
-        guardianName: body.guardianName as string | undefined,
-      },
-      INVITE_CREATE_RELAY_TIMEOUT_MS,
-    )) as { invite: Record<string, unknown>; rawToken?: string };
-    return {
-      ok: true,
-      invite: result.invite,
-      ...(result.rawToken ? { rawToken: result.rawToken } : {}),
-    };
+    result = (await ipcCallPersistent("invites_create", {
+      contactId,
+      sourceChannel,
+      note: body.note as string | undefined,
+      maxUses: body.maxUses as number | undefined,
+      expiresInMs: body.expiresInMs as number | undefined,
+      expectedExternalUserId: body.expectedExternalUserId as
+        | string
+        | undefined,
+      ...(guardianName ? { guardianName } : {}),
+      ...(typeof body.sourceConversationId === "string"
+        ? { sourceConversationId: body.sourceConversationId }
+        : {}),
+    })) as { invite: Record<string, unknown>; rawToken?: string };
   } catch (err) {
     rethrowGatewayError(err);
   }
+  const invite = await composeInvitePresentation({
+    contactId,
+    invite: result.invite,
+    rawToken: result.rawToken,
+  });
+  return {
+    ok: true,
+    invite,
+    ...(result.rawToken ? { rawToken: result.rawToken } : {}),
+  };
 }
 
-export async function handleRevokeInvite({ pathParams = {} }: RouteHandlerArgs) {
+export async function handleRevokeInvite({
+  pathParams = {},
+}: RouteHandlerArgs) {
   try {
     const result = (await ipcCallPersistent("invites_revoke", {
       id: pathParams.id,
@@ -367,62 +485,69 @@ export async function handleRevokeInvite({ pathParams = {} }: RouteHandlerArgs) 
 /**
  * Redeem a voice invite code.
  *
- * Backs the HTTP `invites_redeem` route (voice path) and the IPC-only
- * `invites_redeem_voice` method. Wraps the identity-bound
- * `redeemVoiceInviteCode` path.
+ * Backs the HTTP `invites_redeem` route (voice path). Parses the body with
+ * the shared `RedeemVoiceInviteRequestSchema` wire contract (plus the
+ * daemon-specific `assistantId` passthrough) and relays to the gateway's
+ * `invites_redeem` IPC — the gateway redemption engine owns validation, the
+ * atomic claim, and the ACL write. Fail-closed: a gateway relay failure
+ * surfaces as an error; there is no local redemption fallback.
  */
-export async function handleRedeemVoiceInvite({
-  body = {},
-}: RouteHandlerArgs) {
-  const callerExternalUserId = body.callerExternalUserId as string | undefined;
-  const code = body.code as string | undefined;
-
-  if (!callerExternalUserId || !code) {
+async function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
+  const parsed = RedeemVoiceInviteRequestSchema.safeParse(body);
+  if (!parsed.success) {
     throw new BadRequestError("callerExternalUserId and code are required");
   }
 
-  const result = await redeemVoiceInviteCode({
-    assistantId: body.assistantId as string | undefined,
-    callerExternalUserId,
-    sourceChannel: "phone",
-    code,
-  });
-
-  if (!result.ok) {
-    throw new BadRequestError(result.reason);
+  try {
+    return (await ipcCallPersistent("invites_redeem", {
+      ...parsed.data,
+      ...(typeof body.assistantId === "string"
+        ? { assistantId: body.assistantId }
+        : {}),
+    })) as { ok: true; type: string; memberId: string; inviteId?: string };
+  } catch (err) {
+    rethrowGatewayError(err);
   }
+}
 
-  return {
-    ok: true,
-    type: result.type,
-    memberId: result.memberId,
-    ...(result.type === "redeemed" ? { inviteId: result.inviteId } : {}),
-  };
+/** Map a token-branch schema failure to the stable redeem error messages. */
+function redeemTokenIssueMessage(error: z.ZodError): string {
+  for (const field of ["token", "sourceChannel"] as const) {
+    if (error.issues.some((issue) => issue.path[0] === field)) {
+      return `${field} is required`;
+    }
+  }
+  return error.issues[0]?.message ?? "Invalid redemption request";
 }
 
 /**
  * Redeem a token invite.
  *
- * Backs the HTTP `invites_redeem` route (token path) and the IPC-only
- * `invites_redeem_token` method. Wraps the generic `redeemIngressInvite`
- * token path.
+ * Backs the HTTP `invites_redeem` route (token path). Parses the body with
+ * the shared `RedeemInviteByTokenRequestSchema` wire contract and relays the
+ * parsed request verbatim — including the sender identity fields
+ * (`displayName` / `username`) the gateway engine stamps onto the new member —
+ * to the gateway's `invites_redeem` IPC. The gateway redemption engine owns
+ * validation, the atomic claim, and the ACL write. Fail-closed: a gateway
+ * relay failure surfaces as an error; there is no local redemption fallback.
  */
-export async function handleRedeemTokenInvite({
-  body = {},
-}: RouteHandlerArgs) {
-  const result = await redeemIngressInvite({
-    token: body.token as string | undefined,
-    externalUserId: body.externalUserId as string | undefined,
-    externalChatId: body.externalChatId as string | undefined,
-    sourceChannel: body.sourceChannel as string | undefined,
-  });
-
-  if (!result.ok) {
-    throw new BadRequestError(result.error);
+async function handleRedeemTokenInvite({ body = {} }: RouteHandlerArgs) {
+  const parsed = RedeemInviteByTokenRequestSchema.safeParse(body);
+  if (!parsed.success) {
+    throw new BadRequestError(redeemTokenIssueMessage(parsed.error));
   }
-  // Surface the redemption `type` so the gateway can skip mirroring an
-  // `already_member` redeem (which consumes no invite use).
-  return { ok: true, invite: result.data.invite, type: result.data.type };
+
+  try {
+    // The `type` is surfaced so callers can tell a real redeem apart from an
+    // `already_member` no-op (which consumes no invite use).
+    return (await ipcCallPersistent("invites_redeem", parsed.data)) as {
+      ok: true;
+      invite: Record<string, unknown>;
+      type: string;
+    };
+  } catch (err) {
+    rethrowGatewayError(err);
+  }
 }
 
 export async function handleRedeemInvite(args: RouteHandlerArgs) {
@@ -433,14 +558,17 @@ export async function handleRedeemInvite(args: RouteHandlerArgs) {
   return handleRedeemTokenInvite(args);
 }
 
-// Stays daemon-local by design (like invites_redeem): the gateway's call path
-// validates its row then delegates the actual provider call to THIS handler via
-// ipcCallAssistant("invites_trigger_call"). Relaying back would loop
-// gateway→assistant→gateway. The provider call is a daemon capability.
-export async function handleTriggerInviteCall({
-  pathParams = {},
-}: RouteHandlerArgs) {
-  const result = await triggerInviteCall(pathParams.id);
+// Stays daemon-local by design (like invites_redeem): the gateway validates
+// its canonical invite row, then delegates the actual provider call to THIS
+// handler via ipcCallAssistant("invites_trigger_call") with the resolved call
+// fields in the body. Relaying back would loop gateway→assistant→gateway.
+// The provider call is a daemon capability.
+export async function handleTriggerInviteCall({ body = {} }: RouteHandlerArgs) {
+  const result = await triggerInviteCall({
+    phoneNumber: body.phoneNumber as string | undefined,
+    friendName: body.friendName as string | null | undefined,
+    guardianName: body.guardianName as string | null | undefined,
+  });
   if (!result.ok) {
     throw new BadRequestError(result.error);
   }
@@ -562,13 +690,14 @@ export const ROUTES: RouteDefinition[] = [
       note: z.string().describe("Optional note").optional(),
       maxUses: z.number().describe("Max redemptions").optional(),
       expiresInMs: z.number().describe("Expiry duration in ms").optional(),
-      contactName: z.string().describe("Contact display name").optional(),
       expectedExternalUserId: z
         .string()
         .describe("Expected user ID (E.164 for phone)")
         .optional(),
-      friendName: z.string().describe("Friend name for the invite").optional(),
-      guardianName: z.string().describe("Guardian name").optional(),
+      sourceConversationId: z
+        .string()
+        .describe("Conversation the invite was created from (opaque)")
+        .optional(),
     }),
     responseBody: z.object({
       ok: z.boolean(),
@@ -585,9 +714,9 @@ export const ROUTES: RouteDefinition[] = [
     },
   },
   {
-    // Stays daemon-local by design: redemption is an inbound-channel path (not
-    // a CLI ACL surface), and the assistant redemption service already claims
-    // the gateway row by id via record_invite_redemption — relaying would loop.
+    // Relays to the gateway `invites_redeem` IPC: the gateway redemption
+    // engine is the single lifecycle authority (validation, atomic claim,
+    // ACL upsert). Fail-closed when the gateway is unreachable.
     operationId: "invites_redeem",
     endpoint: "contacts/invites/redeem",
     method: "POST",
@@ -600,15 +729,33 @@ export const ROUTES: RouteDefinition[] = [
     description: "Redeem an invite by token or voice code.",
     tags: ["contacts"],
     requestBody: z.object({
-      token: z.string().describe("Invite token (token-based redemption)"),
-      code: z.string().describe("Voice code (voice-code redemption)"),
+      token: z
+        .string()
+        .optional()
+        .describe("Invite token (token-based redemption)"),
+      code: z.string().optional().describe("Voice code (voice-code redemption)"),
       callerExternalUserId: z
         .string()
+        .optional()
         .describe("Caller E.164 phone (voice-code)"),
-      externalUserId: z.string().describe("External user ID (token-based)"),
-      externalChatId: z.string().describe("External chat ID (token-based)"),
-      sourceChannel: z.string().describe("Source channel (token-based)"),
-      assistantId: z.string().describe("Assistant ID (voice-code)"),
+      externalUserId: z
+        .string()
+        .optional()
+        .describe("External user ID (token-based)"),
+      externalChatId: z
+        .string()
+        .optional()
+        .describe("External chat ID (token-based)"),
+      sourceChannel: z
+        .string()
+        .optional()
+        .describe("Source channel (token-based)"),
+      displayName: z
+        .string()
+        .optional()
+        .describe("Sender display name (token-based)"),
+      username: z.string().optional().describe("Sender username (token-based)"),
+      assistantId: z.string().optional().describe("Assistant ID (voice-code)"),
     }),
     responseBody: z.object({
       ok: z.boolean(),
@@ -647,14 +794,33 @@ export const ROUTES: RouteDefinition[] = [
     operationId: "invites_trigger_call",
     endpoint: "contacts/invites/:id/call",
     method: "POST",
+    // Gateway-only: the handler dials whatever number is in the body — the
+    // invite validation in the gateway's triggerInviteCallNative is the sole
+    // gate, so an actor-reachable policy would be an arbitrary-dial primitive.
     policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
+      requiredScopes: ["internal.write"],
+      allowedPrincipalTypes: GATEWAY_PRINCIPALS,
     },
     handler: handleTriggerInviteCall,
     summary: "Trigger invite call",
-    description: "Trigger an outbound call for a phone invite.",
+    description:
+      "Trigger an outbound call for a phone invite. Gateway-only: the gateway validates its canonical invite row and supplies the resolved call fields in the body.",
     tags: ["contacts"],
+    requestBody: z.object({
+      phoneNumber: z
+        .string()
+        .describe("E.164 number the invite call dials (invite's bound caller)"),
+      friendName: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Invitee display name for the call greeting"),
+      guardianName: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Guardian display label recorded on the invite"),
+    }),
     responseBody: z.object({
       ok: z.boolean(),
       callSid: z.string().describe("Call SID from the provider"),
@@ -703,7 +869,10 @@ export const ROUTES: RouteDefinition[] = [
       // No-filter "search" is a list read — relay to the gateway so it returns
       // the same source-of-truth data as `contacts list`.
       if (!hasFilter) {
-        const { contacts } = await relayListContacts(parsed.limit ?? 50, undefined);
+        const { contacts } = await relayListContacts(
+          parsed.limit ?? 50,
+          undefined,
+        );
         return contacts;
       }
 
@@ -711,7 +880,13 @@ export const ROUTES: RouteDefinition[] = [
       log.debug(
         "search_contacts: search served daemon-native (gateway-native search is design-blocked)",
       );
-      return searchContacts(parsed).map(prepareContactResponse);
+      // Telemetry hydration and the guardian-id read (for role derivation) both
+      // hit the gateway and are independent — run them concurrently.
+      const [contacts, guardianIds] = await Promise.all([
+        hydrateTelemetryFromGateway(searchContacts(parsed)),
+        getGuardianContactIds(),
+      ]);
+      return contacts.map((c) => prepareContactResponse(c, guardianIds));
     },
   },
 
@@ -796,7 +971,7 @@ export const ROUTES: RouteDefinition[] = [
 // Transport-agnostic handlers (moved from HTTP-only)
 // ---------------------------------------------------------------------------
 
-function handleMergeContactsRoute(args: RouteHandlerArgs) {
+async function handleMergeContactsRoute(args: RouteHandlerArgs) {
   const { body } = args;
   const keepId = body?.keepId as string | undefined;
   const mergeId = body?.mergeId as string | undefined;
@@ -807,69 +982,50 @@ function handleMergeContactsRoute(args: RouteHandlerArgs) {
 
   try {
     const contact = mergeContacts(keepId, mergeId);
-    return { ok: true, contact: prepareContactResponse(contact) };
+    // Daemon-native read (assistant DB): telemetry is gateway-owned, so overlay
+    // it (fail-soft to null) and derive role from the guardian-id set. Both hit
+    // the gateway and are independent — run them concurrently.
+    const [[hydrated], guardianIds] = await Promise.all([
+      hydrateTelemetryFromGateway([contact]),
+      getGuardianContactIds(),
+    ]);
+    return {
+      ok: true,
+      contact: prepareContactResponse(hydrated, guardianIds),
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     throw new BadRequestError(message);
   }
 }
 
-function handleUpdateContactChannelRoute(args: RouteHandlerArgs) {
-  const channelId = args.pathParams!.contactChannelId;
+/**
+ * Relay the channel status/policy update to the gateway-native handler.
+ *
+ * The gateway DB is the source of truth: it owns validation, the
+ * revoke-of-blocked guard, the assistant-side channel-ID backward-compat
+ * resolution, the assistant-DB mirror, and the `contacts_changed` emit. This
+ * daemon handler writes NOTHING to the assistant DB directly — it forwards the
+ * raw channel ID + body and returns the gateway response verbatim. No fallback:
+ * an unexpected relay failure surfaces as an error (never a silent second
+ * write).
+ */
+export async function handleUpdateContactChannelRoute(args: RouteHandlerArgs) {
   const body = (args.body ?? {}) as {
     status?: string;
     policy?: string;
     reason?: string;
   };
 
-  if (body.status !== undefined && !isChannelStatus(body.status)) {
-    throw new BadRequestError(
-      `Invalid status "${body.status}". Must be one of: ${VALID_CHANNEL_STATUSES.join(", ")}`,
-    );
+  try {
+    const result = await ipcCallPersistent("update_contact_channel", {
+      contactChannelId: args.pathParams!.contactChannelId,
+      ...(body.status !== undefined ? { status: body.status } : {}),
+      ...(body.policy !== undefined ? { policy: body.policy } : {}),
+      ...(body.reason !== undefined ? { reason: body.reason } : {}),
+    });
+    return UpdateContactChannelIpcResponseSchema.parse(result);
+  } catch (err) {
+    rethrowGatewayError(err);
   }
-
-  if (body.policy !== undefined && !isChannelPolicy(body.policy)) {
-    throw new BadRequestError(
-      `Invalid policy "${body.policy}". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
-    );
-  }
-
-  if (body.status === "revoked") {
-    const existing = getChannelById(channelId);
-    if (!existing) {
-      throw new NotFoundError(`Channel "${channelId}" not found`);
-    }
-    if (existing.status === "blocked") {
-      throw new ConflictError(
-        "Cannot revoke a blocked channel. Unblock it first or leave it blocked.",
-      );
-    }
-  }
-
-  const updated = updateChannelStatus(channelId, {
-    status: body.status,
-    policy: body.policy,
-    revokedReason:
-      body.status !== undefined
-        ? body.status === "revoked"
-          ? (body.reason ?? null)
-          : null
-        : undefined,
-    blockedReason:
-      body.status !== undefined
-        ? body.status === "blocked"
-          ? (body.reason ?? null)
-          : null
-        : undefined,
-  });
-
-  if (!updated) {
-    throw new NotFoundError(`Channel "${channelId}" not found`);
-  }
-
-  const parentContact = getContact(updated.contactId);
-  return {
-    ok: true,
-    contact: parentContact ? prepareContactResponse(parentContact) : undefined,
-  };
 }

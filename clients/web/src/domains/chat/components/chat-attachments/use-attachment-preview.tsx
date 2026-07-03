@@ -20,11 +20,16 @@ interface UseAttachmentPreviewResult {
  * state and the {@link AttachmentPreviewModal} element. Consumers call
  * `openPreview(att)` from an item's click handler and render `previewModal`.
  *
+ * When multiple attachments are present, the modal renders prev/next gallery
+ * navigation so the user can arrow between sibling images without closing.
+ *
  * @param assistantId Forwarded to {@link AttachmentPreviewModal} so it can
  *   lazily fetch attachment content when `previewUrl` is missing.
+ * @param attachments The full list of sibling attachments for gallery nav.
  */
 export function useAttachmentPreview(
   assistantId?: string | null,
+  attachments?: DisplayAttachment[],
 ): UseAttachmentPreviewResult {
   const [previewAttachment, setPreviewAttachment] =
     useState<DisplayAttachment | null>(null);
@@ -35,12 +40,19 @@ export function useAttachmentPreview(
   );
   const handleClose = useCallback(() => setPreviewAttachment(null), []);
 
+  const handleNavigate = useCallback(
+    (attachment: DisplayAttachment) => setPreviewAttachment(attachment),
+    [],
+  );
+
   const previewModal = previewAttachment ? (
     <AttachmentPreviewModal
       open
       onClose={handleClose}
       attachment={previewAttachment}
       assistantId={assistantId}
+      siblingAttachments={attachments}
+      onNavigate={handleNavigate}
     />
   ) : null;
 

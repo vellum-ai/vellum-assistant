@@ -47,7 +47,7 @@ mock.module("../../config/loader.js", () => ({
 // Mock the DB getter — we never actually hit SQLite since `getConnection` is
 // also mocked. Returning a sentinel keeps the call signature satisfied.
 const mockDbSentinel = { __mock: "db" };
-mock.module("../../memory/db-connection.js", () => ({
+mock.module("../../persistence/db-connection.js", () => ({
   getDb: () => mockDbSentinel,
 }));
 

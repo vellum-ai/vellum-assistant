@@ -13,10 +13,12 @@
  * the assistant and gateway databases (dual-write).
  */
 
+import { and, asc, eq, isNotNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { createGuardianBinding } from "../../auth/guardian-bootstrap.js";
-import { assistantDbQuery } from "../../db/assistant-db-proxy.js";
+import { getGatewayDb } from "../../db/connection.js";
+import { contacts as gwContacts } from "../../db/schema.js";
 import type { GatewayConfig } from "../../config.js";
 import type { CredentialCache } from "../../credential-cache.js";
 import { credentialKey } from "../../credential-key.js";
@@ -70,17 +72,28 @@ interface GuardianRow {
 }
 
 /**
- * Find the existing guardian contact (any channel). Returns null if no
- * guardian has been verified yet or if the guardian has no principal_id.
+ * Find the existing guardian contact (any channel) from the gateway DB.
+ * Returns null if no guardian has been verified yet or if the guardian has
+ * no principal_id.
  */
-async function findGuardian(): Promise<(GuardianRow & { principal_id: string }) | null> {
-  const rows = await assistantDbQuery<GuardianRow>(
-    `SELECT id, principal_id FROM contacts WHERE role = 'guardian' LIMIT 1`,
-  );
+export async function findGuardian(): Promise<
+  (GuardianRow & { principal_id: string }) | null
+> {
+  const row =
+    getGatewayDb()
+      .select({ id: gwContacts.id, principalId: gwContacts.principalId })
+      .from(gwContacts)
+      // Skip principal-less guardian stubs (e.g. created by the gateway-first
+      // contact-prompt path before bootstrap); pick the oldest real guardian.
+      .where(
+        and(eq(gwContacts.role, "guardian"), isNotNull(gwContacts.principalId)),
+      )
+      .orderBy(asc(gwContacts.createdAt))
+      .limit(1)
+      .get() ?? null;
 
-  const row = rows[0] ?? null;
-  if (!row?.principal_id) return null;
-  return row as GuardianRow & { principal_id: string };
+  if (!row?.principalId) return null;
+  return { id: row.id, principal_id: row.principalId };
 }
 
 // ---------------------------------------------------------------------------

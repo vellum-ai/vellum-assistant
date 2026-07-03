@@ -5,12 +5,6 @@ import {
 } from "@/domains/chat/types/types";
 import { saveDismissedSurfaceIds } from "@/domains/chat/utils/dismissed-surfaces-storage";
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
-import {
-  attachSurface,
-  completeSurface,
-  dismissSurface,
-  updateSurfaceData,
-} from "@/domains/chat/utils/stream-updaters/surface-updaters";
 import type { StreamHandlerContext } from "@/domains/chat/utils/stream-handlers/types";
 import type {
   UISurfaceCompleteEvent,
@@ -18,6 +12,11 @@ import type {
   UISurfaceShowEvent,
   UISurfaceUpdateEvent,
 } from "@vellumai/assistant-api";
+
+// Surface content (attach / update / dismiss / complete) is folded onto the
+// assistant row in the materialized snapshot by the rolling-snapshot reducer.
+// These handlers own only the turn-state surface counters, the asset-refresh
+// signal, and dismissed-id persistence.
 
 export function handleUISurfaceShow(
   event: UISurfaceShowEvent,
@@ -39,19 +38,13 @@ export function handleUISurfaceShow(
   };
   surfaceObj.display = classifySurfaceDisplay(surfaceObj);
   ctx.turnActions.showSurface(isSurfaceInteractive(surfaceObj));
-  ctx.setMessages((prev) =>
-    attachSurface(prev, surfaceObj, event.messageId),
-  );
 }
 
 export function handleUISurfaceUpdate(
-  event: UISurfaceUpdateEvent,
+  _event: UISurfaceUpdateEvent,
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.updateSurface();
-  ctx.setMessages((prev) =>
-    updateSurfaceData(prev, event.surfaceId, event.data),
-  );
 }
 
 export function handleUISurfaceDismiss(
@@ -68,7 +61,6 @@ export function handleUISurfaceDismiss(
       useChatSessionStore.getState().dismissedSurfaceIds,
     );
   }
-  ctx.setMessages((prev) => dismissSurface(prev, event.surfaceId));
 }
 
 export function handleUISurfaceComplete(
@@ -76,7 +68,11 @@ export function handleUISurfaceComplete(
   ctx: StreamHandlerContext,
 ): void {
   ctx.turnActions.completeSurface();
-  const completedSurface = ctx.messages
+  // Read the surface type off the materialized snapshot (where the reducer
+  // folded it) to decide whether to bump the asset-refresh key.
+  const completedSurface = (
+    useChatSessionStore.getState().snapshot?.messages ?? []
+  )
     .flatMap((m) => m.surfaces ?? [])
     .find((s) => s.surfaceId === event.surfaceId);
   if (
@@ -85,7 +81,4 @@ export function handleUISurfaceComplete(
   ) {
     ctx.setAssetsRefreshKey((k) => k + 1);
   }
-  ctx.setMessages((prev) =>
-    completeSurface(prev, event.surfaceId, event.summary),
-  );
 }

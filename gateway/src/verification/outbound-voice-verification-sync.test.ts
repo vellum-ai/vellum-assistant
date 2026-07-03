@@ -3,9 +3,15 @@ import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
+import { and, eq } from "drizzle-orm";
 
 import { initSigningKey } from "../auth/token-service.js";
-import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
+import {
+  initGatewayDb,
+  getGatewayDb,
+  resetGatewayDb,
+} from "../db/connection.js";
+import { contacts, contactChannels } from "../db/schema.js";
 
 const TEST_SIGNING_KEY = Buffer.from("test-signing-key-at-least-32-bytes-long");
 initSigningKey(TEST_SIGNING_KEY);
@@ -115,6 +121,8 @@ async function setupTestDirs(): Promise<void> {
   await initGatewayDb();
 }
 
+// Seeds both DBs: the assistant identity mirror and the gateway DB, which is
+// the source of truth for guardian role and channel ACL state.
 function insertGuardianContact(id: string, principalId: string, now: number) {
   testAssistantDb!
     .prepare(
@@ -122,6 +130,18 @@ function insertGuardianContact(id: string, principalId: string, now: number) {
        VALUES (?, ?, 'guardian', ?, ?, ?)`,
     )
     .run(id, `Guardian ${id}`, principalId, now, now);
+
+  getGatewayDb()
+    .insert(contacts)
+    .values({
+      id,
+      displayName: `Guardian ${id}`,
+      role: "guardian",
+      principalId,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 }
 
 function insertChannel(opts: {
@@ -150,6 +170,22 @@ function insertChannel(opts: {
       opts.createdAt,
       opts.updatedAt,
     );
+
+  getGatewayDb()
+    .insert(contactChannels)
+    .values({
+      id: opts.id,
+      contactId: opts.contactId,
+      type: opts.type,
+      address: opts.externalUserId,
+      externalChatId: opts.externalUserId,
+      isPrimary: true,
+      status: opts.status,
+      policy: "allow",
+      createdAt: opts.createdAt,
+      updatedAt: opts.updatedAt,
+    })
+    .run();
 }
 
 function activeBindingFor(phone: string): {
@@ -157,18 +193,23 @@ function activeBindingFor(phone: string): {
   status: string;
   updatedAt: number | null;
 } | null {
-  const row = testAssistantDb!
-    .prepare(
-      `SELECT cc.address, cc.status, cc.updated_at AS updatedAt
-       FROM contacts c
-       JOIN contact_channels cc ON cc.contact_id = c.id
-       WHERE c.role = 'guardian' AND cc.type = 'phone'
-         AND cc.address = ?
-       LIMIT 1`,
+  const row = getGatewayDb()
+    .select({
+      address: contactChannels.address,
+      status: contactChannels.status,
+      updatedAt: contactChannels.updatedAt,
+    })
+    .from(contacts)
+    .innerJoin(contactChannels, eq(contactChannels.contactId, contacts.id))
+    .where(
+      and(
+        eq(contacts.role, "guardian"),
+        eq(contactChannels.type, "phone"),
+        eq(contactChannels.address, phone),
+      ),
     )
-    .get(phone) as
-    | { address: string; status: string; updatedAt: number | null }
-    | undefined;
+    .limit(1)
+    .get();
   return row ?? null;
 }
 

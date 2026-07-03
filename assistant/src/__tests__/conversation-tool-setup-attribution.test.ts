@@ -71,7 +71,7 @@ mock.module("../tools/browser/browser-screencast.js", () => ({
   registerConversationSender: mock(() => {}),
 }));
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: mock(() => null),
   getAppDirPath: mock(() => "/tmp/test-apps/dummy"),
   isMultifileApp: mock(() => false),
@@ -319,5 +319,52 @@ describe("createToolExecutor attribution threading", () => {
     expect(result).toMatchObject({ content: "ok", isError: false });
     expect(calls).toHaveLength(1);
     expect(calls[0].context.attribution).toBeNull();
+  });
+});
+
+describe("createToolExecutor isInteractive threading", () => {
+  test("uses the resolved turn-level interactivity over live client state", async () => {
+    // A scheduled/background turn (currentTurnIsNonInteractive=true) must read
+    // as non-interactive even when a client is attached (hasNoClient=false), so
+    // ask_question short-circuits instead of parking on the response backstop.
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeCtx({ currentTurnIsNonInteractive: true, hasNoClient: false }),
+    );
+
+    await toolFn("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.isInteractive).toBe(false);
+  });
+
+  test("reflects an interactive turn as interactive", async () => {
+    const { executor, calls } = makeCapturingExecutor();
+    const toolFn = makeToolFn(
+      executor,
+      makeCtx({ currentTurnIsNonInteractive: false }),
+    );
+
+    await toolFn("file_read", { path: "/tmp/a" });
+
+    expect(calls[0].context.isInteractive).toBe(true);
+  });
+
+  test("falls back to live client state when no turn value is set", async () => {
+    // No in-flight turn resolution (e.g. tool execution outside runAgentLoop):
+    // derive interactivity from whether a client is connected.
+    const noClient = makeCapturingExecutor();
+    await makeToolFn(
+      noClient.executor,
+      makeCtx({ currentTurnIsNonInteractive: undefined, hasNoClient: true }),
+    )("file_read", { path: "/tmp/a" });
+    expect(noClient.calls[0].context.isInteractive).toBe(false);
+
+    const withClient = makeCapturingExecutor();
+    await makeToolFn(
+      withClient.executor,
+      makeCtx({ currentTurnIsNonInteractive: undefined, hasNoClient: false }),
+    )("file_read", { path: "/tmp/a" });
+    expect(withClient.calls[0].context.isInteractive).toBe(true);
   });
 });

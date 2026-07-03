@@ -77,14 +77,16 @@ mock.module("../permissions/checker.js", () => ({
   getCachedAssessment: () => undefined,
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   createConversation: (title: string) => ({ id: "conversation-1", title }),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
 // Mock every export so downstream test files that dynamically import modules
-// with a static `from "../memory/tool-usage-store.js"` still see all symbols.
-mock.module("../memory/tool-usage-store.js", () => ({
+// with a static `from "../telemetry/tool-usage-store.js"` still see all symbols.
+mock.module("../telemetry/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
   getRecentInvocations: () => [],
   rotateToolInvocations: async () => 0,

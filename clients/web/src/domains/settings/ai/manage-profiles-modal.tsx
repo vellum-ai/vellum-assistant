@@ -1,22 +1,34 @@
 import { useMemo, useRef, useState } from "react";
 
 import { captureError } from "@/lib/sentry/capture-error";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Button } from "@vellumai/design-library/components/button";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
 import { Typography } from "@vellumai/design-library/components/typography";
 
-import type { CallSiteOverrideDraft, ConfigPatchRequest, ProfileEntry, ProfilePatchEntry, ProfileStatus } from "@/generated/daemon/types.gen";
+import type {
+  CallSiteOverrideDraft,
+  ConfigPatchRequest,
+  ProfileEntry,
+  ProfilePatchEntry,
+  ProfileStatus,
+} from "@/generated/daemon/types.gen";
 
-import { type ProfileWithName, buildOrderedProfiles } from "@/domains/settings/ai/utils";
+import {
+  type ProfileWithName,
+  buildOrderedProfiles,
+} from "@/domains/settings/ai/utils";
 import type { BlockedDeleteState } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { BlockedDeleteModal } from "@/domains/settings/ai/manage-profiles-blocked-delete-modal";
 import { ProfileListItem } from "@/domains/settings/ai/manage-profiles-list-item";
 import { ProfileEditorModal } from "@/domains/settings/ai/profile-editor-modal";
-import { gateAutoProfile } from "@/assistant/profile-pickers";
-import { configGetOptions, configGetSetQueryData, inferenceProviderconnectionsGetOptions, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+  configGetOptions,
+  configGetSetQueryData,
+  inferenceProviderconnectionsGetOptions,
+  useConfigPatchMutation,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -44,8 +56,14 @@ export function ManageProfilesModal({
     staleTime: 30_000,
   });
 
-  const profiles = useMemo(() => config?.llm?.profiles ?? {}, [config?.llm?.profiles]);
-  const profileOrder = useMemo(() => config?.llm?.profileOrder ?? [], [config?.llm?.profileOrder]);
+  const profiles = useMemo(
+    () => config?.llm?.profiles ?? {},
+    [config?.llm?.profiles],
+  );
+  const profileOrder = useMemo(
+    () => config?.llm?.profileOrder ?? [],
+    [config?.llm?.profileOrder],
+  );
   const activeProfile = config?.llm?.activeProfile ?? null;
   const callSites = config?.llm?.callSites ?? {};
   const orderedProfiles = useMemo(
@@ -55,12 +73,18 @@ export function ManageProfilesModal({
 
   const configMutation = useConfigPatchMutation({
     onSuccess: (data) => {
-      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+      configGetSetQueryData(
+        queryClient,
+        { path: { assistant_id: assistantId } },
+        data,
+      );
     },
   });
 
   const [editorOpen, setEditorOpen] = useState(false);
-  const [editingProfile, setEditingProfile] = useState<ProfileWithName | null>(null);
+  const [editingProfile, setEditingProfile] = useState<ProfileWithName | null>(
+    null,
+  );
 
   // Provider connections — shared TanStack Query cache with ManageProvidersModal.
   const { data: connectionsData } = useQuery({
@@ -81,12 +105,15 @@ export function ManageProfilesModal({
     const mode = options?.mode ?? "replace";
     const isNew = !(name in profiles);
 
-    // Merge mode (view-mode managed-profile policy edits): send a single
-    // deep-merge PATCH so the caller's partial `entry` (typically just
-    // `{label, status}`) layers on top of the existing record without
-    // wiping seed-owned fields.
+    // Merge mode (view-mode managed-profile re-enable): send a single
+    // deep-merge PATCH so the caller's partial `entry` — the
+    // `{status: "active"}` re-enable — layers on top of the existing record
+    // without wiping seed-owned fields.
     if (mode === "merge" && !isNew) {
-      await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: { profiles: { [name]: entry } } } });
+      await configMutation.mutateAsync({
+        path: { assistant_id: assistantId },
+        body: { llm: { profiles: { [name]: entry } } },
+      });
       setEditorOpen(false);
       setEditingProfile(null);
       return;
@@ -109,21 +136,37 @@ export function ManageProfilesModal({
     // semantics would silently preserve old values for omitted keys.
     if (!isNew) {
       const oldEntry = profiles[name];
-      await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: { profiles: { [name]: null } } } });
+      await configMutation.mutateAsync({
+        path: { assistant_id: assistantId },
+        body: { llm: { profiles: { [name]: null } } },
+      });
       try {
-        await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: llmPatch } });
+        await configMutation.mutateAsync({
+          path: { assistant_id: assistantId },
+          body: { llm: llmPatch },
+        });
       } catch (recreateErr) {
-        captureError(recreateErr, { context: "settings-ai-profile-edit-recreate" });
+        captureError(recreateErr, {
+          context: "settings-ai-profile-edit-recreate",
+        });
         // Best-effort rollback: restore old entry so the profile isn't lost
         if (oldEntry != null) {
-          await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: { profiles: { [name]: oldEntry } } } }).catch(() => {
-            /* rollback failed — original error still propagates */
-          });
+          await configMutation
+            .mutateAsync({
+              path: { assistant_id: assistantId },
+              body: { llm: { profiles: { [name]: oldEntry } } },
+            })
+            .catch(() => {
+              /* rollback failed — original error still propagates */
+            });
         }
         throw recreateErr;
       }
     } else {
-      await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: llmPatch } });
+      await configMutation.mutateAsync({
+        path: { assistant_id: assistantId },
+        body: { llm: llmPatch },
+      });
     }
 
     // Fire the profile-create success toast from the SETTINGS surface only.
@@ -168,9 +211,15 @@ export function ManageProfilesModal({
       </Modal.Root>
       <ProfileEditorModal
         isOpen={editorOpen}
+        // Managed profiles AND invariant-flagged profiles open in view mode.
+        // The daemon stamps `invariant` only on managed-source entries, so
+        // the two checks normally coincide; keeping both is defensive. A
+        // user-owned profile sharing a managed name carries neither marker
+        // and opens fully editable — the daemon accepts every write to it.
         mode={
           editingProfile
-            ? editingProfile.source === "managed"
+            ? editingProfile.source === "managed" ||
+              editingProfile.invariant === true
               ? "view"
               : "edit"
             : "create"
@@ -200,7 +249,10 @@ interface ManageProfilesModalInnerProps {
   profileOrder: string[];
   orderedProfiles: ProfileWithName[];
   activeProfile: string | null;
-  callSiteOverrides: Record<string, { profile?: string | null } | null | undefined>;
+  callSiteOverrides: Record<
+    string,
+    { profile?: string | null } | null | undefined
+  >;
   onClose: () => void;
   onEditClick: (profile: ProfileWithName) => void;
   onNewClick: () => void;
@@ -220,7 +272,11 @@ function ManageProfilesModalInner({
   const queryClient = useQueryClient();
   const configMutation = useConfigPatchMutation({
     onSuccess: (data) => {
-      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+      configGetSetQueryData(
+        queryClient,
+        { path: { assistant_id: assistantId } },
+        data,
+      );
     },
   });
 
@@ -231,23 +287,28 @@ function ManageProfilesModalInner({
 
   // Drag-and-drop state
   const [draggingName, setDraggingName] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<{ name: string; after: boolean } | null>(null);
+  const [dropTarget, setDropTarget] = useState<{
+    name: string;
+    after: boolean;
+  } | null>(null);
   const [reorderError, setReorderError] = useState<string | null>(null);
   const draggingNameRef = useRef<string | null>(null);
   const dropTargetRef = useRef<{ name: string; after: boolean } | null>(null);
 
   // Blocked-delete state
-  const [blockedDelete, setBlockedDelete] = useState<BlockedDeleteState | null>(null);
-  const [blockedDeleteError, setBlockedDeleteError] = useState<string | null>(null);
+  const [blockedDelete, setBlockedDelete] = useState<BlockedDeleteState | null>(
+    null,
+  );
+  const [blockedDeleteError, setBlockedDeleteError] = useState<string | null>(
+    null,
+  );
   const [blockedDeleteReplacement, setBlockedDeleteReplacement] = useState("");
   const [blockedDeleteSaving, setBlockedDeleteSaving] = useState(false);
 
-  const queryComplexityRouting = useAssistantFeatureFlagStore.use.queryComplexityRouting();
-
   // Build ordered profile list
   const allOrderedProfiles: ProfileWithName[] = useMemo(() => {
-    return gateAutoProfile(orderedProfiles, queryComplexityRouting);
-  }, [orderedProfiles, queryComplexityRouting]);
+    return orderedProfiles;
+  }, [orderedProfiles]);
 
   async function handleStatusToggle(
     profile: ProfileWithName,
@@ -325,7 +386,12 @@ function ManageProfilesModalInner({
       .map(([id]) => id);
 
     if (isActive || blockedCallSiteIds.length > 0) {
-      setBlockedDelete({ name, label, isActive, callSiteIds: blockedCallSiteIds });
+      setBlockedDelete({
+        name,
+        label,
+        isActive,
+        callSiteIds: blockedCallSiteIds,
+      });
       setBlockedDeleteReplacement("");
       setBlockedDeleteError(null);
       return;
@@ -355,10 +421,15 @@ function ManageProfilesModalInner({
 
     if (Object.keys(llmPatch).length > 0) {
       try {
-        await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: llmPatch } });
+        await configMutation.mutateAsync({
+          path: { assistant_id: assistantId },
+          body: { llm: llmPatch },
+        });
       } catch (error) {
         captureError(error, { context: "settings-ai-profile-reassign-delete" });
-        setBlockedDeleteError("Failed to reassign references. Please try again.");
+        setBlockedDeleteError(
+          "Failed to reassign references. Please try again.",
+        );
         setBlockedDeleteSaving(false);
         return;
       }
@@ -388,7 +459,10 @@ function ManageProfilesModalInner({
     ];
 
     try {
-      await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: { profileOrder: newOrder } } });
+      await configMutation.mutateAsync({
+        path: { assistant_id: assistantId },
+        body: { llm: { profileOrder: newOrder } },
+      });
     } catch (error) {
       captureError(error, { context: "settings-ai-profile-reorder" });
       setReorderError("Failed to reorder profiles. Please try again.");
@@ -410,7 +484,8 @@ function ManageProfilesModalInner({
         <Modal.Header>
           <Modal.Title>Model Profiles</Modal.Title>
           <Modal.Description>
-            Bundle a provider and model into a named profile. Assign profiles to specific actions or swap between them when chatting.
+            Bundle a provider and model into a named profile. Assign profiles to
+            specific actions or swap between them when chatting.
           </Modal.Description>
         </Modal.Header>
 
@@ -456,7 +531,9 @@ function ManageProfilesModalInner({
                     setDropTarget(t);
                   }}
                   onDragLeave={(e) => {
-                    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+                    if (
+                      !e.currentTarget.contains(e.relatedTarget as Node | null)
+                    ) {
                       dropTargetRef.current = null;
                       setDropTarget((prev) =>
                         prev?.name === profile.name ? null : prev,
@@ -477,7 +554,9 @@ function ManageProfilesModalInner({
                   }}
                   onEditClick={() => onEditClick(profile)}
                   onDeleteClick={() => handleDeleteClick(profile.name)}
-                  onStatusToggle={(next) => void handleStatusToggle(profile, next)}
+                  onStatusToggle={(next) =>
+                    void handleStatusToggle(profile, next)
+                  }
                 />
               ))}
             </div>

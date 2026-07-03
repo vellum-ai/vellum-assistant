@@ -107,7 +107,7 @@ mock.module("../permissions/checker.js", () => ({
   getCachedAssessment: () => undefined,
 }));
 
-mock.module("../memory/tool-usage-store.js", () => ({
+mock.module("../telemetry/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
   getRecentInvocations: () => [],
   rotateToolInvocations: async () => 0,

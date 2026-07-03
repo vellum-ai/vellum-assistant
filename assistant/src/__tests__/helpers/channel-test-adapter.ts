@@ -61,11 +61,16 @@ mock.module("../../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => undefined,
 }));
 
+import type { TrustClass, TrustVerdict } from "@vellumai/gateway-client";
+
+import { isChannelId } from "../../channels/types.js";
+import { findContactChannel } from "../../contacts/contact-store.js";
 import type {
   ApprovalConversationGenerator,
   ApprovalCopyGenerator,
   MessageProcessor,
 } from "../../runtime/http-types.js";
+import { getCachedMemberAcl } from "../../runtime/member-verdict-cache.js";
 import {
   handleChannelDeliveryAck as _handleChannelDeliveryAck,
   handleListDeadLetters as _handleListDeadLetters,
@@ -76,6 +81,7 @@ import {
   handleDeleteConversation as _handleDeleteConversation,
 } from "../../runtime/routes/channel-inbound-routes.js";
 import { RouteError } from "../../runtime/routes/errors.js";
+import { deriveGuardianForChannel } from "./derive-guardian-delivery.js";
 
 /**
  * Wrap a transport-agnostic handler call, converting RouteError throws
@@ -112,8 +118,101 @@ export async function handleChannelInbound(
   _approvalConversationGenerator?: ApprovalConversationGenerator,
 ): Promise<Response> {
   const body = await req.json();
+  stampTrustVerdict(body);
   return wrapHandler(() => _handleChannelInbound({ body }));
 }
+
+/**
+ * Mirror the gateway: stamp a per-actor {@link TrustVerdict} onto inbound
+ * `sourceMetadata` from the local contact store, so the daemon's ACL stage
+ * (which now reads the verdict and fail-closed-denies when it is absent) sees
+ * the same verdict the gateway would resolve in production.
+ *
+ * Skipped when a test already supplies `trustVerdict` (or sets `sourceMetadata`
+ * to null) so absent-verdict / explicit-verdict tests keep their setup.
+ */
+function stampTrustVerdict(body: Record<string, unknown>): void {
+  const meta = body.sourceMetadata as Record<string, unknown> | undefined;
+  if (meta && "trustVerdict" in meta) return;
+
+  const channelType = String(body.sourceChannel ?? "");
+  const actorExternalId =
+    typeof body.actorExternalId === "string" ? body.actorExternalId : undefined;
+  if (!channelType) return;
+
+  const verdict = resolveLocalTrustVerdict({
+    channelType,
+    actorExternalId,
+  });
+  body.sourceMetadata = { ...(meta ?? {}), trustVerdict: verdict };
+}
+
+/** Local mirror of the gateway resolver, reading the daemon contact store. */
+export function resolveLocalTrustVerdict(input: {
+  channelType: string;
+  actorExternalId?: string;
+}): TrustVerdict {
+  const canonicalSenderId = input.actorExternalId ?? null;
+
+  // Match the gateway's address-only member resolution (no externalChatId).
+  const member = input.actorExternalId
+    ? findContactChannel({
+        channelType: input.channelType,
+        address: input.actorExternalId,
+      })
+    : null;
+  const guardian = deriveGuardianForChannel(input.channelType);
+
+  const isGuardian =
+    !!guardian &&
+    !!canonicalSenderId &&
+    guardian.address.toLowerCase() === canonicalSenderId.toLowerCase();
+
+  // Mirror the gateway: read the member ACL from the warmed verdict cache (the
+  // source production resolves from) rather than the local ACL columns.
+  const memberAcl =
+    member && input.actorExternalId && isChannelId(input.channelType)
+      ? getCachedMemberAcl(input.channelType, input.actorExternalId)
+      : undefined;
+
+  let trustClass: TrustClass;
+  if (isGuardian) {
+    trustClass = "guardian";
+  } else if (memberAcl) {
+    const status = memberAcl.status;
+    if (status === "active") trustClass = "trusted_contact";
+    else if (status === "unverified" || status === "pending")
+      trustClass = "unverified_contact";
+    else trustClass = "unknown";
+  } else {
+    trustClass = "unknown";
+  }
+
+  const verdict: TrustVerdict = { trustClass, canonicalSenderId };
+
+  if (guardian) {
+    verdict.guardianExternalUserId = guardian.address;
+    verdict.guardianDeliveryChatId = guardian.externalChatId ?? null;
+    if (guardian.principalId)
+      verdict.guardianPrincipalId = guardian.principalId;
+    verdict.guardianDisplayName = guardian.displayName ?? undefined;
+  }
+
+  if (member && memberAcl) {
+    verdict.contactId = member.channel.contactId;
+    verdict.channelId = member.channel.id;
+    verdict.type = member.channel.type;
+    verdict.address = member.channel.address;
+    verdict.externalChatId = member.channel.externalChatId;
+    verdict.status = memberAcl.status;
+    verdict.policy = memberAcl.policy;
+    verdict.memberDisplayName = member.contact.displayName;
+  }
+
+  return verdict;
+}
+
+export { seedContactChannel } from "./seed-contact-channel.js";
 
 // ---------------------------------------------------------------------------
 // handleDeleteConversation adapter

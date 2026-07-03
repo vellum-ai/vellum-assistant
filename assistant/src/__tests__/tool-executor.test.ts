@@ -17,6 +17,7 @@ const mockConfig = {
     shellDefaultTimeoutSec: 120,
     shellMaxTimeoutSec: 600,
     permissionTimeoutSec: 300,
+    questionResponseTimeoutSec: 1800,
   },
   sandbox: {
     enabled: false,
@@ -127,8 +128,8 @@ mock.module("../permissions/checker.js", () => ({
 }));
 
 // Mock every export so downstream test files that dynamically import modules
-// with a static `from "../memory/tool-usage-store.js"` still see all symbols.
-mock.module("../memory/tool-usage-store.js", () => ({
+// with a static `from "../telemetry/tool-usage-store.js"` still see all symbols.
+mock.module("../telemetry/tool-usage-store.js", () => ({
   recordToolInvocation: () => {},
   getRecentInvocations: () => [],
   rotateToolInvocations: async () => 0,
@@ -166,7 +167,11 @@ mock.module("../tools/shared/filesystem/path-policy.js", () => ({
 }));
 
 import { PermissionPrompter } from "../permissions/prompter.js";
-import { isSideEffectTool, ToolExecutor } from "../tools/executor.js";
+import {
+  computePerToolTimeoutMs,
+  isSideEffectTool,
+  ToolExecutor,
+} from "../tools/executor.js";
 import type { ToolContext } from "../tools/types.js";
 
 function makeContext(overrides?: Partial<ToolContext>): ToolContext {
@@ -442,6 +447,16 @@ describe("ToolExecutor policy context plumbing", () => {
       conversationId: "conversation-1",
       executionContext: "conversation",
       executionTarget: "sandbox",
+      // Origin-scoping signal: buildPolicyContext now copies the turn's trust
+      // class onto the PolicyContext so the checker can scope narrow
+      // non-interactive auto-grants. requestOrigin/sourceChannel are unset for
+      // this interactive turn (omitted — toEqual ignores undefined-valued keys).
+      trustClass: "guardian",
+      // buildPolicyContext also precomputes the proc-to-skills gate (flag on AND
+      // v3 live) so the leaf permission checker can read it without touching
+      // config. This test does not mock memory-v3-gate.js, so the real gate runs
+      // against the default config and resolves inactive → false.
+      procToSkillsActive: false,
     });
   });
 
@@ -461,6 +476,10 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(lastCheckArgs!.policyContext).toEqual({
       conversationId: "conversation-1",
       executionContext: "conversation",
+      // Trust class is now threaded onto the PolicyContext (see above).
+      trustClass: "guardian",
+      // Real (unmocked) proc-to-skills gate resolves inactive (see above).
+      procToSkillsActive: false,
     });
   });
 
@@ -490,6 +509,10 @@ describe("ToolExecutor policy context plumbing", () => {
     expect(lastCheckArgs!.policyContext).toEqual({
       conversationId: "conversation-1",
       executionContext: "conversation",
+      // Trust class is now threaded onto the PolicyContext (see above).
+      trustClass: "guardian",
+      // Real (unmocked) proc-to-skills gate resolves inactive (see above).
+      procToSkillsActive: false,
     });
   });
 
@@ -521,6 +544,10 @@ describe("ToolExecutor policy context plumbing", () => {
       conversationId: "conversation-1",
       executionContext: "conversation",
       executionTarget: "host",
+      // Trust class is now threaded onto the PolicyContext (see above).
+      trustClass: "guardian",
+      // Real (unmocked) proc-to-skills gate resolves inactive (see above).
+      procToSkillsActive: false,
     });
   });
 });
@@ -1291,5 +1318,36 @@ describe("ToolExecutionResult includes risk metadata from classifier assessment"
         pattern: "action:rm",
       },
     ]);
+  });
+});
+
+describe("computePerToolTimeoutMs ask_question budget", () => {
+  // Regression guard: ask_question blocks on user input inside execute() via
+  // QuestionPrompter, which waits up to questionResponseTimeoutSec. The
+  // executor's generic toolExecutionTimeoutSec wrapper must give ask_question a
+  // budget strictly larger than that prompt timeout — otherwise the wrapper
+  // fires first and orphans the still-pending prompt behind the confusing "may
+  // still be running in the background" error. These assertions fail if the
+  // special case is removed and ask_question falls back to the generic budget,
+  // or if the executor budget and the prompter timeout drift onto different
+  // config knobs.
+  test("execution-timeout budget exceeds the prompt's own questionResponseTimeoutSec", () => {
+    const { questionResponseTimeoutSec } = mockConfig.timeouts;
+    const askQuestionBudgetMs = computePerToolTimeoutMs("ask_question", {});
+
+    expect(askQuestionBudgetMs).toBeGreaterThan(
+      questionResponseTimeoutSec * 1000,
+    );
+    expect(askQuestionBudgetMs).toBe((questionResponseTimeoutSec + 5) * 1000);
+  });
+
+  test("the generic budget that would otherwise apply is shorter than the prompt timeout", () => {
+    const { questionResponseTimeoutSec } = mockConfig.timeouts;
+    const genericBudgetMs = computePerToolTimeoutMs("some_other_tool", {});
+
+    // This is the collision the ask_question special case fixes: the generic
+    // execution-timeout budget is shorter than the prompter's own wait, so
+    // without the special case the wrapper trips first.
+    expect(genericBudgetMs).toBeLessThan(questionResponseTimeoutSec * 1000);
   });
 });

@@ -19,6 +19,7 @@ import {
 import { findConversation } from "../../daemon/conversation-registry.js";
 import type { ContentBlock } from "../../providers/types.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
+import { resolveActorPrincipalIdForLocalGuardian } from "../local-actor-identity.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 // ── Param validation ─────────────────────────────────────────────────
@@ -64,7 +65,10 @@ function extractScreenshots(
 
 // ── Handler ──────────────────────────────────────────────────────────
 
-async function handleBrowserExecute({ body = {} }: RouteHandlerArgs) {
+async function handleBrowserExecute({
+  body = {},
+  headers = {},
+}: RouteHandlerArgs) {
   const { operation, input, sessionId, conversationId } =
     BrowserExecuteParams.parse(body);
 
@@ -79,6 +83,19 @@ async function handleBrowserExecute({ body = {} }: RouteHandlerArgs) {
     ? conversationId!
     : browserCliConversationKey(sessionId);
 
+  // Actor principal lets host-browser routing enforce same-actor ownership.
+  // A live conversation's turn actor owns the request (e.g. a nested-bash
+  // browser call inherits the conversation's actor), so it wins over the
+  // request header — which over IPC may carry a synthetic local-guardian id
+  // injected for header-less local callers. Resolve through the local-guardian
+  // translation so the value matches the actorPrincipalId host_browser clients
+  // register with (dev-bypass otherwise mismatches).
+  const headerActor =
+    headers["x-vellum-actor-principal-id"]?.trim() || undefined;
+  const sourceActorPrincipalId = await resolveActorPrincipalIdForLocalGuardian(
+    conversation?.getTurnActorPrincipalId() ?? headerActor,
+  );
+
   const result = await executeBrowserOperation(
     operation as BrowserOperation,
     input,
@@ -87,6 +104,7 @@ async function handleBrowserExecute({ body = {} }: RouteHandlerArgs) {
       conversationId: resolvedConversationId,
       trustClass: conversation?.trustContext?.trustClass ?? "unknown",
       transportInterface: conversation?.transportInterface,
+      sourceActorPrincipalId,
     },
   );
 

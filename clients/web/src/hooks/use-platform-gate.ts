@@ -80,7 +80,7 @@ export interface PlatformGateOptions {
  * `initializing`, `cleaning_up`, `error`, and `active` with
  * `isLocal: false`).
  */
-function useActiveAssistantIsSelfHosted(): boolean {
+export function useActiveAssistantIsSelfHosted(): boolean {
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   if (assistantState.kind === "self_hosted") return true;
   if (assistantState.kind === "active" && assistantState.isLocal) return true;
@@ -198,11 +198,10 @@ export function usePlatformGate(
   // does not loop. See CONVENTIONS.md § State management — `useShallow`
   // is not introduced in new code; atomic selectors avoid the need.
   //
-  // `hasPlatformSession` reads the optimistic session value: a live
-  // session is `"present"`, while both `"absent"` and the pre-settle
-  // `"unknown"` gate the surface. A re-probe keeps the last
-  // `"present"`/`"absent"` until the new result lands, so the gate does
-  // not flicker to `"disabled"` on app resume.
+  // Gate on the bare platform-session signal — deliberately not a per-assistant
+  // reachability check, which would fork on hosting type and change the
+  // self-hosted rows (states 3–5) of the truth table. `"unknown"` (pre-settle)
+  // gates the surface like `"absent"`.
   const hasPlatformSession = useHasPlatformSession();
   const platformDisabled = isPlatformDisabled();
   const activeIsSelfHosted = useActiveAssistantIsSelfHosted();

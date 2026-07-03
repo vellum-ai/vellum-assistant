@@ -16,10 +16,12 @@
  *    at least one prior assistant turn this run, and no earlier turn this run
  *    already delivered visible text. The hook re-queries the model with
  *    `NUDGE_TEXT` (a tool trail exists to summarize, so a retry can recover a
- *    real answer). The retry is bounded to one pass per run by a one-shot
- *    per-conversation mark this hook sets; the sibling `stop` hook (see
- *    `./stop.ts`) clears it when the turn terminates, so the next run nudges
- *    afresh.
+ *    real answer). Main-agent turns only: background, subagent, and compaction
+ *    calls have no user awaiting a summary, so per the post-model-call contract
+ *    the nudge self-gates on {@link PostModelCallContext.callSite}. The retry is
+ *    bounded to one pass per run by a one-shot per-conversation mark this hook
+ *    sets; the sibling `stop` hook (see `./stop.ts`) clears it when the turn
+ *    terminates, so the next run nudges afresh.
  *
  * Every other case leaves the decision at `"stop"` (the model said its piece,
  * or there is nothing to act on).
@@ -44,9 +46,13 @@
  * ignores the decision — so the hook returns early for both.
  */
 
-import type { PluginHookFn, PostModelCallContext } from "@vellumai/plugin-api";
+import type {
+  ContentBlock,
+  HookFunction,
+  Message,
+  PostModelCallContext,
+} from "@vellumai/plugin-api";
 
-import type { ContentBlock, Message } from "../../../../providers/types.js";
 import {
   isEmptyResponseNudged,
   markEmptyResponseNudged,
@@ -110,7 +116,7 @@ function currentCycleMessages(
   return messages;
 }
 
-const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
+const postModelCall: HookFunction<PostModelCallContext> = async (ctx) => {
   // A provider rejection carries no turn content to assess (a recovery hook
   // owns the rejection); the sibling `stop` hook clears the mark when the turn
   // terminates.
@@ -146,6 +152,13 @@ const postModelCall: PluginHookFn<PostModelCallContext> = async (ctx) => {
     !priorAssistantHadVisibleText;
 
   if (isEmptyTurnAfterTools) {
+    // Only the user-facing reply gets the re-query nudge. Background, subagent,
+    // and compaction calls have no user awaiting a summary, and the
+    // post-model-call contract requires self-gating on call site to avoid
+    // re-querying them. The refusal-rewrite above is a user-facing terminal
+    // fallback, not a re-query, so it stays ungated.
+    if (ctx.callSite !== "mainAgent") return;
+
     // Re-query once to recover a real answer. The one-shot per-conversation
     // mark makes the hook self-limiting: a second empty turn this run finds the
     // mark already set and lets the turn end rather than nudging again.

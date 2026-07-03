@@ -1,4 +1,5 @@
-import type { ContactWithChannels } from "../../../../contacts/types.js";
+import type { ContactRead } from "@vellumai/gateway-client/gateway-ipc-contracts";
+
 import { cliIpcCall } from "../../../../ipc/cli-client.js";
 import { resolveGuardianName } from "../../../../prompts/user-reference.js";
 import type {
@@ -6,12 +7,21 @@ import type {
   ToolExecutionResult,
 } from "../../../../tools/types.js";
 
-function formatContactSummary(c: ContactWithChannels): string {
+// The search route may carry an optional per-channel `externalChatId` not modeled
+// on the gateway `ContactRead` channel contract.
+type SearchChannel = ContactRead["channels"][number] & {
+  externalChatId?: string | null;
+};
+type SearchContact = Omit<ContactRead, "channels"> & {
+  channels: SearchChannel[];
+};
+
+function formatContactSummary(c: SearchContact): string {
   const displayName =
     c.role === "guardian" ? resolveGuardianName(c.displayName) : c.displayName;
   const parts = [`- **${displayName}** (ID: ${c.id})`];
   if (c.notes) parts.push(`  Notes: ${c.notes}`);
-  if (c.interactionCount > 0)
+  if ((c.interactionCount ?? 0) > 0)
     parts.push(`  Interactions: ${c.interactionCount}`);
   if (c.channels.length > 0) {
     const channelList = c.channels
@@ -45,7 +55,7 @@ export async function executeContactSearch(
     };
   }
 
-  const res = await cliIpcCall<ContactWithChannels[]>("search_contacts", {
+  const res = await cliIpcCall<SearchContact[]>("search_contacts", {
     body: { query, channelAddress, channelType, limit },
   });
 

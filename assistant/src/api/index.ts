@@ -1,16 +1,24 @@
 import { z } from "zod";
 
+import { AcpSessionCompletedEventSchema } from "./events/acp-session-completed.js";
+import { AcpSessionErrorEventSchema } from "./events/acp-session-error.js";
+import { AcpSessionSpawnedEventSchema } from "./events/acp-session-spawned.js";
+import { AcpSessionUpdateEventSchema } from "./events/acp-session-update.js";
+import { AcpSessionUsageEventSchema } from "./events/acp-session-usage.js";
 import { AssistantActivityStateEventSchema } from "./events/assistant-activity-state.js";
 import { AssistantTextDeltaEventSchema } from "./events/assistant-text-delta.js";
 import { AssistantThinkingDeltaEventSchema } from "./events/assistant-thinking-delta.js";
 import { AssistantTurnStartEventSchema } from "./events/assistant-turn-start.js";
 import { AvatarUpdatedEventSchema } from "./events/avatar-updated.js";
+import { BackgroundToolCompletedEventSchema } from "./events/background-tool-completed.js";
+import { BackgroundToolStartedEventSchema } from "./events/background-tool-started.js";
 import { CompactionCircuitClosedEventSchema } from "./events/compaction-circuit-closed.js";
 import { CompactionCircuitOpenEventSchema } from "./events/compaction-circuit-open.js";
 import { ConfirmationRequestEventSchema } from "./events/confirmation-request.js";
 import { ContactRequestEventSchema } from "./events/contact-request.js";
 import { ConversationErrorEventSchema } from "./events/conversation-error.js";
 import { ConversationListInvalidatedEventSchema } from "./events/conversation-list-invalidated.js";
+import { ConversationNoticeEventSchema } from "./events/conversation-notice.js";
 import { ConversationTitleUpdatedEventSchema } from "./events/conversation-title-updated.js";
 import { DiskPressureStatusChangedEventSchema } from "./events/disk-pressure-status-changed.js";
 import { DocumentCommentCreatedEventSchema } from "./events/document-comment-created.js";
@@ -31,6 +39,7 @@ import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
 import { NotificationIntentEventSchema } from "./events/notification-intent.js";
+import { OpenPanelEventSchema } from "./events/open-panel.js";
 import { OpenUrlEventSchema } from "./events/open-url.js";
 import { QuestionRequestEventSchema } from "./events/question-request.js";
 import { RelationshipStateUpdatedEventSchema } from "./events/relationship-state-updated.js";
@@ -44,7 +53,6 @@ import { ToolResultEventSchema } from "./events/tool-result.js";
 import { ToolUsePreviewStartEventSchema } from "./events/tool-use-preview-start.js";
 import { ToolUseStartEventSchema } from "./events/tool-use-start.js";
 import { TraceEventSchema } from "./events/trace-event.js";
-import { TurnProfileAutoRoutedEventSchema } from "./events/turn-profile-auto-routed.js";
 import { UISurfaceCompleteEventSchema } from "./events/ui-surface-complete.js";
 import { UISurfaceDismissEventSchema } from "./events/ui-surface-dismiss.js";
 import { UISurfaceShowEventSchema } from "./events/ui-surface-show.js";
@@ -62,7 +70,35 @@ export {
   CALL_SITE_COMPACTION_AGENT,
   CALL_SITE_SYNTHETIC_AGENT_ERROR_MESSAGE,
 } from "./constants/call-sites.js";
+export {
+  SSE_REPLAY_RING_AGE_LIMIT_MS,
+  SSE_REPLAY_RING_COUNT_LIMIT,
+} from "./constants/sse-replay.js";
 export { DEFAULT_TOOL_EXECUTION_TIMEOUT_SEC } from "./constants/tool-execution.js";
+export {
+  type AcpSessionCompletedEvent,
+  AcpSessionCompletedEventSchema,
+  type AcpStopReason,
+  AcpStopReasonSchema,
+} from "./events/acp-session-completed.js";
+export {
+  type AcpSessionErrorEvent,
+  AcpSessionErrorEventSchema,
+} from "./events/acp-session-error.js";
+export {
+  type AcpSessionSpawnedEvent,
+  AcpSessionSpawnedEventSchema,
+} from "./events/acp-session-spawned.js";
+export {
+  type AcpSessionUpdateEvent,
+  AcpSessionUpdateEventSchema,
+  type AcpSessionUpdateType,
+  AcpSessionUpdateTypeSchema,
+} from "./events/acp-session-update.js";
+export {
+  type AcpSessionUsageEvent,
+  AcpSessionUsageEventSchema,
+} from "./events/acp-session-usage.js";
 export {
   type AssistantActivityAnchor,
   AssistantActivityAnchorSchema,
@@ -93,6 +129,14 @@ export {
   type AvatarUpdatedEvent,
   AvatarUpdatedEventSchema,
 } from "./events/avatar-updated.js";
+export {
+  type BackgroundToolCompletedEvent,
+  BackgroundToolCompletedEventSchema,
+} from "./events/background-tool-completed.js";
+export {
+  type BackgroundToolStartedEvent,
+  BackgroundToolStartedEventSchema,
+} from "./events/background-tool-started.js";
 export {
   type CompactionCircuitClosedEvent,
   CompactionCircuitClosedEventSchema,
@@ -135,6 +179,11 @@ export {
   type ConversationListInvalidatedReason,
   ConversationListInvalidatedReasonSchema,
 } from "./events/conversation-list-invalidated.js";
+export {
+  type ConversationNoticeEvent,
+  ConversationNoticeEventSchema,
+  ConversationNoticeSourceSchema,
+} from "./events/conversation-notice.js";
 export {
   type ConversationTitleUpdatedEvent,
   ConversationTitleUpdatedEventSchema,
@@ -220,6 +269,10 @@ export {
   type NotificationIntentEvent,
   NotificationIntentEventSchema,
 } from "./events/notification-intent.js";
+export {
+  type OpenPanelEvent,
+  OpenPanelEventSchema,
+} from "./events/open-panel.js";
 export { type OpenUrlEvent, OpenUrlEventSchema } from "./events/open-url.js";
 export {
   type QuestionEntry,
@@ -298,10 +351,6 @@ export {
   TraceEventStatusSchema,
 } from "./events/trace-event.js";
 export {
-  type TurnProfileAutoRoutedEvent,
-  TurnProfileAutoRoutedEventSchema,
-} from "./events/turn-profile-auto-routed.js";
-export {
   type UISurfaceCompleteEvent,
   UISurfaceCompleteEventSchema,
 } from "./events/ui-surface-complete.js";
@@ -360,6 +409,7 @@ export {
   DictationRequestSchema,
 } from "./requests/dictation.js";
 export {
+  type BackgroundToolCompletion,
   type ConversationAttachmentBlock,
   ConversationAttachmentBlockSchema,
   type ConversationContentBlock,
@@ -435,6 +485,12 @@ export {
   LlmContextResponseSchema,
 } from "./responses/llm-context-response.js";
 export {
+  type LatencyBreakdown,
+  LatencyBreakdownSchema,
+  type LatencyPhase,
+  LatencyPhaseSchema,
+  type LLMCallError,
+  LLMCallErrorSchema,
   type LLMCallSummary,
   LLMCallSummarySchema,
   type LLMContextSection,
@@ -476,6 +532,12 @@ export {
   type WorkflowLeaf,
   WorkflowLeafSchema,
 } from "./responses/workflow-journal.js";
+export {
+  type CardSurfaceData,
+  CardSurfaceDataSchema,
+  type FileUploadSurfaceData,
+  FileUploadSurfaceDataSchema,
+} from "./surfaces.js";
 
 /**
  * Canonical SSE event schema for the assistant runtime.
@@ -491,17 +553,25 @@ export {
  * migration recipe.
  */
 export const AssistantEventSchema = z.discriminatedUnion("type", [
+  AcpSessionCompletedEventSchema,
+  AcpSessionErrorEventSchema,
+  AcpSessionSpawnedEventSchema,
+  AcpSessionUpdateEventSchema,
+  AcpSessionUsageEventSchema,
   AssistantActivityStateEventSchema,
   AssistantTextDeltaEventSchema,
   AssistantThinkingDeltaEventSchema,
   AssistantTurnStartEventSchema,
   AvatarUpdatedEventSchema,
+  BackgroundToolCompletedEventSchema,
+  BackgroundToolStartedEventSchema,
   CompactionCircuitClosedEventSchema,
   CompactionCircuitOpenEventSchema,
   ConfirmationRequestEventSchema,
   ContactRequestEventSchema,
   ConversationErrorEventSchema,
   ConversationListInvalidatedEventSchema,
+  ConversationNoticeEventSchema,
   ConversationTitleUpdatedEventSchema,
   DiskPressureStatusChangedEventSchema,
   DocumentCommentCreatedEventSchema,
@@ -522,6 +592,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageRequestCompleteEventSchema,
   NavigateSettingsEventSchema,
   NotificationIntentEventSchema,
+  OpenPanelEventSchema,
   OpenUrlEventSchema,
   QuestionRequestEventSchema,
   RelationshipStateUpdatedEventSchema,
@@ -535,7 +606,6 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   ToolUsePreviewStartEventSchema,
   ToolUseStartEventSchema,
   TraceEventSchema,
-  TurnProfileAutoRoutedEventSchema,
   UISurfaceCompleteEventSchema,
   UISurfaceDismissEventSchema,
   UISurfaceShowEventSchema,

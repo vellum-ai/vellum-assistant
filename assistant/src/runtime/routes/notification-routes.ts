@@ -6,8 +6,6 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { FeedItemSchema } from "../../api/responses/home.js";
-import { getDb } from "../../memory/db-connection.js";
-import { notificationDeliveries } from "../../memory/schema.js";
 import { bufferIfDeferred } from "../../notifications/deferred-emit.js";
 import { editNotification } from "../../notifications/edit-notification.js";
 import { emitNotificationSignal } from "../../notifications/emit-signal.js";
@@ -18,6 +16,8 @@ import {
   RoutingIntentSchema,
   UrgencySchema,
 } from "../../notifications/signal.js";
+import { getDb } from "../../persistence/db-connection.js";
+import { notificationDeliveries } from "../../persistence/schema/index.js";
 import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";

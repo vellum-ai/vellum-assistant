@@ -16,6 +16,7 @@ import { registerMessagingProvider } from "../messaging/registry.js";
 import { initializeProviders } from "../providers/registry.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { validateSubagentRoleAllowlists } from "../subagent/validate-allowlists.js";
 import { createMcpToolsFromServer } from "../tools/mcp/mcp-tool-factory.js";
 import { initializeTools, registerMcpTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
@@ -27,26 +28,12 @@ import { googleCalendarProvider } from "../watcher/providers/google-calendar.js"
 import { linearProvider } from "../watcher/providers/linear.js";
 import { outlookProvider } from "../watcher/providers/outlook.js";
 import { outlookCalendarProvider } from "../watcher/providers/outlook-calendar.js";
-import { startMeetHost } from "./meet-host-startup.js";
-
 const log = getLogger("lifecycle");
 
 export async function initializeProvidersAndTools(
   config: AssistantConfig,
 ): Promise<void> {
   log.info("Daemon startup: initializing providers and tools");
-
-  // Register meet-join via the lazy-external path. The skill runs as a
-  // separate `bun run` subprocess; the daemon installs proxy
-  // tools/routes/shutdown-hooks here that dispatch over the skill IPC
-  // socket on first use. Failures are non-fatal: the daemon continues
-  // without meet tools and surfaces the cause in the log.
-  void startMeetHost().catch((err) => {
-    log.error(
-      { err },
-      "Failed to register meet-join; daemon will continue without meet tools",
-    );
-  });
 
   // Rehydrate the platform base URL from the credential store so managed
   // proxy activation survives assistant restarts. The in-memory override is
@@ -123,6 +110,21 @@ export async function initializeProvidersAndTools(
   // `<workspaceDir>/tools/` once core tools have settled, so they own
   // their names before the MCP / plugin registrations below run.
   await initializeTools();
+
+  // Validate subagent role tool-allowlists against the now-registered core
+  // tool set (every allowlisted name is an eager core tool, so they are all
+  // present at this point). A renamed tool would otherwise silently strip a
+  // role's access — the stale name just never matches. Warn-and-continue per
+  // the daemon startup philosophy: a stale allowlist is a logic bug, not a
+  // reason to refuse boot.
+  try {
+    validateSubagentRoleAllowlists();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Subagent role allowlist validation failed — continuing startup",
+    );
+  }
 
   // Start MCP servers and register their tools
   if (config.mcp?.servers && Object.keys(config.mcp.servers).length > 0) {

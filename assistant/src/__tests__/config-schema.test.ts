@@ -120,6 +120,7 @@ describe("AssistantConfigSchema", () => {
       shellDefaultTimeoutSec: 120,
       shellMaxTimeoutSec: 600,
       permissionTimeoutSec: 300,
+      questionResponseTimeoutSec: 1800,
       toolExecutionTimeoutSec: 120,
       providerStreamTimeoutSec: 1800,
       backgroundTurnTimeoutSec: 1800,
@@ -889,6 +890,7 @@ describe("AssistantConfigSchema", () => {
         language: "en-US",
         hints: [],
         interruptSensitivity: "low",
+        telephonyStreaming: true,
       },
       callerIdentity: {
         allowPerCallOverride: true,
@@ -996,6 +998,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.calls.voice.language).toBe("en-US");
     expect(result.calls.voice.hints).toEqual([]);
     expect(result.calls.voice.interruptSensitivity).toBe("low");
+    expect(result.calls.voice.telephonyStreaming).toBe(true);
   });
 
   test("accepts valid calls.voice overrides", () => {
@@ -1003,10 +1006,25 @@ describe("AssistantConfigSchema", () => {
       calls: {
         voice: {
           language: "es-ES",
+          telephonyStreaming: false,
         },
       },
     });
     expect(result.calls.voice.language).toBe("es-ES");
+    expect(result.calls.voice.telephonyStreaming).toBe(false);
+  });
+
+  test("rejects non-boolean calls.voice.telephonyStreaming", () => {
+    const result = AssistantConfigSchema.safeParse({
+      calls: { voice: { telephonyStreaming: "yes" } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(
+        msgs.some((m) => m.includes("calls.voice.telephonyStreaming")),
+      ).toBe(true);
+    }
   });
 
   test("transcriptionProvider is no longer part of the voice config schema", () => {

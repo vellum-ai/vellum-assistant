@@ -114,11 +114,11 @@ No member record is created. No verification session is created.
 
 ### Invites (alternative path)
 
-The `assistant_ingress_invites` table supports a parallel invite-based onboarding path. An invite carries a SHA-256 hashed token and can be redeemed via `redeemInvite()`, which atomically creates an active contact channel record. This path is distinct from the trusted contact flow but serves the same end state: an active `contact_channels` entry with `status: 'active'` and `policy: 'allow'`.
+Invites are gateway-native: the gateway's `ingress_invites` table is the sole invite store, and its redemption engine (`gateway/src/verification/invite-redemption.ts`) validates the SHA-256 hashed token, atomically claims the row, and activates the channel in the gateway ACL. The daemon only mirrors the contact/channel identity locally via the `invite_redeemed` event. This path is distinct from the trusted contact flow but serves the same end state: an active member channel.
 
-| Table                       | Purpose in trusted contact flow                                                                                                                                                      |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `assistant_ingress_invites` | Not used in the guardian-mediated flow. Available as an alternative for direct invite links (e.g., guardian shares a URL instead of going through the approval + verification flow). |
+| Table                                 | Purpose in trusted contact flow                                                                                                                                                      |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ingress_invites` (gateway DB)        | Not used in the guardian-mediated flow. Available as an alternative for direct invite links (e.g., guardian shares a URL instead of going through the approval + verification flow). |
 
 ### Voice In-Call Guardian Approval (friend-initiated)
 
@@ -126,10 +126,10 @@ Voice calls have a dedicated in-call guardian approval flow that differs from th
 
 **Flow:**
 
-1. Unknown caller dials in. `relay-server.ts` resolves trust — caller is `unknown`, no pending challenge, no active invite.
-2. Relay enters `awaiting_name` state and prompts the caller for their name (with a timeout).
+1. Unknown caller dials in. `routeSetup` (`relay-setup-router.ts`) resolves trust — caller is `unknown`, no pending challenge, no active invite.
+2. The `CallSetupFlow` enters `capturing_name` state and prompts the caller for their name (with a timeout).
 3. On name capture, `notifyGuardianOfAccessRequest` creates a canonical guardian request (`kind: 'access_request'`) and notifies the guardian.
-4. Relay transitions to `awaiting_guardian_decision` and polls `canonical_guardian_requests` for status changes.
+4. The flow hands off to a `GuardianWaitController` (`awaiting_guardian_decision`), which speaks hold messaging while polling `canonical_guardian_requests` for status changes.
 5. Guardian approves or denies via any channel. All decisions route through `applyCanonicalGuardianDecision`.
 6. On approval: the `access_request` resolver directly activates the caller as a trusted contact (`upsertContactChannel` with `status: 'active'`, `policy: 'allow'`) — no verification session needed since the caller is already authenticated by their phone number.
 7. On denial or timeout: the caller hears a denial message and the call ends.

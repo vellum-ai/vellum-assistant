@@ -31,7 +31,7 @@ const syncPlatformAssistantsToLockfileMock = mock(
 );
 mock.module("@/lib/local-mode", () => ({
   getLockfile: () => ({ assistants: lockfileAssistants, activeAssistant: null }),
-  isLocalAssistant: (a: { cloud?: string }) => a.cloud !== "vellum",
+  isLocalAssistant: (a: { cloud?: string }) => a.cloud === "local",
   isLocalMode: () => isLocalModeValue,
   retireLocalAssistant: retireLocalAssistantMock,
   syncPlatformAssistantsToLockfile: syncPlatformAssistantsToLockfileMock,

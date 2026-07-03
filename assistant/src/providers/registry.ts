@@ -118,7 +118,7 @@ export function isNativeWebSearchCapableProvider(
   return false;
 }
 
-function shouldUseNativeWebSearch(
+export function shouldUseNativeWebSearch(
   config: ProvidersConfig,
   providerName: string,
   model: string,
@@ -234,6 +234,8 @@ export async function initializeProviders(
     );
     routingSources.set(entry.id, source);
   }
+
+  log.info({ providerCount: providers.size }, "Providers initialized");
 }
 
 // ---------------------------------------------------------------------------

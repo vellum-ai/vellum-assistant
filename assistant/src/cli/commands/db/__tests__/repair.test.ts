@@ -432,8 +432,9 @@ async function initSchema(): Promise<void> {
   // to already exist (production-wise, the daemon creates it). Touching the
   // global init triggers schema creation against the env-isolated path.
   const { getDb, getSqliteFrom } =
-    await import("../../../../memory/db-connection.js");
-  const { clearStoredDb } = await import("../../../../memory/db-singleton.js");
+    await import("../../../../persistence/db-connection.js");
+  const { clearStoredDb } =
+    await import("../../../../persistence/db-singleton.js");
   // Drop any connections a prior test (or test file) left open against a
   // now-deleted workspace, so init below opens fresh handles — main and the
   // dedicated logs/memory connections — at THIS test's workspace.
@@ -441,7 +442,7 @@ async function initSchema(): Promise<void> {
   clearStoredDb("logs");
   clearStoredDb("memory");
 
-  const { initializeDb } = await import("../../../../memory/db-init.js");
+  const { initializeDb } = await import("../../../../persistence/db-init.js");
   await initializeDb();
   // Close the singletons so backfill can open its own handle without
   // collision. WAL allows concurrent handles but cleaner ownership avoids
@@ -456,6 +457,9 @@ async function initSchema(): Promise<void> {
   clearStoredDb("memory");
 }
 
+// Every test here runs initSchema(), which replays the full production
+// migration suite, plus at least one repair pass. On a loaded machine that
+// comfortably exceeds bun's 5s per-test default, so each gets a 30s ceiling.
 describe("assistant db repair — conversation-backfill step", () => {
   test("backfills a disk-only conversation into SQLite", async () => {
     await initSchema();
@@ -499,7 +503,7 @@ describe("assistant db repair — conversation-backfill step", () => {
     } finally {
       verify.close();
     }
-  });
+  }, 30_000);
 
   test("skips conversations already present (idempotent)", async () => {
     await initSchema();
@@ -516,8 +520,6 @@ describe("assistant db repair — conversation-backfill step", () => {
     expect(parsed.steps[1].result.data.recovered).toBe(0);
     expect(parsed.steps[1].result.data.skipped).toBe(1);
     expect(parsed.steps[1].result.status).toBe("ok");
-    // Two full repair passes (each walks the DB via integrity-check) exceed
-    // bun's 5s per-test default, so raise the ceiling to keep CI stable.
   }, 30_000);
 
   test("reports nothing-to-backfill on an empty conversations dir", async () => {
@@ -529,7 +531,7 @@ describe("assistant db repair — conversation-backfill step", () => {
     expect(parsed.steps[1].result.status).toBe("ok");
     expect(parsed.steps[1].result.summary).toContain("nothing to backfill");
     expect(parsed.steps[1].result.data.recovered).toBe(0);
-  });
+  }, 30_000);
 
   test("surfaces warnings for malformed meta.json without erroring the step", async () => {
     await initSchema();
@@ -547,5 +549,5 @@ describe("assistant db repair — conversation-backfill step", () => {
         w.includes("malformed meta.json"),
       ),
     ).toBe(true);
-  });
+  }, 30_000);
 });

@@ -5,7 +5,7 @@
  * background jobs (e.g. proactive artifact generation) can persist documents
  * without going through the HTTP layer.
  */
-import { rawAll, rawGet, rawRun } from "../memory/raw-query.js";
+import { rawAll, rawGet, rawRun } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("document-store");
@@ -35,6 +35,7 @@ export function addDocumentConversation(
   conversationId: string,
 ): void {
   rawRun(
+    "documents:addDocumentConversation",
     /*sql*/ `INSERT OR IGNORE INTO document_conversations (surface_id, conversation_id, created_at) VALUES (?, ?, ?)`,
     surfaceId,
     conversationId,
@@ -78,6 +79,7 @@ function mapRowToRecord(row: DocumentRow): DocumentRecord {
 export function getDocumentById(surfaceId: string): DocumentRecord | null {
   try {
     const row = rawGet<DocumentRow>(
+      "documents:getDocumentById",
       /*sql*/ `SELECT surface_id, conversation_id, title, content, word_count, created_at, updated_at
        FROM documents
        WHERE surface_id = ?`,
@@ -104,6 +106,7 @@ export function isDocumentAssociatedWithConversation(
 ): boolean {
   try {
     const row = rawGet<{ found: number }>(
+      "documents:isAssociatedWithConversation",
       /*sql*/ `
       SELECT 1 AS found
       FROM document_conversations
@@ -132,6 +135,7 @@ export function getDocumentsForConversation(
 ): Omit<DocumentRecord, "content">[] {
   try {
     const rows = rawAll<DocumentListRow>(
+      "documents:getDocumentsForConversation",
       /*sql*/ `
       SELECT d.surface_id, dc.conversation_id AS conversation_id,
              d.title, d.word_count, d.created_at, d.updated_at
@@ -175,6 +179,7 @@ export function searchDocumentsByTitle(
     const pattern = `%${escapeSqlLikePattern(query)}%`;
     const rows = options.conversationId
       ? rawAll<DocumentListRow>(
+          "documents:searchByTitle:scoped",
           /*sql*/ `
           SELECT d.surface_id, dc.conversation_id AS conversation_id,
                  d.title, d.word_count, d.created_at, d.updated_at
@@ -189,6 +194,7 @@ export function searchDocumentsByTitle(
           pattern,
         )
       : rawAll<DocumentListRow>(
+          "documents:searchByTitle:all",
           /*sql*/ `
           SELECT surface_id, conversation_id, title, word_count, created_at, updated_at
           FROM documents
@@ -234,6 +240,7 @@ export function findRecentEmptyDocumentByTitle(
   try {
     const threshold = Date.now() - withinMs;
     const row = rawGet<{ surface_id: string }>(
+      "documents:findRecentEmptyByTitle",
       /*sql*/ `SELECT surface_id FROM documents
        WHERE conversation_id = ?
          AND title = ?
@@ -262,10 +269,12 @@ export function findRecentEmptyDocumentByTitle(
 export function deleteDocument(surfaceId: string): boolean {
   try {
     const changes = rawRun(
+      "documents:deleteDocument:doc",
       /*sql*/ `DELETE FROM documents WHERE surface_id = ?`,
       surfaceId,
     );
     rawRun(
+      "documents:deleteDocument:associations",
       /*sql*/ `DELETE FROM document_conversations WHERE surface_id = ?`,
       surfaceId,
     );
@@ -310,6 +319,7 @@ export function findInDocument(
 ): FindResult | null {
   try {
     const row = rawGet<{ content: string }>(
+      "documents:findInDocument:getContent",
       /*sql*/ `SELECT content FROM documents WHERE surface_id = ?`,
       surfaceId,
     );
@@ -385,6 +395,7 @@ export function saveDocument(params: {
   try {
     const now = Date.now();
     rawRun(
+      "documents:saveDocument",
       `INSERT INTO documents (surface_id, conversation_id, title, content, word_count, created_at, updated_at)
        VALUES (?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT(surface_id) DO UPDATE SET
@@ -458,6 +469,7 @@ export function replaceInDocument(
 ): ReplaceInDocumentResult {
   try {
     const row = rawGet<{ content: string }>(
+      "documents:replaceInDocument:getContent",
       /*sql*/ `SELECT content FROM documents WHERE surface_id = ?`,
       surfaceId,
     );
@@ -516,6 +528,7 @@ export function replaceInDocument(
       .split(/\s+/)
       .filter((w) => w.length > 0).length;
     rawRun(
+      "documents:replaceInDocument:update",
       /*sql*/ `UPDATE documents SET content = ?, word_count = ?, updated_at = ? WHERE surface_id = ?`,
       newContent,
       wordCount,
@@ -545,6 +558,7 @@ export function updateDocumentContent(
 ): { success: true } | { success: false; error: string } {
   try {
     const existing = rawGet<{ content: string }>(
+      "documents:updateDocumentContent:get",
       /*sql*/ `SELECT content FROM documents WHERE surface_id = ?`,
       surfaceId,
     );
@@ -559,6 +573,7 @@ export function updateDocumentContent(
       .split(/\s+/)
       .filter((w) => w.length > 0).length;
     rawRun(
+      "documents:updateDocumentContent:update",
       /*sql*/ `UPDATE documents SET content = ?, word_count = ?, updated_at = ? WHERE surface_id = ?`,
       newContent,
       wordCount,

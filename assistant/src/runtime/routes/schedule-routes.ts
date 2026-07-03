@@ -9,9 +9,9 @@ import { z } from "zod";
 
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
 import { INTERNAL_GUARDIAN_TRUST_CONTEXT } from "../../daemon/trust-context.js";
-import { bootstrapConversation } from "../../memory/conversation-bootstrap.js";
-import { getConversation } from "../../memory/conversation-crud.js";
-import { getUsageCostForConversationWindow } from "../../memory/llm-usage-store.js";
+import { bootstrapConversation } from "../../persistence/conversation-bootstrap.js";
+import { getConversation } from "../../persistence/conversation-crud.js";
+import { getUsageCostForRun } from "../../persistence/llm-usage-store.js";
 import { validateScheduleInferenceProfile } from "../../schedule/inference-profile.js";
 import {
   describeRRuleExpression,
@@ -240,7 +240,7 @@ function handleGetSchedule(id: string) {
   return { schedule: serializeSchedule(job, new Map()) };
 }
 
-function handleCreateSchedule(body: Record<string, unknown>) {
+async function handleCreateSchedule(body: Record<string, unknown>) {
   const name = typeof body.name === "string" ? body.name.trim() : "";
   const expression =
     typeof body.expression === "string" ? body.expression.trim() : "";
@@ -273,7 +273,7 @@ function handleCreateSchedule(body: Record<string, unknown>) {
   // entirely (see the workflow branch below), so only require a message for the
   // execute path. Requiring it for workflow mode would force API/UI callers to
   // pass an unused dummy string.
-  if (mode !== "workflow" && !message) {
+  if (mode !== "workflow" && mode !== "script" && !message) {
     throw new BadRequestError("message is required");
   }
   if (description === "") {
@@ -283,9 +283,9 @@ function handleCreateSchedule(body: Record<string, unknown>) {
   // The settings UI only exposes execute mode; `workflow` mode is reachable
   // here (flag-gated) and via the schedule_create LLM tool. All other modes
   // remain tool-only.
-  if (mode !== "execute" && mode !== "workflow") {
+  if (mode !== "execute" && mode !== "workflow" && mode !== "script") {
     throw new BadRequestError(
-      "Only 'execute' and 'workflow' modes are supported by this endpoint",
+      "Only 'execute', 'script', and 'workflow' modes are supported by this endpoint",
     );
   }
 
@@ -305,7 +305,7 @@ function handleCreateSchedule(body: Record<string, unknown>) {
       );
     }
     try {
-      const job = createSchedule({
+      const job = await createSchedule({
         name,
         description,
         message,
@@ -321,15 +321,46 @@ function handleCreateSchedule(body: Record<string, unknown>) {
         { id: job.id, name: job.name, workflowName },
         "Workflow schedule created",
       );
+      return { schedule: serializeSchedule(job, new Map()) };
     } catch (err) {
       if (err instanceof Error) throw new BadRequestError(err.message);
       throw err;
     }
-    return handleListSchedules({});
+  }
+
+  if (mode === "script") {
+    const script = typeof body.script === "string" ? body.script.trim() : "";
+    if (!script) {
+      throw new BadRequestError("script is required for script-mode schedules");
+    }
+    const timeoutMs = body.timeoutMs == null ? null : Number(body.timeoutMs);
+    if (timeoutMs !== null) {
+      const timeoutError = validateScriptTimeoutMs(timeoutMs);
+      if (timeoutError) throw new BadRequestError(timeoutError);
+    }
+    try {
+      const job = await createSchedule({
+        name,
+        description,
+        message,
+        mode: "script",
+        script,
+        enabled,
+        timezone,
+        expression: normalized.expression,
+        syntax: normalized.syntax,
+        timeoutMs,
+      });
+      log.info({ id: job.id, name: job.name }, "Script schedule created");
+      return { schedule: serializeSchedule(job, new Map()) };
+    } catch (err) {
+      if (err instanceof Error) throw new BadRequestError(err.message);
+      throw err;
+    }
   }
 
   try {
-    const job = createSchedule({
+    const job = await createSchedule({
       name,
       description,
       message,
@@ -341,20 +372,20 @@ function handleCreateSchedule(body: Record<string, unknown>) {
       inferenceProfile,
     });
     log.info({ id: job.id, name: job.name }, "Schedule created");
+    return { schedule: serializeSchedule(job, new Map()) };
   } catch (err) {
     if (err instanceof Error) throw new BadRequestError(err.message);
     throw err;
   }
-  return handleListSchedules({});
 }
 
-function handleToggleSchedule(id: string, body: Record<string, unknown>) {
+async function handleToggleSchedule(id: string, body: Record<string, unknown>) {
   const enabled = body.enabled;
   if (typeof enabled !== "boolean") {
     throw new BadRequestError("enabled is required");
   }
 
-  const updated = updateSchedule(id, { enabled });
+  const updated = await updateSchedule(id, { enabled });
   if (!updated) {
     throw new NotFoundError("Schedule not found");
   }
@@ -362,8 +393,8 @@ function handleToggleSchedule(id: string, body: Record<string, unknown>) {
   return handleListSchedules({});
 }
 
-function handleDeleteSchedule(id: string) {
-  const removed = deleteSchedule(id);
+async function handleDeleteSchedule(id: string) {
+  const removed = await deleteSchedule(id);
   if (!removed) {
     throw new NotFoundError("Schedule not found");
   }
@@ -371,8 +402,8 @@ function handleDeleteSchedule(id: string) {
   return handleListSchedules({});
 }
 
-function handleCancelSchedule(id: string) {
-  const cancelled = cancelSchedule(id);
+async function handleCancelSchedule(id: string) {
+  const cancelled = await cancelSchedule(id);
   if (!cancelled) {
     throw new NotFoundError("Schedule not found or not cancellable");
   }
@@ -393,7 +424,7 @@ const VALID_ROUTING_INTENTS = [
   "all_channels",
 ] as const;
 
-function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
+async function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
   if (
     "mode" in body &&
     !VALID_MODES.includes(body.mode as (typeof VALID_MODES)[number])
@@ -511,7 +542,7 @@ function handleUpdateSchedule(id: string, body: Record<string, unknown>) {
   }
 
   try {
-    const updated = updateSchedule(id, updates);
+    const updated = await updateSchedule(id, updates);
     if (!updated) {
       throw new NotFoundError("Schedule not found");
     }
@@ -565,13 +596,12 @@ function handleListScheduleRuns(
         conversationId: r.conversationId,
         conversationExists: conversation != null,
         conversationArchivedAt: conversation?.archivedAt ?? null,
-        estimatedCostUsd: r.conversationId
-          ? getUsageCostForConversationWindow({
-              conversationId: r.conversationId,
-              from: r.startedAt,
-              to: r.finishedAt ?? now,
-            })
-          : 0,
+        estimatedCostUsd: getUsageCostForRun({
+          cronRunId: r.id,
+          conversationId: r.conversationId ?? undefined,
+          from: r.startedAt,
+          to: r.finishedAt ?? now,
+        }),
         createdAt: r.createdAt,
       };
     }),
@@ -676,7 +706,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Create schedule",
     description:
-      "Create a new recurring schedule. Currently restricted to mode='execute'.",
+      "Create a new recurring schedule (execute, script, or workflow mode).",
     tags: ["schedules"],
     requestBody: z.object({
       name: z.string().describe("Display name"),
@@ -704,7 +734,7 @@ export const ROUTES: RouteDefinition[] = [
         .optional(),
       mode: z
         .string()
-        .describe("'execute' (default) or 'workflow' (flag-gated)")
+        .describe("'execute' (default), 'script', or 'workflow' (flag-gated)")
         .optional(),
       workflowName: z
         .string()
@@ -713,6 +743,15 @@ export const ROUTES: RouteDefinition[] = [
       workflowArgs: z
         .unknown()
         .describe("Args passed to the workflow run (workflow mode)")
+        .optional(),
+      script: z
+        .string()
+        .describe("Shell command run on each fire (required for script mode)")
+        .optional(),
+      timeoutMs: z
+        .number()
+        .nullable()
+        .describe("Script execution timeout override in ms (script mode)")
         .optional(),
       inferenceProfile: z
         .string()
@@ -723,7 +762,7 @@ export const ROUTES: RouteDefinition[] = [
         .optional(),
     }),
     responseBody: z.object({
-      schedules: z.array(scheduleSchema).describe("Updated schedule list"),
+      schedule: scheduleSchema.describe("The created schedule"),
     }),
     handler: ({ body }: RouteHandlerArgs) => handleCreateSchedule(body ?? {}),
   },
@@ -895,7 +934,7 @@ async function handleRunScheduleNow(id: string) {
     if (!schedule.script) {
       throw new BadRequestError("Script schedule has no script command");
     }
-    const runId = createScheduleRun(schedule.id, `script:${schedule.id}`);
+    const runId = await createScheduleRun(schedule.id, `script:${schedule.id}`);
     try {
       log.info(
         { jobId: schedule.id, name: schedule.name },
@@ -903,8 +942,10 @@ async function handleRunScheduleNow(id: string) {
       );
       const result = await runScript(schedule.script, {
         timeoutMs: schedule.timeoutMs ?? undefined,
+        scheduleRunId: runId,
+        scheduleId: schedule.id,
       });
-      completeScheduleRun(runId, {
+      await completeScheduleRun(runId, {
         status: result.exitCode === 0 ? "ok" : "error",
         output: result.stdout || undefined,
         error: result.stderr || undefined,
@@ -915,7 +956,7 @@ async function handleRunScheduleNow(id: string) {
         { err, jobId: schedule.id, name: schedule.name },
         "Manual script schedule execution failed",
       );
-      completeScheduleRun(runId, { status: "error", error: errorMsg });
+      await completeScheduleRun(runId, { status: "error", error: errorMsg });
     }
     return handleListSchedules({});
   }
@@ -943,7 +984,10 @@ async function handleRunScheduleNow(id: string) {
           "Try running this workflow again in a moment.",
       );
     }
-    const runId = createScheduleRun(schedule.id, `workflow:${schedule.id}`);
+    const runId = await createScheduleRun(
+      schedule.id,
+      `workflow:${schedule.id}`,
+    );
     try {
       log.info(
         {
@@ -973,7 +1017,7 @@ async function handleRunScheduleNow(id: string) {
       // `start` launches the run fire-and-forget and returns synchronously;
       // a successful trigger is recorded as ok. Completion/failure is surfaced
       // out-of-band via workflow events and the completion wake.
-      completeScheduleRun(runId, {
+      await completeScheduleRun(runId, {
         status: "ok",
         output: `workflow run ${workflowRunId} started`,
       });
@@ -983,7 +1027,7 @@ async function handleRunScheduleNow(id: string) {
         { err, jobId: schedule.id, name: schedule.name },
         "Manual workflow schedule execution failed",
       );
-      completeScheduleRun(runId, { status: "error", error: errorMsg });
+      await completeScheduleRun(runId, { status: "error", error: errorMsg });
     }
     return handleListSchedules({});
   }
@@ -992,7 +1036,7 @@ async function handleRunScheduleNow(id: string) {
   const taskMatch = schedule.message.match(/^run_task:(\S+)$/);
   if (taskMatch) {
     const taskId = taskMatch[1];
-    const runId = createScheduleRun(schedule.id, null);
+    const runId = await createScheduleRun(schedule.id, null);
     try {
       log.info(
         { jobId: schedule.id, name: schedule.name, taskId },
@@ -1022,14 +1066,14 @@ async function handleRunScheduleNow(id: string) {
         },
       );
 
-      setScheduleRunConversationId(runId, result.conversationId);
+      await setScheduleRunConversationId(runId, result.conversationId);
       if (result.status === "failed") {
-        completeScheduleRun(runId, {
+        await completeScheduleRun(runId, {
           status: "error",
           error: result.error ?? "Task run failed",
         });
       } else {
-        completeScheduleRun(runId, { status: "ok" });
+        await completeScheduleRun(runId, { status: "ok" });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -1037,14 +1081,14 @@ async function handleRunScheduleNow(id: string) {
         { err, jobId: schedule.id, name: schedule.name, taskId },
         "Manual scheduled task execution failed",
       );
-      const fallbackConversation = bootstrapConversation({
+      const fallbackConversation = await bootstrapConversation({
         source: "schedule",
         groupId: "system:scheduled",
         origin: "schedule",
         systemHint: `Schedule (manual): ${schedule.name}`,
       });
-      setScheduleRunConversationId(runId, fallbackConversation.id);
-      completeScheduleRun(runId, { status: "error", error: message });
+      await setScheduleRunConversationId(runId, fallbackConversation.id);
+      await completeScheduleRun(runId, { status: "error", error: message });
     }
     return handleListSchedules({});
   }
@@ -1054,8 +1098,7 @@ async function handleRunScheduleNow(id: string) {
     if (!schedule.wakeConversationId) {
       throw new BadRequestError("Wake schedule has no target conversation");
     }
-    const { wakeAgentForOpportunity } =
-      await import("../../runtime/agent-wake.js");
+    const { wakeAgentForOpportunity } = await import("../agent-wake.js");
     try {
       await wakeAgentForOpportunity({
         conversationId: schedule.wakeConversationId,
@@ -1084,7 +1127,7 @@ async function handleRunScheduleNow(id: string) {
     }
   }
   if (!conversationId) {
-    const conversation = bootstrapConversation({
+    const conversation = await bootstrapConversation({
       source: "schedule",
       groupId: "system:scheduled",
       origin: "schedule",
@@ -1092,7 +1135,7 @@ async function handleRunScheduleNow(id: string) {
     });
     conversationId = conversation.id;
   }
-  const runId = createScheduleRun(schedule.id, conversationId);
+  const runId = await createScheduleRun(schedule.id, conversationId);
 
   try {
     log.info(
@@ -1116,14 +1159,14 @@ async function handleRunScheduleNow(id: string) {
         ? { overrideProfile: schedule.inferenceProfile }
         : {}),
     });
-    completeScheduleRun(runId, { status: "ok" });
+    await completeScheduleRun(runId, { status: "ok" });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     log.warn(
       { err, jobId: schedule.id, name: schedule.name },
       "Manual schedule execution failed",
     );
-    completeScheduleRun(runId, { status: "error", error: message });
+    await completeScheduleRun(runId, { status: "error", error: message });
   }
   return handleListSchedules({});
 }

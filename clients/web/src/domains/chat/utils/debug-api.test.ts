@@ -24,7 +24,6 @@ import {
   type TurnState,
 } from "@/domains/chat/turn-store";
 import type { UIContext } from "@/domains/chat/turn-selectors";
-import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useConversationStore } from "@/stores/conversation-store";
 
 import {
@@ -1006,12 +1005,20 @@ describe("createChatDebugApi.getScrollState", () => {
       scrollHeight: 1000,
       clientHeight: 100,
     });
-    // Non-empty conversation so classifyScrollPosition treats the
-    // near-top position as load-older-eligible.
-    useChatSessionStore.setState({ messages: [fakeDisplayMessage()] });
     const api = createChatDebugApi(
       makeRefs({
         transcriptRef: { current: makeTranscriptHandle(el) },
+        // Non-empty rendered transcript so classifyScrollPosition treats the
+        // near-top position as load-older-eligible.
+        transcriptItemsRef: {
+          current: [
+            {
+              kind: "message",
+              key: "a",
+              message: fakeDisplayMessage({ id: "a" }),
+            },
+          ],
+        } as MutableRefObject<TranscriptItem[]>,
         getScrollPagination: () => ({ hasMore: true, isLoadingOlder: false }),
       }),
     );
@@ -1059,22 +1066,34 @@ describe("createChatDebugApi.getScrollState", () => {
     expect(state.diagnosis).toContain("Already loading older");
   });
 
-  test("itemCount comes from chat session store messages", () => {
+  test("itemCount comes from the rendered transcript items", () => {
     const el = makeScrollElement({
       scrollTop: 500,
       scrollHeight: 1000,
       clientHeight: 100,
     });
-    useChatSessionStore.setState({
-      messages: [
-        fakeDisplayMessage({ id: "a" }),
-        fakeDisplayMessage({ id: "b" }),
-        fakeDisplayMessage({ id: "c" }),
-      ],
-    });
     const api = createChatDebugApi(
       makeRefs({
         transcriptRef: { current: makeTranscriptHandle(el) },
+        transcriptItemsRef: {
+          current: [
+            {
+              kind: "message",
+              key: "a",
+              message: fakeDisplayMessage({ id: "a" }),
+            },
+            {
+              kind: "message",
+              key: "b",
+              message: fakeDisplayMessage({ id: "b" }),
+            },
+            {
+              kind: "message",
+              key: "c",
+              message: fakeDisplayMessage({ id: "c" }),
+            },
+          ],
+        } as MutableRefObject<TranscriptItem[]>,
         getScrollPagination: () => ({ hasMore: true, isLoadingOlder: false }),
       }),
     );

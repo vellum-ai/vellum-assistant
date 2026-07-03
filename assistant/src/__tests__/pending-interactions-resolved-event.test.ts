@@ -155,7 +155,7 @@ describe("pendingInteractions.resolve emits interaction_resolved", () => {
 });
 
 describe("removeByConversation emits interaction_resolved per entry", () => {
-  test("emits superseded for every non-host interaction in the conversation", () => {
+  test("emits superseded for every confirmation/secret interaction in the conversation", () => {
     pendingInteractions.register("conf-1", {
       conversationId: "conv-x",
       kind: "confirmation",
@@ -182,13 +182,16 @@ describe("removeByConversation emits interaction_resolved per entry", () => {
     const events = publishedMessages.filter(
       (m) => m.type === "interaction_resolved",
     ) as Extract<ServerMessage, { type: "interaction_resolved" }>[];
-    expect(events).toHaveLength(3);
+    expect(events).toHaveLength(2);
     expect(events.every((e) => e.state === "superseded")).toBe(true);
     const requestIds = new Set(events.map((e) => e.requestId));
-    expect(requestIds).toEqual(new Set(["conf-1", "secret-1", "question-1"]));
+    expect(requestIds).toEqual(new Set(["conf-1", "secret-1"]));
 
-    // host_bash entries survive auto-deny — no event for them.
+    // host_bash and question entries both survive auto-deny — no event for
+    // either. host proxies are settled by their result POST; questions by the
+    // enqueue steer's turn abort (see removeByConversation's skip list).
     expect(pendingInteractions.get("host-bash-1")).toBeDefined();
+    expect(pendingInteractions.get("question-1")).toBeDefined();
     // Unrelated conversation is untouched.
     expect(pendingInteractions.get("conf-other")).toBeDefined();
   });

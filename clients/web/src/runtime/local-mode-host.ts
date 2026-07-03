@@ -1,5 +1,6 @@
 import type {
   LocalAssistantStatusResult,
+  LocalUpgradeOptions,
   LocalWakeOptions,
 } from "@vellumai/ipc-contract";
 import { parseLockfile } from "@vellumai/local-mode/contract";
@@ -76,7 +77,14 @@ export interface LocalWakeResult {
   error?: string;
 }
 
+export interface LocalUpgradeResult {
+  ok: boolean;
+  version?: string;
+  error?: string;
+}
+
 export type { LocalAssistantStatusResult };
+export type { LocalUpgradeOptions };
 
 /**
  * Thrown by {@link fetchGuardianTokenHost} when a host returns a structured
@@ -339,6 +347,36 @@ export async function wakeLocalAssistantHost(
   );
 }
 
+export async function upgradeLocalAssistantHost(
+  assistantId: string,
+  options?: LocalUpgradeOptions,
+): Promise<LocalUpgradeResult> {
+  if (isElectron()) {
+    const upgrade = window.vellum!.localMode.upgrade;
+    if (!upgrade) {
+      return {
+        ok: false,
+        error: "Update and restart the desktop app to enable local upgrades.",
+      };
+    }
+    return upgrade(assistantId, options);
+  }
+
+  const body = {
+    assistantId,
+    ...(options?.latest ? { latest: true } : {}),
+    ...(options?.version ? { version: options.version } : {}),
+    ...(options?.force ? { force: true } : {}),
+  };
+
+  const res = await fetch("/assistant/__local/upgrade", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.json() as Promise<LocalUpgradeResult>;
+}
+
 export async function getLocalAssistantStatusHost(
   assistantId: string,
 ): Promise<LocalAssistantStatusResult> {
@@ -369,7 +407,11 @@ export async function getLocalAssistantStatusHost(
     .json()
     .catch(() => null)) as LocalAssistantStatusResult | null;
   return (
-    parsed ?? { ok: false, status: res.status, error: LOCAL_HOST_UNAVAILABLE_ERROR }
+    parsed ?? {
+      ok: false,
+      status: res.status,
+      error: LOCAL_HOST_UNAVAILABLE_ERROR,
+    }
   );
 }
 
@@ -404,4 +446,33 @@ export async function fetchGuardianTokenHost(
   }
   const { accessToken } = (await res.json()) as { accessToken: string };
   return accessToken;
+}
+
+/**
+ * Hand the loopback platform session token to the local web server so its proxy
+ * can authenticate to the platform. Called by the loopback callback page only
+ * after it validates the `state` nonce, so the token is never trusted from an
+ * unsolicited redirect. The browser never stores a session cookie.
+ */
+export async function registerLocalPlatformSession(
+  token: string,
+): Promise<boolean> {
+  const res = await postLocalCommand<{ ok: boolean }>(
+    "/assistant/__local/platform-session",
+    { token },
+    LOCAL_HOST_UNAVAILABLE_ERROR,
+  );
+  return res.ok;
+}
+
+/**
+ * Clear the loopback platform session token on logout. Best-effort.
+ */
+export async function clearLocalPlatformSession(): Promise<void> {
+  if (!isLocalModeHostAvailable()) return;
+  try {
+    await fetch("/assistant/__local/platform-session", { method: "DELETE" });
+  } catch {
+    // best-effort — the server is going away or already cleared.
+  }
 }

@@ -4,10 +4,6 @@
  * Provides a `startVoiceTurn()` function that manages a voice turn
  * directly through the conversation, translating agent-loop events into
  * simple callbacks suitable for real-time TTS streaming.
- *
- * Dependency injection follows the same module-level setter pattern used by
- * setRelayBroadcast in relay-server.ts: the daemon lifecycle injects
- * dependencies at startup via `setVoiceBridgeDeps()`.
  */
 
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
@@ -18,8 +14,9 @@ import type {
   TurnInterfaceContext,
 } from "../channels/types.js";
 import { getConfig } from "../config/loader.js";
-import type { Conversation } from "../daemon/conversation.js";
+import { ABORT_WATCHDOG_MS } from "../daemon/abort-watchdog.js";
 import { resolveChannelCapabilities } from "../daemon/conversation-runtime-assembly.js";
+import { getOrCreateConversation } from "../daemon/conversation-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
@@ -35,36 +32,19 @@ import {
 
 const log = getLogger("voice-session-bridge");
 
-// ---------------------------------------------------------------------------
-// Module-level dependency injection
-// ---------------------------------------------------------------------------
-
-export interface VoiceBridgeDeps {
-  getOrCreateConversation: (
-    conversationId: string,
-    transport?: {
-      channelId: ChannelId;
-      hints?: string[];
-      uxBrief?: string;
-    },
-  ) => Promise<Conversation>;
-  resolveAttachments: (attachmentIds: string[]) => Array<{
-    id: string;
-    filename: string;
-    mimeType: string;
-    data: string;
-    filePath?: string;
-  }>;
-}
-
-let deps: VoiceBridgeDeps | undefined;
-
+const PROCESSING_WAIT_MARGIN_MS = 1000;
 /**
- * Inject dependencies from daemon lifecycle.
- * Must be called during daemon startup before any voice turns are executed.
+ * How long startVoiceTurn waits for a prior turn to release the processing
+ * lock before giving up. The prior turn can hold the lock for the abort
+ * unwind budget PLUS the awaited turn-boundary commit window, so the wait
+ * must cover both (+ margin) or a barge-in can still surface
+ * "Conversation is already processing a message".
  */
-export function setVoiceBridgeDeps(d: VoiceBridgeDeps): void {
-  deps = d;
+export function resolveProcessingWaitMs(
+  turnCommitMaxWaitMs: number,
+  abortUnwindMs: number,
+): number {
+  return turnCommitMaxWaitMs + abortUnwindMs + PROCESSING_WAIT_MARGIN_MS;
 }
 
 // ---------------------------------------------------------------------------
@@ -273,18 +253,12 @@ function buildVoiceCallControlPrompt(opts: {
  *   - event sink wired to the provided callbacks
  *   - abort propagated from the returned handle
  *
- * The caller (CallController via relay-server) can use the returned handle
- * to cancel the turn on barge-in.
+ * The caller (CallController) can use the returned handle to cancel the
+ * turn on barge-in.
  */
 export async function startVoiceTurn(
   opts: VoiceTurnOptions,
 ): Promise<VoiceTurnHandle> {
-  if (!deps) {
-    throw new Error(
-      "Voice bridge not initialized — setVoiceBridgeDeps() was not called",
-    );
-  }
-
   const eventSink: VoiceRunEventSink = {
     onTextDelta: (msg) => {
       opts.onTextDelta?.(msg.text);
@@ -363,18 +337,16 @@ export async function startVoiceTurn(
       : opts.voiceControlPrompt;
 
   // Get or create the conversation
-  const transport = {
-    channelId: turnChannelContext.userMessageChannel,
-  };
-  const conversation = await deps.getOrCreateConversation(
-    opts.conversationId,
-    transport,
-  );
+  const conversation = await getOrCreateConversation(opts.conversationId);
 
   if (conversation.isProcessing()) {
     // Voice barge-in can race with turn teardown. Wait briefly for the
     // previous turn to finish aborting before giving up.
-    const maxWaitMs = 3000;
+    const config = getConfig();
+    const maxWaitMs = resolveProcessingWaitMs(
+      config.workspaceGit?.turnCommitMaxWaitMs ?? 4000,
+      ABORT_WATCHDOG_MS,
+    );
     const pollIntervalMs = 50;
     let waited = 0;
     while (conversation.isProcessing() && waited < maxWaitMs) {
@@ -388,6 +360,10 @@ export async function startVoiceTurn(
       throw new Error("Turn aborted while waiting for conversation");
     }
     if (conversation.isProcessing()) {
+      // Waited the full budget (see resolveProcessingWaitMs) without the lock
+      // releasing, so the prior turn is genuinely wedged. The controller
+      // catches this terminal error and speaks a brief non-technical
+      // re-prompt rather than staying silent.
       throw new Error("Conversation is already processing a message");
     }
   }
@@ -639,8 +615,8 @@ export async function startVoiceTurn(
     }
   };
 
-  // If the caller provided an external AbortSignal (e.g. from a
-  // RelayConnection's AbortController), wire it to the turn's abort.
+  // If the caller provided an external AbortSignal (e.g. from the call
+  // controller's AbortController), wire it to the turn's abort.
   if (opts.signal) {
     if (opts.signal.aborted) {
       abortFn();

@@ -38,7 +38,10 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
     return <ErrorState message={msg} onRetry={() => void refetch()} />;
   }
 
-  const rawValue = pane === "request" ? data?.requestPayload : data?.responsePayload;
+  const rawValue =
+    pane === "request"
+      ? data?.requestPayload
+      : selectResponsePayload(data?.responsePayload);
   const displayText = formatPayload(rawValue);
   const downloadFilename = buildRawPayloadFilename(entry.id, pane);
 
@@ -54,7 +57,9 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
             style={{
               background: pane === p ? "var(--surface-overlay)" : "transparent",
               color:
-                pane === p ? "var(--content-default)" : "var(--content-secondary)",
+                pane === p
+                  ? "var(--content-default)"
+                  : "var(--content-secondary)",
               border: "1px solid var(--border-base)",
             }}
           >
@@ -106,6 +111,25 @@ export function RawTab({ entry, assistantId }: RawTabProps): ReactNode {
       </Card>
     </div>
   );
+}
+
+/**
+ * For provider-rejected calls the persisted responsePayload is a synthetic
+ * `{ error, rawResponse }` envelope (the error card reads `.error`). Honor the
+ * Raw-tab principle — always show the actual provider JSON — by surfacing the
+ * captured upstream body (`rawResponse`) when present. Successful calls store
+ * the provider payload directly and pass through unchanged.
+ */
+export function selectResponsePayload(responsePayload: unknown): unknown {
+  if (
+    responsePayload !== null &&
+    typeof responsePayload === "object" &&
+    "error" in responsePayload &&
+    "rawResponse" in responsePayload
+  ) {
+    return (responsePayload as { rawResponse: unknown }).rawResponse;
+  }
+  return responsePayload;
 }
 
 export function formatPayload(value: unknown): string {

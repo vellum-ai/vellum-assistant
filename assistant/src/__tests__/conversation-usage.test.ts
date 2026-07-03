@@ -22,7 +22,9 @@ mock.module("../config/loader.js", () => ({
   }),
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   updateConversationUsage: (
     conversationId: string,
     inputTokens: number,
@@ -40,9 +42,9 @@ mock.module("../memory/conversation-crud.js", () => ({
 }));
 
 import { recordUsage } from "../daemon/conversation-usage.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { listUsageEvents } from "../memory/llm-usage-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { listUsageEvents } from "../persistence/llm-usage-store.js";
 import type { Provider, ProviderResponse } from "../providers/types.js";
 import { UsageTrackingProvider } from "../providers/usage-tracking.js";
 import type { PricingUsage } from "../usage/types.js";

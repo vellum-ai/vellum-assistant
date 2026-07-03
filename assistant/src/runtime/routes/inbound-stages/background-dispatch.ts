@@ -7,30 +7,31 @@
  * Extracted from inbound-message-handler.ts to keep the top-level handler
  * focused on orchestration.
  */
-import type { ChannelId, InterfaceId } from "../../../channels/types.js";
-import { findGuardianForChannel } from "../../../contacts/contact-store.js";
-import type { ServerMessage } from "../../../daemon/message-protocol.js";
-import type { TrustContext } from "../../../daemon/trust-context.js";
-import {
-  addSlackDmLiveDeliveredTextResponseIndex,
-  getSlackDmLiveDeliveredTextResponseIndexes,
-} from "../../../memory/delivery-channels.js";
-import {
-  linkMessage,
-  storeReplyMessageId,
-} from "../../../memory/delivery-crud.js";
-import {
-  markProcessed,
-  recordProcessingFailure,
-} from "../../../memory/delivery-status.js";
 import {
   clearThreadTs,
   extractChannelFromCallbackUrl,
   extractMessageTsFromCallbackUrl,
   extractThreadTsFromCallbackUrl,
+  isSlackDeliveryCallbackUrl,
   peekThreadMapping,
   setThreadTs,
-} from "../../../memory/slack-thread-store.js";
+} from "../../../channels/slack-thread-store.js";
+import type { ChannelId, InterfaceId } from "../../../channels/types.js";
+import {
+  getGuardianDelivery,
+  guardianForChannel,
+} from "../../../contacts/guardian-delivery-reader.js";
+import type { ServerMessage } from "../../../daemon/message-protocol.js";
+import type { TrustContext } from "../../../daemon/trust-context.js";
+import {
+  linkMessage,
+  storeReplyMessageId,
+  storeStreamedReplyTs,
+} from "../../../persistence/delivery-crud.js";
+import {
+  markProcessed,
+  recordProcessingFailure,
+} from "../../../persistence/delivery-status.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
@@ -45,10 +46,14 @@ import type {
   MessageProcessor,
   SlackInboundMessageMetadata,
 } from "../../http-types.js";
+import { hasDeliverableAssistantText } from "../../slack-no-response.js";
+import { createSlackReplySession } from "../../slack-reply-session.js";
+import type { TaskProgressData } from "../../slack-task-progress.js";
 import {
-  createSlackDmTextDeliveryController,
-  isSlackDeliveryCallbackUrl,
-} from "../../slack-dm-text-delivery.js";
+  getTaskProgressDataFromSurfaceData,
+  mergeTaskProgressData,
+} from "../../slack-task-progress.js";
+import { isContactTrustClass } from "../../trust-class.js";
 import { resolveRoutingState } from "../../trust-context-resolver.js";
 import { finalizeEventDelivery } from "../channel-delivery-routes.js";
 import { deliverGeneratedApprovalPrompt } from "../guardian-approval-prompt.js";
@@ -233,20 +238,14 @@ export function processChannelMessageInBackground(
             }
           : undefined;
       let replyMessageId: string | undefined;
-      const slackDmTextDelivery = createSlackDmTextDeliveryController({
+      const slackReplySession = createSlackReplySession({
         sourceChannel,
         chatType,
         replyCallbackUrl,
         chatId: externalChatId,
         assistantId,
-        deliveredTextResponseIndexes:
-          getSlackDmLiveDeliveredTextResponseIndexes(eventId),
-        onTextResponseDelivered: (responseIndex, reason) => {
-          addSlackDmLiveDeliveredTextResponseIndex(eventId, responseIndex);
-          if (reason === "before_tool") {
-            slackThinkingStatus?.refreshAfterReply();
-          }
-        },
+        recipientUserId: slackInbound?.actorExternalUserId,
+        recipientTeamId: slackInbound?.actorTeamId,
       });
       const observeAgentEvent = (msg: ServerMessage): void => {
         if (
@@ -256,7 +255,7 @@ export function processChannelMessageInBackground(
         ) {
           replyMessageId = msg.messageId;
         }
-        slackDmTextDelivery?.observeEvent(msg);
+        slackReplySession?.observeEvent(msg);
         slackThinkingStatus?.observeEvent(msg);
       };
 
@@ -314,8 +313,11 @@ export function processChannelMessageInBackground(
           { err, conversationId },
           "Background channel message processing failed",
         );
-        if (slackDmTextDelivery) {
-          await slackDmTextDelivery.waitForPendingDeliveries();
+        if (slackReplySession) {
+          const reconciliation = await slackReplySession.finish();
+          if (reconciliation.mode === "streamed") {
+            storeStreamedReplyTs(eventId, reconciliation.messageTs);
+          }
         }
         recordProcessingFailure(eventId, err);
         return;
@@ -331,7 +333,7 @@ export function processChannelMessageInBackground(
             assistantId,
             replyMessageId,
             userMessageId,
-            slackDmTextDelivery,
+            slackReplySession,
           });
         } catch (err) {
           log.error(
@@ -411,47 +413,16 @@ function startTelegramTypingHeartbeat(
 
 type SlackThinkingStatusController = {
   observeEvent: (msg: ServerMessage) => void;
-  refreshAfterReply: () => void;
   stop: () => void;
 };
 
 type SlackThinkingStatusHandle = {
   updateLoadingMessages: (loadingMessages?: string[]) => void;
-  refresh: (loadingMessages?: string[]) => void;
   clear: () => void;
 };
 
-type TaskProgressStep = {
-  label: string;
-  status: "pending" | "in_progress" | "completed" | "failed";
-};
-
-type TaskProgressData = {
-  steps: TaskProgressStep[];
-};
-
-const NO_RESPONSE_RE = /^\s*<no_response\s*\/?>\s*$/i;
-const NO_RESPONSE_INLINE_RE = /<no_response\s*\/?>/gi;
-const NO_RESPONSE_SENTINEL_FORMS = [
-  "<no_response/>",
-  "<no_response />",
-  "<no_response>",
-] as const;
-
-function isPotentialNoResponsePrefix(text: string): boolean {
-  const lower = text.toLowerCase();
-  return NO_RESPONSE_SENTINEL_FORMS.some((sentinel) =>
-    sentinel.startsWith(lower),
-  );
-}
-
 export function shouldStartSlackThinkingStatusForText(text: string): boolean {
-  const trimmed = text.trim();
-  if (trimmed.length === 0) return false;
-  if (NO_RESPONSE_RE.test(trimmed)) return false;
-  if (isPotentialNoResponsePrefix(trimmed)) return false;
-
-  return trimmed.replace(NO_RESPONSE_INLINE_RE, "").trim().length > 0;
+  return hasDeliverableAssistantText(text);
 }
 
 function shouldEmitSlackThinkingStatus(
@@ -562,13 +533,6 @@ function createSlackThinkingStatusController(params: {
         start();
       }
     },
-    refreshAfterReply() {
-      if (stopped || !slackThinkingStatus) return;
-      // Slack clears assistant thread status when the app sends a reply, so
-      // live pre-tool replies need to reassert it while work continues.
-      slackThinkingStatus.refresh(currentLoadingMessages);
-      lastSentLoadingMessageKey = getLoadingMessagesKey(currentLoadingMessages);
-    },
     stop() {
       stopped = true;
       slackThinkingStatus?.clear();
@@ -588,53 +552,6 @@ function getRandomSlackThinkingStatus(): string {
 
 function getLoadingMessagesKey(loadingMessages?: string[]): string | undefined {
   return loadingMessages?.join("\n");
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function getTaskProgressDataFromSurfaceData(
-  data: unknown,
-): TaskProgressData | undefined {
-  if (!isRecord(data)) return undefined;
-  if (data.template !== "task_progress") return undefined;
-  return parseTaskProgressData(data.templateData);
-}
-
-function parseTaskProgressData(value: unknown): TaskProgressData | undefined {
-  if (!isRecord(value) || !Array.isArray(value.steps)) return undefined;
-
-  const steps = value.steps.flatMap((step): TaskProgressStep[] => {
-    if (!isRecord(step)) return [];
-    if (typeof step.label !== "string") return [];
-    if (
-      step.status !== "pending" &&
-      step.status !== "in_progress" &&
-      step.status !== "completed" &&
-      step.status !== "failed"
-    ) {
-      return [];
-    }
-    return [{ label: step.label, status: step.status }];
-  });
-
-  return steps.length > 0 ? { steps } : undefined;
-}
-
-function mergeTaskProgressData(
-  existing: TaskProgressData | undefined,
-  data: unknown,
-): TaskProgressData | undefined {
-  if (!isRecord(data)) return existing;
-  const update = getTaskProgressDataFromSurfaceData(data);
-  if (update) return update;
-  if (!existing || !("templateData" in data)) return existing;
-
-  return parseTaskProgressData({
-    steps: existing.steps,
-    ...(isRecord(data.templateData) ? data.templateData : {}),
-  });
 }
 
 function getTaskProgressLoadingMessage(
@@ -680,7 +597,6 @@ function setSlackThinkingStatus(
     if (!messageTs) {
       return {
         updateLoadingMessages: () => {},
-        refresh: () => {},
         clear: () => {},
       };
     }
@@ -722,7 +638,6 @@ function setSlackThinkingStatus(
 
     return {
       updateLoadingMessages: () => {},
-      refresh: () => {},
       clear: clearReaction,
     };
   }
@@ -765,10 +680,6 @@ function setSlackThinkingStatus(
     );
   };
 
-  const refresh = (nextLoadingMessages?: string[]): void => {
-    updateLoadingMessages(nextLoadingMessages);
-  };
-
   const clearStatus = (): void => {
     if (cleared) return;
     cleared = true;
@@ -796,7 +707,6 @@ function setSlackThinkingStatus(
 
   return {
     updateLoadingMessages,
-    refresh,
     clear: clearStatus,
   };
 }
@@ -932,9 +842,7 @@ function startTrustedContactApprovalNotifier(params: {
 
   // Only notify identity-known non-guardian contacts (trusted_contact and
   // unverified_contact) who have a resolvable guardian route.
-  const isIdentityKnownNonGuardian =
-    trustClass === "trusted_contact" || trustClass === "unverified_contact";
-  if (!isIdentityKnownNonGuardian || !guardianExternalUserId) {
+  if (!isContactTrustClass(trustClass) || !guardianExternalUserId) {
     return () => {};
   }
 
@@ -960,10 +868,15 @@ function startTrustedContactApprovalNotifier(params: {
 
         if (info && !globalNotifiedApprovalRequestIds.has(info.requestId)) {
           globalNotifiedApprovalRequestIds.set(info.requestId, conversationId);
-          const guardian = findGuardianForChannel(sourceChannel);
-          const guardianName = resolveGuardianName(
-            guardian?.contact.displayName,
-          );
+          // Gateway-resolved guardian display name (display-only).
+          const guardians = await getGuardianDelivery({
+            channelTypes: [sourceChannel],
+          });
+          const displayName = guardians
+            ? (guardianForChannel(guardians, sourceChannel)?.displayName ??
+              undefined)
+            : undefined;
+          const guardianName = resolveGuardianName(displayName);
           const waitingText = `Waiting for ${guardianName}'s approval...`;
           try {
             await deliverChannelReply(replyCallbackUrl, {

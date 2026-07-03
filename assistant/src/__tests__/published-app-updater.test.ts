@@ -5,7 +5,7 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-import type { AppDefinition } from "../memory/app-store.js";
+import type { AppDefinition } from "../apps/app-store.js";
 
 // ── Mocks ───────────────────────────────────────────────────────────────
 
@@ -17,7 +17,7 @@ let mockEffectiveHtml = "";
 // leak across test files).
 let mockAppDir = "/tmp/__vellum_test_nonexistent__/app-1";
 
-mock.module("../memory/app-store.js", () => ({
+mock.module("../apps/app-store.js", () => ({
   getApp: () => mockApp,
   getAppDirPath: () => mockAppDir,
   isMultifileApp: () => mockIsMultifile,
@@ -31,7 +31,7 @@ let mockPublishedPage: {
 } | null = null;
 const updatePublishedPageSpy = mock(() => {});
 
-mock.module("../memory/published-pages-store.js", () => ({
+mock.module("../apps/published-pages-store.js", () => ({
   getActivePublishedPageByAppId: () => mockPublishedPage,
   updatePublishedPage: updatePublishedPageSpy,
 }));

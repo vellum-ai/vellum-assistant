@@ -19,7 +19,10 @@ import {
   type ResearchFactItem,
 } from "@/domains/chat/onboarding-research/research-facts-card";
 import { ResearchSuggestions } from "@/domains/chat/onboarding-research/research-suggestions";
-import type { RemovalReason } from "@/domains/chat/onboarding-research/research-facts";
+import type {
+  RemovalReason,
+  ResearchSuggestion,
+} from "@/domains/chat/onboarding-research/research-facts";
 
 export interface ResearchResultsViewProps {
   mode: "loading" | "results" | "empty";
@@ -27,18 +30,15 @@ export interface ResearchResultsViewProps {
   loadingContent: ReactNode;
   items: ResearchFactItem[];
   removals: ReadonlyMap<number, RemovalReason | null>;
-  suggestions: string[];
+  suggestions: ResearchSuggestion[];
   resultsTitle: string;
-  showDeeperDiveCard: boolean;
   showSuggestions: boolean;
   canContinue: boolean;
   resolveFavicon: (domain: string) => string;
   onRemove: (index: number) => void;
   onSetReason: (index: number, reason: RemovalReason) => void;
   onRestore: (index: number) => void;
-  onDeeperDive: () => void;
-  onGoodForNow: () => void;
-  onSuggestionClick: (suggestion: string) => void;
+  onSuggestionClick: (prompt: string) => void;
   onContinue: () => void;
 }
 
@@ -49,15 +49,12 @@ export function ResearchResultsView({
   removals,
   suggestions,
   resultsTitle,
-  showDeeperDiveCard,
   showSuggestions,
   canContinue,
   resolveFavicon,
   onRemove,
   onSetReason,
   onRestore,
-  onDeeperDive,
-  onGoodForNow,
   onSuggestionClick,
   onContinue,
 }: ResearchResultsViewProps) {
@@ -76,21 +73,6 @@ export function ResearchResultsView({
                 resolveFavicon={resolveFavicon}
                 title={resultsTitle}
               />
-              {showDeeperDiveCard ? (
-                <div className="flex flex-col items-start gap-3 rounded-xl border border-[var(--border-base)] bg-[var(--surface-lift)] px-5 py-4">
-                  <p className="text-[15px] text-[var(--content-secondary)]">
-                    I can search more, just didn&apos;t want to be too intrusive.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="primary" size="regular" onClick={onDeeperDive}>
-                      Yes, do a deeper dive
-                    </Button>
-                    <Button variant="outlined" size="regular" onClick={onGoodForNow}>
-                      This is good for now
-                    </Button>
-                  </div>
-                </div>
-              ) : null}
               {showSuggestions ? (
                 <ResearchSuggestions
                   suggestions={suggestions}

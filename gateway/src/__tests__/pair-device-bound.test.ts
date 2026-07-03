@@ -14,19 +14,17 @@ import { initSigningKey } from "../auth/token-service.js";
 // Must init signing key before importing modules that mint tokens.
 initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 
-// pair.ts → resolveLocalGuardianPrincipalId() queries the assistant DB; mock it
-// to return a stable principal. The device-bound token records live in the
-// (real) gateway DB initialized below.
-const mockQuery = mock();
+// The pair guardian-lookup reads the gateway DB; the assistant DB proxy is
+// mocked so any incidental assistant access stays inert in tests.
 mock.module("../db/assistant-db-proxy.js", () => ({
-  assistantDbQuery: mockQuery,
+  assistantDbQuery: mock(),
   assistantDbRun: mock(),
   assistantDbExec: mock(),
 }));
 
 const { initGatewayDb, resetGatewayDb, getGatewayDb } =
   await import("../db/connection.js");
-const { actorTokenRecords, actorRefreshTokenRecords } =
+const { actorTokenRecords, actorRefreshTokenRecords, contacts, contactChannels } =
   await import("../db/schema.js");
 const { handlePair, resetPairRateLimiterForTests } =
   await import("../http/routes/pair.js");
@@ -62,12 +60,41 @@ function activeTokens() {
 
 beforeEach(async () => {
   resetPairRateLimiterForTests();
-  mockQuery.mockResolvedValue([{ principalId: GUARDIAN_ID }]);
   testRoot = mkdtempSync(join(tmpdir(), "pair-device-test-"));
   const securityDir = join(testRoot, "protected");
   mkdirSync(securityDir, { recursive: true });
   process.env.GATEWAY_SECURITY_DIR = securityDir;
   await initGatewayDb();
+
+  // pair.ts → resolveLocalGuardianPrincipalId() reads the gateway DB for the
+  // vellum active guardian principal; seed one so device-bound mints carry it.
+  const now = Date.now();
+  getGatewayDb()
+    .insert(contacts)
+    .values({
+      id: GUARDIAN_ID,
+      displayName: "Guardian",
+      role: "guardian",
+      principalId: GUARDIAN_ID,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+  getGatewayDb()
+    .insert(contactChannels)
+    .values({
+      id: `ch-${GUARDIAN_ID}`,
+      contactId: GUARDIAN_ID,
+      type: "vellum",
+      address: "guardian-vellum",
+      isPrimary: false,
+      status: "active",
+      policy: "allow",
+      interactionCount: 0,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
 });
 
 afterEach(() => {

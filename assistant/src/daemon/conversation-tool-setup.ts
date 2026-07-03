@@ -14,15 +14,23 @@ import {
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import { getBindingByConversation } from "../memory/external-conversation-store.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
-import { advisorEnabledForProfile } from "../plugins/defaults/advisor/advisor-gate.js";
+import { getBindingByConversation } from "../persistence/external-conversation-store.js";
+import { DEFAULT_PLUGIN_NAMES } from "../plugins/defaults/default-plugin-names.js";
+import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { registerConversationSender } from "../tools/browser/browser-screencast.js";
 import type { ToolExecutor } from "../tools/executor.js";
-import { getMcpToolDefinitions, getTool } from "../tools/registry.js";
+import {
+  getMcpToolDefinitions,
+  getPluginToolDefinitions,
+  getTool,
+  getToolOwner,
+  getWorkspaceToolDefinitions,
+  getWorkspaceToolNames,
+} from "../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
   injectActivityField,
@@ -41,6 +49,7 @@ import {
   type ToolExecutionResult,
   type ToolLifecycleEventHandler,
 } from "../tools/types.js";
+import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import {
   resolveUsageAttribution,
   type UsageAttributionSnapshot,
@@ -61,12 +70,6 @@ import { FALLBACK_TURN_TRUST, resolveTrustClass } from "./trust-context.js";
 
 const log = getLogger("conversation-tool-setup");
 
-import { isAssistantFeatureFlagEnabled } from "../config/assistant-feature-flags.js";
-import { AUTO_PROFILE_KEY } from "../config/seed-inference-profiles.js";
-import {
-  buildSwitchInferenceProfileToolDef,
-  SWITCH_INFERENCE_PROFILE_TOOL_NAME,
-} from "./switch-inference-profile-tool.js";
 import type {
   SubagentToolGateMode,
   ToolSetupContext,
@@ -119,6 +122,50 @@ export function resolveConversationAttribution(
   }
 }
 
+/**
+ * Resolve a conversation's effective per-chat plugin scope as a Set for
+ * membership checks. Returns `null` when there is no per-chat restriction
+ * (`enabledPlugins` null/undefined) — meaning all globally-enabled plugins
+ * apply — otherwise a Set of the scoped plugin ids. Later tool/skill/hook
+ * filters intersect their candidate set against this; `null` is the no-op
+ * sentinel (no intersection).
+ *
+ * Enablement precedence, highest first:
+ *   1. Explicit per-conversation enable/disable — the `enabledPlugins`
+ *      allowlist. A plugin listed here is enabled for this chat even if it is
+ *      disabled at the workspace level; an installed plugin omitted from a
+ *      non-null list is disabled for this chat.
+ *   2. Explicit workspace enable/disable — the `.disabled` sentinel
+ *      (`assistant plugins disable <name>`), via {@link isPluginDisabled}.
+ *   3. Default plugins are enabled by default.
+ *
+ * The first-party default plugins are therefore unioned into a non-null scope
+ * unless they are disabled at the workspace level: they are core runtime
+ * infrastructure (memory, turn-context, workspace grounding, session framing,
+ * history repair, title generation, …), not user-toggleable extensions, and
+ * the per-chat pills only list user-INSTALLED plugins (`/v1/plugins`), so
+ * without this union deselecting any pill would intersect the defaults out and
+ * silently disable core behavior. A workspace-disabled default is left out so
+ * `assistant plugins disable default-*` still takes effect; a default the
+ * conversation explicitly enabled (rule 1) stays in regardless. Unioning here
+ * fixes every consumer (tools/skills/injectors/hooks) at the single chokepoint.
+ */
+export function getEffectiveEnabledPluginSet(conv: {
+  enabledPlugins?: string[] | null;
+}): Set<string> | null {
+  if (conv.enabledPlugins == null) return null;
+  // Rule 1: the conversation's explicit selections always apply.
+  const effective = new Set(conv.enabledPlugins);
+  // Rules 2 + 3: add a default the conversation did not already decide, unless
+  // it is disabled at the workspace level.
+  for (const name of DEFAULT_PLUGIN_NAMES) {
+    if (!effective.has(name) && !isPluginDisabled(name)) {
+      effective.add(name);
+    }
+  }
+  return effective;
+}
+
 // ── createToolExecutor ───────────────────────────────────────────────
 
 /**
@@ -161,6 +208,27 @@ export function createToolExecutor(
     };
   };
 
+  // Per-chat plugin scope guard for the `skill_execute` dispatch path. The
+  // wire definitions + per-turn `allowedToolNames` already keep an excluded
+  // plugin's tools off the model's tool surface, but `skill_execute` names its
+  // inner tool by string, so resolve the inner tool's owner and reject when it
+  // belongs to a plugin outside the conversation's effective set. Authoritative
+  // regardless of how the name was obtained (also covers name collisions where
+  // the projected name is owned by a different, in-scope source). `null` =
+  // no per-chat restriction; non-plugin tools are never blocked.
+  const rejectOutOfScopePluginTool = (
+    toolName: string,
+    effectiveSet: Set<string> | null,
+  ): ToolExecutionResult | null => {
+    if (effectiveSet === null) return null;
+    const owner = getToolOwner(toolName);
+    if (owner?.kind !== "plugin" || effectiveSet.has(owner.id)) return null;
+    return {
+      content: `Tool "${toolName}" belongs to a plugin that is not enabled in this conversation.`,
+      isError: true,
+    };
+  };
+
   return async (
     name: string,
     input: Record<string, unknown>,
@@ -170,12 +238,17 @@ export function createToolExecutor(
     const { name: executionName, input: executionInput } =
       resolveToolInvocationAlias(name, input, ctx.allowedToolNames);
 
+    // Resolve the conversation's effective per-chat plugin scope once per tool
+    // call: reused for the ToolContext field (read by skill-surface tools) and
+    // the skill_execute dispatch guard below.
+    const effectiveEnabledPluginSet = getEffectiveEnabledPluginSet(ctx);
+
     // The execution-layer gate must run FIRST — before any interception or
-    // pre-execution side effect (switch_inference_profile profile switching,
-    // DoorDash step marking) — so a non-allowlisted tool can neither run nor
-    // mutate conversation state. `skill_execute` is dispatch indirection: it
-    // is gated on its resolved inner tool name inside the interception below,
-    // mirroring how wire mode gates the underlying tool, not the wrapper.
+    // pre-execution side effect (DoorDash step marking) — so a non-allowlisted
+    // tool can neither run nor mutate conversation state. `skill_execute` is
+    // dispatch indirection: it is gated on its resolved inner tool name inside
+    // the interception below, mirroring how wire mode gates the underlying
+    // tool, not the wrapper.
     if (executionName !== "skill_execute") {
       const rejection = rejectNonAllowlistedTool(executionName);
       if (rejection) return rejection;
@@ -199,6 +272,7 @@ export function createToolExecutor(
       taskRunId: ctx.taskRunId,
       trustClass: resolveTrustClass(turnTrust),
       executionChannel: turnTrust.sourceChannel,
+      requestOrigin: ctx.currentTurnRequestOrigin,
       sourceActorPrincipalId: turnTrust.guardianPrincipalId,
       callSessionId: ctx.callSessionId,
       triggeredBySurfaceAction:
@@ -224,6 +298,7 @@ export function createToolExecutor(
       overrideProfile: ctx.currentTurnOverrideProfile,
       invokingCallSite: ctx.currentCallSite ?? "mainAgent",
       attribution: resolveConversationAttribution(ctx),
+      enabledPluginSet: effectiveEnabledPluginSet,
       onToolLifecycleEvent: handleToolLifecycleEvent,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
@@ -244,7 +319,10 @@ export function createToolExecutor(
           });
         }
       },
-      isInteractive: !ctx.hasNoClient && !ctx.headlessLock,
+      isInteractive:
+        ctx.currentTurnIsNonInteractive !== undefined
+          ? !ctx.currentTurnIsNonInteractive
+          : !ctx.hasNoClient && !ctx.headlessLock,
       proxyToolResolver: (
         toolName: string,
         proxyInput: Record<string, unknown>,
@@ -271,36 +349,6 @@ export function createToolExecutor(
         );
       },
     };
-
-    // Intercept switch_inference_profile: daemon-internal tool that lets the
-    // model self-select a different inference profile mid-turn. No permission
-    // checks — this is a control-flow signal, not a user-visible tool.
-    if (executionName === SWITCH_INFERENCE_PROFILE_TOOL_NAME) {
-      const profile =
-        typeof executionInput.profile === "string"
-          ? executionInput.profile
-          : "";
-      const config = getConfig();
-      const profileEntry = config.llm.profiles?.[profile];
-      if (!profileEntry) {
-        return {
-          content: `Profile "${profile}" not found. Available profiles: ${Object.keys(config.llm.profiles ?? {}).join(", ")}`,
-          isError: true,
-        };
-      }
-      if (profileEntry.status === "disabled") {
-        return {
-          content: `Profile "${profile}" is disabled.`,
-          isError: true,
-        };
-      }
-      ctx.toolRoutedProfile = profile;
-      const label = profileEntry.label ?? profile;
-      return {
-        content: `Switched to ${label} profile. Continue with your response.`,
-        isError: false,
-      };
-    }
 
     // Intercept skill_execute: extract the real tool name and input, then
     // route through the full executor pipeline so the underlying tool's
@@ -338,6 +386,14 @@ export function createToolExecutor(
       // underlying tool via the executor's allowedToolNames check.
       const innerRejection = rejectNonAllowlistedTool(toolName);
       if (innerRejection) return innerRejection;
+
+      // Per-chat plugin scope: reject the resolved inner tool when it belongs
+      // to a plugin outside the conversation's effective set.
+      const pluginRejection = rejectOutOfScopePluginTool(
+        toolName,
+        effectiveEnabledPluginSet,
+      );
+      if (pluginRejection) return pluginRejection;
 
       const rawResult = await executor.execute(
         toolName,
@@ -450,8 +506,17 @@ export interface SkillProjectionContext {
    * host tools into the LLM tool definitions.
    */
   readonly transportInterface?: InterfaceId;
-  /** Per-turn override profile, read by the switch_inference_profile tool injection. */
+  /** Per-turn override profile. */
   currentTurnOverrideProfile?: string;
+  /**
+   * The conversation's per-chat plugin scope (mirrors
+   * {@link Conversation.enabledPlugins}). `null`/absent means no per-chat
+   * restriction; otherwise plugin-owned tools and skills are intersected with
+   * the effective set (the scope unioned with the always-on first-party
+   * defaults) via {@link getEffectiveEnabledPluginSet}. Read per turn so a
+   * mid-conversation scope change is picked up.
+   */
+  readonly enabledPlugins?: string[] | null;
   /**
    * Conversation id for `skill_loaded` telemetry. Absent (e.g. minimal test
    * contexts) disables telemetry recording in the skill projection.
@@ -542,6 +607,7 @@ const PLATFORM_TOOL_NAMES = new Set(["request_system_permission"]);
  */
 export const SUBAGENT_ONLY_TOOL_NAMES = new Set<string>([
   "file_list",
+  "code_search",
   "notify_parent",
 ]);
 
@@ -599,16 +665,6 @@ export function isToolActiveForContext(
     } catch {
       return true;
     }
-  }
-  if (name === "advisor") {
-    // Gated per chat-profile (`ProfileEntry.advisorEnabled`): when the resolved
-    // profile disables the advisor, omit the tool from the wire list so the
-    // model never sees a tool it can only no-op on. Resolves the profile the
-    // same way the advisor's execution-time guard does (the per-turn override,
-    // else the active profile). The wire list is fixed before PRE_MODEL_CALL
-    // hooks run, so a hook that re-routes the profile mid-turn (the model-router
-    // lever on `PreModelCallContext.modelProfile`) is not reflected here.
-    return advisorEnabledForProfile(ctx.currentTurnOverrideProfile ?? null);
   }
   if (UI_SURFACE_TOOL_NAMES.has(name)) {
     if (
@@ -687,11 +743,13 @@ export function isToolActiveForContext(
  * allowedToolNames so newly-activated skill tools aren't blocked by
  * the executor's stale gate.
  *
- * Core (non-MCP) tool definitions are captured at conversation creation and
- * reused on each turn. MCP tool definitions are re-read from the global
- * registry on each turn so that tools registered after conversation creation
- * (e.g. via `vellum mcp reload`) are automatically picked up without
- * requiring conversation disposal or app restart.
+ * Core (non-MCP, non-workspace) tool definitions are captured at conversation
+ * creation and reused on each turn. MCP and workspace tool definitions are
+ * re-read from the global registry on each turn so that tools registered or
+ * changed after conversation creation are automatically picked up without
+ * requiring conversation disposal or app restart — MCP via `vellum mcp
+ * reload`, workspace tools via edits under `<workspaceDir>/tools/` that the
+ * per-turn reconcile (kicked below) folds into the registry.
  */
 export function createResolveToolsCallback(
   toolDefs: ToolDefinition[],
@@ -699,16 +757,30 @@ export function createResolveToolsCallback(
 ): ((history: Message[]) => ToolDefinition[]) | undefined {
   if (toolDefs.length === 0) return undefined;
 
-  // Separate the initial tool defs into core (stable) and MCP (dynamic).
-  // We keep core tools from the snapshot and re-read MCP tools each turn.
+  // Separate the initial tool defs into core (stable) and the dynamic
+  // categories (MCP, workspace, plugin). We keep core tools from the snapshot
+  // and re-read the dynamic categories from the registry each turn. They differ
+  // downstream: plugin tools flow through the same context filter + subagent
+  // allowlist as core, while MCP and workspace tools are added raw.
   const initialMcpDefs = getMcpToolDefinitions();
+  const initialPluginDefs = getPluginToolDefinitions();
   const initialMcpNames = new Set(initialMcpDefs.map((d) => d.name));
-  const coreToolDefs = toolDefs.filter((d) => !initialMcpNames.has(d.name));
+  const initialWorkspaceNames = new Set(getWorkspaceToolNames());
+  const initialPluginNames = new Set(initialPluginDefs.map((d) => d.name));
+  const coreToolDefs = toolDefs.filter(
+    (d) =>
+      !initialMcpNames.has(d.name) &&
+      !initialWorkspaceNames.has(d.name) &&
+      !initialPluginNames.has(d.name),
+  );
   log.debug(
     {
       coreCount: coreToolDefs.length,
       mcpCount: initialMcpDefs.length,
       mcpTools: initialMcpDefs.map((d) => d.name),
+      workspaceCount: initialWorkspaceNames.size,
+      pluginCount: initialPluginDefs.length,
+      pluginTools: initialPluginDefs.map((d) => d.name),
     },
     "Conversation tool resolver initialized",
   );
@@ -722,11 +794,46 @@ export function createResolveToolsCallback(
       return [];
     }
 
-    // Filter core tools based on current conversation context so that tools
-    // irrelevant to this turn (e.g. UI tools when no client is connected)
+    // Resolve the conversation's effective per-chat plugin scope ONCE for this
+    // turn and reuse it for the plugin-tool filter and the skill projection.
+    // `null` = no per-chat restriction; otherwise a fresh Set of the selection
+    // unioned with the always-on first-party defaults.
+    const effectiveEnabledPluginSet = getEffectiveEnabledPluginSet(ctx);
+
+    // Reconcile workspace tool overrides under `<workspaceDir>/tools/` into
+    // the registry, then re-read them below — the on-read replacement for a
+    // filesystem watcher. Fire-and-forget: the reconcile is idempotent,
+    // mtime-cached (a no-op costs one readdir + a stat per file) and
+    // serialized, so the registry settles for a subsequent turn to read.
+    void loadWorkspaceTools();
+
+    // Re-read plugin tool definitions from the registry each turn so a plugin
+    // installed/removed at runtime (activated by the per-turn scan in
+    // `plugins/mtime-cache.ts`) is picked up without recreating the
+    // conversation. Plugin tools share core's context filter + allowlist path,
+    // so combine them with the core snapshot before filtering.
+    const currentPluginDefs = getPluginToolDefinitions();
+
+    // Scope plugin tools to the conversation's per-chat plugin set. `null`
+    // leaves the list unchanged (no per-chat restriction); otherwise keep only
+    // tools whose owning plugin id is in the set, mirroring the
+    // `subagentAllowedTools` intersection below. Ownership lives in the registry
+    // (queried via getToolOwner), not on the Tool object.
+    const scopedPluginDefs =
+      effectiveEnabledPluginSet === null
+        ? currentPluginDefs
+        : currentPluginDefs.filter((d) => {
+            const ownerId = getToolOwner(d.name)?.id;
+            return (
+              ownerId !== undefined && effectiveEnabledPluginSet.has(ownerId)
+            );
+          });
+
+    // Filter core + plugin tools based on current conversation context so that
+    // tools irrelevant to this turn (e.g. UI tools when no client is connected)
     // are omitted from the definitions sent to the provider.
-    const filteredCoreDefs = coreToolDefs.filter((d) =>
-      isToolActiveForContext(d.name, ctx),
+    const filteredCoreDefs = [...coreToolDefs, ...scopedPluginDefs].filter(
+      (d) => isToolActiveForContext(d.name, ctx),
     );
 
     // When the conversation is acting as a subagent, restrict core tools to
@@ -742,24 +849,34 @@ export function createResolveToolsCallback(
       ? filteredCoreDefs.filter((d) => wireAllowlist.has(d.name))
       : filteredCoreDefs;
 
-    // Re-read MCP tool definitions from the registry each turn so conversations
-    // automatically pick up tools added/removed by `vellum mcp reload`.
+    // Re-read MCP and workspace tool definitions from the registry each turn
+    // so conversations automatically pick up tools added/removed by `vellum
+    // mcp reload` and workspace-tool edits reconciled from disk, without
+    // recreating the conversation.
     const currentMcpDefs = getMcpToolDefinitions();
+    const currentWorkspaceDefs = getWorkspaceToolDefinitions();
     log.debug(
       {
         coreCount: scopedCoreDefs.length,
         mcpCount: currentMcpDefs.length,
         mcpTools: currentMcpDefs.map((d) => d.name),
+        workspaceCount: currentWorkspaceDefs.length,
+        workspaceTools: currentWorkspaceDefs.map((d) => d.name),
       },
-      "MCP tools resolved for turn",
+      "MCP and workspace tools resolved for turn",
     );
     const scopedMcpDefs = wireAllowlist
       ? currentMcpDefs.filter((d) => wireAllowlist.has(d.name))
       : currentMcpDefs;
+    const scopedWorkspaceDefs = wireAllowlist
+      ? currentWorkspaceDefs.filter((d) => wireAllowlist.has(d.name))
+      : currentWorkspaceDefs;
     const excluded = new Set(getConfig().tools.exclude);
-    const allBaseDefs = [...scopedCoreDefs, ...scopedMcpDefs].filter(
-      (d) => !excluded.has(d.name),
-    );
+    const allBaseDefs = [
+      ...scopedCoreDefs,
+      ...scopedWorkspaceDefs,
+      ...scopedMcpDefs,
+    ].filter((d) => !excluded.has(d.name));
 
     const effectivePreactivated = [
       ...DEFAULT_PREACTIVATED_SKILL_IDS,
@@ -769,6 +886,9 @@ export function createResolveToolsCallback(
       preactivatedSkillIds: effectivePreactivated,
       previouslyActiveSkillIds: ctx.skillProjectionState,
       cache: ctx.skillProjectionCache,
+      // Scope plugin-contributed skills to the conversation's per-chat plugin
+      // selection (null = no restriction).
+      effectiveEnabledPluginSet,
       // skill_loaded telemetry context — resolved per turn so attribution
       // reflects the call site/profile the current turn actually runs on.
       telemetry:
@@ -811,25 +931,6 @@ export function createResolveToolsCallback(
 
     ctx.allowedToolNames = turnAllowed;
     const baseDefs = injectActivityField(allBaseDefs, ACTIVITY_SKIP_SET);
-
-    const config = getConfig();
-    if (
-      isAssistantFeatureFlagEnabled("query-complexity-routing", config) &&
-      config.llm
-    ) {
-      const effectiveProfile =
-        ctx.currentTurnOverrideProfile ?? config.llm.activeProfile;
-      if (effectiveProfile === AUTO_PROFILE_KEY) {
-        const toolDef = buildSwitchInferenceProfileToolDef(
-          config.llm.profiles ?? {},
-          effectiveProfile,
-        );
-        if (toolDef) {
-          turnAllowed.add(SWITCH_INFERENCE_PROFILE_TOOL_NAME);
-          return [...baseDefs, toolDef];
-        }
-      }
-    }
 
     return baseDefs;
   };

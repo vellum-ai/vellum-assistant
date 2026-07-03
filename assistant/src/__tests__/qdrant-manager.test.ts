@@ -28,7 +28,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import { QdrantManager } from "../memory/qdrant-manager.js";
+import { QdrantManager } from "../persistence/embeddings/qdrant-manager.js";
 
 /**
  * Short timeouts so tests complete fast but with enough headroom for CI and

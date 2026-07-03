@@ -4,31 +4,37 @@ import { useCallback, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-    getDefaultModelForProvider,
-} from "@/assistant/llm-model-catalog";
-import { configLlmCallsitesGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
-import type { ConfigLlmCallsitesGetResponse } from "@/generated/daemon/types.gen";
-import { captureError } from "@/lib/sentry/capture-error";
+  profilePickerLabel,
+  selectSeedProfileForOverride,
+  visibleProfilesForPicker,
+} from "@/assistant/profile-pickers";
+import { getDefaultModelForProvider } from "@/assistant/llm-model-catalog";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import {
+  CUSTOM_SENTINEL,
+  draftsEqual,
+  isDraftActive,
+} from "@/domains/settings/ai/call-site-helpers";
+import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
+import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
+import { useSelectableInferenceProviders } from "@/domains/settings/ai/provider-availability";
+import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
+import {
+  configGetOptions,
+  configGetSetQueryData,
+  configLlmCallsitesGetOptions,
+  useConfigPatchMutation,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import type {
+  CallSiteOverrideDraft,
+  ConfigLlmCallsitesGetResponse,
+} from "@/generated/daemon/types.gen";
+import { captureError } from "@/lib/sentry/capture-error";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Input } from "@vellumai/design-library/components/input";
 import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
-
-import type { CallSiteOverrideDraft } from "@/generated/daemon/types.gen";
-
-import { INFERENCE_PROVIDERS } from "@/domains/settings/ai/constants";
-import { CUSTOM_SENTINEL, draftsEqual, isDraftActive } from "@/domains/settings/ai/call-site-helpers";
-import { CallSiteOverrideRow } from "@/domains/settings/ai/call-site-overrides-row";
-import {
-    gateAutoProfile,
-    profilePickerLabel,
-    selectSeedProfileForOverride,
-    visibleProfilesForPicker,
-} from "@/assistant/profile-pickers";
-import { buildOrderedProfiles } from "@/domains/settings/ai/utils";
-import { configGetOptions, configGetSetQueryData, useConfigPatchMutation } from "@/generated/daemon/@tanstack/react-query.gen";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -96,17 +102,31 @@ function CallSiteOverridesModalInner({
     staleTime: 30_000,
   });
 
-  const profiles = useMemo(() => daemonConfig?.llm?.profiles ?? {}, [daemonConfig?.llm?.profiles]);
-  const profileOrder = useMemo(() => daemonConfig?.llm?.profileOrder ?? [], [daemonConfig?.llm?.profileOrder]);
-  const persistedOverrides = useMemo(() => daemonConfig?.llm?.callSites ?? {}, [daemonConfig?.llm?.callSites]);
+  const profiles = useMemo(
+    () => daemonConfig?.llm?.profiles ?? {},
+    [daemonConfig?.llm?.profiles],
+  );
+  const profileOrder = useMemo(
+    () => daemonConfig?.llm?.profileOrder ?? [],
+    [daemonConfig?.llm?.profileOrder],
+  );
+  const persistedOverrides = useMemo(
+    () => daemonConfig?.llm?.callSites ?? {},
+    [daemonConfig?.llm?.callSites],
+  );
   const orderedProfiles = useMemo(
     () => buildOrderedProfiles(profiles, profileOrder),
     [profiles, profileOrder],
   );
+  const selectableInferenceProviders = useSelectableInferenceProviders();
 
   const configMutation = useConfigPatchMutation({
     onSuccess: (data) => {
-      configGetSetQueryData(queryClient, { path: { assistant_id: assistantId } }, data);
+      configGetSetQueryData(
+        queryClient,
+        { path: { assistant_id: assistantId } },
+        data,
+      );
     },
   });
 
@@ -202,15 +222,11 @@ function CallSiteOverridesModalInner({
     [drafts],
   );
 
-  const queryComplexityRoutingEnabled =
-    useAssistantFeatureFlagStore.use.queryComplexityRouting();
-
   const buildProfileOptionsForRow = useCallback(
     (selectedProfile: string | null) => {
-      const visible = gateAutoProfile(
-        visibleProfilesForPicker(orderedProfiles, [selectedProfile]),
-        queryComplexityRoutingEnabled,
-      );
+      const visible = visibleProfilesForPicker(orderedProfiles, [
+        selectedProfile,
+      ]);
       return [
         ...visible.map((p) => ({
           value: p.name,
@@ -219,7 +235,7 @@ function CallSiteOverridesModalInner({
         { value: CUSTOM_SENTINEL, label: "Custom" },
       ];
     },
-    [orderedProfiles, queryComplexityRoutingEnabled],
+    [orderedProfiles],
   );
 
   const filteredCallSites = useMemo(() => {
@@ -278,12 +294,12 @@ function CallSiteOverridesModalInner({
       const seedProfile = selectSeedProfileForOverride(
         orderedProfiles,
         cs?.defaultProfile,
-        queryComplexityRoutingEnabled,
       );
       if (seedProfile) {
         setDraftEdits((prev) => ({ ...prev, [id]: { profile: seedProfile } }));
       } else {
-        const defaultProvider = INFERENCE_PROVIDERS[0];
+        const defaultProvider =
+          selectableInferenceProviders[0] ?? INFERENCE_PROVIDERS[0];
         const defaultModel = getDefaultModelForProvider(defaultProvider) ?? "";
         setDraftEdits((prev) => ({
           ...prev,
@@ -291,7 +307,7 @@ function CallSiteOverridesModalInner({
         }));
       }
     },
-    [gatedCallSites, orderedProfiles, queryComplexityRoutingEnabled],
+    [gatedCallSites, orderedProfiles, selectableInferenceProviders],
   );
 
   // ---------------------------------------------------------------------------
@@ -313,7 +329,10 @@ function CallSiteOverridesModalInner({
             }
           : null;
       }
-      await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: { callSites: patch } } });
+      await configMutation.mutateAsync({
+        path: { assistant_id: assistantId },
+        body: { llm: { callSites: patch } },
+      });
       onClose();
       toast.success("Overrides saved.");
     } catch (error) {
@@ -333,7 +352,10 @@ function CallSiteOverridesModalInner({
       for (const id of Object.keys(drafts)) {
         resetPatch[id] = null;
       }
-      await configMutation.mutateAsync({ path: { assistant_id: assistantId }, body: { llm: { callSites: resetPatch } } });
+      await configMutation.mutateAsync({
+        path: { assistant_id: assistantId },
+        body: { llm: { callSites: resetPatch } },
+      });
       onClose();
       toast.success("Overrides reset.");
     } catch (error) {

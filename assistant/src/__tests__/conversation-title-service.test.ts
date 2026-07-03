@@ -1,15 +1,44 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
-const mockRunBtwSidechain = mock(async (_params: Record<string, unknown>) => ({
-  text: "Project kickoff",
-  hadTextDeltas: true,
-  response: {
-    content: [{ type: "text", text: "Project kickoff" }],
+const TITLE_TOOL_NAME = "record_conversation_title";
+
+/** A forced-tool response: the model called `record_conversation_title`. */
+function toolResponse(title: string) {
+  return {
+    content: [
+      {
+        type: "tool_use",
+        id: "toolu_title",
+        name: TITLE_TOOL_NAME,
+        input: { title },
+      },
+    ],
+    model: "test-model",
+    usage: { inputTokens: 10, outputTokens: 5 },
+    stopReason: "tool_use",
+  };
+}
+
+/** A plain-text response: the model ignored the forced tool and emitted text. */
+function textResponse(text: string) {
+  return {
+    content: [{ type: "text", text }],
     model: "test-model",
     usage: { inputTokens: 10, outputTokens: 5 },
     stopReason: "end_turn",
-  },
-}));
+  };
+}
+
+function makeProvider(
+  // partial ProviderResponse shapes; `any` keeps the stub assignable to Provider.
+  impl: (messages: any, options: any) => any = async () =>
+    toolResponse("Project kickoff"),
+) {
+  return {
+    name: "test-provider",
+    sendMessage: mock(impl),
+  };
+}
 
 const mockGetConversation = mock(
   (_conversationId: string) =>
@@ -29,19 +58,36 @@ const mockGetMessages = mock(() => [
 const mockUpdateConversationTitle = mock(() => {});
 const mockGetConfiguredProvider = mock(async () => null);
 
-mock.module("../runtime/btw-sidechain.js", () => ({
-  runBtwSidechain: mockRunBtwSidechain,
-}));
-
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   getConversation: mockGetConversation,
   getMessages: mockGetMessages,
   updateConversationTitle: mockUpdateConversationTitle,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
+// The title service imports `getConfiguredProvider` plus the pure response
+// helpers (`createTimeout`, `userMessage`, `extractToolUse`, `extractAllText`)
+// from this module. Replacing the module means we must re-provide working
+// implementations of those helpers — they are stubbed here to mirror the real
+// behavior the service depends on.
 mock.module("../providers/provider-send-message.js", () => ({
   getConfiguredProvider: mockGetConfiguredProvider,
+  createTimeout: () => ({
+    signal: new AbortController().signal,
+    cleanup: () => {},
+  }),
+  userMessage: (text: string) => ({ role: "user", content: text }),
+  extractToolUse: (response: { content?: Array<{ type: string }> }) =>
+    response?.content?.find((b) => b.type === "tool_use"),
+  extractAllText: (response: {
+    content?: Array<{ type: string; text?: string }>;
+  }) =>
+    (response?.content ?? [])
+      .filter((b) => b.type === "text")
+      .map((b) => b.text ?? "")
+      .join(" "),
 }));
 
 mock.module("../util/logger.js", () => ({
@@ -60,27 +106,15 @@ mock.module("../runtime/sync/resource-sync-events.js", () => ({
 
 import {
   AUTO_TITLE_DETERMINISTIC,
+  AUTO_TITLE_LLM,
   generateAndPersistConversationTitle,
   queueGenerateConversationTitle,
   regenerateConversationTitle,
   titleMutex,
-} from "../memory/conversation-title-service.js";
+} from "../persistence/conversation-title-service.js";
 
 describe("conversation-title-service", () => {
   beforeEach(() => {
-    mockRunBtwSidechain.mockClear();
-    mockRunBtwSidechain.mockImplementation(
-      async (_params: Record<string, unknown>) => ({
-        text: "Project kickoff",
-        hadTextDeltas: true,
-        response: {
-          content: [{ type: "text", text: "Project kickoff" }],
-          model: "test-model",
-          usage: { inputTokens: 10, outputTokens: 5 },
-          stopReason: "end_turn",
-        },
-      }),
-    );
     mockGetConversation.mockClear();
     mockGetConversation.mockImplementation(
       (_conversationId: string) =>
@@ -104,13 +138,8 @@ describe("conversation-title-service", () => {
     mockPublishConversationTitleChanged.mockClear();
   });
 
-  test("uses the BTW side-chain helper for initial title generation", async () => {
-    const provider = {
-      name: "test-provider",
-      sendMessage: mock(async () => {
-        throw new Error("provider.sendMessage should not be called directly");
-      }),
-    };
+  test("forces the title tool and persists the extracted title", async () => {
+    const provider = makeProvider();
 
     const result = await generateAndPersistConversationTitle({
       conversationId: "conv-1",
@@ -119,20 +148,29 @@ describe("conversation-title-service", () => {
     });
 
     expect(result).toEqual({ title: "Project kickoff", updated: true });
-    expect(mockRunBtwSidechain).toHaveBeenCalledTimes(1);
-    expect(mockRunBtwSidechain).toHaveBeenCalledWith(
-      expect.objectContaining({
-        provider,
-        systemPrompt: expect.stringContaining("conversation titles"),
-        tools: [],
-        callSite: "conversationTitle",
-        timeoutMs: 15_000,
-      }),
-    );
+    expect(provider.sendMessage).toHaveBeenCalledTimes(1);
+
+    const [, options] = provider.sendMessage.mock.calls[0] as [
+      unknown,
+      {
+        tools: Array<{ name: string }>;
+        systemPrompt: string;
+        config: { callSite: string; tool_choice: unknown };
+      },
+    ];
+    expect(options.config.callSite).toBe("conversationTitle");
+    expect(options.config.tool_choice).toEqual({
+      type: "tool",
+      name: TITLE_TOOL_NAME,
+    });
+    expect(options.tools).toHaveLength(1);
+    expect(options.tools[0].name).toBe(TITLE_TOOL_NAME);
+    expect(options.systemPrompt).toContain("conversation titles");
+
     expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
       "conv-1",
       "Project kickoff",
-      1,
+      AUTO_TITLE_LLM,
     );
     // Emit is service-native: persisting a title broadcasts the update so
     // every title origin (agent loop, bootstrap, voice) updates clients live.
@@ -163,21 +201,15 @@ describe("conversation-title-service", () => {
       },
     ]);
 
-    const provider = {
-      name: "test-provider",
-      sendMessage: mock(async () => {
-        throw new Error("should not call directly");
-      }),
-    };
+    const provider = makeProvider();
 
     await regenerateConversationTitle({ conversationId: "conv-1", provider });
 
-    // The prompt sent to the sidechain should contain plain text, not raw JSON
-    const prompt = (mockRunBtwSidechain.mock.calls[0] as any)?.[0]
+    // The prompt sent to the model should contain plain text, not raw JSON.
+    const prompt = (provider.sendMessage.mock.calls[0] as any)?.[0]?.[0]
       ?.content as string;
     expect(prompt).not.toContain('"type":"text"');
     expect(prompt).not.toContain('"type":"tool_use"');
-    // Tool metadata should NOT appear in the title prompt
     expect(prompt).not.toContain("Tool use");
     expect(prompt).not.toContain("web_search");
     expect(prompt).toContain("Help me plan the kickoff");
@@ -211,31 +243,20 @@ describe("conversation-title-service", () => {
       },
     ]);
 
-    const provider = {
-      name: "test-provider",
-      sendMessage: mock(async () => {
-        throw new Error("should not call directly");
-      }),
-    };
+    const provider = makeProvider();
 
     await regenerateConversationTitle({ conversationId: "conv-1", provider });
 
-    const prompt = (mockRunBtwSidechain.mock.calls[0] as any)?.[0]
+    const prompt = (provider.sendMessage.mock.calls[0] as any)?.[0]?.[0]
       ?.content as string;
     expect(prompt).not.toContain('"type":"tool_result"');
-    // Tool-only assistant message should be skipped entirely
     expect(prompt).not.toContain("Tool use");
     expect(prompt).toContain("Search for restaurants");
     expect(prompt).toContain("Found 3 restaurants nearby");
   });
 
-  test("uses the BTW side-chain helper for title regeneration", async () => {
-    const provider = {
-      name: "test-provider",
-      sendMessage: mock(async () => {
-        throw new Error("provider.sendMessage should not be called directly");
-      }),
-    };
+  test("forces the title tool for regeneration", async () => {
+    const provider = makeProvider();
 
     const result = await regenerateConversationTitle({
       conversationId: "conv-1",
@@ -243,20 +264,20 @@ describe("conversation-title-service", () => {
     });
 
     expect(result).toEqual({ title: "Project kickoff", updated: true });
-    expect(mockRunBtwSidechain).toHaveBeenCalledTimes(1);
-    expect(mockRunBtwSidechain).toHaveBeenCalledWith(
-      expect.objectContaining({
-        provider,
-        systemPrompt: expect.stringContaining("conversation titles"),
-        tools: [],
-        callSite: "conversationTitle",
-        timeoutMs: 15_000,
-      }),
-    );
+    expect(provider.sendMessage).toHaveBeenCalledTimes(1);
+    const [, options] = provider.sendMessage.mock.calls[0] as [
+      unknown,
+      { config: { callSite: string; tool_choice: unknown } },
+    ];
+    expect(options.config.callSite).toBe("conversationTitle");
+    expect(options.config.tool_choice).toEqual({
+      type: "tool",
+      name: TITLE_TOOL_NAME,
+    });
     expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
       "conv-1",
       "Project kickoff",
-      1,
+      AUTO_TITLE_LLM,
     );
   });
 
@@ -266,12 +287,7 @@ describe("conversation-title-service", () => {
       isAutoTitle: 1,
     });
 
-    const provider = {
-      name: "test-provider",
-      sendMessage: mock(async () => {
-        throw new Error("should not call directly");
-      }),
-    };
+    const provider = makeProvider();
 
     const result = await regenerateConversationTitle({
       conversationId: "conv-1",
@@ -280,28 +296,12 @@ describe("conversation-title-service", () => {
     });
 
     expect(result).toEqual({ title: "Project kickoff", updated: false });
-    expect(mockRunBtwSidechain).not.toHaveBeenCalled();
+    expect(provider.sendMessage).not.toHaveBeenCalled();
     expect(mockUpdateConversationTitle).not.toHaveBeenCalled();
   });
 
   test("rejects meta-failure outputs like 'Missing Context' and uses fallback", async () => {
-    mockRunBtwSidechain.mockImplementationOnce(async () => ({
-      text: "Missing Context",
-      hadTextDeltas: true,
-      response: {
-        content: [{ type: "text", text: "Missing Context" }],
-        model: "test-model",
-        usage: { inputTokens: 10, outputTokens: 5 },
-        stopReason: "end_turn",
-      },
-    }));
-
-    const provider = {
-      name: "test-provider",
-      sendMessage: mock(async () => {
-        throw new Error("should not call directly");
-      }),
-    };
+    const provider = makeProvider(async () => toolResponse("Missing Context"));
 
     const result = await generateAndPersistConversationTitle({
       conversationId: "conv-1",
@@ -325,28 +325,102 @@ describe("conversation-title-service", () => {
     "No Topic",
     "Empty Conversation",
   ])("rejects meta-failure variant: %s", async (bad) => {
-    mockRunBtwSidechain.mockImplementationOnce(async () => ({
-      text: bad,
-      hadTextDeltas: true,
-      response: {
-        content: [{ type: "text", text: bad }],
-        model: "test-model",
-        usage: { inputTokens: 10, outputTokens: 5 },
-        stopReason: "end_turn",
-      },
-    }));
-
-    const provider = {
-      name: "test-provider",
-      sendMessage: mock(async () => {
-        throw new Error("should not call directly");
-      }),
-    };
+    const provider = makeProvider(async () => toolResponse(bad));
 
     const result = await generateAndPersistConversationTitle({
       conversationId: "conv-1",
       provider,
       userMessage: "something",
+    });
+
+    expect(result.title).toBe("Untitled Conversation");
+  });
+
+  // The core bug this PR fixes: weak title models emit their reasoning or
+  // continue the conversation, and that prose used to get persisted verbatim.
+  // These are real leaked titles observed in production.
+  test.each([
+    "I need to generate a",
+    "I'll work through these 22 files systematically.",
+    "The user wants a title",
+    "The conversation is about cooking",
+    "The assistant should summarize this",
+    "The title for this chat is unclear",
+    "Let me look at the new results",
+    "Based on the conversation, this is about cooking.",
+    "Here is a title for the conversation",
+    "Sure, here's a good title",
+    "User: hey baby Assistant: hi",
+    "Knowledge base updated.\n\nGenerate a 2-6 word title",
+  ])("rejects leaked-prose title from the forced tool: %s", async (prose) => {
+    const provider = makeProvider(async () => toolResponse(prose));
+
+    const result = await generateAndPersistConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      userMessage: "hey baby",
+    });
+
+    expect(result.title).toBe("Untitled Conversation");
+    expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
+      "conv-1",
+      "Untitled Conversation",
+      AUTO_TITLE_DETERMINISTIC,
+    );
+  });
+
+  test.each([
+    "Auth Middleware Rewrite",
+    "Docker Volume Mounts",
+    "Onboarding Flow",
+    "Morning Check-In",
+    "T-Shirt Discussion",
+    // Bare noun-phrase titles whose opening words ("the user", "the
+    // conversation", "the assistant", "the title") must not be mistaken for
+    // leaked reasoning prose. They are legitimate topics and must be accepted.
+    "The User Interface Redesign",
+    "The Conversation API",
+    "The Assistant Onboarding",
+    "The Title Bar Bug",
+  ])("accepts a clean noun-phrase title: %s", async (good) => {
+    const provider = makeProvider(async () => toolResponse(good));
+
+    const result = await generateAndPersistConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      userMessage: "x",
+    });
+
+    expect(result).toEqual({ title: good, updated: true });
+    expect(mockUpdateConversationTitle).toHaveBeenCalledWith(
+      "conv-1",
+      good,
+      AUTO_TITLE_LLM,
+    );
+  });
+
+  test("falls back to response text when the model skips the forced tool", async () => {
+    // Provider returned plain text (forced tool ignored) with a compliant title.
+    const provider = makeProvider(async () => textResponse("Kickoff Planning"));
+
+    const result = await generateAndPersistConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      userMessage: "x",
+    });
+
+    expect(result).toEqual({ title: "Kickoff Planning", updated: true });
+  });
+
+  test("rejects prose in the text-fallback path", async () => {
+    const provider = makeProvider(async () =>
+      textResponse("I need to generate a title for this conversation"),
+    );
+
+    const result = await generateAndPersistConversationTitle({
+      conversationId: "conv-1",
+      provider,
+      userMessage: "x",
     });
 
     expect(result.title).toBe("Untitled Conversation");
@@ -383,30 +457,20 @@ describe("conversation-title-service", () => {
       isAutoTitle: 1,
     });
 
-    const provider = {
-      name: "test-provider",
-      sendMessage: mock(async () => {
-        throw new Error("should not call directly");
-      }),
-    };
+    const provider = makeProvider();
 
     const result = await regenerateConversationTitle({
       conversationId: "conv-1",
       provider,
     });
 
-    expect(mockRunBtwSidechain).not.toHaveBeenCalled();
+    expect(provider.sendMessage).not.toHaveBeenCalled();
     expect(mockUpdateConversationTitle).not.toHaveBeenCalled();
     expect(result).toEqual({ title: "Existing Title", updated: false });
   });
 
   test("title prompt content does not contain generation instructions", async () => {
-    const provider = {
-      name: "test-provider",
-      sendMessage: mock(async () => {
-        throw new Error("provider.sendMessage should not be called directly");
-      }),
-    };
+    const provider = makeProvider();
 
     await generateAndPersistConversationTitle({
       conversationId: "conv-1",
@@ -414,14 +478,15 @@ describe("conversation-title-service", () => {
       userMessage: "Help me plan the kickoff",
     });
 
-    const call = mockRunBtwSidechain.mock.calls[0]![0] as {
-      content: string;
-      systemPrompt: string;
-    };
-    // Instructions should be in systemPrompt, not in content
-    expect(call.content).not.toContain("Generate a very short title");
-    expect(call.content).not.toContain("do NOT respond");
-    expect(call.systemPrompt).toContain("Do NOT respond");
+    const [messages, options] = provider.sendMessage.mock.calls[0] as [
+      Array<{ content: string }>,
+      { systemPrompt: string },
+    ];
+    const content = messages[0].content;
+    // Instructions should be in systemPrompt, not in the user content.
+    expect(content).not.toContain("Generate a very short title");
+    expect(content).not.toContain("do NOT respond");
+    expect(options.systemPrompt).toContain("Do NOT respond");
   });
 
   test("queueGenerateConversationTitle serializes concurrent calls", async () => {
@@ -431,46 +496,20 @@ describe("conversation-title-service", () => {
       resolveFirst = r;
     });
 
-    // First call: blocks until we release it
-    mockRunBtwSidechain.mockImplementationOnce(async () => {
+    const provider = makeProvider();
+    // First call: blocks until released.
+    provider.sendMessage.mockImplementationOnce(async () => {
       callOrder.push("first:start");
       await firstBlocked;
       callOrder.push("first:end");
-      return {
-        text: "Title One",
-        hadTextDeltas: true,
-        response: {
-          content: [{ type: "text", text: "Title One" }],
-          model: "test-model",
-          usage: { inputTokens: 10, outputTokens: 5 },
-          stopReason: "end_turn",
-        },
-      };
+      return toolResponse("Title One");
     });
-
-    // Second call: resolves immediately
-    mockRunBtwSidechain.mockImplementationOnce(async () => {
+    // Second call: resolves immediately.
+    provider.sendMessage.mockImplementationOnce(async () => {
       callOrder.push("second:start");
-      return {
-        text: "Title Two",
-        hadTextDeltas: true,
-        response: {
-          content: [{ type: "text", text: "Title Two" }],
-          model: "test-model",
-          usage: { inputTokens: 10, outputTokens: 5 },
-          stopReason: "end_turn",
-        },
-      };
+      return toolResponse("Title Two");
     });
 
-    const provider = {
-      name: "test-provider",
-      sendMessage: mock(async () => {
-        throw new Error("should not call directly");
-      }),
-    };
-
-    // Fire both calls — without serialization both would start immediately
     queueGenerateConversationTitle({
       conversationId: "conv-1",
       provider,
@@ -482,42 +521,26 @@ describe("conversation-title-service", () => {
       userMessage: "second message",
     });
 
-    // Let microtasks settle — only the first call should have started
+    // Let microtasks settle — only the first call should have started.
     await new Promise((r) => setTimeout(r, 10));
     expect(callOrder).toEqual(["first:start"]);
 
-    // Release the first call
     resolveFirst();
     await titleMutex.withLock(async () => {});
 
-    // Second should have started only after first finished
     expect(callOrder).toEqual(["first:start", "first:end", "second:start"]);
   });
 
   test("queue continues processing after a failed call", async () => {
-    // First call: throws
-    mockRunBtwSidechain.mockImplementationOnce(async () => {
+    const provider = makeProvider();
+    // First call: throws.
+    provider.sendMessage.mockImplementationOnce(async () => {
       throw new Error("provider timeout");
     });
-
-    // Second call: succeeds
-    mockRunBtwSidechain.mockImplementationOnce(async () => ({
-      text: "Recovery Title",
-      hadTextDeltas: true,
-      response: {
-        content: [{ type: "text", text: "Recovery Title" }],
-        model: "test-model",
-        usage: { inputTokens: 10, outputTokens: 5 },
-        stopReason: "end_turn",
-      },
-    }));
-
-    const provider = {
-      name: "test-provider",
-      sendMessage: mock(async () => {
-        throw new Error("should not call directly");
-      }),
-    };
+    // Second call: succeeds.
+    provider.sendMessage.mockImplementationOnce(async () =>
+      toolResponse("Recovery Title"),
+    );
 
     queueGenerateConversationTitle({
       conversationId: "conv-1",
@@ -532,8 +555,8 @@ describe("conversation-title-service", () => {
 
     await titleMutex.withLock(async () => {});
 
-    // Both calls went through — failure didn't break the chain
-    expect(mockRunBtwSidechain).toHaveBeenCalledTimes(2);
+    // Both calls went through — failure didn't break the chain.
+    expect(provider.sendMessage).toHaveBeenCalledTimes(2);
     const firstUpdate = (
       mockUpdateConversationTitle.mock.calls as unknown as Array<
         [string, string, number?]
@@ -544,7 +567,6 @@ describe("conversation-title-service", () => {
       "Untitled Conversation",
       AUTO_TITLE_DETERMINISTIC,
     ]);
-    // Second conversation got a proper title
     const secondUpdate = (
       mockUpdateConversationTitle.mock.calls as unknown as string[][]
     ).find((c) => c[0] === "conv-2" && c[1] === "Recovery Title");

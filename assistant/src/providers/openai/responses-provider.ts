@@ -7,6 +7,7 @@ import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
 import { createStreamTimeout } from "../stream-timeout.js";
+import { createToolProgressEmitter } from "../tool-progress-events.js";
 import type {
   ContentBlock,
   Message,
@@ -16,6 +17,11 @@ import type {
 } from "../types.js";
 import { ContextOverflowError } from "../types.js";
 import { wrapUnparseableToolArgs } from "../unparseable-tool-args.js";
+import {
+  captureRawErrorBodyFetch,
+  formatNormalizedOpenAIAPIError,
+  normalizeOpenAIAPIError,
+} from "./api-error-normalization.js";
 import { detectOpenAICompatibleContextOverflow } from "./chat-completions-provider.js";
 
 const log = getLogger("openai-responses");
@@ -148,7 +154,6 @@ export class OpenAIResponsesProvider implements Provider {
   private streamTimeoutMs: number;
   private useNativeWebSearch: boolean;
   private codexSubscription: boolean;
-  private lastCodexErrorBody: string | undefined;
 
   constructor(
     apiKey: string,
@@ -168,30 +173,16 @@ export class OpenAIResponsesProvider implements Provider {
         ? "https://chatgpt.com/backend-api/codex"
         : options.baseURL,
       timeout: sdkTimeoutMs,
-      ...(this.codexSubscription
-        ? {
-            fetch: async (url: RequestInfo | URL, init?: RequestInit) => {
-              const res = await globalThis.fetch(url, init);
-              if (!res.ok) {
-                const body = await res.text();
-                this.lastCodexErrorBody = body;
-                log.warn(
-                  { status: res.status, body, url: String(url) },
-                  "Codex endpoint raw error response",
-                );
-                return new Response(body, {
-                  status: res.status,
-                  statusText: res.statusText,
-                  headers: res.headers,
-                });
-              }
-              return res;
-            },
-          }
-        : {}),
+      // Capture the raw non-2xx body before the SDK parses (and drops) it.
+      fetch: captureRawErrorBodyFetch,
     });
     this.model = model;
     this.useNativeWebSearch = options.useNativeWebSearch ?? false;
+  }
+
+  /** See {@link Provider.supportsNativeWebSearch}. */
+  get supportsNativeWebSearch(): boolean {
+    return this.useNativeWebSearch;
   }
 
   async sendMessage(
@@ -303,6 +294,7 @@ export class OpenAIResponsesProvider implements Provider {
       >();
       // Maps item_id → callId so we can look up tool calls from delta events.
       const itemIdToCallId = new Map<string, string>();
+      const toolProgress = createToolProgressEmitter(onEvent);
       // Track web search call item IDs so we can emit server_tool_complete.
       const webSearchCallIds: string[] = [];
       let finishReason = "unknown";
@@ -358,6 +350,7 @@ export class OpenAIResponsesProvider implements Provider {
                   args: "",
                 });
                 itemIdToCallId.set(itemId, callId);
+                toolProgress.emitPreviewStart(callId, name);
               } else if (item?.type === "web_search_call") {
                 const toolUseId = item.id ?? "";
                 webSearchCallIds.push(toolUseId);
@@ -382,6 +375,11 @@ export class OpenAIResponsesProvider implements Provider {
                   const entry = toolCallMap.get(callId);
                   if (entry) {
                     entry.args += delta;
+                    toolProgress.emitInputJsonDelta(
+                      entry.callId,
+                      entry.name,
+                      entry.args,
+                    );
                   }
                 }
               }
@@ -398,7 +396,14 @@ export class OpenAIResponsesProvider implements Provider {
                 if (callId) {
                   const entry = toolCallMap.get(callId);
                   if (entry) {
+                    if (event.name) entry.name = event.name;
                     entry.args = event.arguments;
+                    toolProgress.emitInputJsonDelta(
+                      entry.callId,
+                      entry.name,
+                      entry.args,
+                      { force: true },
+                    );
                   }
                 }
               }
@@ -472,6 +477,9 @@ export class OpenAIResponsesProvider implements Provider {
         content.push({ type: "text", text: contentText });
       }
       for (const [, tc] of toolCallMap) {
+        toolProgress.emitInputJsonDelta(tc.callId, tc.name, tc.args, {
+          force: true,
+        });
         let input: Record<string, unknown>;
         try {
           input = JSON.parse(tc.args);
@@ -510,43 +518,57 @@ export class OpenAIResponsesProvider implements Provider {
           ? signal.reason
           : undefined;
       if (error instanceof OpenAI.APIError) {
-        const overflow = detectOpenAICompatibleContextOverflow(error);
-        if (overflow) {
-          throw new ContextOverflowError(
-            `${this.providerLabel} API error (${error.status}): ${error.message}`,
-            this.name,
+        const normalized = normalizeOpenAIAPIError(error);
+        if (this.codexSubscription) {
+          log.warn(
             {
-              actualTokens: overflow.actualTokens,
-              maxTokens: overflow.maxTokens,
-              statusCode: error.status,
-              cause: error,
+              status: error.status,
+              message: normalized.message,
+              requestId: normalized.requestId,
             },
+            "Codex endpoint raw error response",
           );
+        }
+        const formattedMessage = formatNormalizedOpenAIAPIError(
+          this.providerLabel,
+          error.status,
+          normalized,
+        );
+        const overflow = detectOpenAICompatibleContextOverflow(
+          error,
+          normalized.message,
+        );
+        if (overflow) {
+          throw new ContextOverflowError(formattedMessage, this.name, {
+            actualTokens: overflow.actualTokens,
+            maxTokens: overflow.maxTokens,
+            statusCode: error.status,
+            cause: error,
+          });
         }
         const retryAfterMs = extractRetryAfterMs(error.headers);
         const errorOptions: {
           retryAfterMs?: number;
           abortReason?: unknown;
+          apiErrorCode?: string;
+          apiErrorType?: string;
+          apiErrorParam?: string;
+          requestId?: string;
+          rawBody?: string;
         } = {};
         if (retryAfterMs !== undefined)
           errorOptions.retryAfterMs = retryAfterMs;
         if (abortReason) errorOptions.abortReason = abortReason;
-        let errorDetail = error.message;
-        if (this.lastCodexErrorBody) {
-          try {
-            const parsed = JSON.parse(this.lastCodexErrorBody);
-            if (parsed.detail) errorDetail = parsed.detail;
-          } catch {
-            errorDetail = this.lastCodexErrorBody.slice(0, 200);
-          }
-          this.lastCodexErrorBody = undefined;
-        }
-        const extras = [error.code, error.type, error.param]
-          .filter(Boolean)
-          .join(", ");
-        const extraSuffix = extras ? ` [${extras}]` : "";
+        if (normalized.apiErrorCode)
+          errorOptions.apiErrorCode = normalized.apiErrorCode;
+        if (normalized.apiErrorType)
+          errorOptions.apiErrorType = normalized.apiErrorType;
+        if (normalized.apiErrorParam)
+          errorOptions.apiErrorParam = normalized.apiErrorParam;
+        if (normalized.requestId) errorOptions.requestId = normalized.requestId;
+        if (normalized.rawBody) errorOptions.rawBody = normalized.rawBody;
         throw new ProviderError(
-          `${this.providerLabel} API error (${error.status}): ${errorDetail}${extraSuffix}`,
+          formattedMessage,
           this.name,
           error.status,
           Object.keys(errorOptions).length > 0 ? errorOptions : undefined,

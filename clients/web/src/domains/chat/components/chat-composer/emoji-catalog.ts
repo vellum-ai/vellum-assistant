@@ -27,15 +27,19 @@ const EMPTY_RESULT: EmojiEntry[] = [];
 
 const emptySearch: SearchFn = () => EMPTY_RESULT;
 
-let cachedSearch: SearchFn | null = null;
-let loadPromise: Promise<SearchFn> | null = null;
+type LookupFn = (shortcode: string) => string | undefined;
 
-function loadEmojiSearch(): Promise<SearchFn> {
-  if (cachedSearch) return Promise.resolve(cachedSearch);
+let cachedSearch: SearchFn | null = null;
+let cachedLookup: LookupFn | null = null;
+let loadPromise: Promise<void> | null = null;
+
+function loadEmojiCatalog(): Promise<void> {
+  if (cachedSearch && cachedLookup) return Promise.resolve();
   if (loadPromise) return loadPromise;
   loadPromise = import("./emoji-catalog-data").then((m) => {
     cachedSearch = m.searchEmoji;
-    return cachedSearch;
+    const shortcodeMap = new Map(m.EMOJI_CATALOG.map((e) => [e.shortcode, e.emoji]));
+    cachedLookup = (sc: string) => shortcodeMap.get(sc);
   });
   return loadPromise;
 }
@@ -52,8 +56,8 @@ export function useEmojiSearch(): SearchFn {
   useEffect(() => {
     if (cachedSearch) return;
     let cancelled = false;
-    void loadEmojiSearch().then((fn) => {
-      if (!cancelled) setSearch(() => fn);
+    void loadEmojiCatalog().then(() => {
+      if (!cancelled && cachedSearch) setSearch(() => cachedSearch!);
     });
     return () => {
       cancelled = true;
@@ -61,4 +65,28 @@ export function useEmojiSearch(): SearchFn {
   }, []);
 
   return search;
+}
+
+const noopLookup: LookupFn = () => undefined;
+
+/**
+ * Returns a shortcode→emoji lookup function. Lazy-loads the catalog on
+ * first mount; returns a no-op until loaded (callers should fall back to
+ * `:shortcode:` rendering).
+ */
+export function useEmojiLookup(): LookupFn {
+  const [lookup, setLookup] = useState<LookupFn>(() => cachedLookup ?? noopLookup);
+
+  useEffect(() => {
+    if (cachedLookup) return;
+    let cancelled = false;
+    void loadEmojiCatalog().then(() => {
+      if (!cancelled && cachedLookup) setLookup(() => cachedLookup!);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  return lookup;
 }

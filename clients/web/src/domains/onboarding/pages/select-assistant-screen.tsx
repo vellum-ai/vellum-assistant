@@ -8,13 +8,17 @@ import {
   clearGatewayToken,
   isRepairableGatewayTokenError,
 } from "@/lib/auth/gateway-session";
-import { isGuardianRepairable } from "@/lib/local-mode";
+import {
+  isCliWakeableAssistant,
+  UnresolvedLocalGatewayError,
+} from "@/lib/local-mode";
 import { ConnectRecoveryDialog } from "@/domains/onboarding/components/connect-recovery-dialog";
 import { OnboardingLayout } from "@/domains/onboarding/components/onboarding-layout";
 import { formatRelativeDate } from "@/utils/format-date";
 import { useOnboardingLogin } from "@/hooks/use-onboarding-login";
 import { isElectron } from "@/runtime/is-electron";
 import {
+  isLocalModeHostAvailable,
   requiresGuardianReprovision,
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
@@ -41,7 +45,7 @@ export function SelectAssistantScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const fromLogin = searchParams.get("fromLogin") === "1";
-  const fromSettings = searchParams.get("fromSettings") === "1";
+  const noAutoSkip = searchParams.get("noAutoSkip") === "1";
   const electron = isElectron();
   const hasPlatformSession = useHasPlatformSession();
   const assistants = useResolvedAssistantsStore.use.assistants();
@@ -94,15 +98,20 @@ export function SelectAssistantScreen() {
       void navigate(routes.assistant, { replace: true });
     } catch (err) {
       console.error("selectAssistant.handleConnect failed", err);
-      // Offer recovery when a guardian re-provision can fix it: the token is
-      // gone/unrefreshable on disk, or the gateway rejected it at the
-      // /auth/token mint (a 401 from a signing-key mismatch). Otherwise keep
-      // the generic message — repair can't help.
+      // Offer recovery only where wake can actually run: the assistant is local
+      // and CLI-wakeable AND this runtime has a local-mode host (mirrors the
+      // wake affordance gate in status-banner), and the failure is one a
+      // guardian re-provision can fix — the token is gone/unrefreshable on disk,
+      // the gateway rejected it at the /auth/token mint (a 401 from a signing-key
+      // mismatch), or the local gateway is unresolved (no recorded port).
+      // Otherwise keep the generic message — repair can't help.
       if (
         assistant.isLocal &&
+        isLocalModeHostAvailable() &&
         (requiresGuardianReprovision(err) ||
-          isRepairableGatewayTokenError(err)) &&
-        isGuardianRepairable(assistant.id)
+          isRepairableGatewayTokenError(err) ||
+          err instanceof UnresolvedLocalGatewayError) &&
+        isCliWakeableAssistant(assistant.id)
       ) {
         setRecoveryAssistant(assistant);
       } else {
@@ -175,10 +184,10 @@ export function SelectAssistantScreen() {
 
   // Auto-skip when there's exactly one assistant and it's accessible.
   // Don't skip when the user just logged in or navigated here deliberately
-  // from settings — let them see the chooser.
+  // (e.g. from settings or the Developer menu) — let them see the chooser.
   // Reactive to assistants so it fires when the store populates after mount.
   useEffect(() => {
-    if (fromLogin || fromSettings) return;
+    if (fromLogin || noAutoSkip) return;
     if (connecting || autoSkipping) return;
     if (assistants.length === 0) return;
     if (assistants.length === 1 && accessibleAssistants.length === 1) {

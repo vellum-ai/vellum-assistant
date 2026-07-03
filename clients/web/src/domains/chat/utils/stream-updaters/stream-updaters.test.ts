@@ -258,6 +258,49 @@ describe("appendTextDelta", () => {
       { type: "text", text: "Hello" },
     ]);
   });
+
+  // --- re-attach seed: the "vanishing prefix" fix ---
+
+  it("seeds the live row from its history twin so a re-attach keeps the persisted prefix", () => {
+    // GIVEN this client attaches mid-turn: the live turn holds only the user
+    // row, while the daemon already persisted a prefix under the reserved id,
+    // which now sits in the history cache (the resolver returns it).
+    const historyTwin = makeAssistantMsg({ id: "row-B", ...seg("The persisted ") });
+
+    // WHEN the first replayed delta (seq > the snapshot watermark) arrives
+    const result = appendTextDelta([userMsg], "answer", "row-B", () => historyTwin);
+
+    // THEN the delta extends the persisted prefix on the SAME row instead of
+    // opening a fresh, prefix-less bubble — the opening text is not dropped.
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("row-B");
+    expect(text(result[1]!)).toBe("The persisted answer");
+  });
+
+  it("opens a fresh bubble when the twin resolver finds no history prefix", () => {
+    // GIVEN a genuinely new turn — no persisted prefix, resolver returns undefined.
+    const result = appendTextDelta([userMsg], "answer", "row-B", () => undefined);
+
+    // THEN behaviour is identical to before the seed existed: a fresh bubble.
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("row-B");
+    expect(text(result[1]!)).toBe("answer");
+  });
+
+  it("never resolves the twin when a live row already owns the id (hot-path guard)", () => {
+    // The per-token steady state must not pay for a history lookup — the
+    // resolver is consulted only in the cold "no live row owns this id" branch.
+    const anchor = makeAssistantMsg({ id: "row-A", ...seg("Hello") });
+    let resolverCalls = 0;
+
+    const result = appendTextDelta([userMsg, anchor], " world", "row-A", () => {
+      resolverCalls++;
+      return undefined;
+    });
+
+    expect(resolverCalls).toBe(0);
+    expect(text(result[1]!)).toBe("Hello world");
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -902,6 +945,36 @@ describe("finalizeOnIdle", () => {
 // ---------------------------------------------------------------------------
 
 describe("applyToolResult — cross-message matching", () => {
+  it("preserves image data from tool result events on the matching tool call", () => {
+    const toolCall: ChatMessageToolCall = {
+      id: "tc-img",
+      name: "media_generate_image",
+      input: { prompt: "diagram" },
+    };
+    const msg = makeAssistantMsg({
+      toolCalls: [toolCall],
+      contentOrder: [{ type: "toolCall", id: "tc-img" }],
+      contentBlocks: [{ type: "tool_use", toolCall }],
+    });
+
+    const result = applyToolResult([msg], {
+      toolUseId: "tc-img",
+      result: "Generated 2 images",
+      imageData: "img-a",
+      imageDataList: ["img-a", "img-b"],
+    });
+
+    const updatedToolCall = result[0]!.toolCalls![0]!;
+    expect(updatedToolCall.imageData).toBe("img-a");
+    expect(updatedToolCall.imageDataList).toEqual(["img-a", "img-b"]);
+
+    const toolUseBlock = result[0]!.contentBlocks!.find(
+      (block) => block.type === "tool_use",
+    );
+    expect(toolUseBlock?.toolCall.imageData).toBe("img-a");
+    expect(toolUseBlock?.toolCall.imageDataList).toEqual(["img-a", "img-b"]);
+  });
+
   it("finds the tool call on an earlier message when toolUseId is provided", () => {
     // Simulate: tool_use_start on msg1, then a new bubble was created (msg2),
     // then tool_result arrives with toolUseId pointing to msg1's tool call.
@@ -986,6 +1059,35 @@ describe("applyUserMessageEcho", () => {
       ...seg("from another device"),
       timestamp: result[1]!.timestamp,
     });
+  });
+
+  it("stamps the nonce on the appended row when the echo carries one", () => {
+    /**
+     * On the originating client the optimistic row lives in the overlay, not
+     * the snapshot, so the echo appends a fresh snapshot row. That row must
+     * carry the nonce so it shares the persisted server row's identity keys —
+     * the transcript overlay collapses the retained optimistic copy onto it
+     * and the reseed prune correlates on the same keys.
+     */
+    // GIVEN a snapshot with no matching user row (the optimistic copy is in
+    // the overlay)
+    const prev: DisplayMessage[] = [makeAssistantMsg()];
+
+    // WHEN the echo arrives with a nonce and a server id
+    const result = applyUserMessageEcho(prev, {
+      text: "hello",
+      messageId: "msg-server-n",
+      clientMessageId: "nonce-n",
+    });
+
+    // THEN the appended row carries both identity keys
+    expect(result).toHaveLength(2);
+    expect(result[1]).toMatchObject({
+      id: "msg-server-n",
+      clientMessageId: "nonce-n",
+      role: "user",
+    });
+    expect(result[1]!.isOptimistic).toBeUndefined();
   });
 
   it("appends an optimistic row for a synthetic echo with no messageId", () => {
@@ -1138,6 +1240,46 @@ describe("applyUserMessageEcho", () => {
     expect(result).toHaveLength(1);
     expect(result[0]!.id).toBe("msg-server-legacy");
     expect(result[0]!.isOptimistic).toBe(false);
+  });
+
+  it("clears optimistic queue status when upgrading the originating row", () => {
+    /**
+     * Regression: the client optimistically marks a send `queued` when it
+     * believes a turn is in flight, but the daemon had just gone idle and
+     * processes the message directly — emitting only `user_message_echo`,
+     * never the `message_queued` / `message_dequeued` pair that would clear
+     * the badge. Because the echo swaps the row id, the POST-resolve path's
+     * `clearQueueStatus(originalId)` can no longer find the row, so the echo
+     * must clear the stale queue status itself or the Queue drawer never
+     * closes.
+     */
+    // GIVEN an optimistic row the client marked queued
+    const prev: DisplayMessage[] = [
+      {
+        id: "client-uuid",
+        clientMessageId: "client-uuid",
+        role: "user",
+        ...seg("queue me"),
+        isOptimistic: true,
+        queueStatus: "queued",
+        queuePosition: 0,
+        timestamp: 1,
+      },
+    ];
+
+    // WHEN the echo for that send arrives (daemon processed it directly)
+    const result = applyUserMessageEcho(prev, {
+      text: "queue me",
+      messageId: "msg-server-q",
+      clientMessageId: "client-uuid",
+    });
+
+    // THEN the row is upgraded and no longer reads as queued
+    expect(result).toHaveLength(1);
+    expect(result[0]!.id).toBe("msg-server-q");
+    expect(result[0]!.isOptimistic).toBe(false);
+    expect(result[0]!.queueStatus).toBeUndefined();
+    expect(result[0]!.queuePosition).toBeUndefined();
   });
 
   it("is a no-op when a row already carries the server id", () => {
@@ -1294,5 +1436,27 @@ describe("appendThinkingDelta", () => {
     // THEN the prior row's segments are untouched
     expect(prev[1]!.thinkingSegments).toBe(before);
     expect(prev[1]!.thinkingSegments).toEqual(["a"]);
+  });
+
+  it("seeds the live row from its history twin so a re-attach keeps the persisted thinking prefix", () => {
+    // GIVEN this client attaches mid-turn to a reasoning-heavy turn: the live
+    // turn holds only the user row, while the daemon already persisted a
+    // thinking prefix under the reserved id, now sitting in the history cache.
+    const historyTwin = makeAssistantMsg({
+      id: "row-B",
+      thinkingSegments: ["Reasoning so "],
+      textSegments: [],
+      contentOrder: [{ type: "thinking", id: "0" }],
+      contentBlocks: [{ type: "thinking", thinking: "Reasoning so " }],
+    });
+
+    // WHEN the first replayed thinking delta arrives
+    const result = appendThinkingDelta([userMsg], "far", "row-B", () => historyTwin);
+
+    // THEN it extends the persisted thinking prefix on the SAME row instead of
+    // opening a fresh, prefix-less bubble.
+    expect(result).toHaveLength(2);
+    expect(result[1]!.id).toBe("row-B");
+    expect(result[1]!.thinkingSegments).toEqual(["Reasoning so far"]);
   });
 });

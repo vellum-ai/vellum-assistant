@@ -13,6 +13,7 @@ const meta: Meta<typeof ToolStepPill> = {
       control: "select",
       options: [
         "code",
+        "terminal",
         "file",
         "pen",
         "monitor",
@@ -48,7 +49,7 @@ export const Default: Story = {
 
 export const WithRiskLow: Story = {
   args: {
-    iconName: "code",
+    iconName: "terminal",
     label: "bun test",
     riskLevel: "low",
   },
@@ -56,7 +57,7 @@ export const WithRiskLow: Story = {
 
 export const WithRiskHigh: Story = {
   args: {
-    iconName: "code",
+    iconName: "terminal",
     label: "rm -rf build",
     riskLevel: "high",
   },
@@ -187,8 +188,8 @@ export const AllVariants: Story = {
   render: () => (
     <div className="flex flex-col items-start gap-2">
       <ToolStepPill iconName="sparkle" label="review-cycle" />
-      <ToolStepPill iconName="code" label="bun test" riskLevel="low" />
-      <ToolStepPill iconName="code" label="rm -rf build" riskLevel="high" />
+      <ToolStepPill iconName="terminal" label="bun test" riskLevel="low" />
+      <ToolStepPill iconName="terminal" label="rm -rf build" riskLevel="high" />
       <ToolStepPill
         iconName="plug"
         label="linear.createIssue"

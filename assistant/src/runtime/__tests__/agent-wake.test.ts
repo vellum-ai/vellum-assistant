@@ -6,9 +6,9 @@
  * yields a live `Conversation`. These tests build a lightweight structural
  * double typed as `Conversation` (`makeWakeConversation`) that stubs only the
  * handful of members the wake touches — `getMessages`, `messages.push`,
- * `isProcessing`/`setProcessing`, `setTrustContext`, `setSubagentAllowedTools`,
- * `drainQueue`, `maybeCompact`, `contextWindowManager.estimateInputTokens`,
- * and a scripted `agentLoop.run()`.
+ * `isProcessing`/`setProcessing`, `currentTurnTrustContext`,
+ * `setSubagentAllowedTools`, `drainQueue`, `maybeCompact`,
+ * `contextWindowManager.estimateInputTokens`, and a scripted `agentLoop.run()`.
  *
  * The wake's side effects flow through the daemon boundary, so the
  * instrumentation is captured at that boundary: event emission and the
@@ -81,8 +81,19 @@ interface WakeConversationProbe {
    * scope. `undefined` means unrestricted.
    */
   allowedToolSnapshots: Array<string[] | undefined>;
-  /** `setTrustContext` calls, with the value and a monotonic order tag. */
-  setTrustContextCalls: Array<{ ctx: unknown; order: number }>;
+  /**
+   * Assignments to `conversation.currentTurnTrustContext`, with the value and
+   * a monotonic order tag. The wake elevates the turn's trust here (not via the
+   * persistent `setTrustContext`) and restores the prior value in its finally.
+   */
+  turnTrustContextSets: Array<{ ctx: unknown; order: number }>;
+  /**
+   * `setTrustContext` writes to the persistent `conversation.trustContext`,
+   * in order. A trust-carrying wake's resolver leaves its trust here; the
+   * wake must put the prior value back so it doesn't linger for a later
+   * no-trust wake.
+   */
+  trustContextSets: unknown[];
   /**
    * Every assignment to `conversation.wakePersonaOverride`, in order. A
    * wake that applies an override records `[override, undefined]` — the
@@ -121,7 +132,7 @@ let mockGetConversationOverrideProfile: (
   conversationId: string,
 ) => string | undefined = () => undefined;
 
-mock.module("../../memory/conversation-crud.js", () => ({
+mock.module("../../persistence/conversation-crud.js", () => ({
   getConversationOverrideProfile: (conversationId: string) =>
     mockGetConversationOverrideProfile(conversationId),
   getConversation: () => ({
@@ -151,7 +162,7 @@ mock.module("../../memory/conversation-crud.js", () => ({
 
 // The wake's tail persistence syncs each row to the disk view. Stub it so
 // unit tests don't touch the filesystem.
-mock.module("../../memory/conversation-disk-view.js", () => ({
+mock.module("../../persistence/conversation-disk-view.js", () => ({
   syncMessageToDisk: () => {},
 }));
 
@@ -159,7 +170,7 @@ mock.module("../../memory/conversation-disk-view.js", () => ({
 // event to a wire frame and broadcasts it; `broadcastWakeSurface` broadcasts
 // the ui_surface card. Route both back to the originating conversation's
 // probe by the `conversationId` stamped on the frame.
-mock.module("../../runtime/assistant-event-hub.js", () => ({
+mock.module("../assistant-event-hub.js", () => ({
   broadcastMessage: (frame: CapturedFrame & { conversationId?: string }) => {
     const probe = frame.conversationId
       ? wakeConvRegistry.get(frame.conversationId)
@@ -187,7 +198,7 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
 // told to refetch the message list so the visible trigger renders live. Reset
 // in beforeEach.
 const publishMessagesChangedCalls: string[] = [];
-mock.module("../../runtime/sync/resource-sync-events.js", () => ({
+mock.module("../sync/resource-sync-events.js", () => ({
   publishConversationMessagesChanged: (conversationId: string) => {
     publishMessagesChangedCalls.push(conversationId);
   },
@@ -205,12 +216,16 @@ mock.module("../../daemon/conversation-store.js", () => ({
   },
 }));
 
+const mockConfig = {
+  llm: { profiles: { balanced: {} }, activeProfile: "balanced" },
+};
+
 mock.module("../../config/loader.js", () => ({
-  getConfig: () => ({ llm: {} }),
-  loadConfig: () => ({ llm: {} }),
+  getConfig: () => mockConfig,
+  loadConfig: () => mockConfig,
   loadRawConfig: () => ({}),
   saveRawConfig: () => {},
-  getConfigReadOnly: () => ({ llm: {} }),
+  getConfigReadOnly: () => mockConfig,
   applyNestedDefaults: (config: unknown) => config,
   deepMergeOverwrite: (base: unknown) => base,
   mergeDefaultWorkspaceConfig: () => {},
@@ -304,7 +319,7 @@ mock.module("../../daemon/conversation-usage.js", () => ({
     });
   },
 }));
-mock.module("../../memory/llm-request-log-store.js", () => ({
+mock.module("../../persistence/llm-request-log-store.js", () => ({
   recordRequestLog: (
     conversationId: string,
     requestPayload: string,
@@ -332,6 +347,10 @@ import type {
   AgentLoopRunResult,
 } from "../../agent/loop.js";
 import type { Conversation } from "../../daemon/conversation.js";
+import {
+  deleteConversation,
+  setConversation,
+} from "../../daemon/conversation-registry.js";
 import { ContextOverflowError, type Message } from "../../providers/types.js";
 import {
   __resetWakeChainForTests,
@@ -379,6 +398,8 @@ function makeWakeConversation(options: {
    * (always under the mocked 200k window).
    */
   estimatedInputTokens?: number;
+  /** Seed for the conversation's resting `trustContext`. */
+  initialTrustContext?: unknown;
 }): WakeConversation {
   const conversationId = options.conversationId ?? "conv-test";
   const probe: WakeConversationProbe = {
@@ -392,7 +413,8 @@ function makeWakeConversation(options: {
     callSequence: [],
     processingDuringDrain: [],
     allowedToolSnapshots: [],
-    setTrustContextCalls: [],
+    turnTrustContextSets: [],
+    trustContextSets: [],
     personaOverrideSets: [],
     persistedAtEachEmit: [],
     maybeCompactOrders: [],
@@ -404,6 +426,8 @@ function makeWakeConversation(options: {
   let order = 0;
   let activeAllowedTools = options.initialAllowedTools;
   let wakePersonaOverride: unknown;
+  let currentTurnTrustContext: unknown;
+  let persistentTrustContext: unknown = options.initialTrustContext;
   const snapshotAllowedTools = (): string[] | undefined =>
     activeAllowedTools ? [...activeAllowedTools].sort() : undefined;
 
@@ -495,8 +519,12 @@ function makeWakeConversation(options: {
       probe.processingToggles.push(on);
       probe.callSequence.push(on ? "processing:true" : "processing:false");
     },
-    setTrustContext: (ctx: unknown) => {
-      probe.setTrustContextCalls.push({ ctx, order: order++ });
+    get currentTurnTrustContext() {
+      return currentTurnTrustContext;
+    },
+    set currentTurnTrustContext(value: unknown) {
+      currentTurnTrustContext = value;
+      probe.turnTrustContextSets.push({ ctx: value, order: order++ });
     },
     // Pre-run auto-compaction gate. The double only records the call (and
     // the sizing argument) — compaction side effects are exercised in the
@@ -513,7 +541,14 @@ function makeWakeConversation(options: {
     },
     getTurnChannelContext: () => null,
     getTurnInterfaceContext: () => null,
-    trustContext: undefined,
+    get trustContext() {
+      return persistentTrustContext;
+    },
+    // Mirrors Conversation.setTrustContext (coerces null → undefined).
+    setTrustContext(ctx: unknown) {
+      persistentTrustContext = ctx ?? undefined;
+      probe.trustContextSets.push(ctx);
+    },
     buildCurrentSystemPrompt: () => "mock-system-prompt",
     modelOverride: undefined,
     ...(drainQueue ? { drainQueue } : {}),
@@ -713,6 +748,57 @@ describe("wakeAgentForOpportunity", () => {
     // Applied exactly once and cleared before the wake released the
     // conversation, so a queued user turn can't build under it.
     expect(conversation.personaOverrideSets).toEqual([override, undefined]);
+  });
+
+  test("trustContext elevation is applied for the run and restored after", async () => {
+    const conversation = makeWakeConversation({
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "reviewed." }],
+      },
+    });
+
+    const result = await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "scheduled triage",
+        source: "schedule",
+        trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(result.invoked).toBe(true);
+    const ctxs = conversation.turnTrustContextSets.map((c) => c.ctx);
+    // Elevated for the turn …
+    expect(ctxs).toContainEqual({
+      sourceChannel: "vellum",
+      trustClass: "guardian",
+    });
+    // … then restored to the prior value (unset → undefined) as the LAST write,
+    // so a later wake reusing this cached conversation can't inherit guardian.
+    expect(ctxs[ctxs.length - 1]).toBeUndefined();
+  });
+
+  test("trustContext elevation is restored even when the agent loop throws", async () => {
+    const conversation = makeWakeConversation({
+      runImpl: async () => {
+        throw new Error("loop exploded");
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "scheduled triage",
+        source: "schedule",
+        trustContext: { sourceChannel: "vellum", trustClass: "guardian" },
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    const ctxs = conversation.turnTrustContextSets.map((c) => c.ctx);
+    expect(ctxs[ctxs.length - 1]).toBeUndefined();
   });
 
   test("personaOverride is cleared even when the agent loop throws", async () => {
@@ -1413,11 +1499,11 @@ describe("wakeAgentForOpportunity", () => {
     expect(conversation.isProcessing()).toBe(false);
   });
 
-  test("applies caller-supplied trustContext to the target before the agent loop runs", async () => {
-    // Background system jobs (e.g. memory consolidation) need
-    // guardian trust to clear the side-effect approval gate. The wake must
-    // call setTrustContext BEFORE agentLoop.run so the per-turn snapshot
-    // captures the elevated trust.
+  test("elevates the turn's trust context before the agent loop runs", async () => {
+    // Background system jobs (e.g. memory consolidation) need guardian trust to
+    // clear the side-effect approval gate. The wake must set
+    // `currentTurnTrustContext` BEFORE agentLoop.run so the per-turn approval
+    // check sees the elevated trust.
     const conversation = makeWakeConversation({
       conversationId: "conv-trust",
     });
@@ -1432,19 +1518,22 @@ describe("wakeAgentForOpportunity", () => {
       { resolveTarget: async () => conversation },
     );
 
-    expect(conversation.setTrustContextCalls).toHaveLength(1);
-    expect(conversation.setTrustContextCalls[0]!.ctx).toEqual({
+    // Two writes: the elevation (before the run) and the turn-scoped restore
+    // (after), so the guardian trust never lingers on the cached conversation.
+    expect(conversation.turnTrustContextSets).toHaveLength(2);
+    expect(conversation.turnTrustContextSets[0]!.ctx).toEqual({
       sourceChannel: "vellum",
       trustClass: "guardian",
     });
-    // setTrustContext fired strictly before agentLoop.run.
+    expect(conversation.turnTrustContextSets[1]!.ctx).toBeUndefined();
+    // The elevation fired strictly before agentLoop.run.
     expect(conversation.runCalls).toHaveLength(1);
-    expect(conversation.setTrustContextCalls[0]!.order).toBeLessThan(
+    expect(conversation.turnTrustContextSets[0]!.order).toBeLessThan(
       conversation.runCalls[0]!.order,
     );
   });
 
-  test("does not call setTrustContext when no trustContext is supplied", async () => {
+  test("does not elevate the turn's trust when no trustContext is supplied", async () => {
     const conversation = makeWakeConversation({
       conversationId: "conv-no-trust",
     });
@@ -1459,9 +1548,148 @@ describe("wakeAgentForOpportunity", () => {
     );
 
     // Inbound-message conversations populate trust via processMessage().
-    // Without an explicit opt-in from the caller, the wake must not
-    // overwrite whatever the conversation already holds.
-    expect(conversation.setTrustContextCalls).toHaveLength(0);
+    // Without an explicit opt-in from the caller, the wake never elevates the
+    // turn's trust — it only ever restores the prior value (here, unset), so it
+    // can't overwrite whatever the conversation already holds.
+    expect(
+      conversation.turnTrustContextSets.filter((s) => s.ctx != null),
+    ).toHaveLength(0);
+    expect(conversation.currentTurnTrustContext).toBeUndefined();
+  });
+
+  // ── Persistent-trust restore ────────────────────────────────────────
+  // The resolver leaves the wake's trust on the conversation. The wake must
+  // put the prior resting value back, or a later no-trust wake inherits it
+  // through tool setup's `currentTurnTrustContext ?? trustContext` fallback.
+
+  const GUARDIAN_TRUST = {
+    sourceChannel: "vellum",
+    trustClass: "guardian",
+  } as const;
+
+  // The wake reads the prior trust from the live registry, so a test that
+  // wants to exercise the restore registers its double there and simulates
+  // the resolver's write by setting the trust in resolveTarget.
+  const withRegisteredConversation = async (
+    conversation: WakeConversation,
+    run: () => Promise<unknown>,
+  ): Promise<void> => {
+    setConversation(conversation.conversationId, conversation as Conversation);
+    try {
+      await run();
+    } finally {
+      deleteConversation(conversation.conversationId);
+    }
+  };
+
+  test("restores the conversation's prior trust once the wake ends", async () => {
+    const priorTrust = {
+      sourceChannel: "slack",
+      trustClass: "trusted_contact",
+    } as const;
+    const conversation = makeWakeConversation({
+      conversationId: "conv-trust-restore",
+      initialTrustContext: priorTrust,
+    });
+
+    await withRegisteredConversation(conversation, () =>
+      wakeAgentForOpportunity(
+        {
+          conversationId: "conv-trust-restore",
+          hint: "x",
+          source: "t",
+          trustContext: GUARDIAN_TRUST,
+        },
+        {
+          resolveTarget: async () => {
+            conversation.setTrustContext(GUARDIAN_TRUST);
+            return conversation;
+          },
+        },
+      ),
+    );
+
+    // Resolver installs guardian, wake restores the prior value.
+    expect(conversation.trustContextSets).toEqual([GUARDIAN_TRUST, priorTrust]);
+    expect(conversation.trustContext).toEqual(priorTrust);
+  });
+
+  test("restores the prior trust even when the agent loop throws", async () => {
+    const conversation = makeWakeConversation({
+      conversationId: "conv-trust-restore-throw",
+      runImpl: async () => {
+        throw new Error("boom");
+      },
+    });
+
+    await withRegisteredConversation(conversation, () =>
+      wakeAgentForOpportunity(
+        {
+          conversationId: "conv-trust-restore-throw",
+          hint: "x",
+          source: "t",
+          trustContext: GUARDIAN_TRUST,
+        },
+        {
+          resolveTarget: async () => {
+            conversation.setTrustContext(GUARDIAN_TRUST);
+            return conversation;
+          },
+        },
+      ),
+    );
+
+    // Nothing was resting before the wake, so it goes back to unset.
+    expect(conversation.trustContext).toBeUndefined();
+  });
+
+  test("leaves a trust that was re-set mid-run alone (identity guard)", async () => {
+    const replaced = {
+      sourceChannel: "vellum",
+      trustClass: "unknown",
+    } as const;
+    const conversation = makeWakeConversation({
+      conversationId: "conv-trust-guard",
+      runImpl: async (input) => {
+        conversation.setTrustContext(replaced);
+        return runResult(input);
+      },
+    });
+
+    await withRegisteredConversation(conversation, () =>
+      wakeAgentForOpportunity(
+        {
+          conversationId: "conv-trust-guard",
+          hint: "x",
+          source: "t",
+          trustContext: GUARDIAN_TRUST,
+        },
+        {
+          resolveTarget: async () => {
+            conversation.setTrustContext(GUARDIAN_TRUST);
+            return conversation;
+          },
+        },
+      ),
+    );
+
+    // The wake sees a different reference than it installed, so it doesn't
+    // restore: two writes (resolver install, mid-run replacement), no third.
+    expect(conversation.trustContext).toEqual(replaced);
+    expect(conversation.trustContextSets).toHaveLength(2);
+  });
+
+  test("never touches the persistent trust when the wake carries none", async () => {
+    const conversation = makeWakeConversation({
+      conversationId: "conv-trust-none",
+    });
+
+    await wakeAgentForOpportunity(
+      { conversationId: "conv-trust-none", hint: "x", source: "t" },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(conversation.trustContextSets).toHaveLength(0);
   });
 
   test("two concurrent wakes on the same conversation are serialized", async () => {

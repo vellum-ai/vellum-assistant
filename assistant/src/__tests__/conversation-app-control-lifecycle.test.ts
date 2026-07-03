@@ -75,7 +75,9 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
   updateConversationTitle: () => {},
@@ -95,21 +97,21 @@ mock.module("../memory/conversation-crud.js", () => ({
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
 // Stub graph_extract / auto-analysis enqueue paths so dispose's best-effort
 // background work doesn't reach into real subsystems during the test.
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   enqueueMemoryJob: () => {},
 }));
 
-mock.module("../memory/auto-analysis-enqueue.js", () => ({
+mock.module("../runtime/services/auto-analysis-enqueue.js", () => ({
   enqueueAutoAnalysisIfEnabled: () => {},
 }));
 
-mock.module("../memory/auto-analysis-guard.js", () => ({
+mock.module("../runtime/services/auto-analysis-guard.js", () => ({
   isAutoAnalysisConversation: () => false,
 }));
 

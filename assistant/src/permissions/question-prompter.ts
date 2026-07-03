@@ -156,9 +156,12 @@ export interface QuestionBatchMetadata {
  * the whole batch to `/v1/question-response` when the user is done — no
  * per-question accumulator, no partial state machine.
  *
- * Timeout reuses `getConfig().timeouts.permissionTimeoutSec` (default 5 min) —
- * questions are user-prompts in the same UX family as permission prompts and
- * secret prompts, so they share the same idle-timeout knob.
+ * The idle timeout is a backstop (`getConfig().timeouts.questionResponseTimeoutSec`,
+ * default 30 min), not the primary way a prompt is dismissed. An interactive
+ * user who moves on instead of answering enqueues another message, which
+ * supersedes the open prompt at the enqueue handler (see conversation-routes.ts);
+ * a non-interactive turn resolves immediately at the tool. The backstop only
+ * fires when a prompt is left open with no response and no follow-up message.
  */
 export class QuestionPrompter {
   async prompt(params: QuestionPromptParams): Promise<QuestionPromptResult> {
@@ -199,7 +202,7 @@ export class QuestionPrompter {
     const requestId = uuid();
 
     return new Promise<QuestionPromptResult>((resolve, reject) => {
-      const timeoutMs = getConfig().timeouts.permissionTimeoutSec * 1000;
+      const timeoutMs = getConfig().timeouts.questionResponseTimeoutSec * 1000;
 
       // Closure-scoped idempotency guard. Every resolution path (timeout,
       // abort, route resolution via `rpcResolve`/`rpcReject`) routes through

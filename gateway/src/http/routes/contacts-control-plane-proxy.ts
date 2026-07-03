@@ -1,25 +1,36 @@
 /**
- * Gateway proxy endpoints for ingress contacts/invites control-plane routes.
+ * Gateway endpoints for ingress contacts/invites control-plane routes.
  *
  * These routes are registered as explicit gateway routes for dedicated
  * auth handling rather than falling through to the catch-all proxy.
+ * Contact routes proxy to the assistant runtime; invite routes are
+ * gateway-native against the gateway DB's ingress_invites table.
  */
 
+import { randomUUID } from "node:crypto";
+
 import { proxyForward } from "@vellumai/assistant-client";
+import {
+  generateInviteCode,
+  generateInviteToken,
+  hashInviteCode,
+  hashInviteToken,
+  isValidE164,
+} from "@vellumai/gateway-client";
 import { eq } from "drizzle-orm";
 
 import { mintServiceToken } from "../../auth/token-exchange.js";
 import type { GatewayConfig } from "../../config.js";
-import {
-  assistantDbQuery,
-  assistantDbRun,
-} from "../../db/assistant-db-proxy.js";
 import { getGatewayDb } from "../../db/connection.js";
 import {
   ContactStore,
   CannotRevokeBlockedError,
   MergeContactsError,
+  NO_INVITE_CODE_HASH,
+  type ChannelAcl,
+  type ContactAcl,
   type ContactWithInfo,
+  type IngressInviteRow,
 } from "../../db/contact-store.js";
 import { contacts } from "../../db/schema.js";
 import { fetchImpl } from "../../fetch.js";
@@ -27,13 +38,21 @@ import {
   IpcHandlerError,
   ipcCallAssistant,
 } from "../../ipc/assistant-client.js";
+import { probeContactMirror } from "../../ipc/contacts-info-client.js";
 import { getLogger } from "../../logger.js";
+import { ensureInviteLive } from "../../verification/invite-liveness.js";
+import {
+  redeemInviteByToken,
+  redeemVoiceInvite,
+  resolveInviteeName,
+} from "../../verification/invite-redemption.js";
 import {
   parseCreateInviteBody,
   parseListInviteQuery,
   parseRedeemInviteBody,
   type CreateInviteInput,
   type ListInviteQuery,
+  type RedeemInviteInput,
 } from "./invite-validation.js";
 
 const log = getLogger("contacts-control-plane-proxy");
@@ -55,6 +74,25 @@ export class InviteNativeError extends Error {
   constructor(message: string, statusCode: number, code: string) {
     super(message);
     this.name = "InviteNativeError";
+    this.statusCode = statusCode;
+    this.code = code;
+  }
+}
+
+/**
+ * Error thrown by the transport-agnostic contact-channel core to signal a
+ * client-facing failure with a stable code + status. The HTTP handler maps it
+ * to `Response.json`; the gateway IPC route lets it propagate (the IPC server
+ * stringifies thrown errors and mirrors `statusCode`/`code` into the wire
+ * envelope).
+ */
+export class ContactChannelNativeError extends Error {
+  readonly statusCode: number;
+  readonly code: string;
+
+  constructor(message: string, statusCode: number, code: string) {
+    super(message);
+    this.name = "ContactChannelNativeError";
     this.statusCode = statusCode;
     this.code = code;
   }
@@ -92,203 +130,26 @@ const VALID_CONTACT_TYPES = ["human", "assistant"] as const;
 
 /**
  * Strip code/token hashes from a gateway invite row before returning it over
- * HTTP. `inviteCodeHash` is the unsalted SHA-256 of a 6-digit code; returning
- * it lets any list-capable caller brute-force the ~10^6 keyspace offline and
- * redeem an active invite. All invite responses MUST go through this.
+ * HTTP. `inviteCodeHash` and `voiceCodeHash` are unsalted SHA-256 of a
+ * 6-digit code; returning either lets any list-capable caller brute-force the
+ * ~10^6 keyspace offline and redeem an active invite. `tokenHash` is the
+ * redemption secret for link invites. All invite responses MUST go through
+ * this.
  */
-function sanitizeInviteRow<T extends { inviteCodeHash?: unknown }>(
-  row: T,
-): Omit<T, "inviteCodeHash"> {
-  const { inviteCodeHash: _omit, ...rest } = row;
-  return rest;
-}
-
-/**
- * Row shape read from the assistant `assistant_ingress_invites` table for the
- * list merge. Deliberately omits every *_hash column so a code/token hash can
- * never reach the wire (the gateway list never returns hashes).
- */
-interface AssistantOnlyInviteRow {
-  id: string;
-  sourceChannel: string;
-  note: string | null;
-  maxUses: number;
-  useCount: number;
-  expiresAt: number;
-  status: string;
-  redeemedByExternalUserId: string | null;
-  redeemedByExternalChatId: string | null;
-  redeemedAt: number | null;
-  contactId: string | null;
-  createdAt: number;
-  updatedAt: number;
-  voiceCodeDigits: number | null;
-  friendName: string | null;
-  guardianName: string | null;
-  expectedExternalUserId: string | null;
-}
-
-/**
- * Query assistant-only ingress invites (those without a gateway row) for the
- * list merge. Applies the SAME sourceChannel/status filters the gateway list
- * uses and excludes any id already present in the gateway result set (gateway
- * is the lifecycle source of truth and wins on dedupe). Returns rows mapped
- * into the gateway list response shape, already sanitized (no hash columns are
- * selected). Throws on DB error so the caller can soft-fail to gateway-only.
- */
-async function listAssistantOnlyInvites(
-  query: { sourceChannel?: string; status?: string },
-  gatewayIds: Set<string>,
-): Promise<Array<Record<string, unknown>>> {
-  const conditions: string[] = [];
-  const params: Array<string | number> = [];
-  if (query.sourceChannel !== undefined) {
-    conditions.push("source_channel = ?");
-    params.push(query.sourceChannel);
-  }
-  if (query.status !== undefined) {
-    conditions.push("status = ?");
-    params.push(query.status);
-  }
-  const where = conditions.length ? `WHERE ${conditions.join(" AND ")}` : "";
-
-  const rows = await assistantDbQuery<AssistantOnlyInviteRow>(
-    `SELECT id,
-            source_channel              AS sourceChannel,
-            note,
-            max_uses                    AS maxUses,
-            use_count                   AS useCount,
-            expires_at                  AS expiresAt,
-            status,
-            redeemed_by_external_user_id AS redeemedByExternalUserId,
-            redeemed_by_external_chat_id AS redeemedByExternalChatId,
-            redeemed_at                 AS redeemedAt,
-            contact_id                  AS contactId,
-            created_at                  AS createdAt,
-            updated_at                  AS updatedAt,
-            voice_code_digits           AS voiceCodeDigits,
-            friend_name                 AS friendName,
-            guardian_name               AS guardianName,
-            expected_external_user_id   AS expectedExternalUserId
-       FROM assistant_ingress_invites
-       ${where}`,
-    params,
-  );
-
-  return rows
-    .filter((r) => !gatewayIds.has(r.id))
-    .map((r) => {
-      const {
-        voiceCodeDigits,
-        friendName,
-        guardianName,
-        expectedExternalUserId,
-        ...invite
-      } = r;
-      // No *_hash column is selected, so there's no code hash to strip — the
-      // sanitizeInviteRow invariant is satisfied at the query boundary.
-      return {
-        ...invite,
-        ...(voiceCodeDigits != null ? { voiceCodeDigits } : {}),
-        ...(friendName ? { friendName } : {}),
-        ...(guardianName ? { guardianName } : {}),
-        ...(expectedExternalUserId ? { expectedExternalUserId } : {}),
-      };
-    });
-}
-
-/**
- * Revoke an invite that exists only in the assistant DB (no gateway row).
- *
- * Flips an active row to revoked, then SELECTs the row to distinguish
- * "absent" (→ throw 404) from "present but already terminal" (→ success with
- * the row's resulting state). Returns the sanitized invite shape on success.
- * Idempotent: re-revoking an already-terminal invite returns success.
- */
-async function revokeAssistantOnlyInviteNative(
-  inviteId: string,
-): Promise<{ invite: Record<string, unknown> }> {
-  const now = Date.now();
-  // Flip an ACTIVE row to revoked. A terminal row is untouched (0 rows
-  // affected, no throw → idempotent). A thrown write must NOT be swallowed:
-  // returning 200 with the still-active row would tell the guardian/CLI the
-  // invite was revoked while it stays redeemable via the legacy path.
-  try {
-    await assistantDbRun(
-      "UPDATE assistant_ingress_invites SET status='revoked', updated_at=? WHERE id=? AND status='active'",
-      [now, inviteId],
-    );
-  } catch (err) {
-    log.error(
-      { err, inviteId },
-      "revoke_invite: assistant-only fallback UPDATE failed",
-    );
-    throw new InviteNativeError(
-      `Failed to revoke invite "${inviteId}"`,
-      500,
-      "INTERNAL_ERROR",
-    );
-  }
-
-  // Re-read to determine existence and the resulting status.
-  const found = await assistantDbQuery<AssistantOnlyInviteRow>(
-    `SELECT id,
-            source_channel              AS sourceChannel,
-            note,
-            max_uses                    AS maxUses,
-            use_count                   AS useCount,
-            expires_at                  AS expiresAt,
-            status,
-            redeemed_by_external_user_id AS redeemedByExternalUserId,
-            redeemed_by_external_chat_id AS redeemedByExternalChatId,
-            redeemed_at                 AS redeemedAt,
-            contact_id                  AS contactId,
-            created_at                  AS createdAt,
-            updated_at                  AS updatedAt,
-            voice_code_digits           AS voiceCodeDigits,
-            friend_name                 AS friendName,
-            guardian_name               AS guardianName,
-            expected_external_user_id   AS expectedExternalUserId
-       FROM assistant_ingress_invites
-      WHERE id = ?`,
-    [inviteId],
-  );
-
-  const row = found[0];
-  if (!row) {
-    // Absent from BOTH the gateway and the assistant DB.
-    throw new InviteNativeError(
-      `Invite "${inviteId}" not found`,
-      404,
-      "NOT_FOUND",
-    );
-  }
-
-  void ipcCallAssistant("emit_event", {
-    body: { kind: "contacts_changed" },
-  } as unknown as Record<string, unknown>).catch(() => {});
-
+function sanitizeInviteRow<
+  T extends {
+    inviteCodeHash?: unknown;
+    tokenHash?: unknown;
+    voiceCodeHash?: unknown;
+  },
+>(row: T): Omit<T, "inviteCodeHash" | "tokenHash" | "voiceCodeHash"> {
   const {
-    voiceCodeDigits,
-    friendName,
-    guardianName,
-    expectedExternalUserId,
-    ...invite
+    inviteCodeHash: _code,
+    tokenHash: _token,
+    voiceCodeHash: _voice,
+    ...rest
   } = row;
-  log.info(
-    { inviteId, status: row.status },
-    "revoke_invite: handled via assistant-only fallback",
-  );
-  return {
-    invite: {
-      // No *_hash column is selected, so there's no code hash to strip.
-      ...invite,
-      ...(voiceCodeDigits != null ? { voiceCodeDigits } : {}),
-      ...(friendName ? { friendName } : {}),
-      ...(guardianName ? { guardianName } : {}),
-      ...(expectedExternalUserId ? { expectedExternalUserId } : {}),
-    },
-  };
+  return rest;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,9 +164,10 @@ async function revokeAssistantOnlyInviteNative(
 // ---------------------------------------------------------------------------
 
 /**
- * List invites (gateway rows + best-effort voice-field join + assistant-only
- * merge), sanitized (no inviteCodeHash). Throws InviteNativeError(500) when the
- * gateway read itself fails. The voice-join and assistant-only merge soft-fail.
+ * List invites from the gateway DB (single source of truth for invite rows,
+ * including the voice/display columns), sanitized (no inviteCodeHash /
+ * tokenHash / voiceCodeHash). Throws InviteNativeError(500) when the gateway
+ * read fails.
  */
 export async function listInvitesNative(
   query: ListInviteQuery,
@@ -322,86 +184,53 @@ export async function listInvitesNative(
     );
   }
 
-  // Best-effort: join voice UX fields from the assistant DB.
-  const voiceById = new Map<string, Record<string, unknown>>();
-  if (rows.length > 0) {
-    try {
-      const ids = rows.map((r) => r.id);
-      const placeholders = ids.map(() => "?").join(", ");
-      const voiceRows = await assistantDbQuery<{
-        id: string;
-        voiceCodeDigits: number | null;
-        friendName: string | null;
-        guardianName: string | null;
-        expectedExternalUserId: string | null;
-      }>(
-        `SELECT id,
-                voice_code_digits        AS voiceCodeDigits,
-                friend_name              AS friendName,
-                guardian_name            AS guardianName,
-                expected_external_user_id AS expectedExternalUserId
-           FROM assistant_ingress_invites
-          WHERE id IN (${placeholders})`,
-        ids,
-      );
-      for (const v of voiceRows) {
-        voiceById.set(v.id, {
-          ...(v.voiceCodeDigits != null
-            ? { voiceCodeDigits: v.voiceCodeDigits }
-            : {}),
-          ...(v.friendName ? { friendName: v.friendName } : {}),
-          ...(v.guardianName ? { guardianName: v.guardianName } : {}),
-          ...(v.expectedExternalUserId
-            ? { expectedExternalUserId: v.expectedExternalUserId }
-            : {}),
-        });
-      }
-    } catch (err) {
-      log.warn(
-        { err, count: rows.length },
-        "list_invites: assistant DB voice-field join failed; returning gateway rows only",
-      );
-    }
-  }
+  const invites: Array<Record<string, unknown>> = rows.map((r) =>
+    sanitizeInviteRow(r),
+  );
 
-  const invites: Array<Record<string, unknown>> = rows.map((r) => ({
-    ...sanitizeInviteRow(r),
-    ...(voiceById.get(r.id) ?? {}),
-  }));
-
-  // Belt-and-suspenders for the transitional window: merge in assistant-only
-  // rows (created via the IPC/CLI path with no gateway row), applying the SAME
-  // filters and sanitization. Gateway wins on id (lifecycle truth).
-  try {
-    const gatewayIds = new Set(rows.map((r) => r.id));
-    const assistantOnly = await listAssistantOnlyInvites(query, gatewayIds);
-    for (const inv of assistantOnly) invites.push(inv);
-  } catch (err) {
-    log.warn(
-      { err },
-      "list_invites: assistant-only merge query failed; returning gateway rows only",
-    );
-  }
-
-  log.info({ count: invites.length, ...query }, "list_invites: handled natively");
+  log.info(
+    { count: invites.length, ...query },
+    "list_invites: handled natively",
+  );
   return { invites };
 }
 
+/** Default invite lifetime when the caller supplies no `expiresInMs`. */
+const DEFAULT_INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
+
 /**
- * Create an invite: verify the contact exists, relay to the assistant mint
- * (token/hash + voice fields), then write the canonical gateway lifecycle row.
- * Returns the assistant's minted one-time payload + rawToken. Throws
- * InviteNativeError(404) when the contact is unknown, InviteNativeError(500)
- * when the mint or gateway write fails, and propagates an assistant mint
- * IpcHandlerError unchanged so its status/code reach the caller.
+ * Create an invite natively: verify the contact exists, mint the secrets via
+ * the shared invite-contract helpers, and write the single canonical gateway
+ * row. Voice invites (`sourceChannel === "phone"`) get an identity-bound
+ * spoken code and NO link token; every other channel gets a link token plus a
+ * 6-digit code for guardian-mediated redemption. Plaintext secrets
+ * (`token` / `inviteCode` / `voiceCode`) are returned exactly once on the
+ * invite payload and never persisted — only their hashes reach the row.
+ * Presentation fields (share link, guardian instruction, channel handle) are
+ * daemon-owned and layered on by each create transport exactly once: the
+ * daemon's create relay composes in-process; the gateway HTTP handler
+ * composes via the `invites_compose_presentation` daemon IPC.
+ *
+ * Throws InviteNativeError(404) when the contact is unknown, (400) on invalid
+ * voice parameters, and (500) when the gateway write fails.
  */
 export async function createInviteNative(
   input: CreateInviteInput,
 ): Promise<{ invite: Record<string, unknown>; rawToken?: string }> {
   const store = new ContactStore();
 
-  // Verify the contact exists in the gateway DB before minting.
-  if (!store.getContact(input.contactId)) {
+  // A2A invites live in the daemon's a2a_invites store, not in gateway
+  // ingress_invites — a gateway row here would be unredeemable.
+  if (input.sourceChannel === "a2a") {
+    throw new InviteNativeError(
+      'sourceChannel "a2a" is not a gateway invite channel (A2A invites are daemon-managed)',
+      400,
+      "BAD_REQUEST",
+    );
+  }
+
+  const contact = store.getContact(input.contactId);
+  if (!contact) {
     throw new InviteNativeError(
       `Contact "${input.contactId}" not found`,
       404,
@@ -409,50 +238,65 @@ export async function createInviteNative(
     );
   }
 
-  // ── Assistant mints (token/hash + voice fields) ──────────────────
-  let mint: {
-    invite: Record<string, unknown>;
-    rawToken?: string;
-    gateway: {
-      id: string;
-      inviteCodeHash: string;
-      sourceChannel: string;
-      contactId: string;
-      note: string | null;
-      maxUses: number;
-      expiresAt: number;
-    };
-  };
-  try {
-    mint = (await ipcCallAssistant("invites_mint", {
-      body: input,
-    } as unknown as Record<string, unknown>)) as typeof mint;
-  } catch (err) {
-    if (err instanceof IpcHandlerError) {
-      // Propagate the assistant's status/code unchanged.
-      throw err;
+  const isVoice = input.sourceChannel === "phone";
+
+  let rawToken: string | undefined;
+  let tokenHash: string | undefined;
+  let inviteCode: string | undefined;
+  let inviteCodeHash: string | undefined;
+  let voiceCode: string | undefined;
+  let voiceCodeHash: string | undefined;
+  let friendName: string | undefined;
+
+  if (isVoice) {
+    if (!input.expectedExternalUserId) {
+      throw new InviteNativeError(
+        "expectedExternalUserId is required for voice invites",
+        400,
+        "BAD_REQUEST",
+      );
     }
-    log.error({ err, contactId: input.contactId }, "create_invite: mint failed");
-    throw new InviteNativeError("Failed to mint invite", 500, "INTERNAL_ERROR");
+    if (!isValidE164(input.expectedExternalUserId)) {
+      throw new InviteNativeError(
+        "expectedExternalUserId must be in E.164 format (e.g., +15551234567)",
+        400,
+        "BAD_REQUEST",
+      );
+    }
+    voiceCode = generateInviteCode(6);
+    voiceCodeHash = hashInviteCode(voiceCode);
+    // The invitee's canonical name is the bound contact's displayName —
+    // mirrored onto the row so voice greeting/call reads need no extra lookup.
+    friendName = contact.displayName?.trim() || undefined;
+  } else {
+    rawToken = generateInviteToken();
+    tokenHash = hashInviteToken(rawToken);
+    inviteCode = generateInviteCode(6);
+    inviteCodeHash = hashInviteCode(inviteCode);
   }
 
-  // ── Gateway DB write (source of truth) ───────────────────────────
-  const gw = mint.gateway;
-  let invite;
+  let row: IngressInviteRow;
   try {
-    invite = store.createInvite({
-      id: gw.id,
-      inviteCodeHash: gw.inviteCodeHash,
-      sourceChannel: gw.sourceChannel,
-      contactId: gw.contactId,
-      note: gw.note,
-      maxUses: gw.maxUses,
-      expiresAt: gw.expiresAt,
+    row = store.createInvite({
+      id: randomUUID(),
+      sourceChannel: input.sourceChannel,
+      contactId: input.contactId,
+      note: input.note ?? null,
+      maxUses: input.maxUses,
+      expiresAt: Date.now() + (input.expiresInMs ?? DEFAULT_INVITE_EXPIRY_MS),
+      inviteCodeHash: inviteCodeHash ?? NO_INVITE_CODE_HASH,
+      tokenHash: tokenHash ?? null,
+      voiceCodeHash: voiceCodeHash ?? null,
+      voiceCodeDigits: isVoice ? 6 : null,
+      expectedExternalUserId: isVoice ? input.expectedExternalUserId : null,
+      friendName: friendName ?? null,
+      guardianName: input.guardianName ?? null,
+      sourceConversationId: input.sourceConversationId ?? null,
     });
   } catch (err) {
     log.error(
-      { err, inviteId: gw?.id, contactId: input.contactId },
-      "create_invite: gateway DB write failed — assistant invite row is now orphaned (stale over lost)",
+      { err, contactId: input.contactId },
+      "create_invite: gateway DB write failed",
     );
     throw new InviteNativeError(
       "Failed to record invite",
@@ -467,22 +311,76 @@ export async function createInviteNative(
   } as unknown as Record<string, unknown>).catch(() => {});
 
   log.info(
-    { inviteId: invite.id, contactId: input.contactId },
+    { inviteId: row.id, contactId: input.contactId },
     "create_invite: handled natively",
   );
-  // The gateway row is the lifecycle source of truth, but the response must
-  // carry the assistant's minted one-time fields (voiceCode for phone;
-  // inviteCode/guardianInstruction/share/token for non-phone) — returned only
-  // at creation time and never fetchable later.
-  return { invite: mint.invite, rawToken: mint.rawToken };
+
+  // One-time create payload: row fields plus the plaintext secrets. tokenHash
+  // is included for response compatibility with the historical create shape;
+  // the brute-forceable code hashes never leave the DB.
+  const invite: Record<string, unknown> = {
+    id: row.id,
+    sourceChannel: row.sourceChannel,
+    ...(rawToken ? { token: rawToken } : {}),
+    ...(row.tokenHash ? { tokenHash: row.tokenHash } : {}),
+    maxUses: row.maxUses,
+    useCount: row.useCount,
+    expiresAt: row.expiresAt,
+    status: row.status,
+    ...(row.note ? { note: row.note } : {}),
+    ...(row.expectedExternalUserId
+      ? { expectedExternalUserId: row.expectedExternalUserId }
+      : {}),
+    ...(voiceCode ? { voiceCode } : {}),
+    ...(row.voiceCodeDigits != null
+      ? { voiceCodeDigits: row.voiceCodeDigits }
+      : {}),
+    ...(row.friendName ? { friendName: row.friendName } : {}),
+    ...(row.guardianName ? { guardianName: row.guardianName } : {}),
+    ...(inviteCode ? { inviteCode } : {}),
+    createdAt: row.createdAt,
+  };
+  return { invite, rawToken };
 }
 
 /**
- * Revoke an invite: flip the gateway row (source of truth), best-effort mirror
- * the actual post-revoke status into the assistant DB, and fall back to
- * revoking the assistant-only row when no gateway row exists. Returns the
- * sanitized invite. Throws InviteNativeError(404) only when the invite is
- * absent from BOTH stores, InviteNativeError(500) on unexpected gateway error.
+ * Layer the daemon-owned presentation fields (share link, guardian
+ * instruction, channel handle) onto a gateway-minted invite payload via the
+ * `invites_compose_presentation` daemon IPC. Best-effort: presentation is
+ * display-only UX, so a daemon failure logs and returns the raw minted
+ * payload — invite creation never fails because composition failed.
+ */
+async function composePresentationBestEffort(params: {
+  contactId?: string;
+  invite: Record<string, unknown>;
+  rawToken?: string;
+}): Promise<Record<string, unknown>> {
+  try {
+    const result = (await ipcCallAssistant("invites_compose_presentation", {
+      body: params,
+    })) as { invite?: Record<string, unknown> } | null;
+    if (result?.invite && typeof result.invite === "object") {
+      return result.invite;
+    }
+    log.warn(
+      { inviteId: params.invite.id },
+      "create_invite: daemon presentation response missing invite (best-effort)",
+    );
+  } catch (err) {
+    log.warn(
+      { err, inviteId: params.invite.id },
+      "create_invite: daemon presentation composition failed (best-effort)",
+    );
+  }
+  return params.invite;
+}
+
+/**
+ * Revoke an invite: a single gateway UPDATE (source of truth). Idempotent —
+ * revoking an already-terminal (redeemed/revoked/expired) invite returns the
+ * row's current state. Returns the sanitized invite. Throws
+ * InviteNativeError(404) when the invite id is unknown, InviteNativeError(500)
+ * on unexpected gateway error.
  */
 export async function revokeInviteNative(
   inviteId: string,
@@ -500,23 +398,10 @@ export async function revokeInviteNative(
   }
 
   if (!invite) {
-    // No gateway row. Fall back to revoking the assistant-only row; 404 only
-    // when absent from BOTH stores.
-    return await revokeAssistantOnlyInviteNative(inviteId);
-  }
-
-  // Best-effort mirror into the assistant DB — reflect the gateway row's ACTUAL
-  // post-revoke status (revokeInvite only flips ACTIVE rows) so the two stores
-  // stay in sync instead of forcing 'revoked'.
-  try {
-    await assistantDbRun(
-      "UPDATE assistant_ingress_invites SET status=?, updated_at=? WHERE id=?",
-      [invite.status, Date.now(), inviteId],
-    );
-  } catch (err) {
-    log.warn(
-      { err, inviteId },
-      "revoke_invite: assistant DB mirror failed (best-effort)",
+    throw new InviteNativeError(
+      `Invite "${inviteId}" not found`,
+      404,
+      "NOT_FOUND",
     );
   }
 
@@ -529,37 +414,142 @@ export async function revokeInviteNative(
 }
 
 /**
- * Trigger the provider-specific outbound call for an invite. When the gateway
- * row exists (lifecycle source of truth) it gates on `active`. When it's absent
- * — a legacy/assistant-only invite that lives only in `assistant_ingress_invites`
- * (the same rows list/revoke handle via their assistant-only fallback) — it
- * falls through and lets the daemon-local trigger validate its own row. Returns
- * the provider call sid. Throws InviteNativeError(400) when a present gateway
- * row isn't active, InviteNativeError(500) on relay failure, and propagates an
- * assistant IpcHandlerError unchanged.
+ * Redeem an invite natively through the gateway redemption engine
+ * (verification/invite-redemption.ts): validation, membership gate, atomic
+ * claim, the verified-channel ACL upsert, and the best-effort
+ * `invite_redeemed` daemon info-mirror event all run inside the engine.
+ *
+ * Returns the transport-agnostic redeem payload:
+ *   - voice: `{ ok, type, memberId, inviteId? }` (memberId = the invite's
+ *     target contact id; inviteId only on a real redeem)
+ *   - token: `{ ok, invite, type }` (the sanitized post-claim gateway row)
+ *
+ * Every engine failure throws InviteNativeError(400, BAD_REQUEST) whose
+ * message is the engine reason — voice collapses to the single generic
+ * `invalid_or_expired` so callers probing codes learn nothing.
+ */
+export async function redeemInviteNative(
+  input: RedeemInviteInput,
+): Promise<Record<string, unknown>> {
+  const store = new ContactStore();
+
+  if (input.kind === "voice") {
+    const result = await redeemVoiceInvite({
+      callerExternalUserId: input.callerExternalUserId,
+      code: input.code,
+      store,
+    });
+    if (result.status === "failed") {
+      throw new InviteNativeError(result.reason, 400, "BAD_REQUEST");
+    }
+    log.info(
+      { inviteId: result.outcome.inviteId, type: result.status },
+      "redeem_invite(voice): handled natively",
+    );
+    return {
+      ok: true,
+      type: result.status,
+      memberId: result.outcome.contactId,
+      ...(result.status === "redeemed"
+        ? { inviteId: result.outcome.inviteId }
+        : {}),
+    };
+  }
+
+  const result = await redeemInviteByToken({
+    token: input.token,
+    sourceChannel: input.sourceChannel,
+    externalUserId: input.externalUserId,
+    externalChatId: input.externalChatId,
+    displayName: input.displayName,
+    username: input.username,
+    store,
+  });
+  if (result.status === "no_match" || result.status === "failed") {
+    // Token hashes are globally unique so the engine never yields no_match
+    // for a token; treat it as the same definitive invalid invite.
+    const reason = result.status === "failed" ? result.reason : "invalid_token";
+    throw new InviteNativeError(reason, 400, "BAD_REQUEST");
+  }
+
+  const row = store.getInviteById(result.outcome.inviteId);
+  if (!row) {
+    throw new InviteNativeError(
+      "Invite not found after redemption",
+      400,
+      "BAD_REQUEST",
+    );
+  }
+  log.info(
+    { inviteId: row.id, type: result.status },
+    "redeem_invite(token): handled natively",
+  );
+  return { ok: true, invite: sanitizeInviteRow(row), type: result.status };
+}
+
+/**
+ * Trigger the provider-specific outbound call for an invite. The gateway row
+ * is the lifecycle source of truth: the invite must exist, be `active`,
+ * unexpired, and be a phone invite with a bound caller number. The resolved
+ * call fields (number + display names) are relayed to the daemon, which only
+ * places the provider call. Returns the provider call sid. Throws
+ * InviteNativeError(404) when the invite id is unknown, InviteNativeError(400)
+ * when the invite isn't callable, InviteNativeError(500) on relay failure, and
+ * propagates an assistant IpcHandlerError unchanged.
  */
 export async function triggerInviteCallNative(
   inviteId: string,
 ): Promise<{ callSid: string }> {
-  const invite = new ContactStore().getInviteById(inviteId);
-  // Absent gateway row → legacy/assistant-only invite. Don't 404: fall through
-  // and relay; `handleTriggerInviteCall` validates its own assistant_ingress_invites
-  // row (active/inactive) and places the call or surfaces its own error.
-  if (invite && invite.status !== "active") {
+  const store = new ContactStore();
+  const invite = store.getInviteById(inviteId);
+  if (!invite) {
     throw new InviteNativeError(
-      `Invite "${inviteId}" is not active`,
+      `Invite "${inviteId}" not found`,
+      404,
+      "NOT_FOUND",
+    );
+  }
+  const liveness = ensureInviteLive(store, invite);
+  if (!liveness.live) {
+    throw new InviteNativeError(
+      liveness.reason === "expired"
+        ? `Invite "${inviteId}" has expired`
+        : `Invite "${inviteId}" is not active`,
+      400,
+      "BAD_REQUEST",
+    );
+  }
+  if (invite.sourceChannel !== "phone") {
+    throw new InviteNativeError(
+      "Only phone invites support call triggering",
+      400,
+      "BAD_REQUEST",
+    );
+  }
+  if (!invite.expectedExternalUserId) {
+    throw new InviteNativeError(
+      "Invite is missing required voice metadata",
       400,
       "BAD_REQUEST",
     );
   }
 
   try {
-    // `invites_trigger_call` reads the id from pathParams.id (the assistant IPC
-    // server spreads params into RouteHandlerArgs) — send pathParams, not body.
+    // `invites_trigger_call` reads params from RouteHandlerArgs (the assistant
+    // IPC server spreads params): pathParams.id for the route path, body for
+    // the resolved call fields.
     const result = (await ipcCallAssistant("invites_trigger_call", {
       pathParams: { id: inviteId },
+      body: {
+        phoneNumber: invite.expectedExternalUserId,
+        friendName: resolveInviteeName(store, invite),
+        guardianName: invite.guardianName ?? null,
+      },
     } as unknown as Record<string, unknown>)) as { callSid: string };
-    log.info({ inviteId, callSid: result.callSid }, "call_invite: handled natively");
+    log.info(
+      { inviteId, callSid: result.callSid },
+      "call_invite: handled natively",
+    );
     return { callSid: result.callSid };
   } catch (err) {
     if (err instanceof IpcHandlerError) {
@@ -654,6 +644,94 @@ function isChannelPolicy(v: unknown): v is ChannelPolicy {
 }
 
 /**
+ * Transport-agnostic channel status/policy write.
+ *
+ * Shared by the HTTP `handleUpdateContactChannel` and the gateway IPC
+ * `update_contact_channel` route. Validates status/policy, performs the
+ * gateway DB write (source of truth) via `ContactStore.updateChannelStatus`
+ * — which preserves the revoke-of-blocked guard and resolves assistant-side
+ * channel IDs via the (contactId, type, address) backward-compat path —
+ * best-effort mirrors into the assistant DB, emits `contacts_changed`, and
+ * returns the parent contact payload.
+ *
+ * Throws `ContactChannelNativeError` for client-facing failures (400 bad
+ * status/policy, 404 unknown channel, 409 revoke-of-blocked). Unexpected
+ * errors propagate so each transport surfaces a 500-equivalent — never a
+ * silent fallback.
+ */
+export async function updateContactChannelCore(params: {
+  contactChannelId: string;
+  status?: string;
+  policy?: string;
+  reason?: string | null;
+}): Promise<{ ok: true; contact?: Record<string, unknown> }> {
+  const { contactChannelId } = params;
+  const status = params.status;
+  const policy = params.policy;
+  const reason = params.reason ?? null;
+
+  if (status !== undefined && !isChannelStatus(status)) {
+    throw new ContactChannelNativeError(
+      `Invalid status "${status}". Must be one of: ${VALID_CHANNEL_STATUSES.join(", ")}`,
+      400,
+      "BAD_REQUEST",
+    );
+  }
+  if (policy !== undefined && !isChannelPolicy(policy)) {
+    throw new ContactChannelNativeError(
+      `Invalid policy "${policy}". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
+      400,
+      "BAD_REQUEST",
+    );
+  }
+  if (status === undefined && policy === undefined) {
+    throw new ContactChannelNativeError(
+      "At least one of status or policy must be provided",
+      400,
+      "BAD_REQUEST",
+    );
+  }
+
+  const store = new ContactStore();
+  let updated;
+  try {
+    updated = await store.updateChannelStatus(contactChannelId, {
+      status,
+      policy,
+      reason,
+    });
+  } catch (err) {
+    if (err instanceof CannotRevokeBlockedError) {
+      throw new ContactChannelNativeError(err.message, 409, "CONFLICT");
+    }
+    throw err;
+  }
+
+  if (!updated) {
+    throw new ContactChannelNativeError(
+      `Channel "${contactChannelId}" not found`,
+      404,
+      "NOT_FOUND",
+    );
+  }
+
+  // Emit contacts_changed so connected clients refresh.
+  void ipcCallAssistant("emit_event", {
+    body: { kind: "contacts_changed" },
+  } as unknown as Record<string, unknown>).catch(() => {});
+
+  const contact = await store.getContactWithInfo(updated.contactId);
+  log.info(
+    { contactChannelId, contactId: updated.contactId, status, policy },
+    "update_channel: handled natively",
+  );
+  return {
+    ok: true,
+    contact: contact ? toContactPayload(contact) : undefined,
+  };
+}
+
+/**
  * Validate that metadata matches the expected shape for the given species.
  * Mirrors `validateSpeciesMetadata` in `assistant/src/contacts/contact-store.ts`.
  */
@@ -673,6 +751,102 @@ function validateSpeciesMetadata(
   }
 
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// ACL overlay for daemon-forwarded (filtered/search) contact reads
+// ---------------------------------------------------------------------------
+//
+// The gateway DB is the ACL source of truth. The daemon's search /
+// contactType-filtered reads carry NEUTRAL ACL (role "contact", channels with
+// no status/policy/verified*/reason), so we overlay authoritative ACL onto the
+// forwarded body before returning.
+
+/** Copy the six ACL fields from a gateway ChannelAcl onto a daemon channel. */
+function applyChannelAcl(
+  channel: Record<string, unknown>,
+  acl: ChannelAcl,
+): void {
+  channel.status = acl.status;
+  channel.policy = acl.policy;
+  channel.verifiedAt = acl.verifiedAt;
+  channel.verifiedVia = acl.verifiedVia;
+  channel.revokedReason = acl.revokedReason;
+  channel.blockedReason = acl.blockedReason;
+}
+
+/**
+ * Logical channel key: (type, lower(address)) — mirrors the case-insensitive
+ * key the gateway ACL uses (UNIQUE(type, address) collates NOCASE). The
+ * escaped NUL delimiter cannot appear in either field, so keys never collide.
+ */
+function channelKey(type: string, address: string): string {
+  return `${type}\u0000${address.toLowerCase()}`;
+}
+
+/**
+ * Overlay authoritative gateway ACL onto a parsed daemon contact-list body
+ * (in place). For each contact, replace contact-level `role` and per-channel
+ * ACL fields from the gateway map. Channels match by `id` first, then by
+ * `(type, address)`; an unmatched channel keeps the daemon's ACL. A contact
+ * absent from the gateway map (dual-write gap) is left untouched + warned.
+ *
+ * Pure aside from the warn log; mutates the passed contacts array's elements.
+ */
+function overlayAclOntoContacts(
+  contacts: Array<Record<string, unknown>>,
+  aclByContactId: Map<string, ContactAcl>,
+): void {
+  for (const contact of contacts) {
+    const id = contact.id;
+    if (typeof id !== "string") continue;
+    const acl = aclByContactId.get(id);
+    if (!acl) {
+      // Dual-write gap: present in the daemon read but absent from the gateway
+      // ACL source of truth. Leave the daemon's ACL; don't drop the contact.
+      log.warn(
+        { contactId: id },
+        "overlayAclOntoContacts: contact missing from gateway ACL (dual-write gap); leaving daemon ACL",
+      );
+      continue;
+    }
+
+    contact.role = acl.role;
+
+    const channels = contact.channels;
+    if (!Array.isArray(channels)) continue;
+
+    // Index gateway channels by (type, lower(address)) for the id-miss fallback.
+    const byTypeAddress = new Map<string, ChannelAcl>();
+    for (const ch of acl.channels.values()) {
+      byTypeAddress.set(channelKey(ch.type, ch.address), ch);
+    }
+
+    for (const ch of channels) {
+      if (typeof ch !== "object" || ch === null) continue;
+      const channel = ch as Record<string, unknown>;
+      const chId = channel.id;
+      let match = typeof chId === "string" ? acl.channels.get(chId) : undefined;
+      if (!match) {
+        const type = channel.type;
+        const address = channel.address;
+        if (typeof type === "string" && typeof address === "string") {
+          match = byTypeAddress.get(channelKey(type, address));
+        }
+      }
+      if (match) applyChannelAcl(channel, match);
+    }
+  }
+}
+
+/** Locate the contacts array within the daemon `/v1/contacts` envelope. */
+function extractContactsArray(
+  body: unknown,
+): Array<Record<string, unknown>> | null {
+  if (typeof body !== "object" || body === null) return null;
+  const contacts = (body as Record<string, unknown>).contacts;
+  if (!Array.isArray(contacts)) return null;
+  return contacts as Array<Record<string, unknown>>;
 }
 
 export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
@@ -718,6 +892,63 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     });
   }
 
+  /**
+   * Forward the filtered/search contact list to the daemon, then overlay
+   * authoritative gateway-DB ACL onto the response body (role + per-channel
+   * status/policy/verified/reasons). The daemon owns filter/search + info;
+   * the gateway owns ACL (the daemon emits neutral ACL).
+   *
+   * SOFT-FAIL: if the upstream status isn't 2xx, the body isn't the expected
+   * JSON envelope, or the gateway ACL read throws — the ORIGINAL daemon bytes
+   * are returned unchanged (preserving status). The overlay never turns a
+   * working (if stale) read into a 500.
+   *
+   * Entity headers (content-length, content-encoding) are dropped on both
+   * paths: we always emit a freshly-serialized string body, so the runtime
+   * recomputes content-length — reusing the upstream length would truncate the
+   * (resized) overlaid body.
+   */
+  async function forwardListWithAclOverlay(
+    req: Request,
+    upstreamSearch: string,
+  ): Promise<Response> {
+    const upstream = await forward(req, "/v1/contacts", upstreamSearch);
+
+    // Capture the body once; we both read it for overlay and replay it raw on
+    // any soft-fail. A Response body can only be consumed once.
+    const text = await upstream.text();
+    const headers = new Headers(upstream.headers);
+    headers.delete("content-length");
+    headers.delete("content-encoding");
+    const respond = (payload: string) =>
+      new Response(payload, { status: upstream.status, headers });
+
+    if (upstream.status < 200 || upstream.status >= 300) {
+      return respond(text);
+    }
+
+    try {
+      const body = JSON.parse(text) as unknown;
+      const contacts = extractContactsArray(body);
+      if (!contacts) return respond(text);
+
+      const ids = contacts
+        .map((c) => c.id)
+        .filter((id): id is string => typeof id === "string");
+      const aclByContactId = await new ContactStore().getAclByContactIds(ids);
+
+      overlayAclOntoContacts(contacts, aclByContactId);
+
+      return respond(JSON.stringify(body));
+    } catch (err) {
+      log.warn(
+        { err },
+        "list_contacts: ACL overlay failed; returning daemon response unchanged",
+      );
+      return respond(text);
+    }
+  }
+
   return {
     // ── Contact CRUD ──
     /**
@@ -736,7 +967,8 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       const role = url.searchParams.get("role") ?? undefined;
       const contactType = url.searchParams.get("contactType") ?? undefined;
       const query = url.searchParams.get("query") ?? undefined;
-      const channelAddress = url.searchParams.get("channelAddress") ?? undefined;
+      const channelAddress =
+        url.searchParams.get("channelAddress") ?? undefined;
       const channelType = url.searchParams.get("channelType") ?? undefined;
 
       // Validate contactType before any proxy fallback.
@@ -752,11 +984,12 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         );
       }
 
-      // Search-style queries and contactType filter go through the daemon.
-      // contactType is an assistant-owned field — the gateway can't filter
-      // it without an assistant DB round-trip. The daemon handles it natively.
+      // Search-style queries and contactType filter go through the daemon
+      // (it owns filter/search + info/identity). The daemon emits NEUTRAL ACL,
+      // so overlay authoritative gateway-DB ACL onto the forwarded body before
+      // returning.
       if (query || channelAddress || channelType || contactType) {
-        return forward(req, "/v1/contacts", url.search);
+        return forwardListWithAclOverlay(req, url.search);
       }
 
       try {
@@ -774,7 +1007,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           contacts: contacts.map(toContactPayload),
         });
       } catch (err) {
-        log.error({ err }, "list_contacts: gateway-native read failed, falling back to proxy");
+        log.error(
+          { err },
+          "list_contacts: gateway-native read failed, falling back to proxy",
+        );
         return forward(req, "/v1/contacts", url.search);
       }
     },
@@ -1016,7 +1252,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         { contactId: contact.id, created },
         "upsert_contact: handled natively",
       );
-      return Response.json({ ok: true, contact });
+      // ACL (role/principalId, channel status/policy) is sourced from the
+      // gateway DB inside upsertContact's read-back, so this response reflects
+      // the just-written source of truth, not assistant-mirror defaults.
+      return Response.json({ ok: true, contact: toContactPayload(contact) });
     },
 
     /**
@@ -1058,18 +1297,48 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           assistantMetadata: assistantMetadata ?? undefined,
         });
       } catch (err) {
-        log.error({ err, contactId }, "get_contact: gateway-native read failed, falling back to proxy");
+        log.error(
+          { err, contactId },
+          "get_contact: gateway-native read failed, falling back to proxy",
+        );
         return forward(req, `/v1/contacts/${contactId}`);
       }
     },
 
     async handleDeleteContact(contactId: string): Promise<Response> {
-      const rows = await assistantDbQuery<{ role: string }>(
-        "SELECT role FROM contacts WHERE id = ?",
-        [contactId],
-      );
-      if (rows.length === 0) {
-        log.warn({ contactId }, "delete_contact: not found");
+      // The gateway DB is the source of truth for role + ACL, but the assistant
+      // DB is a best-effort mirror that can hold a contact the gateway never
+      // recorded (a dual-write gap on inbound seeding: the mirror row lands, then
+      // the gateway write is swallowed on error or a (type,address) conflict).
+      // The contacts list can surface such an orphan (search/filter reads fall
+      // back to the daemon), so resolve the contact in BOTH stores and delete it
+      // from whichever holds it; 404 only when it exists in neither. Channels
+      // cascade on delete in each DB.
+      const gatewayRow = getGatewayDb()
+        .select({ role: contacts.role })
+        .from(contacts)
+        .where(eq(contacts.id, contactId))
+        .get();
+
+      // Best-effort mirror lookup: if the assistant DB is unavailable, degrade
+      // to a gateway-only decision rather than failing the delete. The gateway
+      // DB is the source of truth; the mirror is only a cleanup target.
+      let inMirror = false;
+      try {
+        const probe = await probeContactMirror(contactId);
+        inMirror = probe.exists;
+      } catch (err) {
+        log.warn(
+          { err, contactId },
+          "delete_contact: mirror lookup failed (best-effort); proceeding with gateway-only check",
+        );
+      }
+
+      if (!gatewayRow && !inMirror) {
+        log.warn(
+          { contactId },
+          "delete_contact: not found in gateway or assistant DB",
+        );
         return Response.json(
           {
             error: {
@@ -1080,7 +1349,11 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           { status: 404 },
         );
       }
-      if (rows[0].role === "guardian") {
+
+      // Guardian role is gateway-DB source of truth. Guardians are always
+      // created gateway-first, so an absent gateway row is never a guardian; a
+      // gateway guardian row is protected regardless of the mirror state.
+      if (gatewayRow?.role === "guardian") {
         log.warn({ contactId }, "delete_contact: attempted to delete guardian");
         return Response.json(
           {
@@ -1092,12 +1365,30 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           { status: 403 },
         );
       }
-      await assistantDbRun("DELETE FROM contacts WHERE id = ?", [contactId]);
+
+      // Delete from both stores (a delete against the store lacking the row is a
+      // harmless no-op), so an assistant-only orphan is cleaned up and stops
+      // showing in the UI. The mirror delete is best-effort — the gateway
+      // (source of truth) delete below always applies, even if the mirror is
+      // unavailable.
+      try {
+        await ipcCallAssistant("contacts_mirror_delete_contact", {
+          body: { contactId },
+        });
+      } catch (err) {
+        log.warn(
+          { err, contactId },
+          "delete_contact: mirror delete failed (best-effort); gateway delete still applied",
+        );
+      }
       getGatewayDb().delete(contacts).where(eq(contacts.id, contactId)).run();
       void ipcCallAssistant("emit_event", {
         body: { kind: "contacts_changed" },
       } as unknown as Record<string, unknown>).catch(() => {});
-      log.info({ contactId }, "delete_contact: deleted");
+      log.info(
+        { contactId, gateway: !!gatewayRow, mirror: inMirror },
+        "delete_contact: deleted",
+      );
       return new Response(null, { status: 204 });
     },
 
@@ -1217,116 +1508,19 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
       const policy = body.policy as string | undefined;
       const reason = (body.reason as string | null | undefined) ?? null;
 
-      if (status !== undefined && !isChannelStatus(status)) {
-        return Response.json(
-          {
-            error: {
-              code: "BAD_REQUEST",
-              message: `Invalid status "${status}". Must be one of: ${VALID_CHANNEL_STATUSES.join(", ")}`,
-            },
-          },
-          { status: 400 },
-        );
-      }
-
-      if (policy !== undefined && !isChannelPolicy(policy)) {
-        return Response.json(
-          {
-            error: {
-              code: "BAD_REQUEST",
-              message: `Invalid policy "${policy}". Must be one of: ${VALID_CHANNEL_POLICIES.join(", ")}`,
-            },
-          },
-          { status: 400 },
-        );
-      }
-
-      if (status === undefined && policy === undefined) {
-        return Response.json(
-          {
-            error: {
-              code: "BAD_REQUEST",
-              message: "At least one of status or policy must be provided",
-            },
-          },
-          { status: 400 },
-        );
-      }
-
       try {
-        const store = new ContactStore();
-        const updated = await store.updateChannelStatus(contactChannelId, {
+        const result = await updateContactChannelCore({
+          contactChannelId,
           status,
           policy,
           reason,
         });
-
-        if (!updated) {
-          return Response.json(
-            {
-              error: {
-                code: "NOT_FOUND",
-                message: `Channel "${contactChannelId}" not found`,
-              },
-            },
-            { status: 404 },
-          );
-        }
-
-        // Best-effort dual-write to assistant DB.
-        const dualWriteParams: {
-          status?: string;
-          policy?: string;
-          revokedReason?: string | null;
-          blockedReason?: string | null;
-        } = {};
-        if (status !== undefined) {
-          dualWriteParams.status = status;
-          dualWriteParams.revokedReason =
-            status === "revoked" ? reason : null;
-          dualWriteParams.blockedReason =
-            status === "blocked" ? reason : null;
-        }
-        if (policy !== undefined) dualWriteParams.policy = policy;
-
-        try {
-          await store.dualWriteChannelStatusToAssistantDb(
-            contactChannelId,
-            dualWriteParams,
-          );
-        } catch (err) {
-          log.warn(
-            { contactChannelId, err },
-            "update_channel: assistant DB dual-write failed (best-effort)",
-          );
-        }
-
-        // Emit contacts_changed so connected clients refresh.
-        void ipcCallAssistant("emit_event", {
-          body: { kind: "contacts_changed" },
-        } as unknown as Record<string, unknown>).catch(() => {});
-
-        // Return the parent contact with info join, matching the daemon's
-        // response shape.
-        const contact = await store.getContactWithInfo(updated.contactId);
-        log.info(
-          { contactChannelId, contactId: updated.contactId, status, policy },
-          "update_channel: handled natively",
-        );
-        return Response.json({
-          ok: true,
-          contact: contact ? toContactPayload(contact) : undefined,
-        });
+        return Response.json(result);
       } catch (err) {
-        if (err instanceof CannotRevokeBlockedError) {
+        if (err instanceof ContactChannelNativeError) {
           return Response.json(
-            {
-              error: {
-                code: "CONFLICT",
-                message: err.message,
-              },
-            },
-            { status: 409 },
+            { error: { code: err.code, message: err.message } },
+            { status: err.statusCode },
           );
         }
         log.error(
@@ -1393,18 +1587,17 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     // ── Invite routes (gateway-native) ──
     //
     // The gateway DB's ingress_invites is the source of truth for invite
-    // lifecycle. Token mint, voice/token redemption, and outbound call relay
-    // to the assistant over IPC (token secrecy + voice UX are assistant-owned);
-    // the gateway records the canonical ACL-relevant lifecycle. None of these
-    // handlers fall back to `forward` on error — mutations 500 instead.
+    // lifecycle and secrets: mint and redemption are fully gateway-native.
+    // Outbound calls validate the gateway row then relay the provider call
+    // to the assistant. None of these handlers fall back to `forward` on
+    // error — mutations 500 instead.
 
     /**
      * GET /v1/contacts/invites — gateway-native invite list.
      *
-     * Reads invite rows from the gateway DB (source of truth) and best-effort
-     * joins voice UX fields (voiceCode digits, friendName, etc.) from the
-     * assistant DB keyed on invite id. If the assistant join throws, returns
-     * the gateway rows without voice fields (stale over lost).
+     * A single gateway-DB read: the ingress_invites row carries the voice UX
+     * fields (voiceCodeDigits, friendName, etc.) alongside lifecycle state.
+     * Rows are sanitized (no code/token hashes) before returning.
      */
     async handleListInvites(req: Request): Promise<Response> {
       const url = new URL(req.url);
@@ -1420,11 +1613,12 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     /**
      * POST /v1/contacts/invites — gateway-native invite create.
      *
-     * Inverted dual-write vs contacts: the assistant mints first (it owns
-     * token secrecy + voice UX, writes voice fields, returns the raw token +
-     * projection), then the gateway records the canonical lifecycle row in its
-     * own DB (source of truth for ACL). If the gateway write throws → 500, no
-     * fallback: the assistant row already existing is stale-over-lost.
+     * The gateway mints the secrets and writes the single canonical invite
+     * row in its own DB. The response carries the one-time plaintext secrets
+     * plus the daemon-owned presentation fields (share link, guardian
+     * instruction, channel handle), composed best-effort via the
+     * `invites_compose_presentation` daemon IPC — a daemon failure degrades
+     * to the raw minted payload rather than failing the create.
      */
     async handleCreateInvite(req: Request): Promise<Response> {
       let body: unknown;
@@ -1447,8 +1641,13 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
 
       try {
         const result = await createInviteNative(parsed.value);
+        const invite = await composePresentationBestEffort({
+          contactId: parsed.value.contactId,
+          invite: result.invite,
+          rawToken: result.rawToken,
+        });
         return Response.json(
-          { ok: true, invite: result.invite, rawToken: result.rawToken },
+          { ok: true, invite, rawToken: result.rawToken },
           { status: 201 },
         );
       } catch (err) {
@@ -1459,10 +1658,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     /**
      * POST /v1/contacts/invites/redeem — gateway-native invite redeem.
      *
-     * Voice and token redemption relay to the assistant (it owns the
-     * identity-bound voice code path + token hash lookup); the gateway mirrors
-     * the canonical redemption into its own DB (best-effort) so the invite
-     * lifecycle stays consistent.
+     * Voice-code and token redemption both run through the gateway
+     * redemption engine directly (redeemInviteNative); no assistant
+     * round-trip. Engine failures surface as 400 BAD_REQUEST with the
+     * engine reason; anything else is a 500.
      */
     async handleRedeemInvite(req: Request): Promise<Response> {
       let body: unknown;
@@ -1482,72 +1681,14 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
           { status: 400 },
         );
       }
-      const input = parsed.value;
 
-      // Thin relay: the assistant redemption service now owns the authoritative
-      // gateway claim (record_invite_redemption, by id, caller-scoped) for ALL
-      // paths — including this HTTP one, since it relays into the same assistant
-      // redeem handlers. Re-claiming here would double-count uses, so the gateway
-      // handler just parses, relays, and returns.
       try {
-        if (input.kind === "voice") {
-          const result = (await ipcCallAssistant("invites_redeem_voice", {
-            body: {
-              code: input.code,
-              callerExternalUserId: input.callerExternalUserId,
-              ...(input.assistantId ? { assistantId: input.assistantId } : {}),
-            },
-          } as unknown as Record<string, unknown>)) as {
-            type: string;
-            memberId?: string;
-            inviteId?: string;
-          };
-
-          log.info(
-            { type: result.type, inviteId: result.inviteId },
-            "redeem_invite(voice): relayed to assistant",
-          );
-          return Response.json({
-            ok: true,
-            type: result.type,
-            memberId: result.memberId,
-            ...(result.inviteId ? { inviteId: result.inviteId } : {}),
-          });
-        }
-
-        const result = (await ipcCallAssistant("invites_redeem_token", {
-          body: {
-            token: input.token,
-            sourceChannel: input.sourceChannel,
-            ...(input.externalUserId
-              ? { externalUserId: input.externalUserId }
-              : {}),
-            ...(input.externalChatId
-              ? { externalChatId: input.externalChatId }
-              : {}),
-          },
-        } as unknown as Record<string, unknown>)) as {
-          invite: { id: string };
-          type?: string;
-        };
-
-        log.info(
-          { inviteId: result.invite.id },
-          "redeem_invite(token): relayed to assistant",
-        );
-        return Response.json({
-          ok: true,
-          invite: result.invite,
-          ...(result.type ? { type: result.type } : {}),
-        });
+        return Response.json(await redeemInviteNative(parsed.value));
       } catch (err) {
-        if (err instanceof IpcHandlerError) {
-          return Response.json(
-            { error: { code: err.code, message: err.message } },
-            { status: err.statusCode },
-          );
+        if (err instanceof InviteNativeError) {
+          return inviteErrorResponse(err);
         }
-        log.error({ err }, "redeem_invite: relay failed");
+        log.error({ err }, "redeem_invite: native redemption failed");
         return Response.json(
           {
             error: {
@@ -1579,8 +1720,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     /**
      * DELETE /v1/contacts/invites/:id — gateway-native invite revoke.
      *
-     * Revokes the invite in the gateway DB (source of truth). 404 if the id
-     * is unknown. Best-effort mirror of the revoke into the assistant DB.
+     * A single gateway-DB UPDATE (source of truth). 404 if the id is unknown.
      */
     async handleRevokeInvite(
       _req: Request,

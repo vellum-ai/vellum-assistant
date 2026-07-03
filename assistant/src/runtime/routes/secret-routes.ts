@@ -21,11 +21,13 @@ import {
   getConfig,
   invalidateConfigCache,
 } from "../../config/loader.js";
+import { getCesClient } from "../../credential-execution/ces-runtime.js";
 import type { CesClient } from "../../credential-execution/client.js";
-import { maybeReseedCapabilitiesAfterManagedCredential } from "../../daemon/memory-v2-startup.js";
+import { evictConversationsForReload } from "../../daemon/conversation-store.js";
 import { setSentryOrganizationId, setSentryUserId } from "../../instrument.js";
-import { clearEmbeddingBackendCache } from "../../memory/embedding-backend.js";
 import { syncManualTokenConnection } from "../../oauth/manual-token-connection.js";
+import { clearEmbeddingBackendCache } from "../../persistence/embeddings/embedding-backend.js";
+import { maybeReseedCapabilitiesAfterManagedCredential } from "../../plugins/defaults/memory/v2/memory-v2-startup.js";
 import { validateAnthropicApiKey } from "../../providers/anthropic/client.js";
 import { validateAtlasCloudApiKey } from "../../providers/atlascloud/client.js";
 import { validateGeminiApiKey } from "../../providers/gemini/client.js";
@@ -49,7 +51,6 @@ import {
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
-import { getSecretsDeps } from "./secrets-deps.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("runtime-http");
@@ -124,15 +125,16 @@ async function refreshProvidersAfterSecretChange(): Promise<void> {
   invalidateConfigCache();
   await initializeProviders(getConfig());
 
-  const deps = getSecretsDeps();
-  if (!deps?.onProviderCredentialsChanged) return;
-
+  // Provider instances are captured when conversations are created, so a key
+  // change must evict or mark them stale before the next turn. Best-effort:
+  // the credential write has already succeeded, so a disposal failure must not
+  // surface as a 500 that makes clients think the secret change failed.
   try {
-    await deps.onProviderCredentialsChanged();
+    evictConversationsForReload();
   } catch (err) {
     log.warn(
       { error: err instanceof Error ? err.message : String(err) },
-      "Error notifying provider credentials change (non-fatal)",
+      "Error evicting conversations after credential change (non-fatal)",
     );
   }
 }
@@ -303,8 +305,7 @@ async function handleAddSecret({ body }: RouteHandlerArgs) {
         void maybeReseedCapabilitiesAfterManagedCredential(getConfig());
         if (service === "vellum" && field === "assistant_api_key") {
           const generation = ++apiKeyGeneration;
-          const deps = getSecretsDeps();
-          const cesClient = deps?.getCesClient?.();
+          const cesClient = getCesClient();
           if (cesClient) {
             if (cesClient.isReady()) {
               try {

@@ -2,8 +2,9 @@ import { Loader2, RotateCcw } from "lucide-react";
 import { useState } from "react";
 
 import { restartAssistant } from "@/assistant/api";
-import { getLockfile, isLocalAssistant, isLocalMode } from "@/lib/local-mode";
+import { isCliWakeableAssistant } from "@/lib/local-mode";
 import {
+  isLocalModeHostAvailable,
   sleepLocalAssistantHost,
   wakeLocalAssistantHost,
 } from "@/runtime/local-mode-host";
@@ -25,7 +26,13 @@ async function restartLocalAssistant(
   return { ok: true };
 }
 
-export function RestartAssistant({ assistantId }: { assistantId: string }) {
+export function RestartAssistant({
+  assistantId,
+  isLocal,
+}: {
+  assistantId: string;
+  isLocal: boolean;
+}) {
   const [restarting, setRestarting] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
 
@@ -33,10 +40,15 @@ export function RestartAssistant({ assistantId }: { assistantId: string }) {
     setConfirmOpen(false);
     setRestarting(true);
     try {
-      const lockfileEntry = isLocalMode()
-        ? getLockfile().assistants.find((a) => a.assistantId === assistantId)
-        : undefined;
-      const isCli = !!lockfileEntry && isLocalAssistant(lockfileEntry);
+      // A platform-hosted assistant (`is_local === false`) is always restarted
+      // through the platform API — running the local CLI sleep/wake against it
+      // would target a non-existent on-machine assistant. The CLI path is only
+      // taken for a local-kind assistant when a host is present to run it and
+      // wake operates on it. Mirrors the web-UI restart behavior.
+      const isCli =
+        isLocal &&
+        isLocalModeHostAvailable() &&
+        isCliWakeableAssistant(assistantId);
 
       if (isCli) {
         const result = await restartLocalAssistant(assistantId);

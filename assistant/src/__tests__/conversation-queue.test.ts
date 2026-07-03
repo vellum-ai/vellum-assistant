@@ -148,7 +148,9 @@ mock.module("../security/secret-allowlist.js", () => ({
   resetAllowlist: () => {},
 }));
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   updateConversationContextWindow: () => {},
@@ -200,14 +202,14 @@ mock.module("../memory/conversation-crud.js", () => ({
   updateMessageContent: mock(() => {}),
 }));
 
-mock.module("../memory/conversation-queries.js", () => ({
+mock.module("../persistence/conversation-queries.js", () => ({
   listConversations: () => [],
 }));
 
 let linkAttachmentShouldThrow = false;
 let mockAttachmentIdCounter = 0;
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   AttachmentUploadError: class AttachmentUploadError extends Error {},
   uploadAttachment: () => ({ id: `att-${Date.now()}` }),
   linkAttachmentToMessage: () => {
@@ -304,7 +306,7 @@ interface CapturedUsageEvent {
 
 let capturedUsageEvents: CapturedUsageEvent[] = [];
 
-mock.module("../memory/llm-usage-store.js", () => ({
+mock.module("../persistence/llm-usage-store.js", () => ({
   recordUsageEvent: (input: { requestId: string | null; actor: string }) => {
     capturedUsageEvents.push({
       requestId: input.requestId,
@@ -389,7 +391,7 @@ mock.module("../agent/loop.js", () => ({
     }
   },
 }));
-mock.module("../memory/canonical-guardian-store.js", () => ({
+mock.module("../contacts/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],
   listPendingRequestsByConversationScope: () => [],
@@ -679,6 +681,49 @@ describe("Conversation message queue", () => {
     expect(events3.some((e) => e.type === "message_complete")).toBe(true);
   });
 
+  test("[experimental] queued passthrough siblings from different client OS do NOT batch", async () => {
+    // Post-decouple, web/iOS/macOS all report interfaceId "web", so the
+    // interface-based batch split no longer separates them. A batched turn
+    // applies only the head's clientOs, so messages from different OS surfaces
+    // must split into separate runs rather than coalesce under one OS.
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: () => {},
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // Two siblings on the same transport interface ("web") but different OS.
+    conversation.enqueueMessage({
+      content: "msg-2",
+      onEvent: () => {},
+      requestId: "req-2",
+      transport: { channelId: "vellum", interfaceId: "web", clientOs: "macos" },
+    });
+    conversation.enqueueMessage({
+      content: "msg-3",
+      onEvent: () => {},
+      requestId: "req-3",
+      transport: { channelId: "vellum", interfaceId: "web", clientOs: "ios" },
+    });
+    expect(conversation.getQueueDepth()).toBe(2);
+
+    // Drain: msg-2 (macos) is the batch head; msg-3 (ios) has a different
+    // clientOs, so it must NOT join the batch.
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+    await resolveRun(1);
+    await waitForPendingRun(3);
+
+    // Three runs total (msg-1, msg-2, msg-3) — msg-3 was not batched with msg-2.
+    expect(pendingRuns.length).toBe(3);
+  });
+
   test("message_queued and message_dequeued events are emitted", async () => {
     const conversation = makeConversation();
     await conversation.loadFromDb();
@@ -782,6 +827,13 @@ describe("Conversation message queue", () => {
       (e) => e.type === "conversation_error",
     );
     expect(conversationErr3).toBeUndefined();
+
+    // Settle the aborted in-flight run so its abort watchdog clears the
+    // real-time timer it armed. A leaked ~5s timer otherwise fires during a
+    // later test and drives this stale turn into commitTurnChanges, inflating
+    // the shared turnCommitCalls counter that other tests assert against.
+    await resolveRun(0);
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("conversation-scoped errors emit both conversation_error and generic error", async () => {
@@ -1263,8 +1315,11 @@ describe("Batched drain", () => {
     await conversation.loadFromDb();
 
     const budget = 4000;
-    (conversation as unknown as { queue: MessageQueue }).queue =
-      new MessageQueue(budget);
+    (
+      conversation as unknown as {
+        queue: MessageQueue;
+      }
+    ).queue = new MessageQueue(budget);
 
     // Start in-flight so subsequent enqueues are queued (not processed).
     const p1 = conversation.processMessage({
@@ -2753,6 +2808,13 @@ describe("Regression: cancel semantics and error channel split", () => {
       );
       expect(conversationErr).toBeUndefined();
     }
+
+    // Settle the aborted in-flight run so its abort watchdog clears the
+    // real-time timer it armed. A leaked ~5s timer otherwise fires during a
+    // later test and drives this stale turn into commitTurnChanges, inflating
+    // the shared turnCommitCalls counter that other tests assert against.
+    await resolveRun(0);
+    await new Promise((r) => setTimeout(r, 10));
   });
 
   test("commitTurnChanges never resolving within budget -> turn still completes and drains queue", async () => {
@@ -2909,5 +2971,229 @@ describe("MessageQueue byte budget", () => {
     expect(
       q.push(makeItem("y".repeat(100), "r2", [{ data: "b".repeat(100) }])),
     ).toBe(false);
+  });
+});
+
+describe("subagent notification user_message_echo suppression", () => {
+  beforeEach(() => {
+    pendingRuns = [];
+    capturedAddMessages.length = 0;
+  });
+
+  test("drained subagent-notification message persists and wakes the agent but emits no user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const eventsNotif: ServerMessage[] = [];
+
+    // Occupy the conversation so the injected notification queues.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+    expect(conversation.isProcessing()).toBe(true);
+
+    // A daemon-injected subagent completion notification carries
+    // `subagentNotification` metadata.
+    conversation.enqueueMessage({
+      content: '[Subagent "research" completed]',
+      onEvent: (e) => eventsNotif.push(e),
+      requestId: "req-notif",
+      metadata: {
+        subagentNotification: {
+          subagentId: "sub-1",
+          label: "research",
+          status: "completed",
+        },
+      },
+    });
+
+    // Resolving the first run drains the queued notification.
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // It is still persisted (so the orchestrator LLM sees it in the transcript)
+    // and still wakes the agent (a run was created for the drained message)...
+    expect(
+      capturedAddMessages.some((m) => m.content.includes("Subagent")),
+    ).toBe(true);
+    expect(pendingRuns.length).toBe(2);
+    // ...but no user_message_echo is broadcast, so the client never renders it
+    // as a live user bubble.
+    expect(eventsNotif.some((e) => e.type === "user_message_echo")).toBe(false);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("drained ordinary message still emits user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const eventsNormal: ServerMessage[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "ordinary message",
+      onEvent: (e) => eventsNormal.push(e),
+      requestId: "req-normal",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    expect(eventsNormal.some((e) => e.type === "user_message_echo")).toBe(true);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("drained hidden message persists with hidden metadata and emits no user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const eventsHidden: ServerMessage[] = [];
+
+    // Occupy the conversation so the hidden send queues — e.g. the user
+    // closes the channel-setup wizard while the assistant is mid-turn.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // A hidden `POST /messages` send carries `hidden: true` metadata through
+    // the queue branch (see conversation-routes.ts).
+    conversation.enqueueMessage({
+      content:
+        "[User action on channel_setup surface: closed the slack setup wizard]",
+      onEvent: (e) => eventsHidden.push(e),
+      requestId: "req-hidden",
+      metadata: { hidden: true },
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Persisted with the hidden flag so the transcript filter keeps it out
+    // of the rendered history...
+    const persisted = capturedAddMessages.find((m) =>
+      m.content.includes("channel_setup"),
+    );
+    expect(persisted?.metadata?.hidden).toBe(true);
+    // ...the agent still wakes on it...
+    expect(pendingRuns.length).toBe(2);
+    // ...and no user_message_echo is broadcast, so no visible user bubble.
+    expect(eventsHidden.some((e) => e.type === "user_message_echo")).toBe(
+      false,
+    );
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("drained acp-notification message persists and wakes the agent but emits no user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const eventsNotif: ServerMessage[] = [];
+
+    // Occupy the conversation so the injected notification queues.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // A daemon-injected ACP completion notification carries `acpNotification`.
+    conversation.enqueueMessage({
+      content: '[ACP agent "claude" completed]',
+      onEvent: (e) => eventsNotif.push(e),
+      requestId: "req-acp-notif",
+      metadata: {
+        acpNotification: { acpSessionId: "acp-1", agent: "claude" },
+      },
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Still persisted (so the orchestrator LLM sees it) and still wakes the
+    // agent...
+    expect(
+      capturedAddMessages.some((m) => m.content.includes("ACP agent")),
+    ).toBe(true);
+    expect(pendingRuns.length).toBe(2);
+    // ...but no user_message_echo, so the client never renders a live bubble.
+    expect(eventsNotif.some((e) => e.type === "user_message_echo")).toBe(false);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("drained background-tool wake message persists and wakes the agent but emits no user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const eventsNotif: ServerMessage[] = [];
+
+    // Occupy the conversation so the injected wake queues.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // The backgrounded bash/host_bash completion wake persists a
+    // `<background_event source="background-tool">` row, tagged with the
+    // `backgroundEventSource` metadata `persistWakeTriggerMessage` writes.
+    conversation.enqueueMessage({
+      content:
+        '<background_event source="background-tool">Background command completed (id=bg-1, exit=0):</background_event>',
+      onEvent: (e) => eventsNotif.push(e),
+      requestId: "req-bg-notif",
+      metadata: { backgroundEventSource: "background-tool" },
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Still persisted (so the orchestrator LLM sees it) and still wakes the
+    // agent...
+    expect(
+      capturedAddMessages.some((m) => m.content.includes("background_event")),
+    ).toBe(true);
+    expect(pendingRuns.length).toBe(2);
+    // ...but no user_message_echo, so the client never renders a live bubble.
+    expect(eventsNotif.some((e) => e.type === "user_message_echo")).toBe(false);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
   });
 });

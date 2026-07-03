@@ -52,9 +52,14 @@ mock.module("../providers/inference/connections.js", () => ({
   seedCanonicalConnections: () => {},
 }));
 
-mock.module("../memory/db-connection.js", () => ({
+mock.module("../persistence/db-connection.js", () => ({
   getDb: () => ({
-    select: () => ({ from: () => ({ where: () => ({ get: () => null, all: () => [] }), all: () => [] }) }),
+    select: () => ({
+      from: () => ({
+        where: () => ({ get: () => null, all: () => [] }),
+        all: () => [],
+      }),
+    }),
     insert: () => ({ values: () => ({ run: () => {} }) }),
   }),
 }));
@@ -117,7 +122,10 @@ function makeConfig(overrides?: Record<string, unknown>) {
         provider: "gemini",
         model: "gemini-3.1-flash-image-preview",
       },
-      "web-search": { mode: "your-own" as const, provider: "inference-provider-native" },
+      "web-search": {
+        mode: "your-own" as const,
+        provider: "inference-provider-native",
+      },
     },
     llm: {
       ...baseLlm,
@@ -231,9 +239,8 @@ describe("inference-no-mode-boot-e2e: config without services.inference.mode", (
 
   test("tryResolveProviderForConnectionName throws not_found for an unseed managed connection", async () => {
     // anthropic-managed is not in mockGetConnection (simulates PR-D not yet run).
-    const { tryResolveProviderForConnectionName } = await import(
-      "../providers/connection-resolution.js"
-    );
+    const { tryResolveProviderForConnectionName } =
+      await import("../providers/connection-resolution.js");
 
     await expect(
       tryResolveProviderForConnectionName("anthropic-managed", makeConfig()),

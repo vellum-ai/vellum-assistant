@@ -10,16 +10,16 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
 mock.module("../config/env.js", () => ({ isHttpAuthDisabled: () => true }));
 
-import type { Conversation } from "../daemon/conversation.js";
-import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
+} from "../contacts/canonical-guardian-store.js";
+import type { Conversation } from "../daemon/conversation.js";
+import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
   getConversationByKey,
   getOrCreateConversation,
-} from "../memory/conversation-key-store.js";
+} from "../persistence/conversation-key-store.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 
 mock.module("../util/logger.js", () => ({
@@ -109,19 +109,40 @@ mock.module("../daemon/approval-generators.js", () => ({
   createApprovalConversationGenerator: () => _approvalGenerator,
 }));
 
-// Mock local-actor-identity to return a stable guardian context that uses
-// the same principal as the canonical requests created in tests.
+// Dev-bypass resolves the real guardian principal, then runs the real
+// local-principal trust mapper against the gateway delivery read.
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalTrustContext: () => ({
-    sourceChannel: "vellum",
-    trustClass: "guardian",
-    guardianPrincipalId: "test-principal-id",
-    guardianExternalUserId: "test-principal-id",
-  }),
+  findLocalGuardianPrincipalId: async () => "test-principal-id",
 }));
 
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+// Mock the IPC transport rather than local-principal-trust.js so the sibling
+// resolver unit test (which mocks guardian-delivery-reader, not ipcCall) isn't
+// shadowed when both files run in one Bun process. resolve_guardian_delivery
+// returns a single active vellum guardian whose principal matches the
+// dev-bypass-resolved id; any other method throws so unexpected IPC surfaces.
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCall: async (method: string) => {
+    if (method === "resolve_guardian_delivery") {
+      return {
+        guardians: [
+          {
+            channelType: "vellum",
+            contactId: "test-contact-id",
+            principalId: "test-principal-id",
+            address: "test-principal-id",
+            externalChatId: "test-principal-id",
+            status: "active",
+          },
+        ],
+      };
+    }
+    throw new Error(`Unexpected ipcCall in test: ${method}`);
+  },
+}));
+
+import { __resetGuardianDeliveryCacheForTest } from "../contacts/guardian-delivery-reader.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 import type { ApprovalConversationGenerator } from "../runtime/http-types.js";
@@ -343,6 +364,7 @@ describe("POST /v1/messages — queue-if-busy and hub publishing", () => {
     db.run("DELETE FROM contact_channels");
     db.run("DELETE FROM contacts");
     pendingInteractions.clear();
+    __resetGuardianDeliveryCacheForTest();
 
     createGuardianBinding({
       channel: "vellum",

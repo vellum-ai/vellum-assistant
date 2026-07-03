@@ -57,40 +57,8 @@ describe("sanitizeDisplayMessages", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Hack #1 — timestamp sort
+// Invalid (blank / phantom) row filter
 // ---------------------------------------------------------------------------
-
-describe("sanitizeDisplayMessages · timestamp sort", () => {
-  // These tests intentionally interleave user / assistant rows so the trailing
-  // assistant-duplicate hack (#3) never fires and we observe the sort in
-  // isolation.
-  test("orders timestamped messages ascending", () => {
-    const messages: DisplayMessage[] = [
-      makeMessage({ id: "c", role: "user", ...textBody("c"), timestamp: 300 }),
-      makeMessage({ id: "a", role: "user", ...textBody("a"), timestamp: 100 }),
-      makeMessage({ id: "b", role: "user", ...textBody("b"), timestamp: 200 }),
-    ];
-    const result = sanitizeDisplayMessages(messages);
-    expect(result.map((m) => m.id)).toEqual(["a", "b", "c"]);
-  });
-
-  test("rows without a timestamp keep their original slot", () => {
-    const messages: DisplayMessage[] = [
-      makeMessage({ id: "later-ts", role: "user", ...textBody("x"), timestamp: 200 }),
-      makeMessage({ id: "no-ts", role: "user", ...textBody("y") }),
-      makeMessage({ id: "earlier-ts", role: "user", ...textBody("z"), timestamp: 100 }),
-    ];
-    const result = sanitizeDisplayMessages(messages);
-    expect(result.map((m) => m.id)).toEqual([
-      "earlier-ts",
-      "no-ts",
-      "later-ts",
-    ]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Hack #2 — invalid (blank / phantom) row filter
 // ---------------------------------------------------------------------------
 
 describe("sanitizeDisplayMessages · invalid row filter", () => {
@@ -930,8 +898,8 @@ describe("sanitizeDisplayMessages · fail stale tool calls", () => {
 // ---------------------------------------------------------------------------
 
 describe("sanitizeDisplayMessages · integration", () => {
-  test("sort → invalid filter → trailing-dup drop → dangling-tool repair runs in order", () => {
-    // Construct a messy input that exercises all four hacks at once.
+  test("invalid filter → trailing-dup drop → dangling-tool repair runs in order", () => {
+    // Construct an input that exercises the composing render-layer hacks.
     const phantom = makeMessage({
       id: "phantom",
       role: "user",
@@ -973,24 +941,23 @@ describe("sanitizeDisplayMessages · integration", () => {
       timestamp: 200,
     });
 
-    // Insertion order is intentionally jumbled to make sure the sort runs
-    // first; `server` precedes `orphan` in the input because the sort is
-    // stable on equal timestamps and the production duplicate-emission
-    // order is "server row first, orphan row second".
+    // Input is in render order — the seam no longer sorts. `server` precedes
+    // `orphan` because the production duplicate emission is "server row first,
+    // orphan row second", which the trailing-duplicate filter relies on.
     const result = sanitizeDisplayMessages([
       phantom,
+      userTurn,
+      olderWithDangling,
       server,
       orphan,
-      olderWithDangling,
-      userTurn,
     ]);
 
     // Expect:
-    //   - phantom dropped by hack #2,
-    //   - rows sorted by timestamp (user → olderWithDangling → server → orphan),
-    //   - trailing orphan dropped by hack #3 (matches `server` on text + tool calls),
-    //   - olderWithDangling's running tool call patched by hack #4 because
-    //     `server` is a later assistant.
+    //   - phantom dropped by the invalid-row filter,
+    //   - trailing orphan dropped by the duplicate-trailing-assistant filter
+    //     (matches `server` on text + tool calls),
+    //   - olderWithDangling's running tool call patched by the dangling-tool
+    //     repair because `server` is a later assistant.
     expect(result.map((m) => m.id)).toEqual([
       "user",
       "older",

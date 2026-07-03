@@ -11,8 +11,10 @@ export const INFERENCE_PROVIDERS = [
   "anthropic",
   "openai",
   "fireworks",
+  "together",
   "openrouter",
   "gemini",
+  "ollama",
   "minimax",
   "atlascloud",
 ] as const;

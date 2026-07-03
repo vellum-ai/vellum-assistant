@@ -7,7 +7,6 @@ import { join } from "path";
 import {
   extractHostFromUrl,
   resolveAssistant,
-  resolveCloud,
   type AssistantEntry,
 } from "../lib/assistant-config";
 import { dockerResourceNames } from "../lib/docker";
@@ -589,7 +588,7 @@ export async function logs(): Promise<void> {
     process.exit(1);
   }
 
-  const cloud = resolveCloud(entry);
+  const cloud = entry.cloud;
 
   switch (cloud) {
     case "local":

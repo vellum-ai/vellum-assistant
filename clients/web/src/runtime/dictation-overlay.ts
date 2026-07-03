@@ -1,7 +1,7 @@
 /**
  * Runtime wrapper for the dictation overlay bridge surface.
  *
- * The Electron main process owns a system-wide, click-through panel pinned
+ * The Electron main process owns a system-wide panel pinned
  * top-center of the active display that shows the user's words live while
  * they dictate via push-to-talk into another app (the Electron port of the
  * native Swift client's `DictationOverlayWindow`).
@@ -53,4 +53,23 @@ export async function getDictationOverlayState(): Promise<DictationOverlayState 
     return null;
   }
   return window.vellum.dictationOverlay.getState();
+}
+
+export function requestDictationOverlayStop(): void {
+  if (!isElectron()) return;
+  window.vellum?.dictationOverlay?.requestStop?.();
+}
+
+export function subscribeToDictationOverlayStop(
+  callback: () => void,
+): () => void {
+  if (!isElectron() || !window.vellum?.dictationOverlay?.onStopRequested) {
+    return () => undefined;
+  }
+  return window.vellum.dictationOverlay.onStopRequested(callback);
+}
+
+export function setDictationOverlayInteractive(interactive: boolean): void {
+  if (!isElectron()) return;
+  window.vellum?.dictationOverlay?.setInteractive?.(interactive);
 }

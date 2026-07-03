@@ -140,6 +140,11 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
     return isAnthropicModel(this.defaultModel) ? "anthropic" : this.name;
   }
 
+  /** See {@link Provider.supportsNativeWebSearch}. Set per model at construction. */
+  get supportsNativeWebSearch(): boolean {
+    return this.useNativeWebSearch;
+  }
+
   override async sendMessage(
     messages: Message[],
     options?: SendMessageOptions,

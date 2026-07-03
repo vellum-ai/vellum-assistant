@@ -54,21 +54,22 @@ mock.module("../config/loader.js", () => ({
 }));
 
 // Mock Twilio provider to avoid real API calls
+class MockTwilioVoiceProvider {
+  static getAuthToken() {
+    return "mock-auth-token";
+  }
+  static verifyWebhookSignature() {
+    return true;
+  }
+  async initiateCall() {
+    return { callSid: "CA_mock_sid_123" };
+  }
+  async endCall() {
+    return;
+  }
+}
 mock.module("../calls/twilio-provider.js", () => ({
-  TwilioConversationRelayProvider: class {
-    static getAuthToken() {
-      return "mock-auth-token";
-    }
-    static verifyWebhookSignature() {
-      return true;
-    }
-    async initiateCall() {
-      return { callSid: "CA_mock_sid_123" };
-    }
-    async endCall() {
-      return;
-    }
-  },
+  TwilioVoiceProvider: MockTwilioVoiceProvider,
 }));
 
 // Mock Twilio config
@@ -103,9 +104,9 @@ import {
   createPendingQuestion,
   updateCallSession,
 } from "../calls/call-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { conversations } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { conversations } from "../persistence/schema/index.js";
 import { RuntimeHttpServer } from "../runtime/http-server.js";
 
 import "../calls/call-state.js";

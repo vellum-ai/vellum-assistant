@@ -2,7 +2,6 @@ import {
     lazy,
     useCallback,
     useEffect,
-    useMemo,
     useRef,
     useState,
     type ReactNode,
@@ -11,7 +10,6 @@ import { Outlet, useLocation, useNavigate, useNavigationType } from "react-route
 
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
-import { useAssistantIdentityInit } from "@/hooks/use-assistant-identity-init";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
 import { routes } from "@/utils/routes";
@@ -25,6 +23,7 @@ import {
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
 
+import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking";
 import { useChatLayoutDrawer } from "@/domains/chat/hooks/use-chat-layout-drawer";
 import { useChatLayoutShortcuts } from "@/domains/chat/hooks/use-chat-layout-shortcuts";
@@ -53,6 +52,7 @@ import type { Conversation } from "@/types/conversation-types";
 import { requestComposerFocus } from "./composer-focus";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
+import { RuntimeUpgradeBanner } from "@/components/runtime-upgrade-banner";
 import { StatusBanner } from "@/components/status-banner";
 import { AssistantSideMenu } from "@/domains/chat/components/assistant-side-menu";
 import { PreferencesMenu } from "@/domains/chat/components/preferences-menu";
@@ -60,6 +60,7 @@ import { useCommandPaletteOrchestrator } from "@/domains/chat/hooks/use-command-
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/research-results-overlay";
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
+import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
@@ -126,6 +127,10 @@ export function ChatLayout() {
   // toggles — otherwise a suggestion click's navigate + `?prompt=` auto-send
   // gets raced by the remount and the message is lost.
   const isFocused = useOnboardingFocusStore.use.focused();
+  const sidebarCollapseRequested =
+    useOnboardingFocusStore.use.sidebarCollapseRequested();
+  const consumeSidebarCollapse =
+    useOnboardingFocusStore.use.consumeSidebarCollapse();
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantStateKind = useAssistantLifecycleStore(
@@ -165,16 +170,6 @@ export function ChatLayout() {
       assistantId,
       conversationGroups,
     });
-
-  // Hydrate the sidebar assistant name at the layout level so the
-  // sidebar header shows the correct name on every chat-layout child
-  // route — not only inside a conversation where ChatPage owns the
-  // fetch.
-  useAssistantIdentityInit({
-    assistantId,
-    assistantStateKind,
-  });
-
 
   // Home page unread indicator — drives the red dot on the Home button in
   // the layout header.
@@ -243,7 +238,10 @@ export function ChatLayout() {
     navigate(1);
   }, [navigate]);
 
-  const isHomeActive = location.pathname === routes.home;
+  const isHomeActive =
+    location.pathname === routes.home ||
+    location.pathname === routes.schedules.root ||
+    location.pathname.startsWith(`${routes.schedules.root}/`);
   const isIdentityActive =
     location.pathname === routes.identity ||
     location.pathname === routes.skills ||
@@ -270,6 +268,18 @@ export function ChatLayout() {
     if (!isMobile) setDrawerOpen(false);
   }, [isMobile]);
 
+  useEffect(() => {
+    if (!sidebarCollapseRequested) return;
+    // One-shot: research-onboarding asked us to open with the side panel
+    // collapsed across the whole web experience (not just desktop). Collapse
+    // the desktop sidebar — `setCollapsed(true)` flows through the persistence
+    // effect above, so this intentionally sets the user's persisted collapsed
+    // preference — AND close the mobile drawer, then clear the signal.
+    setCollapsed(true);
+    setDrawerOpen(false);
+    consumeSidebarCollapse();
+  }, [sidebarCollapseRequested, consumeSidebarCollapse]);
+
   const drawerVisible = isMobile && drawerOpen;
 
   const toggleSidebar = useCallback(() => {
@@ -283,10 +293,18 @@ export function ChatLayout() {
 
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
 
+  const startNewConversation = useCallback(
+    (opts?: { silent?: boolean }) => {
+      navigateToNewConversation(navigate, opts);
+    },
+    [navigate],
+  );
+
   useChatLayoutShortcuts({
     toggleSidebar,
     onGoBack: handleGoBack,
     onGoForward: handleGoForward,
+    onNewConversation: startNewConversation,
   });
 
   const drawerRef = useChatLayoutDrawer({
@@ -316,13 +334,6 @@ export function ChatLayout() {
   // where ChatPage is mounted.
   const prePinGroupIdsRef = useRef<Map<string, string | undefined>>(new Map());
 
-  const startNewConversation = useCallback(
-    (opts?: { silent?: boolean }) => {
-      navigateToNewConversation(navigate, opts);
-    },
-    [navigate],
-  );
-
   const {
     handleArchiveConversation,
     handleUnarchiveConversation,
@@ -342,10 +353,19 @@ export function ChatLayout() {
     prePinGroupIdsRef,
   });
 
-  const activeConversation = useMemo(
-    () => conversations.find((c) => c.conversationId === activeConversationId) ?? null,
-    [conversations, activeConversationId],
-  );
+  // Resolve the active row from whichever list cache holds it (foreground,
+  // background, or scheduled), fetching the single row when an open
+  // background/scheduled thread is in none. The foreground `conversations`
+  // list deliberately excludes background jobs, so a directly-opened
+  // background conversation — e.g. a memory retrospective ("… (Retrospective)")
+  // — is absent from it and the header would otherwise fall back to "New
+  // conversation". `ActiveChatView` resolves its copy through the same hook.
+  const activeConversation =
+    useActiveConversation(
+      assistantId,
+      activeConversationId,
+      isAssistantActive,
+    ) ?? null;
 
   const topBarCenter = topBarCenterSlot ?? (headerSupplements ? (
     <ChatConversationHeader
@@ -614,7 +634,16 @@ export function ChatLayout() {
         />
       )}
 
-      {!isPopout && electron ? <StatusBanner placement="electron" /> : null}
+      {!isPopout && electron ? (
+        <div className="flex shrink-0 flex-col gap-2 empty:hidden">
+          <StatusBanner placement="electron" />
+          <RuntimeUpgradeBanner
+            assistantId={assistantId}
+            currentVersion={assistantVersion}
+            placement="electron"
+          />
+        </div>
+      ) : null}
 
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
@@ -682,6 +711,9 @@ export function ChatLayout() {
           shown over the streaming research output until connect/skip. Self-gates
           on `checkinPending`; top-level so it can compose the onboarding screen. */}
       <OnboardingCheckinOverlay />
+      {/* Applies the research-onboarding picker's avatar once the assistant is
+          hatched (avatar isn't part of the pre-chat handoff context). */}
+      <OnboardingAvatarApplier />
 
       <RenameDialogFromStore assistantId={assistantId} />
       {commandPalette.isOpen ? (

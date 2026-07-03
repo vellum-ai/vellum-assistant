@@ -48,7 +48,7 @@ mock.module("../config/loader.js", () => ({
 const mockMessages: Array<{ id: string; role: string; content: string }> = [];
 let mockMessageIdCounter = 0;
 
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   updateConversationContextWindow: () => {},
   deleteMessageById: () => {},
@@ -80,7 +80,7 @@ const mockAttachments: Array<{
 }> = [];
 let mockAttachmentIdCounter = 0;
 
-mock.module("../memory/attachments-store.js", () => ({
+mock.module("../persistence/attachments-store.js", () => ({
   attachFileBackedAttachmentToMessage: (
     _messageId: string,
     _position: number,

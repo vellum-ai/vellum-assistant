@@ -21,7 +21,7 @@ import { getCallSession } from "../calls/call-store.js";
 import {
   addMessage,
   provenanceFromTrustContext,
-} from "../memory/conversation-crud.js";
+} from "../persistence/conversation-crud.js";
 import type { Message } from "../providers/types.js";
 import type { ServerMessage } from "./message-protocol.js";
 import type { TrustContext } from "./trust-context.js";

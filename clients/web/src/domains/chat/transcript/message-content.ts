@@ -228,10 +228,38 @@ export function isRunWorkflowCall(toolCall: ChatMessageToolCall): boolean {
 }
 
 /**
+ * Detect whether a tool call is an `acp_spawn` invocation. Like
+ * `subagent_spawn`/`run_workflow`, the daemon exposes `acp_spawn` as a
+ * bundled-skill tool, so the LLM emits a `skill_execute` call with
+ * `input.tool === "acp_spawn"` — the `tool_use_start` event the frontend
+ * receives still carries `toolName: "skill_execute"`. Matching on the raw
+ * `toolName` alone would miss every spawn and leave the inline ACP run card
+ * unrendered.
+ */
+export function isAcpSpawnCall(toolCall: ChatMessageToolCall): boolean {
+  if (toolCall.name === "acp_spawn") return true;
+  if (toolCall.name !== "skill_execute") return false;
+  const input = toolCall.input;
+  if (input == null || typeof input !== "object") return false;
+  return (input as Record<string, unknown>).tool === "acp_spawn";
+}
+
+/**
+ * Detect whether a tool call is a backgrounded `bash`/`host_bash` invocation.
+ * Unlike the subagent/workflow/ACP triad, background bash is not a
+ * `skill_execute` envelope — it's an `input.background === true` flag on the
+ * real `bash`/`host_bash` tool, so we match the raw tool name plus the flag.
+ */
+export function isBackgroundBashCall(toolCall: ChatMessageToolCall): boolean {
+  if (toolCall.name !== "bash" && toolCall.name !== "host_bash") return false;
+  const input = toolCall.input;
+  if (input == null || typeof input !== "object") return false;
+  return (input as Record<string, unknown>).background === true;
+}
+
+/**
  * Detect a task-progress card surface — `template === "task_progress"` with a
- * non-empty `steps` array. Single source of truth shared by `CardSurface`'s
- * render-detection and the activity-summary path's hoist-detection so the two
- * decisions cannot drift.
+ * non-empty `steps` array. Used by the activity-summary hoist-detection path.
  */
 export function isTaskProgressSurface(surface: Surface): boolean {
   const data = surface.data as

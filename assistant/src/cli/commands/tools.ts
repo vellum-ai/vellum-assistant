@@ -1,17 +1,18 @@
 /**
- * `assistant tools` — inspect the tools registered with the running
+ * `assistant tools` — inspect and run the tools registered with the running
  * assistant (core built-ins plus skill-, plugin-, and MCP-contributed
  * tools).
  *
- * Thin `ipc` wrapper: each subcommand forwards to a single daemon route and
- * renders the response. The registry lives in the daemon, so these commands
- * require the daemon to be running.
+ * `tools list` is a thin `ipc` wrapper that reads the daemon's live registry.
+ * `tools run` (see `./tools-run.ts`) executes a tool in-process from the
+ * filesystem and is registered here as a sibling subcommand.
  */
 
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../ipc/cli-client.js";
 import { registerCommand } from "../lib/register-command.js";
+import { registerToolsRunCommand } from "./tools-run.js";
 
 interface ToolListEntry {
   name: string;
@@ -46,11 +47,20 @@ By default the global registry is listed. Pass --conversation to scope the
 list to the tools available to one conversation as of its most recent turn —
 including skill/MCP tools it registered over its lifecycle.
 
+'tools run' executes a single tool directly, outside the agent loop. It runs
+in-process from the filesystem (core built-ins + workspace tools), and is
+non-interactive and non-guardian: read-only / low-risk tools execute, while
+prompt-gated tools are auto-denied (there is no client to approve them). A
+tool error exits non-zero so it composes in scripts.
+
 Examples:
   $ assistant tools list
   $ assistant tools ls
   $ assistant tools list --json
-  $ assistant tools list --conversation conv_abc123`,
+  $ assistant tools list --conversation conv_abc123
+  $ assistant tools run web_fetch --input '{"url":"https://example.com"}'
+  $ assistant tools run file_read --input-file args.json
+  $ echo '{"path":"."}' | assistant tools run list_dir --input-file -`,
       );
 
       tools
@@ -95,12 +105,20 @@ Examples:
             `${"NAME".padEnd(nameW)}  ${"SOURCE".padEnd(sourceW)}  ${"RISK".padEnd(riskW)}  DESCRIPTION`,
           );
           for (const t of tools) {
+            const description =
+              t.description.length > 50
+                ? `${t.description.slice(0, 50)}…`
+                : t.description;
             console.log(
-              `${t.name.padEnd(nameW)}  ${t.source.padEnd(sourceW)}  ${t.riskLevel.padEnd(riskW)}  ${t.description}`,
+              `${t.name.padEnd(nameW)}  ${t.source.padEnd(sourceW)}  ${t.riskLevel.padEnd(riskW)}  ${description}`,
             );
           }
           console.log(`\n${tools.length} tool(s)`);
         });
+
+      // `run` executes a tool in-process (transport: "local"), so it lives in
+      // its own file and is composed in here as a sibling subcommand.
+      registerToolsRunCommand(tools);
     },
   });
 }

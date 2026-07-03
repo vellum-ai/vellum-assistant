@@ -3,17 +3,21 @@
  * so the user sees call lifecycle events without the full transcript
  * (which lives in the dedicated voice conversation).
  *
- * Trust-aware: trusted audiences get pointer messages routed through the
- * daemon conversation as a conversation turn (the assistant generates the text).
- * Untrusted/unknown audiences always receive deterministic fallback text
- * written directly to the conversation store.
+ * Trust-aware: the owner's own conversations get pointer messages routed through
+ * the daemon conversation as an owner self-maintenance turn (the assistant
+ * generates the text). Contact and unknown audiences always receive
+ * deterministic fallback text written directly to the conversation store, so a
+ * guardian-elevated turn never rehydrates private history into a non-owner
+ * conversation.
  */
 
+import { runPointerMessageTurn } from "../daemon/pointer-turn-runner.js";
 import {
   addMessage,
   getConversationOriginChannel,
   getConversationRecentProvenanceTrustClass,
-} from "../memory/conversation-crud.js";
+} from "../persistence/conversation-crud.js";
+import { isContactTrustClass } from "../runtime/trust-class.js";
 import { getLogger } from "../util/logger.js";
 import {
   buildPointerInstruction,
@@ -32,77 +36,39 @@ type PointerEvent =
 
 type PointerAudienceMode = "auto" | "trusted" | "untrusted";
 
-/**
- * Daemon-injected function that sends a message through the daemon conversation
- * pipeline (persistAndProcessMessage), letting the assistant generate the
- * pointer text as a natural conversation turn.
- *
- * @param requiredFacts - facts that must appear verbatim in the generated
- *   text (phone number, duration, outcome keyword, etc.). The processor
- *   should validate the output and throw if any are missing so the
- *   deterministic fallback fires.
- */
-type PointerMessageProcessor = (
-  conversationId: string,
-  instruction: string,
-  requiredFacts?: string[],
-) => Promise<void>;
-
-// ---------------------------------------------------------------------------
-// Module-level processor injection (set by daemon lifecycle at startup)
-// ---------------------------------------------------------------------------
-
-let pointerMessageProcessor: PointerMessageProcessor | undefined;
-
-/**
- * Inject the daemon-provided pointer message processor.
- * Called from daemon/lifecycle.ts at startup, following the same pattern
- * as setRelayBroadcast.
- */
-export function setPointerMessageProcessor(
-  processor: PointerMessageProcessor,
-): void {
-  pointerMessageProcessor = processor;
-}
-
-/** @internal Reset for tests. */
-export function resetPointerMessageProcessor(): void {
-  pointerMessageProcessor = undefined;
-}
-
 // ---------------------------------------------------------------------------
 // Trust resolution
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve whether the audience for a pointer message is trusted.
+ * Resolve whether the pointer audience is the assistant's owner (guardian)
+ * rather than a contact or unknown caller.
  *
- * Trusted when:
- * - recent message provenance trust class is 'guardian', 'trusted_contact',
- *   or 'unverified_contact'
- * - conversation origin channel is 'vellum' (desktop app)
+ * Owner when:
+ * - recent message provenance trust class is 'guardian', or
+ * - conversation origin channel is 'vellum' (desktop app).
  *
- * Untrusted by default when insufficient evidence.
+ * Known non-guardian contacts ('trusted_contact' / 'unverified_contact') and
+ * unknown callers are NOT the owner: routing their pointer status through the
+ * daemon turn would run it under the internal guardian context, rehydrating
+ * guardian-only history that then leaks into the contact's own conversation.
+ * They take the deterministic fallback instead. Defaults to non-owner when
+ * evidence is insufficient.
  */
-function resolvePointerAudienceTrust(conversationId: string): boolean {
+function resolvePointerAudienceIsOwner(conversationId: string): boolean {
   try {
-    // Check provenance trust class on recent messages first — this catches
-    // identity-known non-guardian contacts (trusted and unverified) who
-    // initiate calls from gateway channels (e.g. WhatsApp) where the
-    // conversation itself isn't desktop-origin.
+    // Provenance is read from persisted message metadata, so it survives
+    // conversation eviction — a known contact is diverted to the deterministic
+    // fallback even on a cold load where the in-memory trust context is absent.
     const provenance =
       getConversationRecentProvenanceTrustClass(conversationId);
-    if (
-      provenance === "guardian" ||
-      provenance === "trusted_contact" ||
-      provenance === "unverified_contact"
-    )
-      return true;
+    if (isContactTrustClass(provenance)) return false;
+    if (provenance === "guardian") return true;
 
     const originChannel = getConversationOriginChannel(conversationId);
     if (originChannel === "vellum") return true;
   } catch {
-    // Conversation may not exist or DB may be unavailable — default untrusted.
+    // Conversation may not exist or DB may be unavailable — default to non-owner.
   }
 
   return false;
@@ -153,17 +119,17 @@ export async function addPointerMessage(
   const outcomeKeyword = eventOutcomeKeywords[event];
   if (outcomeKeyword) requiredFacts.push(outcomeKeyword);
 
-  const trustedAudience =
+  const ownerAudience =
     audienceMode === "trusted" ||
-    (audienceMode === "auto" && resolvePointerAudienceTrust(conversationId));
+    (audienceMode === "auto" && resolvePointerAudienceIsOwner(conversationId));
 
-  if (trustedAudience && pointerMessageProcessor) {
+  if (ownerAudience) {
     // Route through the daemon conversation — the assistant generates the
-    // pointer text as a natural conversation turn, shaped by context,
+    // pointer text as a natural owner self-maintenance turn, shaped by context,
     // identity, and preferences.
     const instruction = buildPointerInstruction(context);
     try {
-      await pointerMessageProcessor(conversationId, instruction, requiredFacts);
+      await runPointerMessageTurn(conversationId, instruction, requiredFacts);
       return;
     } catch (err) {
       log.warn(
@@ -171,10 +137,10 @@ export async function addPointerMessage(
         "Daemon pointer processing failed, falling back to deterministic",
       );
     }
-  } else if (!trustedAudience && pointerMessageProcessor) {
+  } else {
     log.debug(
       { event, conversationId },
-      "Untrusted audience — using deterministic pointer copy",
+      "Non-owner audience — using deterministic pointer copy",
     );
   }
 
@@ -192,6 +158,24 @@ export async function addPointerMessage(
     "assistant",
     JSON.stringify([{ type: "text", text }]),
   );
+}
+
+/**
+ * Fire-and-forget pointer write that tolerates an evicted origin
+ * conversation: failures are logged at warn level and swallowed.
+ */
+export function postPointerMessageSafe(
+  conversationId: string,
+  event: PointerEvent,
+  phoneNumber: string,
+  extra?: Parameters<typeof addPointerMessage>[3],
+): void {
+  addPointerMessage(conversationId, event, phoneNumber, extra).catch((err) => {
+    log.warn(
+      { conversationId, err },
+      "Skipping pointer write — origin conversation may no longer exist",
+    );
+  });
 }
 
 /**

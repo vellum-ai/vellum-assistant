@@ -2,11 +2,13 @@ import { Copy, FileCode } from "lucide-react";
 import { type ReactNode } from "react";
 
 import type {
-    LLMCallSummary,
-    LLMContextSection,
-    LLMRequestLogEntry,
+  LLMCallSummary,
+  LLMContextSection,
+  LLMRequestLogEntry,
 } from "@vellumai/assistant-api";
 import { Button, Card } from "@vellumai/design-library";
+
+import { LlmCallErrorCard } from "@/domains/chat/inspector/components/llm-call-error-card";
 
 interface ResponseTabProps {
   entry: LLMRequestLogEntry;
@@ -14,9 +16,12 @@ interface ResponseTabProps {
 
 /**
  * Response tab rendering a metadata card (stop reason + mode label)
- * followed by per-section cards keyed on presentation kind.
+ * followed by per-section cards keyed on presentation kind. When the call
+ * failed, a failure banner replaces the generic "section rendering
+ * unavailable" fallback so the rejected response reads as an error.
  */
 export function ResponseTab({ entry }: ResponseTabProps): ReactNode {
+  const error = entry.error ?? null;
   const sections = buildSectionModels(entry.responseSections ?? []);
   const stopReason = deriveStopReason(entry.summary);
   const modeLabel = deriveModeLabel(entry.summary, sections);
@@ -25,13 +30,18 @@ export function ResponseTab({ entry }: ResponseTabProps): ReactNode {
   if (!sections.length && !hasMetadata) {
     return (
       <div className="flex flex-col gap-4 p-4">
-        <FallbackCard message={null} />
+        {error ? (
+          <LlmCallErrorCard error={error} />
+        ) : (
+          <FallbackCard message={null} />
+        )}
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-4 p-4">
+      {error && <LlmCallErrorCard error={error} />}
       {hasMetadata && (
         <Card>
           <p
@@ -41,17 +51,17 @@ export function ResponseTab({ entry }: ResponseTabProps): ReactNode {
             Response metadata
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
-            {stopReason && <MetadataChip label={`Stop reason: ${stopReason}`} />}
+            {stopReason && (
+              <MetadataChip label={`Stop reason: ${stopReason}`} />
+            )}
             {modeLabel && <MetadataChip label={modeLabel} />}
           </div>
         </Card>
       )}
 
-      {sections.length > 0 ? (
-        sections.map((s) => <ResponseSectionCard key={s.id} section={s} />)
-      ) : (
-        <FallbackCard message={null} />
-      )}
+      {sections.length > 0
+        ? sections.map((s) => <ResponseSectionCard key={s.id} section={s} />)
+        : !error && <FallbackCard message={null} />}
     </div>
   );
 }
@@ -189,9 +199,7 @@ function SectionHeader({
         iconOnly
         leftIcon={<Copy size={14} aria-hidden />}
         aria-label="Copy section content"
-        onClick={() =>
-          void navigator.clipboard.writeText(section.copyText)
-        }
+        onClick={() => void navigator.clipboard.writeText(section.copyText)}
       />
     </div>
   );
@@ -211,7 +219,12 @@ function MetadataChip({ label }: { label: string }): ReactNode {
   );
 }
 
-type PresentationKind = "assistantText" | "reasoning" | "toolCall" | "result" | "other";
+type PresentationKind =
+  | "assistantText"
+  | "reasoning"
+  | "toolCall"
+  | "result"
+  | "other";
 
 interface ResponseSectionModel {
   id: number;
@@ -247,7 +260,10 @@ function toPresentationKind(kind: string): PresentationKind {
   return "other";
 }
 
-function kindDisplayLabel(kind: string, presentationKind: PresentationKind): string {
+function kindDisplayLabel(
+  kind: string,
+  presentationKind: PresentationKind,
+): string {
   switch (presentationKind) {
     case "toolCall":
       return "Tool call";
@@ -276,7 +292,9 @@ function sectionBodyText(section: LLMContextSection): string | null {
   return null;
 }
 
-function buildSectionModels(sections: LLMContextSection[]): ResponseSectionModel[] {
+function buildSectionModels(
+  sections: LLMContextSection[],
+): ResponseSectionModel[] {
   return sections.map((section, index) => {
     const pKind = toPresentationKind(section.kind);
     const rawTitle = section.label?.trim() ?? "";
@@ -317,7 +335,8 @@ function deriveModeLabel(
     return "Tool-calling response";
   }
   if (!sections.length) return null;
-  if (sections.some((s) => s.kind === "toolCall")) return "Tool-calling response";
+  if (sections.some((s) => s.kind === "toolCall"))
+    return "Tool-calling response";
   const hasText = sections.some((s) => s.kind === "assistantText");
   const hasResult = sections.some((s) => s.kind === "result");
   if (hasText && !hasResult) return "Text-only response";

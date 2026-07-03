@@ -72,9 +72,9 @@ All new apps use `formatVersion: 2` (multi-file TSX). No root-level `index.html`
 
 ## Responsive & design system
 
-Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block carries an `interface:` field: `ios` → mobile-first (design narrow first, body 17px); `macos`/`web` → desktop-first (multi-column, body 14px); absent → desktop-first unless the request implies phone use ("for my iPhone").
+Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block carries a `client_os:` field (the OS the user is on): `ios`/`android` → mobile-first (design narrow first, body 17px); `macos`/`web` → desktop-first (multi-column, body 14px); absent → desktop-first unless the request implies phone use ("for my iPhone"). (The sibling `interface:` field is the transport surface — always `web` for the apps — so key layout off `client_os`, not `interface`.)
 
-**Universal baseline — every build, regardless of interface:**
+**Universal baseline — every build, regardless of client_os:**
 - Viewport meta: `width=device-width, initial-scale=1, viewport-fit=cover`. Never `user-scalable=no` (blocks accessibility zoom).
 - Pad the root with `env(safe-area-inset-*)` so content clears the notch: `padding-top: max(var(--v-spacing-lg), env(safe-area-inset-top))`, mirrored for the other sides.
 - Full-height containers use `100dvh`, not `100vh`.
@@ -82,11 +82,11 @@ Every app works phone (~360px) to desktop (~1400px+). The `<turn_context>` block
 - Interactive elements ≥44×44pt (`.v-button` already complies; custom controls set `min-height: 44px`). Gate hover behind `@media (hover: hover)`.
 - Fluid widths only — `%`, `fr`, `minmax`, `clamp()`, never fixed `px` on containers. Size chart containers in `vw`/`%`. At narrow widths, collapse tables into stacked label-value cards.
 
-**Mobile-first extras (`interface: ios`):** body `--v-font-size-lg` (17px); one column by default, multi-column only above `@media (min-width: 720px)`; bottom-anchor the primary action (`position: sticky; bottom: env(safe-area-inset-bottom)`); bottom sheets instead of side modals.
+**Mobile-first extras (`client_os: ios` / `android`):** body `--v-font-size-lg` (17px); one column by default, multi-column only above `@media (min-width: 720px)`; bottom-anchor the primary action (`position: sticky; bottom: env(safe-area-inset-bottom)`); bottom sheets instead of side modals.
 
 Full detail when reachable: `{baseDir}/references/RESPONSIVE.md`.
 
-A design-system CSS and widget library are **auto-injected** (inside a `@layer`, so your own styles always win). Use the `--v-*` variables and `.v-*` classes below — they switch light/dark automatically, no manual dark-mode CSS needed. **Always use `window.vellum.widgets.*` chart functions** instead of hand-coded SVG/CSS charts.
+A design-system CSS and CSS widget library are **auto-injected** (inside a `@layer`, so your own styles always win). Use the `--v-*` variables and `.v-*` classes below — they switch light/dark automatically, no manual dark-mode CSS needed. For charts, bundle `chart.js` (an allowed package), or hand-write inline SVG / CSS bars for tiny sparklines — sized to the container so they can't overflow.
 
 **Design tokens** (use these, don't invent hex values):
 
@@ -106,7 +106,7 @@ A design-system CSS and widget library are **auto-injected** (inside a `@layer`,
 
 **Utility classes:** `.v-button` (`.secondary`/`.danger`/`.ghost`), `.v-card`, `.v-list`/`.v-list-item`, `.v-badge` (`.success`/`.warning`/`.danger`), `.v-input-row`, `.v-empty-state`, `.v-toggle`.
 
-**Theme in JS:** `window.vellum.theme.mode` (`'light'`/`'dark'`); listen on `window.addEventListener("vellum-theme-change", e => e.detail.mode)`.
+**Theme:** the `--v-*` tokens switch light/dark on their own. For custom (non-token) colors that must follow the theme, use `@media (prefers-color-scheme: dark)` in CSS.
 
 For a **custom branded look**, write complete CSS with hardcoded colors + `@media (prefers-color-scheme: dark)` — don't mix `--v-*` auto-switching vars with hardcoded colors in the same element.
 
@@ -118,27 +118,9 @@ Full detail when reachable: `{baseDir}/references/DESIGN_SYSTEM.md`. Note: in lo
 
 CSS classes for standard patterns: `.v-metric-card`/`.v-metric-grid` (big-number stats), `.v-data-table` (sortable, sticky header, `th[data-sortable]`), `.v-tabs`, `.v-accordion`, `.v-search-bar`, `.v-timeline`, `.v-action-list` (rows with per-item actions), `.v-card-grid`, `.v-progress-bar`, `.v-status-badge` (`.success`/`.error`/`.warning`/`.info`), `.v-stat-row`/`.v-stat`, `.v-tag-group`, `.v-avatar-row`. Landing-page components: `.v-hero`/`.v-hero-badge`/`.v-hero-subtitle`, `.v-section-header`/`.v-section-label`, `.v-feature-grid`/`.v-feature-card`, `.v-pullquote`, `.v-comparison` (`.before`/`.after`), `.v-page`, `.v-gradient-text`, `.v-animate-in`. Domain widgets: `.v-weather-card`, `.v-stock-ticker`, `.v-receipt`, `.v-invoice`, `.v-itinerary`, `.v-boarding-pass`.
 
-JS utilities at `window.vellum.widgets.*`:
+Interactive behavior is your own JS: charts → the bundleable `chart.js` (or inline SVG for tiny sparklines); formatting → `Intl.NumberFormat` / `Intl.DateTimeFormat`; table sort/filter, tabs, accordions, toasts, countdowns → plain JS wired to the `.v-*` markup.
 
-```javascript
-// Charts — ALWAYS use these, never hand-code SVG/CSS charts (they handle bounds, scaling, dark mode)
-vellum.widgets.sparkline("el-id", [10,25,15,30], { width:200, height:40, color:"var(--v-success)", fill:true });
-vellum.widgets.barChart("el-id", [{label:"Jan",value:120},{label:"Feb",value:180,color:"var(--v-success)"}], { width:400, height:200, showValues:true, horizontal:false });
-vellum.widgets.lineChart("el-id", [{label:"Mon",value:42},{label:"Tue",value:58}], { width:400, height:200, showDots:true, showGrid:true });
-vellum.widgets.progressRing("el-id", 75, { size:100, strokeWidth:8, color:"var(--v-success)", label:"75%" });
-// Formatting
-vellum.widgets.formatCurrency(1234.56, "USD");        // "$1,234.56"
-vellum.widgets.formatDate("2025-01-15", "relative");  // "3d ago"  ("short" → "1/15/25")
-vellum.widgets.formatNumber(1234567, { compact:true }); // "1.2M"
-// Behaviors
-vellum.widgets.sortTable("table-id");                 // wire th[data-sortable]
-vellum.widgets.filterTable("table-id", "input-id");   // live text search
-vellum.widgets.tabs("tabs-id"); vellum.widgets.accordion("acc-id", { allowMultiple:true });
-vellum.widgets.toast("Saved!", "success", 4000);      // success | error | warning | info
-vellum.widgets.countdown("el", "2025-12-31T00:00:00Z", { onComplete:()=>{} });
-```
-
-Use custom HTML for novel/creative UIs (games, art tools); widgets for standard patterns; mix freely. Full list: `{baseDir}/references/WIDGETS.md`.
+Use custom HTML for novel/creative UIs (games, art tools); the `.v-*` classes for standard patterns; mix freely. Full list: `{baseDir}/references/WIDGETS.md`.
 
 ---
 
@@ -195,6 +177,8 @@ render(<App />, document.getElementById("app")!);
 1. **`app_create`** with a **4-file scaffold**: `src/index.html`, `src/main.tsx`, a **placeholder** `src/components/App.tsx` (`<div>Loading...</div>`), and an **empty** `src/styles.css`. The placeholders make the first compile clean — a 2-file scaffold leaves broken imports.
 2. **`file_write`** each real file, one per tool call, overwriting the placeholders and adding components.
 3. **`app_refresh`** ONCE at the end to compile.
+
+**Actually write the files.** Source code in reasoning/thinking is invisible to the app sandbox and is not a file write. Put every real file body in an `app_create.source_files`, `file_write`, `file_edit`, or `app_update.source_files` tool call, then verify the files exist before `app_refresh` when there is any doubt.
 
 **Allowed packages** (esbuild-resolved, no CDN): `date-fns`, `chart.js`, `lodash-es`, `zod`, `clsx`. For icons, write inline `<svg>` markup directly — no icon package is bundled.
 
@@ -270,7 +254,7 @@ The point of these apps is to put **the user's own data and the assistant's capa
 ```tsx
 async function loadRecords() {
   const res = await window.vellum.fetch("/v1/x/my-route");
-  if (!res.ok) { window.vellum.widgets.toast("Couldn't load", "error"); return []; }
+  if (!res.ok) { notifyError("Couldn't load"); return []; } // your own toast/inline error
   return res.json();
 }
 ```
@@ -282,7 +266,7 @@ useEffect(() => {
   window.vellum.fetch("/v1/x/items")
     .then(res => res.ok ? res.json() : Promise.reject(res.status))
     .then(setItems)
-    .catch(() => window.vellum.widgets.toast("Couldn't load", "error"));
+    .catch(() => notifyError("Couldn't load")); // your own toast/inline error
 }, []);
 ```
 
@@ -307,25 +291,25 @@ export async function POST(req: Request): Promise<Response> {
 
 The optional `context` arg exposes daemon singletons — e.g. `context.assistantEventHub.publish({...})` to push real-time events to connected clients (UI updates, navigation, notifications). It's immutable. Full guide + copyable examples (Focus Timer, Habit Tracker, Expense Tracker): `{baseDir}/references/CUSTOM_ROUTES.md`, `{baseDir}/references/examples/`.
 
-**Persistence options:** `localStorage` for ephemeral UI state (filters, view modes, drafts); custom routes for persistent records and server-side logic. (`window.vellum.data.*` is deprecated — only for editing pre-existing legacy apps.)
+**Persistence options:** `localStorage` for ephemeral UI state (filters, view modes, drafts); custom routes for persistent records and server-side logic.
 
 ---
 
 ## Interaction standards
 
-- **Feedback for every action** — `vellum.widgets.toast()` after creates, deletes, updates, errors.
-- **Confirm destructive actions** — `window.vellum.confirm(title, message)` (returns `Promise<boolean>`) before deleting or resetting.
+- **Feedback for every action** — a toast or inline confirmation after creates, deletes, updates, errors. Build your own (e.g. toggle the `.v-toast` class with JS).
+- **Confirm destructive actions** — render your own confirmation (an inline "Are you sure?" or a modal) before deleting or resetting.
 - **Validate forms** before submit, show errors inline, disable submit during async.
 - **Loading states** — skeleton or spinner, never a blank screen.
 - **Designed empty states** — `.v-empty-state` when there's no data.
 
 ### Keep the assistant aware
 
-Wire `window.vellum.sendAction()` during the build so the assistant sees meaningful interactions. **Reactive** hooks trigger a response (form submissions, selections worth explaining); **silent** hooks (`state_update`) accumulate context without interrupting (tab changes, filter changes). Examples in `{baseDir}/references/INTERACTION_HOOKS.md`.
+Wire `window.vellum.sendAction()` during the build so the app can pull the assistant in. The host handles two actions: **`relay_prompt`** (`{ prompt, conversation }`) sends a message to the assistant as if the user typed it — the way to get an explanation, summary, or follow-up from inside the app (`conversation: "new"` starts a fresh chat instead of the open one); **`set_view`** (`{ view }`) arranges the app and chat (`"split"` / `"full"` / `"chat"`). These two are the whole app→host surface — relay anything you want the assistant to act on as a self-contained prompt. Patterns in `{baseDir}/references/INTERACTION_HOOKS.md`.
 
-### Actionable UI & links
+### Actionable UI
 
-For triage/bulk-action UIs: render a `dynamic_page` with selectable items + action buttons → user selects and clicks → UI sends `surfaceAction` with action ID + selected IDs → execute tools, `ui_update`, toast. Use `window.vellum.confirm()` for destructive actions. Make items clickable with `vellum.openLink(url, metadata)` (include `metadata.provider` and `metadata.type`).
+For triage/bulk-action UIs: render selectable items + action buttons → the user selects and clicks → relay the choice as a prompt with `window.vellum.sendAction("relay_prompt", { prompt: ... })`, listing the selected items in the text, so the assistant can run the tools and report back. Render your own confirmation for destructive actions.
 
 ---
 
@@ -348,9 +332,9 @@ Slide decks are a different domain — skip app patterns (contextual headers, se
 Read with `file_read` using the `{baseDir}/references/...` paths (`{baseDir}` resolves to this skill's directory):
 
 - `RESPONSIVE.md` — mobile vs desktop, universal baseline, safe areas
-- `DESIGN_SYSTEM.md` — token table, utility classes, theme detection
-- `WIDGETS.md` — widget classes, chart utilities, formatting helpers
+- `DESIGN_SYSTEM.md` — token table, utility classes, theme/dark mode
+- `WIDGETS.md` — CSS widget classes (no JS chart/format runtime)
 - `CUSTOM_ROUTES.md` — server-side persistence and custom API routes
 - `examples/` — complete copyable example apps
-- `INTERACTION_HOOKS.md` — sendAction patterns, reactive vs silent
+- `INTERACTION_HOOKS.md` — relay_prompt / set_view app→host actions
 - `SLIDES.md` — presentation slide design

@@ -8,10 +8,6 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
-import { desc, eq } from "drizzle-orm";
-
-import { getDb } from "../../memory/db-connection.js";
-import { contacts } from "../../memory/schema/contacts.js";
 import type { WorkspaceMigration } from "./types.js";
 
 export const scopeJournalToGuardianMigration: WorkspaceMigration = {
@@ -40,26 +36,9 @@ export const scopeJournalToGuardianMigration: WorkspaceMigration = {
     });
     if (mdFiles.length === 0) return;
 
-    // Resolve guardian user slug (same pattern as 017-seed-persona-dirs)
-    let slug = "guardian";
-    try {
-      const db = getDb();
-      const guardian = db
-        .select()
-        .from(contacts)
-        .where(eq(contacts.role, "guardian"))
-        .orderBy(desc(contacts.createdAt))
-        .limit(1)
-        .get();
-      if (guardian?.userFile) {
-        slug = guardian.userFile.replace(/\.md$/, "");
-      }
-    } catch {
-      // DB not ready — use fallback "guardian"
-    }
-
-    // Create per-user directory and move files (renameSync preserves birthtimes)
-    const destDir = join(journalDir, slug);
+    // Scope under the canonical `guardian` slug — the runtime resolver falls
+    // back to it, so no assistant-DB lookup is needed.
+    const destDir = join(journalDir, "guardian");
     mkdirSync(destDir, { recursive: true });
     for (const f of mdFiles) {
       const src = join(journalDir, f);

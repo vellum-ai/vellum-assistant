@@ -68,6 +68,16 @@ describe("resolveUnpinGroupId", () => {
     ).toBe("system:all");
   });
 
+  test("returns system:all for any external-channel conversation (e.g. Telegram)", () => {
+    const cache = new Map<string, string | undefined>();
+    expect(
+      resolveUnpinGroupId(
+        makeConversation({ originChannel: "telegram" }),
+        cache,
+      ),
+    ).toBe("system:all");
+  });
+
   test("returns system:background for background conversationType", () => {
     const conv = makeConversation({ conversationType: "background" });
     const cache = new Map<string, string | undefined>();

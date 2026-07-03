@@ -83,10 +83,10 @@ describe("vellum flags --assistant routing", () => {
       fetchCalls.push({ url, method });
       if (method === "PATCH") {
         return jsonResponse({
-          key: "external-plugins",
+          key: "voice-mode",
           enabled: true,
           defaultEnabled: false,
-          label: "External Plugins",
+          label: "Voice Mode",
           description: "test",
         });
       }
@@ -133,7 +133,7 @@ describe("vellum flags --assistant routing", () => {
       "vellum",
       "flags",
       "set",
-      "external-plugins",
+      "voice-mode",
       "true",
       "--assistant",
       "Bob",
@@ -146,7 +146,7 @@ describe("vellum flags --assistant routing", () => {
     // bob-2 has assistantId.length === 5, so port = 7800 + 5 = 7805.
     expect(fetchCalls[0].url).toContain("http://127.0.0.1:7805");
     expect(fetchCalls[0].url).toContain(
-      "/v1/assistants/bob-2/feature-flags/external-plugins",
+      "/v1/assistants/bob-2/feature-flags/voice-mode",
     );
   });
 
@@ -166,7 +166,7 @@ describe("vellum flags --assistant routing", () => {
       "--assistant",
       "Bob",
       "set",
-      "external-plugins",
+      "voice-mode",
       "true",
     ];
 
@@ -174,7 +174,7 @@ describe("vellum flags --assistant routing", () => {
 
     expect(fetchCalls.length).toBe(1);
     expect(fetchCalls[0].url).toContain(
-      "/v1/assistants/bob-2/feature-flags/external-plugins",
+      "/v1/assistants/bob-2/feature-flags/voice-mode",
     );
   });
 
@@ -193,7 +193,7 @@ describe("vellum flags --assistant routing", () => {
       "vellum",
       "flags",
       "set",
-      "external-plugins",
+      "voice-mode",
       "true",
     ];
 
@@ -203,7 +203,7 @@ describe("vellum flags --assistant routing", () => {
     // alice-1 has assistantId.length === 7, so port = 7800 + 7 = 7807.
     expect(fetchCalls[0].url).toContain("http://127.0.0.1:7807");
     expect(fetchCalls[0].url).toContain(
-      "/v1/assistants/alice-1/feature-flags/external-plugins",
+      "/v1/assistants/alice-1/feature-flags/voice-mode",
     );
   });
 
@@ -214,7 +214,7 @@ describe("vellum flags --assistant routing", () => {
       "vellum",
       "flags",
       "set",
-      "external-plugins",
+      "voice-mode",
       "true",
       "--assistant",
       "Ghost",
@@ -234,7 +234,7 @@ describe("vellum flags --assistant routing", () => {
       "vellum",
       "flags",
       "set",
-      "external-plugins",
+      "voice-mode",
       "true",
       "--assistant",
     ];

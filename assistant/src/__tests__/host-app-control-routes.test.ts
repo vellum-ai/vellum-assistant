@@ -62,7 +62,7 @@ afterAll(() => {
 
 const handleHostAppControlResult = ROUTES.find(
   (r) => r.endpoint === "host-app-control-result",
-)!.handler;
+)!.handler as (args: Record<string, unknown>) => Promise<unknown>;
 
 // ── Tests ────────────────────────────────────────────────────────────
 
@@ -395,7 +395,7 @@ describe("handleHostAppControlResult — same-actor guard", () => {
     ).toThrow(BadRequestError);
   });
 
-  test("targeted + missing header: interaction is NOT consumed (still pending)", () => {
+  test("targeted + missing header: interaction is NOT consumed (still pending)", async () => {
     const requestId = "ac-req-targeted-no-header-stays";
     pending.set(requestId, {
       conversationId: "conv-1",
@@ -404,13 +404,11 @@ describe("handleHostAppControlResult — same-actor guard", () => {
       targetActorPrincipalId: "user-1",
     });
 
-    try {
-      handleHostAppControlResult({
-        body: { requestId, state: "running" },
-      });
-    } catch {
+    await handleHostAppControlResult({
+      body: { requestId, state: "running" },
+    }).catch(() => {
       // expected
-    }
+    });
 
     expect(pending.has(requestId)).toBe(true);
   });
@@ -437,7 +435,7 @@ describe("handleHostAppControlResult — same-actor guard", () => {
     ).toThrow(ForbiddenError);
   });
 
-  test("targeted + wrong client id: interaction is NOT consumed", () => {
+  test("targeted + wrong client id: interaction is NOT consumed", async () => {
     const requestId = "ac-req-targeted-wrong-client-stays";
     pending.set(requestId, {
       conversationId: "conv-1",
@@ -446,17 +444,15 @@ describe("handleHostAppControlResult — same-actor guard", () => {
       targetActorPrincipalId: "user-1",
     });
 
-    try {
-      handleHostAppControlResult({
-        body: { requestId, state: "running" },
-        headers: {
-          "x-vellum-client-id": "client-B",
-          "x-vellum-actor-principal-id": "user-1",
-        },
-      });
-    } catch {
+    await handleHostAppControlResult({
+      body: { requestId, state: "running" },
+      headers: {
+        "x-vellum-client-id": "client-B",
+        "x-vellum-actor-principal-id": "user-1",
+      },
+    }).catch(() => {
       // expected
-    }
+    });
 
     expect(pending.has(requestId)).toBe(true);
   });
@@ -483,7 +479,7 @@ describe("handleHostAppControlResult — same-actor guard", () => {
     ).toThrow(ForbiddenError);
   });
 
-  test("targeted + wrong actor principal: interaction is NOT consumed", () => {
+  test("targeted + wrong actor principal: interaction is NOT consumed", async () => {
     const requestId = "ac-req-targeted-wrong-actor-stays";
     pending.set(requestId, {
       conversationId: "conv-1",
@@ -492,17 +488,15 @@ describe("handleHostAppControlResult — same-actor guard", () => {
       targetActorPrincipalId: "user-1",
     });
 
-    try {
-      handleHostAppControlResult({
-        body: { requestId, state: "running" },
-        headers: {
-          "x-vellum-client-id": "client-A",
-          "x-vellum-actor-principal-id": "user-2",
-        },
-      });
-    } catch {
+    await handleHostAppControlResult({
+      body: { requestId, state: "running" },
+      headers: {
+        "x-vellum-client-id": "client-A",
+        "x-vellum-actor-principal-id": "user-2",
+      },
+    }).catch(() => {
       // expected
-    }
+    });
 
     expect(pending.has(requestId)).toBe(true);
   });

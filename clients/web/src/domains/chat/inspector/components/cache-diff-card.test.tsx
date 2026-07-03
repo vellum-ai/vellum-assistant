@@ -1,15 +1,22 @@
 /**
- * Tests for the CacheDiffCard prefix-comparison rendering. Renders to
- * static markup (no DOM), mirroring `cache-health-card.test.tsx`, and
- * asserts the status banner copy, the changed-group chips, and the
- * optional line diff for each bust cause. The card calls
+ * Tests for the CacheDiffCard prefix-comparison rendering. The bust-cause
+ * cases render to static markup (no DOM), mirroring `cache-health-card.test.tsx`,
+ * and assert the status banner copy, the changed-group chips, and the optional
+ * line diff. The diff-expansion cases render to the DOM (happy-dom) to drive the
+ * click-to-expand and on-demand "Diff anyway" affordances. The card calls
  * `useLlmCallDetail` before its early returns, so every render is wrapped
  * in a `QueryClientProvider`; passing the previous call's `requestSections`
  * inline keeps that query disabled (no network) for these unit cases.
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { describe, expect, test } from "bun:test";
+import {
+  cleanup,
+  fireEvent,
+  render as renderDom,
+  screen,
+} from "@testing-library/react";
+import { afterEach, describe, expect, test } from "bun:test";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { CacheDiffCard } from "./cache-diff-card";
@@ -152,5 +159,69 @@ describe("CacheDiffCard", () => {
     const html = render(current, previous);
 
     expect(html).toContain("Request settings changed");
+  });
+});
+
+afterEach(cleanup);
+
+function renderCard(
+  current: LLMRequestLogEntry,
+  previous: LLMRequestLogEntry,
+): HTMLElement {
+  return renderDom(
+    <QueryClientProvider client={queryClient}>
+      <CacheDiffCard
+        current={current}
+        previous={previous}
+        assistantId="assistant-1"
+      />
+    </QueryClientProvider>,
+  ).container;
+}
+
+describe("CacheDiffCard diff expansion", () => {
+  test("expands the diff past the display cap on click", () => {
+    // Many scattered single-line changes blow past the 120-entry display cap.
+    const scattered = (variant: string): string =>
+      Array.from({ length: 200 }, (_, i) =>
+        i % 5 === 0 ? `changed-${variant}-${i}` : `same-${i}`,
+      ).join("\n");
+    const previous = entry("call-1", [
+      system(scattered("old")),
+      message("user", "hi"),
+    ]);
+    const current = entry("call-2", [
+      system(scattered("new")),
+      message("user", "hi"),
+    ]);
+
+    const container = renderCard(current, previous);
+    const collapsed = container.querySelectorAll("pre > div").length;
+    expect(collapsed).toBe(120);
+
+    fireEvent.click(screen.getByText(/more diff line/));
+
+    expect(container.querySelectorAll("pre > div").length).toBeGreaterThan(
+      collapsed,
+    );
+    expect(screen.getByText("Show less")).toBeTruthy();
+  });
+
+  test("computes an oversized diff on demand", () => {
+    // Over the eager 500-line cap, so nothing is diffed until the user opts in.
+    const base = Array.from({ length: 600 }, (_, i) => `line ${i}`).join("\n");
+    const previous = entry("call-1", [system(base), message("user", "hi")]);
+    const current = entry("call-2", [
+      system(`${base}\nextra line at the end`),
+      message("user", "hi"),
+    ]);
+
+    const container = renderCard(current, previous);
+    expect(container.querySelector("pre")).toBeNull();
+
+    fireEvent.click(screen.getByText(/Diff anyway/));
+
+    expect(container.querySelector("pre")).not.toBeNull();
+    expect(screen.getByText(/extra line at the end/)).toBeTruthy();
   });
 });

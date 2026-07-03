@@ -24,16 +24,22 @@
  * {@link registerDefaultPlugins} at call time.
  */
 
-import { finalizeTool } from "../../tools/tool-defaults.js";
+import {
+  type MemoryPersistenceHooks,
+  registerMemoryPersistenceHooks,
+} from "../../persistence/memory-lifecycle-hooks.js";
+import { isPluginDisabled } from "../disabled-state.js";
+import {
+  clearInjectorRegistry,
+  registerPluginInjectors,
+} from "../injector-registry.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
-import { resetAdvisorStateForTests } from "./advisor/advisor-state-store.js";
-import advisorPostModelCall from "./advisor/hooks/post-model-call.js";
-import advisorPreModelCall from "./advisor/hooks/pre-model-call.js";
-import advisorUserPromptSubmit from "./advisor/hooks/user-prompt-submit.js";
-import advisorPkg from "./advisor/package.json" with { type: "json" };
-import advisorTool from "./advisor/tools/advisor.js";
+import { channelInjectors } from "./channel/injectors.js";
+import channelPkg from "./channel/package.json" with { type: "json" };
 import compactionPkg from "./compaction/package.json" with { type: "json" };
+import { documentsInjectors } from "./documents/injectors.js";
+import documentsPkg from "./documents/package.json" with { type: "json" };
 import emptyResponsePostModelCall from "./empty-response/hooks/post-model-call.js";
 import emptyResponseStop from "./empty-response/hooks/stop.js";
 import { resetEmptyResponseNudgeStoreForTests } from "./empty-response/nudge-state-store.js";
@@ -47,6 +53,7 @@ import historyRepairStop from "./history-repair/hooks/stop.js";
 import historyRepairUserPromptSubmit from "./history-repair/hooks/user-prompt-submit.js";
 import historyRepairPkg from "./history-repair/package.json" with { type: "json" };
 import { resetRepairStateStoreForTests } from "./history-repair/repair-state-store.js";
+import imageFallbackPostToolUse from "./image-fallback/hooks/post-tool-use.js";
 import imageFallbackUserPromptSubmit from "./image-fallback/hooks/user-prompt-submit.js";
 import imageFallbackPkg from "./image-fallback/package.json" with { type: "json" };
 import { resetCaptionCacheForTests } from "./image-fallback/src/caption-cache.js";
@@ -58,12 +65,19 @@ import { resetMaxTokensContinueStoreForTests } from "./max-tokens-continue/conti
 import maxTokensContinuePostModelCall from "./max-tokens-continue/hooks/post-model-call.js";
 import maxTokensContinueStop from "./max-tokens-continue/hooks/stop.js";
 import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { type: "json" };
-import memoryRetrievalPostCompact from "./memory-retrieval/hooks/post-compact.js";
-import memoryRetrievalUserPromptSubmit from "./memory-retrieval/hooks/user-prompt-submit.js";
-import memoryRetrievalPkg from "./memory-retrieval/package.json" with { type: "json" };
-import memoryV3PostCompact from "./memory-v3-shadow/hooks/post-compact.js";
-import memoryV3UserPromptSubmit from "./memory-v3-shadow/hooks/user-prompt-submit.js";
-import memoryV3Pkg from "./memory-v3-shadow/package.json" with { type: "json" };
+import memoryInit from "./memory/hooks/init.js";
+import memoryPostCompact from "./memory/hooks/post-compact.js";
+import memoryShutdown from "./memory/hooks/shutdown.js";
+import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
+import { memoryInjectors } from "./memory/injectors.js";
+import memoryPkg from "./memory/package.json" with { type: "json" };
+import { memoryPersistenceHooks } from "./memory/persistence-hooks.js";
+import {
+  memoryV3Injector,
+  memoryV3SpotlightInjector,
+} from "./memory/v3/injector.js";
+import { sessionInjectors } from "./session/injectors.js";
+import sessionPkg from "./session/package.json" with { type: "json" };
 import surfaceCompletionNudgePostModelCall from "./surface-completion-nudge/hooks/post-model-call.js";
 import surfaceCompletionNudgeStop from "./surface-completion-nudge/hooks/stop.js";
 import { resetSurfaceCompletionNudgeStoreForTests } from "./surface-completion-nudge/nudge-state-store.js";
@@ -79,14 +93,20 @@ import toolErrorPostToolUse from "./tool-error/hooks/post-tool-use.js";
 import toolErrorPkg from "./tool-error/package.json" with { type: "json" };
 import toolResultTruncatePostToolUse from "./tool-result-truncate/hooks/post-tool-use.js";
 import toolResultTruncatePkg from "./tool-result-truncate/package.json" with { type: "json" };
+import { turnContextInjectors } from "./turn-context/injectors.js";
+import turnContextPkg from "./turn-context/package.json" with { type: "json" };
+import { workspaceInjectors } from "./workspace/injectors.js";
+import workspacePkg from "./workspace/package.json" with { type: "json" };
 
 /**
- * `image-fallback` — a `user-prompt-submit` hook that captions image blocks via
- * a vision-capable profile when the active model is text-only, substituting the
- * caption as a `[Image: <caption>]` text block so the model can still reason
- * about the image's content. Self-gates on `isNonInteractive`; fail-open with a
- * placeholder when no vision profile is configured or captioning fails. An
- * in-memory content-hash cache avoids re-captioning the same image across turns.
+ * `image-fallback` — captions image blocks via a vision-capable profile when
+ * the active model is text-only, substituting the caption as an `[Image …]`
+ * text block so the model can still reason about the image's content. The
+ * `user-prompt-submit` hook handles user-attached images; the `post-tool-use`
+ * hook handles images a tool returns (e.g. a browser screenshot) nested in the
+ * tool result's `contentBlocks`. Fail-open with a placeholder when no vision
+ * profile is configured or captioning fails. An in-memory content-hash cache
+ * avoids re-captioning the same image across turns.
  */
 export const defaultImageFallbackPlugin: Plugin = {
   manifest: {
@@ -95,6 +115,7 @@ export const defaultImageFallbackPlugin: Plugin = {
   },
   hooks: {
     "user-prompt-submit": imageFallbackUserPromptSubmit,
+    "post-tool-use": imageFallbackPostToolUse,
   },
 };
 
@@ -130,23 +151,98 @@ export const defaultEmptyResponsePlugin: Plugin = {
 };
 
 /**
- * `memory-retrieval` — assembles the turn's runtime injections (the unified
- * `<turn_context>` block, Slack chronological transcript, NOW.md / PKB /
- * memory-v2 / workspace blocks) via two hooks: `user-prompt-submit` runs
- * memory-graph retrieval and the initial injection, and `post-compact`
- * re-applies the injections onto the compacted history after a mid-turn
- * compaction. Registered first in the chain so later `user-prompt-submit`
- * hooks (history repair, title) see the fully memory-injected history.
+ * `memory` — the assistant's combined memory plugin. Assembles the turn's
+ * runtime injections (the unified `<turn_context>` block, Slack chronological
+ * transcript, NOW.md / PKB / memory-v2 / workspace blocks) and houses the
+ * memory-v3 orchestration engine (`memory/v3/`) and its injectors. Two hooks
+ * drive it: `user-prompt-submit` runs memory-graph retrieval and the initial
+ * injection, and `post-compact` re-applies the injections onto the compacted
+ * history after a mid-turn compaction. It contributes its personal-memory
+ * runtime injectors (PKB context/reminder and the memory-v2 static block, plus
+ * the two memory-v3 injectors) to the global injector registry via the
+ * `injectors` field; the registry unions them with the domain plugins'
+ * injectors and sorts by `order` into the per-turn chain, and the v3 injectors
+ * self-gate on `memory.v3.live`. Registered first among the default plugins so
+ * later `user-prompt-submit` hooks (history repair, title) see the fully
+ * memory-injected history.
  */
-export const defaultMemoryRetrievalPlugin: Plugin = {
+export const defaultMemoryPlugin: Plugin = {
   manifest: {
-    name: memoryRetrievalPkg.name,
-    version: memoryRetrievalPkg.version,
+    name: memoryPkg.name,
+    version: memoryPkg.version,
   },
   hooks: {
-    "user-prompt-submit": memoryRetrievalUserPromptSubmit,
-    "post-compact": memoryRetrievalPostCompact,
+    init: memoryInit,
+    shutdown: memoryShutdown,
+    "user-prompt-submit": memoryUserPromptSubmit,
+    "post-compact": memoryPostCompact,
   },
+  injectors: [...memoryInjectors, memoryV3Injector, memoryV3SpotlightInjector],
+};
+
+/**
+ * `turn-context` — contributes the unified `<turn_context>` runtime injector
+ * (temporal, actor, channel, and interface grounding). Injector-only; it
+ * contributes no hooks.
+ */
+export const defaultTurnContextPlugin: Plugin = {
+  manifest: {
+    name: turnContextPkg.name,
+    version: turnContextPkg.version,
+  },
+  injectors: turnContextInjectors,
+};
+
+/**
+ * `workspace` — contributes the workspace-grounding runtime injectors
+ * (disk-pressure warning, `<workspace>` top-level context, config-quarantine
+ * notice, NOW.md scratchpad). Injector-only; it contributes no hooks.
+ */
+export const defaultWorkspacePlugin: Plugin = {
+  manifest: {
+    name: workspacePkg.name,
+    version: workspacePkg.version,
+  },
+  injectors: workspaceInjectors,
+};
+
+/**
+ * `documents` — contributes the open-document runtime injectors
+ * (`<active_documents>` and `<document_comments>`). Injector-only; it
+ * contributes no hooks.
+ */
+export const defaultDocumentsPlugin: Plugin = {
+  manifest: {
+    name: documentsPkg.name,
+    version: documentsPkg.version,
+  },
+  injectors: documentsInjectors,
+};
+
+/**
+ * `channel` — contributes the Slack channel runtime injectors (chronological
+ * transcript replacement and `<active_thread>` focus). Injector-only; it
+ * contributes no hooks.
+ */
+export const defaultChannelPlugin: Plugin = {
+  manifest: {
+    name: channelPkg.name,
+    version: channelPkg.version,
+  },
+  injectors: channelInjectors,
+};
+
+/**
+ * `session` — contributes the session-state runtime injectors
+ * (`<background_turn>` framing and `<active_subagents>` status).
+ * Injector-only; it contributes no hooks.
+ */
+export const defaultSessionPlugin: Plugin = {
+  manifest: {
+    name: sessionPkg.name,
+    version: sessionPkg.version,
+  },
+  injectors: sessionInjectors,
 };
 
 /**
@@ -205,23 +301,6 @@ export const defaultMaxTokensContinuePlugin: Plugin = {
   hooks: {
     "post-model-call": maxTokensContinuePostModelCall,
     stop: maxTokensContinueStop,
-  },
-};
-
-/**
- * `memory-v3-shadow` — houses the memory-v3 shadow/live orchestration engine
- * (`memory-v3-shadow/`) and its injector. The `user-prompt-submit` /
- * `post-compact` hooks are no-op scaffolding for the eventual convergence,
- * when v3 injection moves off the loop-driven chain and into these hooks.
- */
-export const memoryV3ShadowPlugin: Plugin = {
-  manifest: {
-    name: memoryV3Pkg.name,
-    version: memoryV3Pkg.version,
-  },
-  hooks: {
-    "user-prompt-submit": memoryV3UserPromptSubmit,
-    "post-compact": memoryV3PostCompact,
   },
 };
 
@@ -326,38 +405,20 @@ export const defaultToolResultTruncatePlugin: Plugin = {
 };
 
 /**
- * `advisor` — adds the model-visible `advisor` tool: a no-argument tool the
- * model calls to consult a stronger inference profile (the `inference` call
- * site with a `quality-optimized` override) on the full transcript, routed
- * through the assistant's own inference. Three hooks feed it: `user-prompt-submit`
- * seeds the capture, `pre-model-call` records the executor's system prompt and
- * injects the steering that nudges the model to consult, and `post-model-call`
- * snapshots the transcript the tool reads. `finalizeTool` fills the tool's
- * defaults so it satisfies `Tool`, and `bootstrapPlugins` registers it into the
- * catalog.
- */
-export const defaultAdvisorPlugin: Plugin = {
-  manifest: {
-    name: advisorPkg.name,
-    version: advisorPkg.version,
-  },
-  hooks: {
-    "user-prompt-submit": advisorUserPromptSubmit,
-    "pre-model-call": advisorPreModelCall,
-    "post-model-call": advisorPostModelCall,
-  },
-  tools: [finalizeTool(advisorTool, "advisor")],
-};
-
-/**
  * Full set of first-party default plugins. Used by
  * {@link registerDefaultPlugins} to drive the registration loop; the array
  * order is the registration order, which fixes hook-chain order (defaults run
- * ahead of any later-registered user plugins).
+ * ahead of any later-registered user plugins). Also used by
+ * `bootstrapPlugins` to iterate defaults directly.
  */
-function getAllDefaultPlugins(): readonly Plugin[] {
+export function getAllDefaultPlugins(): readonly Plugin[] {
   return [
-    defaultMemoryRetrievalPlugin,
+    defaultMemoryPlugin,
+    defaultTurnContextPlugin,
+    defaultWorkspacePlugin,
+    defaultDocumentsPlugin,
+    defaultChannelPlugin,
+    defaultSessionPlugin,
     defaultImageFallbackPlugin,
     defaultToolResultTruncatePlugin,
     defaultEmptyResponsePlugin,
@@ -370,10 +431,6 @@ function getAllDefaultPlugins(): readonly Plugin[] {
     defaultImageRecoveryPlugin,
     defaultCompactionPlugin,
     defaultTitleGeneratePlugin,
-    memoryV3ShadowPlugin,
-    // Registered last so its capture hooks observe the fully-processed turn
-    // (memory injections, history repair) that the executor actually sees.
-    defaultAdvisorPlugin,
   ];
 }
 
@@ -401,15 +458,107 @@ export function registerDefaultPlugins(): void {
 }
 
 /**
- * Test-only helper: clear the plugin registry and re-register every default
+ * Register every default plugin's runtime injectors into the global injector
+ * registry, up front and independent of disabled-state — the injector analog of
+ * what {@link registerDefaultPlugins} does for hooks. `bootstrapPlugins` calls
+ * this before the per-plugin init loop so an injector-only default that is
+ * disabled at boot (and therefore skipped by the loop) still has its injectors
+ * registered; the per-turn walker filters them by `isPluginDisabled` at read
+ * time, so enabling it later takes effect on the next turn without a restart.
+ * Tests that drive a real turn — or call `applyRuntimeInjections` directly —
+ * use it the same way. Idempotent: `registerPluginInjectors` replaces a
+ * plugin's prior set, so the per-plugin re-registration in `initializePlugin`
+ * (for enabled defaults, and for future injector-contributing user plugins) is
+ * a harmless no-op replace.
+ */
+export function registerDefaultPluginInjectors(): void {
+  for (const plugin of getAllDefaultPlugins()) {
+    if (plugin.injectors && plugin.injectors.length > 0) {
+      registerPluginInjectors(plugin.manifest.name, plugin.injectors);
+    }
+  }
+}
+
+/**
+ * Wrap a plugin's persistence hooks so its ACTIVE side-effect hooks no-op while
+ * that plugin is disabled (`assistant plugins disable <name>`), mirroring the
+ * read-time disabled-state filtering the injector/hook/job-handler/tool surfaces
+ * apply. The sentinel is checked per call, so enable/disable takes effect on the
+ * next write without a daemon restart. CLEANUP hooks (`onConversationWiped`,
+ * `onConversationDeleted`, `onMessagesDeleted`, `onAllConversationsCleared`,
+ * `onWorkerStartup`) are intentionally NOT gated — they must run even when the
+ * plugin is disabled so state created while it was enabled is not orphaned.
+ */
+export function guardPersistenceHooksByDisabledState(
+  pluginName: string,
+  hooks: MemoryPersistenceHooks,
+): MemoryPersistenceHooks {
+  return {
+    onMessagePersisted(event) {
+      if (isPluginDisabled(pluginName)) return;
+      return hooks.onMessagePersisted(event);
+    },
+    onConversationForked(event) {
+      if (isPluginDisabled(pluginName)) return;
+      return hooks.onConversationForked(event);
+    },
+    // Gated like the active side effects above: a disabled plugin reports an
+    // empty buffer, so the maintenance scheduler treats it as "no buffered
+    // work" and skips consolidation — matching how disabled injectors/hooks go
+    // inert.
+    countMemoryBufferLines() {
+      if (isPluginDisabled(pluginName)) return 0;
+      return hooks.countMemoryBufferLines();
+    },
+    // Cleanup hooks are NOT gated on disabled-state: they must run even while
+    // the plugin is disabled, or jobs/conversations created while it was
+    // enabled would be orphaned.
+    onConversationWiped(conversationId) {
+      return hooks.onConversationWiped(conversationId);
+    },
+    onConversationDeleted(conversationId) {
+      return hooks.onConversationDeleted(conversationId);
+    },
+    onMessagesDeleted(messageIds) {
+      return hooks.onMessagesDeleted(messageIds);
+    },
+    onAllConversationsCleared() {
+      return hooks.onAllConversationsCleared();
+    },
+    onWorkerStartup() {
+      return hooks.onWorkerStartup();
+    },
+  };
+}
+
+/**
+ * Install the memory feature's persistence-lifecycle handlers into the
+ * persistence seam — the persistence-hooks analog of
+ * {@link registerDefaultPluginInjectors}. `bootstrapPlugins` calls this
+ * before the per-plugin init loop so the seam is wired up front; the handlers
+ * are guarded by {@link guardPersistenceHooksByDisabledState} so a disabled
+ * memory plugin drives no persistence side effects and re-enabling it takes
+ * effect on the next write. The seam holds a single handler set, so this
+ * replaces any prior registration.
+ */
+export function registerDefaultPluginPersistenceHooks(): void {
+  registerMemoryPersistenceHooks(
+    guardPersistenceHooksByDisabledState(
+      memoryPkg.name,
+      memoryPersistenceHooks,
+    ),
+  );
+}
+
+/**
+ * Test-only helper: clear the hook registry and re-register every default
  * so integration tests that exercise the full agent loop have a
  * production-parity plugin stack. Use this in `beforeEach` of tests that
  * dispatch through pipelines with a terminal that assumes the default
  * plugin handles every op (e.g. compaction).
  *
- * Tests that specifically need an empty registry (pipeline-unit tests, the
- * plugin-registry tests themselves) should continue to call
- * {@link resetPluginRegistryForTests} directly.
+ * Tests that specifically need an empty hook registry (pipeline-unit tests)
+ * should continue to call {@link resetHookRegistryForTests} directly.
  */
 export function resetPluginRegistryAndRegisterDefaults(): void {
   resetPluginRegistryForTests();
@@ -420,7 +569,9 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   resetExplorationDriftStateForTests();
   resetTaskProgressNudgeStateForTests();
   resetSurfaceCompletionNudgeStoreForTests();
-  resetAdvisorStateForTests();
   resetCaptionCacheForTests();
   registerDefaultPlugins();
+  clearInjectorRegistry();
+  registerDefaultPluginInjectors();
+  registerDefaultPluginPersistenceHooks();
 }

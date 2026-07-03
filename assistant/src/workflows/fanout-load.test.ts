@@ -34,8 +34,8 @@ import { z } from "zod";
 
 import { getConfig } from "../config/loader.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { initializeDb } from "../memory/db-init.js";
-import { listUsageEvents } from "../memory/llm-usage-store.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { listUsageEvents } from "../persistence/llm-usage-store.js";
 import { resolveCapabilities } from "./capabilities.js";
 import { executeWorkflow } from "./engine.js";
 import * as journalStore from "./journal-store.js";

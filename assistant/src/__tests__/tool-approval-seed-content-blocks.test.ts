@@ -9,7 +9,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     requestKind: "tool_approval",
     toolName: "bash",
     questionText:
-      'Bob wants to use "bash": mkdir -p scratch && assistant credentials reveal --service slack',
+      "Approve tool: bash — mkdir -p scratch && assistant credentials reveal --service slack (requested by Bob)",
     sourceChannel: "slack",
     requesterIdentifier: "Bob",
   };
@@ -19,7 +19,8 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     requestCode: "GHI012",
     requestKind: "tool_grant_request",
     toolName: "web_search",
-    questionText: 'Alice wants to use "web_search": search for latest news',
+    questionText:
+      "Approve tool: web_search — search for latest news (requested by Alice)",
     sourceChannel: "telegram",
     requesterIdentifier: "Alice",
   };
@@ -29,7 +30,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     requestCode: "VOICE1",
     requestKind: "pending_question",
     toolName: "bash",
-    questionText: 'Bob wants to use "bash": echo hello',
+    questionText: "Approve tool: bash — echo hello (requested by Bob)",
     sourceChannel: "phone",
     requesterIdentifier: "Bob",
   };
@@ -54,9 +55,9 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     expect(surface.surfaceType).toBe("card");
     expect(surface.surfaceId).toBe("tool-approval-req-voice-101");
     const data = surface.data as Record<string, unknown>;
-    expect(data.subtitle).toBe("Requesting approval to run this tool");
+    expect(data.subtitle).toBe("Requires your approval to run");
     const metadata = data.metadata as Array<{ label: string; value: string }>;
-    expect(metadata).toContainEqual({ label: "Tool", value: "bash" });
+    expect(metadata).toContainEqual({ label: "Requested by", value: "Bob" });
     expect(metadata).toContainEqual({ label: "Source", value: "phone" });
   });
 
@@ -70,6 +71,8 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     expect(blocks).toHaveLength(2);
     expect((blocks[0] as Record<string, unknown>).type).toBe("ui_surface");
     expect((blocks[1] as Record<string, unknown>).type).toBe("text");
+    // The fallback block is flagged so surface-capable clients skip it.
+    expect((blocks[1] as Record<string, unknown>)._surfaceFallback).toBe(true);
   });
 
   test("produces a ui_surface block and a text fallback block for tool_grant_request", () => {
@@ -93,26 +96,50 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     expect(surface.title).toBe("Tool Grant Request");
   });
 
-  test("card data uses requesterIdentifier as title", () => {
+  test("card data uses the tool name as title — the decision is about the tool", () => {
     const blocks = buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
     const data = (blocks[0] as Record<string, unknown>).data as Record<
       string,
       unknown
     >;
-    expect(data.title).toBe("Bob");
+    expect(data.title).toBe("bash");
   });
 
-  test("card data falls back to 'Someone' when no requesterIdentifier", () => {
+  test("requester appears only as metadata context, not as the card title", () => {
+    const blocks = buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
+    const data = (blocks[0] as Record<string, unknown>).data as Record<
+      string,
+      unknown
+    >;
+    expect(data.title).not.toBe("Bob");
+    const metadata = data.metadata as Array<{ label: string; value: string }>;
+    expect(metadata).toContainEqual({ label: "Requested by", value: "Bob" });
+  });
+
+  test("shows Requested by: Unknown when no requesterIdentifier", () => {
     const payload = { ...toolApprovalPayload, requesterIdentifier: undefined };
     const blocks = buildToolApprovalSeedContentBlocks(payload)!;
     const data = (blocks[0] as Record<string, unknown>).data as Record<
       string,
       unknown
     >;
-    expect(data.title).toBe("Someone");
+    expect(data.title).toBe("bash");
+    const metadata = data.metadata as Array<{ label: string; value: string }>;
+    expect(metadata).toContainEqual({
+      label: "Requested by",
+      value: "Unknown",
+    });
+
+    // The plain-text fallback carries the same placeholder.
+    const noQuestion = { ...payload, questionText: undefined };
+    const fallbackBlocks = buildToolApprovalSeedContentBlocks(noQuestion)!;
+    const textBlock = fallbackBlocks[1] as Record<string, unknown>;
+    expect(textBlock.text).toContain(
+      "Approve tool: bash (requested by Unknown)",
+    );
   });
 
-  test("card subtitle differs for tool_approval vs tool_grant_request", () => {
+  test("card subtitle is tool-framed for both tool_approval and tool_grant_request", () => {
     const approvalBlocks =
       buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
     const grantBlocks = buildToolApprovalSeedContentBlocks(toolGrantPayload)!;
@@ -120,18 +147,18 @@ describe("buildToolApprovalSeedContentBlocks", () => {
       .data as Record<string, unknown>;
     const grantData = (grantBlocks[0] as Record<string, unknown>)
       .data as Record<string, unknown>;
-    expect(approvalData.subtitle).toBe("Requesting approval to run this tool");
-    expect(grantData.subtitle).toBe("Requesting permission to use this tool");
+    expect(approvalData.subtitle).toBe("Requires your approval to run");
+    expect(grantData.subtitle).toBe("Requires your approval to run");
   });
 
-  test("includes tool name and source channel in metadata", () => {
+  test("includes requester and source channel in metadata", () => {
     const blocks = buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
     const data = (blocks[0] as Record<string, unknown>).data as Record<
       string,
       unknown
     >;
     const metadata = data.metadata as Array<{ label: string; value: string }>;
-    expect(metadata).toContainEqual({ label: "Tool", value: "bash" });
+    expect(metadata).toContainEqual({ label: "Requested by", value: "Bob" });
     expect(metadata).toContainEqual({ label: "Source", value: "slack" });
   });
 
@@ -141,8 +168,8 @@ describe("buildToolApprovalSeedContentBlocks", () => {
       string,
       unknown
     >;
-    expect(data.body).toContain("Bob wants to use");
-    expect(data.body).toContain("bash");
+    expect(data.body).toContain("Approve tool: bash");
+    expect(data.body).toContain("requested by Bob");
   });
 
   test("body shows fallback when no questionText", () => {
@@ -187,7 +214,7 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     const blocks = buildToolApprovalSeedContentBlocks(toolApprovalPayload)!;
     const textBlock = blocks[1] as Record<string, unknown>;
     expect(textBlock.type).toBe("text");
-    expect(textBlock.text).toContain("Bob wants to use");
+    expect(textBlock.text).toContain("Approve tool: bash");
     expect(textBlock.text).toContain("XYZ789");
     expect(textBlock.text).toContain("approve");
   });
@@ -196,14 +223,14 @@ describe("buildToolApprovalSeedContentBlocks", () => {
     const payload = { ...toolApprovalPayload, requestCode: undefined };
     const blocks = buildToolApprovalSeedContentBlocks(payload)!;
     const textBlock = blocks[1] as Record<string, unknown>;
-    expect(textBlock.text).toContain("Bob wants to use");
+    expect(textBlock.text).toContain("Approve tool: bash");
     expect(textBlock.text).not.toContain("XYZ789");
   });
 
-  test("text fallback block uses generic text when no questionText", () => {
+  test("text fallback block uses tool-framed generic text when no questionText", () => {
     const payload = { ...toolApprovalPayload, questionText: undefined };
     const blocks = buildToolApprovalSeedContentBlocks(payload)!;
     const textBlock = blocks[1] as Record<string, unknown>;
-    expect(textBlock.text).toContain("requesting approval to use bash");
+    expect(textBlock.text).toContain("Approve tool: bash (requested by Bob)");
   });
 });

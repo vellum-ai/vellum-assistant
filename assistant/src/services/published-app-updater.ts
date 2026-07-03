@@ -11,11 +11,11 @@ import {
   getAppDirPath,
   isMultifileApp,
   resolveEffectiveAppHtml,
-} from "../memory/app-store.js";
+} from "../apps/app-store.js";
 import {
   getActivePublishedPageByAppId,
   updatePublishedPage,
-} from "../memory/published-pages-store.js";
+} from "../apps/published-pages-store.js";
 import { credentialBroker } from "../tools/credentials/broker.js";
 import { getLogger } from "../util/logger.js";
 import { deployHtmlToVercel } from "./vercel-deploy.js";

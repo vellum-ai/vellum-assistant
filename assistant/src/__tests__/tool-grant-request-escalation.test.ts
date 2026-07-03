@@ -98,11 +98,11 @@ import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { getSqlite } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { scopedApprovalGrants } from "../memory/schema.js";
+} from "../contacts/canonical-guardian-store.js";
+import { getDb } from "../persistence/db-connection.js";
+import { getSqlite } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { scopedApprovalGrants } from "../persistence/schema/index.js";
 import {
   ToolApprovalHandler,
   waitForInlineGrant,
@@ -193,6 +193,45 @@ describe("ToolApprovalHandler / grant-miss escalation", () => {
     events.length = 0;
     emittedSignals.length = 0;
     deliveredReplies.length = 0;
+  });
+
+  test("escalation copy is tool-framed — identity appears only as context", async () => {
+    const context = makeContext({
+      trustClass: "trusted_contact",
+      requesterDisplayName: "Bob",
+    });
+    const result = await handler.checkPreExecutionGates(
+      "bash",
+      { command: "ls -la" },
+      context,
+      "host",
+      "high",
+      Date.now(),
+      emitLifecycleEvent,
+    );
+
+    // Trusted contact with a guardian binding: an escalation request is
+    // created, the short inline wait times out, and the invocation is denied.
+    expect(result.allowed).toBe(false);
+    if (result.allowed) {
+      return;
+    }
+
+    // The guardian-facing question asks about the tool, never about the person.
+    expect(emittedSignals.length).toBe(1);
+    const payload = emittedSignals[0].contextPayload as Record<string, unknown>;
+    const questionText = payload.questionText as string;
+    expect(questionText.startsWith("Approve tool: bash")).toBe(true);
+    // Requester identity is context, not the subject of the question.
+    expect(questionText).toContain("(requested by Bob)");
+    expect(questionText).not.toMatch(/wants to use/i);
+    expect(questionText).not.toMatch(/is requesting/i);
+
+    // Denial copy is about the tool, not about actor identity.
+    expect(result.result.content).toContain(`Permission denied for "bash"`);
+    expect(result.result.content).toContain("guardian approval");
+    expect(result.result.content).not.toMatch(/actor/i);
+    expect(result.result.content).not.toMatch(/not the guardian/i);
   });
 
   test("unverified_channel does NOT create escalation request", async () => {

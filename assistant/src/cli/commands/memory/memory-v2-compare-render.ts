@@ -9,7 +9,7 @@
  * type-only imports but forbids pulling in daemon runtime modules.
  */
 
-import type { ComparisonReport } from "../../../memory/v2/harness/runner.js";
+import type { ComparisonReport } from "../../../plugins/defaults/memory/v2/harness/runner.js";
 
 function sortedKs(report: ComparisonReport): number[] {
   return [...report.ks].sort((a, b) => a - b);

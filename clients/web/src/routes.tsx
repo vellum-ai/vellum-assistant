@@ -34,6 +34,10 @@ function OAuthDesktopCompleteRedirect() {
   );
 }
 
+function McpSettingsRedirect() {
+  return <Navigate to={`${routes.settings.integrations}?tab=mcp`} replace />;
+}
+
 export function getRouterBasename(): string | undefined {
   if (!isRemoteGatewayMode()) return undefined;
   return remoteGatewayPublicPathPrefix() || undefined;
@@ -136,9 +140,9 @@ export const routeTree = [
     { path: "/assistant/floating/command-palette", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/command-palette/command-palette-window-page").then((m) => m.CommandPaletteWindowPage) } },
 
     // Dictation overlay — live transcription pill rendered inside the
-    // Electron dictation overlay BrowserWindow (a click-through floating
-    // panel pinned top-center of the screen while push-to-talk dictation
-    // is active). Same pattern as Quick Input: sibling of `/assistant`,
+    // Electron dictation overlay BrowserWindow (a floating panel pinned
+    // top-center of the screen while push-to-talk dictation is active).
+    // Same pattern as Quick Input: sibling of `/assistant`,
     // outside auth middleware and RootLayout for fast load.
     { path: "/assistant/floating/dictation-overlay", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/components/dictation-overlay-page").then((m) => m.DictationOverlayPage) } },
     // Legacy direct path retained so old dev windows do not blank during
@@ -259,7 +263,7 @@ export const routeTree = [
                 { path: "billing/upgrade/cancel", lazy: { Component: () => import("@/domains/settings/billing/upgrade-cancel-page").then((m) => m.UpgradeCancelPage) } },
                 { path: "billing/upgrade/success", lazy: { Component: () => import("@/domains/settings/billing/upgrade-success-page").then((m) => m.UpgradeSuccessPage) } },
                 { path: "community", lazy: { Component: () => import("@/domains/settings/pages/community-page").then((m) => m.CommunityPage) } },
-                { path: "mcp", lazy: { Component: () => import("@/domains/settings/mcp/mcp-page").then((m) => m.McpPage) } },
+                { path: "mcp", Component: McpSettingsRedirect },
                 { path: "debug", lazy: { Component: () => import("@/domains/settings/pages/debug-page").then((m) => m.DebugPage) } },
                 { path: "developer", lazy: { Component: () => import("@/domains/settings/pages/developer-page").then((m) => m.DeveloperPage) } },
                 { path: "advanced", lazy: { Component: () => import("@/domains/settings/pages/advanced-page").then((m) => m.AdvancedPage) } },
@@ -315,6 +319,17 @@ export const routeTree = [
               children: [
                 {
                   path: "home",
+                  lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
+                },
+                // Schedules tab + per-schedule deep links. Same component as
+                // `home`; HomePageRoute reads the pathname / `:scheduleId` to
+                // open the Schedules tab and focus a schedule's drawer.
+                {
+                  path: "schedules",
+                  lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
+                },
+                {
+                  path: "schedules/:scheduleId",
                   lazy: { Component: () => import("@/home-page-route").then((m) => m.HomePageRoute) },
                 },
                 {

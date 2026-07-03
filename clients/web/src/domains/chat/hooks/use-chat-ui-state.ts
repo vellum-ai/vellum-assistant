@@ -26,6 +26,7 @@ import { liveAssistantRowId } from "@/domains/chat/utils/stream-updaters/shared"
 import { useActiveConversationIsProcessing } from "@/lib/backwards-compat/conversation-processing-state";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
+import { useTranscriptMessages } from "@/domains/chat/transcript/use-transcript-messages";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { Conversation } from "@/types/conversation-types";
 
@@ -62,8 +63,6 @@ export interface ChatUIState {
 
 export function useChatUIState(): ChatUIState {
   // --- Store reads (atomic selectors → minimal re-renders) ----------------
-  const messages = useChatSessionStore.use.messages();
-
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
@@ -76,6 +75,14 @@ export function useChatUIState(): ChatUIState {
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const activeConversationId = useConversationStore.use.activeConversationId();
 
+  // All message-derived checks read the rendered transcript (the materialized
+  // snapshot ⊕ optimistic sends) — the streaming assistant row is its tail
+  // while a turn is in flight.
+  const transcript = useTranscriptMessages();
+
+  // Authoritative processing flag off the rolling snapshot; narrow selector so it re-renders only when the flag flips.
+  const snapshotProcessing = useChatSessionStore((s) => s.snapshot?.processing);
+
   // TanStack Query — deduped with any other call for the same conversation.
   const activeConversation = useActiveConversation(assistantId, activeConversationId, true);
 
@@ -87,16 +94,16 @@ export function useChatUIState(): ChatUIState {
   const activeConversationIsProcessing = useActiveConversationIsProcessing();
 
   const activeConversationHasPendingAssistantResponse = useMemo(
-    () => hasPendingAssistantResponse(messages),
-    [messages],
+    () => hasPendingAssistantResponse(transcript),
+    [transcript],
   );
 
   // `liveAssistantRowId` operates on raw (unsanitized) messages. This is
   // correct: sanitisation only removes blank user rows and sorts — it never
   // touches the tail assistant message that determines liveness.
   const liveAssistantMessageId = useMemo(
-    () => liveAssistantRowId(messages, activeConversationIsProcessing),
-    [messages, activeConversationIsProcessing],
+    () => liveAssistantRowId(transcript, activeConversationIsProcessing),
+    [transcript, activeConversationIsProcessing],
   );
   const hasStreamingAssistantMessage = liveAssistantMessageId != null;
 
@@ -106,17 +113,17 @@ export function useChatUIState(): ChatUIState {
   // thinking-dots row so the two indicators never compete.
   const hasStreamingAssistantThinking = useMemo(() => {
     if (liveAssistantMessageId == null) return false;
-    const live = messages.find((m) => m.id === liveAssistantMessageId);
+    const live = transcript.find((m) => m.id === liveAssistantMessageId);
     if (!live) return false;
     return (
       (live.thinkingSegments?.length ?? 0) > 0 ||
       !!live.contentBlocks?.some((b) => b.type === "thinking")
     );
-  }, [messages, liveAssistantMessageId]);
+  }, [transcript, liveAssistantMessageId]);
 
   const hasUncompletedVisibleSurface = useMemo(
-    () => hasAnyInteractiveSurface(messages),
-    [messages],
+    () => hasAnyInteractiveSurface(transcript),
+    [transcript],
   );
 
   const uiContext: UIContext = useMemo(
@@ -130,6 +137,7 @@ export function useChatUIState(): ChatUIState {
       hasUncompletedVisibleSurface,
       activeConversationIsProcessing,
       hasPendingAssistantResponse: activeConversationHasPendingAssistantResponse,
+      snapshotProcessing,
     }),
     [
       hasStreamingAssistantMessage,
@@ -141,6 +149,7 @@ export function useChatUIState(): ChatUIState {
       hasUncompletedVisibleSurface,
       activeConversationIsProcessing,
       activeConversationHasPendingAssistantResponse,
+      snapshotProcessing,
     ],
   );
 

@@ -11,7 +11,7 @@
 
 import { z } from "zod";
 
-import { getDb } from "../../memory/db-connection.js";
+import { getDb } from "../../persistence/db-connection.js";
 import {
   createConnection,
   getConnection,
@@ -87,9 +87,7 @@ async function handleStartAuth(_args: RouteHandlerArgs) {
     response_type: "code",
     client_id: OPENAI_OAUTH_CONFIG.clientId,
     redirect_uri: REDIRECT_URI,
-    scope: OPENAI_OAUTH_CONFIG.scopes.join(
-      OPENAI_OAUTH_CONFIG.scopeSeparator,
-    ),
+    scope: OPENAI_OAUTH_CONFIG.scopes.join(OPENAI_OAUTH_CONFIG.scopeSeparator),
     state,
     code_challenge: codeChallenge,
     code_challenge_method: "S256",
@@ -148,10 +146,7 @@ async function handleExchange(args: RouteHandlerArgs) {
 
   if (tokens.expiresIn) {
     const expiresAt = Math.floor(Date.now() / 1000 + tokens.expiresIn);
-    await setSecureKeyAsync(
-      "credential/chatgpt/expires_at",
-      String(expiresAt),
-    );
+    await setSecureKeyAsync("credential/chatgpt/expires_at", String(expiresAt));
   }
 
   // Upsert provider connection

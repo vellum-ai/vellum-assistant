@@ -48,7 +48,7 @@ import {
   isPersonalMemoryAllowed,
   type TrustContext,
 } from "../daemon/trust-context.js";
-import { ConversationGraphMemory } from "../memory/graph/conversation-graph-memory.js";
+import { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { buildSystemPrompt } from "../prompts/system-prompt.js";
 import {
   extractToolUse,
@@ -449,12 +449,22 @@ async function runToolLeaf(
   let inputTokens = 0;
   let outputTokens = 0;
   let toolCallCount = 0;
+  // The agent loop is shared with the main-agent path: on a terminal provider
+  // rejection it does NOT throw out of `run()` — it emits an `error` event and
+  // returns with no assistant text, leaving the main loop's event consumer to
+  // surface it. A leaf has no such consumer, so capture the terminal error here
+  // and rethrow it below; otherwise a swallowed rejection becomes an empty
+  // `output` the engine scores as success — a whole fan-out "completes" having
+  // produced nothing (`clustersAuthored: 0` with an empty failure list).
+  let loopError: Error | undefined;
   const onEvent = (event: AgentEvent): void => {
     if (event.type === "usage") {
       inputTokens += event.inputTokens;
       outputTokens += event.outputTokens;
     } else if (event.type === "tool_use") {
       toolCallCount += 1;
+    } else if (event.type === "error") {
+      loopError = event.error;
     }
   };
 
@@ -467,8 +477,23 @@ async function runToolLeaf(
     ...(overrideProfile !== undefined ? { overrideProfile } : {}),
   });
 
+  const output = finalAssistantText(result.history);
+  // Fail loud on a leaf that produced nothing. A captured terminal error is
+  // rethrown verbatim (the real failure); empty output with no error means the
+  // model emitted no text — still a failure for a leaf whose contract is to
+  // return a result. Either way the leaf rejects, so the engine journals it
+  // `failed` and `map`/`parallel` yield `null` instead of a phantom success.
+  if (output.length === 0) {
+    throw (
+      loopError ??
+      new Error(
+        `Workflow tool leaf "${opts.label ?? "tool"}" produced no output text.`,
+      )
+    );
+  }
+
   return {
-    output: finalAssistantText(result.history),
+    output,
     inputTokens,
     outputTokens,
     toolCallCount,

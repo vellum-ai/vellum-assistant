@@ -157,17 +157,16 @@ mock.module("../config/env.js", () => ({
 import { applyCanonicalGuardianDecision } from "../approvals/guardian-decision-primitive.js";
 import type { ActorContext } from "../approvals/guardian-request-resolvers.js";
 import { getResolver } from "../approvals/guardian-request-resolvers.js";
-import { upsertContactChannel } from "../contacts/contacts-write.js";
-import type { TrustContext } from "../daemon/trust-context.js";
 import {
   createCanonicalGuardianRequest,
   getCanonicalGuardianRequest,
   listCanonicalGuardianRequests,
   updateCanonicalGuardianRequest,
-} from "../memory/canonical-guardian-store.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
-import { scopedApprovalGrants } from "../memory/schema.js";
+} from "../contacts/canonical-guardian-store.js";
+import type { TrustContext } from "../daemon/trust-context.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
+import { scopedApprovalGrants } from "../persistence/schema/index.js";
 import { bridgeConfirmationRequestToGuardian } from "../runtime/confirmation-request-guardian-bridge.js";
 import { resolveRoutingState } from "../runtime/trust-context-resolver.js";
 import {
@@ -176,6 +175,7 @@ import {
   waitForInlineGrant,
 } from "../tools/tool-approval-handler.js";
 import type { ToolContext, ToolLifecycleEvent } from "../tools/types.js";
+import { seedContactChannel } from "./helpers/seed-contact-channel.js";
 
 await initializeDb();
 
@@ -335,7 +335,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     };
   });
 
-  test("trusted-contact confirmation_request emits guardian.question and creates delivery records", () => {
+  test("trusted-contact confirmation_request emits guardian.question and creates delivery records", async () => {
     const canonicalRequest = createCanonicalGuardianRequest({
       id: `req-bridge-${Date.now()}`,
       kind: "tool_approval",
@@ -352,7 +352,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
 
     const trustContext = makeTrustedContactTrustContext();
 
-    const result = bridgeConfirmationRequestToGuardian({
+    const result = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-bridge-1",
@@ -371,7 +371,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
     expect(payload.requesterIdentifier).toBe("@requester");
   });
 
-  test("bridge + tool_grant_request both use guardian.question for unified routing", () => {
+  test("bridge + tool_grant_request both use guardian.question for unified routing", async () => {
     // The confirmation_request bridge and tool_grant_request helper both
     // use 'guardian.question' as the notification signal, ensuring consistent
     // guardian routing regardless of the approval path.
@@ -391,7 +391,7 @@ describe("(b) prompt-path flow: confirmation_request bridges to guardian", () =>
 
     const trustContext = makeTrustedContactTrustContext();
 
-    bridgeConfirmationRequestToGuardian({
+    await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-unified-1",
@@ -432,7 +432,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
     expect(state.promptWaitingAllowed).toBe(false);
   });
 
-  test("bridge skips when no guardian binding exists for channel", () => {
+  test("bridge skips when no guardian binding exists for channel", async () => {
     const canonicalRequest = createCanonicalGuardianRequest({
       id: `req-nobinding-${Date.now()}`,
       kind: "tool_approval",
@@ -449,7 +449,7 @@ describe("(c) no-binding flow: trusted contact fails fast without guardian bindi
 
     const trustContext = makeTrustedContactTrustContext();
 
-    const result = bridgeConfirmationRequestToGuardian({
+    const result = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-nobinding",
@@ -543,7 +543,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
     expect(resolveRoutingState(withoutRoute).canBeInteractive).toBe(false);
   });
 
-  test("bridge skips unknown actor sessions entirely", () => {
+  test("bridge skips unknown actor sessions entirely", async () => {
     const canonicalRequest = createCanonicalGuardianRequest({
       id: `req-unknown-${Date.now()}`,
       kind: "tool_approval",
@@ -563,7 +563,7 @@ describe("(d) unknown actor flow: fail-closed with no interactive approval", () 
       trustClass: "unknown",
     };
 
-    const result = bridgeConfirmationRequestToGuardian({
+    const result = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-unknown",
@@ -965,7 +965,7 @@ describe("cross-milestone integration checks", () => {
     );
   });
 
-  test("M2+M4: bridge and tool_grant_request target the same guardian identity", () => {
+  test("M2+M4: bridge and tool_grant_request target the same guardian identity", async () => {
     // Both the confirmation_request bridge (M2) and tool grant request escalation (M4)
     // use the guardian binding's guardianExternalUserId to route notifications.
     // Verify this consistency:
@@ -986,7 +986,7 @@ describe("cross-milestone integration checks", () => {
 
     const trustContext = makeTrustedContactTrustContext();
 
-    const bridgeResult = bridgeConfirmationRequestToGuardian({
+    const bridgeResult = await bridgeConfirmationRequestToGuardian({
       canonicalRequest,
       trustContext,
       conversationId: "conv-consistency",
@@ -1206,6 +1206,78 @@ describe("(g) access_request resolver: requester code delivery", () => {
     expect(requesterCodeReply!.payload.text).toContain(
       "your access request was approved",
     );
+
+    // The off-channel approve path records the verification_sent lifecycle
+    // signal too — parity with the on-channel path.
+    const verificationSent = emittedSignals.filter(
+      (s) => s.sourceEventName === "ingress.trusted_contact.verification_sent",
+    );
+    expect(verificationSent.length).toBe(1);
+  });
+
+  test("off-channel approval still records verification_sent when the requester DM fails", async () => {
+    const req = createAccessRequest();
+    // Fail the direct DM and the courier fallback (both target the requester).
+    failDeliveryWhen = (payload) => payload.chatId === REQUESTER_UID;
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      actorContext: guardianActor({
+        channel: "vellum",
+        actorExternalUserId: undefined,
+      }),
+    });
+
+    expect(result.applied).toBe(true);
+
+    // The guardian still receives the code via the inline reply, and the
+    // lifecycle signal is recorded even though the requester DM failed — the
+    // session was minted and the request was approved.
+    const replyText = result.applied ? result.resolverReplyText : undefined;
+    expect(replyText).toContain("123456");
+    const verificationSent = emittedSignals.filter(
+      (s) => s.sourceEventName === "ingress.trusted_contact.verification_sent",
+    );
+    expect(verificationSent.length).toBe(1);
+  });
+
+  test("off-channel approval on a channel with no deliverable callback (e.g. email) still records verification_sent", async () => {
+    // `email` has no deliver URL (resolveDeliverCallbackUrlForChannel returns
+    // null), so the requester cannot be auto-notified here. The guardian still
+    // receives the code inline, so the lifecycle transition must be recorded —
+    // the emit must not be gated on requester deliverability.
+    const req = createAccessRequest({
+      sourceChannel: "email",
+      requesterChatId: "requester@example.com",
+      conversationId: "conv-access-email",
+    });
+
+    const result = await applyCanonicalGuardianDecision({
+      requestId: req.id,
+      action: "approve_once",
+      actorContext: guardianActor({
+        channel: "vellum",
+        actorExternalUserId: undefined,
+      }),
+    });
+
+    expect(result.applied).toBe(true);
+
+    // Guardian gets the code inline; no requester delivery is attempted because
+    // there is no deliver callback for the channel.
+    const replyText = result.applied ? result.resolverReplyText : undefined;
+    expect(replyText).toContain("123456");
+    const requesterDelivery = deliveredReplies.find(
+      (r) => r.payload.chatId === "requester@example.com",
+    );
+    expect(requesterDelivery).toBeUndefined();
+
+    // The audit/lifecycle signal is still recorded for this off-channel approve.
+    const verificationSent = emittedSignals.filter(
+      (s) => s.sourceEventName === "ingress.trusted_contact.verification_sent",
+    );
+    expect(verificationSent.length).toBe(1);
   });
 
   test("non-Slack channel keeps the courier message and never delivers the code to the requester chat", async () => {
@@ -1280,7 +1352,7 @@ describe("(g) access_request resolver: requester code delivery", () => {
 
   test("guardian-facing reply uses the requester's display name, not the raw ID", async () => {
     // Seed a contact so the resolver can resolve a display name.
-    upsertContactChannel({
+    seedContactChannel({
       sourceChannel: "slack",
       externalUserId: REQUESTER_UID,
       displayName: "Alice",

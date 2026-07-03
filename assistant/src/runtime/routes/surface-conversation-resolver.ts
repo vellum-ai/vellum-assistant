@@ -20,7 +20,7 @@ import {
   findConversationBySurfaceId,
 } from "../../daemon/conversation-registry.js";
 import { getOrCreateConversation } from "../../daemon/conversation-store.js";
-import { rawGet } from "../../memory/raw-query.js";
+import { rawGet } from "../../persistence/raw-query.js";
 
 /**
  * Resolve the {@link Conversation} that owns the given surface.
@@ -53,6 +53,7 @@ export async function resolveSurfaceConversation(
   // unrelated rows.
   const escaped = surfaceId.replace(/[\\%_]/g, "\\$&");
   const row = rawGet<{ conversation_id: string }>(
+    "surfaceResolver:resolveConversation",
     `SELECT conversation_id FROM messages
      WHERE content LIKE ? ESCAPE '\\'
      ORDER BY created_at DESC

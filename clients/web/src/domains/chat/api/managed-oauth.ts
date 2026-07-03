@@ -12,7 +12,7 @@ import {
   oauthCompletionStorageKey,
   type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
-import { resolveManagedOAuthPlatformAssistantId } from "@/lib/local-managed-oauth-identity";
+import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { isNativePlatform } from "@/runtime/native-auth";
 import {
@@ -335,7 +335,7 @@ export async function connectManagedOAuthProvider({
       }
 
       try {
-        platformAssistantId = await resolveManagedOAuthPlatformAssistantId(assistantId);
+        platformAssistantId = await resolveLocalAssistantPlatformIdentity(assistantId);
         baselineSignatures = getProviderConnectionSignatures(
           await listOAuthConnections(platformAssistantId).catch(() => []),
           providerKey,

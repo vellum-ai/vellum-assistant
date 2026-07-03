@@ -24,6 +24,7 @@ export const LLMProvider = z
     "openai-compatible",
     "minimax",
     "atlascloud",
+    "together",
   ])
   .meta({ id: "LLMProvider" });
 type LLMProvider = z.infer<typeof LLMProvider>;
@@ -75,10 +76,7 @@ export const LLMCallSiteEnum = z.enum([
   "styleAnalyzer",
   "inviteInstructionGenerator",
   "skillCategoryInference",
-  "meetConsentMonitor",
-  "meetChatOpportunity",
   "inference",
-  "advisor",
   "vision",
   "trustRuleSuggestion",
   "homeGreeting",
@@ -416,14 +414,14 @@ export const ProfileEntry = LLMConfigFragment.extend({
   source: ProfileSource.optional(),
   /**
    * `.nullable()` is intentional: the PUT `/v1/config/llm/profiles/:name`
-   * route uses `null` as the "clear this override" sentinel for managed
-   * profiles (see `patchManagedProfileFields` in
+   * route uses `null` as the "clear this field" sentinel (edit mode sends
+   * `label: null` for a cleared display name — see
+   * `handleReplaceInferenceProfile` in
    * `runtime/routes/conversation-query-routes.ts`). Without `.nullable()`,
    * Zod rejects `{ label: null }` at parse time before the route handler
-   * ever sees it, and the clear-back-to-seed path is unreachable from any
-   * client. `.min(1)` still applies to string values so empty strings
-   * remain rejected — `null` is the only non-string-non-undefined input
-   * accepted.
+   * ever sees it, and the clear path is unreachable from any client.
+   * `.min(1)` still applies to string values so empty strings remain
+   * rejected — `null` is the only non-string-non-undefined input accepted.
    */
   label: z.string().min(1).nullable().optional(),
   description: z.string().optional(),
@@ -436,18 +434,11 @@ export const ProfileEntry = LLMConfigFragment.extend({
   provider_connection: z.string().min(1).optional(),
   /**
    * Absent means active. `.nullable()` matches `label` so the PUT route's
-   * "send `null` to clear" sentinel works for status edits too — see
-   * `patchManagedProfileFields`, which has handled `status === null` since
-   * #30362 even though the schema didn't accept it until now.
+   * "send `null` to clear" sentinel works for status too — a managed
+   * re-enable body of `{status: null}` clears back to active-by-absence
+   * (see `applyManagedProfileReenable`).
    */
   status: ProfileStatusSchema.nullable().optional(),
-  /**
-   * Whether the advisor is active while this profile is the chat profile.
-   * Absent/null means enabled (default on); only an explicit `false` disables
-   * it. `.nullable()` matches `status`/`label` so the PUT route's "send null
-   * to clear" sentinel resets it back to the default-on state.
-   */
-  advisorEnabled: z.boolean().nullable().optional(),
   /**
    * When present, this profile is a "mix": it carries no model config and
    * instead references a weighted list of standard profiles. The resolver
@@ -491,10 +482,9 @@ export const LLMSchema = z
     // schema level, so `LLMSchema.parse({})` yields an empty map.
     callSites: z.partialRecord(LLMCallSiteEnum, LLMCallSiteConfig).default({}),
     activeProfile: z.string().min(1).optional(),
-    // The profile the advisor consults (chosen under Models & Services). It is
-    // excluded from the chat-profile pickers so it can't be selected as the
-    // assistant's chat model. Absent falls back to the `advisor` call-site
-    // default (`quality-optimized`).
+    // The profile the advisor role consults when spawned as a subagent (chosen
+    // under Models & Services). It is excluded from the chat-profile pickers so
+    // it can't be selected as the assistant's chat model.
     advisorProfile: z.string().min(1).optional(),
     // TTL bounds for inference profile sessions. `defaultTtlSeconds` is read by
     // the CLI to apply when `--ttl` is omitted; the daemon handler itself only

@@ -3,11 +3,11 @@ import { describe, expect, test } from "bun:test";
 
 import { drizzle } from "drizzle-orm/bun-sqlite";
 
-import { getSqliteFrom } from "../memory/db-connection.js";
-import { createMessagesFts } from "../memory/migrations/116-messages-fts.js";
-import { migrateNormalizeSlackExternalContent } from "../memory/migrations/249-normalize-slack-external-content.js";
-import * as schema from "../memory/schema.js";
 import { writeSlackMetadata } from "../messaging/providers/slack/message-metadata.js";
+import { getSqliteFrom } from "../persistence/db-connection.js";
+import { createMessagesFts } from "../persistence/migrations/116-messages-fts.js";
+import { migrateNormalizeSlackExternalContent } from "../persistence/migrations/249-normalize-slack-external-content.js";
+import * as schema from "../persistence/schema/index.js";
 import { wrapUntrustedContent } from "../security/untrusted-content.js";
 
 interface MessageRow {

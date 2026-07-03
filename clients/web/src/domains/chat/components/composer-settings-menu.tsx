@@ -1,40 +1,52 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, Plus, SlidersHorizontal, Sparkles } from "lucide-react";
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import {
-    gateAutoProfile,
-    profilePickerLabel,
-    visibleProfilesForPicker,
-    type ProfilePickerEntry,
+  profilePickerLabel,
+  visibleProfilesForPicker,
+  type ProfilePickerEntry,
 } from "@/assistant/profile-pickers";
 import { useStickyProfiles } from "@/assistant/use-sticky-profiles";
 import { useProfileQuickAdd } from "@/components/profile-quick-add-provider";
 import {
-    configGetOptions,
-    configGetQueryKey,
-    conversationsByIdGetOptions,
-    conversationsByIdGetQueryKey,
+  configGetOptions,
+  configGetQueryKey,
+  conversationsByIdGetOptions,
+  conversationsByIdGetQueryKey,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { conversationsByIdInferenceprofilePut } from "@/generated/daemon/sdk.gen";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import {
-    deleteConversationOverride,
-    getConversationOverride,
-    getGlobalThresholds,
-    setConversationOverride,
-    setGlobalThresholds,
+  deleteConversationOverride,
+  getConversationOverride,
+  getGlobalThresholds,
+  setConversationOverride,
+  setGlobalThresholds,
 } from "@/lib/threshold-api";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { findConversation } from "@/utils/conversation-cache";
 import {
-    THRESHOLD_PRESETS,
-    overrideAction,
-    presetFromThreshold,
-    type ThresholdPreset,
+  THRESHOLD_PRESETS,
+  overrideAction,
+  presetFromThreshold,
+  type ThresholdPreset,
 } from "@/utils/threshold-presets";
-import { BottomSheet, Button, Menu, PanelItem, Tooltip } from "@vellumai/design-library";
+import {
+  BottomSheet,
+  Button,
+  Menu,
+  PanelItem,
+  Tooltip,
+} from "@vellumai/design-library";
 import { toast } from "@vellumai/design-library/components/toast";
 
 interface Props {
@@ -93,7 +105,8 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   const globalActiveProfile = configQuery.data?.llm?.activeProfile ?? null;
   const conversationProfileOverride =
     conversationQuery.data?.conversation.inferenceProfile ?? null;
-  const serverEffectiveProfile = conversationProfileOverride ?? globalActiveProfile;
+  const serverEffectiveProfile =
+    conversationProfileOverride ?? globalActiveProfile;
   const profilesLoaded = configQuery.isSuccess;
 
   const serverGlobalInteractive =
@@ -115,12 +128,17 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   // in-flight mutations. null = no pending mutation, display server value.
   // ---------------------------------------------------------------------------
 
-  const [optimisticPreset, setOptimisticPreset] = useState<ThresholdPreset | null>(null);
-  const [optimisticIsOverride, setOptimisticIsOverride] = useState<boolean | null>(null);
+  const [optimisticPreset, setOptimisticPreset] =
+    useState<ThresholdPreset | null>(null);
+  const [optimisticIsOverride, setOptimisticIsOverride] = useState<
+    boolean | null
+  >(null);
   const activePreset = optimisticPreset ?? serverActivePreset;
   const isOverride = optimisticIsOverride ?? serverIsOverride;
 
-  const [optimisticActiveProfile, setOptimisticActiveProfile] = useState<string | null>(null);
+  const [optimisticActiveProfile, setOptimisticActiveProfile] = useState<
+    string | null
+  >(null);
   const lastConfirmedProfileRef = useRef<string | null>(null);
 
   // When a row isn't loaded yet the menu's `conversationId` prop is undefined
@@ -133,7 +151,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   const pendingDraftProfiles = useConversationStore.use.pendingDraftProfiles();
   const draftProfileSelection =
     !conversationId && activeConversationId
-      ? pendingDraftProfiles.get(activeConversationId) ?? null
+      ? (pendingDraftProfiles.get(activeConversationId) ?? null)
       : null;
 
   const profileActiveKey =
@@ -181,7 +199,8 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
     if (!conversationId) return;
     const stashed = pendingDraftProfiles.get(conversationId);
     if (stashed === undefined) return;
-    if (findConversation(queryClient, assistantId, conversationId)?.draft) return;
+    if (findConversation(queryClient, assistantId, conversationId)?.draft)
+      return;
     if (promotingProfileRef.current.has(conversationId)) return;
     const id = conversationId;
     promotingProfileRef.current.add(id);
@@ -231,13 +250,17 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
         // Update assistant's global threshold (matches macOS behavior).
         setOptimisticIsOverride(false);
         try {
-          await setGlobalThresholds(assistantId, { interactive: preset.riskThreshold });
-          void queryClient.invalidateQueries({
-            queryKey: ["globalThresholds", assistantId],
-          }).then(() => {
-            setOptimisticPreset(null);
-            setOptimisticIsOverride(null);
+          await setGlobalThresholds(assistantId, {
+            interactive: preset.riskThreshold,
           });
+          void queryClient
+            .invalidateQueries({
+              queryKey: ["globalThresholds", assistantId],
+            })
+            .then(() => {
+              setOptimisticPreset(null);
+              setOptimisticIsOverride(null);
+            });
         } catch {
           // Rollback: clear optimistic state to fall back to server values.
           setOptimisticPreset(null);
@@ -251,21 +274,35 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
 
       try {
         if (action.action === "set") {
-          await setConversationOverride(assistantId, conversationId, action.threshold);
+          await setConversationOverride(
+            assistantId,
+            conversationId,
+            action.threshold,
+          );
         } else {
           await deleteConversationOverride(assistantId, conversationId);
         }
-        void queryClient.invalidateQueries({
-          queryKey: ["conversationThresholdOverride", assistantId, conversationId],
-        }).then(() => {
-          setOptimisticPreset(null);
-          setOptimisticIsOverride(null);
-        });
+        void queryClient
+          .invalidateQueries({
+            queryKey: [
+              "conversationThresholdOverride",
+              assistantId,
+              conversationId,
+            ],
+          })
+          .then(() => {
+            setOptimisticPreset(null);
+            setOptimisticIsOverride(null);
+          });
       } catch {
         if (conversationIdRef.current !== conversationId) return;
         // Re-fetch the server state to display the actual value.
         void queryClient.invalidateQueries({
-          queryKey: ["conversationThresholdOverride", assistantId, conversationId],
+          queryKey: [
+            "conversationThresholdOverride",
+            assistantId,
+            conversationId,
+          ],
         });
         setOptimisticPreset(null);
         setOptimisticIsOverride(null);
@@ -325,7 +362,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           lastConfirmedProfileRef.current = name;
         }
         // Invalidate shared caches so all consumers refresh.
-        const configKey = configGetQueryKey({ path: { assistant_id: assistantId } });
+        const configKey = configGetQueryKey({
+          path: { assistant_id: assistantId },
+        });
         void queryClient.invalidateQueries({ queryKey: configKey }).then(() => {
           // Clear optimistic only after refetch settles — avoids flash of stale value.
           setOptimisticActiveProfile((current) =>
@@ -366,16 +405,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
     return [...ordered, ...extras];
   }, [profiles, profileOrder]);
 
-  const queryComplexityRoutingEnabled =
-    useAssistantFeatureFlagStore.use.queryComplexityRouting();
-
   const visibleProfileEntries = useMemo(
-    () =>
-      gateAutoProfile(
-        visibleProfilesForPicker(orderedProfileEntries, [profileActiveKey]),
-        queryComplexityRoutingEnabled,
-      ),
-    [orderedProfileEntries, profileActiveKey, queryComplexityRoutingEnabled],
+    () => visibleProfilesForPicker(orderedProfileEntries, [profileActiveKey]),
+    [orderedProfileEntries, profileActiveKey],
   );
 
   // Quick-add is owned by the top-level ProfileQuickAddProvider (chat must not
@@ -459,7 +491,9 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
             {THRESHOLD_PRESETS.map((preset) => {
               const isActive = preset.id === activePreset.id;
               const isDefault =
-                !isOverride && serverGlobalInteractive !== null && preset.riskThreshold === serverGlobalInteractive;
+                !isOverride &&
+                serverGlobalInteractive !== null &&
+                preset.riskThreshold === serverGlobalInteractive;
               return (
                 <PanelItem
                   key={preset.id}
@@ -519,19 +553,31 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           const isActive = preset.id === activePreset.id;
           const PresetIcon = preset.icon;
           const isDefault =
-            !isOverride && serverGlobalInteractive !== null && preset.riskThreshold === serverGlobalInteractive;
+            !isOverride &&
+            serverGlobalInteractive !== null &&
+            preset.riskThreshold === serverGlobalInteractive;
           return (
             <Menu.Item
               key={preset.id}
               onSelect={() => handleSelect(preset)}
               leftIcon={<PresetIcon className="h-3.5 w-3.5" />}
-              className={isActive ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]" : ""}
-              shortcut={isActive ? <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" /> : undefined}
+              className={
+                isActive
+                  ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]"
+                  : ""
+              }
+              shortcut={
+                isActive ? (
+                  <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
+                ) : undefined
+              }
               title={preset.description}
             >
               {preset.label}
               {isDefault && (
-                <span className="ml-1 text-[var(--content-tertiary)]">(default)</span>
+                <span className="ml-1 text-[var(--content-tertiary)]">
+                  (default)
+                </span>
               )}
             </Menu.Item>
           );
@@ -548,9 +594,16 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
               key={entry.name}
               onSelect={() => handleProfileSelect(entry.name)}
               leftIcon={<Sparkles className="h-3.5 w-3.5" />}
-              className={isActive ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]" : ""}
-              shortcut={isActive ? <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" /> : undefined}
-              title={entry.name === "auto" ? "Automatically switches profiles based on the query" : undefined}
+              className={
+                isActive
+                  ? "bg-[var(--surface-active)] text-[var(--content-emphasised)]"
+                  : ""
+              }
+              shortcut={
+                isActive ? (
+                  <Check className="h-3.5 w-3.5 text-[var(--system-positive-strong)]" />
+                ) : undefined
+              }
             >
               {profilePickerLabel(entry)}
             </Menu.Item>

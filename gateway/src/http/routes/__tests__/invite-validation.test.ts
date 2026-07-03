@@ -45,10 +45,7 @@ describe("parseCreateInviteBody", () => {
       note: "hello",
       maxUses: 3,
       expiresInMs: 60_000,
-      contactName: "Alice",
       expectedExternalUserId: "+12025550100",
-      friendName: "Bob",
-      guardianName: "Carol",
     });
     expect(result.ok).toBe(true);
     if (result.ok) {

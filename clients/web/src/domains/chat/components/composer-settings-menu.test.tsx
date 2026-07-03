@@ -17,7 +17,13 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { createElement, type ReactNode } from "react";
 
@@ -34,15 +40,6 @@ const toastError = mock((_msg: string) => {});
 mock.module("@vellumai/design-library/components/toast", () => ({
   toast: { success: toastSuccess, error: toastError },
 }));
-
-// --- feature flag store ------------------------------------------------------
-mock.module("@/stores/assistant-feature-flag-store", () => {
-  const store = () => null;
-  store.use = {
-    queryComplexityRouting: () => false,
-  };
-  return { useAssistantFeatureFlagStore: store };
-});
 
 // --- threshold-api (mount-time access-level fetches) -------------------------
 mock.module("@/lib/threshold-api", () => ({
@@ -73,7 +70,12 @@ mock.module("@vellumai/design-library", () => {
     Root: passthrough,
     Trigger: passthrough,
     Content: passthrough,
-    Item: ({ children, onSelect, leftIcon, ...rest }: Record<string, unknown>) =>
+    Item: ({
+      children,
+      onSelect,
+      leftIcon,
+      ...rest
+    }: Record<string, unknown>) =>
       createElement(
         "button",
         {
@@ -98,12 +100,21 @@ mock.module("@vellumai/design-library", () => {
   return {
     Menu: MenuMock,
     BottomSheet: BottomSheetMock,
-    Button: ({ onClick, "aria-label": ariaLabel, iconOnly: _i, ...rest }: Record<string, unknown>) =>
+    Button: ({
+      onClick,
+      "aria-label": ariaLabel,
+      iconOnly: _i,
+      ...rest
+    }: Record<string, unknown>) =>
       createElement("button", { onClick, "aria-label": ariaLabel, ...rest }),
     PanelItem: ({ label, onSelect, ...rest }: Record<string, unknown>) =>
       createElement(
         "button",
-        { "data-testid": "panel-item", onClick: onSelect as (() => void) | undefined, ...rest },
+        {
+          "data-testid": "panel-item",
+          onClick: onSelect as (() => void) | undefined,
+          ...rest,
+        },
         label as ReactNode,
       ),
     Tooltip: ({ children }: Record<string, unknown>) => children as ReactNode,
@@ -120,14 +131,18 @@ const NEW_PROFILE_LABEL = "Fast & Cheap";
 // internally, so mocking the SDK module covers both layers.
 const configGetMock = mock(
   async (_opts: unknown): Promise<{ data: unknown }> => ({
-    data: { llm: { profileOrder: ["smart"], profiles: { smart: { label: "Smart" } }, activeProfile: "smart" } },
+    data: {
+      llm: {
+        profileOrder: ["smart"],
+        profiles: { smart: { label: "Smart" } },
+        activeProfile: "smart",
+      },
+    },
   }),
 );
-const conversationsByIdGetMock = mock(
-  async (_opts: unknown) => ({
-    data: { conversation: { inferenceProfile: null } },
-  }),
-);
+const conversationsByIdGetMock = mock(async (_opts: unknown) => ({
+  data: { conversation: { inferenceProfile: null } },
+}));
 const configPatchMock = mock(
   async (_opts: unknown): Promise<{ data: unknown }> => ({ data: {} }),
 );
@@ -252,7 +267,10 @@ describe("Model Profile quick-add", () => {
       data: {
         llm: {
           profileOrder: ["smart", NEW_PROFILE_NAME],
-          profiles: { smart: { label: "Smart" }, [NEW_PROFILE_NAME]: { label: NEW_PROFILE_LABEL } },
+          profiles: {
+            smart: { label: "Smart" },
+            [NEW_PROFILE_NAME]: { label: NEW_PROFILE_LABEL },
+          },
           activeProfile: "smart",
         },
       },
@@ -264,7 +282,8 @@ describe("Model Profile quick-add", () => {
       expect(inferenceprofilePut).toHaveBeenCalledTimes(1);
     });
     expect(
-      (inferenceprofilePut.mock.calls[0]![0] as { body: { profile: string } }).body.profile,
+      (inferenceprofilePut.mock.calls[0]![0] as { body: { profile: string } })
+        .body.profile,
     ).toBe(NEW_PROFILE_NAME);
 
     // The new profile is now reflected locally and renders in the picker by
@@ -332,10 +351,18 @@ describe("Model Profile quick-add", () => {
 
 describe("Profile selection after conversation change (LUM-2279)", () => {
   test("selecting a profile works immediately after conversationId changes", async () => {
-    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const qc = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     const tree = (convId: string) =>
-      createElement(QueryClientProvider, { client: qc },
-        createElement(ComposerSettingsMenu, { assistantId: "assistant-1", conversationId: convId }));
+      createElement(
+        QueryClientProvider,
+        { client: qc },
+        createElement(ComposerSettingsMenu, {
+          assistantId: "assistant-1",
+          conversationId: convId,
+        }),
+      );
 
     const { rerender } = render(tree("conv-1"));
     await waitFor(() => expect(screen.getByText("Smart")).toBeTruthy());
@@ -346,11 +373,16 @@ describe("Profile selection after conversation change (LUM-2279)", () => {
     rerender(tree("conv-2"));
 
     // Click the profile — without the fix this is silently dropped.
-    const smart = screen.getAllByTestId("menu-item").find((b) => b.textContent?.includes("Smart"));
+    const smart = screen
+      .getAllByTestId("menu-item")
+      .find((b) => b.textContent?.includes("Smart"));
     fireEvent.click(smart!);
 
     await waitFor(() => expect(inferenceprofilePut).toHaveBeenCalledTimes(1));
-    expect((inferenceprofilePut.mock.calls[0]![0] as { body: { profile: string } }).body.profile).toBe("smart");
+    expect(
+      (inferenceprofilePut.mock.calls[0]![0] as { body: { profile: string } })
+        .body.profile,
+    ).toBe("smart");
   });
 });
 
@@ -371,14 +403,20 @@ describe("Profile selection with no active conversation (new draft chat)", () =>
     useConversationStore.getState().setActiveConversationId("draft-xyz");
 
     const qc = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
     });
     render(
-      createElement(QueryClientProvider, { client: qc },
+      createElement(
+        QueryClientProvider,
+        { client: qc },
         createElement(ComposerSettingsMenu, {
           assistantId: "assistant-1",
           conversationId: undefined,
-        })),
+        }),
+      ),
     );
 
     await waitFor(() => expect(screen.getByText("Smart")).toBeTruthy());

@@ -20,8 +20,8 @@
  * the host hands to plugin hooks, and the logger shape they include.
  *
  * Alongside those types, the module exposes a small set of **runtime
- * handles** for plugins that need to reach the assistant's live singletons
- * (subscribe to runtime events, read secrets). These resolve to the
+ * handles for plugins that need to reach the assistant's live singletons
+ * (subscribe to runtime events, inspect inference profiles). These resolve to the
  * assistant's own instances: the host parks the loaded plugin-api namespace
  * on `globalThis` at boot, and the workspace-level shim re-binds each
  * runtime export from there — so a plugin's
@@ -31,15 +31,14 @@
  * disjoint module copy.
  *
  * - {@link assistantEventHub} — the assistant's pub/sub hub for runtime events
- * - {@link getSecureKeyAsync} — read a secret from secure storage
  * - {@link getModelProfiles} — list the workspace inference profiles a plugin
  *   can route to (e.g. a model router building its category → profile map)
  * - {@link getConfiguredProvider} — resolve a {@link Provider} for a call site
  *   (optionally overriding the profile) and run inference through the
  *   workspace's configured profiles and credentials — no plugin-supplied API key
  *
- * - {@link PluginInitContext} — passed to `init` hook at bootstrap
- * - {@link PluginShutdownContext} — passed to `shutdown` hook at teardown
+ * - {@link InitContext} — passed to `init` hook at bootstrap
+ * - {@link ShutdownContext} — passed to `shutdown` hook at teardown
  * - {@link UserPromptSubmitContext} — passed to `user-prompt-submit` hook,
  *   fired immediately before the agent loop receives a user's prompt
  * - {@link PostCompactContext} — passed to `post-compact` hook, fired after
@@ -56,7 +55,7 @@
  * - {@link PostModelCallContext} — passed to `post-model-call` hook, fired at
  *   every model-call outcome (a finalized reply or a provider rejection) to
  *   transform content and decide whether to retry
- * - {@link PluginHookFn} — signature every lifecycle hook implements
+ * - {@link HookFunction} — signature every lifecycle hook implements
  * - {@link PluginLogger} — pino-compatible logger shape on the contexts
  * - {@link ToolDefinition} — author-facing tool spec (default-export shape
  *   for both plugin tool files and workspace tool files)
@@ -99,16 +98,16 @@ export type {
 export type { LLMCallSite } from "../config/schemas/llm.js";
 export type {
   AgentLoopExitReason,
+  HookFunction,
+  InitContext,
   ModelProfileInfo,
-  PluginHookFn,
-  PluginInitContext,
   PluginLogger,
-  PluginShutdownContext,
   PostCompactContext,
   PostModelCallContext,
   PostModelCallDecision,
   PostToolUseContext,
   PreModelCallContext,
+  ShutdownContext,
   StopContext,
   ToolContext,
   ToolDefinition,
@@ -129,15 +128,22 @@ export type {
   AssistantEventHub,
   AssistantEventSubscription,
 } from "../runtime/assistant-event-hub.js";
-export { assistantEventHub } from "../runtime/assistant-event-hub.js";
-export { getSecureKeyAsync } from "../security/secure-keys.js";
+// The hub plugins receive is a capability-restricted facade over the daemon
+// singleton (see `event-hub-facade.ts`): plugins may `subscribe` to runtime
+// events (shared subscriber state), `publish` non-host events, and check
+// `hasSubscribersForEvent`. `publish` refuses daemon-to-client host-proxy
+// control events (`host_*`), and methods that return live subscriber callbacks
+// or mutate hub state are withheld — both would let a plugin drive privileged
+// host execution without the host proxies' approval gate.
+export type { PluginEventHub } from "./event-hub-facade.js";
+export { pluginAssistantEventHub as assistantEventHub } from "./event-hub-facade.js";
 export { getModelProfiles } from "./model-profiles.js";
-// Check whether a profile's resolved model can process image input. Resolves
-// the effective (provider, model) by merging over the workspace default and
-// inferring the provider for model-only profiles, then looks up the model
-// catalog's `supportsVision` flag. Handles mix profiles (true if any arm
-// supports vision). Fail-open for unknown models. Pair with
-// `getModelProfiles()` to inspect the active or candidate profiles.
+// Check whether a model or profile can process image input. Accepts a concrete
+// model id, a profile key, or a `ModelProfileInfo`; a bare string is resolved
+// as a model id first and then as a profile key. Profile resolution merges over
+// the workspace default and infers the provider for model-only profiles, then
+// looks up the model catalog's `supportsVision` flag (mix profiles are
+// vision-capable if any arm is). Returns false when nothing resolves.
 export { doesSupportVision } from "./vision-support.js";
 // Resolve a provider for a call site (optionally overriding the profile) so a
 // plugin can run inference through the workspace's configured profiles and
@@ -149,3 +155,8 @@ export { doesSupportVision } from "./vision-support.js";
 // float the chosen profile above the call-site layers when the plugin must
 // run on a specific profile regardless of workspace tuning.
 export { getConfiguredProvider } from "../providers/provider-send-message.js";
+// Classify a provider stop reason: whether the turn was truncated at the
+// output token cap (vs. a natural stop or a tool call). A `post-model-call`
+// hook reads it off `PostModelCallContext.stopReason` to decide whether to
+// continue a cut-off reply.
+export { isMaxTokensStopReason } from "../providers/stop-reasons.js";

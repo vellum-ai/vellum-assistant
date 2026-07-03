@@ -32,7 +32,10 @@ mock.module("electron", () => ({
     getAppPath: () => appState.appPath,
   },
   ipcMain: {
-    handle: (channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => {
+    handle: (
+      channel: string,
+      handler: (event: unknown, ...args: unknown[]) => unknown,
+    ) => {
       handlers[channel] = handler;
     },
   },
@@ -42,8 +45,10 @@ import { FakeChild } from "./test-helpers";
 
 let lastChild: FakeChild;
 const spawnArgs: Array<[string, string[]]> = [];
-const spawnMock = mock((command: string, args: string[]) => {
+const spawnOptions: unknown[] = [];
+const spawnMock = mock((command: string, args: string[], options?: unknown) => {
   spawnArgs.push([command, args]);
+  spawnOptions.push(options);
   lastChild = new FakeChild();
   return lastChild;
 });
@@ -95,6 +100,11 @@ process.env.VELLUM_ENVIRONMENT = "production";
 process.env.VELLUM_LOCKFILE_DIR = lockfileDir;
 process.env.XDG_CONFIG_HOME = configHomeDir;
 const lockfilePath = path.join(lockfileDir, ".vellum.lock.json");
+
+let mockSessionToken: string | null = null;
+mock.module("./session-token-store", () => ({
+  getSessionToken: () => mockSessionToken,
+}));
 
 const { installLocalMode } = await import("./local-mode");
 const { resolveAllowedOrigin } = await import("./app-origin");
@@ -151,10 +161,12 @@ afterEach(() => {
   appState.isPackaged = false;
   appState.appPath = "/repo/clients/macos";
   spawnArgs.length = 0;
+  spawnOptions.length = 0;
   spawnMock.mockClear();
   ensureCliInstalledMock.mockClear();
   cliInstallerState.isInstalled = false;
   cliInstallerState.installError = null;
+  mockSessionToken = null;
   delete process.env.VELLUM_CLI_PATH;
   for (const key of Object.keys(existsSyncOverrides)) {
     delete existsSyncOverrides[key];
@@ -277,7 +289,10 @@ describe("vellum:localMode:hatch handler", () => {
     lastChild.stderr.emit("data", Buffer.from("daemon already running"));
     lastChild.emit("close", 1);
 
-    expect(await pending).toEqual({ ok: false, error: "daemon already running" });
+    expect(await pending).toEqual({
+      ok: false,
+      error: "daemon already running",
+    });
   });
 
   test("a non-zero exit with no output carries a descriptive fallback error", async () => {
@@ -353,9 +368,18 @@ const replacePlatformAssistants = (platformAssistants: unknown): WriteResult =>
     platformAssistants,
   ) as WriteResult;
 const retire = (assistantId?: unknown): Promise<unknown> =>
-  handlers["vellum:localMode:retire"](allowedEvent, assistantId) as Promise<unknown>;
+  handlers["vellum:localMode:retire"](
+    allowedEvent,
+    assistantId,
+  ) as Promise<unknown>;
 const wake = (assistantId?: unknown, options?: unknown): Promise<unknown> =>
   handlers["vellum:localMode:wake"](
+    allowedEvent,
+    assistantId,
+    options,
+  ) as Promise<unknown>;
+const upgrade = (assistantId?: unknown, options?: unknown): Promise<unknown> =>
+  handlers["vellum:localMode:upgrade"](
     allowedEvent,
     assistantId,
     options,
@@ -409,7 +433,11 @@ describe("lockfile IPC handlers", () => {
     if (!result.ok) return;
     expect(result.lockfile.activeAssistant).toBe("asst-1");
     expect(result.lockfile.assistants).toEqual([
-      { assistantId: "asst-1", cloud: "local", runtimeUrl: "http://127.0.0.1:1" },
+      {
+        assistantId: "asst-1",
+        cloud: "local",
+        runtimeUrl: "http://127.0.0.1:1",
+      },
     ]);
 
     const onDisk = JSON.parse(fs.readFileSync(lockfilePath, "utf-8")) as {
@@ -434,7 +462,11 @@ describe("lockfile IPC handlers", () => {
 
   test("replacePlatformAssistants swaps platform entries while preserving local ones", () => {
     saveLockfileAssistant(
-      { assistantId: "local-1", cloud: "local", runtimeUrl: "http://127.0.0.1:1" },
+      {
+        assistantId: "local-1",
+        cloud: "local",
+        runtimeUrl: "http://127.0.0.1:1",
+      },
       "local-1",
     );
     saveLockfileAssistant(
@@ -448,15 +480,19 @@ describe("lockfile IPC handlers", () => {
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    const ids = (result.lockfile.assistants as Array<{ assistantId: string }>).map(
-      (a) => a.assistantId,
-    );
+    const ids = (
+      result.lockfile.assistants as Array<{ assistantId: string }>
+    ).map((a) => a.assistantId);
     expect(ids).toEqual(["local-1", "new-platform"]);
   });
 
   test("replacePlatformAssistants rejects a non-array argument without touching disk", () => {
     saveLockfileAssistant(
-      { assistantId: "local-1", cloud: "local", runtimeUrl: "http://127.0.0.1:1" },
+      {
+        assistantId: "local-1",
+        cloud: "local",
+        runtimeUrl: "http://127.0.0.1:1",
+      },
       "local-1",
     );
 
@@ -499,8 +535,35 @@ describe("vellum:localMode:retire handler", () => {
     expect(await pending).toEqual({ ok: false, error: "no such assistant" });
   });
 
+  test("passes the current session token through the shared retire invocation", async () => {
+    mockSessionToken = "tok-electron";
+    const previousPlatformToken = process.env.VELLUM_PLATFORM_TOKEN;
+    process.env.VELLUM_PLATFORM_TOKEN = "parent-token";
+    try {
+      const pending = retire("asst-1");
+      await tick();
+      lastChild.emit("close", 0);
+
+      expect(await pending).toEqual({ ok: true });
+      expect(
+        (spawnOptions[0] as { env?: NodeJS.ProcessEnv }).env
+          ?.VELLUM_PLATFORM_TOKEN,
+      ).toBe("tok-electron");
+      expect(process.env.VELLUM_PLATFORM_TOKEN).toBe("parent-token");
+    } finally {
+      if (previousPlatformToken === undefined) {
+        delete process.env.VELLUM_PLATFORM_TOKEN;
+      } else {
+        process.env.VELLUM_PLATFORM_TOKEN = previousPlatformToken;
+      }
+    }
+  });
+
   test("rejects a missing assistant id without spawning", async () => {
-    expect(await retire("")).toEqual({ ok: false, error: "Missing assistantId" });
+    expect(await retire("")).toEqual({
+      ok: false,
+      error: "Missing assistantId",
+    });
     expect(await retire(undefined)).toEqual({
       ok: false,
       error: "Missing assistantId",
@@ -577,5 +640,56 @@ describe("vellum:localMode:wake handler", () => {
       error: "Missing assistantId",
     });
     expect(spawnArgs).toHaveLength(0);
+  });
+});
+
+describe("vellum:localMode:upgrade handler", () => {
+  beforeEach(() => {
+    fs.rmSync(lockfilePath, { force: true });
+    saveLockfileAssistant(
+      {
+        assistantId: "asst-active",
+        cloud: "local",
+        runtimeUrl: "http://127.0.0.1:1",
+      },
+      "asst-active",
+    );
+    spawnArgs.length = 0;
+  });
+
+  test("rejects a non-active assistant without spawning the CLI", async () => {
+    await expect(upgrade("asst-inactive", { latest: true })).resolves.toEqual({
+      ok: false,
+      error: "Can only upgrade the active local assistant",
+    });
+    expect(spawnArgs).toHaveLength(0);
+  });
+
+  test("deduplicates concurrent requests before resolving the CLI invocation", async () => {
+    const pending = upgrade("asst-active", { latest: true });
+    const duplicate = upgrade("asst-active", { latest: true });
+
+    await expect(duplicate).resolves.toEqual({
+      ok: false,
+      error: "An upgrade is already in progress for this assistant.",
+    });
+
+    await tick();
+    expect(spawnArgs).toHaveLength(1);
+    expect(spawnArgs[0]).toEqual([
+      "bun",
+      [
+        "run",
+        path.join("/repo", "cli", "src", "index.ts"),
+        "upgrade",
+        "asst-active",
+        "--latest",
+      ],
+    ]);
+
+    lastChild.stdout.emit("data", Buffer.from("upgraded to v1.2.3\n"));
+    lastChild.emit("close", 0);
+
+    await expect(pending).resolves.toEqual({ ok: true, version: "v1.2.3" });
   });
 });

@@ -3,21 +3,34 @@
 <plist version="1.0">
 <dict>
     <!--
-      Embedded into the bare executable's __TEXT,__info_plist section by
-      build-mac-helper.sh. TCC consults the requesting binary's Info.plist
-      for usage strings when the helper itself (not just the responsible
-      host app) is attributed for microphone / speech-recognition access,
-      so the dictation-partials session can prompt and run without a full
-      .app bundle.
+      Template: build-mac-helper.sh substitutes the __HELPER_*__ placeholders
+      per VELLUM_ENVIRONMENT, then embeds the result into the bare executable's
+      __TEXT,__info_plist section. TCC consults the requesting binary's
+      Info.plist for usage strings when the helper itself (not just the
+      responsible host app) is attributed for microphone / speech-recognition
+      access, so the dictation-partials session can prompt and run without a
+      full .app bundle.
     -->
     <key>CFBundleIdentifier</key>
-    <string>ai.vellum.assistant.mac-helper</string>
+    <string>__HELPER_BUNDLE_ID__</string>
+    <!--
+      The executable filename is what System Settings → Privacy & Security shows
+      for this helper: it is spawned directly (not via LaunchServices), so TCC
+      attributes its grants by executable path and renders the binary's filename,
+      ignoring CFBundleName/CFBundleDisplayName. build-mac-helper.sh names the
+      binary per environment; this must match it or codesign rejects the bundle.
+    -->
     <key>CFBundleExecutable</key>
-    <string>vellum-mac-helper</string>
+    <string>__HELPER_EXEC_NAME__</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
+    <!-- User-facing name + icon in System Settings → Privacy & Security. -->
     <key>CFBundleName</key>
-    <string>vellum-mac-helper</string>
+    <string>__HELPER_DISPLAY_NAME__</string>
+    <key>CFBundleDisplayName</key>
+    <string>__HELPER_DISPLAY_NAME__</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
@@ -30,5 +43,9 @@
     <string>Vellum uses the microphone to transcribe dictated voice input.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Vellum uses speech recognition to show your words live while you dictate.</string>
+    <key>NSScreenCaptureUsageDescription</key>
+    <string>Vellum captures the screen so the assistant can see what's on screen and control your computer on your behalf.</string>
+    <key>NSAccessibilityUsageDescription</key>
+    <string>Vellum uses accessibility features to read on-screen elements and control apps when you ask it to use your computer.</string>
 </dict>
 </plist>

@@ -9,6 +9,12 @@ interface AnimatedAvatarProps {
   traits: CharacterTraits;
   size: number;
   isStreaming?: boolean;
+  /**
+   * Continuous idle "breathing" scale pulse. On by default; pass `false` to
+   * keep the avatar still while leaving blink/twitch (and streaming morph)
+   * intact — e.g. the scattered onboarding edge characters.
+   */
+  breathe?: boolean;
 }
 
 function randomBetween(min: number, max: number): number {
@@ -108,6 +114,7 @@ export function AnimatedAvatar({
   traits,
   size,
   isStreaming = false,
+  breathe = true,
 }: AnimatedAvatarProps) {
   const reduce = useReducedMotion();
 
@@ -146,9 +153,16 @@ export function AnimatedAvatar({
   const eyeCenterOutputY =
     bodyScaleFactor * (remapTy + eyeStyle.eyeCenter.y * remapScale) + bodyTy;
 
+  // Wobble variants are only used during streaming, and precomputing them is
+  // O(n²) per path — doing it eagerly for every avatar (e.g. the 10 mounted on
+  // each onboarding step) caused a noticeable jank on mount. Compute lazily,
+  // only once an avatar actually streams.
   const morphPaths = useMemo(
-    () => precomputeWobbledPaths(bodyShape.svgPath, 16, 0.06),
-    [bodyShape.svgPath],
+    () =>
+      isStreaming
+        ? precomputeWobbledPaths(bodyShape.svgPath, 16, 0.06)
+        : [bodyShape.svgPath],
+    [bodyShape.svgPath, isStreaming],
   );
 
   const [isBlinking, setIsBlinking] = useState(false);
@@ -266,7 +280,9 @@ export function AnimatedAvatar({
     ? "none"
     : isStreaming
       ? "avatar-morph-scale 2.4s ease-in-out infinite, avatar-morph-rotate 3s ease-in-out infinite"
-      : "avatar-breathe-kf 4s ease-in-out infinite";
+      : breathe
+        ? "avatar-breathe-kf 4s ease-in-out infinite"
+        : "none";
 
   const effectiveTwitchAngle = isStreaming ? 0 : twitchAngle;
   // Never squish the eyes while streaming — guards the one frame between

@@ -9,11 +9,14 @@ const processingFailureEvents: string[] = [];
 const deliveredEvents: string[] = [];
 const deliveryFailureEvents: string[] = [];
 const deliveredSegmentCounts: Array<{ eventId: string; count: number }> = [];
-const liveDeliveredTextResponseIndexes = new Map<string, number[]>();
 const operationOrder: string[] = [];
 const storedReplyMessageIds: Array<{
   eventId: string;
   replyMessageId: string;
+}> = [];
+const storedStreamedReplyTs: Array<{
+  eventId: string;
+  messageTs: string;
 }> = [];
 const replyDeliveryCalls: Array<{
   messageId?: string;
@@ -35,31 +38,24 @@ mock.module("../../../util/logger.js", () => ({
     }),
 }));
 
-mock.module("../../../memory/delivery-channels.js", () => ({
-  addSlackDmLiveDeliveredTextResponseIndex: (
-    eventId: string,
-    responseIndex: number,
-  ) => {
-    operationOrder.push(`live:${responseIndex}`);
-    const indexes = liveDeliveredTextResponseIndexes.get(eventId) ?? [];
-    if (!indexes.includes(responseIndex)) indexes.push(responseIndex);
-    liveDeliveredTextResponseIndexes.set(eventId, indexes);
-  },
-  getSlackDmLiveDeliveredTextResponseIndexes: (eventId: string) =>
-    liveDeliveredTextResponseIndexes.get(eventId) ?? [],
+mock.module("../../../persistence/delivery-channels.js", () => ({
   updateDeliveredSegmentCount: (eventId: string, count: number) => {
     deliveredSegmentCounts.push({ eventId, count });
   },
 }));
 
-mock.module("../../../memory/delivery-crud.js", () => ({
+mock.module("../../../persistence/delivery-crud.js", () => ({
   linkMessage: () => {},
   storeReplyMessageId: (eventId: string, replyMessageId: string) => {
     storedReplyMessageIds.push({ eventId, replyMessageId });
   },
+  storeStreamedReplyTs: (eventId: string, messageTs: string) => {
+    operationOrder.push("store-streamed-ts");
+    storedStreamedReplyTs.push({ eventId, messageTs });
+  },
 }));
 
-mock.module("../../../memory/delivery-status.js", () => ({
+mock.module("../../../persistence/delivery-status.js", () => ({
   markDeliveryDelivered: (eventId: string) => {
     deliveredEvents.push(eventId);
   },
@@ -104,12 +100,12 @@ mock.module("../../channel-reply-delivery.js", () => ({
   },
 }));
 
-import type { TrustContext } from "../../../daemon/trust-context.js";
 import {
   clearThreadTs,
   getThreadTs,
   setThreadTs,
-} from "../../../memory/slack-thread-store.js";
+} from "../../../channels/slack-thread-store.js";
+import type { TrustContext } from "../../../daemon/trust-context.js";
 import type { MessageProcessor } from "../../http-types.js";
 import {
   isBoundGuardianActor,
@@ -125,13 +121,18 @@ beforeEach(() => {
   deliveredEvents.length = 0;
   deliveryFailureEvents.length = 0;
   deliveredSegmentCounts.length = 0;
-  liveDeliveredTextResponseIndexes.clear();
   operationOrder.length = 0;
   storedReplyMessageIds.length = 0;
+  storedStreamedReplyTs.length = 0;
   replyDeliveryCalls.length = 0;
   deliverChannelReplyImpl = async () => ({ ok: true });
   deliverReplyViaCallbackImpl = async () => {};
 });
+
+const slackStreamOps = (): Array<Record<string, unknown>> =>
+  deliveredChannelReplies
+    .map((entry) => entry.payload.slackStream as Record<string, unknown>)
+    .filter(Boolean);
 
 describe("isBoundGuardianActor", () => {
   test("returns true only when requester matches bound guardian", () => {
@@ -343,15 +344,9 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     clearThreadTs(conversationId);
   });
 
-  test("delivers Slack DM assistant text before tools as it becomes ready", async () => {
-    const conversationId = "conv-dm-incremental-text";
-    const channelId = "D-INCREMENTAL";
-    deliverReplyViaCallbackImpl = async (...args: unknown[]) => {
-      const options = args[4] as
-        | { onSegmentDelivered?: (count: number) => void }
-        | undefined;
-      options?.onSegmentDelivered?.(1);
-    };
+  test("falls back to durable delivery for a non-threaded Slack DM", async () => {
+    const conversationId = "conv-dm-no-thread";
+    const channelId = "D-NO-THREAD";
 
     const processMessage: MessageProcessor = async (
       _conversationId,
@@ -360,52 +355,22 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     ) => {
       options?.onEvent?.({
         type: "assistant_text_delta",
-        text: "<no_response/>\nFirst response before the tool.",
-        conversationId,
-      });
-      options?.onEvent?.({
-        type: "assistant_thinking_delta",
-        thinking: "private reasoning",
-        conversationId,
-      });
-      options?.onEvent?.({
-        type: "tool_use_start",
-        toolName: "web_search",
-        input: { query: "example" },
-        conversationId,
-        toolUseId: "toolu_1",
-      });
-      options?.onEvent?.({
-        type: "message_complete",
-        conversationId,
-        messageId: "assistant-msg-pre-tool",
-      });
-
-      await flush();
-      expect(
-        deliveredChannelReplies
-          .map((entry) => entry.payload.text)
-          .filter(Boolean),
-      ).toEqual(["First response before the tool."]);
-
-      options?.onEvent?.({
-        type: "assistant_text_delta",
-        text: "Final response after the tool.",
+        text: "Reply with no thread to stream into.",
         conversationId,
       });
       options?.onEvent?.({
         type: "message_complete",
         conversationId,
-        messageId: "assistant-msg-final",
+        messageId: "assistant-msg-no-thread",
       });
-      return { messageId: "user-msg-incremental" };
+      return { messageId: "user-msg-no-thread" };
     };
 
     processChannelMessageInBackground({
       processMessage,
       conversationId,
-      eventId: "evt-incremental-text",
-      content: "please look this up",
+      eventId: "evt-no-thread",
+      content: "please reply",
       sourceChannel: "slack",
       sourceInterface: "slack",
       externalChatId: channelId,
@@ -417,42 +382,26 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
 
     await flush();
 
+    expect(slackStreamOps()).toEqual([]);
     expect(
       deliveredChannelReplies
         .map((entry) => entry.payload.text)
         .filter(Boolean),
-    ).toEqual([
-      "First response before the tool.",
-      "Final response after the tool.",
-    ]);
-    expect(
-      deliveredChannelReplies.every((entry) => !entry.payload.thinking),
-    ).toBe(true);
+    ).toEqual([]);
     expect(replyDeliveryCalls).toEqual([
-      { messageId: "assistant-msg-final", startFromSegment: 1 },
+      { messageId: "assistant-msg-no-thread", startFromSegment: 0 },
     ]);
-    expect(deliveredSegmentCounts).toEqual([
-      { eventId: "evt-incremental-text", count: 1 },
-      { eventId: "evt-incremental-text", count: 1 },
-    ]);
-    expect(storedReplyMessageIds).toEqual([
-      {
-        eventId: "evt-incremental-text",
-        replyMessageId: "assistant-msg-final",
-      },
-    ]);
-    expect(deliveredEvents).toEqual(["evt-incremental-text"]);
+    expect(deliveredEvents).toEqual(["evt-no-thread"]);
 
     clearThreadTs(conversationId);
   });
 
-  test("does not redeliver a Slack DM assistant message already posted live", async () => {
-    const conversationId = "conv-dm-live-only";
-    const channelId = "D-LIVE-ONLY";
-    deliverChannelReplyImpl = async () => ({
-      ok: true,
-      ts: "1700000000.000033",
-    });
+  test("streams a threaded Slack DM reply and reconciles durable delivery to the stream", async () => {
+    const conversationId = "conv-dm-streamed";
+    const channelId = "D-STREAMED";
+    const threadTs = "1700000000.000044";
+    const streamTs = "1700000000.000033";
+    deliverChannelReplyImpl = async () => ({ ok: true, ts: streamTs });
 
     const processMessage: MessageProcessor = async (
       _conversationId,
@@ -461,59 +410,50 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     ) => {
       options?.onEvent?.({
         type: "assistant_text_delta",
-        text: "Live response before the tool.",
+        text: "Streamed DM reply.",
         conversationId,
-      });
-      options?.onEvent?.({
-        type: "tool_use_start",
-        toolName: "web_search",
-        input: { query: "example" },
-        conversationId,
-        toolUseId: "toolu_1",
       });
       options?.onEvent?.({
         type: "message_complete",
         conversationId,
-        messageId: "assistant-msg-live-only",
+        messageId: "assistant-msg-streamed",
       });
-      return { messageId: "user-msg-live-only" };
+      return { messageId: "user-msg-streamed" };
     };
 
     processChannelMessageInBackground({
       processMessage,
       conversationId,
-      eventId: "evt-live-only",
-      content: "please look this up",
+      eventId: "evt-streamed",
+      content: "please reply",
       sourceChannel: "slack",
       sourceInterface: "slack",
       externalChatId: channelId,
       trustCtx,
       metadataHints: [],
       chatType: "im",
-      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
     });
 
     await flush();
 
+    expect(slackStreamOps()).toEqual([
+      { action: "start", threadTs, markdownText: "Streamed DM reply." },
+      { action: "stop", streamTs },
+    ]);
     expect(
       deliveredChannelReplies
         .map((entry) => entry.payload.text)
         .filter(Boolean),
-    ).toEqual(["Live response before the tool."]);
+    ).toEqual([]);
     expect(replyDeliveryCalls).toEqual([
       {
-        messageId: "assistant-msg-live-only",
+        messageId: "assistant-msg-streamed",
         startFromSegment: 1,
-        messageTs: "1700000000.000033",
+        messageTs: streamTs,
       },
     ]);
-    expect(storedReplyMessageIds).toEqual([
-      {
-        eventId: "evt-live-only",
-        replyMessageId: "assistant-msg-live-only",
-      },
-    ]);
-    expect(deliveredEvents).toEqual(["evt-live-only"]);
+    expect(deliveredEvents).toEqual(["evt-streamed"]);
 
     clearThreadTs(conversationId);
   });
@@ -574,6 +514,7 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
         .map((entry) => entry.payload.text)
         .filter(Boolean),
     ).toEqual([]);
+    expect(slackStreamOps()).toEqual([]);
     expect(replyDeliveryCalls).toEqual([
       { messageId: "assistant-msg-channel-final", startFromSegment: 0 },
     ]);
@@ -582,21 +523,10 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     clearThreadTs(conversationId);
   });
 
-  test("continues later Slack DM text sends after an intermediate delivery failure", async () => {
-    const conversationId = "conv-dm-live-failure-recovery";
-    const channelId = "D-LIVE-FAILURE-RECOVERY";
-    let liveAttempt = 0;
-    deliverChannelReplyImpl = async () => {
-      liveAttempt += 1;
-      if (liveAttempt === 1) throw new Error("temporary slack failure");
-      return { ok: true };
-    };
-    deliverReplyViaCallbackImpl = async (...args: unknown[]) => {
-      const options = args[4] as
-        | { onSegmentDelivered?: (count: number) => void }
-        | undefined;
-      options?.onSegmentDelivered?.(1);
-    };
+  test("falls back to durable delivery when the Slack stream fails to start", async () => {
+    const conversationId = "conv-dm-stream-start-fails";
+    const channelId = "D-STREAM-START-FAILS";
+    const threadTs = "1700000000.000055";
 
     const processMessage: MessageProcessor = async (
       _conversationId,
@@ -605,75 +535,48 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     ) => {
       options?.onEvent?.({
         type: "assistant_text_delta",
-        text: "First live response.",
+        text: "Reply whose stream never opens.",
         conversationId,
-      });
-      options?.onEvent?.({
-        type: "tool_use_start",
-        toolName: "web_search",
-        input: { query: "one" },
-        conversationId,
-        toolUseId: "toolu_1",
-      });
-      await flush();
-
-      options?.onEvent?.({
-        type: "assistant_text_delta",
-        text: "Second live response.",
-        conversationId,
-      });
-      options?.onEvent?.({
-        type: "tool_use_start",
-        toolName: "web_search",
-        input: { query: "two" },
-        conversationId,
-        toolUseId: "toolu_2",
       });
       options?.onEvent?.({
         type: "message_complete",
         conversationId,
-        messageId: "assistant-msg-live-failure-final",
+        messageId: "assistant-msg-stream-start-fails",
       });
-      return { messageId: "user-msg-live-failure" };
+      return { messageId: "user-msg-stream-start-fails" };
     };
 
     processChannelMessageInBackground({
       processMessage,
       conversationId,
-      eventId: "evt-live-failure-recovery",
-      content: "please do two things",
+      eventId: "evt-stream-start-fails",
+      content: "please reply",
       sourceChannel: "slack",
       sourceInterface: "slack",
       externalChatId: channelId,
       trustCtx,
       metadataHints: [],
       chatType: "im",
-      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
     });
 
     await flush();
 
-    expect(
-      deliveredChannelReplies
-        .map((entry) => entry.payload.text)
-        .filter(Boolean),
-    ).toEqual(["First live response.", "Second live response."]);
+    expect(slackStreamOps().map((op) => op.action)).toEqual(["start"]);
     expect(replyDeliveryCalls).toEqual([
-      { messageId: "assistant-msg-live-failure-final", startFromSegment: 0 },
+      { messageId: "assistant-msg-stream-start-fails", startFromSegment: 0 },
     ]);
-    expect(deliveryFailureEvents).toEqual([]);
-    expect(deliveredEvents).toEqual(["evt-live-failure-recovery"]);
-    expect(deliveredSegmentCounts).toEqual([
-      { eventId: "evt-live-failure-recovery", count: 0 },
-      { eventId: "evt-live-failure-recovery", count: 1 },
-    ]);
+    expect(deliveredEvents).toEqual(["evt-stream-start-fails"]);
 
     clearThreadTs(conversationId);
   });
 
-  test("persists Slack DM live text progress before processing failures", async () => {
-    const conversationId = "conv-dm-processing-failure-after-live";
-    const channelId = "D-PROCESSING-FAILURE-AFTER-LIVE";
+  test("finalizes the stream and records a processing failure when processing throws", async () => {
+    const conversationId = "conv-dm-stream-processing-failure";
+    const channelId = "D-STREAM-PROCESSING-FAILURE";
+    const threadTs = "1700000000.000066";
+    const streamTs = "1700000000.000077";
+    deliverChannelReplyImpl = async () => ({ ok: true, ts: streamTs });
 
     const processMessage: MessageProcessor = async (
       _conversationId,
@@ -682,7 +585,7 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     ) => {
       options?.onEvent?.({
         type: "assistant_text_delta",
-        text: "Live response before failure.",
+        text: "Streamed text before failure.",
         conversationId,
       });
       options?.onEvent?.({
@@ -692,13 +595,13 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
         conversationId,
         toolUseId: "toolu_1",
       });
-      throw new Error("processing failed after live text");
+      throw new Error("processing failed after streamed text");
     };
 
     processChannelMessageInBackground({
       processMessage,
       conversationId,
-      eventId: "evt-live-before-processing-failure",
+      eventId: "evt-stream-processing-failure",
       content: "please do the thing",
       sourceChannel: "slack",
       sourceInterface: "slack",
@@ -706,25 +609,18 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
       trustCtx,
       metadataHints: [],
       chatType: "im",
-      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}`,
+      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
     });
 
     await flush();
 
-    expect(
-      deliveredChannelReplies
-        .map((entry) => entry.payload.text)
-        .filter(Boolean),
-    ).toEqual(["Live response before failure."]);
-    expect(
-      liveDeliveredTextResponseIndexes.get(
-        "evt-live-before-processing-failure",
-      ),
-    ).toEqual([1]);
-    expect(operationOrder).toEqual(["live:1", "processing-failure"]);
-    expect(processingFailureEvents).toEqual([
-      "evt-live-before-processing-failure",
+    expect(slackStreamOps().map((op) => op.action)).toEqual(["start", "stop"]);
+    expect(replyDeliveryCalls).toEqual([]);
+    expect(storedStreamedReplyTs).toEqual([
+      { eventId: "evt-stream-processing-failure", messageTs: streamTs },
     ]);
+    expect(processingFailureEvents).toEqual(["evt-stream-processing-failure"]);
+    expect(operationOrder).toEqual(["store-streamed-ts", "processing-failure"]);
 
     clearThreadTs(conversationId);
   });
@@ -878,96 +774,6 @@ describe("Slack thinking status timing", () => {
     });
     expect(slackStatusLabels).toContain(statuses[0]!);
     expect(statuses[1]).toBe("");
-  });
-
-  test("refreshes Slack thinking status after live DM replies before more tools", async () => {
-    const conversationId = "conv-dm-refresh-status";
-    const channelId = "D-DM-REFRESH";
-    const threadTs = "1700000000.000015";
-
-    const processMessage: MessageProcessor = async (
-      _conversationId,
-      _content,
-      options,
-    ) => {
-      options?.onEvent?.({
-        type: "assistant_text_delta",
-        text: "First live response.",
-        conversationId,
-      });
-      options?.onEvent?.({
-        type: "tool_use_start",
-        toolName: "web_search",
-        input: { query: "example" },
-        conversationId,
-        toolUseId: "toolu_1",
-      });
-
-      await flush();
-
-      options?.onEvent?.({
-        type: "assistant_text_delta",
-        text: "Final live response.",
-        conversationId,
-      });
-      options?.onEvent?.({
-        type: "message_complete",
-        conversationId,
-        messageId: "assistant-msg-refresh-status",
-      });
-      return { messageId: "user-msg-refresh-status" };
-    };
-
-    processChannelMessageInBackground({
-      processMessage,
-      conversationId,
-      eventId: "evt-dm-refresh-status",
-      content: "dm message",
-      sourceChannel: "slack",
-      sourceInterface: "slack",
-      externalChatId: channelId,
-      trustCtx,
-      metadataHints: [],
-      chatType: "im",
-      replyCallbackUrl: `https://example.test/deliver/slack?channel=${channelId}&threadTs=${threadTs}`,
-    });
-
-    await flush();
-
-    expect(
-      deliveredChannelReplies
-        .map((entry) => entry.payload.text)
-        .filter(Boolean),
-    ).toEqual(["First live response.", "Final live response."]);
-
-    const statuses = deliveredChannelReplies
-      .map((entry) => entry.payload.assistantThreadStatus)
-      .filter(Boolean);
-    expect(statuses).toEqual([
-      {
-        channel: channelId,
-        threadTs,
-        status: expect.any(String),
-        loadingMessages: ["Thinking\u2026"],
-      },
-      {
-        channel: channelId,
-        threadTs,
-        status: expect.any(String),
-        loadingMessages: ["Thinking\u2026"],
-      },
-      {
-        channel: channelId,
-        threadTs,
-        status: "",
-      },
-    ]);
-    expect(slackStatusLabels).toContain(
-      (statuses[0] as { status: string }).status,
-    );
-    expect(slackStatusLabels).toContain(
-      (statuses[1] as { status: string }).status,
-    );
   });
 
   test("does not set Slack thinking status for no_response text deltas", async () => {

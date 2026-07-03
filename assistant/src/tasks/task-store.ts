@@ -1,7 +1,7 @@
 import { desc, eq, inArray } from "drizzle-orm";
 
-import { getDb } from "../memory/db-connection.js";
-import { taskRuns, tasks, workItems } from "../memory/schema.js";
+import { getDb } from "../persistence/db-connection.js";
+import { taskRuns, tasks, workItems } from "../persistence/schema/index.js";
 
 // ── Types ────────────────────────────────────────────────────────────
 

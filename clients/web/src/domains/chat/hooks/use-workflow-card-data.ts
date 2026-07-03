@@ -1,6 +1,7 @@
 /**
- * Builds the props for `WorkflowInlineProgressCard` from a single
- * workflow run's store entry. Projects the run's leaves
+ * Builds the `ToolCallCardData` consumed by `InlineProcessCard` via the
+ * workflow descriptor, from a single workflow run's store entry. Projects the
+ * run's leaves
  * (`WorkflowLeaf[]`) into the unified `ToolCallCardStep[]` shape consumed
  * by the shared tool-progress card chrome — the same shape the subagent
  * inline card uses, so both share one renderer contract.
@@ -25,6 +26,7 @@ import {
   type WorkflowLeaf,
 } from "@/domains/chat/workflow-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { isActiveStatus } from "@/utils/workflow-status";
 import type { WorkflowRunStatus } from "@vellumai/assistant-api";
 import {
   type ToolCallCardData,
@@ -108,34 +110,63 @@ function sortedLeaves(entry: WorkflowEntry): WorkflowLeaf[] {
 }
 
 /**
- * Derive the header `(title, info)` tuple. When the run carries a `phase`
- * we surface it; otherwise we fall back to the latest leaf (the deepest
- * `seq`), and finally to the run label. The latest `log(...)` `message`
- * fills the secondary line when there is no more-specific leaf info or
- * phase, so a log-only update doesn't read as stale.
+ * Spawned-agent count: prefer the live leaf count, fall back to the run's
+ * reported `agentsSpawned`. Shared by the count text and the avatar seeds so
+ * the two stay consistent.
+ */
+function workflowAgentCount(entry: WorkflowEntry): number {
+  return entry.leaves.size || entry.agentsSpawned;
+}
+
+/**
+ * Derive the header `(title, info)` tuple.
+ *
+ * The bold title is the workflow's *name* (`label`) — stable and
+ * recognizable, matching the detail panel header. The card's leading glyph
+ * is a generic workflow icon (no avatar), so unlike the subagent inline
+ * card — whose identity rides the avatar and whose title is the live
+ * activity verb — the workflow card has nowhere else to surface its name;
+ * it belongs in the title.
+ *
+ * While the run is active, the live activity is demoted to the secondary info
+ * line so the card still reads as in-flight: the current `phase`, else the
+ * latest leaf's prompt summary (or its label), else the latest `log(...)`
+ * `message`. (A leaf with neither prompt nor label no longer leaks a
+ * `Leaf <seq>` fallback into the header — the row's own list still labels it.)
+ *
+ * Once the run is terminal, the secondary line reflects the *outcome* — the
+ * final `summary` — instead. `completeRun()` leaves the last `entry.phase` set,
+ * so without this gate a finished card would keep showing a stale live phase
+ * (e.g. "Synthesizing…") rather than the result.
  */
 function deriveCurrentStep(
   entry: WorkflowEntry,
   leaves: WorkflowLeaf[],
 ): { currentStepTitle: string; currentStepInfo: string } {
-  if (entry.phase) {
-    return {
-      currentStepTitle: entry.phase,
-      currentStepInfo: entry.summary ?? entry.message ?? entry.label ?? "",
-    };
-  }
-
   const latest = leaves[leaves.length - 1];
-  if (latest) {
+  const title = entry.label ?? "Workflow";
+
+  if (!isActiveStatus(entry.status)) {
     return {
-      currentStepTitle: latest.label ?? `Leaf ${latest.seq}`,
-      currentStepInfo: latest.promptSummary ?? "",
+      currentStepTitle: title,
+      currentStepInfo:
+        entry.summary ||
+        entry.message ||
+        latest?.resultSummary ||
+        latest?.promptSummary ||
+        latest?.label ||
+        "",
     };
   }
 
   return {
-    currentStepTitle: entry.label ?? "Workflow",
-    currentStepInfo: entry.message ?? entry.summary ?? "",
+    currentStepTitle: title,
+    currentStepInfo:
+      entry.phase ||
+      latest?.promptSummary ||
+      latest?.label ||
+      entry.message ||
+      "",
   };
 }
 
@@ -159,9 +190,8 @@ export function computeWorkflowCardData(
     leaves,
   );
 
-  // Step count reflects spawned agents, not generic "steps". Prefer the
-  // live leaf count, falling back to the run's reported `agentsSpawned`.
-  const count = entry.leaves.size || entry.agentsSpawned;
+  // Step count reflects spawned agents, not generic "steps".
+  const count = workflowAgentCount(entry);
   const stepCount = `${count} agent${count === 1 ? "" : "s"}`;
 
   return {
@@ -173,6 +203,54 @@ export function computeWorkflowCardData(
     // Workflow cards don't use the web-search carousel.
     carouselItems: [],
   };
+}
+
+/**
+ * Max avatars rendered in the workflow card's spawned-agent stack. Matches
+ * the Figma 3-avatar sample; the count text carries the total.
+ */
+const MAX_VISIBLE_WORKFLOW_AGENT_AVATARS = 3;
+
+/** Stable empty seed array so the hook returns a constant ref for unknown runs. */
+const EMPTY_SEEDS: string[] = [];
+
+/**
+ * Derive stable avatar seeds for a run's spawned agents. The count comes from
+ * the shared `workflowAgentCount` helper (same as the card's count text) so
+ * avatars and the count stay consistent. Live runs seed from the sorted
+ * leaves' `seq`; a
+ * hydrated count-only run (no per-leaf events) synthesizes index seeds. Each
+ * seed is a stable `${runId}:${seq}` string.
+ */
+export function selectWorkflowAgentAvatarSeeds(entry: WorkflowEntry): string[] {
+  const visible = Math.min(
+    workflowAgentCount(entry),
+    MAX_VISIBLE_WORKFLOW_AGENT_AVATARS,
+  );
+
+  const seqs =
+    entry.leaves.size > 0
+      ? sortedLeaves(entry)
+          .slice(0, visible)
+          .map((l) => l.seq)
+      : Array.from({ length: visible }, (_, i) => i);
+
+  return seqs.map((seq) => `${entry.runId}:${seq}`);
+}
+
+/**
+ * React hook: subscribe to the workflow store entry for `runId` and derive
+ * its spawned-agent avatar seeds. Selecting the stable `entry` ref then
+ * deriving in `useMemo` avoids returning a fresh array every render (which
+ * would loop a consumer's effects). Returns a constant empty array when no
+ * entry exists yet.
+ */
+export function useWorkflowAgentAvatarSeeds(runId: string): string[] {
+  const entry = useWorkflowStore((state) => state.byId[runId]);
+  return useMemo(
+    () => (entry ? selectWorkflowAgentAvatarSeeds(entry) : EMPTY_SEEDS),
+    [entry],
+  );
 }
 
 /**

@@ -99,7 +99,11 @@ mock.module("../daemon/process-message.js", () => ({
 }));
 
 const createdConversations: Array<{ conversationType: string }> = [];
-mock.module("../memory/conversation-crud.js", () => ({
+mock.module("../persistence/conversation-crud.js", () => ({
+  setConversationProcessingStartedAt: () => {},
+  isConversationProcessing: () => false,
+  recordConversationPersistedSeq: () => {},
+  getConversationPersistedSeq: () => null,
   addMessage: mock(() => ({ id: "msg-1" })),
   archiveConversation: mock(() => true),
   batchSetDisplayOrders: mock(() => {}),
@@ -112,10 +116,14 @@ mock.module("../memory/conversation-crud.js", () => ({
   deleteMessageById: mock(() => {}),
   clearAll: mock(async () => ({ conversations: 0, messages: 0 })),
   deleteConversation: mock(() => ({ memoryIds: [] })),
+  deleteConversationGently: mock(async () => ({
+    segmentIds: [],
+    deletedSummaryIds: [],
+  })),
   deleteLastExchange: mock(() => 0),
   findAnalysisConversationFor: mock(() => null),
-  findMostRecentRetrospectiveFor: mock(() => null),
   forkConversation: mock(() => ({ id: "conv-fork" })),
+  forkConversationForRetrospective: mock(async () => ({ id: "conv-fork" })),
   getConversationOverrideProfile: () => undefined,
   resolveOverrideProfile: () => undefined,
   getConversationMemoryScopeId: () => "default",
@@ -156,7 +164,7 @@ mock.module("../memory/conversation-crud.js", () => ({
   extractImageSourcePaths: () => undefined,
 }));
 
-mock.module("../memory/conversation-title-service.js", () => ({
+mock.module("../persistence/conversation-title-service.js", () => ({
   GENERATING_TITLE: "Generating title...",
   AUTO_TITLE_DETERMINISTIC: 2,
   deriveDeterministicTitle: (context: { systemHint?: string }) =>
@@ -168,7 +176,7 @@ mock.module("../memory/conversation-title-service.js", () => ({
 
 const mockFailStalledJobs = mock(() => 0);
 const mockClaimMemoryJobs = mock(() => []);
-mock.module("../memory/jobs-store.js", () => ({
+mock.module("../persistence/jobs-store.js", () => ({
   claimMemoryJobs: mockClaimMemoryJobs,
   completeMemoryJob: mock(() => {}),
   deferMemoryJob: mock(() => "deferred"),
@@ -177,6 +185,7 @@ mock.module("../memory/jobs-store.js", () => ({
   enqueuePruneOldConversationsJob: mock(() => "job-prune-conv"),
   enqueuePruneOldLlmRequestLogsJob: mock(() => "job-prune-llm"),
   enqueuePruneOldTraceEventsJob: mock(() => "job-prune-trace"),
+  enqueuePruneOldToolInvocationsJob: mock(() => "job-prune-tool"),
   failMemoryJob: mock(() => {}),
   failStalledJobs: mockFailStalledJobs,
   getMemoryJobCounts: mock(() => ({})),
@@ -186,6 +195,7 @@ mock.module("../memory/jobs-store.js", () => ({
     automatic: "automatic",
     manual: "manual",
   },
+  MESSAGE_LEXICAL_JOB_TYPES: [],
   resetRunningJobsToPending: mock(() => 0),
   SLOW_LLM_JOB_TYPES: [],
   upsertAutoAnalysisJob: mock(() => "job-auto-analysis"),
@@ -194,17 +204,18 @@ mock.module("../memory/jobs-store.js", () => ({
 }));
 
 const mockMaybeRunDbMaintenance = mock(() => {});
-mock.module("../memory/db-maintenance.js", () => ({
+mock.module("../persistence/db-maintenance.js", () => ({
   maybeRunDbMaintenance: mockMaybeRunDbMaintenance,
 }));
 
-mock.module("../memory/cleanup-schedule-state.js", () => ({
+mock.module("../persistence/cleanup-schedule-state.js", () => ({
   getLastScheduledCleanupEnqueueMs: () => 0,
   markScheduledCleanupEnqueued: mock(() => {}),
 }));
 
-const { runMemoryJobsOnce } = await import("../memory/jobs-worker.js");
-const { FilingService } = await import("../filing/filing-service.js");
+const { runMemoryJobsOnce } = await import("../persistence/jobs-worker.js");
+const { FilingService } =
+  await import("../plugins/defaults/memory/filing-service.js");
 const { WorkspaceHeartbeatService } =
   await import("../workspace/heartbeat-service.js");
 

@@ -6,8 +6,12 @@
  *     description, version, path; issues omitted when empty)
  *   - `?q=` substring filter (case-insensitive across id/name/description)
  *   - Trimming + empty-string fallthrough on `?q=`
- *   - Empty install dir → `{ plugins: [] }`
+ *   - Empty install dir → `{ plugins: [], categoryCounts: {}, totalCount: 0 }`
  *   - Issues array surfaced when present
+ *   - `category` resolved from the marketplace catalog (null when unknown)
+ *   - `categoryCounts` / `totalCount` computed before the `?category=` filter
+ *   - `?category=` filters the list while counts stay unfiltered
+ *   - A catalog fetch failure degrades `category` to null without erroring
  *
  * GET /v1/plugins/search (catalog search):
  *   - Forwards `?q=` and `?ref=` to the `searchPlugins` lib
@@ -22,9 +26,23 @@
  * DELETE /v1/plugins/:name (uninstall):
  *   - Forwards `pathParams.name` to the `uninstallPlugin` lib
  *   - Returns `{ name, target }` mirroring the lib's `UninstallPluginResult`
+ *   - Publishes `sync_changed(plugins:list)` on success (threading the
+ *     `x-vellum-client-id` origin); no broadcast on an error path
  *   - Maps `InvalidPluginNameError` → BadRequestError (400)
  *   - Maps `PluginNotInstalledError` → NotFoundError (404)
  *   - Maps unknown errors → InternalError (500) with message preserved
+ *
+ * POST /v1/plugins/:name/enable | disable (toggle):
+ *   - Forwards `pathParams.name` to the `enablePlugin` / `disablePlugin` lib
+ *   - Returns `{ ok: true }` and publishes a `sync_changed` carrying the
+ *     `plugins:list` tag via the canonical resource-sync publisher (enable and
+ *     disable emit the SAME invalidation)
+ *   - Threads `x-vellum-client-id` into the published event's `originClientId`
+ *   - A broadcast failure does not fail a successful toggle (the publisher
+ *     swallows hub errors)
+ *   - Maps `InvalidPluginNameError` → BadRequestError (400)
+ *   - Maps `PluginDirectoryNotFoundError` → NotFoundError (404)
+ *   - Maps `PluginAlreadyInStateException` → ConflictError (409); no broadcast
  *
  * The library functions themselves are covered by
  * `assistant/src/cli/lib/__tests__/list-installed-plugins.test.ts`,
@@ -72,6 +90,12 @@ import type {
 } from "../../../cli/lib/search-plugins.js";
 import { PluginCatalogUnavailableError } from "../../../cli/lib/search-plugins.js";
 import {
+  InvalidPluginNameError as ToggleInvalidPluginNameError,
+  PluginAlreadyInStateException,
+  PluginDirectoryNotFoundError,
+  type TogglePluginResult,
+} from "../../../cli/lib/toggle-plugin.js";
+import {
   PluginNotInstalledError,
   type UninstallPluginOptions,
   type UninstallPluginResult,
@@ -90,6 +114,16 @@ let installedFixture: InstalledPluginInfo[] = [];
 
 mock.module("../../../cli/lib/list-installed-plugins.js", () => ({
   listInstalledPlugins: () => installedFixture,
+}));
+
+// Set of plugin dir names carrying a `.disabled` sentinel. Tests populate it to
+// mark a plugin disabled; the real check reads the workspace filesystem, so we
+// substitute an in-memory set to keep the route's `enabled` projection
+// deterministic and decoupled from disk.
+const disabledFixture = new Set<string>();
+
+mock.module("../../../plugins/disabled-state.js", () => ({
+  isPluginDisabled: (name: string) => disabledFixture.has(name),
 }));
 
 // Mock the catalog cache: `getCatalogSpy` records every invocation and
@@ -228,6 +262,60 @@ mock.module("../../../cli/lib/plugin-pin-history.js", () => ({
   resolvePinToMarketplaceCommit: resolvePinSpy,
 }));
 
+// Mock the toggle-plugin lib. `enablePlugin` / `disablePlugin` flip a
+// `.disabled` sentinel on disk in production; here we spy on them so the
+// route's broadcast + error mapping is the wiring under test. The error
+// classes pass through real so the handler's `instanceof` checks resolve to
+// the same classes the spies throw.
+const enablePluginSpy = mock((_name: string): TogglePluginResult => {
+  throw new Error("enablePluginSpy default impl not configured");
+});
+const disablePluginSpy = mock((_name: string): TogglePluginResult => {
+  throw new Error("disablePluginSpy default impl not configured");
+});
+
+mock.module("../../../cli/lib/toggle-plugin.js", () => ({
+  InvalidPluginNameError: ToggleInvalidPluginNameError,
+  PluginAlreadyInStateException,
+  PluginDirectoryNotFoundError,
+  disablePlugin: disablePluginSpy,
+  enablePlugin: enablePluginSpy,
+}));
+
+// Spy on broadcastMessage so we can assert the sync_changed invalidation the
+// enable/disable handlers emit. The handlers publish through the canonical
+// `publishPluginsChanged` → `publishSyncInvalidation` path (both left real), so
+// the spy receives the actual `{ type: "sync_changed", tags: [...],
+// originClientId? }` payload the publisher builds.
+const broadcastMessageSpy = mock((_msg: unknown): void => {});
+
+mock.module("../../assistant-event-hub.js", () => ({
+  broadcastMessage: broadcastMessageSpy,
+}));
+
+// Make the valid-slug source deterministic: the real `getLocalCategorySlugs`
+// reads the bundled YAML (absent in the test sandbox), so we pin it to the
+// authoritative Skills taxonomy. This decouples the route's category
+// normalization from the filesystem / network.
+const SKILLS_CATEGORY_SLUGS = new Set([
+  "email",
+  "calendar",
+  "messaging",
+  "browsing",
+  "productivity",
+  "development",
+  "voice",
+  "commerce",
+  "content",
+  "health",
+  "system",
+  "integrations",
+]);
+
+mock.module("../../../skills/categories-cache.js", () => ({
+  getLocalCategorySlugs: () => SKILLS_CATEGORY_SLUGS,
+}));
+
 import {
   BadRequestError,
   ConflictError,
@@ -235,7 +323,11 @@ import {
   NotFoundError,
   ServiceUnavailableError,
 } from "../errors.js";
-import { ROUTES as PLUGINS_ROUTES } from "../plugins-routes.js";
+import {
+  loadCategoryMapBounded,
+  normalizeMarketplaceCategory,
+  ROUTES as PLUGINS_ROUTES,
+} from "../plugins-routes.js";
 import type { RouteDefinition, RouteHandlerArgs } from "../types.js";
 
 function findHandler(operationId: string): RouteDefinition["handler"] {
@@ -253,13 +345,22 @@ const inspectHandler = findHandler("plugins_inspect");
 const versionsHandler = findHandler("plugins_versions");
 const upgradeHandler = findHandler("plugins_upgrade");
 const diffHandler = findHandler("plugins_diff");
+const enableHandler = findHandler("plugins_enable");
+const disableHandler = findHandler("plugins_disable");
 
-function invoke(args: RouteHandlerArgs = {}): {
+async function invoke(args: RouteHandlerArgs = {}): Promise<{
   plugins: Array<Record<string, unknown>>;
-} {
-  return listHandler(args) as { plugins: Array<Record<string, unknown>> };
+  categoryCounts: Record<string, number>;
+  totalCount: number;
+}> {
+  return (await listHandler(args)) as {
+    plugins: Array<Record<string, unknown>>;
+    categoryCounts: Record<string, number>;
+    totalCount: number;
+  };
 }
 
+// The route wire shape mirrors the lib match — including `category`.
 async function invokeSearch(args: RouteHandlerArgs = {}): Promise<{
   query: string;
   ref: string;
@@ -285,14 +386,29 @@ function pluginEntry(
 
 beforeEach(() => {
   installedFixture = [];
+  disabledFixture.clear();
 });
 
 describe("GET /v1/plugins", () => {
-  test("returns { plugins: [] } when nothing is installed", () => {
-    expect(invoke()).toEqual({ plugins: [] });
+  beforeEach(() => {
+    getCatalogSpy.mockClear();
+    // Default to an empty catalog so every installed plugin's category resolves
+    // to `null` (bucketed under "system"). Tests that exercise real categories
+    // override this.
+    getCatalogSpy.mockImplementation(async (ref) => catalog(ref, []));
   });
 
-  test("projects InstalledPluginInfo → response shape with all fields populated", () => {
+  test("returns an empty list (with empty counts) when nothing is installed", async () => {
+    expect(await invoke()).toEqual({
+      plugins: [],
+      categoryCounts: {},
+      totalCount: 0,
+    });
+    // Nothing to categorize → the network-bound catalog lookup is skipped.
+    expect(getCatalogSpy).not.toHaveBeenCalled();
+  });
+
+  test("projects InstalledPluginInfo → response shape with all fields populated", async () => {
     installedFixture = [
       pluginEntry({
         name: "alpha",
@@ -305,20 +421,46 @@ describe("GET /v1/plugins", () => {
       }),
     ];
 
-    const result = invoke();
+    const result = await invoke();
     expect(result.plugins).toHaveLength(1);
+    // No catalog entry for `alpha`, so its category is null.
     expect(result.plugins[0]).toEqual({
       id: "alpha",
       name: "alpha",
+      // No `.disabled` sentinel → the plugin is enabled.
+      enabled: true,
       description: "Alpha plugin",
       version: "1.2.3",
       path: "/workspace/plugins/alpha",
+      category: null,
     });
     // `issues` is omitted (not just undefined) when the entry is clean.
     expect("issues" in result.plugins[0]!).toBe(false);
   });
 
-  test("uses directory name for `id` and `name` even when package.json#name is scoped", () => {
+  test("surfaces a marketplace category when the catalog declares one", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "alpha",
+          path: "github:acme/alpha@v1",
+          category: "productivity",
+          source: { kind: "github", repo: "acme/alpha", ref: "v1" },
+        },
+      ]),
+    );
+    installedFixture = [
+      pluginEntry({
+        name: "alpha",
+        packageJson: { name: "alpha", version: "1.2.3" },
+      }),
+    ];
+
+    const [entry] = (await invoke()).plugins;
+    expect(entry?.category).toBe("productivity");
+  });
+
+  test("uses directory name for `id` and `name` even when package.json#name is scoped", async () => {
     installedFixture = [
       pluginEntry({
         name: "fancy-plugin",
@@ -330,12 +472,12 @@ describe("GET /v1/plugins", () => {
       }),
     ];
 
-    const [entry] = invoke().plugins;
+    const [entry] = (await invoke()).plugins;
     expect(entry?.id).toBe("fancy-plugin");
     expect(entry?.name).toBe("fancy-plugin");
   });
 
-  test("nulls description and version when package.json is missing or partial", () => {
+  test("nulls description and version when package.json is missing or partial", async () => {
     installedFixture = [
       pluginEntry({ name: "no-pkg-json", packageJson: null }),
       pluginEntry({
@@ -344,7 +486,7 @@ describe("GET /v1/plugins", () => {
       }),
     ];
 
-    const [missing, partial] = invoke().plugins;
+    const [missing, partial] = (await invoke()).plugins;
     expect(missing).toMatchObject({
       id: "no-pkg-json",
       description: null,
@@ -357,7 +499,7 @@ describe("GET /v1/plugins", () => {
     });
   });
 
-  test("surfaces non-fatal issues array when present", () => {
+  test("surfaces non-fatal issues array when present", async () => {
     installedFixture = [
       pluginEntry({
         name: "broken",
@@ -366,11 +508,26 @@ describe("GET /v1/plugins", () => {
       }),
     ];
 
-    const [entry] = invoke().plugins;
+    const [entry] = (await invoke()).plugins;
     expect(entry?.issues).toEqual(["missing package.json"]);
   });
 
-  test("?q= filters case-insensitively on id, name, and description", () => {
+  test("reports enabled: false for a plugin with a `.disabled` sentinel, true otherwise", async () => {
+    installedFixture = [
+      pluginEntry({ name: "off" }),
+      pluginEntry({ name: "on" }),
+    ];
+    // Only `off` carries the sentinel; `on` has none.
+    disabledFixture.add("off");
+
+    const byId = new Map(
+      (await invoke()).plugins.map((p) => [p.id, p.enabled]),
+    );
+    expect(byId.get("off")).toBe(false);
+    expect(byId.get("on")).toBe(true);
+  });
+
+  test("?q= filters case-insensitively on id, name, and description", async () => {
     installedFixture = [
       pluginEntry({
         name: "calendar-sync",
@@ -400,48 +557,306 @@ describe("GET /v1/plugins", () => {
 
     // id match
     expect(
-      invoke({ queryParams: { q: "calendar" } }).plugins.map((p) => p.id),
+      (await invoke({ queryParams: { q: "calendar" } })).plugins.map(
+        (p) => p.id,
+      ),
     ).toEqual(["calendar-sync"]);
 
     // description match (case-insensitive)
     expect(
-      invoke({ queryParams: { q: "GOOGLE" } }).plugins.map((p) => p.id),
+      (await invoke({ queryParams: { q: "GOOGLE" } })).plugins.map((p) => p.id),
     ).toEqual(["calendar-sync"]);
 
     // matches multiple
     expect(
-      invoke({ queryParams: { q: "o" } })
-        .plugins.map((p) => p.id)
+      (await invoke({ queryParams: { q: "o" } })).plugins
+        .map((p) => p.id)
         .sort(),
     ).toEqual(["calendar-sync", "todo", "weather"].sort());
 
     // no match
-    expect(invoke({ queryParams: { q: "zzz" } }).plugins).toEqual([]);
+    expect((await invoke({ queryParams: { q: "zzz" } })).plugins).toEqual([]);
   });
 
-  test("?q= is trimmed; whitespace-only treated as no filter", () => {
+  test("?q= is trimmed; whitespace-only treated as no filter", async () => {
     installedFixture = [
       pluginEntry({ name: "alpha" }),
       pluginEntry({ name: "beta" }),
     ];
 
     expect(
-      invoke({ queryParams: { q: "   " } }).plugins.map((p) => p.id),
+      (await invoke({ queryParams: { q: "   " } })).plugins.map((p) => p.id),
     ).toEqual(["alpha", "beta"]);
   });
 
-  test("preserves the order returned by listInstalledPlugins", () => {
+  test("preserves the order returned by listInstalledPlugins", async () => {
     installedFixture = [
       pluginEntry({ name: "alpha" }),
       pluginEntry({ name: "beta" }),
       pluginEntry({ name: "zeta" }),
     ];
 
-    expect(invoke().plugins.map((p) => p.id)).toEqual([
+    expect((await invoke()).plugins.map((p) => p.id)).toEqual([
       "alpha",
       "beta",
       "zeta",
     ]);
+  });
+
+  test('reports categoryCounts + totalCount, bucketing unknown plugins under "system"', async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "calendar-sync",
+          path: "github:acme/calendar-sync@v1",
+          category: "calendar",
+          source: { kind: "github", repo: "acme/calendar-sync", ref: "v1" },
+        },
+      ]),
+    );
+    installedFixture = [
+      pluginEntry({ name: "calendar-sync" }),
+      // Not in the catalog → category null → counted under "system".
+      pluginEntry({ name: "mystery" }),
+    ];
+
+    const result = await invoke();
+    expect(result.totalCount).toBe(2);
+    expect(result.categoryCounts).toEqual({ calendar: 1, system: 1 });
+    expect(result.plugins.find((p) => p.id === "calendar-sync")?.category).toBe(
+      "calendar",
+    );
+    expect(result.plugins.find((p) => p.id === "mystery")?.category).toBeNull();
+  });
+
+  test("?category= filters the list while categoryCounts stays unfiltered", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "notes",
+          path: "github:acme/notes@v1",
+          category: "productivity",
+          source: { kind: "github", repo: "acme/notes", ref: "v1" },
+        },
+        {
+          name: "inbox",
+          path: "github:acme/inbox@v1",
+          category: "email",
+          source: { kind: "github", repo: "acme/inbox", ref: "v1" },
+        },
+      ]),
+    );
+    installedFixture = [
+      pluginEntry({ name: "notes" }),
+      pluginEntry({ name: "inbox" }),
+      // No catalog entry → "system".
+      pluginEntry({ name: "loose" }),
+    ];
+
+    const result = await invoke({ queryParams: { category: "productivity" } });
+    // The list is filtered to the productivity bucket...
+    expect(result.plugins.map((p) => p.id)).toEqual(["notes"]);
+    // ...but the badge counts reflect the unfiltered totals.
+    expect(result.categoryCounts).toEqual({
+      productivity: 1,
+      email: 1,
+      system: 1,
+    });
+    expect(result.totalCount).toBe(3);
+  });
+
+  test("degrades to category: null without failing when the catalog fetch throws", async () => {
+    getCatalogSpy.mockImplementation(async () => {
+      throw new PluginCatalogUnavailableError("HTTP 403", 403);
+    });
+    installedFixture = [
+      pluginEntry({ name: "alpha" }),
+      pluginEntry({ name: "beta" }),
+    ];
+
+    const result = await invoke();
+    expect(result.plugins.map((p) => p.category)).toEqual([null, null]);
+    expect(result.categoryCounts).toEqual({ system: 2 });
+    expect(result.totalCount).toBe(2);
+  });
+
+  // The category lookup is bounded so a slow/hanging marketplace fetch (a cold
+  // cache stuck on GitHub) can't hold up the installed list — it degrades to an
+  // empty map exactly like the rejection path above. `loadCategoryMapBounded`
+  // takes an injectable timeout so we can prove the bound without waiting the
+  // full 1500ms production budget.
+  test("bounds the catalog lookup: a stall past the budget degrades to an empty map", async () => {
+    // GIVEN a catalog fetch that resolves only AFTER the (shortened) budget.
+    getCatalogSpy.mockImplementation(
+      (ref) =>
+        new Promise<PluginCatalog>((resolve) => {
+          setTimeout(
+            () =>
+              resolve(
+                catalog(ref, [
+                  {
+                    name: "alpha",
+                    path: "github:acme/alpha@v1",
+                    category: "productivity",
+                    source: { kind: "github", repo: "acme/alpha", ref: "v1" },
+                  },
+                ]),
+              ),
+            80,
+          );
+        }),
+    );
+
+    // WHEN the bound (10ms) elapses first, the timer wins the race.
+    const map = await loadCategoryMapBounded(10);
+
+    // THEN we fall back to an empty map, so every category resolves to null and
+    // the installed list returns immediately instead of blocking on GitHub.
+    expect(map.size).toBe(0);
+  });
+
+  test("returns the catalog category map when the lookup resolves within the budget", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "alpha",
+          path: "github:acme/alpha@v1",
+          category: "productivity",
+          source: { kind: "github", repo: "acme/alpha", ref: "v1" },
+        },
+      ]),
+    );
+
+    const map = await loadCategoryMapBounded();
+    expect(map.get("alpha")).toBe("productivity");
+  });
+
+  test("normalizes a `developer` marketplace category to `development`", async () => {
+    // The marketplace ships `developer`, which is NOT a Skills slug; without
+    // normalization it would be counted in "All" but have no rail row.
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "dev-tools",
+          path: "github:acme/dev-tools@v1",
+          category: "developer",
+          source: { kind: "github", repo: "acme/dev-tools", ref: "v1" },
+        },
+      ]),
+    );
+    installedFixture = [pluginEntry({ name: "dev-tools" })];
+
+    const result = await invoke();
+    expect(result.plugins[0]?.category).toBe("development");
+    expect(result.categoryCounts).toEqual({ development: 1 });
+  });
+
+  test("folds an unknown marketplace category (`memory`) to null → system", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "simple-memory",
+          path: "github:acme/simple-memory@v1",
+          category: "memory",
+          source: { kind: "github", repo: "acme/simple-memory", ref: "v1" },
+        },
+      ]),
+    );
+    installedFixture = [pluginEntry({ name: "simple-memory" })];
+
+    const result = await invoke();
+    expect(result.plugins[0]?.category).toBeNull();
+    expect(result.categoryCounts).toEqual({ system: 1 });
+  });
+
+  test("?category=development selects a `developer`-origin plugin (post-normalization)", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "dev-tools",
+          path: "github:acme/dev-tools@v1",
+          category: "developer",
+          source: { kind: "github", repo: "acme/dev-tools", ref: "v1" },
+        },
+      ]),
+    );
+    installedFixture = [pluginEntry({ name: "dev-tools" })];
+
+    const result = await invoke({ queryParams: { category: "development" } });
+    expect(result.plugins.map((p) => p.id)).toEqual(["dev-tools"]);
+  });
+
+  test("?category=memory selects nothing — there is no such Skills slug", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "simple-memory",
+          path: "github:acme/simple-memory@v1",
+          category: "memory",
+          source: { kind: "github", repo: "acme/simple-memory", ref: "v1" },
+        },
+      ]),
+    );
+    installedFixture = [pluginEntry({ name: "simple-memory" })];
+
+    const result = await invoke({ queryParams: { category: "memory" } });
+    expect(result.plugins).toEqual([]);
+    // The plugin is still counted (under "system"), just not reachable as
+    // "memory" — counts match visible rows.
+    expect(result.categoryCounts).toEqual({ system: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeMarketplaceCategory (unit)
+// ---------------------------------------------------------------------------
+
+describe("normalizeMarketplaceCategory", () => {
+  test("passes a valid Skills slug through unchanged", () => {
+    expect(
+      normalizeMarketplaceCategory("productivity", SKILLS_CATEGORY_SLUGS),
+    ).toBe("productivity");
+  });
+
+  test("aliases `developer` → `development`", () => {
+    expect(
+      normalizeMarketplaceCategory("developer", SKILLS_CATEGORY_SLUGS),
+    ).toBe("development");
+  });
+
+  test("folds unknown marketplace slugs to null", () => {
+    for (const unknown of ["memory", "interface", "marketing", "hobby"]) {
+      expect(
+        normalizeMarketplaceCategory(unknown, SKILLS_CATEGORY_SLUGS),
+      ).toBeNull();
+    }
+  });
+
+  test("treats null / empty / whitespace as null", () => {
+    expect(
+      normalizeMarketplaceCategory(null, SKILLS_CATEGORY_SLUGS),
+    ).toBeNull();
+    expect(
+      normalizeMarketplaceCategory(undefined, SKILLS_CATEGORY_SLUGS),
+    ).toBeNull();
+    expect(normalizeMarketplaceCategory("", SKILLS_CATEGORY_SLUGS)).toBeNull();
+    expect(
+      normalizeMarketplaceCategory("   ", SKILLS_CATEGORY_SLUGS),
+    ).toBeNull();
+  });
+
+  test("normalizes case + surrounding whitespace before matching", () => {
+    expect(
+      normalizeMarketplaceCategory("  Developer  ", SKILLS_CATEGORY_SLUGS),
+    ).toBe("development");
+    expect(
+      normalizeMarketplaceCategory("PRODUCTIVITY", SKILLS_CATEGORY_SLUGS),
+    ).toBe("productivity");
+  });
+
+  test("an empty valid-slug set folds every category to null", () => {
+    expect(normalizeMarketplaceCategory("productivity", new Set())).toBeNull();
+    expect(normalizeMarketplaceCategory("developer", new Set())).toBeNull();
   });
 });
 
@@ -469,6 +884,7 @@ describe("GET /v1/plugins/search", () => {
         {
           name: "simple-memory",
           path: "github:vellum-ai/simple-memory@ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3",
+          category: "productivity",
           source: {
             kind: "github",
             repo: "vellum-ai/simple-memory",
@@ -479,6 +895,7 @@ describe("GET /v1/plugins/search", () => {
           name: "caveman",
           path: "github:JuliusBrussee/caveman@v1.8.2",
           description: "Ultra-compressed communication mode.",
+          category: null,
           source: {
             kind: "github",
             repo: "JuliusBrussee/caveman",
@@ -498,7 +915,8 @@ describe("GET /v1/plugins/search", () => {
     expect(ref).toBe("my-feature-branch");
 
     // The query is applied in-memory by the real filter: `^simple` matches
-    // only `simple-memory`, and the source discriminator is preserved.
+    // only `simple-memory`. The source discriminator and the marketplace
+    // `category` both flow through to the wire.
     expect(result).toEqual({
       query: "^simple",
       ref: "my-feature-branch",
@@ -506,6 +924,7 @@ describe("GET /v1/plugins/search", () => {
         {
           name: "simple-memory",
           path: "github:vellum-ai/simple-memory@ed09a4c01bf18e4ac8859faee94cb65c7cbd1ca3",
+          category: "productivity",
           source: {
             kind: "github",
             repo: "vellum-ai/simple-memory",
@@ -516,12 +935,39 @@ describe("GET /v1/plugins/search", () => {
     });
   });
 
+  test("normalizes match categories to the Skills taxonomy (`developer` → `development`, `hobby` → null)", async () => {
+    getCatalogSpy.mockImplementation(async (ref) =>
+      catalog(ref, [
+        {
+          name: "dev-tools",
+          path: "github:acme/dev-tools@v1",
+          category: "developer",
+          source: { kind: "github", repo: "acme/dev-tools", ref: "v1" },
+        },
+        {
+          name: "snake-game",
+          path: "github:acme/snake-game@v1",
+          category: "hobby",
+          source: { kind: "github", repo: "acme/snake-game", ref: "v1" },
+        },
+      ]),
+    );
+
+    const result = await invokeSearch();
+    const byName = new Map(result.matches.map((m) => [m.name, m.category]));
+    // `developer` is aliased to the Skills slug; `hobby` has no equivalent and
+    // folds to null so "Available" filters against the same taxonomy.
+    expect(byName.get("dev-tools")).toBe("development");
+    expect(byName.get("snake-game")).toBeNull();
+  });
+
   test("missing ?q= matches all (empty-string query) at the default ref", async () => {
     getCatalogSpy.mockImplementation(async (ref) =>
       catalog(ref, [
         {
           name: "caveman",
           path: "github:JuliusBrussee/caveman@v1.8.2",
+          category: null,
           source: {
             kind: "github",
             repo: "JuliusBrussee/caveman",
@@ -536,6 +982,8 @@ describe("GET /v1/plugins/search", () => {
     expect(ref).toBe("main");
     expect(result.query).toBe("");
     expect(result.matches.map((m) => m.name)).toEqual(["caveman"]);
+    // An entry that declares no category surfaces as `category: null`.
+    expect(result.matches[0]?.category).toBeNull();
   });
 
   test("whitespace-only ?ref= falls back to the default ref", async () => {
@@ -597,6 +1045,7 @@ describe("GET /v1/plugins/search", () => {
       Object.freeze({
         name: "a",
         path: "github:acme/a@bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        category: null,
         source: {
           kind: "github",
           repo: "acme/a",
@@ -617,6 +1066,7 @@ describe("GET /v1/plugins/search", () => {
       result.matches.push({
         name: "b",
         path: "x",
+        category: null,
         source: {
           kind: "github",
           repo: "acme/b",
@@ -641,6 +1091,7 @@ function invokeUninstall(args: RouteHandlerArgs = {}): {
 describe("DELETE /v1/plugins/:name", () => {
   beforeEach(() => {
     uninstallSpy.mockReset();
+    broadcastMessageSpy.mockReset();
   });
 
   test("forwards pathParams.name to uninstallPlugin and returns its result", () => {
@@ -656,6 +1107,35 @@ describe("DELETE /v1/plugins/:name", () => {
     expect(result).toEqual({
       name: "simple-memory",
       target: "/workspace/.vellum/plugins/simple-memory",
+    });
+  });
+
+  test("publishes sync_changed(plugins:list) on a successful uninstall", () => {
+    uninstallSpy.mockImplementation((opts) => ({
+      name: opts.name,
+      target: `/workspace/.vellum/plugins/${opts.name}`,
+    }));
+
+    invokeUninstall({ pathParams: { name: "simple-memory" } });
+
+    expectPluginsListBroadcast();
+  });
+
+  test("threads x-vellum-client-id into the published event's originClientId", () => {
+    uninstallSpy.mockImplementation((opts) => ({
+      name: opts.name,
+      target: `/workspace/.vellum/plugins/${opts.name}`,
+    }));
+
+    invokeUninstall({
+      pathParams: { name: "simple-memory" },
+      headers: { "x-vellum-client-id": "client-abc" },
+    });
+
+    const [msg] = broadcastMessageSpy.mock.calls[0]!;
+    expect(msg).toMatchObject({
+      type: "sync_changed",
+      originClientId: "client-abc",
     });
   });
 
@@ -683,7 +1163,7 @@ describe("DELETE /v1/plugins/:name", () => {
     ).toThrow(BadRequestError);
   });
 
-  test("PluginNotInstalledError → NotFoundError (404)", () => {
+  test("PluginNotInstalledError → NotFoundError (404), no broadcast", () => {
     uninstallSpy.mockImplementation((opts) => {
       throw new PluginNotInstalledError(
         opts.name,
@@ -694,6 +1174,8 @@ describe("DELETE /v1/plugins/:name", () => {
     expect(() => invokeUninstall({ pathParams: { name: "ghost" } })).toThrow(
       NotFoundError,
     );
+    // A failed uninstall must not fan out a spurious invalidation.
+    expect(broadcastMessageSpy).not.toHaveBeenCalled();
   });
 
   test("unknown errors → InternalError with original message preserved", () => {
@@ -856,6 +1338,7 @@ describe("POST /v1/plugins/install", () => {
   beforeEach(() => {
     installSpy.mockReset();
     resolvePinSpy.mockReset();
+    broadcastMessageSpy.mockReset();
   });
 
   test("forwards name/force and shapes the result, pinning ref to the default", async () => {
@@ -883,6 +1366,43 @@ describe("POST /v1/plugins/install", () => {
       name: "caveman",
       ref: "main",
       force: true,
+    });
+  });
+
+  test("publishes sync_changed(plugins:list) on a successful install", async () => {
+    installSpy.mockImplementation(async (opts) => ({
+      name: opts.name,
+      target: `/workspace/.vellum/plugins/${opts.name}`,
+      fileCount: 7,
+      ref: opts.ref ?? "main",
+      commit: null,
+      committedAt: null,
+    }));
+
+    await invokeInstall({ body: { name: "caveman" } });
+
+    expectPluginsListBroadcast();
+  });
+
+  test("threads x-vellum-client-id into the published event's originClientId", async () => {
+    installSpy.mockImplementation(async (opts) => ({
+      name: opts.name,
+      target: `/workspace/.vellum/plugins/${opts.name}`,
+      fileCount: 7,
+      ref: opts.ref ?? "main",
+      commit: null,
+      committedAt: null,
+    }));
+
+    await invokeInstall({
+      body: { name: "caveman" },
+      headers: { "x-vellum-client-id": "client-abc" },
+    });
+
+    const [msg] = broadcastMessageSpy.mock.calls[0]!;
+    expect(msg).toMatchObject({
+      type: "sync_changed",
+      originClientId: "client-abc",
     });
   });
 
@@ -942,7 +1462,7 @@ describe("POST /v1/plugins/install", () => {
     ).rejects.toBeInstanceOf(ConflictError);
   });
 
-  test("PluginNotFoundError → NotFoundError (404)", async () => {
+  test("PluginNotFoundError → NotFoundError (404), no broadcast", async () => {
     installSpy.mockImplementation(async (opts) => {
       throw new PluginNotFoundError(opts.name, "main", "example-org/ghost");
     });
@@ -950,6 +1470,8 @@ describe("POST /v1/plugins/install", () => {
     await expect(
       invokeInstall({ body: { name: "ghost" } }),
     ).rejects.toBeInstanceOf(NotFoundError);
+    // A failed install must not fan out a spurious invalidation.
+    expect(broadcastMessageSpy).not.toHaveBeenCalled();
   });
 
   test("PluginSourceUnavailableError → ServiceUnavailableError (503)", async () => {
@@ -1295,6 +1817,30 @@ async function invokeUpgrade(args: RouteHandlerArgs = {}): Promise<{
 describe("POST /v1/plugins/:name/upgrade", () => {
   beforeEach(() => {
     upgradeSpy.mockReset();
+    broadcastMessageSpy.mockReset();
+  });
+
+  test("publishes sync_changed(plugins:list) on a successful upgrade", async () => {
+    upgradeSpy.mockImplementation(async () => upgradeResult());
+
+    await invokeUpgrade({ pathParams: { name: "level-up" } });
+
+    expectPluginsListBroadcast();
+  });
+
+  test("threads x-vellum-client-id into the published event's originClientId", async () => {
+    upgradeSpy.mockImplementation(async () => upgradeResult());
+
+    await invokeUpgrade({
+      pathParams: { name: "level-up" },
+      headers: { "x-vellum-client-id": "client-abc" },
+    });
+
+    const [msg] = broadcastMessageSpy.mock.calls[0]!;
+    expect(msg).toMatchObject({
+      type: "sync_changed",
+      originClientId: "client-abc",
+    });
   });
 
   test("forwards name + dryRun and projects the upgrade result", async () => {
@@ -1430,7 +1976,7 @@ describe("POST /v1/plugins/:name/upgrade", () => {
     ).rejects.toBeInstanceOf(BadRequestError);
   });
 
-  test("PluginNotInstalledError → NotFoundError (404)", async () => {
+  test("PluginNotInstalledError → NotFoundError (404), no broadcast", async () => {
     upgradeSpy.mockImplementation(async () => {
       throw new PluginNotInstalledError(
         "ghost",
@@ -1441,6 +1987,8 @@ describe("POST /v1/plugins/:name/upgrade", () => {
     await expect(
       invokeUpgrade({ pathParams: { name: "ghost" } }),
     ).rejects.toBeInstanceOf(NotFoundError);
+    // A failed upgrade must not fan out a spurious invalidation.
+    expect(broadcastMessageSpy).not.toHaveBeenCalled();
   });
 
   test("PluginNotUpgradableError → ConflictError (409)", async () => {
@@ -1626,5 +2174,183 @@ describe("POST /v1/plugins/:name/diff", () => {
     }
     expect(caught).toBeInstanceOf(InternalError);
     expect((caught as Error).message).toContain("ECONNRESET");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/plugins/:name/enable | disable (toggle)
+// ---------------------------------------------------------------------------
+
+function toggleResult(
+  name: string,
+  action: "enable" | "disable",
+): TogglePluginResult {
+  return {
+    name,
+    action,
+    sentinelPath: `/workspace/.vellum/plugins/${name}/.disabled`,
+  };
+}
+
+function invokeEnable(args: RouteHandlerArgs = {}): { ok: boolean } {
+  return enableHandler(args) as { ok: boolean };
+}
+
+function invokeDisable(args: RouteHandlerArgs = {}): { ok: boolean } {
+  return disableHandler(args) as { ok: boolean };
+}
+
+/** Assert the spy received exactly one sync_changed carrying `plugins:list`. */
+function expectPluginsListBroadcast(): void {
+  expect(broadcastMessageSpy.mock.calls).toHaveLength(1);
+  const [msg] = broadcastMessageSpy.mock.calls[0]!;
+  expect(msg).toMatchObject({ type: "sync_changed" });
+  expect((msg as { tags: string[] }).tags).toContain("plugins:list");
+}
+
+describe("POST /v1/plugins/:name/enable", () => {
+  beforeEach(() => {
+    enablePluginSpy.mockReset();
+    broadcastMessageSpy.mockReset();
+  });
+
+  test("enables the plugin and broadcasts sync_changed(plugins:list)", () => {
+    enablePluginSpy.mockImplementation((name) => toggleResult(name, "enable"));
+
+    const result = invokeEnable({ pathParams: { name: "simple-memory" } });
+
+    expect(result).toEqual({ ok: true });
+    expect(enablePluginSpy.mock.calls[0]?.[0]).toBe("simple-memory");
+    expectPluginsListBroadcast();
+  });
+
+  test("threads x-vellum-client-id into the published event's originClientId", () => {
+    enablePluginSpy.mockImplementation((name) => toggleResult(name, "enable"));
+
+    invokeEnable({
+      pathParams: { name: "simple-memory" },
+      headers: { "x-vellum-client-id": "client-abc" },
+    });
+
+    // The initiating client's id flows through the canonical publisher so it
+    // can self-echo-suppress its own invalidation.
+    const [msg] = broadcastMessageSpy.mock.calls[0]!;
+    expect(msg).toMatchObject({
+      type: "sync_changed",
+      originClientId: "client-abc",
+    });
+  });
+
+  test("a broadcast failure does not fail a successful toggle", () => {
+    enablePluginSpy.mockImplementation((name) => toggleResult(name, "enable"));
+    // The sentinel was already flipped; a hub throw AFTER that must not surface
+    // as a 500 — the canonical publisher swallows broadcast errors.
+    broadcastMessageSpy.mockImplementation(() => {
+      throw new Error("hub unavailable");
+    });
+
+    const result = invokeEnable({ pathParams: { name: "simple-memory" } });
+    expect(result).toEqual({ ok: true });
+  });
+
+  test("PluginAlreadyInStateException → ConflictError (409), no broadcast", () => {
+    enablePluginSpy.mockImplementation((name) => {
+      throw new PluginAlreadyInStateException(name, "enable");
+    });
+
+    expect(() =>
+      invokeEnable({ pathParams: { name: "simple-memory" } }),
+    ).toThrow(ConflictError);
+    // A no-op toggle must not fan out a spurious invalidation.
+    expect(broadcastMessageSpy).not.toHaveBeenCalled();
+  });
+
+  test("PluginDirectoryNotFoundError → NotFoundError (404)", () => {
+    enablePluginSpy.mockImplementation((name) => {
+      throw new PluginDirectoryNotFoundError(name);
+    });
+
+    expect(() => invokeEnable({ pathParams: { name: "ghost" } })).toThrow(
+      NotFoundError,
+    );
+  });
+
+  test("InvalidPluginNameError → BadRequestError (400)", () => {
+    enablePluginSpy.mockImplementation(() => {
+      throw new ToggleInvalidPluginNameError("../escape");
+    });
+
+    expect(() => invokeEnable({ pathParams: { name: "../escape" } })).toThrow(
+      BadRequestError,
+    );
+  });
+});
+
+describe("POST /v1/plugins/:name/disable", () => {
+  beforeEach(() => {
+    disablePluginSpy.mockReset();
+    broadcastMessageSpy.mockReset();
+  });
+
+  test("disables the plugin and broadcasts sync_changed(plugins:list)", () => {
+    disablePluginSpy.mockImplementation((name) =>
+      toggleResult(name, "disable"),
+    );
+
+    const result = invokeDisable({ pathParams: { name: "simple-memory" } });
+
+    expect(result).toEqual({ ok: true });
+    expect(disablePluginSpy.mock.calls[0]?.[0]).toBe("simple-memory");
+    // Enable and disable emit the SAME invalidation — the tag names the
+    // resource, not the new value.
+    expectPluginsListBroadcast();
+  });
+
+  test("threads x-vellum-client-id into the published event's originClientId", () => {
+    disablePluginSpy.mockImplementation((name) =>
+      toggleResult(name, "disable"),
+    );
+
+    invokeDisable({
+      pathParams: { name: "simple-memory" },
+      headers: { "x-vellum-client-id": "client-xyz" },
+    });
+
+    const [msg] = broadcastMessageSpy.mock.calls[0]!;
+    expect(msg).toMatchObject({
+      type: "sync_changed",
+      originClientId: "client-xyz",
+    });
+  });
+
+  test("PluginAlreadyInStateException → ConflictError (409), no broadcast", () => {
+    disablePluginSpy.mockImplementation((name) => {
+      throw new PluginAlreadyInStateException(name, "disable");
+    });
+
+    expect(() =>
+      invokeDisable({ pathParams: { name: "simple-memory" } }),
+    ).toThrow(ConflictError);
+    expect(broadcastMessageSpy).not.toHaveBeenCalled();
+  });
+
+  test("PluginDirectoryNotFoundError → NotFoundError (404)", () => {
+    disablePluginSpy.mockImplementation((name) => {
+      throw new PluginDirectoryNotFoundError(name);
+    });
+
+    expect(() => invokeDisable({ pathParams: { name: "ghost" } })).toThrow(
+      NotFoundError,
+    );
+  });
+
+  test("InvalidPluginNameError → BadRequestError (400)", () => {
+    disablePluginSpy.mockImplementation(() => {
+      throw new ToggleInvalidPluginNameError("../escape");
+    });
+
+    expect(() => invokeDisable({ pathParams: { name: "../escape" } })).toThrow(
+      BadRequestError,
+    );
   });
 });

@@ -167,6 +167,17 @@ describe("deliverA2AReply", () => {
     expect(completeWithArtifactsCalls).toHaveLength(0);
   });
 
+  test("completes task for a base-less (relative) callback URL", async () => {
+    const result = await deliverA2AReply("/deliver/a2a?taskId=task-123", {
+      chatId: "chat-1",
+      text: "Hello",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(completeWithArtifactsCalls).toHaveLength(1);
+    expect(completeWithArtifactsCalls[0].taskId).toBe("task-123");
+  });
+
   test("returns ok: true when payload has no content", async () => {
     const result = await deliverA2AReply(baseCallbackUrl, {
       chatId: "chat-1",

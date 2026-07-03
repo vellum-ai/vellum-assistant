@@ -7,10 +7,13 @@ import {
 import {
   projectAssistantMessage,
   recordConversationSeenSignal,
-} from "../memory/conversation-attention-store.js";
-import { addMessage, createConversation } from "../memory/conversation-crud.js";
-import { getDb } from "../memory/db-connection.js";
-import { initializeDb } from "../memory/db-init.js";
+} from "../persistence/conversation-attention-store.js";
+import {
+  addMessage,
+  createConversation,
+} from "../persistence/conversation-crud.js";
+import { getDb } from "../persistence/db-connection.js";
+import { initializeDb } from "../persistence/db-init.js";
 import type { AssistantEvent } from "../runtime/assistant-event.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
 import { ROUTES as CONVERSATION_LIST_ROUTES } from "../runtime/routes/conversation-list-routes.js";

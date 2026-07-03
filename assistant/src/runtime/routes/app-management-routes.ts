@@ -16,17 +16,11 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { packageApp } from "../../bundler/app-bundler.js";
-import { compileApp } from "../../bundler/app-compiler.js";
-import { scanBundle } from "../../bundler/bundle-scanner.js";
-import type { SignatureJson } from "../../bundler/bundle-signer.js";
-import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
-import { compareSemver } from "../../daemon/handlers/shared.js";
 import {
   getAppDiff,
   getAppHistory,
   restoreAppVersion,
-} from "../../memory/app-git-service.js";
+} from "../../apps/app-git-service.js";
 import {
   type AppDefinition,
   createApp,
@@ -44,12 +38,21 @@ import {
   resolveEffectiveAppHtml,
   updateApp,
   updateAppRecord,
-} from "../../memory/app-store.js";
-import { createSharedAppLink } from "../../memory/shared-app-links-store.js";
+} from "../../apps/app-store.js";
+import { createSharedAppLink } from "../../apps/shared-app-links-store.js";
+import { packageApp } from "../../bundler/app-bundler.js";
+import { compileApp } from "../../bundler/app-compiler.js";
+import { scanBundle } from "../../bundler/bundle-scanner.js";
+import type { SignatureJson } from "../../bundler/bundle-signer.js";
+import { verifyBundleSignature } from "../../bundler/signature-verifier.js";
+import { compareSemver } from "../../daemon/handlers/shared.js";
 import { computeContentId } from "../../util/content-id.js";
 import { getLogger } from "../../util/logger.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { publishAppsChanged } from "../sync/resource-sync-events.js";
+import {
+  getOriginClientId,
+  publishAppsChanged,
+} from "../sync/resource-sync-events.js";
 import {
   BadRequestError,
   NotFoundError,
@@ -62,12 +65,6 @@ const log = getLogger("app-management-routes");
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function getOriginClientId(
-  headers: RouteHandlerArgs["headers"],
-): string | undefined {
-  return headers?.["x-vellum-client-id"]?.trim() || undefined;
-}
 
 function getSharedAppsDir(): string {
   return join(

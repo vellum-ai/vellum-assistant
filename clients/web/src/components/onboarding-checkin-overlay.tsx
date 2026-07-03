@@ -15,16 +15,22 @@
  * (best-effort) and clears the pending flag, revealing the research results.
  */
 
+import { useNavigate } from "react-router";
+
 import { fetchAssistantIdentity } from "@/assistant/identity";
 import { scheduleCheckin } from "@/domains/onboarding/checkin-scheduler";
+import { OnboardingBackButton } from "@/components/onboarding-back-button";
 import { CheckinConnectScreen } from "@/domains/onboarding/screens/checkin-connect-screen";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
+import { routes } from "@/utils/routes";
 
 export function OnboardingCheckinOverlay() {
   const checkinPending = useOnboardingFocusStore.use.checkinPending();
   const checkinUserName = useOnboardingFocusStore.use.checkinUserName();
   const endCheckin = useOnboardingFocusStore.use.endCheckin();
+  const exitFocus = useOnboardingFocusStore.use.exitFocus();
+  const navigate = useNavigate();
   // Raw store (not `useActiveAssistantId`, which throws outside
   // ActiveAssistantGate): this overlay mounts unconditionally in ChatLayout,
   // which renders across pre-active/hatching states. Null is handled below.
@@ -50,9 +56,18 @@ export function OnboardingCheckinOverlay() {
     endCheckin();
   };
 
+  // Back returns to the research form. Drop out of the focused presentation so
+  // the form renders with its normal chrome.
+  const handleBack = () => {
+    exitFocus();
+    void navigate(routes.onboarding.research);
+  };
+
   // Above the research overlay (z-50) so it fully covers the streaming results.
+  // `data-theme="dark"` keeps the onboarding palette consistent across steps.
   return (
-    <div className="fixed inset-0 z-[60]">
+    <div data-theme="dark" className="fixed inset-0 z-[60]">
+      <OnboardingBackButton onClick={handleBack} />
       <CheckinConnectScreen
         assistantId={assistantId ?? ""}
         assistantName=""

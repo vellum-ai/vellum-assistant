@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getDocumentById } from "../documents/document-store.js";
-import { getSqlite } from "../memory/db-connection.js";
+import { getSqlite } from "../persistence/db-connection.js";
 import {
   executeDocumentFind,
   executeDocumentReplaceText,

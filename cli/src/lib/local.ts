@@ -1,4 +1,4 @@
-import { execFileSync, execSync, spawn } from "child_process";
+import { execFileSync, execSync, spawn, spawnSync } from "child_process";
 import { createHash, randomBytes } from "crypto";
 import {
   existsSync,
@@ -9,7 +9,9 @@ import {
 } from "fs";
 import { createRequire } from "module";
 import { homedir, networkInterfaces, platform, tmpdir } from "os";
-import { dirname, join } from "path";
+import { basename, dirname, join } from "path";
+
+import { isValidReleaseVersion } from "@vellumai/local-mode";
 
 import {
   getDaemonPidPath,
@@ -23,6 +25,7 @@ import {
   stopProcess,
   stopProcessByPidFile,
 } from "./process.js";
+import { stripVersionPrefix } from "./version-compat.js";
 import { openLogFile, pipeToLogFile } from "./xdg-log.js";
 
 const _require = createRequire(import.meta.url);
@@ -33,6 +36,178 @@ const DARWIN_UNIX_SOCKET_MAX_PATH_BYTES = 103;
 // The longest socket filename we place in the workspace directory.
 // assistant-skill.sock = 20 chars, plus 1 for the "/" separator = 21 overhead.
 const LONGEST_SOCKET_FILENAME = "assistant-skill.sock";
+const LOCAL_RUNTIME_PACKAGE = "vellum";
+
+export interface LocalRuntimeInstall {
+  version: string;
+  installDir: string;
+}
+
+function normalizeRuntimeVersion(version: string): string {
+  return version === "latest" ? version : stripVersionPrefix(version);
+}
+
+export function getLocalRuntimeInstallDir(
+  resources: LocalInstanceResources,
+  version: string,
+): string {
+  return join(
+    resources.instanceDir,
+    ".vellum",
+    "runtime",
+    normalizeRuntimeVersion(version),
+  );
+}
+
+function packagePath(
+  installDir: string,
+  packageName: string,
+  relativePath: string,
+): string {
+  return join(
+    installDir,
+    "node_modules",
+    ...packageName.split("/"),
+    relativePath,
+  );
+}
+
+function hasLocalRuntimeComponents(installDir: string): boolean {
+  return (
+    existsSync(
+      packagePath(installDir, "@vellumai/assistant", "src/index.ts"),
+    ) &&
+    existsSync(
+      packagePath(installDir, "@vellumai/vellum-gateway", "src/index.ts"),
+    ) &&
+    existsSync(
+      packagePath(installDir, "@vellumai/credential-executor", "src/main.ts"),
+    )
+  );
+}
+
+function resolveBunExecutable(): string {
+  const execBase = basename(process.execPath);
+  if (execBase === "bun" || execBase.startsWith("bun-")) {
+    return process.execPath;
+  }
+
+  const envBun = process.env.VELLUM_BUN;
+  if (envBun && existsSync(envBun)) return envBun;
+
+  const siblingBun = join(dirname(process.execPath), "bun");
+  if (existsSync(siblingBun)) return siblingBun;
+
+  const bundledBun = join(dirname(process.execPath), "..", "Resources", "bun");
+  if (existsSync(bundledBun)) return bundledBun;
+
+  const homeBun = join(homedir(), ".bun", "bin", "bun");
+  if (existsSync(homeBun)) return homeBun;
+
+  return "bun";
+}
+
+function envWithBunPath(
+  env: Record<string, string | undefined>,
+): Record<string, string | undefined> {
+  const bunPath = resolveBunExecutable();
+  const basePath = env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin";
+  const extraDirs = [
+    bunPath.includes("/") ? dirname(bunPath) : "",
+    join(homedir(), ".bun", "bin"),
+    join(homedir(), ".local", "bin"),
+  ].filter((dir) => dir && !basePath.split(":").includes(dir));
+  return {
+    ...env,
+    PATH: [...extraDirs, basePath].filter(Boolean).join(":"),
+  };
+}
+
+function localRuntimeAssistantIndex(
+  resources: LocalInstanceResources,
+): string | undefined {
+  const installDir = resources.runtimeInstallDir;
+  if (!installDir) return undefined;
+  const candidate = packagePath(
+    installDir,
+    "@vellumai/assistant",
+    "src/index.ts",
+  );
+  return existsSync(candidate) ? candidate : undefined;
+}
+
+function localRuntimeGatewayDir(
+  resources: LocalInstanceResources | undefined,
+): string | undefined {
+  const installDir = resources?.runtimeInstallDir;
+  if (!installDir) return undefined;
+  const candidate = packagePath(installDir, "@vellumai/vellum-gateway", "");
+  return isGatewaySourceDir(candidate) ? candidate : undefined;
+}
+
+export function ensureLocalRuntime(
+  resources: LocalInstanceResources,
+  version: string,
+  options: { force?: boolean } = {},
+): LocalRuntimeInstall {
+  // Reject anything that is not a trusted release identifier BEFORE it becomes
+  // a filesystem path segment or a `bun install` dependency spec. Without this,
+  // a package-manager spec (npm alias, tarball/git URL) or a `../`-laden string
+  // reaching this sink would install and then execute arbitrary attacker code
+  // as the local assistant runtime. Shares the validator with the host-bridge
+  // boundary guard (`runUpgrade`) so the two can never drift.
+  if (!isValidReleaseVersion(version)) {
+    throw new Error(
+      `Invalid runtime version '${version}': expected a release tag like v1.2.3 or 'latest'.`,
+    );
+  }
+
+  const normalizedVersion = normalizeRuntimeVersion(version);
+  const displayVersion =
+    normalizedVersion === "latest" ? "latest" : `v${normalizedVersion}`;
+  const installDir = getLocalRuntimeInstallDir(resources, normalizedVersion);
+
+  if (!options.force && hasLocalRuntimeComponents(installDir)) {
+    return { version: displayVersion, installDir };
+  }
+
+  ensureBunInstalled();
+  mkdirSync(installDir, { recursive: true });
+  writeFileSync(
+    join(installDir, "package.json"),
+    `${JSON.stringify(
+      {
+        private: true,
+        dependencies: {
+          [LOCAL_RUNTIME_PACKAGE]: normalizedVersion,
+        },
+      },
+      null,
+      2,
+    )}\n`,
+  );
+
+  const bunPath = resolveBunExecutable();
+  const result = spawnSync(bunPath, ["install", "--ignore-scripts"], {
+    cwd: installDir,
+    stdio: "inherit",
+    env: envWithBunPath(process.env),
+  });
+
+  if (result.error || result.status !== 0) {
+    const detail =
+      result.error?.message ?? `bun install exited with code ${result.status}`;
+    throw new Error(`Local runtime install failed: ${detail}`);
+  }
+
+  if (!hasLocalRuntimeComponents(installDir)) {
+    throw new Error(
+      `Local runtime install at ${installDir} is missing assistant, gateway, or credential-executor packages.`,
+    );
+  }
+
+  return { version: displayVersion, installDir };
+}
 
 /**
  * Warn when an assistant appears to have legacy data in the global workspace.
@@ -190,7 +365,14 @@ function findGatewaySourceFromCwd(): string | undefined {
   }
 }
 
-function resolveAssistantIndexPath(): string | undefined {
+function resolveAssistantIndexPath(
+  resources?: LocalInstanceResources,
+): string | undefined {
+  if (resources) {
+    const runtimeIndex = localRuntimeAssistantIndex(resources);
+    if (runtimeIndex) return runtimeIndex;
+  }
+
   // Source tree layout: cli/src/lib/ -> ../../.. -> repo root -> assistant/src/index.ts
   const sourceTreeIndex = join(
     import.meta.dir,
@@ -246,16 +428,10 @@ function resolveAssistantIndexPath(): string | undefined {
 }
 
 function ensureBunInstalled(): void {
-  const bunBinDir = join(homedir(), ".bun", "bin");
-  const pathWithBun = [
-    bunBinDir,
-    process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
-  ].join(":");
-
   try {
-    execFileSync("bun", ["--version"], {
+    execFileSync(resolveBunExecutable(), ["--version"], {
       stdio: "pipe",
-      env: { ...process.env, PATH: pathWithBun },
+      env: envWithBunPath(process.env),
     });
     return;
   } catch {
@@ -418,17 +594,19 @@ async function startDaemonFromSource(
   // detect the in-progress spawn and wait instead of racing.
   writeFileSync(pidFile, "starting", "utf-8");
 
+  const bunPath = resolveBunExecutable();
+  const spawnEnv = envWithBunPath(env);
   const child = foreground
-    ? spawn(process.execPath, ["run", daemonMainPath], {
+    ? spawn(bunPath, ["run", daemonMainPath], {
         stdio: "inherit",
-        env,
+        env: spawnEnv,
       })
     : (() => {
         const daemonLogFd = openLogFile("hatch.log");
-        const c = spawn(process.execPath, ["run", daemonMainPath], {
+        const c = spawn(bunPath, ["run", daemonMainPath], {
           detached: true,
           stdio: ["ignore", "pipe", "pipe"],
-          env,
+          env: spawnEnv,
         });
         pipeToLogFile(c, daemonLogFd, "daemon");
         c.unref();
@@ -489,10 +667,10 @@ async function startDaemonWatchFromSource(
   writeFileSync(pidFile, "starting", "utf-8");
 
   const daemonLogFd = openLogFile("hatch.log");
-  const child = spawn(process.execPath, ["--watch", "run", mainPath], {
+  const child = spawn(resolveBunExecutable(), ["--watch", "run", mainPath], {
     detached: true,
     stdio: ["ignore", "pipe", "pipe"],
-    env,
+    env: envWithBunPath(env),
   });
   pipeToLogFile(child, daemonLogFd, "daemon");
   child.unref();
@@ -510,7 +688,10 @@ async function startDaemonWatchFromSource(
   console.log("   Assistant started in watch mode (bun --watch)");
 }
 
-function resolveGatewayDir(): string {
+function resolveGatewayDir(resources?: LocalInstanceResources): string {
+  const runtimeGatewayDir = localRuntimeGatewayDir(resources);
+  if (runtimeGatewayDir) return runtimeGatewayDir;
+
   // Source tree: cli/src/lib/ → ../../.. → repo root → gateway/
   const sourceDir = join(import.meta.dir, "..", "..", "..", "gateway");
   if (isGatewaySourceDir(sourceDir)) {
@@ -883,6 +1064,16 @@ export async function startLocalDaemon(
   warnIfLegacyWorkspaceFallbackDetected(resources);
   writeAssistantWrapper(resources);
 
+  const runtimeAssistantIndex = !watch
+    ? localRuntimeAssistantIndex(resources)
+    : undefined;
+  if (runtimeAssistantIndex) {
+    console.log("🔨 Starting local assistant runtime...");
+    await startDaemonFromSource(runtimeAssistantIndex, resources, options);
+    logDaemonReadiness(await waitForDaemonReady(resources.daemonPort, 60000));
+    return;
+  }
+
   const foreground = options?.foreground ?? false;
   // Check for a compiled daemon binary adjacent to the CLI executable.
   // This covers both the desktop app (VELLUM_DESKTOP_APP) and the case where
@@ -1020,7 +1211,7 @@ export async function startLocalDaemon(
     // Dev fallback: if the bundled daemon did not become ready in time,
     // fall back to source daemon startup so local source runs still work.
     if (!daemonReady) {
-      const assistantIndex = resolveAssistantIndexPath();
+      const assistantIndex = resolveAssistantIndexPath(resources);
       if (assistantIndex) {
         console.log(
           "   Bundled assistant not ready after 60s — falling back to source assistant...",
@@ -1040,7 +1231,7 @@ export async function startLocalDaemon(
   } else {
     console.log("🔨 Starting local assistant...");
 
-    const assistantIndex = resolveAssistantIndexPath();
+    const assistantIndex = resolveAssistantIndexPath(resources);
     if (!assistantIndex) {
       throw new Error(
         "vellum-daemon binary not found and assistant source not available.\n" +
@@ -1137,8 +1328,11 @@ export async function startGateway(
 
   let gateway;
 
+  const runtimeGatewayDir = !watch
+    ? localRuntimeGatewayDir(resources)
+    : undefined;
   const gatewayBinary = join(dirname(process.execPath), "vellum-gateway");
-  if (existsSync(gatewayBinary) && !watch) {
+  if (!runtimeGatewayDir && existsSync(gatewayBinary) && !watch) {
     // Use the compiled gateway binary when available (desktop app or compiled
     // CLI invoked from the terminal). In watch mode, skip the bundled binary
     // and use source (bun --watch only works with source files).
@@ -1151,16 +1345,16 @@ export async function startGateway(
     pipeToLogFile(gateway, gatewayLogFd, "gateway");
   } else {
     // Source tree / bunx: resolve the gateway source directory and run via bun.
-    const gatewayDir = resolveGatewayDir();
+    const gatewayDir = runtimeGatewayDir ?? resolveGatewayDir(resources);
     const bunArgs = watch
       ? ["--watch", "run", "src/index.ts", "--vellum-gateway"]
       : ["run", "src/index.ts", "--vellum-gateway"];
     const gwLogFd = openLogFile("hatch.log");
-    gateway = spawn(process.execPath, bunArgs, {
+    gateway = spawn(resolveBunExecutable(), bunArgs, {
       cwd: gatewayDir,
       detached: true,
       stdio: ["ignore", "pipe", "pipe"],
-      env: gatewayEnv,
+      env: envWithBunPath(gatewayEnv),
     });
     pipeToLogFile(gateway, gwLogFd, "gateway");
     if (watch) {

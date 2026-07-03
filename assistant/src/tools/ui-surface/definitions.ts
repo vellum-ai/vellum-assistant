@@ -45,14 +45,6 @@ function proxyExecute(toolName: string) {
       };
     }
 
-    if (toolName === "ui_show" && isEmptyCard(input)) {
-      return {
-        content:
-          "Error: ui_show card requires content — provide `data.body`, a `template` (e.g. task_progress with steps), `data.metadata`, or `actions`. The surface was not displayed because it carried only a title, which renders as a blank box. Resend ui_show with populated card content.",
-        isError: true,
-      };
-    }
-
     if (toolName === "ui_show" && isDynamicPageAppSubstitute(input)) {
       return {
         content:
@@ -168,41 +160,6 @@ function isEmptyDynamicPage(input: Record<string, unknown>): boolean {
   return typeof html !== "string" || html.trim().length === 0;
 }
 
-/**
- * A `card` ui_show carrying no renderable content — only a title (or nothing)
- * — renders as a blank bordered box. A declared `template` (task_progress,
- * weather_forecast, …) renders its own shell, and `body`/`subtitle`/`metadata`/
- * `actions` are real content; any of those passes. The model places these
- * either nested in `data` or at the top level, so both are checked. Title is
- * intentionally not content: a title-only card is the blank box.
- */
-function isEmptyCard(input: Record<string, unknown>): boolean {
-  if (input.surface_type !== "card") {
-    return false;
-  }
-  const data = asRecord(input.data) ?? {};
-
-  const template =
-    nonEmptyString(input.template) ?? nonEmptyString(data.template);
-  if (template) {
-    return false;
-  }
-
-  const hasBody = !!(nonEmptyString(input.body) ?? nonEmptyString(data.body));
-  const hasSubtitle = !!nonEmptyString(data.subtitle);
-  const hasMetadata = Array.isArray(data.metadata) && data.metadata.length > 0;
-  const actions = input.actions ?? data.actions;
-  const hasActions = Array.isArray(actions) && actions.length > 0;
-
-  return !(hasBody || hasSubtitle || hasMetadata || hasActions);
-}
-
-function nonEmptyString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0
-    ? value
-    : undefined;
-}
-
 function isDynamicPageAppSubstitute(input: Record<string, unknown>): boolean {
   if (input.surface_type !== "dynamic_page") {
     return false;
@@ -286,7 +243,8 @@ export const uiShowTool = {
     "- dynamic_page: { html, width?, height?, preview?: { title, subtitle?, description?, icon?, metrics?: [{ label, value }] } }\n" +
     "- file_upload: { prompt, acceptedTypes?, maxFiles? }\n" +
     "- task_preferences: {} (no data needed — categories are rendered client-side)\n" +
-    '- work_result: { eyebrow?, status?: "completed"|"partial"|"failed"|"in_progress", summary?, metrics?: [{ label, value, detail?, tone?: "neutral"|"positive"|"warning"|"negative" }], sections?: [{ id?, title, description?, type?: "items"|"timeline"|"diff"|"artifacts"|"warnings", items?: [{ id?, title, description?, status?, tone?, metadata?: [{ label, value }], href? }], diffs?: [{ label?, before?, after? }] }] }. Shows a structured receipt after real work: what changed, what was skipped, proof points, and next actions. Keep display-only unless explicit follow-up buttons are needed.\n\n' +
+    '- work_result: { eyebrow?, status?: "completed"|"partial"|"failed"|"in_progress", summary?, metrics?: [{ label, value, detail?, tone?: "neutral"|"positive"|"warning"|"negative" }], sections?: [{ id?, title, description?, type?: "items"|"timeline"|"diff"|"artifacts"|"warnings", items?: [{ id?, title, description?, status?, tone?, metadata?: [{ label, value }], href? }], diffs?: [{ label?, before?, after? }] }] }. Shows a structured receipt after real work: what changed, what was skipped, proof points, and next actions. Keep display-only unless explicit follow-up buttons are needed.\n' +
+    '- channel_setup: { channel: "slack" | "telegram" | "phone" }. Opens the channel setup panel in a side drawer. Returns success only after a connected client confirms the panel rendered (an error means the user does NOT see the panel — never claim it is open after an error). The user then completes credential entry at their own pace. Slack shows a full setup wizard; Telegram and Phone show credential forms (the assistant handles remaining setup steps like webhooks in chat after the user saves credentials).\n\n' +
     "For multi-step or long-running turns (web searches, file operations, research), show a task_progress card early and keep its steps updated as work progresses. Coarse steps are fine, and you can add or revise them as the work takes shape — a rough card beats no signal.",
   category: "ui-surface",
   defaultRiskLevel: RiskLevel.Low,
@@ -299,6 +257,7 @@ export const uiShowTool = {
         type: "string",
         enum: [
           "card",
+          "channel_setup",
           "choice",
           "copy_block",
           "oauth_connect",

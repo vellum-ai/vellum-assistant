@@ -9,20 +9,17 @@
  */
 import { z } from "zod";
 
-import type { ChannelId } from "../../channels/types.js";
 import { isHttpAuthDisabled } from "../../config/env.js";
-import { findGuardianForChannel } from "../../contacts/contact-store.js";
+import type { TrustContext } from "../../daemon/trust-context.js";
 import { getLogger } from "../../util/logger.js";
-import type { TrustClass } from "../actor-trust-resolver.js";
-import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { processGuardianDecision } from "../guardian-action-service.js";
-import { healGuardianBindingDrift } from "../guardian-vellum-migration.js";
-import { resolveLocalTrustContext } from "../local-actor-identity.js";
+import { reResolveTrustOnResetDrift } from "../guardian-vellum-migration.js";
 import {
-  resolveTrustContext,
-  withSourceChannel,
-} from "../trust-context-resolver.js";
+  findLocalGuardianPrincipalId,
+  resolveActorPrincipalIdForLocalGuardian,
+} from "../local-actor-identity.js";
+import { resolveLocalPrincipalTrustContext } from "../local-principal-trust.js";
 import { parseCallbackData } from "./channel-route-shared.js";
 import {
   BadRequestError,
@@ -40,58 +37,51 @@ const log = getLogger("surface-action-routes");
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve trust context from the actor principal ID and set it on the
- * conversation, following the same pattern as POST /v1/messages. This ensures
- * surface actions inherit the correct trust class (guardian vs trusted_contact)
- * rather than defaulting to unknown.
+ * Resolve trust context for the actor principal from the gateway guardian
+ * binding and set it on the conversation. A vellum principal is the guardian or
+ * nobody, so the mapper yields guardian or unknown.
  */
-function applyTrustContext(
+async function applyTrustContext(
   conversation: {
-    setTrustContext?(ctx: {
-      trustClass: TrustClass;
-      sourceChannel: ChannelId;
-    }): void;
+    setTrustContext?(ctx: TrustContext): void;
   },
   actorPrincipalId: string | undefined,
-): void {
+): Promise<void> {
   if (!conversation.setTrustContext) return;
 
   const sourceChannel = "vellum";
 
-  if (actorPrincipalId) {
-    if (isHttpAuthDisabled() && actorPrincipalId === "dev-bypass") {
-      conversation.setTrustContext(resolveLocalTrustContext(sourceChannel));
-    } else {
-      const assistantId = DAEMON_INTERNAL_ASSISTANT_ID;
-      let trustCtx = resolveTrustContext({
-        assistantId,
-        sourceChannel,
-        conversationExternalId: "local",
-        actorExternalId: actorPrincipalId,
-      });
-      if (trustCtx.trustClass === "unknown") {
-        const healed = healGuardianBindingDrift(actorPrincipalId);
-        if (healed) {
-          trustCtx = resolveTrustContext({
-            assistantId,
-            sourceChannel,
-            conversationExternalId: "local",
-            actorExternalId: actorPrincipalId,
-          });
-          log.info(
-            {
-              actorPrincipalId,
-              trustClass: trustCtx.trustClass,
-            },
-            "Trust re-resolved after guardian binding drift heal (surface action)",
-          );
-        }
-      }
-      conversation.setTrustContext(withSourceChannel(sourceChannel, trustCtx));
-    }
-  } else {
+  if (!actorPrincipalId) {
     conversation.setTrustContext({ trustClass: "guardian", sourceChannel });
+    return;
   }
+
+  // Dev-bypass injects a synthetic principal that won't match the real
+  // guardian binding, so resolve the actual guardian principalId (gateway
+  // first, local store fallback) before mapping trust.
+  let principalId = actorPrincipalId;
+  if (isHttpAuthDisabled() && actorPrincipalId === "dev-bypass") {
+    principalId = (await findLocalGuardianPrincipalId()) ?? actorPrincipalId;
+  }
+
+  let trustCtx = await resolveLocalPrincipalTrustContext({
+    actorPrincipalId: principalId,
+    sourceChannel,
+    conversationExternalId: "local",
+  });
+  if (trustCtx.trustClass === "unknown") {
+    const healed = await reResolveTrustOnResetDrift(principalId, sourceChannel);
+    if (healed) {
+      trustCtx = healed;
+      if (healed.trustClass !== "unknown") {
+        log.info(
+          { actorPrincipalId: principalId, trustClass: trustCtx.trustClass },
+          "Trust re-resolved from local mirror after gateway reset drift (surface action)",
+        );
+      }
+    }
+  }
+  conversation.setTrustContext(trustCtx);
 }
 
 // ---------------------------------------------------------------------------
@@ -129,16 +119,15 @@ async function handleSurfaceAction({
   const aprDecision = parseCallbackData(actionId, "vellum");
   if (aprDecision) {
     // Resolve the actor's guardian principal ID. In dev mode the synthetic
-    // "dev-bypass" principal won't match the real guardian binding, so fall
-    // back to the local guardian binding — mirrors guardian-action-routes.ts.
+    // "dev-bypass" principal won't match the real guardian binding, so resolve
+    // the local guardian principal — mirrors guardian-action-routes.ts.
     let guardianPrincipalId: string | undefined =
       headers?.["x-vellum-actor-principal-id"] ?? undefined;
     if (
       isHttpAuthDisabled() &&
       headers?.["x-vellum-actor-principal-id"] === "dev-bypass"
     ) {
-      const binding = findGuardianForChannel("vellum");
-      guardianPrincipalId = binding?.contact.principalId ?? undefined;
+      guardianPrincipalId = (await findLocalGuardianPrincipalId()) ?? undefined;
     }
 
     const result = await processGuardianDecision({
@@ -186,13 +175,20 @@ async function handleSurfaceAction({
   }
 
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
-  applyTrustContext(conversation, actorPrincipalId);
+  await applyTrustContext(conversation, actorPrincipalId);
+
+  // Translate dev-bypass → real guardian so the surface turn's principal matches
+  // the SSE host-proxy client's registered principal; otherwise CU/app-control
+  // same-actor checks reject the turn. Real principals pass through unchanged.
+  const resolvedActorPrincipalId =
+    await resolveActorPrincipalIdForLocalGuardian(actorPrincipalId ?? undefined);
 
   try {
     const raw = await conversation.handleSurfaceAction(
       surfaceId,
       actionId,
       data,
+      resolvedActorPrincipalId,
     );
     const result =
       raw && typeof raw === "object" && "accepted" in raw

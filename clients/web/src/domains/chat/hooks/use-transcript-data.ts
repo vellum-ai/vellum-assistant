@@ -2,9 +2,8 @@
  * Transcript data derivation — sanitises messages and projects them into
  * the flat `TranscriptItem[]` list the virtualised transcript renders.
  *
- * Reads messages from `useChatSessionStore`, interaction prompts from
- * `useInteractionStore`, and the auto-routed profile label from
- * `useTurnStore`. UI-level flags (`showThinking`, `thinkingLabel`) are
+ * Reads messages from `useChatSessionStore` and interaction prompts from
+ * `useInteractionStore`. UI-level flags (`showThinking`, `thinkingLabel`) are
  * received as parameters from the caller's `useChatUIState` result to
  * avoid duplicating that hook's memoisation chain.
  *
@@ -16,7 +15,6 @@ import { useMemo } from "react";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
-import { useTurnStore } from "@/domains/chat/turn-store";
 import { buildTranscriptItems } from "@/domains/chat/transcript/build-items";
 import type { TranscriptItem } from "@/domains/chat/transcript/types";
 import { sanitizeDisplayMessages } from "@/domains/chat/utils/sanitize-display-messages";
@@ -27,6 +25,9 @@ import type { DisplayMessage } from "@/domains/chat/types/types";
 // ---------------------------------------------------------------------------
 
 export interface UseTranscriptDataParams {
+  /** The rendered transcript — cached history ⊕ the in-flight turn, from
+   *  `useTranscriptMessages`. The caller owns the union so it is computed once. */
+  messages: DisplayMessage[];
   /** Whether the thinking indicator is active (from `useChatUIState`). */
   showThinking: boolean;
   /** Status label for the thinking indicator (from `useChatUIState`). */
@@ -45,19 +46,17 @@ export interface TranscriptData {
 // ---------------------------------------------------------------------------
 
 export function useTranscriptData({
+  messages,
   showThinking,
   thinkingLabel,
   showOnboardingChoice,
 }: UseTranscriptDataParams): TranscriptData {
   // --- Store reads --------------------------------------------------------
-  const messages = useChatSessionStore.use.messages();
   const ephemeralMetaResults = useChatSessionStore.use.ephemeralMetaResults();
 
   const pendingSecret = useInteractionStore.use.pendingSecret();
   const pendingConfirmation = useInteractionStore.use.pendingConfirmation();
   const pendingContactRequest = useInteractionStore.use.pendingContactRequest();
-
-  const autoRoutedProfileLabel = useTurnStore.use.autoRoutedProfileLabel();
 
   // --- Sanitise -----------------------------------------------------------
   const sanitizedMessages = useMemo(
@@ -74,8 +73,7 @@ export function useTranscriptData({
       sanitizedMessages.some((m) =>
         m.toolCalls?.some(
           (tc) =>
-            tc.pendingConfirmation?.requestId ===
-            pendingConfirmation.requestId,
+            tc.pendingConfirmation?.requestId === pendingConfirmation.requestId,
         ),
       ),
     [pendingConfirmation, sanitizedMessages],
@@ -105,7 +103,6 @@ export function useTranscriptData({
           : null,
         isThinking: showThinking,
         thinkingLabel,
-        autoRoutedProfileLabel,
         ephemeralMetaResults,
         showOnboardingChoice,
       }),
@@ -117,7 +114,6 @@ export function useTranscriptData({
       pendingContactRequest,
       showThinking,
       thinkingLabel,
-      autoRoutedProfileLabel,
       ephemeralMetaResults,
       showOnboardingChoice,
     ],

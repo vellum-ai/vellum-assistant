@@ -51,11 +51,10 @@ mock.module("../daemon/handlers/conversations.js", () => ({
   switchConversation: async () => null,
   clearAllConversations: async () => 0,
   undoLastMessage: async () => null,
-  regenerateResponse: async () => null,
 }));
 
-import { getOrCreateConversation } from "../memory/conversation-key-store.js";
-import { initializeDb } from "../memory/db-init.js";
+import { getOrCreateConversation } from "../persistence/conversation-key-store.js";
+import { initializeDb } from "../persistence/db-init.js";
 import { ROUTES } from "../runtime/routes/conversation-management-routes.js";
 import { routeDefinitionsToHTTPRoutes } from "../runtime/routes/http-adapter.js";
 

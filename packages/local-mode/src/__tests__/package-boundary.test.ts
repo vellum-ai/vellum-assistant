@@ -6,10 +6,9 @@
  * uses node builtins for filesystem, child-process, and network work.
  *
  * Enforces that the package:
- * 1. Imports only node builtins, its own relative modules, and
- *    `@vellumai/environments` — no other `@vellumai/*` packages and no
- *    third-party runtime imports (so any bundler host can inline it).
- * 2. Declares exactly one runtime dependency: `@vellumai/environments`.
+ * 1. Imports only node builtins, its own relative modules, `@vellumai/environments`,
+ *    and `zod` (the lockfile contract's schema library) — nothing else.
+ * 2. Declares exactly those two runtime dependencies.
  * 3. Is marked `private`.
  */
 
@@ -20,7 +19,7 @@ import { join, resolve } from "node:path";
 const PACKAGE_ROOT = resolve(import.meta.dirname, "../..");
 const SRC_DIR = join(PACKAGE_ROOT, "src");
 
-const ALLOWED_PACKAGES = new Set(["@vellumai/environments"]);
+const ALLOWED_PACKAGES = new Set(["@vellumai/environments", "zod"]);
 
 function collectSourceFiles(dir: string): string[] {
   const files: string[] = [];
@@ -92,13 +91,14 @@ describe("package boundary", () => {
     }
   });
 
-  test("package.json declares it as private with only the @vellumai/environments dependency", () => {
+  test("package.json declares it as private with only its environments and zod dependencies", () => {
     const pkg = JSON.parse(
       readFileSync(join(PACKAGE_ROOT, "package.json"), "utf-8"),
     );
     expect(pkg.private).toBe(true);
     expect(pkg.dependencies ?? {}).toEqual({
       "@vellumai/environments": "file:../environments",
+      zod: "4.3.6",
     });
   });
 });

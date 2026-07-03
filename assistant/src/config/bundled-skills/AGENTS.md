@@ -32,3 +32,14 @@ You can regenerate the full registry with:
 ```sh
 bun run scripts/generate-bundled-tool-registry.ts
 ```
+
+## Keeping public docs in sync
+
+A bundled skill's `SKILL.md` is its behavioral source of truth. Skills with a public reference page (`https://www.vellum.ai/docs/skills-reference/<slug>`, authored in the **vellum-assistant-platform** repo) are fingerprinted in `scripts/skill-docs-sync.manifest.json` and enforced by `skill-docs-sync-guard.test.ts`.
+
+When you change a documented skill's `SKILL.md`, the guard fails until you reconcile it:
+
+1. Review the named docs page and update it if the behavior changed.
+2. Re-record the fingerprint to acknowledge it: `bun run scripts/check-skill-docs-sync.ts --write`.
+
+The fingerprint bump is the acknowledgement — even a trivial wording edit requires one. When a bundled skill **gains** a public docs page, add an entry to the manifest.

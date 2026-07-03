@@ -55,11 +55,11 @@ describe("102-preserve-heartbeat-enabled-for-existing-workspaces migration", () 
     ).toContain("heartbeat.enabled");
   });
 
-  test("schema default is disabled (the flip this migration compensates for)", () => {
-    expect(HeartbeatConfigSchema.parse({}).enabled).toBe(false);
+  test("schema default is enabled", () => {
+    expect(HeartbeatConfigSchema.parse({}).enabled).toBe(true);
   });
 
-  test("skips fresh workspaces so new users get the opt-in default", () => {
+  test("skips fresh workspaces so new users inherit the schema default", () => {
     preserveHeartbeatEnabledForExistingWorkspacesMigration.run(
       workspaceDir,
       NEW_WORKSPACE_CTX,
