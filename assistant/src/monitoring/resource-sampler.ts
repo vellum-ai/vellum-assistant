@@ -33,6 +33,7 @@ import { getDiskUsageInfo } from "../util/disk-usage.js";
 import { getLogger } from "../util/logger.js";
 import { getMonitoringDataDir } from "../util/platform.js";
 import { buildProcessTree, listProcesses } from "../util/process-tree.js";
+import { getTrackedDataFiles, readFileResidency } from "./page-cache.js";
 import { topProcessesByMemory } from "./process-memory.js";
 import { SampleRingBuffer } from "./sample-ring-buffer.js";
 import { topSlabCaches } from "./slabinfo.js";
@@ -163,9 +164,9 @@ export function takeSample(
 
 /**
  * Capture a high-memory snapshot to the snapshots directory: the triggering
- * sample, the cgroup memory.events counters, the top processes by RSS, the top
- * kernel slab caches, and the full process tree of the container. Prunes to
- * {@link MAX_SNAPSHOTS} newest.
+ * sample, page-cache residency of the large data files, the top processes by
+ * PSS, the top kernel slab caches, and the full process tree of the container.
+ * Prunes to {@link MAX_SNAPSHOTS} newest.
  */
 export async function writeHighMemSnapshot(
   dataDir: string,
@@ -185,9 +186,19 @@ export async function writeHighMemSnapshot(
     log.warn({ err }, "Failed to enumerate process tree for snapshot");
   }
 
+  // Attributes the memory.stat `file` charge to specific files (SQLite DB +
+  // WAL, largest qdrant segments); null when fincore is unavailable.
+  let fileResidency: Awaited<ReturnType<typeof readFileResidency>> = null;
+  try {
+    fileResidency = await readFileResidency(getTrackedDataFiles());
+  } catch (err) {
+    log.warn({ err }, "Failed to read page-cache residency for snapshot");
+  }
+
   const snapshot = {
     ts: sample.ts,
     sample,
+    fileResidency,
     // PSS-ranked with per-process anon/file split; PSS sums reconcile against
     // the cgroup total where an RSS sum double-counts shared pages.
     topProcesses: topProcessesByMemory(15),
