@@ -99,6 +99,21 @@ export class CallController {
   private destroyed = false;
   private silenceTimer: ReturnType<typeof setTimeout> | null = null;
   private endCallListenTimer: ReturnType<typeof setTimeout> | null = null;
+  /**
+   * How many times the caller has re-engaged (spoken) after an END_CALL
+   * marker was emitted but before the listen window fired. Each caller
+   * utterance cancels the pending end-call; without a cap, the caller
+   * can keep the call alive indefinitely by talking every <listenWindowMs
+   * — the assistant emits END_CALL, caller speaks (cancels it), assistant
+   * responds without END_CALL (normal turn), caller speaks again, etc.
+   * After the first deferral, all subsequent END_CALL markers in the
+   * same call complete immediately (listen window forced to 0). The
+   * caller gets one grace re-engagement per call — if they want more,
+   * they can call back. Not reset on normal turn complete, because a
+   * non-END_CALL response mid-re-engagement loop is exactly the pattern
+   * that enables indefinite keep-alive.
+   */
+  private endCallDeferralCount = 0;
   private durationTimer: ReturnType<typeof setTimeout> | null = null;
   private durationWarningTimer: ReturnType<typeof setTimeout> | null = null;
   /**
@@ -250,6 +265,12 @@ export class CallController {
     transcript: string,
     speaker?: PromptSpeakerContext,
   ): Promise<void> {
+    // If the caller speaks while an END_CALL listen window is pending,
+    // this is a deferral — the caller is re-engaging after we tried to
+    // hang up. Track it so we can cap repeat deferrals.
+    if (this.endCallListenTimer) {
+      this.endCallDeferralCount++;
+    }
     this.cancelPendingEndCall();
 
     const interruptedInFlight =
@@ -1176,8 +1197,15 @@ export class CallController {
     }
 
     const listenWindowMs = getEndCallListenWindowMs();
+    // After the caller has re-engaged once post-END_CALL, complete
+    // immediately on the next END_CALL. The first deferral gets a
+    // listen window (caller might say "wait, one more thing"); a
+    // second END_CALL means the assistant wants out and the caller
+    // already had their chance to re-engage.
+    const effectiveListenWindowMs =
+      this.endCallDeferralCount > 0 ? 0 : listenWindowMs;
     const callContinues =
-      this.pendingInstructions.length > 0 || listenWindowMs > 0;
+      this.pendingInstructions.length > 0 || effectiveListenWindowMs > 0;
     if (clearedPendingGuardianInput && callContinues) {
       updateCallSession(this.callSessionId, { status: "in_progress" });
     }
@@ -1187,7 +1215,7 @@ export class CallController {
       return;
     }
 
-    if (listenWindowMs <= 0) {
+    if (effectiveListenWindowMs <= 0) {
       this.completeCallFromEndMarker();
       return;
     }
@@ -1196,7 +1224,7 @@ export class CallController {
     this.endCallListenTimer = setTimeout(() => {
       this.endCallListenTimer = null;
       this.completeCallFromEndMarker();
-    }, listenWindowMs);
+    }, effectiveListenWindowMs);
   }
 
   private cancelPendingEndCall(): void {
