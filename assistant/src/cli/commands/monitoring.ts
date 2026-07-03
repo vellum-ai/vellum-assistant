@@ -76,6 +76,13 @@ interface LatestSample {
     totalMb: number;
     freeMb: number;
   } | null;
+  activeConversations: Array<{
+    conversationId: string;
+    title: string | null;
+    originChannel: string | null;
+    originInterface: string | null;
+    processingStartedAt: number;
+  }> | null;
 }
 
 interface StartResponse {
@@ -261,6 +268,15 @@ Examples:
             log.info(
               `  Disk (${sample.disk.path}): ${sample.disk.usedMb} / ${sample.disk.totalMb} MiB used`,
             );
+          }
+          if (sample.activeConversations?.length) {
+            const items = sample.activeConversations
+              .map(
+                (c) =>
+                  `${c.conversationId}${c.title ? ` "${c.title}"` : ""}${c.originChannel ? ` via ${c.originChannel}` : ""}`,
+              )
+              .join(", ");
+            log.info(`  Processing: ${items}`);
           }
         });
     },

@@ -210,6 +210,15 @@ describe("monitoring_status", () => {
         },
       },
       disk: { path: "/workspace", usedMb: 100, totalMb: 1000, freeMb: 900 },
+      activeConversations: [
+        {
+          conversationId: "conv-xyz",
+          title: "Memory consolidation",
+          originChannel: null,
+          originInterface: null,
+          processingStartedAt: 900,
+        },
+      ],
     };
 
     const res = await handler("monitoring_status")();
@@ -217,6 +226,42 @@ describe("monitoring_status", () => {
     expect(res).toMatchObject({
       monitoringEnabled: true,
       latestSample: { ts: 1000, memory: { ratio: 0.75 } },
+    });
+  });
+
+  test("normalizes a legacy sample that predates newer fields", async () => {
+    monitoringProbe = { status: "running", pid: 321 };
+    configEnabled = true;
+    // A record persisted by an older monitor: only the original fields.
+    latestSample = {
+      ts: 500,
+      memory: {
+        currentBytes: 1024,
+        limitBytes: 2048,
+        peakBytes: null,
+        ratio: 0.5,
+      },
+      events: null,
+      disk: null,
+    } as ResourceSample;
+
+    const res = await handler("monitoring_status")();
+
+    expect(res.latestSample).toEqual({
+      ts: 500,
+      memory: {
+        currentBytes: 1024,
+        limitBytes: 2048,
+        peakBytes: null,
+        ratio: 0.5,
+      },
+      memoryStat: null,
+      reclaim: null,
+      cpu: null,
+      events: null,
+      deltas: null,
+      disk: null,
+      activeConversations: null,
     });
   });
 

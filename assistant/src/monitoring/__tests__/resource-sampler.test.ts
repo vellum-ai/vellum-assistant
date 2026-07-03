@@ -21,6 +21,7 @@ function makeSample(overrides: Partial<ResourceSample>): ResourceSample {
     events: null,
     deltas: null,
     disk: null,
+    activeConversations: null,
     ...overrides,
   };
 }

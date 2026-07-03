@@ -109,6 +109,14 @@ const sampleDeltasSchema = z.object({
   cpu: sampleCpuSchema.nullable(),
 });
 
+const activeConversationSchema = z.object({
+  conversationId: z.string(),
+  title: z.string().nullable(),
+  originChannel: z.string().nullable(),
+  originInterface: z.string().nullable(),
+  processingStartedAt: z.number(),
+});
+
 const latestSampleSchema = z.object({
   ts: z.number(),
   memory: sampleMemorySchema.nullable(),
@@ -118,6 +126,7 @@ const latestSampleSchema = z.object({
   events: sampleEventsSchema.nullable(),
   deltas: sampleDeltasSchema.nullable(),
   disk: sampleDiskSchema.nullable(),
+  activeConversations: z.array(activeConversationSchema).nullable(),
 });
 
 const startResponseSchema = z.object({
@@ -206,7 +215,20 @@ function readLatestSample(): ResourceSample | null {
       join(getMonitoringDataDir(), "samples.jsonl"),
       config.monitoring.ringBufferSize,
     );
-    return buffer.readLast();
+    const sample = buffer.readLast();
+    if (sample == null) {
+      return null;
+    }
+    // Samples persisted by an older monitor may predate some fields; fill
+    // them with null so the response always matches the documented shape.
+    return {
+      ...sample,
+      memoryStat: sample.memoryStat ?? null,
+      reclaim: sample.reclaim ?? null,
+      cpu: sample.cpu ?? null,
+      deltas: sample.deltas ?? null,
+      activeConversations: sample.activeConversations ?? null,
+    };
   } catch (err) {
     log.warn({ err }, "Failed to read latest resource sample");
     return null;

@@ -19830,6 +19830,36 @@ paths:
                                   - freeMb
                                 additionalProperties: false
                               - type: "null"
+                          activeConversations:
+                            anyOf:
+                              - type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    conversationId:
+                                      type: string
+                                    title:
+                                      anyOf:
+                                        - type: string
+                                        - type: "null"
+                                    originChannel:
+                                      anyOf:
+                                        - type: string
+                                        - type: "null"
+                                    originInterface:
+                                      anyOf:
+                                        - type: string
+                                        - type: "null"
+                                    processingStartedAt:
+                                      type: number
+                                  required:
+                                    - conversationId
+                                    - title
+                                    - originChannel
+                                    - originInterface
+                                    - processingStartedAt
+                                  additionalProperties: false
+                              - type: "null"
                         required:
                           - ts
                           - memory
@@ -19839,6 +19869,7 @@ paths:
                           - events
                           - deltas
                           - disk
+                          - activeConversations
                         additionalProperties: false
                       - type: "null"
                 required:
