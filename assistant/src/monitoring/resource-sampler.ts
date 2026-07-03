@@ -25,9 +25,11 @@ import { join } from "node:path";
 import type { MonitoringConfig } from "../config/schemas/monitoring.js";
 import {
   type ContainerMemoryEvents,
+  type ContainerMemoryStat,
   getContainerMemoryEvents,
   getContainerMemoryLimitBytes,
   getContainerMemoryPeakBytes,
+  getContainerMemoryStat,
   getContainerMemoryUsageBytes,
 } from "../util/cgroup-memory.js";
 import { getDiskUsageInfo } from "../util/disk-usage.js";
@@ -63,6 +65,12 @@ export interface ResourceSampleDisk {
 export interface ResourceSample {
   ts: number;
   memory: ResourceSampleMemory | null;
+  /**
+   * memory.stat breakdown (anon / file / kernel / slab, plus the derived
+   * unevictable vs reclaimable split). `memory.currentBytes` alone cannot say
+   * whether the cgroup is filling with process heap or with droppable cache.
+   */
+  memoryStat: ContainerMemoryStat | null;
   events: ContainerMemoryEvents | null;
   disk: ResourceSampleDisk | null;
 }
@@ -86,6 +94,7 @@ export function takeSample(now: number): ResourceSample {
   return {
     ts: now,
     memory,
+    memoryStat: getContainerMemoryStat(),
     events: getContainerMemoryEvents(),
     disk: disk
       ? {
@@ -178,6 +187,8 @@ export async function writeHighMemSnapshot(
       currentBytes: sample.memory?.currentBytes,
       limitBytes: sample.memory?.limitBytes,
       ratio: sample.memory?.ratio,
+      unevictableBytes: sample.memoryStat?.unevictableBytes,
+      reclaimableBytes: sample.memoryStat?.reclaimableBytes,
       file: filename,
     },
     "Captured high-memory snapshot",

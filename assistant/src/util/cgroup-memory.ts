@@ -101,6 +101,88 @@ export function getContainerMemoryPeakBytes(): number | null {
 }
 
 /**
+ * Breakdown of the cgroup's memory charge from the cgroup v2 `memory.stat`
+ * file. `memory.current` alone hides *what kind* of memory fills the cgroup —
+ * anonymous process heap, page cache, and kernel allocations are all charged to
+ * the same total but respond to completely different remedies.
+ *
+ * The derived split is the headline number:
+ *
+ * - `unevictableBytes` (anon + slab_unreclaimable): memory reclaim cannot
+ *   evict. It only shrinks when processes free it or die — growth here is real
+ *   pressure heading toward an OOM kill.
+ * - `reclaimableBytes` (file + slab_reclaimable): the kernel can drop this
+ *   under pressure. A large value is not by itself a problem, but reclaiming it
+ *   synchronously is what stalls allocations.
+ *
+ * Individual fields are null when the kernel doesn't expose them (e.g. the
+ * aggregate `kernel` counter only exists on newer kernels). The whole read
+ * returns null on cgroups v1 or when the file is unreadable.
+ */
+export interface ContainerMemoryStat {
+  /** Anonymous memory (process heaps/stacks) charged to the cgroup. */
+  anonBytes: number | null;
+  /** Page cache (file-backed pages) charged to the cgroup. */
+  fileBytes: number | null;
+  /** Total kernel memory charged to the cgroup (includes slab). */
+  kernelBytes: number | null;
+  /** Slab memory the kernel can reclaim under pressure (dentries, inodes). */
+  slabReclaimableBytes: number | null;
+  /** Slab memory pinned until explicitly freed. */
+  slabUnreclaimableBytes: number | null;
+  /** anon + slab_unreclaimable — reclaim cannot evict this. */
+  unevictableBytes: number | null;
+  /** file + slab_reclaimable — the kernel can drop this under pressure. */
+  reclaimableBytes: number | null;
+}
+
+/** Parse cgroup v2 `memory.stat` content into the recorded breakdown. */
+export function parseMemoryStat(raw: string): ContainerMemoryStat {
+  const counts: Record<string, number> = {};
+  for (const line of raw.split("\n")) {
+    const [key, value] = line.trim().split(/\s+/);
+    if (!key) {
+      continue;
+    }
+    const parsed = parseInt(value, 10);
+    if (Number.isFinite(parsed)) {
+      counts[key] = parsed;
+    }
+  }
+
+  const anonBytes = counts.anon ?? null;
+  const fileBytes = counts.file ?? null;
+  const slabReclaimableBytes = counts.slab_reclaimable ?? null;
+  const slabUnreclaimableBytes = counts.slab_unreclaimable ?? null;
+
+  return {
+    anonBytes,
+    fileBytes,
+    kernelBytes: counts.kernel ?? null,
+    slabReclaimableBytes,
+    slabUnreclaimableBytes,
+    unevictableBytes:
+      anonBytes != null && slabUnreclaimableBytes != null
+        ? anonBytes + slabUnreclaimableBytes
+        : null,
+    reclaimableBytes:
+      fileBytes != null && slabReclaimableBytes != null
+        ? fileBytes + slabReclaimableBytes
+        : null,
+  };
+}
+
+export function getContainerMemoryStat(): ContainerMemoryStat | null {
+  let raw: string;
+  try {
+    raw = readFileSync("/sys/fs/cgroup/memory.stat", "utf-8");
+  } catch {
+    return null;
+  }
+  return parseMemoryStat(raw);
+}
+
+/**
  * Pressure counters from the cgroup v2 `memory.events` file. Each field counts
  * how many times the cgroup crossed the corresponding boundary since boot; a
  * rising `max` (usage hit the hard limit and allocation was throttled) or

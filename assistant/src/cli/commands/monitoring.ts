@@ -33,6 +33,15 @@ interface LatestSample {
     peakBytes: number | null;
     ratio: number | null;
   } | null;
+  memoryStat: {
+    anonBytes: number | null;
+    fileBytes: number | null;
+    kernelBytes: number | null;
+    slabReclaimableBytes: number | null;
+    slabUnreclaimableBytes: number | null;
+    unevictableBytes: number | null;
+    reclaimableBytes: number | null;
+  } | null;
   disk: {
     path: string;
     usedMb: number;
@@ -178,6 +187,17 @@ Examples:
             const peak = peakBytes != null ? formatMib(peakBytes) : "unknown";
             log.info(
               `  Memory: ${formatMib(currentBytes)} / ${limit}${pct}, peak ${peak}`,
+            );
+          }
+          if (sample.memoryStat) {
+            const stat = sample.memoryStat;
+            const fmt = (bytes: number | null) =>
+              bytes != null ? formatMib(bytes) : "unknown";
+            log.info(
+              `  Breakdown: anon ${fmt(stat.anonBytes)}, file ${fmt(stat.fileBytes)}, kernel ${fmt(stat.kernelBytes)}, slab ${fmt(stat.slabReclaimableBytes)} reclaimable + ${fmt(stat.slabUnreclaimableBytes)} unreclaimable`,
+            );
+            log.info(
+              `  Split: unevictable ${fmt(stat.unevictableBytes)}, reclaimable ${fmt(stat.reclaimableBytes)}`,
             );
           }
           if (sample.disk) {
