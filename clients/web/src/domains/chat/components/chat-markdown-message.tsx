@@ -83,7 +83,6 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
   content,
   className,
   hardLineBreaks,
-  blockquoteVariant,
   onVellumLinkClick,
 }: ChatMarkdownMessageProps) {
   const linkComponent = useCallback(
@@ -119,7 +118,6 @@ export const ChatMarkdownMessage = memo(function ChatMarkdownMessage({
       content={content}
       className={className}
       hardLineBreaks={hardLineBreaks}
-      blockquoteVariant={blockquoteVariant}
       linkComponent={linkComponent}
       urlTransform={vellumUrlTransform}
     />

@@ -15,8 +15,6 @@ import {
   useRef,
   useState,
 } from "react";
-
-import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import {
   Button,
   Card,
@@ -24,6 +22,13 @@ import {
   Textarea,
   Typography,
 } from "@vellumai/design-library";
+import {
+  quoteBlockquoteAccentClassName,
+  quoteBlockquoteClassName,
+  quoteBlockquoteContentClassName,
+} from "@vellumai/design-library/components/markdown-message";
+
+import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 
 interface QuoteReplyBubbleProps {
   onAddToChat?: () => void;
@@ -136,9 +141,15 @@ export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
             <Typography
               as="div"
               variant="body-small-default"
-              className="rounded-md border-l-2 border-[var(--content-tertiary)] bg-[var(--surface-sunken)] px-3 py-1.5 text-[var(--content-secondary)] [&_p]:mb-0"
+              className={`${quoteBlockquoteClassName} mb-0`}
             >
-              {truncatedQuote}
+              <span
+                aria-hidden="true"
+                className={quoteBlockquoteAccentClassName}
+              />
+              <span className={quoteBlockquoteContentClassName}>
+                {truncatedQuote}
+              </span>
             </Typography>
 
             <Textarea

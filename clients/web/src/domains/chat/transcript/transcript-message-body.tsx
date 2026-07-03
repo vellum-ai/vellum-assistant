@@ -318,7 +318,6 @@ export function TranscriptMessageBody({
                 <ChatMarkdownMessage
                   content={seg.content}
                   hardLineBreaks
-                  blockquoteVariant={isUser ? "quotePreview" : "default"}
                   onVellumLinkClick={handleVellumLinkClick}
                 />
               </div>
@@ -332,7 +331,6 @@ export function TranscriptMessageBody({
         <ChatMarkdownMessage
           content={text}
           hardLineBreaks
-          blockquoteVariant={isUser ? "quotePreview" : "default"}
           onVellumLinkClick={handleVellumLinkClick}
         />
       </div>
