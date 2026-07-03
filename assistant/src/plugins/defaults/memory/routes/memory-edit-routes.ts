@@ -82,10 +82,6 @@ export const ROUTES: RouteDefinition[] = [
     },
     handler: memoryDelete,
     summary: "Delete a memory node by content match",
-    description:
-      "Soft-deletes a memory graph node matching the given content string. " +
-      "Exact match (case-insensitive) takes priority; falls back to substring match. " +
-      "Returns a 400 error when multiple nodes match so the caller can refine.",
     tags: ["memory"],
     requestBody: z.object({ content: z.string().min(1) }),
     responseBody: z.object({ success: z.boolean(), message: z.string() }),
@@ -100,10 +96,6 @@ export const ROUTES: RouteDefinition[] = [
     },
     handler: memoryUpdate,
     summary: "Update a memory node in place",
-    description:
-      "Locates an existing memory graph node by old_content and replaces its content " +
-      "with new_content. Records the change in the edit history so the correction is " +
-      "auditable. Earned trust scores are preserved.",
     tags: ["memory"],
     requestBody: z.object({
       old_content: z.string().min(1),
