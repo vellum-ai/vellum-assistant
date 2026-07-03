@@ -179,7 +179,20 @@ describe("monitoring_status", () => {
         unevictableBytes: 4 * 1024 * 1024 * 1024 + 100 * 1024 * 1024,
         reclaimableBytes: 1024 * 1024 * 1024 + 400 * 1024 * 1024,
       },
+      reclaim: {
+        pgscanDirect: 7_000_000,
+        pgstealDirect: 6_500_000,
+        workingsetRefaultFile: 123_456,
+      },
       events: { low: 0, high: 0, max: 2, oom: 0, oomKill: 0 },
+      deltas: {
+        events: { low: 0, high: 0, max: 1, oom: 0, oomKill: 0 },
+        reclaim: {
+          pgscanDirect: 40_000,
+          pgstealDirect: 35_000,
+          workingsetRefaultFile: 300,
+        },
+      },
       disk: { path: "/workspace", usedMb: 100, totalMb: 1000, freeMb: 900 },
     };
 

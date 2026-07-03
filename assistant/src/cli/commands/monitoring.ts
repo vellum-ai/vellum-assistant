@@ -25,6 +25,12 @@ import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
+interface ReclaimCounters {
+  pgscanDirect: number | null;
+  pgstealDirect: number | null;
+  workingsetRefaultFile: number | null;
+}
+
 interface LatestSample {
   ts: number;
   memory: {
@@ -41,6 +47,17 @@ interface LatestSample {
     slabUnreclaimableBytes: number | null;
     unevictableBytes: number | null;
     reclaimableBytes: number | null;
+  } | null;
+  reclaim: ReclaimCounters | null;
+  deltas: {
+    events: {
+      low: number | null;
+      high: number | null;
+      max: number | null;
+      oom: number | null;
+      oomKill: number | null;
+    } | null;
+    reclaim: ReclaimCounters | null;
   } | null;
   disk: {
     path: string;
@@ -198,6 +215,18 @@ Examples:
             );
             log.info(
               `  Split: unevictable ${fmt(stat.unevictableBytes)}, reclaimable ${fmt(stat.reclaimableBytes)}`,
+            );
+          }
+          if (sample.reclaim) {
+            const counter = (total: number | null, delta?: number | null) => {
+              if (total == null) {
+                return "unknown";
+              }
+              return delta != null ? `${total} (+${delta})` : `${total}`;
+            };
+            const d = sample.deltas?.reclaim;
+            log.info(
+              `  Reclaim: pgscan_direct ${counter(sample.reclaim.pgscanDirect, d?.pgscanDirect)}, pgsteal_direct ${counter(sample.reclaim.pgstealDirect, d?.pgstealDirect)}, workingset_refault_file ${counter(sample.reclaim.workingsetRefaultFile, d?.workingsetRefaultFile)}`,
             );
           }
           if (sample.disk) {

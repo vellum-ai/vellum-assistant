@@ -6,7 +6,7 @@
 
 import { describe, expect, test } from "bun:test";
 
-import { parseMemoryStat } from "../cgroup-memory.js";
+import { parseMemoryStat, parseReclaimCounters } from "../cgroup-memory.js";
 
 const FULL_MEMORY_STAT = `anon 2147483648
 file 1610612736
@@ -82,5 +82,23 @@ describe("parseMemoryStat", () => {
     const stat = parseMemoryStat("anon notanumber\nfile 200\ngarbage\n");
     expect(stat.anonBytes).toBeNull();
     expect(stat.fileBytes).toBe(200);
+  });
+});
+
+describe("parseReclaimCounters", () => {
+  test("extracts the reclaim/thrash counters", () => {
+    expect(parseReclaimCounters(FULL_MEMORY_STAT)).toEqual({
+      pgscanDirect: 7000000,
+      pgstealDirect: 6500000,
+      workingsetRefaultFile: 123456,
+    });
+  });
+
+  test("reports null for counters the kernel does not expose", () => {
+    expect(parseReclaimCounters("anon 100\npgscan_direct 5\n")).toEqual({
+      pgscanDirect: 5,
+      pgstealDirect: null,
+      workingsetRefaultFile: null,
+    });
   });
 });
