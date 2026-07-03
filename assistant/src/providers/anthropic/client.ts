@@ -32,6 +32,22 @@ const log = getLogger("anthropic-client");
 const VALIDATION_TIMEOUT_MS = 10_000;
 
 /**
+ * Anthropic rejects a request whose `messages` array is empty with
+ * `400 … "messages: at least one message is required"`. That only happens when
+ * upstream request construction (history filtering, provenance scoping, or the
+ * empty-turn stripping in `buildSentMessages`) collapses the turn to nothing —
+ * never a legitimate call. We detect it before the request leaves so the
+ * failure is a deterministic, clearly-worded error instead of an opaque
+ * provider 400, and so we don't burn a guaranteed-to-fail round-trip. The
+ * "message list was empty" phrasing is matched by `conversation-error.ts` to
+ * render a friendly banner — keep the two in sync.
+ */
+const EMPTY_MESSAGE_LIST_ERROR =
+  "Refusing to send an empty request to Anthropic: the message list was empty " +
+  "after filtering (0 messages to send). This is an internal " +
+  "request-construction error, not a provider rejection.";
+
+/**
  * Detect Anthropic's `prompt_too_long` context-overflow signal.
  *
  * Anthropic returns HTTP 400 with a body shaped as
@@ -831,6 +847,14 @@ export class AnthropicProvider implements Provider {
     let innerTimeoutSignal: AbortSignal | undefined;
     try {
       sentMessages = this.buildSentMessages(messages);
+      if (sentMessages.length === 0) {
+        // Pre-flight guard (see EMPTY_MESSAGE_LIST_ERROR). Thrown with a 400
+        // statusCode so it classifies and records to `llm_request_logs`
+        // identically to the provider's own "at least one message is required"
+        // 400 — the agent loop's `provider_error` path fires on any throw from
+        // `sendMessage`, so short-circuiting here does not lose the log row.
+        throw new ProviderError(EMPTY_MESSAGE_LIST_ERROR, "anthropic", 400);
+      }
       const {
         effort,
         speed,
@@ -1439,6 +1463,13 @@ export class AnthropicProvider implements Provider {
         rawResponse: response,
       };
     } catch (error) {
+      // A pre-flight guard (e.g. the empty-message-list check above) throws a
+      // fully-formed ProviderError before the request is sent — surface it
+      // unchanged rather than re-wrapping it as a generic "Anthropic request
+      // failed" transport error. The SDK's own failures are Anthropic.APIError
+      // instances (handled below), never ProviderError, so this cannot swallow
+      // a real provider rejection.
+      if (error instanceof ProviderError) throw error;
       // Propagate a tagged AbortReason (set by the daemon at controller.abort())
       // so wrapped errors can be classified as user cancellation downstream.
       const callerAborted = signal?.aborted === true;
