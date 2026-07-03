@@ -3,10 +3,18 @@
  * threads through `runHook` chains, plus the base capabilities every chain
  * context shares.
  *
- * These types are public plugin-API surface: `plugin-api/types.ts` re-exports
- * them, and plugin authors import them from `@vellumai/plugin-api`. Adding
- * fields is non-breaking; renaming / removing is breaking and gated on a
- * major bump.
+ * Each chain hook has two shapes:
+ *
+ * - `XInputContext` — the fields the dispatching call site constructs and
+ *   passes to `runHook`. Internal to the daemon.
+ * - `XContext extends XInputContext, BaseHookContext` — what a hook body
+ *   receives: the input fields plus the pipeline-stamped capabilities
+ *   (`logger`, `broadcast`).
+ *
+ * The full contexts (and {@link BaseHookContext}) are public plugin-API
+ * surface: `plugin-api/types.ts` re-exports them, and plugin authors import
+ * them from `@vellumai/plugin-api`. Adding fields is non-breaking; renaming /
+ * removing is breaking and gated on a major bump.
  */
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -58,16 +66,16 @@ export type HookBroadcast = (detail: Record<string, unknown>) => void;
  * `post-compact`, `post-tool-use`, `stop`, `pre-model-call`,
  * `post-model-call`).
  *
- * `logger` is supplied by the dispatching call site. `broadcast` is stamped
- * onto each hook's draft by the pipeline (`runHook`) before the hook runs,
- * bound to that hook's owner — call sites construct
- * `Omit<XContext, "broadcast">` and never supply it themselves.
+ * Both are stamped onto each hook's draft by the pipeline (`runHook`) before
+ * the hook runs, bound to that hook's identity — dispatching call sites
+ * construct the `XInputContext` shapes and never supply these.
  */
 export interface BaseHookContext {
   /**
-   * Logger scoped to the current turn. The same instance is shared by
-   * every hook in the chain, so plugins should tag their structured log
-   * fields (e.g. `{ plugin: "<name>" }`) for attribution.
+   * Logger bound to the emitting hook — pre-tagged with the hook name and
+   * owning plugin (plus `conversationId` / `requestId` when the dispatching
+   * context carries them), so hook log lines are attributed without manual
+   * tagging.
    */
   readonly logger: PluginLogger;
   /**
@@ -101,7 +109,7 @@ export interface BaseHookContext {
  * hook sees the previous plugin's mutations (whether by reassignment or
  * in-place mutation).
  */
-export interface UserPromptSubmitContext extends BaseHookContext {
+export interface UserPromptSubmitInputContext {
   /** Conversation ID the user prompt was submitted on. */
   readonly conversationId: string;
   /**
@@ -177,6 +185,14 @@ export interface UserPromptSubmitContext extends BaseHookContext {
   latestMessages: Message[];
 }
 
+/**
+ * The full `user-prompt-submit` context a hook receives — the dispatching
+ * call site's {@link UserPromptSubmitInputContext} plus the pipeline-stamped
+ * {@link BaseHookContext} capabilities.
+ */
+export interface UserPromptSubmitContext
+  extends UserPromptSubmitInputContext, BaseHookContext {}
+
 // ─── Post-compact hook context ───────────────────────────────────────────────
 
 /**
@@ -198,7 +214,7 @@ export interface UserPromptSubmitContext extends BaseHookContext {
  * the context and resumes the turn from it. Multiple plugins' hooks chain in
  * registration order, each seeing the previous plugin's edits.
  */
-export interface PostCompactContext extends BaseHookContext {
+export interface PostCompactInputContext {
   /**
    * The compacted message history to re-inject onto. Hooks mutate this in
    * place (or return a new context with a replacement) to re-apply context
@@ -237,6 +253,14 @@ export interface PostCompactContext extends BaseHookContext {
   readonly injectionMode?: "full" | "minimal";
 }
 
+/**
+ * The full `post-compact` context a hook receives — the dispatching call
+ * site's {@link PostCompactInputContext} plus the pipeline-stamped
+ * {@link BaseHookContext} capabilities.
+ */
+export interface PostCompactContext
+  extends PostCompactInputContext, BaseHookContext {}
+
 // ─── Post-tool-use hook context ──────────────────────────────────────────────
 
 /**
@@ -259,7 +283,7 @@ export interface PostCompactContext extends BaseHookContext {
  * can swap in a smarter strategy (e.g. a summarizer) or observe results for
  * side effects.
  */
-export interface PostToolUseContext extends BaseHookContext {
+export interface PostToolUseInputContext {
   /** Conversation ID the tool ran on. */
   readonly conversationId: string;
   /**
@@ -320,6 +344,14 @@ export interface PostToolUseContext extends BaseHookContext {
    */
   readonly maxInputTokens: number;
 }
+
+/**
+ * The full `post-tool-use` context a hook receives — the dispatching call
+ * site's {@link PostToolUseInputContext} plus the pipeline-stamped
+ * {@link BaseHookContext} capabilities.
+ */
+export interface PostToolUseContext
+  extends PostToolUseInputContext, BaseHookContext {}
 
 // ─── Stop hook context ───────────────────────────────────────────────────────
 
@@ -384,7 +416,7 @@ export type AgentLoopExitReason =
  *
  * Multiple plugins' hooks chain in registration order over the same context.
  */
-export interface StopContext extends BaseHookContext {
+export interface StopInputContext {
   /** Conversation ID the run belongs to. */
   readonly conversationId: string;
   /**
@@ -409,6 +441,13 @@ export interface StopContext extends BaseHookContext {
   readonly exitReason: AgentLoopExitReason;
 }
 
+/**
+ * The full `stop` context a hook receives — the dispatching call site's
+ * {@link StopInputContext} plus the pipeline-stamped {@link BaseHookContext}
+ * capabilities.
+ */
+export interface StopContext extends StopInputContext, BaseHookContext {}
+
 // ─── Pre-model-call hook context ─────────────────────────────────────────────
 
 /**
@@ -424,7 +463,7 @@ export interface StopContext extends BaseHookContext {
  * Mutate the context in place or return a new one; throwing is contained by the
  * loop (the call proceeds with the original request).
  */
-export interface PreModelCallContext extends BaseHookContext {
+export interface PreModelCallInputContext {
   /** Conversation ID the call belongs to. */
   readonly conversationId: string;
   /**
@@ -464,6 +503,14 @@ export interface PreModelCallContext extends BaseHookContext {
    */
   deferAssistantOutput: boolean;
 }
+
+/**
+ * The full `pre-model-call` context a hook receives — the dispatching call
+ * site's {@link PreModelCallInputContext} plus the pipeline-stamped
+ * {@link BaseHookContext} capabilities.
+ */
+export interface PreModelCallContext
+  extends PreModelCallInputContext, BaseHookContext {}
 
 // ─── Post-model-call hook context ────────────────────────────────────────────
 
@@ -512,7 +559,7 @@ export type PostModelCallDecision = "continue" | "stop";
  * the outcome is treated as `"stop"`). Multiple plugins' hooks chain in
  * registration order — each sees the previous hook's `decision` and mutations.
  */
-export interface PostModelCallContext extends BaseHookContext {
+export interface PostModelCallInputContext {
   /** Conversation ID the message belongs to. */
   readonly conversationId: string;
   /** The call site this message serves — `"mainAgent"` for the user-facing reply; `null` when untagged. */
@@ -556,3 +603,11 @@ export interface PostModelCallContext extends BaseHookContext {
    */
   decision: PostModelCallDecision;
 }
+
+/**
+ * The full `post-model-call` context a hook receives — the dispatching call
+ * site's {@link PostModelCallInputContext} plus the pipeline-stamped
+ * {@link BaseHookContext} capabilities.
+ */
+export interface PostModelCallContext
+  extends PostModelCallInputContext, BaseHookContext {}

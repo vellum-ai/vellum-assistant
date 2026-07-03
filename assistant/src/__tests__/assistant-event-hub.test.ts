@@ -566,4 +566,32 @@ describe("broadcastMessage — replay ring", () => {
       "assistant_text_delta",
     ]);
   });
+
+  test("an unserializable payload does not throw and is not buffered", () => {
+    const circular: Record<string, unknown> = {};
+    circular.self = circular;
+
+    // The emit path must survive a payload JSON cannot represent — the event
+    // is left unstamped (no seq gap) and skipped by the replay ring, while
+    // later events buffer normally.
+    expect(() =>
+      broadcastMessage({
+        type: "hook_event",
+        conversationId: "sess_1",
+        hookName: "user-prompt-submit",
+        owner: { kind: "plugin", id: "default-memory" },
+        detail: circular,
+      }),
+    ).not.toThrow();
+    broadcastMessage({
+      type: "assistant_text_delta",
+      conversationId: "sess_1",
+      text: "hi",
+    });
+
+    const replayed = getReplayWindow(0, undefined, "sess_1");
+    expect(replayed?.map((e) => e.message.type)).toEqual([
+      "assistant_text_delta",
+    ]);
+  });
 });
