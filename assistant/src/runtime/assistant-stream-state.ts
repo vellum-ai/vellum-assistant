@@ -37,9 +37,14 @@
  * `/messages` snapshot returns it so a client can align the snapshot with the
  * stream: "these rows reflect all of this conversation's events through
  * `seq = S`." It is written at each persistence flush (assistant rows persist
- * incrementally, debounced, so the snapshot can lag the live counter) -- never
- * the live counter itself, which would over-claim events that have streamed
- * but not yet been written. Because it lives in the database it survives a
+ * incrementally, debounced, so the snapshot can lag the live counter) and at
+ * each user-row echo (the row persists before the echo is emitted, so the
+ * echo's seq is covered the moment it exists) -- never the live counter while
+ * a turn is streaming, which would over-claim events that have streamed but
+ * not yet been written. Under-claiming is equally a contract violation: a
+ * snapshot carrying a row whose event is above the advertised seq defeats
+ * clients that compare the anchor against their fold watermark to detect
+ * stale in-flight fetches. Because it lives in the database it survives a
  * restart; and because the counter resumes above the persisted reservation, a
  * value written by a previous process could only ever be lower than any seq
  * the new process assigns -- never ambiguous against it.

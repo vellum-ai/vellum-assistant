@@ -115,6 +115,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   setConversationInferenceProfile: () => {},
   setConversationEnabledPlugins: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
 }));
 
 mock.module("../persistence/conversation-disk-view.js", () => ({
