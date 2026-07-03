@@ -11,6 +11,8 @@ import { createRequire } from "module";
 import { homedir, networkInterfaces, platform, tmpdir } from "os";
 import { basename, dirname, join } from "path";
 
+import { isValidReleaseVersion } from "@vellumai/local-mode";
+
 import {
   getDaemonPidPath,
   type LocalInstanceResources,
@@ -148,6 +150,18 @@ export function ensureLocalRuntime(
   version: string,
   options: { force?: boolean } = {},
 ): LocalRuntimeInstall {
+  // Reject anything that is not a trusted release identifier BEFORE it becomes
+  // a filesystem path segment or a `bun install` dependency spec. Without this,
+  // a package-manager spec (npm alias, tarball/git URL) or a `../`-laden string
+  // reaching this sink would install and then execute arbitrary attacker code
+  // as the local assistant runtime. Shares the validator with the host-bridge
+  // boundary guard (`runUpgrade`) so the two can never drift.
+  if (!isValidReleaseVersion(version)) {
+    throw new Error(
+      `Invalid runtime version '${version}': expected a release tag like v1.2.3 or 'latest'.`,
+    );
+  }
+
   const normalizedVersion = normalizeRuntimeVersion(version);
   const displayVersion =
     normalizedVersion === "latest" ? "latest" : `v${normalizedVersion}`;
