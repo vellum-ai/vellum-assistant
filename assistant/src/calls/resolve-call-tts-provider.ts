@@ -10,9 +10,9 @@
 import { loadConfig } from "../config/loader.js";
 import {
   getCatalogProvider,
+  getTtsProvider,
   listCatalogProviderIds,
 } from "../tts/provider-catalog.js";
-import { getTtsProvider } from "../tts/provider-registry.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";

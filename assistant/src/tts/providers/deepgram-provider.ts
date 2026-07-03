@@ -11,6 +11,7 @@ import { getConfig } from "../../config/loader.js";
 import type { TtsDeepgramProviderConfig } from "../../config/schemas/tts.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
+import type { TtsProviderDefinition } from "../provider-definition.js";
 import type {
   TtsProvider,
   TtsProviderCapabilities,
@@ -217,3 +218,43 @@ export function createDeepgramProvider(): TtsProvider {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Provider definition
+// ---------------------------------------------------------------------------
+
+/**
+ * The complete Deepgram provider definition — catalog metadata plus the
+ * runtime adapter — assembled into the canonical catalog by
+ * `provider-catalog.ts`.
+ */
+export const deepgramTtsProviderDefinition: TtsProviderDefinition = {
+  id: "deepgram",
+  displayName: "Deepgram",
+  subtitle:
+    "Fast, accurate text-to-speech synthesis. Uses the same API key as Deepgram speech-to-text.",
+  supportsVoiceSelection: false,
+  apiKeyPlaceholder: "Enter your Deepgram API key",
+  credentialsGuide: {
+    description:
+      "Sign in to Deepgram, navigate to your API Keys page, and create or copy an existing key. This is the same key used for speech-to-text.",
+    url: "https://console.deepgram.com/",
+    linkLabel: "Open Deepgram Console",
+  },
+  callMode: "synthesized-play",
+  allowNativeFallback: false,
+  capabilities: {
+    supportsStreaming: false,
+    supportedFormats: ["mp3", "wav", "opus"],
+  },
+  // The adapter honours the PCM hint via `linear16` + `container=none`.
+  mediaStreamPlayback: { outputFormat: "pcm" },
+  secretRequirements: [
+    {
+      credentialStoreKey: "credential/deepgram/api_key",
+      displayName: "Deepgram API Key",
+      setCommand: "assistant keys set deepgram <key>",
+    },
+  ],
+  adapter: createDeepgramProvider(),
+};

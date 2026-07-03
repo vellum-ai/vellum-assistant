@@ -10,18 +10,41 @@
 // ---------------------------------------------------------------------------
 
 /**
- * Unique identifier for a registered TTS provider.
+ * The canonical, closed list of built-in TTS provider IDs.
+ *
+ * This is the single source of truth for provider identity. The provider
+ * catalog (`provider-catalog.ts`) is statically checked to define exactly one
+ * {@link TtsProviderDefinition} per ID here, and the config schema
+ * (`config/schemas/tts.ts`) derives its valid-provider validation from this
+ * list. This module is a dependency-free leaf so the config schema can read
+ * the IDs without pulling in the provider adapters (whose modules import the
+ * config loader).
+ *
+ * Adding a new TTS provider starts here — the compiler then walks you through
+ * the catalog and config-schema wiring.
+ */
+export const TTS_PROVIDER_IDS = [
+  "elevenlabs",
+  "fish-audio",
+  "deepgram",
+  "xai",
+] as const;
+
+/**
+ * A built-in provider ID — the closed union used where exhaustiveness is
+ * enforced (the provider catalog).
+ */
+export type CatalogTtsProviderId = (typeof TTS_PROVIDER_IDS)[number];
+
+/**
+ * Unique identifier for a TTS provider.
  *
  * Values correspond to the provider names already used in config schemas
- * (e.g. `"elevenlabs"`, `"fish-audio"`). New providers simply add a new
- * string to this union — the registry enforces uniqueness at runtime.
+ * (e.g. `"elevenlabs"`, `"fish-audio"`). The union stays open (`string & {}`)
+ * so tests and future dynamic sources can carry arbitrary IDs while built-in
+ * IDs keep autocomplete.
  */
-export type TtsProviderId =
-  | "elevenlabs"
-  | "fish-audio"
-  | "deepgram"
-  | "xai"
-  | (string & {});
+export type TtsProviderId = CatalogTtsProviderId | (string & {});
 
 // ---------------------------------------------------------------------------
 // Call-mode discriminator

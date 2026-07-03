@@ -49,10 +49,7 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-import {
-  buildElevenLabsVoiceSpec,
-  resolveVoiceQualityProfile,
-} from "../calls/voice-quality.js";
+import { resolveVoiceQualityProfile } from "../calls/voice-quality.js";
 import { invalidateConfigCache, loadConfig } from "../config/loader.js";
 import {
   AssistantConfigSchema,
@@ -65,6 +62,7 @@ import {
 } from "../config/schemas/tts.js";
 import type { AssistantConfig } from "../config/types.js";
 import { listCatalogProviderIds } from "../tts/provider-catalog.js";
+import { buildElevenLabsVoiceSpec } from "../tts/providers/elevenlabs-provider.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 

@@ -1,5 +1,6 @@
 import { loadConfig } from "../config/loader.js";
 import { DEFAULT_ELEVENLABS_VOICE_ID } from "../config/schemas/elevenlabs.js";
+import { buildElevenLabsVoiceSpec } from "../tts/providers/elevenlabs-provider.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import {
   getNativeTwilioVoiceSpec,
@@ -15,43 +16,16 @@ export interface VoiceQualityProfile {
 }
 
 /**
- * Build a Twilio-compatible ElevenLabs voice string.
- *
- * Twilio's native TTS voice attribute accepts:
- *   - bare voiceId
- *   - voiceId-model-speed_stability_similarity
- *
- * We default to bare voiceId unless a model is explicitly configured.
- * This avoids forcing model/tuning suffixes that may be rejected for some
- * voice + model combinations.
- */
-export function buildElevenLabsVoiceSpec(config: {
-  voiceId: string;
-  voiceModelId?: string;
-  speed?: number;
-  stability?: number;
-  similarityBoost?: number;
-}): string {
-  const voiceId = config.voiceId?.trim();
-  if (!voiceId) return "";
-
-  const voiceModelId = config.voiceModelId?.trim();
-  if (!voiceModelId) return voiceId;
-
-  const speed = config.speed ?? 1.0;
-  const stability = config.stability ?? 0.5;
-  const similarityBoost = config.similarityBoost ?? 0.75;
-  return `${voiceId}-${voiceModelId}-${speed}_${stability}_${similarityBoost}`;
-}
-
-/**
  * Resolve a valid native Twilio voice for the configured TTS provider.
  *
- * Returns the registered {@link NativeTwilioVoiceSpec} for `providerId` when one
- * exists; otherwise — no builder registered (e.g. a synthesized-play provider
- * like Fish Audio), or config unavailable — falls back to the ElevenLabs config
- * block, or the shipped default voice. The result is always a non-empty,
- * Twilio-valid `ttsProvider` + `voice`.
+ * Returns the provider's {@link NativeTwilioVoiceSpec} from its catalog
+ * definition when it is a native-Twilio provider with a usable voice;
+ * otherwise — a synthesized-play provider like Fish Audio (which has no
+ * native spec), config unavailable, or a spec that resolves to an empty
+ * voice — falls back to the ElevenLabs config block, or the shipped default
+ * voice. The result is always a non-empty, Twilio-valid `ttsProvider` +
+ * `voice`: an empty native voice makes Twilio reject the turn with error
+ * 64106 and drop the call.
  */
 function resolveNativeTwilioVoice(
   cfg: ReturnType<typeof loadConfig>,
@@ -60,20 +34,23 @@ function resolveNativeTwilioVoice(
   try {
     const spec = getNativeTwilioVoiceSpec(providerId);
     const resolved = resolveTtsConfig(cfg);
-    return {
-      ttsProvider: spec.twilioProviderName,
-      voice: spec.buildVoiceSpec(resolved.providerConfig),
-    };
+    const voice = spec.buildVoiceSpec(resolved.providerConfig);
+    if (voice) {
+      return { ttsProvider: spec.twilioProviderName, voice };
+    }
+    // Fall through: the provider's config block is missing or has no voice,
+    // so the built spec is empty — use the ElevenLabs fallback below.
   } catch {
-    return {
-      ttsProvider: "ElevenLabs",
-      voice: buildElevenLabsVoiceSpec(
-        cfg.services?.tts?.providers?.elevenlabs ?? {
-          voiceId: DEFAULT_ELEVENLABS_VOICE_ID,
-        },
-      ),
-    };
+    // Fall through: synthesized-play provider or unusable config.
   }
+  return {
+    ttsProvider: "ElevenLabs",
+    voice: buildElevenLabsVoiceSpec(
+      cfg.services?.tts?.providers?.elevenlabs ?? {
+        voiceId: DEFAULT_ELEVENLABS_VOICE_ID,
+      },
+    ),
+  };
 }
 
 /**

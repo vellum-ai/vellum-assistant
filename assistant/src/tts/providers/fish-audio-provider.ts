@@ -14,6 +14,7 @@ import { synthesizeWithFishAudio } from "../../calls/fish-audio-client.js";
 import { getConfig } from "../../config/loader.js";
 import type { TtsFishAudioProviderConfig } from "../../config/schemas/tts.js";
 import { getLogger } from "../../util/logger.js";
+import type { TtsProviderDefinition } from "../provider-definition.js";
 import type {
   TtsProvider,
   TtsProviderCapabilities,
@@ -190,3 +191,44 @@ export function createFishAudioProvider(): TtsProvider {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Provider definition
+// ---------------------------------------------------------------------------
+
+/**
+ * The complete Fish Audio provider definition — catalog metadata plus the
+ * runtime adapter — assembled into the canonical catalog by
+ * `provider-catalog.ts`.
+ */
+export const fishAudioTtsProviderDefinition: TtsProviderDefinition = {
+  id: "fish-audio",
+  displayName: "Fish Audio",
+  subtitle:
+    "Natural-sounding voice synthesis with custom voice cloning. Requires a Fish Audio API key and voice reference ID.",
+  supportsVoiceSelection: true,
+  apiKeyPlaceholder: "Enter your Fish Audio API key",
+  credentialsGuide: {
+    description:
+      "Sign in to Fish Audio, navigate to API Keys in your dashboard, and create a new key.",
+    url: "https://fish.audio/app/api-keys/",
+    linkLabel: "Open Fish Audio API Keys",
+  },
+  callMode: "synthesized-play",
+  allowNativeFallback: true,
+  capabilities: {
+    supportsStreaming: true,
+    supportedFormats: ["mp3", "wav", "opus"],
+  },
+  // The adapter substitutes WAV for the PCM hint (no raw PCM support).
+  mediaStreamPlayback: { outputFormat: "wav" },
+  secretRequirements: [
+    {
+      credentialStoreKey: "credential/fish-audio/api_key",
+      displayName: "Fish Audio API Key",
+      setCommand:
+        "assistant credentials set --service fish-audio --field api_key <key>",
+    },
+  ],
+  adapter: createFishAudioProvider(),
+};

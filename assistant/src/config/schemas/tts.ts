@@ -1,20 +1,21 @@
 import { z } from "zod";
 
-import { listCatalogProviderIds } from "../../tts/provider-catalog.js";
-import type { TtsProviderId } from "../../tts/types.js";
+import { TTS_PROVIDER_IDS } from "../../tts/types.js";
 import {
   DEFAULT_ELEVENLABS_VOICE_ID,
   VALID_CONVERSATION_TIMEOUTS,
 } from "./elevenlabs.js";
 
 /**
- * Valid TTS provider identifiers derived from the canonical provider catalog.
+ * Valid TTS provider identifiers derived from the canonical provider ID list.
  *
- * Adding a new TTS provider starts in `provider-catalog.ts` — the IDs flow
- * here automatically.
+ * Adding a new TTS provider starts in `tts/types.ts` (`TTS_PROVIDER_IDS`) —
+ * the IDs flow here automatically. Sourced from that dependency-free leaf
+ * rather than the provider catalog so the config schema never pulls in the
+ * provider adapters (whose modules import the config loader — a cycle).
  */
 export const VALID_TTS_PROVIDERS: readonly [string, ...string[]] =
-  listCatalogProviderIds() as [TtsProviderId, ...TtsProviderId[]];
+  TTS_PROVIDER_IDS as unknown as [string, ...string[]];
 
 /**
  * Per-provider config schemas nested under `services.tts.providers.<id>`.

@@ -10,7 +10,7 @@
 
 import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
-import { getTtsProvider } from "./provider-registry.js";
+import { getTtsProvider } from "./provider-catalog.js";
 import { resolveTtsConfig } from "./tts-config-resolver.js";
 import type { TtsSynthesisResult, TtsUseCase } from "./types.js";
 
