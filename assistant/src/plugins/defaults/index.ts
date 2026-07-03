@@ -19,9 +19,11 @@
  *   production-parity state (e.g. `conversation-agent-loop.test.ts`); those
  *   call {@link resetPluginRegistryAndRegisterDefaults}.
  *
- * The plugin definitions below are plain `const`s, so importing this module
- * does no registration work — registration is driven by
- * {@link registerDefaultPlugins} at call time.
+ * The plugin objects are built lazily by per-plugin `build*` functions and
+ * assembled once in {@link getAllDefaultPlugins}, so importing this module does
+ * no registration work and dereferences no hook/injector bindings at module
+ * evaluation (see the note on {@link getAllDefaultPlugins}) — registration is
+ * driven by {@link registerDefaultPlugins} at call time.
  */
 
 import {
@@ -113,16 +115,18 @@ import workspacePkg from "./workspace/package.json" with { type: "json" };
  * profile is configured or captioning fails. An in-memory content-hash cache
  * avoids re-captioning the same image across turns.
  */
-export const defaultImageFallbackPlugin: Plugin = {
-  manifest: {
-    name: imageFallbackPkg.name,
-    version: imageFallbackPkg.version,
-  },
-  hooks: {
-    "user-prompt-submit": imageFallbackUserPromptSubmit,
-    "post-tool-use": imageFallbackPostToolUse,
-  },
-};
+function buildDefaultImageFallbackPlugin(): Plugin {
+  return {
+    manifest: {
+      name: imageFallbackPkg.name,
+      version: imageFallbackPkg.version,
+    },
+    hooks: {
+      "user-prompt-submit": imageFallbackUserPromptSubmit,
+      "post-tool-use": imageFallbackPostToolUse,
+    },
+  };
+}
 
 /**
  * `compaction` — compaction is implemented in `compaction/compact.ts` as
@@ -131,12 +135,14 @@ export const defaultImageFallbackPlugin: Plugin = {
  * while we decide how plugins should surface compaction; it contributes no
  * hooks today.
  */
-export const defaultCompactionPlugin: Plugin = {
-  manifest: {
-    name: compactionPkg.name,
-    version: compactionPkg.version,
-  },
-};
+function buildDefaultCompactionPlugin(): Plugin {
+  return {
+    manifest: {
+      name: compactionPkg.name,
+      version: compactionPkg.version,
+    },
+  };
+}
 
 /**
  * `empty-response` — a `post-model-call` hook that re-queries the model when a
@@ -144,16 +150,18 @@ export const defaultCompactionPlugin: Plugin = {
  * refusal); the `stop` hook clears the one-shot nudge bound on a terminal stop
  * so the next run nudges afresh.
  */
-export const defaultEmptyResponsePlugin: Plugin = {
-  manifest: {
-    name: emptyResponsePkg.name,
-    version: emptyResponsePkg.version,
-  },
-  hooks: {
-    "post-model-call": emptyResponsePostModelCall,
-    stop: emptyResponseStop,
-  },
-};
+function buildDefaultEmptyResponsePlugin(): Plugin {
+  return {
+    manifest: {
+      name: emptyResponsePkg.name,
+      version: emptyResponsePkg.version,
+    },
+    hooks: {
+      "post-model-call": emptyResponsePostModelCall,
+      stop: emptyResponseStop,
+    },
+  };
+}
 
 /**
  * `memory` — the assistant's combined memory plugin. Assembles the turn's
@@ -171,85 +179,101 @@ export const defaultEmptyResponsePlugin: Plugin = {
  * later `user-prompt-submit` hooks (history repair, title) see the fully
  * memory-injected history.
  */
-export const defaultMemoryPlugin: Plugin = {
-  manifest: {
-    name: memoryPkg.name,
-    version: memoryPkg.version,
-  },
-  hooks: {
-    init: memoryInit,
-    shutdown: memoryShutdown,
-    "user-prompt-submit": memoryUserPromptSubmit,
-    "post-compact": memoryPostCompact,
-  },
-  injectors: [...memoryInjectors, memoryV3Injector, memoryV3SpotlightInjector],
-  jobHandlers: memoryJobHandlers,
-};
+function buildDefaultMemoryPlugin(): Plugin {
+  return {
+    manifest: {
+      name: memoryPkg.name,
+      version: memoryPkg.version,
+    },
+    hooks: {
+      init: memoryInit,
+      shutdown: memoryShutdown,
+      "user-prompt-submit": memoryUserPromptSubmit,
+      "post-compact": memoryPostCompact,
+    },
+    injectors: [
+      ...memoryInjectors,
+      memoryV3Injector,
+      memoryV3SpotlightInjector,
+    ],
+    jobHandlers: memoryJobHandlers,
+  };
+}
 
 /**
  * `turn-context` — contributes the unified `<turn_context>` runtime injector
  * (temporal, actor, channel, and interface grounding). Injector-only; it
  * contributes no hooks.
  */
-export const defaultTurnContextPlugin: Plugin = {
-  manifest: {
-    name: turnContextPkg.name,
-    version: turnContextPkg.version,
-  },
-  injectors: turnContextInjectors,
-};
+function buildDefaultTurnContextPlugin(): Plugin {
+  return {
+    manifest: {
+      name: turnContextPkg.name,
+      version: turnContextPkg.version,
+    },
+    injectors: turnContextInjectors,
+  };
+}
 
 /**
  * `workspace` — contributes the workspace-grounding runtime injectors
  * (disk-pressure warning, `<workspace>` top-level context, config-quarantine
  * notice, NOW.md scratchpad). Injector-only; it contributes no hooks.
  */
-export const defaultWorkspacePlugin: Plugin = {
-  manifest: {
-    name: workspacePkg.name,
-    version: workspacePkg.version,
-  },
-  injectors: workspaceInjectors,
-};
+function buildDefaultWorkspacePlugin(): Plugin {
+  return {
+    manifest: {
+      name: workspacePkg.name,
+      version: workspacePkg.version,
+    },
+    injectors: workspaceInjectors,
+  };
+}
 
 /**
  * `documents` — contributes the open-document runtime injectors
  * (`<active_documents>` and `<document_comments>`). Injector-only; it
  * contributes no hooks.
  */
-export const defaultDocumentsPlugin: Plugin = {
-  manifest: {
-    name: documentsPkg.name,
-    version: documentsPkg.version,
-  },
-  injectors: documentsInjectors,
-};
+function buildDefaultDocumentsPlugin(): Plugin {
+  return {
+    manifest: {
+      name: documentsPkg.name,
+      version: documentsPkg.version,
+    },
+    injectors: documentsInjectors,
+  };
+}
 
 /**
  * `channel` — contributes the Slack channel runtime injectors (chronological
  * transcript replacement and `<active_thread>` focus). Injector-only; it
  * contributes no hooks.
  */
-export const defaultChannelPlugin: Plugin = {
-  manifest: {
-    name: channelPkg.name,
-    version: channelPkg.version,
-  },
-  injectors: channelInjectors,
-};
+function buildDefaultChannelPlugin(): Plugin {
+  return {
+    manifest: {
+      name: channelPkg.name,
+      version: channelPkg.version,
+    },
+    injectors: channelInjectors,
+  };
+}
 
 /**
  * `session` — contributes the session-state runtime injectors
  * (`<background_turn>` framing and `<active_subagents>` status).
  * Injector-only; it contributes no hooks.
  */
-export const defaultSessionPlugin: Plugin = {
-  manifest: {
-    name: sessionPkg.name,
-    version: sessionPkg.version,
-  },
-  injectors: sessionInjectors,
-};
+function buildDefaultSessionPlugin(): Plugin {
+  return {
+    manifest: {
+      name: sessionPkg.name,
+      version: sessionPkg.version,
+    },
+    injectors: sessionInjectors,
+  };
+}
 
 /**
  * `history-repair` — normalizes the working message history (tool-use/tool-result
@@ -260,17 +284,19 @@ export const defaultSessionPlugin: Plugin = {
  * clears the one-shot repair bound on a terminal stop so the next turn repairs
  * afresh.
  */
-export const defaultHistoryRepairPlugin: Plugin = {
-  manifest: {
-    name: historyRepairPkg.name,
-    version: historyRepairPkg.version,
-  },
-  hooks: {
-    "user-prompt-submit": historyRepairUserPromptSubmit,
-    "post-model-call": historyRepairPostModelCall,
-    stop: historyRepairStop,
-  },
-};
+function buildDefaultHistoryRepairPlugin(): Plugin {
+  return {
+    manifest: {
+      name: historyRepairPkg.name,
+      version: historyRepairPkg.version,
+    },
+    hooks: {
+      "user-prompt-submit": historyRepairUserPromptSubmit,
+      "post-model-call": historyRepairPostModelCall,
+      stop: historyRepairStop,
+    },
+  };
+}
 
 /**
  * `image-recovery` — recovers from a provider image-too-large rejection. The
@@ -281,16 +307,18 @@ export const defaultHistoryRepairPlugin: Plugin = {
  * recovery bound on a terminal stop so the next turn recovers afresh. Bounded
  * to one pass per turn.
  */
-export const defaultImageRecoveryPlugin: Plugin = {
-  manifest: {
-    name: imageRecoveryPkg.name,
-    version: imageRecoveryPkg.version,
-  },
-  hooks: {
-    "post-model-call": imageRecoveryPostModelCall,
-    stop: imageRecoveryStop,
-  },
-};
+function buildDefaultImageRecoveryPlugin(): Plugin {
+  return {
+    manifest: {
+      name: imageRecoveryPkg.name,
+      version: imageRecoveryPkg.version,
+    },
+    hooks: {
+      "post-model-call": imageRecoveryPostModelCall,
+      stop: imageRecoveryStop,
+    },
+  };
+}
 
 /**
  * `max-tokens-continue` — a `post-model-call` hook that auto-resumes a
@@ -299,47 +327,53 @@ export const defaultImageRecoveryPlugin: Plugin = {
  * generations can finish without the user clicking the continuation card.
  * Bounded per run; the `stop` hook clears the budget on a terminal stop.
  */
-export const defaultMaxTokensContinuePlugin: Plugin = {
-  manifest: {
-    name: maxTokensContinuePkg.name,
-    version: maxTokensContinuePkg.version,
-  },
-  hooks: {
-    "post-model-call": maxTokensContinuePostModelCall,
-    stop: maxTokensContinueStop,
-  },
-};
+function buildDefaultMaxTokensContinuePlugin(): Plugin {
+  return {
+    manifest: {
+      name: maxTokensContinuePkg.name,
+      version: maxTokensContinuePkg.version,
+    },
+    hooks: {
+      "post-model-call": maxTokensContinuePostModelCall,
+      stop: maxTokensContinueStop,
+    },
+  };
+}
 
 /**
  * `title-generate` — two pure-trigger hooks that delegate the title work to
  * the conversation-title service: `user-prompt-submit` (first-pass title) and
  * `stop` (second-pass regeneration once the topic is established).
  */
-export const defaultTitleGeneratePlugin: Plugin = {
-  manifest: {
-    name: titleGeneratePkg.name,
-    version: titleGeneratePkg.version,
-  },
-  hooks: {
-    "user-prompt-submit": titleGenerateUserPromptSubmit,
-    stop: titleGenerateStop,
-  },
-};
+function buildDefaultTitleGeneratePlugin(): Plugin {
+  return {
+    manifest: {
+      name: titleGeneratePkg.name,
+      version: titleGeneratePkg.version,
+    },
+    hooks: {
+      "user-prompt-submit": titleGenerateUserPromptSubmit,
+      stop: titleGenerateStop,
+    },
+  };
+}
 
 /**
  * `tool-error` — a `post-tool-use` hook that coaches the model to retry or
  * report a failed tool call, bounded per tool. The coaching is surfaced via
  * `additionalContext`, leaving the tool result's own content untouched.
  */
-export const defaultToolErrorPlugin: Plugin = {
-  manifest: {
-    name: toolErrorPkg.name,
-    version: toolErrorPkg.version,
-  },
-  hooks: {
-    "post-tool-use": toolErrorPostToolUse,
-  },
-};
+function buildDefaultToolErrorPlugin(): Plugin {
+  return {
+    manifest: {
+      name: toolErrorPkg.name,
+      version: toolErrorPkg.version,
+    },
+    hooks: {
+      "post-tool-use": toolErrorPostToolUse,
+    },
+  };
+}
 
 /**
  * `exploration-drift` — a `post-tool-use` hook that detects exploration
@@ -350,15 +384,17 @@ export const defaultToolErrorPlugin: Plugin = {
  * delegate the remaining investigation to an `investigator` subagent rather
  * than continuing inline.
  */
-export const defaultExplorationDriftPlugin: Plugin = {
-  manifest: {
-    name: explorationDriftPkg.name,
-    version: explorationDriftPkg.version,
-  },
-  hooks: {
-    "post-tool-use": explorationDriftPostToolUse,
-  },
-};
+function buildDefaultExplorationDriftPlugin(): Plugin {
+  return {
+    manifest: {
+      name: explorationDriftPkg.name,
+      version: explorationDriftPkg.version,
+    },
+    hooks: {
+      "post-tool-use": explorationDriftPostToolUse,
+    },
+  };
+}
 
 /**
  * `task-progress-nudge` — a `post-tool-use` hook that nudges the model to show
@@ -366,15 +402,17 @@ export const defaultExplorationDriftPlugin: Plugin = {
  * tool-call rounds without one. Best-effort and once-per-turn; capable models
  * that already show a card are never nudged.
  */
-export const defaultTaskProgressNudgePlugin: Plugin = {
-  manifest: {
-    name: taskProgressNudgePkg.name,
-    version: taskProgressNudgePkg.version,
-  },
-  hooks: {
-    "post-tool-use": taskProgressNudgePostToolUse,
-  },
-};
+function buildDefaultTaskProgressNudgePlugin(): Plugin {
+  return {
+    manifest: {
+      name: taskProgressNudgePkg.name,
+      version: taskProgressNudgePkg.version,
+    },
+    hooks: {
+      "post-tool-use": taskProgressNudgePostToolUse,
+    },
+  };
+}
 
 /**
  * `surface-completion-nudge` — a `post-model-call` hook that, when a user-facing
@@ -384,60 +422,76 @@ export const defaultTaskProgressNudgePlugin: Plugin = {
  * `stop` hook clears the one-shot bound on a terminal stop so the next run
  * nudges afresh.
  */
-export const defaultSurfaceCompletionNudgePlugin: Plugin = {
-  manifest: {
-    name: surfaceCompletionNudgePkg.name,
-    version: surfaceCompletionNudgePkg.version,
-  },
-  hooks: {
-    "post-model-call": surfaceCompletionNudgePostModelCall,
-    stop: surfaceCompletionNudgeStop,
-  },
-};
+function buildDefaultSurfaceCompletionNudgePlugin(): Plugin {
+  return {
+    manifest: {
+      name: surfaceCompletionNudgePkg.name,
+      version: surfaceCompletionNudgePkg.version,
+    },
+    hooks: {
+      "post-model-call": surfaceCompletionNudgePostModelCall,
+      stop: surfaceCompletionNudgeStop,
+    },
+  };
+}
 
 /**
  * `tool-result-truncate` — a `post-tool-use` hook that tail-drops an oversized
  * tool result down to a character budget derived from the model's context
  * window before the result is sent to the provider.
  */
-export const defaultToolResultTruncatePlugin: Plugin = {
-  manifest: {
-    name: toolResultTruncatePkg.name,
-    version: toolResultTruncatePkg.version,
-  },
-  hooks: {
-    "post-tool-use": toolResultTruncatePostToolUse,
-  },
-};
+function buildDefaultToolResultTruncatePlugin(): Plugin {
+  return {
+    manifest: {
+      name: toolResultTruncatePkg.name,
+      version: toolResultTruncatePkg.version,
+    },
+    hooks: {
+      "post-tool-use": toolResultTruncatePostToolUse,
+    },
+  };
+}
+
+let allDefaultPlugins: readonly Plugin[] | null = null;
 
 /**
- * Full set of first-party default plugins. Used by
+ * Full set of first-party default plugins, built once on first call. Used by
  * {@link registerDefaultPlugins} to drive the registration loop; the array
  * order is the registration order, which fixes hook-chain order (defaults run
  * ahead of any later-registered user plugins). Also used by
  * `bootstrapPlugins` to iterate defaults directly.
+ *
+ * The plugin objects are constructed lazily (per-plugin `build*` functions)
+ * rather than as module-scope constants so evaluating this module never
+ * dereferences a hook/injector binding. Plugin implementations import daemon
+ * modules (conversation-registry, conversation-runtime-assembly, …) that in
+ * turn import this barrel, so a module graph entered through a plugin's
+ * internals evaluates this barrel mid-cycle — eval-time reads of those
+ * bindings would throw a TDZ ReferenceError. By first call the graph has
+ * settled.
  */
 export function getAllDefaultPlugins(): readonly Plugin[] {
-  return [
-    defaultMemoryPlugin,
-    defaultTurnContextPlugin,
-    defaultWorkspacePlugin,
-    defaultDocumentsPlugin,
-    defaultChannelPlugin,
-    defaultSessionPlugin,
-    defaultImageFallbackPlugin,
-    defaultToolResultTruncatePlugin,
-    defaultEmptyResponsePlugin,
-    defaultMaxTokensContinuePlugin,
-    defaultToolErrorPlugin,
-    defaultExplorationDriftPlugin,
-    defaultTaskProgressNudgePlugin,
-    defaultSurfaceCompletionNudgePlugin,
-    defaultHistoryRepairPlugin,
-    defaultImageRecoveryPlugin,
-    defaultCompactionPlugin,
-    defaultTitleGeneratePlugin,
+  allDefaultPlugins ??= [
+    buildDefaultMemoryPlugin(),
+    buildDefaultTurnContextPlugin(),
+    buildDefaultWorkspacePlugin(),
+    buildDefaultDocumentsPlugin(),
+    buildDefaultChannelPlugin(),
+    buildDefaultSessionPlugin(),
+    buildDefaultImageFallbackPlugin(),
+    buildDefaultToolResultTruncatePlugin(),
+    buildDefaultEmptyResponsePlugin(),
+    buildDefaultMaxTokensContinuePlugin(),
+    buildDefaultToolErrorPlugin(),
+    buildDefaultExplorationDriftPlugin(),
+    buildDefaultTaskProgressNudgePlugin(),
+    buildDefaultSurfaceCompletionNudgePlugin(),
+    buildDefaultHistoryRepairPlugin(),
+    buildDefaultImageRecoveryPlugin(),
+    buildDefaultCompactionPlugin(),
+    buildDefaultTitleGeneratePlugin(),
   ];
+  return allDefaultPlugins;
 }
 
 /**
@@ -521,11 +575,15 @@ export function guardPersistenceHooksByDisabledState(
 ): MemoryPersistenceHooks {
   return {
     onMessagePersisted(event) {
-      if (isPluginDisabled(pluginName)) return;
+      if (isPluginDisabled(pluginName)) {
+        return;
+      }
       return hooks.onMessagePersisted(event);
     },
     onConversationForked(event) {
-      if (isPluginDisabled(pluginName)) return;
+      if (isPluginDisabled(pluginName)) {
+        return;
+      }
       return hooks.onConversationForked(event);
     },
     // Gated like the active side effects above: a disabled plugin reports an
@@ -533,7 +591,9 @@ export function guardPersistenceHooksByDisabledState(
     // work" and skips consolidation — matching how disabled injectors/hooks go
     // inert.
     countMemoryBufferLines() {
-      if (isPluginDisabled(pluginName)) return 0;
+      if (isPluginDisabled(pluginName)) {
+        return 0;
+      }
       return hooks.countMemoryBufferLines();
     },
     // Cleanup hooks are NOT gated on disabled-state: they must run even while

@@ -18,7 +18,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { HOOKS } from "../plugin-api/constants.js";
 import type { PluginLogger, PostToolUseContext } from "../plugin-api/types.js";
-import { defaultToolErrorPlugin } from "../plugins/defaults/index.js";
+import { getAllDefaultPlugins } from "../plugins/defaults/index.js";
 import postToolUse, {
   TOOL_ERROR_NUDGE_TEXT,
 } from "../plugins/defaults/tool-error/hooks/post-tool-use.js";
@@ -28,6 +28,10 @@ import {
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import type { Message, ToolResultContent } from "../providers/types.js";
+
+const defaultToolErrorPlugin = getAllDefaultPlugins().find(
+  (p) => p.manifest.name === "default-tool-error",
+)!;
 
 const noopLogger: PluginLogger = {
   info: () => {},

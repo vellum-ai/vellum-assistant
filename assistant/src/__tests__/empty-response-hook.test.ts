@@ -47,13 +47,17 @@ import {
   markEmptyResponseNudged,
   resetEmptyResponseNudgeStoreForTests,
 } from "../plugins/defaults/empty-response/nudge-state-store.js";
-import { defaultEmptyResponsePlugin } from "../plugins/defaults/index.js";
+import { getAllDefaultPlugins } from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import type { ContentBlock, Message } from "../providers/types.js";
+
+const defaultEmptyResponsePlugin = getAllDefaultPlugins().find(
+  (p) => p.manifest.name === "default-empty-response",
+)!;
 
 // ─── Fixtures ────────────────────────────────────────────────────────────────
 

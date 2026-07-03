@@ -43,13 +43,17 @@ import {
   markImageRecoveryAttempted,
   resetImageRecoveryStoreForTests,
 } from "../plugins/defaults/image-recovery/image-recovery-state-store.js";
-import { defaultImageRecoveryPlugin } from "../plugins/defaults/index.js";
+import { getAllDefaultPlugins } from "../plugins/defaults/index.js";
 import { runHook } from "../plugins/pipeline.js";
 import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
 import type { ContentBlock, Message } from "../providers/types.js";
+
+const defaultImageRecoveryPlugin = getAllDefaultPlugins().find(
+  (p) => p.manifest.name === "default-image-recovery",
+)!;
 
 await initializeDb();
 
