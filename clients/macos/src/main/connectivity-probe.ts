@@ -25,7 +25,16 @@ async function runProbeOnce(lockfilePaths: string[]): Promise<void> {
   probing = true;
   try {
     const target = resolveProbeTarget(lockfilePaths);
-    if (!target) return;
+    if (!target) {
+      // No local gateway to probe — the active assistant is either
+      // cloud-hosted (no gatewayPort) or there is no active assistant.
+      // Clear any stale unreachable state so a prior local-assistant
+      // probe failure doesn't persist when the user has switched to a
+      // cloud assistant. Cloud assistant health is tracked separately
+      // via the platform's operational-status polling.
+      setBackendReachable(true);
+      return;
+    }
     const ok = await net
       .fetch(target, {
         method: "GET",
