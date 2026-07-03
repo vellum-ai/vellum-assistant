@@ -24,6 +24,7 @@ import { type MutableRefObject, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { useConversationStore } from "@/stores/conversation-store";
+import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
 import { type PreChatOnboardingContext } from "@/domains/onboarding/prechat";
 import { createDraftConversationId } from "@/domains/chat/utils/conversation-selection";
 import { routes } from "@/utils/routes";
@@ -60,6 +61,7 @@ export function useOnboardingOrchestrator(): UseOnboardingOrchestratorResult {
   useEffect(() => {
     if (searchParams.get("onboarding") !== "1") return;
     setDidOnboarding(true);
+    useOnboardingFocusStore.getState().setJustCompletedOnboarding();
     const draftId =
       onboardingDraftConversationIdRef.current ?? createDraftConversationId();
     onboardingDraftConversationIdRef.current = draftId;

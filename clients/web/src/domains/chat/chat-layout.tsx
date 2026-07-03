@@ -132,6 +132,10 @@ export function ChatLayout() {
     useOnboardingFocusStore.use.sidebarCollapseRequested();
   const consumeSidebarCollapse =
     useOnboardingFocusStore.use.consumeSidebarCollapse();
+  const justCompletedOnboarding =
+    useOnboardingFocusStore.use.justCompletedOnboarding();
+  const clearJustCompletedOnboarding =
+    useOnboardingFocusStore.use.clearJustCompletedOnboarding();
 
   const assistantId = useResolvedAssistantsStore.use.activeAssistantId();
   const assistantStateKind = useAssistantLifecycleStore(
@@ -225,13 +229,16 @@ export function ChatLayout() {
     const idx = (window.history.state?.idx as number) ?? 0;
     setPrevLocation(location);
     setHistoryIndex(idx);
-    // Only PUSH clears forward entries (pushState). REPLACE (replaceState)
-    // and POP preserve them, so max must not reset.
-    setMaxHistoryIndex(navigationType === "PUSH" ? idx : (prev) => Math.max(prev, idx));
+    if (navigationType === "PUSH") {
+      clearJustCompletedOnboarding();
+      setMaxHistoryIndex(idx);
+    } else {
+      setMaxHistoryIndex((prev) => Math.max(prev, idx));
+    }
   }
 
-  const canGoBack = historyIndex > 0;
-  const canGoForward = historyIndex < maxHistoryIndex;
+  const canGoBack = !justCompletedOnboarding && historyIndex > 0;
+  const canGoForward = !justCompletedOnboarding && historyIndex < maxHistoryIndex;
 
   const handleOpenHome = useCallback(() => {
     navigate(routes.home);
@@ -242,12 +249,14 @@ export function ChatLayout() {
   }, [navigate]);
 
   const handleGoBack = useCallback(() => {
+    if (justCompletedOnboarding) return;
     navigate(-1);
-  }, [navigate]);
+  }, [navigate, justCompletedOnboarding]);
 
   const handleGoForward = useCallback(() => {
+    if (justCompletedOnboarding) return;
     navigate(1);
-  }, [navigate]);
+  }, [navigate, justCompletedOnboarding]);
 
   const isHomeActive = location.pathname === routes.home;
   const isIdentityActive =

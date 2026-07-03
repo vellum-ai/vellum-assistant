@@ -77,6 +77,18 @@ interface OnboardingFocusState {
   sidebarCollapseRequested: boolean;
   requestSidebarCollapse: () => void;
   consumeSidebarCollapse: () => void;
+  /**
+   * Set by the onboarding orchestrator when the user lands in chat after
+   * completing the onboarding funnel. ChatLayout reads this to suppress the
+   * back/forward history arrows so users can't navigate back to onboarding
+   * screens (the browser history stack still contains those entries, but the
+   * UI won't offer a way to reach them). Cleared on the first real PUSH
+   * navigation (opening a different conversation, navigating to settings,
+   * etc.) so normal history tracking resumes.
+   */
+  justCompletedOnboarding: boolean;
+  setJustCompletedOnboarding: () => void;
+  clearJustCompletedOnboarding: () => void;
 }
 
 const useOnboardingFocusStoreBase = create<OnboardingFocusState>((set) => ({
@@ -88,6 +100,7 @@ const useOnboardingFocusStoreBase = create<OnboardingFocusState>((set) => ({
       pendingFollowupMessage: null,
       checkinPending: false,
       sidebarCollapseRequested: false,
+      justCompletedOnboarding: false,
     }),
   pendingAvatarTraits: null,
   setPendingAvatarTraits: (traits) => set({ pendingAvatarTraits: traits }),
@@ -102,6 +115,9 @@ const useOnboardingFocusStoreBase = create<OnboardingFocusState>((set) => ({
   sidebarCollapseRequested: false,
   requestSidebarCollapse: () => set({ sidebarCollapseRequested: true }),
   consumeSidebarCollapse: () => set({ sidebarCollapseRequested: false }),
+  justCompletedOnboarding: false,
+  setJustCompletedOnboarding: () => set({ justCompletedOnboarding: true }),
+  clearJustCompletedOnboarding: () => set({ justCompletedOnboarding: false }),
 }));
 
 export const useOnboardingFocusStore = createSelectors(
