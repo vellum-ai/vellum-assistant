@@ -147,7 +147,7 @@ export function setCesReconnect(
 }
 
 function getEncryptedStoreBackend(): CredentialBackend {
-  if (!_encryptedStore) _encryptedStore = createEncryptedStoreBackend();
+  if (!_encryptedStore) {_encryptedStore = createEncryptedStoreBackend();}
   return _encryptedStore;
 }
 
@@ -235,13 +235,13 @@ async function resolveBackendAsync(): Promise<CredentialBackend> {
 function tryFailoverToCesHttpBackend(
   backend: CredentialBackend,
 ): CredentialBackend | undefined {
-  if (backend.name !== "ces-rpc") return undefined;
+  if (backend.name !== "ces-rpc") {return undefined;}
   if (!getIsContainerized() || !process.env.CES_CREDENTIAL_URL) {
     return undefined;
   }
 
   const cesHttp = createCesCredentialBackend();
-  if (!cesHttp.isAvailable()) return undefined;
+  if (!cesHttp.isAvailable()) {return undefined;}
 
   _resolvedBackend = cesHttp;
   _resolvePromise = undefined;
@@ -259,9 +259,13 @@ function tryFailoverToCesHttpBackend(
  * Concurrent callers share the same in-flight reconnection attempt to avoid
  * racing on the same process manager. A timestamp cooldown prevents rapid
  * back-to-back attempts after completion.
+ *
+ * Exported so the proactive reconnect loop in ces-runtime.ts can trigger
+ * reconnection immediately on transport close, reusing the same dedup +
+ * cooldown machinery as the lazy (credential-op-triggered) path.
  */
-async function attemptCesReconnection(): Promise<boolean> {
-  if (!_cesReconnect) return false;
+export async function attemptCesReconnection(): Promise<boolean> {
+  if (!_cesReconnect) {return false;}
 
   // Reentrancy guard. A nested credential read from inside the reconnect
   // callback must not `await` our own in-flight promise — that would
@@ -270,13 +274,13 @@ async function attemptCesReconnection(): Promise<boolean> {
   // dead-backend response) without blocking. Concurrent callers on other
   // async chains don't see the ALS store, so they still share the
   // in-flight promise normally.
-  if (_reconnectContext.getStore()) return false;
+  if (_reconnectContext.getStore()) {return false;}
 
   // If a reconnection is already in flight, share it.
-  if (_reconnectInFlight) return _reconnectInFlight;
+  if (_reconnectInFlight) {return _reconnectInFlight;}
 
   // Cooldown — don't retry immediately after a completed attempt.
-  if (Date.now() - _lastReconnectAttempt < RECONNECT_COOLDOWN_MS) return false;
+  if (Date.now() - _lastReconnectAttempt < RECONNECT_COOLDOWN_MS) {return false;}
 
   _lastReconnectAttempt = Date.now();
   log.warn("Credential backend unavailable — attempting CES reconnection");
@@ -510,7 +514,7 @@ export async function bulkSetSecureKeysAsync(
         let anyFailed = false;
         for (const { account, value } of credentials) {
           const ok = await backend.set(account, value);
-          if (!ok) anyFailed = true;
+          if (!ok) {anyFailed = true;}
           results.push({ account, ok });
         }
         updateCesHttpReachability(backend, anyFailed);
@@ -554,7 +558,7 @@ export async function getProviderKeyAsync(
   const stored =
     (await getSecureKeyAsync(credentialKey(provider, "api_key"))) ??
     (await getSecureKeyAsync(provider));
-  if (stored) return stored;
+  if (stored) {return stored;}
   const envVar = getAnyProviderEnvVar(provider);
   return envVar ? process.env[envVar] : undefined;
 }
@@ -572,7 +576,7 @@ export async function getMaskedProviderKey(
   provider: string,
 ): Promise<string | null> {
   const key = await getProviderKeyAsync(provider);
-  if (!key || key.length === 0) return null;
+  if (!key || key.length === 0) {return null;}
   const minHidden = 3;
   const maxVisible = Math.max(1, key.length - minHidden);
   const prefixLen = Math.min(10, maxVisible);

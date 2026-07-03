@@ -12,7 +12,7 @@ import {
   resetGuardianBootstrap,
   seedGuardianTokenFromSiblingEnv,
 } from "../lib/guardian-token.js";
-import { resolveProcessState, stopProcessByPidFile } from "../lib/process";
+import { resolveProcessState, stopProcessByPidFile, isProcessAlive } from "../lib/process";
 import {
   generateLocalSigningKey,
   isAssistantWatchModeAvailable,
@@ -189,6 +189,19 @@ export async function wake(): Promise<void> {
       startCes(watch, resources),
       startLocalDaemon(watch, resources, { foreground, signingKey }),
     ]);
+  } else {
+    // Self-heal: the daemon is already healthy, but the CES sibling may have
+    // died independently (crash, OOM kill). A dead ces.pid under a live daemon
+    // means credential operations will fail until the next wake. Relaunch the
+    // sibling so the daemon's lazy reconnect (secure-keys.ts) picks it up on
+    // the next credential read. startCes is a no-op unless CES_STANDALONE.
+    const vellumDir = join(resources.instanceDir, ".vellum");
+    const cesPidFile = join(vellumDir, "ces.pid");
+    const cesAlive = isProcessAlive(cesPidFile).alive;
+    if (!cesAlive) {
+      console.log("CES sibling not running — relaunching...");
+      await startCes(watch, resources);
+    }
   }
 
   // Start gateway

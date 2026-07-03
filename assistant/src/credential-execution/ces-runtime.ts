@@ -2,6 +2,7 @@ import { getPlatformAssistantId } from "../config/env.js";
 import type { AssistantConfig } from "../config/schema.js";
 import { resolveManagedProxyContext } from "../providers/platform-proxy/context.js";
 import {
+  attemptCesReconnection,
   getCesClient as getSecureKeysCesClient,
   onCesClientChanged,
   setCesClient,
@@ -238,6 +239,16 @@ export async function startCes(config: AssistantConfig): Promise<void> {
         return undefined;
       }
     });
+
+    // Proactive reconnect: when the transport dies (socket close, process
+    // exit), start a retry-with-backoff loop immediately instead of waiting
+    // for the next credential operation to trigger the lazy reconnect path.
+    // The loop calls attemptCesReconnection(), which shares the same dedup +
+    // cooldown machinery as the lazy path, so concurrent credential ops and
+    // the proactive loop never race on pm.stop()/pm.start().
+    pm.onTransportClose(() => {
+      startProactiveReconnectLoop(pm);
+    });
   }
 
   applyCesResult(cesResult);
@@ -282,4 +293,97 @@ export async function stopCes(): Promise<void> {
     clientPromise = undefined;
   }
   processManager = undefined;
+  proactiveReconnectInFlight = false;
+}
+
+// ---------------------------------------------------------------------------
+// Proactive reconnect loop
+// ---------------------------------------------------------------------------
+
+/**
+ * Backoff schedule for proactive reconnection attempts (milliseconds).
+ * The first attempt fires immediately (0ms); subsequent attempts use
+ * exponential backoff capped at 30s.
+ */
+const RECONNECT_BACKOFF_MS = [0, 2_000, 5_000, 10_000, 20_000, 30_000];
+
+/** Maximum reconnection attempts before giving up and relying on the lazy path. */
+const MAX_RECONNECT_ATTEMPTS = RECONNECT_BACKOFF_MS.length;
+
+/**
+ * Track the active reconnect loop so a new transport-close event (e.g. from
+ * a failed reconnect's own transport dying) doesn't start a second loop.
+ */
+let proactiveReconnectInFlight = false;
+
+/**
+ * Start a retry-with-backoff loop that proactively re-establishes the CES
+ * connection after the transport dies. Each attempt calls
+ * `attemptCesReconnection()`, which shares the dedup + cooldown machinery
+ * with the lazy (credential-op-triggered) reconnect path.
+ *
+ * On success, `setCesClient()` is called inside `attemptCesReconnection`,
+ * which triggers the `onCesClientChanged` listener and updates `clientRef`.
+ * The loop then stops.
+ *
+ * On failure (reconnect returned false or threw), the loop waits per the
+ * backoff schedule and retries, up to `MAX_RECONNECT_ATTEMPTS`. After that,
+ * the lazy path in `secure-keys.ts` remains as a permanent fallback: every
+ * credential operation checks `isAvailable()` and triggers reconnection if
+ * the backend is dead.
+ */
+function startProactiveReconnectLoop(_pm: CesProcessManager): void {
+  if (proactiveReconnectInFlight) {
+    log.debug("Proactive reconnect loop already running — skipping");
+    return;
+  }
+  proactiveReconnectInFlight = true;
+
+  void (async () => {
+    log.warn("CES transport died — starting proactive reconnect loop");
+
+    for (let attempt = 0; attempt < MAX_RECONNECT_ATTEMPTS; attempt++) {
+      const delay = RECONNECT_BACKOFF_MS[attempt];
+      if (delay > 0) {
+        await sleep(delay);
+      }
+
+      // Stop if the daemon is shutting down (processManager cleared).
+      if (!processManager) {
+        log.info("Proactive reconnect loop stopped — process manager gone");
+        break;
+      }
+
+      try {
+        const succeeded = await attemptCesReconnection();
+        if (succeeded) {
+          log.info(
+            { attempt: attempt + 1 },
+            "Proactive CES reconnection succeeded",
+          );
+          break;
+        }
+        log.warn(
+          { attempt: attempt + 1, max: MAX_RECONNECT_ATTEMPTS },
+          "Proactive CES reconnection attempt did not succeed",
+        );
+      } catch (err) {
+        log.warn(
+          {
+            attempt: attempt + 1,
+            max: MAX_RECONNECT_ATTEMPTS,
+            error: err instanceof Error ? err.message : String(err),
+          },
+          "Proactive CES reconnection attempt threw",
+        );
+      }
+    }
+
+    proactiveReconnectInFlight = false;
+    log.info("Proactive reconnect loop finished");
+  })();
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

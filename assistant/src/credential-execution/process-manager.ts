@@ -77,30 +77,35 @@ export interface CesProcessManagerConfig {
 // ---------------------------------------------------------------------------
 
 export interface CesProcessManager {
-  /**
-   * Start the CES process (local) or connect to the sidecar (managed).
-   * Returns a CesTransport ready for use with createCesClient().
-   *
-   * Throws if CES is unavailable.
-   */
-  start(): Promise<CesTransport>;
+    /** Start the CES process (local) or connect to the sidecar (managed).
+     * Returns a CesTransport ready for use with createCesClient().
+     *
+     * Throws if CES is unavailable. */
+    start(): Promise<CesTransport>;
 
-  /** Gracefully stop the CES process (local) or disconnect (managed). */
-  stop(): Promise<void>;
+    /** Gracefully stop the CES process (local) or disconnect (managed). */
+    stop(): Promise<void>;
 
-  /**
-   * Force-stop the CES process even if start() hasn't finished yet.
-   * Unlike stop(), this works regardless of the `running` state — it kills
-   * any child process or destroys any managed socket immediately.
-   */
-  forceStop(): Promise<void>;
+    /**
+     * Force-stop the CES process even if start() hasn't finished yet.
+     * Unlike stop(), this works regardless of the `running` state — it kills
+     * any child process or destroys any managed socket immediately.
+     */
+    forceStop(): Promise<void>;
 
-  /** The discovery result from the last start() call, or null if not started. */
-  getDiscoveryResult(): DiscoveryResult | null;
+    /** The discovery result from the last start() call, or null if not started. */
+    getDiscoveryResult(): DiscoveryResult | null;
 
-  /** Whether the process manager is currently running. */
-  isRunning(): boolean;
-}
+    /** Whether the process manager is currently running. */
+    isRunning(): boolean;
+
+    /**
+     * Register a callback that fires when the current transport dies. Lets
+     * callers (e.g. ces-runtime.ts) start a proactive reconnect loop instead
+     * of waiting for a lazy credential-op-triggered reconnection.
+     */
+    onTransportClose(handler: () => void): void;
+  }
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -113,6 +118,8 @@ export function createCesProcessManager(
   let managedSocket: Socket | null = null;
   let discoveryResult: DiscoveryResult | null = null;
   let running = false;
+  let currentTransport: CesTransport | null = null;
+  const transportCloseHandlers: Array<() => void> = [];
 
   return {
     async start(): Promise<CesTransport> {
@@ -147,24 +154,30 @@ export function createCesProcessManager(
 
       if (discoveryResult.mode === "local") {
         const transport = await startLocalProcess(discoveryResult);
+        currentTransport = transport;
+        wireTransportClose(transport);
         running = true;
         return transport;
       }
 
       if (discoveryResult.mode === "local-source") {
         const transport = await startLocalSourceProcess(discoveryResult);
+        currentTransport = transport;
+        wireTransportClose(transport);
         running = true;
         return transport;
       }
 
       // managed sidecar or CLI-launched sibling — both connect to a socket.
       const transport = await connectManagedSocket(discoveryResult);
+      currentTransport = transport;
+      wireTransportClose(transport);
       running = true;
       return transport;
     },
 
     async stop(): Promise<void> {
-      if (!running) return;
+      if (!running) {return;}
 
       if (childProcess) {
         await stopLocalProcess(childProcess);
@@ -176,6 +189,7 @@ export function createCesProcessManager(
         managedSocket = null;
       }
 
+      currentTransport = null;
       running = false;
       log.info("CES process manager stopped");
     },
@@ -192,6 +206,7 @@ export function createCesProcessManager(
         managedSocket = null;
       }
 
+      currentTransport = null;
       running = false;
       log.info("CES process manager force-stopped");
     },
@@ -203,7 +218,31 @@ export function createCesProcessManager(
     isRunning(): boolean {
       return running;
     },
+
+    onTransportClose(handler: () => void): void {
+      transportCloseHandlers.push(handler);
+      // If the current transport is already dead, fire immediately.
+      if (currentTransport && !currentTransport.isAlive()) {
+        handler();
+      }
+    },
   };
+
+  // -------------------------------------------------------------------------
+  // Wire the transport's onClose to all registered handlers
+  // -------------------------------------------------------------------------
+
+  function wireTransportClose(transport: CesTransport): void {
+    transport.onClose?.(() => {
+      for (const handler of transportCloseHandlers) {
+        try {
+          handler();
+        } catch {
+          // handler must never throw back into the transport
+        }
+      }
+    });
+  }
 
   // -------------------------------------------------------------------------
   // Local mode — child process over stdio
@@ -339,7 +378,7 @@ function createCloseNotifier(): {
     isAlive: () => alive,
     markDead() {
       alive = false;
-      if (notified) return;
+      if (notified) {return;}
       notified = true;
       for (const handler of handlers) {
         try {
@@ -375,7 +414,7 @@ function createStdioTransport(proc: Subprocess): CesTransport {
       try {
         while (true) {
           const { value, done } = await reader.read();
-          if (done) break;
+          if (done) {break;}
 
           buffer += decoder.decode(value, { stream: true });
           let newlineIdx: number;
@@ -588,7 +627,7 @@ export function logCesLine(
 }
 
 function forwardStderrToLogger(proc: Subprocess): void {
-  if (!proc.stderr || typeof proc.stderr === "number") return;
+  if (!proc.stderr || typeof proc.stderr === "number") {return;}
 
   const reader = proc.stderr.getReader();
   const decoder = new TextDecoder();
@@ -598,18 +637,18 @@ function forwardStderrToLogger(proc: Subprocess): void {
     try {
       while (true) {
         const { value, done } = await reader.read();
-        if (done) break;
+        if (done) {break;}
 
         buffer += decoder.decode(value, { stream: true });
         let newlineIdx: number;
         while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
           const line = buffer.slice(0, newlineIdx).trimEnd();
           buffer = buffer.slice(newlineIdx + 1);
-          if (line) logCesLine(line, proc.pid);
+          if (line) {logCesLine(line, proc.pid);}
         }
       }
       const trailing = buffer.trimEnd();
-      if (trailing) logCesLine(trailing, proc.pid);
+      if (trailing) {logCesLine(trailing, proc.pid);}
     } catch {
       // Process ended or stream closed; nothing to forward.
     }
