@@ -88,7 +88,11 @@ later can't be ring-replayed. The recovery path is a refetch:
   partial-persist debounce) is **dropped** when the live view has already
   folded seq-stamped events: with no cursor to replay from, taking it
   wholesale would wipe the streamed turn (the mid-turn "vanishing prefix"
-  flicker) until the turn-end reseed restored it.
+  flicker) until the turn-end reseed restored it. A **stale-anchored** fetch
+  (`seq` strictly below the live view's) whose gap the ring can't bridge is
+  dropped for the same reason: it was in flight before newer events folded
+  in, and taking it wholesale would regress the view — e.g. erase a just-sent
+  user row whose echo already retired the optimistic copy (the send flicker).
 - The reseed also **prunes** any optimistic send the snapshot now represents
   (`pruneConfirmedOptimisticSends`), keyed by the same identity
   `selectTranscriptMessages` overlays on. Without this, a send whose echo/dequeue

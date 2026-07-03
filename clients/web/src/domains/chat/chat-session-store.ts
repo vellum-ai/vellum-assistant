@@ -130,9 +130,10 @@ export interface ChatSessionActions {
   /** Seed (or resync) the snapshot from a freshly fetched server snapshot,
    *  replaying the buffered event tail with `seq > snapshot.seq` onto it so
    *  events that raced the fetch aren't lost. A gap (evicted tail) falls back
-   *  to the fetched snapshot alone — except when the fetch is anchor-less
-   *  (`seq` null) while the live view has already folded seq-stamped events;
-   *  such a fetch is provably behind the stream and is dropped instead. */
+   *  to the fetched snapshot alone — except when the fetch is provably behind
+   *  the live view and the gap makes it unbridgeable: an anchor-less fetch
+   *  (`seq` null) while the live view has folded seq-stamped events, or a
+   *  stale-anchored fetch (`seq` below the live view's). Either is dropped. */
   seedSnapshot: (conversationId: string, snapshot: PaginatedHistoryResult) => void;
   /** Fold one live stream event into the snapshot (no-op until seeded; the
    *  seed's replay covers anything that arrived first). Idempotent by `seq`. */
@@ -342,6 +343,32 @@ const useChatSessionStoreBase = create<ChatSessionStore>()((set, get) => ({
       return;
     }
     const tail = getSseEnvelopesSince(conversationId, snapshot.seq ?? null);
+    // Stale-anchored regression guard, the anchored twin of the guard above.
+    // A `/messages` fetch that was already in flight when the live view folded
+    // newer stream content commits with an older watermark — e.g. a refetch
+    // started just before a send whose `user_message_echo` has since folded in.
+    // When the ring can't bridge from the fetch's anchor (`tail === null`,
+    // typically because other conversations' events pushed the global seq past
+    // it while this tab was backgrounded), taking the fetch wholesale would
+    // regress the snapshot to its pre-send state — and since the echo already
+    // retired the optimistic copy, the user's just-sent message vanishes until
+    // the next authoritative reconcile restores it (the send flicker). The
+    // live view is anchored strictly ahead of the fetch, so keep it and drop
+    // the fetch; a later fetch with a caught-up anchor reseeds normally.
+    if (
+      tail === null &&
+      current !== null &&
+      typeof current.seq === "number" &&
+      typeof snapshot.seq === "number" &&
+      snapshot.seq < current.seq
+    ) {
+      recordDiagnostic("history_seed_skipped_stale_anchor", {
+        conversationId,
+        liveSeq: current.seq,
+        fetchedSeq: snapshot.seq,
+      });
+      return;
+    }
     const resolved = resolveSnapshot(snapshot, tail);
     set((s) => ({
       snapshot: resolved,
