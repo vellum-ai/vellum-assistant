@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
+import { isValidReleaseVersion } from "@vellumai/local-mode";
+
 import type { LocalInstanceResources } from "../lib/assistant-config.js";
-import { ensureLocalRuntime, isValidRuntimeVersion } from "../lib/local.js";
+import { ensureLocalRuntime } from "../lib/local.js";
 
 // Only `instanceDir` is read, and only after the validation guard passes —
 // invalid versions throw before any filesystem access, so a minimal stub is
@@ -17,23 +19,19 @@ const MALICIOUS_VERSIONS = [
   "git+https://evil.example/x.git",
   "../../../../tmp/evil",
   "1.2.3-..",
+  "1.2.3-a..b",
 ];
 
-describe("isValidRuntimeVersion", () => {
-  test("accepts trusted release identifiers", () => {
-    for (const version of VALID_VERSIONS) {
-      expect(isValidRuntimeVersion(version)).toBe(true);
-    }
-  });
-
-  test("rejects package specs and traversal-like input", () => {
-    for (const version of MALICIOUS_VERSIONS) {
-      expect(isValidRuntimeVersion(version)).toBe(false);
-    }
-  });
-});
-
 describe("ensureLocalRuntime version guard", () => {
+  test("shares the trusted-release validator with the host boundary", () => {
+    for (const version of VALID_VERSIONS) {
+      expect(isValidReleaseVersion(version)).toBe(true);
+    }
+    for (const version of MALICIOUS_VERSIONS) {
+      expect(isValidReleaseVersion(version)).toBe(false);
+    }
+  });
+
   test("throws before any install for untrusted versions", () => {
     for (const version of MALICIOUS_VERSIONS) {
       expect(() => ensureLocalRuntime(resources, version)).toThrow(

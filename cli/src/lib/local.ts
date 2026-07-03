@@ -11,6 +11,8 @@ import { createRequire } from "module";
 import { homedir, networkInterfaces, platform, tmpdir } from "os";
 import { basename, dirname, join } from "path";
 
+import { isValidReleaseVersion } from "@vellumai/local-mode";
+
 import {
   getDaemonPidPath,
   type LocalInstanceResources,
@@ -39,28 +41,6 @@ const LOCAL_RUNTIME_PACKAGE = "vellum";
 export interface LocalRuntimeInstall {
   version: string;
   installDir: string;
-}
-
-// A trusted local-runtime version is either the literal `latest` dist-tag or a
-// semver release tag (optionally `v`-prefixed, with optional pre-release/build
-// metadata). The pre-release/build identifier must start with an alphanumeric,
-// so `..` and empty identifiers are rejected. Because no `/`, `\`, `:`, `@` or
-// whitespace can pass, the value can never become a package-manager spec
-// (npm alias, tarball/git URL) or a path-traversal segment — both of which are
-// dangerous here since this string is written verbatim into a generated
-// `package.json` dependency spec (`bun install`) and used as a filesystem path
-// segment for the runtime install directory.
-const RUNTIME_VERSION_PATTERN =
-  /^(?:latest|v?\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?)$/;
-
-/**
- * Whether `version` is a trusted local-runtime identifier: the literal
- * `latest`, or a semver release tag like `v1.2.3` / `1.2.3` /
- * `0.6.0-staging.5`. Rejects package-manager specifiers (npm aliases, tarball
- * or git URLs) and any path-traversal-like input.
- */
-export function isValidRuntimeVersion(version: string): boolean {
-  return RUNTIME_VERSION_PATTERN.test(version);
 }
 
 function normalizeRuntimeVersion(version: string): string {
@@ -174,8 +154,9 @@ export function ensureLocalRuntime(
   // a filesystem path segment or a `bun install` dependency spec. Without this,
   // a package-manager spec (npm alias, tarball/git URL) or a `../`-laden string
   // reaching this sink would install and then execute arbitrary attacker code
-  // as the local assistant runtime.
-  if (!isValidRuntimeVersion(version)) {
+  // as the local assistant runtime. Shares the validator with the host-bridge
+  // boundary guard (`runUpgrade`) so the two can never drift.
+  if (!isValidReleaseVersion(version)) {
     throw new Error(
       `Invalid runtime version '${version}': expected a release tag like v1.2.3 or 'latest'.`,
     );

@@ -28,10 +28,10 @@ const spawnMock = mock(
 mock.module("node:child_process", () => ({ spawn: spawnMock }));
 
 let runUpgrade: typeof import("../upgrade").runUpgrade;
-let isValidUpgradeVersion: typeof import("../upgrade").isValidUpgradeVersion;
+let isValidReleaseVersion: typeof import("../upgrade").isValidReleaseVersion;
 
 beforeAll(async () => {
-  ({ runUpgrade, isValidUpgradeVersion } = await import("../upgrade"));
+  ({ runUpgrade, isValidReleaseVersion } = await import("../upgrade"));
 });
 
 afterEach(() => {
@@ -41,7 +41,7 @@ afterEach(() => {
 
 const invocation: CliInvocation = { command: "bun", baseArgs: ["run", "cli"] };
 
-describe("isValidUpgradeVersion", () => {
+describe("isValidReleaseVersion", () => {
   test("accepts trusted release identifiers", () => {
     for (const version of [
       "latest",
@@ -50,22 +50,24 @@ describe("isValidUpgradeVersion", () => {
       "0.6.0-staging.5",
       "1.2.3-rc.1+build.7",
     ]) {
-      expect(isValidUpgradeVersion(version)).toBe(true);
+      expect(isValidReleaseVersion(version)).toBe(true);
     }
   });
 
-  test("rejects package specs and traversal-like input", () => {
+  test("rejects package specs, traversal, and malformed semver", () => {
     for (const version of [
       "npm:@attacker/evil@1.0.0",
       "https://evil.example/x.tgz",
       "git+https://evil.example/x.git",
       "../../../../tmp/evil",
       "1.2.3-..",
-      "1.2.3-",
+      "1.2.3-a..b", // empty pre-release identifier
+      "1.2.3+build.", // trailing empty build identifier
+      "1.2.3-", // empty pre-release
       "",
       "vellum@1.2.3",
     ]) {
-      expect(isValidUpgradeVersion(version)).toBe(false);
+      expect(isValidReleaseVersion(version)).toBe(false);
     }
   });
 });

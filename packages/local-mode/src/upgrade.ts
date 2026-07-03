@@ -14,29 +14,31 @@ export interface UpgradeOptions {
   force?: boolean;
 }
 
-// A trusted upgrade version is either the literal `latest` dist-tag or a semver
-// release tag (optionally `v`-prefixed, with optional pre-release/build
-// metadata). The pre-release/build identifier must start with an alphanumeric,
-// so `..` and empty identifiers are rejected. Because no `/`, `\`, `:`, `@` or
-// whitespace can pass, the value can never become a package-manager spec
-// (npm alias, tarball/git URL) or a path-traversal segment when the CLI writes
-// it into a generated `package.json` and installs/executes the local runtime.
-const UPGRADE_VERSION_PATTERN =
-  /^(?:latest|v?\d+\.\d+\.\d+(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?(?:\+[0-9A-Za-z][0-9A-Za-z.-]*)?)$/;
+// A trusted release version is either the literal `latest` dist-tag or a semver
+// release tag (optionally `v`-prefixed). Pre-release and build metadata are
+// dot-separated, non-empty identifiers of `[0-9A-Za-z-]`, so empty identifiers
+// (e.g. `1.2.3-a..b`, `1.2.3+build.`) are rejected rather than treated as
+// trusted. Because no `/`, `\`, `:`, `@` or whitespace can pass, the value can
+// never become a package-manager spec (npm alias, tarball/git URL) or a
+// path-traversal segment when the CLI writes it into a generated `package.json`
+// and installs/executes the local runtime.
+const RELEASE_VERSION_PATTERN =
+  /^(?:latest|v?\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)$/;
 
 /**
- * Whether `version` is a trusted upgrade identifier: the literal `latest`, or a
+ * Whether `version` is a trusted release identifier: the literal `latest`, or a
  * semver release tag like `v1.2.3` / `1.2.3` / `0.6.0-staging.5`. Rejects
- * package-manager specifiers (npm aliases, tarball or git URLs) and any
- * path-traversal-like input.
+ * package-manager specifiers (npm aliases, tarball or git URLs), empty semver
+ * identifiers, and any path-traversal-like input.
  *
- * This is the host-bridge boundary guard: it runs in the shared library that
- * backs both the Electron host and the web dev-server middleware, so a
- * compromised/XSS'd renderer cannot smuggle an arbitrary package spec through
- * `--version` before the CLI is even spawned.
+ * Defined once here and reused by both the host-bridge boundary guard
+ * (`runUpgrade`, in the shared library backing the Electron host and the web
+ * dev-server middleware) and the CLI's runtime-install sink
+ * (`ensureLocalRuntime`), so the security boundary can never drift between the
+ * two call sites.
  */
-export function isValidUpgradeVersion(version: string): boolean {
-  return UPGRADE_VERSION_PATTERN.test(version);
+export function isValidReleaseVersion(version: string): boolean {
+  return RELEASE_VERSION_PATTERN.test(version);
 }
 
 function extractVersion(output: string): string | undefined {
@@ -63,7 +65,7 @@ export function runUpgrade(
     // Reject an untrusted `--version` at the host boundary before spawning the
     // CLI. `latest` (or the `--latest` flag) is always allowed; an explicit
     // version must be a release tag. Preserves the never-reject contract.
-    if (options?.version && !isValidUpgradeVersion(options.version)) {
+    if (options?.version && !isValidReleaseVersion(options.version)) {
       resolve({
         ok: false,
         status: 400,
