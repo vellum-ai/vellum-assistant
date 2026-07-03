@@ -162,3 +162,31 @@ describe("plugin pipeline — per-conversation scope", () => {
     expect(result.seen).toEqual(["plugin-a", "plugin-b"]);
   });
 });
+
+describe("plugin pipeline — originalMessages isolation", () => {
+  test("mutating latestMessages does not affect originalMessages", async () => {
+    registerPlugin({
+      manifest: { name: "truncate-hook", version: "1.0.0" },
+      hooks: {
+        "user-prompt-submit": async (ctx: {
+          originalMessages: string[];
+          latestMessages: string[];
+        }) => {
+          ctx.latestMessages.length = 0;
+        },
+      },
+    });
+
+    const messages = ["hello", "world"];
+    const result = await runHook<{
+      originalMessages: string[];
+      latestMessages: string[];
+    }>("user-prompt-submit", {
+      originalMessages: Object.freeze([...messages]),
+      latestMessages: messages,
+    });
+
+    expect(result.latestMessages).toEqual([]);
+    expect(result.originalMessages).toEqual(["hello", "world"]);
+  });
+});
