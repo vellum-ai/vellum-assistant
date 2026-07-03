@@ -35,20 +35,32 @@
  * resolved to a real directory, it is skipped with a log line — plugins
  * importing it will fail individually with a clear module-not-found error.
  *
+ * ## Whitelist policy
+ *
+ * Only deps that are (a) already direct dependencies of the assistant,
+ * (b) pure-JS with no native bindings or lifecycle scripts, and (c) broadly
+ * useful to plugins belong here. Each addition widens the de-facto plugin
+ * SDK: plugins will pin to the assistant's copy and its version, so treat
+ * the list like public API surface. `zod` is the founding member — the
+ * plugin config-validation idiom depends on it, and the assistant pins an
+ * exact version.
+ *
  * Called from `loadUserPlugins` alongside `ensurePluginApiShim`, before any
  * user plugin is dynamic-imported. Never throws — failures are logged
  * per-dep and the daemon must never block startup.
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { mkdir,symlink } from "node:fs/promises";
+import { mkdir, symlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-import { SHARED_DEPS } from "../embedded/shared-deps.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 
 const log = getLogger("shared-dep-links");
+
+/** Package names to symlink into the workspace for plugin resolution. */
+const SHARED_DEPS: readonly string[] = Object.freeze(["zod"]);
 
 /**
  * Resolve a package to its on-disk directory by walking up from the entry
@@ -69,16 +81,20 @@ function resolvePackageDir(name: string): string | null {
     const pkgPath = join(dir, "package.json");
     if (existsSync(pkgPath)) {
       try {
-        const pkg = JSON.parse(
-          readFileSync(pkgPath, "utf8"),
-        ) as { name?: string };
-        if (pkg.name === name) {return dir;}
+        const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
+          name?: string;
+        };
+        if (pkg.name === name) {
+          return dir;
+        }
       } catch {
         // corrupt package.json — keep walking
       }
     }
     const parent = dirname(dir);
-    if (parent === dir) {break;} // reached filesystem root
+    if (parent === dir) {
+      break;
+    } // reached filesystem root
     dir = parent;
   }
   return null;
@@ -89,11 +105,8 @@ function resolvePackageDir(name: string): string | null {
  * Idempotent; per-dep failures are logged and do not abort the remaining
  * deps. Never throws.
  */
-export async function ensureSharedDepLinks(opts?: {
-  /** Override the workspace root. Defaults to `getWorkspaceDir()`. */
-  workspaceDir?: string;
-}): Promise<void> {
-  const workspaceDir = opts?.workspaceDir ?? getWorkspaceDir();
+export async function ensureSharedDepLinks(): Promise<void> {
+  const workspaceDir = getWorkspaceDir();
   const nodeModulesDir = join(workspaceDir, "node_modules");
 
   for (const name of SHARED_DEPS) {

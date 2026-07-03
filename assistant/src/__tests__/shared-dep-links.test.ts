@@ -15,26 +15,43 @@ import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, test } from "bun:test";
-
-import { SHARED_DEPS } from "../embedded/shared-deps.js";
-import { ensureSharedDepLinks } from "../plugins/ensure-shared-dep-links.js";
+import { afterEach, describe, expect, test } from "bun:test";
 
 const ZOD_REL_PATH = "node_modules/zod";
 
 describe("ensureSharedDepLinks", () => {
-  test("each whitelisted dep is resolvable on disk", () => {
-    // In the test environment (JIT, not compiled), every whitelisted dep
-    // must resolve to a real directory. A failure here means the dep is
-    // missing from the assistant's dependencies or the resolver is broken.
-    for (const name of SHARED_DEPS) {
-      expect(() => require.resolve(name)).not.toThrow();
+  // Ensure each test gets a fresh import of the linker, since the module
+  // reads getWorkspaceDir() (backed by VELLUM_WORKSPACE_DIR) at call time
+  // but the module itself may be cached across tests.
+  let prevWorkspaceDir: string | undefined;
+
+  afterEach(() => {
+    if (prevWorkspaceDir !== undefined) {
+      process.env.VELLUM_WORKSPACE_DIR = prevWorkspaceDir;
+    } else {
+      delete process.env.VELLUM_WORKSPACE_DIR;
     }
+  });
+
+  async function importLinker() {
+    // Dynamic import so VELLUM_WORKSPACE_DIR is read fresh each time.
+    return await import("../plugins/ensure-shared-dep-links.js");
+  }
+
+  test("each whitelisted dep is resolvable on disk", () => {
+    // In the test environment (JIT, not compiled), zod must resolve to a
+    // real directory. A failure here means the dep is missing from the
+    // assistant's dependencies or the resolver is broken.
+    expect(() => require.resolve("zod")).not.toThrow();
   });
 
   test("symlinks the real zod package into workspace node_modules", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "shared-dep-links-"));
-    await ensureSharedDepLinks({ workspaceDir });
+    prevWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+
+    const { ensureSharedDepLinks } = await importLinker();
+    await ensureSharedDepLinks();
 
     const linkPath = join(workspaceDir, ZOD_REL_PATH);
     expect(existsSync(linkPath)).toBe(true);
@@ -48,7 +65,11 @@ describe("ensureSharedDepLinks", () => {
 
   test("a fake user plugin can import and USE zod via the symlink", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "shared-dep-links-"));
-    await ensureSharedDepLinks({ workspaceDir });
+    prevWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+
+    const { ensureSharedDepLinks } = await importLinker();
+    await ensureSharedDepLinks();
 
     const pluginDir = join(workspaceDir, "plugins", "fake-plugin");
     await mkdir(pluginDir, { recursive: true });
@@ -70,11 +91,15 @@ describe("ensureSharedDepLinks", () => {
 
   test("is idempotent — existing links are not clobbered", async () => {
     const workspaceDir = await mkdtemp(join(tmpdir(), "shared-dep-links-"));
-    await ensureSharedDepLinks({ workspaceDir });
+    prevWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+
+    const { ensureSharedDepLinks } = await importLinker();
+    await ensureSharedDepLinks();
     const linkPath = join(workspaceDir, ZOD_REL_PATH);
     const first = await readFile(join(linkPath, "package.json"), "utf8");
 
-    await ensureSharedDepLinks({ workspaceDir });
+    await ensureSharedDepLinks();
     const second = await readFile(join(linkPath, "package.json"), "utf8");
     expect(second).toBe(first);
   });
@@ -86,7 +111,11 @@ describe("ensureSharedDepLinks", () => {
     const realPkg = JSON.stringify({ name: "zod", version: "9.9.9" });
     await writeFile(join(realDir, "package.json"), realPkg);
 
-    await ensureSharedDepLinks({ workspaceDir });
+    prevWorkspaceDir = process.env.VELLUM_WORKSPACE_DIR;
+    process.env.VELLUM_WORKSPACE_DIR = workspaceDir;
+
+    const { ensureSharedDepLinks } = await importLinker();
+    await ensureSharedDepLinks();
 
     const after = await readFile(join(realDir, "package.json"), "utf8");
     expect(after).toBe(realPkg);
