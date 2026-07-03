@@ -119,7 +119,6 @@ import {
   PLACEHOLDER_BLOCKS_OMITTED,
   PLACEHOLDER_EMPTY_TURN,
 } from "../providers/placeholder-sentinels.js";
-import { ProviderError } from "../util/errors.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -3349,41 +3348,5 @@ describe("AnthropicProvider — deprecated sampling params (temperature / top_p 
     expect(lastStreamParams!).not.toHaveProperty("temperature");
     expect(lastStreamParams!).not.toHaveProperty("top_p");
     expect(lastStreamParams!).not.toHaveProperty("top_k");
-  });
-});
-
-describe("AnthropicProvider — empty-message-list pre-flight guard", () => {
-  beforeEach(() => {
-    lastStreamParams = null;
-    scriptedStream = null;
-  });
-
-  // A turn whose only content is whitespace collapses to zero messages in
-  // buildSentMessages (empty-text blocks are filtered, then empty messages are
-  // dropped). Anthropic 400s that with "at least one message is required"; the
-  // guard rejects it before the request leaves.
-  test("throws a 400 ProviderError without calling the SDK when all messages are empty", async () => {
-    const provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
-
-    let thrown: unknown;
-    try {
-      await provider.sendMessage([userMsg("   ")]);
-    } catch (err) {
-      thrown = err;
-    }
-
-    expect(thrown).toBeInstanceOf(ProviderError);
-    const providerError = thrown as ProviderError;
-    expect(providerError.statusCode).toBe(400);
-    expect(providerError.provider).toBe("anthropic");
-    expect(providerError.message).toMatch(/message list was empty/i);
-    // The request must never have reached the SDK stream.
-    expect(lastStreamParams).toBeNull();
-  });
-
-  test("does not fire the guard for a non-empty turn", async () => {
-    const provider = new AnthropicProvider("sk-ant-test", "claude-sonnet-4-6");
-    await provider.sendMessage([userMsg("Hi")]);
-    expect(lastStreamParams).not.toBeNull();
   });
 });

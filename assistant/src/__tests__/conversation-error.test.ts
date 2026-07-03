@@ -320,22 +320,12 @@ describe("classifyConversationError", () => {
       expect(result.userMessage).not.toMatch(
         /at least one message is required/,
       );
-      expect(result.userMessage.toLowerCase()).toContain("internal issue");
+      expect(result.userMessage.toLowerCase()).toContain("no content");
     });
 
-    it("classifies the daemon pre-flight guard message (statusCode 400)", () => {
+    it("classifies an empty-messages ProviderError without a statusCode", () => {
       const err = new ProviderError(
-        "Refusing to send an empty request to Anthropic: the message list was empty after filtering (0 messages to send).",
-        "anthropic",
-        400,
-      );
-      const result = classifyConversationError(err, baseCtx);
-      expect(result.errorCategory).toBe("empty_request_messages");
-    });
-
-    it("classifies an empty-message ProviderError without a statusCode", () => {
-      const err = new ProviderError(
-        "the message list was empty after filtering",
+        "Anthropic API error: messages: at least one message is required",
         "anthropic",
       );
       const result = classifyConversationError(err, baseCtx);

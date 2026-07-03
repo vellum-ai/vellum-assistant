@@ -132,15 +132,11 @@ const STALE_WEB_SEARCH_CONTENT_PATTERNS = [
 ];
 
 // Empty-request-messages: Anthropic's 400 "messages: at least one message is
-// required", plus the daemon's own pre-flight guard message (see
-// `providers/anthropic/client.ts`). Reaching the provider with zero messages is
-// always an internal request-construction failure (over-aggressive history
-// filtering / provenance scoping), never bad user input — so it earns a clear,
-// non-alarming banner instead of the raw provider-rejection string.
-const EMPTY_REQUEST_MESSAGES_PATTERNS = [
-  /at least one message is required/i,
-  /message list was empty/i,
-];
+// required". Reaching the provider with zero messages is an internal
+// request-construction failure (e.g. over-aggressive history filtering /
+// provenance scoping), never bad user input — so it earns a clear, non-alarming
+// banner instead of the raw provider-rejection string.
+const EMPTY_REQUEST_MESSAGES_PATTERNS = [/at least one message is required/i];
 
 // Streaming corruption patterns (Anthropic SDK throws non-HTTP errors for SSE issues)
 const STREAMING_ERROR_PATTERNS = [
@@ -467,17 +463,16 @@ export function isContextTooLarge(message: string): boolean {
 
 /**
  * Check whether an error message indicates the request reached the provider
- * (or the pre-flight guard) with an empty `messages` array. See
- * `EMPTY_REQUEST_MESSAGES_PATTERNS`.
+ * with an empty `messages` array. See `EMPTY_REQUEST_MESSAGES_PATTERNS`.
  */
 function isEmptyRequestMessages(message: string): boolean {
   return EMPTY_REQUEST_MESSAGES_PATTERNS.some((p) => p.test(message));
 }
 
 /**
- * Classification for a request that ended up with no messages to send. This is
- * an internal request-construction failure, so the user-facing copy owns the
- * blame ("on our end") rather than surfacing the raw provider 400.
+ * Classification for a request that reached the provider with no messages to
+ * send. This is an internal request-construction failure, so the user-facing
+ * copy avoids surfacing the raw provider 400.
  */
 function emptyRequestMessagesClassification(): Omit<
   ClassifiedConversationError,
@@ -486,9 +481,7 @@ function emptyRequestMessagesClassification(): Omit<
   return {
     code: "PROVIDER_API",
     userMessage:
-      "This message couldn't be sent to the AI provider because the request " +
-      "ended up with no content. This is an internal issue on our end, not a " +
-      "problem with your input — please try again.",
+      "This request failed to be sent to the model because there was no content.",
     retryable: true,
     errorCategory: "empty_request_messages",
   };
