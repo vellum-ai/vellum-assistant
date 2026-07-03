@@ -179,7 +179,7 @@ describe("plugin pipeline — originalMessages isolation", () => {
 
     const messages = ["hello", "world"];
     const result = await runHook<{
-      originalMessages: string[];
+      originalMessages: readonly string[];
       latestMessages: string[];
     }>("user-prompt-submit", {
       originalMessages: Object.freeze([...messages]),
