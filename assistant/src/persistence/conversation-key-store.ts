@@ -218,15 +218,8 @@ export function getOrCreateConversation(
     const customTitle = opts?.title?.trim();
     const title = customTitle || GENERATING_TITLE;
     const memoryScopeId = "default";
-    // Snapshot↔stream alignment baseline, captured at the creation instant —
-    // the same seed `createConversation` writes. Without it the row starts at
-    // seq NULL and `/messages` stays anchor-less for the whole first turn
-    // (the 1s partial-persist debounce outlives a fast reply), which is what
-    // let mid-turn refetches wipe the streamed transcript on clients. Every
-    // event this conversation will ever emit is stamped above the current
-    // counter, so the current value is a correct baseline. 0 (nothing stamped
-    // yet this process) stays NULL so clients cold-start rather than align to
-    // seq 0.
+    // Snapshot↔stream alignment baseline, captured at the creation instant
+    // (same seed as `createConversation`; 0 is stored as NULL).
     const initialSeq = getCurrentSeq();
 
     tx.insert(conversations)

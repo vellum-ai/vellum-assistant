@@ -238,8 +238,10 @@ export function getReplayWindow(
 
 /**
  * Current high-water `seq` -- the value last assigned by
- * {@link stampAndBuffer}, or `0` when nothing has been stamped yet in
- * this process.
+ * {@link stampAndBuffer}, or the persisted reservation ceiling when this
+ * process hasn't stamped yet (every seq a previous process could have
+ * emitted is at or below that ceiling). `0` only on a true cold start
+ * with no reservation file.
  *
  * Read synchronously right after emitting an event to learn that event's
  * `seq`: `stampAndBuffer` runs inline on the publish path (before the
@@ -247,6 +249,7 @@ export function getReplayWindow(
  * returning and this read on the single-threaded event loop.
  */
 export function getCurrentSeq(): number {
+  loadSeqReservation();
   return state.nextSeq - 1;
 }
 
@@ -314,14 +317,23 @@ function seqReservationPath(): string {
  * still advanced so the write is retried at most once per block, not
  * per event), matching the daemon's degraded-mode philosophy.
  */
-function reserveSeqCapacity(): void {
-  if (!state.seqReservationLoaded) {
-    state.seqReservationLoaded = true;
-    state.reservedSeqCeiling = readReservedCeiling();
-    if (state.reservedSeqCeiling >= state.nextSeq) {
-      state.nextSeq = state.reservedSeqCeiling + 1;
-    }
+/**
+ * Load the persisted seq reservation once per process, advancing
+ * `nextSeq` past the ceiling so this process never re-assigns (or
+ * reports, via {@link getCurrentSeq}) a seq a previous process could
+ * have emitted.
+ */
+function loadSeqReservation(): void {
+  if (state.seqReservationLoaded) return;
+  state.seqReservationLoaded = true;
+  state.reservedSeqCeiling = readReservedCeiling();
+  if (state.reservedSeqCeiling >= state.nextSeq) {
+    state.nextSeq = state.reservedSeqCeiling + 1;
   }
+}
+
+function reserveSeqCapacity(): void {
+  loadSeqReservation();
 
   if (state.nextSeq <= state.reservedSeqCeiling) return;
 
