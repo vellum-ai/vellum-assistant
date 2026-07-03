@@ -18,6 +18,7 @@
 
 import { makeHookBroadcast } from "../hooks/hook-broadcast.js";
 import { getHookEntriesFor } from "../hooks/registry.js";
+import type { HookBroadcast } from "../hooks/types.js";
 import type { HookName } from "../plugin-api/constants.js";
 import { getLogger } from "../util/logger.js";
 import type { HookEntry } from "./types.js";
@@ -114,13 +115,13 @@ function cloneHookValue<T>(value: T, seen = new WeakMap<object, unknown>()): T {
  * the effective set. Contexts without a `conversationId` impose no restriction —
  * every globally-enabled plugin's hook runs.
  *
- * Before each hook runs, the pipeline stamps a `broadcast` capability onto its
- * (freshly-cloned) draft, bound to the hook's owner and — when the context
- * carries one — its `conversationId`. A hook calls `ctx.broadcast(detail)` to
- * emit a transient `hook_event` attributed to itself; it cannot pick the event
- * type, conversation, or owner. Every hook context receives it, so any
- * lifecycle hook can surface progress. Contexts that type `broadcast` (today,
- * `UserPromptSubmitContext`) expose it to hook authors directly.
+ * Before each hook runs, the pipeline stamps the {@link BaseHookContext}
+ * `broadcast` capability onto its (freshly-cloned) draft, bound to the hook's
+ * owner and — when the context carries one — its `conversationId`. A hook
+ * calls `ctx.broadcast(detail)` to emit a `hook_event` attributed to itself;
+ * it cannot pick the event type, conversation, or owner. Because the pipeline
+ * supplies it, call sites construct their context as
+ * `Omit<XContext, "broadcast">` and never provide the field themselves.
  *
  * @param name        The hook identifier — pick one from {@link HOOKS}.
  * @param initialCtx  Context the first hook receives.
@@ -149,9 +150,11 @@ export async function runHook<TCtx>(
     // Stamp a per-hook broadcast bound to this hook's owner and the
     // conversation resolved above (most hooks run inside one; hooks without a
     // `conversationId` emit an unscoped `hook_event`).
-    (
-      draft as { broadcast?: (detail: Record<string, unknown>) => void }
-    ).broadcast = makeHookBroadcast({ conversationId, hookName: name, owner });
+    (draft as { broadcast?: HookBroadcast }).broadcast = makeHookBroadcast({
+      conversationId,
+      hookName: name,
+      owner,
+    });
     try {
       const result = await fn(draft);
       if (result !== undefined) {

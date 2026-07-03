@@ -18,8 +18,9 @@
  * event is scoped to it, but hooks that run outside one (future non-turn
  * lifecycle events) may emit without it.
  *
- * Transient: the daemon does not buffer `hook_event` into the SSE replay ring,
- * so a client reconnecting mid-turn never replays stale progress.
+ * Delivered and replayed through the standard SSE stream like every other
+ * event; "transient" is a rendering contract — clients show it as ephemeral
+ * progress and drop it when the turn moves on, not a persistence guarantee.
  *
  * Canonical wire-contract source. Daemon code imports the type directly from
  * this file; external consumers import via `@vellumai/assistant-api`.

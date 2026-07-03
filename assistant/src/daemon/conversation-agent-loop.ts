@@ -904,7 +904,7 @@ export async function runAgentLoopImpl(
     // the chain settles on, in plugin registration order. The loop then reports
     // its own appended output via `AgentLoopRunResult.newMessages`, which
     // persistence consumes.
-    const userPromptCtx: UserPromptSubmitContext = {
+    const userPromptCtx: Omit<UserPromptSubmitContext, "broadcast"> = {
       conversationId: ctx.conversationId,
       userMessageId,
       requestId: reqId,
@@ -915,10 +915,6 @@ export async function runAgentLoopImpl(
       logger: rlog,
       modelProfileKey,
       isNonInteractive,
-      // Stamped per hook by `runHook` with the calling hook's owner
-      // attribution; this placeholder only satisfies the type and is never
-      // invoked (a chain with zero hooks never emits).
-      broadcast: () => {},
     };
     latencyTracker.mark("prompt_hook_start");
     const finalUserPromptCtx = await runHook(

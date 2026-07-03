@@ -61,6 +61,7 @@ function makeCtx(
     stopReason: "max_tokens",
     decision: "stop",
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }
