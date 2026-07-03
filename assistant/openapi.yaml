@@ -16278,7 +16278,6 @@ paths:
                   minLength: 1
               required:
                 - content
-              additionalProperties: false
       responses:
         "200":
           description: Successful response
@@ -16567,7 +16566,6 @@ paths:
               required:
                 - old_content
                 - new_content
-              additionalProperties: false
       responses:
         "200":
           description: Successful response
