@@ -522,12 +522,19 @@ function useAssistantBannerConfig(): BannerConfig | null {
     if (selectedPlatformAssistantId) {
       return selectedPlatformAssistantId;
     }
-    // Fall back to the org's platform assistant only when nothing is selected
-    // yet (early boot, before selection hydrates). When the user has
-    // explicitly selected a local/self-hosted assistant, the banner must not
-    // re-point itself — and its background polling — at an unrelated platform
-    // assistant that happens to exist in the same org.
-    if (selectedAssistantId != null) {
+    // Suppress the fallback only when the selection resolves to a KNOWN
+    // non-platform assistant: the user is deliberately on a local/self-hosted
+    // assistant, and the banner must not re-point itself — and its background
+    // polling — at an unrelated platform assistant in the same org. A null
+    // selection (early boot, before selection hydrates) or a STALE one (a
+    // persisted id whose assistant was deleted and is absent from the resolved
+    // list, which self-heals only on a clean lifecycle 404) still falls back,
+    // so a dead localStorage id can't permanently hide the migrating /
+    // crash-loop banner for the org's real platform assistant.
+    const selectedIsKnownAssistant = assistants.some(
+      (assistant) => assistant.id === selectedAssistantId,
+    );
+    if (selectedAssistantId != null && selectedIsKnownAssistant) {
       return null;
     }
     return platformAssistants[0]?.id ?? null;

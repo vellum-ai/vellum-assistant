@@ -382,6 +382,28 @@ describe("StatusBanner", () => {
     expect(requestedOperationalStatusAssistantId).toBeNull();
   });
 
+  test("falls back to the org's platform assistant when the selection is stale", () => {
+    // A persisted selection pointing at a DELETED assistant (absent from the
+    // resolved list) must not suppress the fallback — it only self-heals on a
+    // clean lifecycle 404, and until then the org's real platform assistant
+    // would otherwise never get a banner (e.g. "Assistant is migrating").
+    activeAssistantIdMock = null;
+    assistantStateMock = { kind: "loading" };
+    selectedAssistantIdMock = "assistant-deleted";
+    assistantsMock = [
+      {
+        id: "assistant-platform",
+        isLocal: false,
+        isPlatformHosted: true,
+        organizationId: "org-1",
+      },
+    ];
+
+    renderToStaticMarkup(<StatusBanner />);
+
+    expect(requestedOperationalStatusAssistantId).toBe("assistant-platform");
+  });
+
   test("renders operational error states with error tone and Doctor action for platform assistants", () => {
     for (const [state, title] of [
       ["crash_loop", "Assistant is crash looping"],
