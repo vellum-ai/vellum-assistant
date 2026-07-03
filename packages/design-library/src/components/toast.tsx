@@ -128,17 +128,14 @@ function ToastContent({
   );
 }
 
-// Sonner builds the toast object as `{ jsx: jsx(id), id, ...data }`, so an
-// explicit `id: undefined` key in `data` overwrites the id it just generated
-// and passed to the jsx render callback — sonner then mints a *different* id
-// for the stored toast, and dismissing by the callback's id (the close
-// button, or the id returned to the caller) targets a toast that doesn't
-// exist. Strip undefined keys before handing options to sonner.
-function definedOptions<T extends object>(options: T | undefined): Partial<T> {
-  if (!options) return {};
-  return Object.fromEntries(
-    Object.entries(options).filter(([, value]) => value !== undefined),
-  ) as Partial<T>;
+// Sonner builds the toast object as `{ jsx: jsx(id), id, ...data }`, so
+// forwarding `id: undefined` overwrites the id it generated and handed to
+// the jsx render callback — the stored toast ends up under a different id
+// and dismissing by the callback's id (the close button) no-ops. Always
+// hand sonner a concrete id of our own instead.
+let toastIdCounter = 0;
+function nextToastId(): string {
+  return `toast-${++toastIdCounter}`;
 }
 
 function showToast(
@@ -146,8 +143,9 @@ function showToast(
   variant: ToastVariant = "default",
   options?: ToastOptions,
 ) {
+  const id = options?.id ?? nextToastId();
   return sonnerToast.custom(
-    (id) => (
+    () => (
       <ToastContent
         message={message}
         variant={variant}
@@ -155,7 +153,7 @@ function showToast(
         onDismiss={() => sonnerToast.dismiss(id)}
       />
     ),
-    definedOptions({ duration: options?.duration, id: options?.id }),
+    { duration: options?.duration, id },
   );
 }
 
@@ -180,7 +178,11 @@ const toast = Object.assign(
     custom: (
       render: (id: number | string) => ReactElement,
       options?: CustomToastOptions,
-    ) => sonnerToast.custom(render, definedOptions(options)),
+    ) =>
+      sonnerToast.custom(render, {
+        ...options,
+        id: options?.id ?? nextToastId(),
+      }),
     dismiss: (id?: string | number) => sonnerToast.dismiss(id),
   },
 );
