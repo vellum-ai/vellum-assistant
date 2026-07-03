@@ -931,7 +931,7 @@ export async function runAgentLoopImpl(
       requestId: reqId,
       prompt: options?.titleText ?? content,
       isHiddenPrompt: options?.isHiddenPrompt === true,
-      originalMessages: ctx.messages,
+      originalMessages: Object.freeze([...ctx.messages]),
       latestMessages: ctx.messages,
       modelProfileKey,
       isNonInteractive,
