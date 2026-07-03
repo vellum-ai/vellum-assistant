@@ -70,9 +70,20 @@ const sampleEventsSchema = z.object({
   oomKill: z.number(),
 });
 
+const sampleMemoryStatSchema = z.object({
+  anonBytes: z.number().nullable(),
+  fileBytes: z.number().nullable(),
+  kernelBytes: z.number().nullable(),
+  slabReclaimableBytes: z.number().nullable(),
+  slabUnreclaimableBytes: z.number().nullable(),
+  unevictableBytes: z.number().nullable(),
+  reclaimableBytes: z.number().nullable(),
+});
+
 const latestSampleSchema = z.object({
   ts: z.number(),
   memory: sampleMemorySchema.nullable(),
+  memoryStat: sampleMemoryStatSchema.nullable(),
   events: sampleEventsSchema.nullable(),
   disk: sampleDiskSchema.nullable(),
 });

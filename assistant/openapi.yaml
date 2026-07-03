@@ -19585,6 +19585,48 @@ paths:
                                   - ratio
                                 additionalProperties: false
                               - type: "null"
+                          memoryStat:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  anonBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  fileBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  kernelBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  slabReclaimableBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  slabUnreclaimableBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  unevictableBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  reclaimableBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                required:
+                                  - anonBytes
+                                  - fileBytes
+                                  - kernelBytes
+                                  - slabReclaimableBytes
+                                  - slabUnreclaimableBytes
+                                  - unevictableBytes
+                                  - reclaimableBytes
+                                additionalProperties: false
+                              - type: "null"
                           events:
                             anyOf:
                               - type: object
@@ -19629,6 +19671,7 @@ paths:
                         required:
                           - ts
                           - memory
+                          - memoryStat
                           - events
                           - disk
                         additionalProperties: false

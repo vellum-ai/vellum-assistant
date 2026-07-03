@@ -136,7 +136,10 @@ describe("monitoring_stop", () => {
     const res = await handler("monitoring_stop")();
 
     expect(enabledCalls).toEqual([false]);
-    expect(res).toEqual({ monitoringWasRunning: false, monitoringEnabled: false });
+    expect(res).toEqual({
+      monitoringWasRunning: false,
+      monitoringEnabled: false,
+    });
   });
 });
 
@@ -166,6 +169,15 @@ describe("monitoring_status", () => {
         limitBytes: 8 * 1024 * 1024 * 1024,
         peakBytes: 7 * 1024 * 1024 * 1024,
         ratio: 0.75,
+      },
+      memoryStat: {
+        anonBytes: 4 * 1024 * 1024 * 1024,
+        fileBytes: 1024 * 1024 * 1024,
+        kernelBytes: 512 * 1024 * 1024,
+        slabReclaimableBytes: 400 * 1024 * 1024,
+        slabUnreclaimableBytes: 100 * 1024 * 1024,
+        unevictableBytes: 4 * 1024 * 1024 * 1024 + 100 * 1024 * 1024,
+        reclaimableBytes: 1024 * 1024 * 1024 + 400 * 1024 * 1024,
       },
       events: { low: 0, high: 0, max: 2, oom: 0, oomKill: 0 },
       disk: { path: "/workspace", usedMb: 100, totalMb: 1000, freeMb: 900 },
