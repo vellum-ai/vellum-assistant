@@ -19,6 +19,7 @@ import {
 import { dirname } from "node:path";
 
 import { getCurrentLogFilePath } from "./logger.js";
+import { workerMemoryEnv } from "./worker-memory.js";
 
 export interface WorkerProcessStatus {
   status: "running" | "not_running";
@@ -206,8 +207,11 @@ export async function spawnWorkerProcess(args: {
     // output is at least visible to the spawning process.
   }
 
+  // Workers are latency-insensitive, so run them in bun's small-heap mode
+  // with a RAM-size hint sized to the container — see worker-memory.ts.
   const child = Bun.spawn({
-    cmd: ["bun", "run", args.entry.pathname],
+    cmd: ["bun", "--smol", "run", args.entry.pathname],
+    env: workerMemoryEnv(),
     stdio: ["ignore", "ignore", stderrFd],
     detached,
   });
