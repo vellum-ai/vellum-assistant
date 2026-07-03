@@ -228,6 +228,30 @@ export function findPendingSessionForChannel(
   return row ? rowToSession(row) : null;
 }
 
+/**
+ * Channel-scoped existence check: any interceptable, non-expired session for
+ * the channel (union of `findPendingSessionForChannel` + `findActiveSession`
+ * statuses). Powers the trust verdict's session-presence stamp.
+ */
+export function hasInterceptableSessionForChannel(channel: string): boolean {
+  const db = getGatewayDb();
+
+  const row = db
+    .select({ id: channelVerificationSessions.id })
+    .from(channelVerificationSessions)
+    .where(
+      and(
+        eq(channelVerificationSessions.channel, channel),
+        inArray(channelVerificationSessions.status, INTERCEPTABLE_STATUSES),
+        gt(channelVerificationSessions.expiresAt, Date.now()),
+      ),
+    )
+    .limit(1)
+    .get();
+
+  return row !== undefined;
+}
+
 export type ConsumeSessionResult =
   | { consumed: true; consumedAt: number }
   | { consumed: false };

@@ -1,10 +1,11 @@
 /**
  * Gateway-side per-actor trust verdict resolver.
  *
- * Reads ONLY the gateway ACL DB to produce a {@link TrustVerdict} for an
- * inbound actor. Mirrors the daemon's classification precedence
- * (`actor-trust-resolver.ts`) and resolves channels by `(type,address)`
- * COLLATE NOCASE. Read-only — no writes, no assistant DB, no IPC.
+ * Reads ONLY the gateway DB (ACL tables + verification session presence) to
+ * produce a {@link TrustVerdict} for an inbound actor. Mirrors the daemon's
+ * classification precedence (`actor-trust-resolver.ts`) and resolves channels
+ * by `(type,address)` COLLATE NOCASE. Read-only — no writes, no assistant DB,
+ * no IPC.
  *
  * Blocked/revoked member channels classify as `unknown` (mirroring the
  * daemon), while their raw `status`/`policy` are surfaced verbatim so the
@@ -19,6 +20,7 @@ import {
   contacts as gwContacts,
   contactChannels as gwContactChannels,
 } from "../db/schema.js";
+import { hasInterceptableSessionForChannel } from "../db/session-store.js";
 import { canonicalSenderIdFor } from "../verification/identity.js";
 
 export interface ResolveTrustVerdictInput {
@@ -202,6 +204,17 @@ export async function resolveTrustVerdict(
   }
 
   const verdict: TrustVerdict = { trustClass, canonicalSenderId };
+
+  // Session-presence stamp (channel-scoped): lets the daemon's deny branches
+  // skip their verification-read IPC pair when no session exists. Best-effort
+  // — an omitted stamp just falls back to those reads, so a store failure
+  // must not convert an otherwise-good verdict into a resolver failure.
+  try {
+    verdict.hasInterceptableVerificationSession =
+      hasInterceptableSessionForChannel(input.channelType);
+  } catch {
+    // Stamp omitted; consumer falls back to IPC reads.
+  }
 
   if (guardianRow) {
     verdict.guardianExternalUserId = guardianRow.address;

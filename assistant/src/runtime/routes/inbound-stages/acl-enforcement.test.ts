@@ -69,6 +69,9 @@ mock.module("../../access-request-helper.js", () => ({
 // presses; the throw toggle simulates an unreachable gateway (transport
 // errors surface as thrown errors from the client).
 const createOutboundSessionCalls: unknown[] = [];
+// Verification-read IPC calls (getPendingSession/findActiveSession) — the
+// verdict's session-presence stamp must skip these when present-and-false.
+const sessionReadCalls: string[] = [];
 let gatewaySessionsUnreachable = false;
 let pendingSessionForTest: Record<string, unknown> | null = null;
 let activeSessionForTest: Record<string, unknown> | null = null;
@@ -102,10 +105,12 @@ mock.module("../../../channels/gateway-verification-sessions.js", () => ({
     };
   },
   findActiveSession: async () => {
+    sessionReadCalls.push("findActiveSession");
     throwIfUnreachable();
     return activeSessionForTest;
   },
   getPendingSession: async () => {
+    sessionReadCalls.push("getPendingSession");
     throwIfUnreachable();
     return pendingSessionForTest;
   },
@@ -163,6 +168,7 @@ beforeEach(() => {
   deliverReplyCalls.length = 0;
   accessRequestCalls.length = 0;
   createOutboundSessionCalls.length = 0;
+  sessionReadCalls.length = 0;
   accessRequestDeniedForTest = false;
   approvalHandshakeForTest = false;
   guardianDeliveryList = [];
@@ -958,5 +964,152 @@ describe("enforceIngressAcl — gateway-unreachable deny branches degrade to a p
 
     expect(result.earlyResponse!.reason).toBe("not_a_member");
     expect(createOutboundSessionCalls.length).toBe(0);
+  });
+});
+
+describe("enforceIngressAcl — verdict session-presence stamp elides the verification-read IPC pair", () => {
+  function strangerVerdict(
+    stamp: boolean | undefined,
+    senderId = "U123STRANGER",
+  ): TrustVerdict {
+    return {
+      trustClass: "unknown",
+      canonicalSenderId: senderId,
+      ...(stamp !== undefined && {
+        hasInterceptableVerificationSession: stamp,
+      }),
+    };
+  }
+
+  test("stamp false (Slack stranger): challenge minted with ZERO verification-read IPC calls", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123STRANGER",
+        rawSenderId: "U123STRANGER",
+        sourceMetadata: withVerdict(strangerVerdict(false)),
+      }),
+    );
+
+    expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
+    expect(createOutboundSessionCalls.length).toBe(1);
+    expect(sessionReadCalls.length).toBe(0);
+  });
+
+  test("stamp false (email stranger): challenge minted with ZERO verification-read IPC calls", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "email",
+        canonicalSenderId: "stranger@example.com",
+        rawSenderId: "stranger@example.com",
+        sourceMetadata: withVerdict(
+          strangerVerdict(false, "stranger@example.com"),
+        ),
+      }),
+    );
+
+    expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
+    expect(createOutboundSessionCalls.length).toBe(1);
+    expect(sessionReadCalls.length).toBe(0);
+  });
+
+  test("stamp false (Slack inactive member): re-verify challenge minted with ZERO verification-read IPC calls", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123MEMBER",
+        rawSenderId: "U123MEMBER",
+        sourceMetadata: withVerdict(
+          memberVerdict({
+            status: "unverified",
+            canonicalSenderId: "U123MEMBER",
+            address: "U123MEMBER",
+            type: "slack",
+            hasInterceptableVerificationSession: false,
+          }),
+        ),
+      }),
+    );
+
+    expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
+    expect(createOutboundSessionCalls.length).toBe(1);
+    expect(sessionReadCalls.length).toBe(0);
+  });
+
+  test("stamp true: falls back to the IPC reads — same-sender session still dedups", async () => {
+    // The stamp is channel-scoped; only `false` is authoritative. A `true`
+    // stamp must preserve the sender-scoped dedup via the reads.
+    activeSessionForTest = {
+      id: "existing-session",
+      channel: "slack",
+      status: "awaiting_response",
+      expectedExternalUserId: "U123STRANGER",
+    };
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123STRANGER",
+        rawSenderId: "U123STRANGER",
+        sourceMetadata: withVerdict(strangerVerdict(true)),
+      }),
+    );
+
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(sessionReadCalls.length).toBe(2);
+  });
+
+  test("stamp true: a DIFFERENT sender's session does not suppress the challenge", async () => {
+    activeSessionForTest = {
+      id: "existing-session",
+      channel: "slack",
+      status: "awaiting_response",
+      expectedExternalUserId: "U_SOMEONE_ELSE",
+    };
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123STRANGER",
+        rawSenderId: "U123STRANGER",
+        sourceMetadata: withVerdict(strangerVerdict(true)),
+      }),
+    );
+
+    expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
+    expect(createOutboundSessionCalls.length).toBe(1);
+    expect(sessionReadCalls.length).toBe(2);
+  });
+
+  test("absent stamp (legacy/voice-relay verdict): falls back to the IPC reads", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123STRANGER",
+        rawSenderId: "U123STRANGER",
+        sourceMetadata: withVerdict(strangerVerdict(undefined)),
+      }),
+    );
+
+    expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
+    expect(createOutboundSessionCalls.length).toBe(1);
+    expect(sessionReadCalls.length).toBe(2);
+  });
+
+  test("stamp false with the gateway unreachable at mint time degrades to a plain deny", async () => {
+    gatewaySessionsUnreachable = true;
+
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123STRANGER",
+        rawSenderId: "U123STRANGER",
+        sourceMetadata: withVerdict(strangerVerdict(false)),
+      }),
+    );
+
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    expect(sessionReadCalls.length).toBe(0);
   });
 });
