@@ -31,8 +31,7 @@ import "./test-preload.js";
 // ---------------------------------------------------------------------------
 
 // db_proxy — backed by an in-process sqlite DB with the mirror tables the
-// consume path touches (rate-limit dual-writes, trusted-contact mirror
-// lookup).
+// consume path touches (trusted-contact mirror lookup).
 let testAssistantDb: Database | null = null;
 
 mock.module("../db/assistant-db-proxy.js", () => ({
@@ -141,17 +140,6 @@ function seedAssistantMirrorTables(db: Database): void {
       verified_via TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER
-    );
-    CREATE TABLE channel_guardian_rate_limits (
-      id TEXT PRIMARY KEY,
-      channel TEXT NOT NULL,
-      actor_external_user_id TEXT NOT NULL,
-      actor_chat_id TEXT NOT NULL,
-      attempt_timestamps_json TEXT NOT NULL DEFAULT '[]',
-      locked_until INTEGER,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      UNIQUE (channel, actor_external_user_id, actor_chat_id)
     );
   `);
 }

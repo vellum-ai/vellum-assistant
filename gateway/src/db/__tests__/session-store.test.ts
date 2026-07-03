@@ -11,10 +11,12 @@ import {
   createInboundSession,
   createOutboundSession,
   findActiveSession,
+  findLatestSessionByStatuses,
   findPendingSessionByHash,
   findPendingSessionForChannel,
   findSessionByBootstrapTokenHash,
   findSessionByIdentity,
+  hasInterceptableSession,
   revokePendingSessions,
   updateSessionDelivery,
   updateSessionStatus,
@@ -297,6 +299,58 @@ describe("findActiveSession", () => {
   test("ignores expired sessions", () => {
     insertRaw({ id: "stale", status: "awaiting_response", expiresAt: PAST() });
     expect(findActiveSession("telegram")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// findLatestSessionByStatuses
+// ---------------------------------------------------------------------------
+
+describe("findLatestSessionByStatuses", () => {
+  test("matches only the given statuses, newest first", () => {
+    const now = Date.now();
+    insertRaw({ id: "await", status: "awaiting_response", createdAt: now });
+    expect(
+      findLatestSessionByStatuses("telegram", ["pending", "pending_bootstrap"]),
+    ).toBeNull();
+
+    insertRaw({ id: "old", status: "pending", createdAt: now - 500 });
+    insertRaw({ id: "new", status: "pending_bootstrap", createdAt: now });
+    expect(
+      findLatestSessionByStatuses("telegram", ["pending", "pending_bootstrap"])
+        ?.id,
+    ).toBe("new");
+  });
+
+  test("ignores expired sessions and other channels", () => {
+    insertRaw({ id: "stale", status: "pending", expiresAt: PAST() });
+    insertRaw({ id: "other", status: "pending", channel: "slack" });
+    expect(findLatestSessionByStatuses("telegram", ["pending"])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// hasInterceptableSession
+// ---------------------------------------------------------------------------
+
+describe("hasInterceptableSession", () => {
+  test("true for any non-expired interceptable status", () => {
+    for (const status of [
+      "pending",
+      "pending_bootstrap",
+      "awaiting_response",
+    ] as SessionStatus[]) {
+      getGatewayDb().delete(channelVerificationSessions).run();
+      insertRaw({ id: `s-${status}`, status });
+      expect(hasInterceptableSession("telegram")).toBe(true);
+    }
+  });
+
+  test("false for consumed, expired, or other-channel sessions", () => {
+    insertRaw({ id: "spent", status: "consumed" });
+    insertRaw({ id: "stale", status: "pending", expiresAt: PAST() });
+    insertRaw({ id: "other", status: "pending", channel: "slack" });
+    expect(hasInterceptableSession("telegram")).toBe(false);
   });
 });
 

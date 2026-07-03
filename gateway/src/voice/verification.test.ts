@@ -1,43 +1,16 @@
-import { describe, test, expect, mock, afterEach, beforeEach } from "bun:test";
+import { describe, test, expect, afterEach, beforeEach } from "bun:test";
 import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Database } from "bun:sqlite";
 
 import { initGatewayDb, resetGatewayDb } from "../db/connection.js";
+import { createInboundSession, getSessionById } from "../db/session-store.js";
+import {
+  findPendingPhoneSession,
+  validateVerificationCode,
+} from "./verification.js";
 
-// ---------------------------------------------------------------------------
-// Assistant DB proxy mock — backed by an in-process bun:sqlite test DB
-// ---------------------------------------------------------------------------
-
-let testAssistantDb: Database | null = null;
-
-mock.module("../db/assistant-db-proxy.js", () => ({
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async assistantDbQuery(sql: string, bind?: any[]) {
-    if (!testAssistantDb) throw new Error("test assistant DB not initialized");
-    const stmt = testAssistantDb.prepare(sql);
-    return bind ? stmt.all(...bind) : stmt.all();
-  },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  async assistantDbRun(sql: string, bind?: any[]) {
-    if (!testAssistantDb) throw new Error("test assistant DB not initialized");
-    const stmt = testAssistantDb.prepare(sql);
-    const result = bind ? stmt.run(...bind) : stmt.run();
-    return {
-      changes: result.changes,
-      lastInsertRowid: Number(result.lastInsertRowid),
-    };
-  },
-  async assistantDbExec(sql: string) {
-    if (!testAssistantDb) throw new Error("test assistant DB not initialized");
-    testAssistantDb.exec(sql);
-  },
-}));
-
-const { validateVerificationCode } = await import("./verification.js");
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PendingSession = Parameters<typeof validateVerificationCode>[0];
 
 // ---------------------------------------------------------------------------
@@ -55,47 +28,6 @@ async function setupTestDirs(): Promise<void> {
   const securityDir = join(testRoot, "protected");
   mkdirSync(securityDir, { recursive: true });
 
-  const dbDir = join(testRoot, "data", "db");
-  mkdirSync(dbDir, { recursive: true });
-
-  const db = new Database(join(dbDir, "assistant.db"));
-  db.exec("PRAGMA journal_mode=WAL");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS channel_verification_sessions (
-      id TEXT PRIMARY KEY,
-      channel TEXT NOT NULL,
-      challenge_hash TEXT NOT NULL,
-      expires_at INTEGER NOT NULL,
-      status TEXT NOT NULL,
-      verification_purpose TEXT NOT NULL DEFAULT 'guardian',
-      expected_external_user_id TEXT,
-      expected_chat_id TEXT,
-      expected_phone_e164 TEXT,
-      identity_binding_status TEXT,
-      code_digits INTEGER NOT NULL DEFAULT 6,
-      max_attempts INTEGER NOT NULL DEFAULT 3,
-      consumed_by_external_user_id TEXT,
-      consumed_by_chat_id TEXT,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
-    )
-  `);
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS channel_guardian_rate_limits (
-      id TEXT PRIMARY KEY,
-      channel TEXT NOT NULL,
-      actor_external_user_id TEXT NOT NULL,
-      actor_chat_id TEXT NOT NULL,
-      attempt_timestamps_json TEXT NOT NULL,
-      locked_until INTEGER,
-      created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL,
-      UNIQUE (channel, actor_external_user_id, actor_chat_id)
-    )
-  `);
-
-  testAssistantDb = db;
-
   process.env.VELLUM_WORKSPACE_DIR = testRoot;
   process.env.GATEWAY_SECURITY_DIR = securityDir;
 
@@ -103,39 +35,30 @@ async function setupTestDirs(): Promise<void> {
 }
 
 function seedPendingSession(id: string, code: string): PendingSession {
-  const now = Date.now();
-  const expiresAt = now + 5 * 60 * 1000;
-  const challengeHash = hashSecret(code);
-
-  testAssistantDb!
-    .prepare(
-      `INSERT INTO channel_verification_sessions
-        (id, channel, challenge_hash, expires_at, status,
-         verification_purpose, code_digits, max_attempts, created_at, updated_at)
-       VALUES (?, 'phone', ?, ?, 'pending', 'guardian', 6, 3, ?, ?)`,
-    )
-    .run(id, challengeHash, expiresAt, now, now);
+  const session = createInboundSession({
+    id,
+    channel: "phone",
+    challengeHash: hashSecret(code),
+    expiresAt: Date.now() + 5 * 60 * 1000,
+  });
 
   return {
-    id,
-    challengeHash,
-    expiresAt,
-    status: "pending",
-    verificationPurpose: "guardian",
+    id: session.id,
+    challengeHash: session.challengeHash,
+    expiresAt: session.expiresAt,
+    status: session.status,
+    verificationPurpose: session.verificationPurpose,
     expectedExternalUserId: null,
     expectedChatId: null,
     expectedPhoneE164: null,
     identityBindingStatus: null,
-    codeDigits: 6,
-    maxAttempts: 3,
+    codeDigits: session.codeDigits,
+    maxAttempts: session.maxAttempts,
   };
 }
 
 function sessionStatus(id: string): string | undefined {
-  const row = testAssistantDb!
-    .prepare(`SELECT status FROM channel_verification_sessions WHERE id = ?`)
-    .get(id) as { status: string } | undefined;
-  return row?.status;
+  return getSessionById(id)?.status;
 }
 
 beforeEach(async () => {
@@ -144,19 +67,30 @@ beforeEach(async () => {
 
 afterEach(() => {
   resetGatewayDb();
-  if (testAssistantDb) {
-    try {
-      testAssistantDb.close();
-    } catch {
-      /* best effort */
-    }
-    testAssistantDb = null;
-  }
   try {
     rmSync(testRoot, { recursive: true, force: true });
   } catch {
     /* best effort */
   }
+});
+
+// ---------------------------------------------------------------------------
+// findPendingPhoneSession — gateway DB read
+// ---------------------------------------------------------------------------
+
+describe("findPendingPhoneSession", () => {
+  test("returns a gateway-seeded pending phone session", async () => {
+    seedPendingSession("sess-lookup", "123456");
+
+    const found = await findPendingPhoneSession();
+    expect(found?.id).toBe("sess-lookup");
+    expect(found?.status).toBe("pending");
+    expect(found?.codeDigits).toBe(6);
+  });
+
+  test("returns null when no pending session exists", async () => {
+    expect(await findPendingPhoneSession()).toBeNull();
+  });
 });
 
 // ---------------------------------------------------------------------------
