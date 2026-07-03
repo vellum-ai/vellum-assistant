@@ -17,9 +17,11 @@ import type { AssistantEntry } from "../lib/assistant-config.js";
 const testDir = mkdtempSync(join(tmpdir(), "retire-local-test-"));
 const originalLockfileDir = process.env.VELLUM_LOCKFILE_DIR;
 
-const stopProcessByPidFileMock = mock(async () => true);
-const stopOrphanedDaemonProcessesMock = mock(async () => false);
-const stopIngressNginxMock = mock(async () => false);
+const stopProcessByPidFileMock = mock(
+  async (_pidFile: string, _label: string): Promise<boolean> => true,
+);
+const stopOrphanedDaemonProcessesMock = mock(async (): Promise<boolean> => false);
+const stopIngressNginxMock = mock(async (): Promise<boolean> => false);
 
 mock.module("../lib/process.js", () => ({
   stopProcessByPidFile: stopProcessByPidFileMock,
@@ -100,8 +102,10 @@ describe("retireLocal — CES sibling stop", () => {
   test("stops the CES sibling alongside daemon and gateway", async () => {
     const entry = makeEntry("test-assistant");
     await retireLocal("test-assistant", entry, {
+      progress: () => {},
       log: () => {},
       warn: () => {},
+      error: () => {},
     });
 
     // Verify CES PID file is among the stop calls.
@@ -127,15 +131,19 @@ describe("retireLocal — CES sibling stop", () => {
   test("CES stop is a no-op when ces.pid is absent", async () => {
     // stopProcessByPidFile returns false when the PID file doesn't exist.
     // retireLocal should still complete successfully — the CES stop is best-effort.
-    stopProcessByPidFileMock.mockImplementation(async (pidFile) => {
-      if (pidFile.includes("ces.pid")) return false;
-      return true;
-    });
+    stopProcessByPidFileMock.mockImplementation(
+      async (pidFile: string): Promise<boolean> => {
+        if (pidFile.includes("ces.pid")) return false;
+        return true;
+      },
+    );
 
     const entry = makeEntry("test-assistant");
     await retireLocal("test-assistant", entry, {
+      progress: () => {},
       log: () => {},
       warn: () => {},
+      error: () => {},
     });
 
     // The CES stop was attempted (PID file checked) but returned false.
