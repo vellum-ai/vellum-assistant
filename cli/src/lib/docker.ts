@@ -1626,7 +1626,45 @@ async function waitForGatewayAndLease(opts: {
     log(`  Container: ${containerName}`);
     log("");
     log(`Stop with: vellum retire ${instanceName}`);
-    return { ready: true };
+
+    // Lease a guardian token even in detached mode so that `vellum ps`,
+    // `vellum exec`, and other CLI commands can authenticate to the
+    // gateway. Skip the /readyz readiness poll (the caller asked to detach
+    // and not block) but retry the lease itself since the gateway may need
+    // a moment to accept connections after the container starts.
+    const leaseStart = Date.now();
+    const leaseDeadline = containersUpAt + DOCKER_READY_TIMEOUT_MS;
+    let guardianAccessToken: string | undefined;
+    while (Date.now() < leaseDeadline) {
+      try {
+        const tokenData = await leaseGuardianToken(
+          runtimeUrl,
+          instanceName,
+          bootstrapSecret,
+        );
+        guardianAccessToken = tokenData.accessToken;
+        const leaseElapsed = ((Date.now() - leaseStart) / 1000).toFixed(1);
+        log(
+          `Guardian token lease: success after ${leaseElapsed}s (principalId=${tokenData.guardianPrincipalId})`,
+        );
+        break;
+      } catch (err) {
+        const elapsed = ((Date.now() - leaseStart) / 1000).toFixed(0);
+        const msg = err instanceof Error ? err.message : String(err);
+        log(
+          `Guardian token lease: attempt failed after ${elapsed}s (${msg.split("\n")[0]}), retrying...`,
+        );
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+    }
+    if (!guardianAccessToken) {
+      log(
+        `⚠️  Guardian token lease failed after ${DOCKER_READY_TIMEOUT_MS / 1000}s.\n` +
+          `   The assistant is running but CLI commands (vellum ps, vellum exec) will not authenticate.\n` +
+          `   Re-hatch or run \`vellum setup\` to recover.`,
+      );
+    }
+    return { ready: true, guardianAccessToken };
   }
 
   log(`  Container: ${containerName}`);
