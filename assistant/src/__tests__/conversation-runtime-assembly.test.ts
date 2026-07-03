@@ -1103,6 +1103,13 @@ describe("applyRuntimeInjections — injection mode", () => {
       conversationId: "injection-mode-conv",
       isNonInteractive: false,
       modelProfileKey: "balanced",
+      logger: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+      },
+      broadcast: () => {},
     };
     await postCompact(postCompactCtx);
     const result = postCompactCtx.history;

@@ -1000,13 +1000,14 @@ export class AgentLoop {
       overflowSignal != null || compactResult.compacted
         ? compactResult.messages
         : history;
-    const postCompactCtx: PostCompactContext = {
+    const postCompactCtx: Omit<PostCompactContext, "broadcast"> = {
       history: base,
       requestId,
       conversationId: this.conversationId,
       isNonInteractive,
       modelProfileKey,
       injectionMode: compactResult.injectionMode,
+      logger: log.child({ requestId }),
     };
     // The hook chain writes the re-injected history back onto the context;
     // read it from there once the chain settles.
@@ -1159,7 +1160,7 @@ export class AgentLoop {
     ): Promise<void> => {
       if (turnStopped) return;
       turnStopped = true;
-      const stopCtx: StopContext = {
+      const stopCtx: Omit<StopContext, "broadcast"> = {
         conversationId: this.conversationId,
         messages: [...history],
         error,
@@ -1639,7 +1640,7 @@ export class AgentLoop {
         // call site / conversation. Fail-open: a throwing hook leaves the
         // request unchanged and streaming live.
         try {
-          const preModelCtx: PreModelCallContext = {
+          const preModelCtx: Omit<PreModelCallContext, "broadcast"> = {
             conversationId: this.conversationId,
             callSite: callSite ?? null,
             systemPrompt: providerOptions.systemPrompt ?? null,
@@ -1806,7 +1807,7 @@ export class AgentLoop {
           messages: Message[];
         }> => {
           try {
-            const ctx: PostModelCallContext = {
+            const ctx: Omit<PostModelCallContext, "broadcast"> = {
               conversationId: this.conversationId,
               callSite: callSite ?? null,
               content: structuredClone(message.content),
@@ -2245,7 +2246,7 @@ export class AgentLoop {
             resultBlocks.push(block);
             continue;
           }
-          const postToolUseCtx: PostToolUseContext = {
+          const postToolUseCtx: Omit<PostToolUseContext, "broadcast"> = {
             conversationId: this.conversationId,
             toolResponse: block as ToolResultContent,
             messages: history,
@@ -2451,7 +2452,7 @@ export class AgentLoop {
         // hooks) is not a provider stop, so it falls straight through to the
         // error path below.
         if (error === providerCallError) {
-          const errorOutcomeCtx: PostModelCallContext = {
+          const errorOutcomeCtx: Omit<PostModelCallContext, "broadcast"> = {
             conversationId: this.conversationId,
             callSite: callSite ?? null,
             content: [],
@@ -2461,7 +2462,8 @@ export class AgentLoop {
             decision: "stop",
             logger: rlog,
           };
-          let errorOutcome: PostModelCallContext = errorOutcomeCtx;
+          let errorOutcome: Omit<PostModelCallContext, "broadcast"> =
+            errorOutcomeCtx;
           try {
             errorOutcome = await runHook(
               HOOKS.POST_MODEL_CALL,

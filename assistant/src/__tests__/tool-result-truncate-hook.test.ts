@@ -53,6 +53,7 @@ function makeCtx(content: string): PostToolUseContext {
     callSite: "mainAgent",
     supportsDynamicUi: true,
     logger: noopLogger,
+    broadcast: () => {},
   };
 }
 

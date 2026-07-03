@@ -217,6 +217,7 @@ function makePostModelCallCtx(
     stopReason: null,
     decision: "stop",
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }
@@ -353,6 +354,7 @@ function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
     messages: [],
     exitReason: "no_tool_calls",
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }

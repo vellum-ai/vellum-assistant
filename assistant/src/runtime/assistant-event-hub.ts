@@ -48,13 +48,6 @@ import { stampAndBuffer } from "./assistant-stream-state.js";
 
 const log = getLogger("assistant-event-hub");
 
-/**
- * Event `type`s that are delivered live but never buffered into the SSE replay
- * ring. Reconnecting clients (via `Last-Event-ID`) skip these — appropriate for
- * transient signals that are meaningless once the turn moves on.
- */
-const NON_REPLAYABLE_EVENT_TYPES = new Set<string>(["hook_event"]);
-
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 /** Filter that determines which events a subscriber receives. */
@@ -643,13 +636,7 @@ export function broadcastMessage(
           excludeClientId,
         }
       : undefined;
-  // Transient event types are delivered live but never buffered into the SSE
-  // replay ring, so a client reconnecting with `Last-Event-ID` does not replay
-  // stale progress. `hook_event` is progress a lifecycle hook emits mid-turn;
-  // once the turn advances it is meaningless, so replaying it would mislead.
-  if (!NON_REPLAYABLE_EVENT_TYPES.has(msg.type)) {
-    stampAndBuffer(event, { targeting: publishOptions });
-  }
+  stampAndBuffer(event, { targeting: publishOptions });
   _hubChain = _hubChain
     .then(() => assistantEventHub.publish(event, publishOptions))
     .then(() => {

@@ -5,19 +5,20 @@
  * one), the hook name, and the emitting hook's owner. The hook supplies only
  * `detail` — it cannot choose the event type, the conversation, or the owner.
  *
- * `hook_event` is excluded from the SSE replay ring in `broadcastMessage`, so
- * these transient signals are delivered live but never replayed on reconnect.
+ * `hook_event` travels the standard SSE stream (including reconnect replay)
+ * like every other event; clients render it as transient progress.
  */
 
 import type { HookEventOwner } from "../api/events/hook-event.js";
 import type { HookName } from "../plugin-api/constants.js";
 import { broadcastMessage } from "../runtime/assistant-event-hub.js";
+import type { HookBroadcast } from "./types.js";
 
 export function makeHookBroadcast(meta: {
   conversationId?: string;
   hookName: HookName;
   owner: HookEventOwner;
-}): (detail: Record<string, unknown>) => void {
+}): HookBroadcast {
   return (detail) => {
     broadcastMessage(
       {
