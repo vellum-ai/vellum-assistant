@@ -128,6 +128,19 @@ function ToastContent({
   );
 }
 
+// Sonner builds the toast object as `{ jsx: jsx(id), id, ...data }`, so an
+// explicit `id: undefined` key in `data` overwrites the id it just generated
+// and passed to the jsx render callback — sonner then mints a *different* id
+// for the stored toast, and dismissing by the callback's id (the close
+// button, or the id returned to the caller) targets a toast that doesn't
+// exist. Strip undefined keys before handing options to sonner.
+function definedOptions<T extends object>(options: T | undefined): Partial<T> {
+  if (!options) return {};
+  return Object.fromEntries(
+    Object.entries(options).filter(([, value]) => value !== undefined),
+  ) as Partial<T>;
+}
+
 function showToast(
   message: string,
   variant: ToastVariant = "default",
@@ -142,7 +155,7 @@ function showToast(
         onDismiss={() => sonnerToast.dismiss(id)}
       />
     ),
-    { duration: options?.duration, id: options?.id },
+    definedOptions({ duration: options?.duration, id: options?.id }),
   );
 }
 
@@ -167,7 +180,7 @@ const toast = Object.assign(
     custom: (
       render: (id: number | string) => ReactElement,
       options?: CustomToastOptions,
-    ) => sonnerToast.custom(render, options),
+    ) => sonnerToast.custom(render, definedOptions(options)),
     dismiss: (id?: string | number) => sonnerToast.dismiss(id),
   },
 );
