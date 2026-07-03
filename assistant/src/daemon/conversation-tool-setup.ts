@@ -17,7 +17,6 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
-import { getAllDefaultPlugins } from "../plugins/defaults/index.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -158,13 +157,36 @@ export function getEffectiveEnabledPluginSet(conv: {
   const effective = new Set(conv.enabledPlugins);
   // Rules 2 + 3: add a default the conversation did not already decide, unless
   // it is disabled at the workspace level.
-  for (const plugin of getAllDefaultPlugins()) {
-    const name = plugin.manifest.name;
+  for (const name of getDefaultPluginNames()) {
     if (!effective.has(name) && !isPluginDisabled(name)) {
       effective.add(name);
     }
   }
   return effective;
+}
+
+let cachedDefaultPluginNames: readonly string[] | null = null;
+
+/**
+ * Names of the first-party default plugins, read from the canonical
+ * `getAllDefaultPlugins` list and cached on first use.
+ *
+ * Inline require is necessary here: the defaults barrel transitively reaches
+ * back into `daemon/` modules, so a static import from this module re-enters
+ * the barrel mid-initialization on module graphs that start inside a default
+ * plugin's internals (e.g. the memory hook tests) and throws a TDZ
+ * ReferenceError. Loading at first call runs after the graph has settled.
+ */
+function getDefaultPluginNames(): readonly string[] {
+  if (cachedDefaultPluginNames === null) {
+    const { getAllDefaultPlugins } =
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require("../plugins/defaults/index.js") as typeof import("../plugins/defaults/index.js");
+    cachedDefaultPluginNames = getAllDefaultPlugins().map(
+      (p) => p.manifest.name,
+    );
+  }
+  return cachedDefaultPluginNames;
 }
 
 // ── createToolExecutor ───────────────────────────────────────────────
