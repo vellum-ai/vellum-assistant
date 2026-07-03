@@ -19651,6 +19651,43 @@ paths:
                                   - workingsetRefaultFile
                                 additionalProperties: false
                               - type: "null"
+                          cpu:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  usageUsec:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  userUsec:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  systemUsec:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  nrPeriods:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  nrThrottled:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  throttledUsec:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                required:
+                                  - usageUsec
+                                  - userUsec
+                                  - systemUsec
+                                  - nrPeriods
+                                  - nrThrottled
+                                  - throttledUsec
+                                additionalProperties: false
+                              - type: "null"
                           events:
                             anyOf:
                               - type: object
@@ -19731,9 +19768,47 @@ paths:
                                           - workingsetRefaultFile
                                         additionalProperties: false
                                       - type: "null"
+                                  cpu:
+                                    anyOf:
+                                      - type: object
+                                        properties:
+                                          usageUsec:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          userUsec:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          systemUsec:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          nrPeriods:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          nrThrottled:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          throttledUsec:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                        required:
+                                          - usageUsec
+                                          - userUsec
+                                          - systemUsec
+                                          - nrPeriods
+                                          - nrThrottled
+                                          - throttledUsec
+                                        additionalProperties: false
+                                      - type: "null"
                                 required:
                                   - events
                                   - reclaim
+                                  - cpu
                                 additionalProperties: false
                               - type: "null"
                           disk:
@@ -19760,6 +19835,7 @@ paths:
                           - memory
                           - memoryStat
                           - reclaim
+                          - cpu
                           - events
                           - deltas
                           - disk
