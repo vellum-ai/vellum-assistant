@@ -16,10 +16,11 @@
  * Design doc: `.private/plans/agent-plugin-system.md`.
  */
 
-import { getHooksFor } from "../hooks/registry.js";
+import { makeHookBroadcast } from "../hooks/hook-broadcast.js";
+import { getHookEntriesFor } from "../hooks/registry.js";
 import type { HookName } from "../plugin-api/constants.js";
 import { getLogger } from "../util/logger.js";
-import type { HookFunction } from "./types.js";
+import type { HookEntry } from "./types.js";
 
 // ─── Hook runner ────────────────────────────────────────────────────────────
 
@@ -108,10 +109,18 @@ function cloneHookValue<T>(value: T, seen = new WeakMap<object, unknown>()): T {
  * returned.
  *
  * When `initialCtx` carries a `conversationId`, it is passed to
- * {@link getHooksFor}, which resolves the conversation's per-chat plugin scope
- * (memory, then DB) and skips a hook whose contributing plugin is outside the
- * effective set. Contexts without a `conversationId` impose no restriction —
+ * {@link getHookEntriesFor}, which resolves the conversation's per-chat plugin
+ * scope (memory, then DB) and skips a hook whose contributing plugin is outside
+ * the effective set. Contexts without a `conversationId` impose no restriction —
  * every globally-enabled plugin's hook runs.
+ *
+ * Before each hook runs, the pipeline stamps a `broadcast` capability onto its
+ * (freshly-cloned) draft, bound to the hook's owner and — when the context
+ * carries one — its `conversationId`. A hook calls `ctx.broadcast(detail)` to
+ * emit a transient `hook_event` attributed to itself; it cannot pick the event
+ * type, conversation, or owner. Every hook context receives it, so any
+ * lifecycle hook can surface progress. Contexts that type `broadcast` (today,
+ * `UserPromptSubmitContext`) expose it to hook authors directly.
  *
  * @param name        The hook identifier — pick one from {@link HOOKS}.
  * @param initialCtx  Context the first hook receives.
@@ -123,9 +132,9 @@ export async function runHook<TCtx>(
   initialCtx: TCtx,
 ): Promise<TCtx> {
   const conversationId = extractConversationId(initialCtx);
-  let hooks: HookFunction<TCtx>[];
+  let entries: HookEntry<TCtx>[];
   try {
-    hooks = await getHooksFor<TCtx>(name, { conversationId });
+    entries = await getHookEntriesFor<TCtx>(name, { conversationId });
   } catch (err) {
     log.error(
       { err, hookName: name },
@@ -135,10 +144,16 @@ export async function runHook<TCtx>(
   }
 
   let active = initialCtx;
-  for (const hook of hooks) {
+  for (const { fn, owner } of entries) {
     const draft = cloneHookValue(active);
+    // Stamp a per-hook broadcast bound to this hook's owner and the
+    // conversation resolved above (most hooks run inside one; hooks without a
+    // `conversationId` emit an unscoped `hook_event`).
+    (
+      draft as { broadcast?: (detail: Record<string, unknown>) => void }
+    ).broadcast = makeHookBroadcast({ conversationId, hookName: name, owner });
     try {
-      const result = await hook(draft);
+      const result = await fn(draft);
       if (result !== undefined) {
         active = { ...draft, ...result };
       } else {
@@ -146,7 +161,7 @@ export async function runHook<TCtx>(
       }
     } catch (err) {
       log.error(
-        { err, hookName: name },
+        { err, hookName: name, owner },
         "plugin hook failed — proceeding with current context",
       );
     }

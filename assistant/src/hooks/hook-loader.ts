@@ -38,6 +38,7 @@ import type {
 } from "../plugin-api/types.js";
 import { listSurfaceDir } from "../plugins/external-plugin-loader.js";
 import { getMtime, importWithTimeout } from "../plugins/surface-import.js";
+import type { HookEntry } from "../plugins/types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspaceHooksDir } from "../util/platform.js";
 import { APP_VERSION } from "../version.js";
@@ -150,12 +151,12 @@ async function resolveCachedHook<TCtx>(
  * conversation). The standalone workspace hook is not owned by a plugin, so it
  * always runs. `null`/omitted means no per-chat restriction.
  */
-export async function collectUserHooks<TCtx = unknown>(
+export async function collectUserHookEntries<TCtx = unknown>(
   hookName: string,
   pluginDirs: Iterable<readonly [string, string]>,
   effectiveEnabledPlugins?: Set<string> | null,
-): Promise<HookFunction<TCtx>[]> {
-  const out: HookFunction<TCtx>[] = [];
+): Promise<HookEntry<TCtx>[]> {
+  const out: HookEntry<TCtx>[] = [];
 
   for (const [pluginDir, pluginName] of pluginDirs) {
     if (
@@ -174,7 +175,9 @@ export async function collectUserHooks<TCtx = unknown>(
       hookName,
       hookFile.path,
     );
-    if (hook !== undefined) out.push(hook);
+    if (hook !== undefined) {
+      out.push({ fn: hook, owner: { kind: "plugin", id: pluginName } });
+    }
   }
 
   // Standalone workspace hooks: files directly under `<workspace>/hooks/`
@@ -188,10 +191,33 @@ export async function collectUserHooks<TCtx = unknown>(
       hookName,
       wsHookFile.path,
     );
-    if (hook !== undefined) out.push(hook);
+    if (hook !== undefined) {
+      out.push({
+        fn: hook,
+        owner: { kind: "workspace", id: WORKSPACE_HOOKS_OWNER },
+      });
+    }
   }
 
   return out;
+}
+
+/**
+ * {@link collectUserHookEntries} without owner attribution — returns just the
+ * hook functions in the same order. For callers that only dispatch the chain
+ * and don't attribute per-hook side effects.
+ */
+export async function collectUserHooks<TCtx = unknown>(
+  hookName: string,
+  pluginDirs: Iterable<readonly [string, string]>,
+  effectiveEnabledPlugins?: Set<string> | null,
+): Promise<HookFunction<TCtx>[]> {
+  const entries = await collectUserHookEntries<TCtx>(
+    hookName,
+    pluginDirs,
+    effectiveEnabledPlugins,
+  );
+  return entries.map((e) => e.fn);
 }
 
 /**

@@ -6,6 +6,10 @@ import {
   broadcastMessage,
   capabilityForMessageType,
 } from "../runtime/assistant-event-hub.js";
+import {
+  _resetStreamStateForTesting,
+  getReplayWindow,
+} from "../runtime/assistant-stream-state.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 
 function makeEvent(overrides: Partial<AssistantEvent> = {}): AssistantEvent {
@@ -528,5 +532,38 @@ describe("broadcastMessage — pending interaction registration", () => {
     } as never);
 
     expect(pendingInteractions.get("req-bash-1")).toBeUndefined();
+  });
+});
+
+// ── broadcastMessage — SSE replay ring exclusion ────────────────────────────
+//
+// `hook_event` is transient hook progress. It must be delivered live but never
+// buffered into the replay ring, so a client reconnecting with `Last-Event-ID`
+// does not replay stale progress. Buffered event types (e.g. text deltas) still
+// replay as usual.
+describe("broadcastMessage — replay ring exclusion", () => {
+  beforeEach(() => {
+    _resetStreamStateForTesting();
+  });
+
+  test("hook_event is not buffered for replay; a text delta is", () => {
+    broadcastMessage({
+      type: "hook_event",
+      conversationId: "sess_1",
+      hookName: "user-prompt-submit",
+      owner: { kind: "plugin", id: "default-memory" },
+      detail: { phase: "selecting" },
+    });
+    broadcastMessage({
+      type: "assistant_text_delta",
+      conversationId: "sess_1",
+      text: "hi",
+    });
+
+    // Replaying from before either event: the ring holds only the text delta.
+    const replayed = getReplayWindow(0, undefined, "sess_1");
+    expect(replayed?.map((e) => e.message.type)).toEqual([
+      "assistant_text_delta",
+    ]);
   });
 });

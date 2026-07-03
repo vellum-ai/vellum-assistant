@@ -59,7 +59,13 @@ describe("plugin pipeline", () => {
 
     const result = await runHook("user-prompt-submit", { value: 0 });
 
-    expect(result).toEqual({ value: 2 });
+    // The threaded mutation is preserved. The pipeline also stamps a
+    // `broadcast` capability onto every hook context, so assert the field
+    // rather than an exact shape.
+    expect(result).toMatchObject({ value: 2 });
+    expect(typeof (result as { broadcast?: unknown }).broadcast).toBe(
+      "function",
+    );
   });
 
   test("discards in-place mutations from a failed hook", async () => {
