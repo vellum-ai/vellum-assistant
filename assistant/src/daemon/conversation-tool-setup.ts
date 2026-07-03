@@ -153,40 +153,26 @@ export function getEffectiveEnabledPluginSet(conv: {
   enabledPlugins?: string[] | null;
 }): Set<string> | null {
   if (conv.enabledPlugins == null) return null;
+  // Inline require of the canonical default-plugin list: the defaults barrel
+  // transitively reaches back into `daemon/` modules, so a static import from
+  // this module re-enters the barrel mid-initialization on module graphs that
+  // start inside a default plugin's internals (e.g. the memory hook tests) and
+  // throws a TDZ ReferenceError. Loading at call time runs after the graph has
+  // settled, and Bun's module registry caches the loaded module.
+  const { getAllDefaultPlugins } =
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require("../plugins/defaults/index.js") as typeof import("../plugins/defaults/index.js");
   // Rule 1: the conversation's explicit selections always apply.
   const effective = new Set(conv.enabledPlugins);
   // Rules 2 + 3: add a default the conversation did not already decide, unless
   // it is disabled at the workspace level.
-  for (const name of getDefaultPluginNames()) {
+  for (const plugin of getAllDefaultPlugins()) {
+    const name = plugin.manifest.name;
     if (!effective.has(name) && !isPluginDisabled(name)) {
       effective.add(name);
     }
   }
   return effective;
-}
-
-let cachedDefaultPluginNames: readonly string[] | null = null;
-
-/**
- * Names of the first-party default plugins, read from the canonical
- * `getAllDefaultPlugins` list and cached on first use.
- *
- * Inline require is necessary here: the defaults barrel transitively reaches
- * back into `daemon/` modules, so a static import from this module re-enters
- * the barrel mid-initialization on module graphs that start inside a default
- * plugin's internals (e.g. the memory hook tests) and throws a TDZ
- * ReferenceError. Loading at first call runs after the graph has settled.
- */
-function getDefaultPluginNames(): readonly string[] {
-  if (cachedDefaultPluginNames === null) {
-    const { getAllDefaultPlugins } =
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      require("../plugins/defaults/index.js") as typeof import("../plugins/defaults/index.js");
-    cachedDefaultPluginNames = getAllDefaultPlugins().map(
-      (p) => p.manifest.name,
-    );
-  }
-  return cachedDefaultPluginNames;
 }
 
 // ── createToolExecutor ───────────────────────────────────────────────
