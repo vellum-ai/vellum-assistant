@@ -16260,6 +16260,46 @@ paths:
                 additionalProperties: false
         "409":
           description: Another memory item with this content already exists
+  /v1/memory/delete:
+    post:
+      operationId: memory_delete_post
+      summary: Delete a memory node by content match
+      description: >-
+        Soft-deletes a memory graph node matching the given content string.
+        Exact match (case-insensitive) takes priority; falls back to substring
+        match. Returns a 400 error when multiple nodes match so the caller can
+        refine.
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+              required:
+                - content
+              additionalProperties: false
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                required:
+                  - success
+                  - message
+                additionalProperties: false
   /v1/memory/eval/run:
     post:
       operationId: memory_eval_run_post
@@ -16509,6 +16549,49 @@ paths:
                   - gate
                   - confident
                   - notes
+                additionalProperties: false
+  /v1/memory/update:
+    post:
+      operationId: memory_update_post
+      summary: Update a memory node in place
+      description: >-
+        Locates an existing memory graph node by old_content and replaces its
+        content with new_content. Records the change in the edit history so
+        the correction is auditable. Earned trust scores are preserved.
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                old_content:
+                  type: string
+                  minLength: 1
+                new_content:
+                  type: string
+                  minLength: 1
+              required:
+                - old_content
+                - new_content
+              additionalProperties: false
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                required:
+                  - success
+                  - message
                 additionalProperties: false
   /v1/memory/v2/backfill:
     post:
