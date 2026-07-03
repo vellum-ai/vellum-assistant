@@ -5,17 +5,16 @@ import { join, sep } from "node:path";
 /**
  * db_proxy surface guard: the assistant-DB proxy (`assistant-db-proxy.ts` +
  * the daemon-side `db-proxy` route) is a temporary raw-SQL bridge, slated for
- * removal with the verification-session source-of-truth move. This source scan
+ * removal once its last callers get typed ops. This source scan
  * fails if any gateway file OUTSIDE the allowlist imports the proxy or names
  * either raw-SQL bridge method (`db_proxy` / `db_proxy_transaction`), so the
  * surface can only shrink, never grow.
  *
- * The proxy currently serves three groups (the allowlist below):
- *   1. Verification-session + rate-limit state — dies with the session-SoT move.
- *   2. The contact-merge identity-mirror cluster (`contact-store.ts`) — a
+ * The proxy currently serves two groups (the allowlist below):
+ *   1. The contact-merge identity-mirror cluster (`contact-store.ts`) — a
  *      notes-only survivor UPDATE and a resolved-slug dual-write INSERT that no
  *      existing typed mirror op expresses; pending a merge-shaped op.
- *   3. Data migrations — one-time backfills that legitimately touch the
+ *   2. Data migrations — one-time backfills that legitimately touch the
  *      assistant DB broadly.
  */
 
@@ -25,10 +24,6 @@ const ALLOWLIST = new Set<string>([
   // The proxy definition itself (calls ipcCallAssistant("db_proxy")).
   "db/assistant-db-proxy.ts",
 
-  // Verification-session + rate-limit group. Retired with the session-SoT move.
-  "verification/session-helpers.ts",
-  "verification/rate-limit-helpers.ts",
-  "voice/verification.ts",
   // Residual raw-SQL (type,address) lookup in the verification intercept flow;
   // identity/info reads and mirror writes are already typed IPC.
   "verification/contact-helpers.ts",

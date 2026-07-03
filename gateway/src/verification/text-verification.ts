@@ -9,7 +9,7 @@
  *   2. Check rate limits
  *   3. Hash + find matching session
  *   4. Verify identity binding (outbound sessions)
- *   5. Consume session (dual-write, atomic status guard)
+ *   5. Consume session (atomic status guard)
  *   6. Apply side effects (guardian binding OR trusted contact upsert)
  *   7. Deliver deterministic reply
  *

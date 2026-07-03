@@ -1,14 +1,16 @@
 /**
  * Verification session helpers for gateway-owned verification.
  *
- * Session lookup, consumption, and status checks — all via raw SQL
- * through the assistant DB IPC proxy. The assistant DB owns session state.
+ * Thin delegates over the gateway-native session store — the gateway DB
+ * owns session state. The async signatures are preserved from the db_proxy
+ * era so callers are unaffected.
  */
 
 import {
-  assistantDbQuery,
-  assistantDbRun,
-} from "../db/assistant-db-proxy.js";
+  consumeSession as storeConsumeSession,
+  findPendingSessionByHash,
+  hasInterceptableSession,
+} from "../db/session-store.js";
 import { getLogger } from "../logger.js";
 
 const log = getLogger("verification-sessions");
@@ -32,28 +34,6 @@ export interface VerificationSession {
 }
 
 // ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const SESSION_COLUMNS = `
-  id, challenge_hash AS challengeHash, expires_at AS expiresAt,
-  status, verification_purpose AS verificationPurpose,
-  expected_external_user_id AS expectedExternalUserId,
-  expected_chat_id AS expectedChatId,
-  expected_phone_e164 AS expectedPhoneE164,
-  identity_binding_status AS identityBindingStatus,
-  code_digits AS codeDigits, max_attempts AS maxAttempts
-`;
-
-/**
- * All session statuses that represent an interceptable verification session.
- *
- * Includes 'awaiting_response' — outbound text verification sessions are
- * created with this status (see assistant createOutboundSession).
- */
-const INTERCEPTABLE_STATUSES = `('pending', 'pending_bootstrap', 'awaiting_response')`;
-
-// ---------------------------------------------------------------------------
 // Session lookup
 // ---------------------------------------------------------------------------
 
@@ -64,16 +44,7 @@ const INTERCEPTABLE_STATUSES = `('pending', 'pending_bootstrap', 'awaiting_respo
 export async function hasPendingOrActiveSession(
   channel: string,
 ): Promise<boolean> {
-  const now = Date.now();
-  const rows = await assistantDbQuery<{ id: string }>(
-    `SELECT id FROM channel_verification_sessions
-     WHERE channel = ?
-       AND status IN ${INTERCEPTABLE_STATUSES}
-       AND expires_at > ?
-     LIMIT 1`,
-    [channel, now],
-  );
-  return rows.length > 0;
+  return hasInterceptableSession(channel);
 }
 
 /**
@@ -83,18 +54,7 @@ export async function findSessionByHash(
   channel: string,
   challengeHash: string,
 ): Promise<VerificationSession | null> {
-  const now = Date.now();
-  const rows = await assistantDbQuery<VerificationSession>(
-    `SELECT ${SESSION_COLUMNS}
-     FROM channel_verification_sessions
-     WHERE channel = ?
-       AND challenge_hash = ?
-       AND status IN ${INTERCEPTABLE_STATUSES}
-       AND expires_at > ?
-     LIMIT 1`,
-    [channel, challengeHash, now],
-  );
-  return rows[0] ?? null;
+  return findPendingSessionByHash(channel, challengeHash);
 }
 
 // ---------------------------------------------------------------------------
@@ -102,11 +62,8 @@ export async function findSessionByHash(
 // ---------------------------------------------------------------------------
 
 /**
- * Mark a verification session as consumed in the assistant DB, which owns
- * session state.
- *
- * The UPDATE includes a status predicate so only the first concurrent
- * consumer wins — subsequent attempts see zero changes and return false,
+ * Mark a verification session as consumed. The store's status guard ensures
+ * only the first concurrent consumer wins — subsequent attempts return false,
  * preserving one-time-code semantics under race conditions.
  */
 export async function consumeSession(
@@ -114,21 +71,13 @@ export async function consumeSession(
   actorExternalUserId: string,
   actorChatId: string,
 ): Promise<boolean> {
-  const now = Date.now();
-
-  // Status guard ensures atomicity under concurrent consumers.
-  const result = await assistantDbRun(
-    `UPDATE channel_verification_sessions
-     SET status = 'consumed',
-         consumed_by_external_user_id = ?,
-         consumed_by_chat_id = ?,
-         updated_at = ?
-     WHERE id = ?
-       AND status IN ${INTERCEPTABLE_STATUSES}`,
-    [actorExternalUserId, actorChatId, now, sessionId],
+  const result = storeConsumeSession(
+    sessionId,
+    actorExternalUserId,
+    actorChatId,
   );
 
-  if (result.changes === 0) {
+  if (!result.consumed) {
     log.warn(
       { sessionId },
       "Session consume returned 0 changes — already consumed or status changed",
