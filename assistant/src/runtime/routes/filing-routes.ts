@@ -3,7 +3,8 @@
  *
  * `available` reflects whether PKB filing is the active background memory job
  * for this instance. When `config.memory.v2.enabled` is true, filing yields to
- * the consolidation job (see consolidation-routes.ts) and returns
+ * the consolidation job (see consolidation-routes.ts); when `memory.enabled`
+ * is false, the memory jobs worker never runs filing jobs. Both cases return
  * `available: false` so the UI can hide the row.
  *
  * Filing runs as a `pkb_filing` background job: the jobs-worker's maintenance
@@ -26,7 +27,11 @@ import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 function isFilingAvailable(): boolean {
-  return !getConfig().memory.v2.enabled;
+  const config = getConfig();
+  // Filing runs through the memory jobs worker, whose slow lane is parked
+  // while memory is disabled — an enqueued job would sit pending forever, so
+  // report unavailable (and reject run-now) rather than queue dead work.
+  return config.memory.enabled !== false && !config.memory.v2.enabled;
 }
 
 // ---------------------------------------------------------------------------
@@ -57,8 +62,9 @@ export const ROUTES: RouteDefinition[] = [
     }),
     handler: async (_args: RouteHandlerArgs) => {
       const config = getConfig().filing;
-      // The maintenance scheduler's durable checkpoint: the last time a
-      // pkb_filing job was enqueued (0/absent before the first run).
+      // The maintenance scheduler's durable checkpoint: seeded to "now" the
+      // first time the scheduler sees the job, then advanced on each
+      // enqueue (or deliberate skip). Absent only before that first tick.
       const lastRun = parseInt(
         getMemoryCheckpoint(GRAPH_MAINTENANCE_CHECKPOINTS.pkbFiling) ?? "0",
         10,
@@ -70,12 +76,10 @@ export const ROUTES: RouteDefinition[] = [
         intervalMs: config.intervalMs,
         activeHoursStart: config.activeHoursStart ?? null,
         activeHoursEnd: config.activeHoursEnd ?? null,
-        // Before the first enqueue there is no checkpoint — the scheduler
-        // fires on its next tick, so the run is due now.
+        // No checkpoint yet: the scheduler seeds it on its next tick, so the
+        // first run lands roughly one interval from now.
         nextRunAt: scheduled
-          ? lastRun > 0
-            ? lastRun + config.intervalMs
-            : Date.now()
+          ? (lastRun > 0 ? lastRun : Date.now()) + config.intervalMs
           : null,
         lastRunAt: lastRun > 0 ? lastRun : null,
         success: true,
@@ -102,7 +106,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: async (_args: RouteHandlerArgs) => {
       if (!isFilingAvailable()) {
         throw new BadRequestError(
-          "Filing is not the active background memory job (memory v2 is enabled)",
+          "Filing is not available (memory is disabled or memory v2 is enabled)",
         );
       }
       // Coalesce: filing and compaction both rewrite the PKB tree, so don't

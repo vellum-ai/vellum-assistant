@@ -1,11 +1,11 @@
 /**
- * Enqueue-time gates for the PKB filing/compaction jobs, as a leaf module.
+ * The PKB buffer's "is there filable work?" check, as a leaf module (fs +
+ * workspace path only).
  *
- * The jobs-worker's maintenance scheduler consults these when deciding whether
- * to enqueue a `pkb_filing` / `pkb_compaction` job, and the filing handler
- * re-checks the buffer at run time. Kept dependency-light (fs + workspace path
- * only) so the worker's scheduler can import it without pulling the memory
- * plugin's execution machinery into its module graph.
+ * The jobs-worker's maintenance scheduler consults it through the
+ * `MemoryPersistenceHooks` seam (see `persistence-hooks.ts`) when deciding
+ * whether to enqueue a `pkb_filing` job, and the filing handler
+ * (`filing-jobs.ts`) re-checks it at run time.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -28,21 +28,4 @@ export function hasPkbBufferContent(): boolean {
   } catch {
     return false;
   }
-}
-
-/**
- * Whether `hour` falls inside the configured active window. A `null` bound on
- * either side means no restriction. Windows may wrap midnight (start > end,
- * e.g. 22–6).
- */
-export function isWithinPkbActiveHours(
-  hour: number,
-  start: number | null,
-  end: number | null,
-): boolean {
-  if (start == null || end == null) return true;
-  if (start <= end) {
-    return hour >= start && hour < end;
-  }
-  return hour >= start || hour < end;
 }

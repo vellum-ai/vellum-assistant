@@ -508,6 +508,12 @@ export function guardPersistenceHooksByDisabledState(
       if (isPluginDisabled(pluginName)) return 0;
       return hooks.countMemoryBufferLines();
     },
+    // Gated the same way: a disabled plugin reports an empty PKB buffer, so
+    // the maintenance scheduler skips scheduled filing.
+    hasPkbBufferContent() {
+      if (isPluginDisabled(pluginName)) return false;
+      return hooks.hasPkbBufferContent();
+    },
     // Cleanup hooks are NOT gated on disabled-state: they must run even while
     // the plugin is disabled, or jobs/conversations created while it was
     // enabled would be orphaned.

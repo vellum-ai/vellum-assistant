@@ -6,10 +6,6 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
-import {
-  hasPkbBufferContent,
-  isWithinPkbActiveHours,
-} from "../plugins/defaults/memory/pkb-schedule.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import {
@@ -757,6 +753,23 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
  * is appended when a v3 path is active so the topic tree self-heals even if the
  * primary post-consolidation follow-up enqueue is missed.
  */
+/**
+ * Whether `hour` falls inside the PKB jobs' configured active window. A `null`
+ * bound on either side means no restriction. Windows may wrap midnight
+ * (start > end, e.g. 22–6).
+ */
+function isWithinPkbActiveHours(
+  hour: number,
+  start: number | null,
+  end: number | null,
+): boolean {
+  if (start == null || end == null) return true;
+  if (start <= end) {
+    return hour >= start && hour < end;
+  }
+  return hour >= start || hour < end;
+}
+
 export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
@@ -879,7 +892,10 @@ export function maybeEnqueueGraphMaintenanceJobs(
 
   // PKB filing/compaction — v1-only, like the v1 graph entries above (under
   // v2 the consolidation job owns periodic background memory processing).
-  // Same durable-checkpoint pattern, with three PKB-specific gates:
+  // Same durable-checkpoint pattern, with four PKB-specific gates:
+  //  - no checkpoint yet (fresh workspace, or the first tick after an
+  //    upgrade): seed it to now WITHOUT enqueuing, so the first run lands a
+  //    full interval later instead of an LLM job firing at boot;
   //  - outside the configured active-hours window: skip AND advance the
   //    checkpoint, so the next attempt lands a full interval later (the
   //    interval cadence, not a busy-retry against a closed window);
@@ -907,7 +923,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
         intervalMs: filingConfig.intervalMs,
         jobType: "pkb_filing",
         enabled: filingConfig.enabled,
-        hasWork: () => hasPkbBufferContent(),
+        hasWork: () => getMemoryPersistenceHooks().hasPkbBufferContent(),
       },
       {
         key: GRAPH_MAINTENANCE_CHECKPOINTS.pkbCompaction,
@@ -921,7 +937,12 @@ export function maybeEnqueueGraphMaintenanceJobs(
       if (!enabled) {
         continue;
       }
-      const lastRun = parseInt(getMemoryCheckpoint(key) ?? "0", 10);
+      const checkpoint = getMemoryCheckpoint(key);
+      if (checkpoint === null) {
+        setMemoryCheckpoint(key, String(nowMs));
+        continue;
+      }
+      const lastRun = parseInt(checkpoint, 10);
       if (nowMs - lastRun < intervalMs) {
         continue;
       }

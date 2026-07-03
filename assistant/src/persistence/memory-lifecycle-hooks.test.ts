@@ -30,6 +30,9 @@ const baseHooks: MemoryPersistenceHooks = {
   countMemoryBufferLines() {
     return 0;
   },
+  hasPkbBufferContent() {
+    return false;
+  },
 };
 
 describe("memory persistence-lifecycle seam", () => {

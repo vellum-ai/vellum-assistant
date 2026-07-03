@@ -37,6 +37,8 @@ const MEMORY_JOB_TYPES = [
   "memory_v2_activation_recompute",
   "memory_v3_maintain",
   "memory_retrospective",
+  "pkb_filing",
+  "pkb_compaction",
 ].sort();
 
 /**

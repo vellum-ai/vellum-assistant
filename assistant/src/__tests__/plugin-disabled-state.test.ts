@@ -277,6 +277,9 @@ describe("per-surface disabled-state filtering", () => {
       countMemoryBufferLines() {
         return bufferLines;
       },
+      hasPkbBufferContent() {
+        return true;
+      },
     });
     const event: MessagePersistedEvent = {
       messageId: "msg-1",
@@ -289,21 +292,25 @@ describe("per-surface disabled-state filtering", () => {
     // Enabled: the wrapped handler runs.
     await guarded.onMessagePersisted(event);
     expect(calls).toBe(1);
-    // The gated query returns the real buffer count while enabled.
+    // The gated queries return the real buffer state while enabled.
     expect(guarded.countMemoryBufferLines()).toBe(25);
+    expect(guarded.hasPkbBufferContent()).toBe(true);
 
     // Disable via sentinel — checked at call time, no restart needed.
     await createSentinel("default-memory");
     await guarded.onMessagePersisted(event);
     expect(calls).toBe(1);
-    // Gated: reports an empty buffer while disabled, so consolidation stays inert.
+    // Gated: reports empty buffers while disabled, so scheduled consolidation
+    // and filing stay inert.
     expect(guarded.countMemoryBufferLines()).toBe(0);
+    expect(guarded.hasPkbBufferContent()).toBe(false);
 
     // Re-enable.
     await removeSentinel("default-memory");
     await guarded.onMessagePersisted(event);
     expect(calls).toBe(2);
     expect(guarded.countMemoryBufferLines()).toBe(25);
+    expect(guarded.hasPkbBufferContent()).toBe(true);
   });
 
   test("cleanup persistence hooks run even while the memory plugin is disabled", async () => {
@@ -333,6 +340,9 @@ describe("per-surface disabled-state filtering", () => {
       },
       countMemoryBufferLines() {
         return 0;
+      },
+      hasPkbBufferContent() {
+        return false;
       },
     });
 
