@@ -92,6 +92,8 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import { getSubagentManager } from "../subagent/index.js";
+import type { SubagentState } from "../subagent/types.js";
 import {
   type ActivationMomentParam,
   isActivationMomentParam,
@@ -1392,6 +1394,19 @@ export class Conversation {
 
   setIsSubagent(value: boolean): void {
     this.isSubagent = value;
+  }
+
+  /**
+   * The live subagent-manager children of this conversation, for the
+   * `<active_subagents>` status block. Returns `null` when this conversation
+   * is itself a subagent (no nesting) — callers treat `null` as "no block".
+   * Housing the subagent-manager access here keeps runtime-assembly free of a
+   * subagent import (`subagent/manager` imports this module, so the reverse
+   * edge would put runtime-assembly's importers on that cycle).
+   */
+  getSubagentChildren(): SubagentState[] | null {
+    if (this.isSubagent) return null;
+    return getSubagentManager().getChildrenOf(this.conversationId);
   }
 
   /**

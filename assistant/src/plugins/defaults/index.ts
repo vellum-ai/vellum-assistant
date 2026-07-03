@@ -19,8 +19,7 @@
  *   production-parity state (e.g. `conversation-agent-loop.test.ts`); those
  *   call {@link resetPluginRegistryAndRegisterDefaults}.
  *
- * The plugin definitions below are plain `const`s (except memory, which is
- * built lazily — see {@link getDefaultMemoryPlugin}), so importing this module
+ * The plugin definitions below are plain `const`s, so importing this module
  * does no registration work — registration is driven by
  * {@link registerDefaultPlugins} at call time.
  */
@@ -171,41 +170,21 @@ export const defaultEmptyResponsePlugin: Plugin = {
  * self-gate on `memory.v3.live`. Registered first among the default plugins so
  * later `user-prompt-submit` hooks (history repair, title) see the fully
  * memory-injected history.
- *
- * Unlike the other defaults, this plugin is built lazily rather than as a
- * module-scope const. Memory's implementation modules import the daemon core
- * (its hooks reach `conversation-runtime-assembly`, and its job/persistence
- * modules reach `conversation.ts` via `runtime/background-job-runner`), which
- * imports `daemon/conversation-tool-setup.ts`, which imports this barrel — so
- * a module graph entered through memory's internals evaluates this barrel
- * while those modules are still initializing. A const here would read their
- * bindings at evaluation time and throw a TDZ ReferenceError; deferring the
- * reads to first call is safe because the graph has settled by then. The memo
- * keeps the object a per-process singleton, matching the const plugins.
  */
-let memoizedDefaultMemoryPlugin: Plugin | null = null;
-
-function getDefaultMemoryPlugin(): Plugin {
-  memoizedDefaultMemoryPlugin ??= {
-    manifest: {
-      name: memoryPkg.name,
-      version: memoryPkg.version,
-    },
-    hooks: {
-      init: memoryInit,
-      shutdown: memoryShutdown,
-      "user-prompt-submit": memoryUserPromptSubmit,
-      "post-compact": memoryPostCompact,
-    },
-    injectors: [
-      ...memoryInjectors,
-      memoryV3Injector,
-      memoryV3SpotlightInjector,
-    ],
-    jobHandlers: memoryJobHandlers,
-  };
-  return memoizedDefaultMemoryPlugin;
-}
+export const defaultMemoryPlugin: Plugin = {
+  manifest: {
+    name: memoryPkg.name,
+    version: memoryPkg.version,
+  },
+  hooks: {
+    init: memoryInit,
+    shutdown: memoryShutdown,
+    "user-prompt-submit": memoryUserPromptSubmit,
+    "post-compact": memoryPostCompact,
+  },
+  injectors: [...memoryInjectors, memoryV3Injector, memoryV3SpotlightInjector],
+  jobHandlers: memoryJobHandlers,
+};
 
 /**
  * `turn-context` — contributes the unified `<turn_context>` runtime injector
@@ -440,7 +419,7 @@ export const defaultToolResultTruncatePlugin: Plugin = {
  */
 export function getAllDefaultPlugins(): readonly Plugin[] {
   return [
-    getDefaultMemoryPlugin(),
+    defaultMemoryPlugin,
     defaultTurnContextPlugin,
     defaultWorkspacePlugin,
     defaultDocumentsPlugin,
