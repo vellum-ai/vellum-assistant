@@ -203,6 +203,7 @@ async function ensureConceptPageCollectionOnce(): Promise<{
         // Long-lived installs may predate the `kind` payload index; ensure
         // every required index exists before declaring the collection ready.
         await ensurePayloadIndexes();
+        await reconcileSparseIndexOnDisk(info, onDisk);
         _collectionReady = true;
         return { migrated: false };
       }
@@ -274,8 +275,10 @@ async function ensureConceptPageCollectionOnce(): Promise<{
         },
       },
       sparse_vectors: {
-        sparse: {}, // Qdrant auto-infers sparse vector params
-        summary_sparse: {}, // BM25 sparse vector for the summary
+        // Sparse inverted indexes live in RAM unless placed on disk
+        // explicitly; both channels follow the collection's on-disk setting.
+        sparse: { index: { on_disk: onDisk } },
+        summary_sparse: { index: { on_disk: onDisk } }, // BM25 sparse vector for the summary
       },
       hnsw_config: {
         on_disk: onDisk,
@@ -343,6 +346,60 @@ async function ensurePayloadIndexes(): Promise<void> {
       }
     }),
   );
+}
+
+/**
+ * Align an existing collection's sparse-index placement with the configured
+ * `onDisk` flag, covering both sparse channels. Qdrant keeps sparse inverted
+ * indexes in RAM unless the collection explicitly opts into on-disk, and
+ * collections keep whatever they were created with — `updateCollection` moves
+ * them in place (the optimizer rewrites segments in the background) without a
+ * reembed.
+ *
+ * Best-effort: a failed update logs and leaves the collection serving from
+ * its current indexes — search keeps working either way.
+ */
+async function reconcileSparseIndexOnDisk(
+  info: Awaited<ReturnType<QdrantRestClient["getCollection"]>>,
+  onDisk: boolean,
+): Promise<void> {
+  const sparseParams = (
+    info.config?.params as
+      | {
+          sparse_vectors?: Record<
+            string,
+            { index?: { on_disk?: boolean | null } | null } | undefined
+          >;
+        }
+      | undefined
+  )?.sparse_vectors;
+  if (!sparseParams) return;
+
+  // Only touch channels that exist in the collection and whose placement
+  // drifts from the target — an update naming an absent sparse vector fails.
+  const drifted = REQUIRED_SPARSE_VECTORS.filter(
+    (name) =>
+      name in sparseParams &&
+      (sparseParams[name]?.index?.on_disk ?? false) !== onDisk,
+  );
+  if (drifted.length === 0) return;
+
+  try {
+    await getClient().updateCollection(MEMORY_V2_COLLECTION, {
+      sparse_vectors: Object.fromEntries(
+        drifted.map((name) => [name, { index: { on_disk: onDisk } }]),
+      ),
+    });
+    log.info(
+      { collection: MEMORY_V2_COLLECTION, sparseVectors: drifted, onDisk },
+      "Moved sparse index placement on existing Qdrant collection",
+    );
+  } catch (err) {
+    log.warn(
+      { err, collection: MEMORY_V2_COLLECTION, sparseVectors: drifted, onDisk },
+      "Failed to update sparse index placement — continuing with current indexes",
+    );
+  }
 }
 
 /**
