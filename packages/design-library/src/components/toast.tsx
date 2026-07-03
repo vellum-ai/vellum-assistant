@@ -128,13 +128,24 @@ function ToastContent({
   );
 }
 
+// Sonner builds the toast object as `{ jsx: jsx(id), id, ...data }`, so
+// forwarding `id: undefined` overwrites the id it generated and handed to
+// the jsx render callback — the stored toast ends up under a different id
+// and dismissing by the callback's id (the close button) no-ops. Always
+// hand sonner a concrete id of our own instead.
+let toastIdCounter = 0;
+function nextToastId(): string {
+  return `toast-${++toastIdCounter}`;
+}
+
 function showToast(
   message: string,
   variant: ToastVariant = "default",
   options?: ToastOptions,
 ) {
+  const id = options?.id ?? nextToastId();
   return sonnerToast.custom(
-    (id) => (
+    () => (
       <ToastContent
         message={message}
         variant={variant}
@@ -142,7 +153,7 @@ function showToast(
         onDismiss={() => sonnerToast.dismiss(id)}
       />
     ),
-    { duration: options?.duration, id: options?.id },
+    { duration: options?.duration, id },
   );
 }
 
@@ -167,7 +178,11 @@ const toast = Object.assign(
     custom: (
       render: (id: number | string) => ReactElement,
       options?: CustomToastOptions,
-    ) => sonnerToast.custom(render, options),
+    ) =>
+      sonnerToast.custom(render, {
+        ...options,
+        id: options?.id ?? nextToastId(),
+      }),
     dismiss: (id?: string | number) => sonnerToast.dismiss(id),
   },
 );
