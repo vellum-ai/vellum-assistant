@@ -355,7 +355,12 @@ describe("StatusBanner", () => {
     expect(requestedOperationalStatusAssistantId).toBe("assistant-only");
   });
 
-  test("does not fall back to an unrelated platform assistant when a local assistant is selected", () => {
+  test("falls back to the org's platform assistant even when a local assistant is selected", () => {
+    // Deliberate: the fallback is unconditional. Selection-based gating was
+    // attempted and reverted — every variant broke a hydration, cross-org, or
+    // store-population edge case, hiding the migrating/crash-loop banner for
+    // the org's real platform assistant. Do NOT re-gate this on selection
+    // semantics without a proper selector in assistant/selection.ts.
     activeAssistantIdMock = null;
     assistantStateMock = { kind: "loading" };
     selectedAssistantIdMock = "assistant-local";
@@ -366,31 +371,6 @@ describe("StatusBanner", () => {
         isPlatformHosted: false,
         organizationId: "org-1",
       },
-      // An unrelated platform assistant in the same org (e.g. an old
-      // crash-looping one) must not become the banner's polling target just
-      // because the user's selection isn't platform-hosted.
-      {
-        id: "assistant-unrelated",
-        isLocal: false,
-        isPlatformHosted: true,
-        organizationId: "org-1",
-      },
-    ];
-
-    renderToStaticMarkup(<StatusBanner />);
-
-    expect(requestedOperationalStatusAssistantId).toBeNull();
-  });
-
-  test("falls back to the org's platform assistant when the selection is stale", () => {
-    // A persisted selection pointing at a DELETED assistant (absent from the
-    // resolved list) must not suppress the fallback — it only self-heals on a
-    // clean lifecycle 404, and until then the org's real platform assistant
-    // would otherwise never get a banner (e.g. "Assistant is migrating").
-    activeAssistantIdMock = null;
-    assistantStateMock = { kind: "loading" };
-    selectedAssistantIdMock = "assistant-deleted";
-    assistantsMock = [
       {
         id: "assistant-platform",
         isLocal: false,

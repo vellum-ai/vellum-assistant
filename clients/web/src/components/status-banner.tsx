@@ -515,29 +515,23 @@ function useAssistantBannerConfig(): BannerConfig | null {
       (assistant) =>
         assistant.isPlatformHosted === true && assistant.isLocal === false,
     );
-    const selectedPlatformAssistantId =
+    // Prefer the selected assistant when it is a platform assistant, else
+    // fall back to the org's first platform assistant. The unconditional
+    // fallback is deliberate: during boot and claim/migration windows the
+    // selection can legitimately be null, stale, or pointing at a local
+    // assistant while the org's platform assistant is the one with status
+    // worth showing (e.g. "Assistant is migrating"). Do not gate this on
+    // selection semantics — prior attempts each broke a hydration, cross-org,
+    // or store-population edge case; if the brief wrong-assistant poll while
+    // lifecycle is unresolved ever matters, fix it with a proper selector in
+    // assistant/selection.ts instead.
+    return (
       platformAssistants.find(
         (assistant) => assistant.id === selectedAssistantId,
-      )?.id ?? null;
-    if (selectedPlatformAssistantId) {
-      return selectedPlatformAssistantId;
-    }
-    // Suppress the fallback only when the selection resolves to a KNOWN
-    // non-platform assistant: the user is deliberately on a local/self-hosted
-    // assistant, and the banner must not re-point itself — and its background
-    // polling — at an unrelated platform assistant in the same org. A null
-    // selection (early boot, before selection hydrates) or a STALE one (a
-    // persisted id whose assistant was deleted and is absent from the resolved
-    // list, which self-heals only on a clean lifecycle 404) still falls back,
-    // so a dead localStorage id can't permanently hide the migrating /
-    // crash-loop banner for the org's real platform assistant.
-    const selectedIsKnownAssistant = assistants.some(
-      (assistant) => assistant.id === selectedAssistantId,
+      )?.id ??
+      platformAssistants[0]?.id ??
+      null
     );
-    if (selectedAssistantId != null && selectedIsKnownAssistant) {
-      return null;
-    }
-    return platformAssistants[0]?.id ?? null;
   }, [assistants, currentOrganizationId, selectedAssistantId]);
   const assistantId =
     operationalStatusAssistantId ??
