@@ -360,6 +360,9 @@ describe("delete paths route through the persistence-hook seam", () => {
     countMemoryBufferLines() {
       return 0;
     },
+    hasPkbBufferContent() {
+      return false;
+    },
   };
 
   beforeEach(() => {

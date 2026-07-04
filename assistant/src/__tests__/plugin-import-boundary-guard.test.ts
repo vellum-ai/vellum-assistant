@@ -168,7 +168,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../context/token-estimator.js",
     "../../../conversations/job-handlers/summarization.js",
     "../../../daemon/date-context.js",
-    "../../../daemon/disk-pressure-background-gate.js",
     "../../../daemon/embedding-reconcile.js",
     "../../../daemon/pkb-context-tracker.js",
     "../../../daemon/pkb-reminder-builder.js",

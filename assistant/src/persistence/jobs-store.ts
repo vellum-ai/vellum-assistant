@@ -62,6 +62,8 @@ export type MemoryJobType =
   | "memory_v2_reembed"
   | "memory_v2_activation_recompute"
   | "memory_v3_maintain"
+  | "pkb_filing"
+  | "pkb_compaction"
   | "index_message_lexical"
   | "purge_conversation_lexical"
   | "delete_message_lexical"
@@ -98,6 +100,8 @@ export const MESSAGE_LEXICAL_JOB_TYPES: MemoryJobType[] = [
 
 export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
   "graph_consolidate",
+  "pkb_filing",
+  "pkb_compaction",
   "graph_pattern_scan",
   "graph_narrative_refine",
   "graph_extract",

@@ -721,6 +721,8 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
   narrative: "graph_maintenance:narrative:last_run",
   memoryV2Consolidate: "memory_v2_consolidate_last_run",
   memoryV3Maintain: "memory_v3_maintain_last_run",
+  pkbFiling: "pkb_filing_last_run",
+  pkbCompaction: "pkb_compaction_last_run",
 } as const;
 
 /**
@@ -751,6 +753,23 @@ export const GRAPH_MAINTENANCE_CHECKPOINTS = {
  * is appended when a v3 path is active so the topic tree self-heals even if the
  * primary post-consolidation follow-up enqueue is missed.
  */
+/**
+ * Whether `hour` falls inside the PKB jobs' configured active window. A `null`
+ * bound on either side means no restriction. Windows may wrap midnight
+ * (start > end, e.g. 22–6).
+ */
+function isWithinPkbActiveHours(
+  hour: number,
+  start: number | null,
+  end: number | null,
+): boolean {
+  if (start == null || end == null) return true;
+  if (start <= end) {
+    return hour >= start && hour < end;
+  }
+  return hour >= start || hour < end;
+}
+
 export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
@@ -868,6 +887,77 @@ export function maybeEnqueueGraphMaintenanceJobs(
         AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD,
       );
       setMemoryCheckpoint(consolidateEntry.key, String(nowMs));
+    }
+  }
+
+  // PKB filing/compaction — v1-only, like the v1 graph entries above (under
+  // v2 the consolidation job owns periodic background memory processing).
+  // Same durable-checkpoint pattern, with four PKB-specific gates:
+  //  - no checkpoint yet (fresh workspace, or the first tick after an
+  //    upgrade): seed it to now WITHOUT enqueuing, so the first run lands a
+  //    full interval later instead of an LLM job firing at boot;
+  //  - outside the configured active-hours window: skip AND advance the
+  //    checkpoint, so the next attempt lands a full interval later (the
+  //    interval cadence, not a busy-retry against a closed window);
+  //  - filing with an empty buffer: skip and advance — no work, no LLM run
+  //    (mirrors the consolidation minimum-line skip above);
+  //  - either PKB job already pending/running: skip WITHOUT advancing, so the
+  //    next worker tick retries. Filing and compaction both rewrite the PKB
+  //    tree, so at most one of the two is ever in the queue.
+  if (!v2Active) {
+    const filingConfig = config.filing;
+    const withinActiveHours = isWithinPkbActiveHours(
+      new Date(nowMs).getHours(),
+      filingConfig.activeHoursStart ?? null,
+      filingConfig.activeHoursEnd ?? null,
+    );
+    const pkbSchedule: Array<{
+      key: string;
+      intervalMs: number;
+      jobType: MemoryJobType;
+      enabled: boolean;
+      hasWork: () => boolean;
+    }> = [
+      {
+        key: GRAPH_MAINTENANCE_CHECKPOINTS.pkbFiling,
+        intervalMs: filingConfig.intervalMs,
+        jobType: "pkb_filing",
+        enabled: filingConfig.enabled,
+        hasWork: () => getMemoryPersistenceHooks().hasPkbBufferContent(),
+      },
+      {
+        key: GRAPH_MAINTENANCE_CHECKPOINTS.pkbCompaction,
+        intervalMs: filingConfig.compactionIntervalMs,
+        jobType: "pkb_compaction",
+        enabled: filingConfig.compactionEnabled,
+        hasWork: () => true,
+      },
+    ];
+    for (const { key, intervalMs, jobType, enabled, hasWork } of pkbSchedule) {
+      if (!enabled) {
+        continue;
+      }
+      const checkpoint = getMemoryCheckpoint(key);
+      if (checkpoint === null) {
+        setMemoryCheckpoint(key, String(nowMs));
+        continue;
+      }
+      const lastRun = parseInt(checkpoint, 10);
+      if (nowMs - lastRun < intervalMs) {
+        continue;
+      }
+      if (!withinActiveHours || !hasWork()) {
+        setMemoryCheckpoint(key, String(nowMs));
+        continue;
+      }
+      if (
+        hasActiveJobOfType("pkb_filing") ||
+        hasActiveJobOfType("pkb_compaction")
+      ) {
+        continue;
+      }
+      enqueueMemoryJob(jobType, {});
+      setMemoryCheckpoint(key, String(nowMs));
     }
   }
 }

@@ -16,6 +16,7 @@ import type { AssistantConfig } from "../../../config/types.js";
 import type { MemoryJob } from "../../../persistence/jobs-store.js";
 import { getLogger } from "../../../util/logger.js";
 import type { JobHandlerEntry } from "../../types.js";
+import { pkbCompactionJob, pkbFilingJob } from "./filing-jobs.js";
 import { bootstrapFromHistory } from "./graph/bootstrap.js";
 import { runConsolidation } from "./graph/consolidation.js";
 import { runDecayTick } from "./graph/decay.js";
@@ -180,6 +181,14 @@ export const memoryJobHandlers: readonly JobHandlerEntry[] = [
   {
     type: "memory_v2_consolidate",
     handler: (job, config) => memoryV2ConsolidateJob(job, config),
+  },
+  {
+    type: "pkb_filing",
+    handler: (job) => pkbFilingJob(job),
+  },
+  {
+    type: "pkb_compaction",
+    handler: () => pkbCompactionJob(),
   },
   {
     type: "memory_v2_migrate",

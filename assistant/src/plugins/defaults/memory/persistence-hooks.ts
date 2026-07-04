@@ -17,6 +17,7 @@ import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
+import { hasPkbBufferContent as pkbBufferHasContent } from "./pkb-schedule.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
 import {
   forkActivationState,
@@ -160,5 +161,9 @@ export const memoryPersistenceHooks: MemoryPersistenceHooks = {
 
   countMemoryBufferLines(): number {
     return countBufferLines(join(getWorkspaceDir(), "memory", "buffer.md"));
+  },
+
+  hasPkbBufferContent(): boolean {
+    return pkbBufferHasContent();
   },
 };

@@ -11584,7 +11584,9 @@ paths:
     post:
       operationId: filing_runnow_post
       summary: Run filing now
-      description: Trigger an immediate filing run.
+      description:
+        Enqueue an immediate PKB filing job. Returns once the job is queued; the job itself runs through the memory
+        jobs worker.
       tags:
         - filing
       responses:
@@ -11599,7 +11601,7 @@ paths:
                     type: boolean
                   ran:
                     type: boolean
-                    description: Whether the filing actually ran
+                    description: Whether a job was enqueued
                 required:
                   - success
                   - ran

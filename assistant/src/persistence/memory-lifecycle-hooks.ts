@@ -137,6 +137,15 @@ export interface MemoryPersistenceHooks {
    * therefore no consolidation.
    */
   countMemoryBufferLines(): number;
+
+  /**
+   * Whether the PKB buffer (`pkb/buffer.md`) has any filable content. The
+   * maintenance scheduler reads it to gate the scheduled `pkb_filing` job —
+   * an empty buffer means no work, so no LLM run. Returns false when memory
+   * is not present, which the scheduler reads as "no buffered work" and
+   * therefore no filing.
+   */
+  hasPkbBufferContent(): boolean;
 }
 
 const NOOP: MemoryPersistenceHooks = {
@@ -151,6 +160,9 @@ const NOOP: MemoryPersistenceHooks = {
   onWorkerStartup() {},
   countMemoryBufferLines() {
     return 0;
+  },
+  hasPkbBufferContent() {
+    return false;
   },
 };
 
