@@ -77,35 +77,37 @@ export interface CesProcessManagerConfig {
 // ---------------------------------------------------------------------------
 
 export interface CesProcessManager {
-    /** Start the CES process (local) or connect to the sidecar (managed).
-     * Returns a CesTransport ready for use with createCesClient().
-     *
-     * Throws if CES is unavailable. */
-    start(): Promise<CesTransport>;
+  /**
+   * Start the CES process (local) or connect to the sidecar (managed).
+   * Returns a CesTransport ready for use with createCesClient().
+   *
+   * Throws if CES is unavailable.
+   */
+  start(): Promise<CesTransport>;
 
-    /** Gracefully stop the CES process (local) or disconnect (managed). */
-    stop(): Promise<void>;
+  /** Gracefully stop the CES process (local) or disconnect (managed). */
+  stop(): Promise<void>;
 
-    /**
-     * Force-stop the CES process even if start() hasn't finished yet.
-     * Unlike stop(), this works regardless of the `running` state — it kills
-     * any child process or destroys any managed socket immediately.
-     */
-    forceStop(): Promise<void>;
+  /**
+   * Force-stop the CES process even if start() hasn't finished yet.
+   * Unlike stop(), this works regardless of the `running` state — it kills
+   * any child process or destroys any managed socket immediately.
+   */
+  forceStop(): Promise<void>;
 
-    /** The discovery result from the last start() call, or null if not started. */
-    getDiscoveryResult(): DiscoveryResult | null;
+  /** The discovery result from the last start() call, or null if not started. */
+  getDiscoveryResult(): DiscoveryResult | null;
 
-    /** Whether the process manager is currently running. */
-    isRunning(): boolean;
+  /** Whether the process manager is currently running. */
+  isRunning(): boolean;
 
-    /**
-     * Register a callback that fires when the current transport dies. Lets
-     * callers (e.g. ces-runtime.ts) start a proactive reconnect loop instead
-     * of waiting for a lazy credential-op-triggered reconnection.
-     */
-    onTransportClose(handler: () => void): void;
-  }
+  /**
+   * Register a callback that fires when the current transport dies. Lets
+   * callers (e.g. ces-runtime.ts) start a proactive reconnect loop instead
+   * of waiting for a lazy credential-op-triggered reconnection.
+   */
+  onTransportClose(handler: () => void): void;
+}
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -177,7 +179,7 @@ export function createCesProcessManager(
     },
 
     async stop(): Promise<void> {
-      if (!running) {return;}
+      if (!running) return;
 
       if (childProcess) {
         await stopLocalProcess(childProcess);

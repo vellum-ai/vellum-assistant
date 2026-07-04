@@ -268,7 +268,11 @@ export function getCesClient(): CesClient | undefined {
 
 /** Tear down the CES connection during daemon shutdown. */
 export async function stopCes(): Promise<void> {
-  // Abort any in-flight CES initialization so it fails fast instead of
+    // Suppress the proactive reconnect loop — forceStop() closes the
+    // transport, which would otherwise trigger onTransportClose and start
+    // a reconnect loop racing against this shutdown.
+    shuttingDown = true;
+    // Abort any in-flight CES initialization so it fails fast instead of
   // blocking shutdown for up to ~15s (socket connect + handshake timeouts).
   if (initAbortController) {
     initAbortController.abort();
@@ -315,6 +319,9 @@ const MAX_RECONNECT_ATTEMPTS = RECONNECT_BACKOFF_MS.length;
  * a failed reconnect's own transport dying) doesn't start a second loop.
  */
 let proactiveReconnectInFlight = false;
+/** Set to true during stopCes() so the proactive reconnect loop doesn't fire
+ * when forceStop() intentionally closes the transport. */
+let shuttingDown = false;
 
 /**
  * Start a retry-with-backoff loop that proactively re-establishes the CES
@@ -333,7 +340,11 @@ let proactiveReconnectInFlight = false;
  * the backend is dead.
  */
 function startProactiveReconnectLoop(_pm: CesProcessManager): void {
-  if (proactiveReconnectInFlight) {
+    if (shuttingDown) {
+      log.debug("CES shutting down — not starting proactive reconnect loop");
+      return;
+    }
+    if (proactiveReconnectInFlight) {
     log.debug("Proactive reconnect loop already running — skipping");
     return;
   }
