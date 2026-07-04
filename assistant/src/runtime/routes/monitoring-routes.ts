@@ -80,11 +80,32 @@ const sampleMemoryStatSchema = z.object({
   reclaimableBytes: z.number().nullable(),
 });
 
+const sampleReclaimSchema = z.object({
+  pgscanDirect: z.number().nullable(),
+  pgstealDirect: z.number().nullable(),
+  workingsetRefaultFile: z.number().nullable(),
+});
+
+const sampleEventDeltasSchema = z.object({
+  low: z.number().nullable(),
+  high: z.number().nullable(),
+  max: z.number().nullable(),
+  oom: z.number().nullable(),
+  oomKill: z.number().nullable(),
+});
+
+const sampleDeltasSchema = z.object({
+  events: sampleEventDeltasSchema.nullable(),
+  reclaim: sampleReclaimSchema.nullable(),
+});
+
 const latestSampleSchema = z.object({
   ts: z.number(),
   memory: sampleMemorySchema.nullable(),
   memoryStat: sampleMemoryStatSchema.nullable(),
+  reclaim: sampleReclaimSchema.nullable(),
   events: sampleEventsSchema.nullable(),
+  deltas: sampleDeltasSchema.nullable(),
   disk: sampleDiskSchema.nullable(),
 });
 

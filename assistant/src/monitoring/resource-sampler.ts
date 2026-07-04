@@ -26,11 +26,14 @@ import type { MonitoringConfig } from "../config/schemas/monitoring.js";
 import {
   type ContainerMemoryEvents,
   type ContainerMemoryStat,
+  type ContainerReclaimCounters,
   getContainerMemoryEvents,
   getContainerMemoryLimitBytes,
   getContainerMemoryPeakBytes,
-  getContainerMemoryStat,
   getContainerMemoryUsageBytes,
+  parseMemoryStat,
+  parseReclaimCounters,
+  readMemoryStatRaw,
 } from "../util/cgroup-memory.js";
 import { getDiskUsageInfo } from "../util/disk-usage.js";
 import { getLogger } from "../util/logger.js";
@@ -62,6 +65,17 @@ export interface ResourceSampleDisk {
   freeMb: number;
 }
 
+/**
+ * Counter increases since the previous sample. The cumulative since-boot
+ * counters answer "has this ever happened"; the deltas are what turn a stall
+ * into a timeline — a burst of `reclaim.pgscanDirect` across a few samples *is*
+ * the synchronous-reclaim stall, invisible in the cumulative totals.
+ */
+export interface ResourceSampleDeltas {
+  events: ContainerMemoryEvents | null;
+  reclaim: ContainerReclaimCounters | null;
+}
+
 export interface ResourceSample {
   ts: number;
   memory: ResourceSampleMemory | null;
@@ -71,12 +85,49 @@ export interface ResourceSample {
    * whether the cgroup is filling with process heap or with droppable cache.
    */
   memoryStat: ContainerMemoryStat | null;
+  /** Cumulative reclaim/thrash counters from memory.stat (since boot). */
+  reclaim: ContainerReclaimCounters | null;
   events: ContainerMemoryEvents | null;
+  /** Since the previous sample; null on the monitor's first sample. */
+  deltas: ResourceSampleDeltas | null;
   disk: ResourceSampleDisk | null;
 }
 
-/** Take a single point-in-time sample of memory + disk. */
-export function takeSample(now: number): ResourceSample {
+function diffCounters<T extends Record<keyof T & string, number | null>>(
+  prev: T | null,
+  current: T | null,
+): T | null {
+  if (prev == null || current == null) {
+    return null;
+  }
+  const out: Record<string, number | null> = {};
+  for (const key of Object.keys(current) as Array<keyof T & string>) {
+    const before = prev[key];
+    const after = current[key];
+    out[key] = before != null && after != null ? after - before : null;
+  }
+  return out as T;
+}
+
+/** Per-counter increases from `prev` to `current`. */
+export function computeSampleDeltas(
+  prev: ResourceSample,
+  current: ResourceSample,
+): ResourceSampleDeltas {
+  return {
+    events: diffCounters(prev.events, current.events),
+    reclaim: diffCounters(prev.reclaim, current.reclaim),
+  };
+}
+
+/**
+ * Take a single point-in-time sample of memory + disk. When `prev` is given,
+ * the sample carries counter deltas relative to it.
+ */
+export function takeSample(
+  now: number,
+  prev: ResourceSample | null = null,
+): ResourceSample {
   const currentBytes = getContainerMemoryUsageBytes();
   const limitBytes = getContainerMemoryLimitBytes();
   const memory: ResourceSampleMemory | null =
@@ -91,11 +142,16 @@ export function takeSample(now: number): ResourceSample {
 
   const disk = getDiskUsageInfo();
 
-  return {
+  // One read feeds both parsers so the breakdown and counters are coherent.
+  const statRaw = readMemoryStatRaw();
+
+  const sample: ResourceSample = {
     ts: now,
     memory,
-    memoryStat: getContainerMemoryStat(),
+    memoryStat: statRaw != null ? parseMemoryStat(statRaw) : null,
+    reclaim: statRaw != null ? parseReclaimCounters(statRaw) : null,
     events: getContainerMemoryEvents(),
+    deltas: null,
     disk: disk
       ? {
           path: disk.path,
@@ -105,6 +161,10 @@ export function takeSample(now: number): ResourceSample {
         }
       : null,
   };
+  if (prev != null) {
+    sample.deltas = computeSampleDeltas(prev, sample);
+  }
+  return sample;
 }
 
 interface ProcessRss {
@@ -189,6 +249,8 @@ export async function writeHighMemSnapshot(
       ratio: sample.memory?.ratio,
       unevictableBytes: sample.memoryStat?.unevictableBytes,
       reclaimableBytes: sample.memoryStat?.reclaimableBytes,
+      pgscanDirectDelta: sample.deltas?.reclaim?.pgscanDirect,
+      workingsetRefaultFileDelta: sample.deltas?.reclaim?.workingsetRefaultFile,
       file: filename,
     },
     "Captured high-memory snapshot",
@@ -236,12 +298,14 @@ export function startResourceSampler(
   );
 
   let lastSnapshotAt = 0;
+  let prevSample: ResourceSample | null = null;
 
   const tick = () => {
     const now = clock();
     let sample: ResourceSample;
     try {
-      sample = takeSample(now);
+      sample = takeSample(now, prevSample);
+      prevSample = sample;
       buffer.append(sample);
     } catch (err) {
       log.warn({ err }, "Resource sample failed");

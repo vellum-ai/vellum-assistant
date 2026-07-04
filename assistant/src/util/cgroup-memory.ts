@@ -136,8 +136,8 @@ export interface ContainerMemoryStat {
   reclaimableBytes: number | null;
 }
 
-/** Parse cgroup v2 `memory.stat` content into the recorded breakdown. */
-export function parseMemoryStat(raw: string): ContainerMemoryStat {
+/** Parse `<key> <count>` lines (the memory.stat / memory.events format). */
+function parseKeyedCounts(raw: string): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const line of raw.split("\n")) {
     const [key, value] = line.trim().split(/\s+/);
@@ -149,6 +149,12 @@ export function parseMemoryStat(raw: string): ContainerMemoryStat {
       counts[key] = parsed;
     }
   }
+  return counts;
+}
+
+/** Parse cgroup v2 `memory.stat` content into the recorded breakdown. */
+export function parseMemoryStat(raw: string): ContainerMemoryStat {
+  const counts = parseKeyedCounts(raw);
 
   const anonBytes = counts.anon ?? null;
   const fileBytes = counts.file ?? null;
@@ -172,14 +178,53 @@ export function parseMemoryStat(raw: string): ContainerMemoryStat {
   };
 }
 
-export function getContainerMemoryStat(): ContainerMemoryStat | null {
-  let raw: string;
+/**
+ * Reclaim / thrash counters from cgroup v2 `memory.stat`. All are cumulative
+ * since boot and monotonic:
+ *
+ * - `pgscanDirect` / `pgstealDirect`: pages scanned / reclaimed *synchronously*
+ *   by an allocating process because the cgroup was at its limit. Sustained
+ *   growth means allocations are stalling inside the kernel — what looks like a
+ *   multi-second GC pause from userspace is usually this.
+ * - `workingsetRefaultFile`: previously-evicted file pages faulted back in.
+ *   Growth means reclaim is evicting pages that are still needed (cache
+ *   thrash), so the page cache is undersized for the working set.
+ *
+ * Fields are null when the kernel doesn't expose them; the whole read is null
+ * on cgroups v1 or when the file is unreadable.
+ */
+export interface ContainerReclaimCounters {
+  pgscanDirect: number | null;
+  pgstealDirect: number | null;
+  workingsetRefaultFile: number | null;
+}
+
+/** Parse cgroup v2 `memory.stat` content into the reclaim/thrash counters. */
+export function parseReclaimCounters(raw: string): ContainerReclaimCounters {
+  const counts = parseKeyedCounts(raw);
+  return {
+    pgscanDirect: counts.pgscan_direct ?? null,
+    pgstealDirect: counts.pgsteal_direct ?? null,
+    workingsetRefaultFile: counts.workingset_refault_file ?? null,
+  };
+}
+
+/**
+ * Raw cgroup v2 `memory.stat` content, or null on cgroups v1 / unreadable.
+ * Callers that need both the byte breakdown and the reclaim counters read once
+ * and feed the same content to both parsers, so the two views are coherent.
+ */
+export function readMemoryStatRaw(): string | null {
   try {
-    raw = readFileSync("/sys/fs/cgroup/memory.stat", "utf-8");
+    return readFileSync("/sys/fs/cgroup/memory.stat", "utf-8");
   } catch {
     return null;
   }
-  return parseMemoryStat(raw);
+}
+
+export function getContainerMemoryStat(): ContainerMemoryStat | null {
+  const raw = readMemoryStatRaw();
+  return raw != null ? parseMemoryStat(raw) : null;
 }
 
 /**
@@ -206,13 +251,7 @@ export function getContainerMemoryEvents(): ContainerMemoryEvents | null {
     return null;
   }
 
-  const counts: Record<string, number> = {};
-  for (const line of raw.split("\n")) {
-    const [key, value] = line.trim().split(/\s+/);
-    if (!key) continue;
-    const parsed = parseInt(value, 10);
-    if (Number.isFinite(parsed)) counts[key] = parsed;
-  }
+  const counts = parseKeyedCounts(raw);
 
   return {
     low: counts.low ?? 0,

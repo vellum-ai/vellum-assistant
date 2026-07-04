@@ -19629,6 +19629,28 @@ paths:
                                   - reclaimableBytes
                                 additionalProperties: false
                               - type: "null"
+                          reclaim:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  pgscanDirect:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  pgstealDirect:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  workingsetRefaultFile:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                required:
+                                  - pgscanDirect
+                                  - pgstealDirect
+                                  - workingsetRefaultFile
+                                additionalProperties: false
+                              - type: "null"
                           events:
                             anyOf:
                               - type: object
@@ -19649,6 +19671,69 @@ paths:
                                   - max
                                   - oom
                                   - oomKill
+                                additionalProperties: false
+                              - type: "null"
+                          deltas:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  events:
+                                    anyOf:
+                                      - type: object
+                                        properties:
+                                          low:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          high:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          max:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          oom:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          oomKill:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                        required:
+                                          - low
+                                          - high
+                                          - max
+                                          - oom
+                                          - oomKill
+                                        additionalProperties: false
+                                      - type: "null"
+                                  reclaim:
+                                    anyOf:
+                                      - type: object
+                                        properties:
+                                          pgscanDirect:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          pgstealDirect:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          workingsetRefaultFile:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                        required:
+                                          - pgscanDirect
+                                          - pgstealDirect
+                                          - workingsetRefaultFile
+                                        additionalProperties: false
+                                      - type: "null"
+                                required:
+                                  - events
+                                  - reclaim
                                 additionalProperties: false
                               - type: "null"
                           disk:
@@ -19674,7 +19759,9 @@ paths:
                           - ts
                           - memory
                           - memoryStat
+                          - reclaim
                           - events
+                          - deltas
                           - disk
                         additionalProperties: false
                       - type: "null"
