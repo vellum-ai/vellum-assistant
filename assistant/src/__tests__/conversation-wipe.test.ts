@@ -17,7 +17,7 @@ import {
 import { getDb, getLogsDb, getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { enqueueMemoryJob } from "../persistence/jobs-store.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
+import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
 
 // Initialize db once before all tests
 await initializeDb();

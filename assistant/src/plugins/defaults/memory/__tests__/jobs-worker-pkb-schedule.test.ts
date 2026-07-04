@@ -72,7 +72,7 @@ const { enqueueMemoryJob } =
 const { GRAPH_MAINTENANCE_CHECKPOINTS, maybeEnqueueGraphMaintenanceJobs } =
   await import("../../../../persistence/jobs-worker.js");
 const { registerMemoryPersistenceHooks } =
-  await import("../../../../persistence/memory-lifecycle-hooks.js");
+  await import("../persistence-lifecycle-seam.js");
 const { memoryPersistenceHooks } = await import("../persistence-hooks.js");
 
 // The scheduler reads the PKB buffer state through the persistence seam;

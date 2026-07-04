@@ -55,7 +55,6 @@ import {
   memoryRetrospectiveState,
   toolInvocations,
 } from "../persistence/schema/index.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
 import {
   loadGraphMemoryState,
   saveGraphMemoryState,
@@ -65,6 +64,7 @@ import {
   getRetrospectiveState,
   upsertRetrospectiveState,
 } from "../plugins/defaults/memory/memory-retrospective-state.js";
+import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
 import { hydrate as hydrateActivationState } from "../plugins/defaults/memory/v2/activation-store.js";
 import {
   getInjected as getV3Injected,

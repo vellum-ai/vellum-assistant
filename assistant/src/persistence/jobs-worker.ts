@@ -6,6 +6,7 @@ import {
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
 } from "../daemon/disk-pressure-background-gate.js";
+import { getMemoryPersistenceHooks } from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
 import {
@@ -45,7 +46,6 @@ import {
   resetRunningJobsToPending,
   SLOW_LLM_JOB_TYPES,
 } from "./jobs-store.js";
-import { getMemoryPersistenceHooks } from "./memory-lifecycle-hooks.js";
 import { spawnMemoryWorkerProcess } from "./worker-control.js";
 
 const log = getLogger("memory-jobs-worker");

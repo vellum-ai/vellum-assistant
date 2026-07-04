@@ -62,13 +62,13 @@ import { getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import type { MemoryJobType } from "../persistence/jobs-store.js";
+import { memoryJobs } from "../persistence/schema/index.js";
+import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
 import {
   getMemoryPersistenceHooks,
   type MemoryPersistenceHooks,
   registerMemoryPersistenceHooks,
-} from "../persistence/memory-lifecycle-hooks.js";
-import { memoryJobs } from "../persistence/schema/index.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
+} from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
 
 await initializeDb();
 
