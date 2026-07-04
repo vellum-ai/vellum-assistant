@@ -48,7 +48,7 @@ export const WORKER_FORCE_RAM_MAX_BYTES = 2048 * MIB;
  * clamped to [{@link WORKER_FORCE_RAM_MIN_BYTES}, {@link WORKER_FORCE_RAM_MAX_BYTES}].
  */
 export function computeWorkerForceRamSizeBytes(
-  limitBytes: number | null = getContainerMemoryLimitBytes(),
+  limitBytes: number | null,
 ): number {
   const base = limitBytes ?? totalmem();
   const target = Math.floor(base * WORKER_RAM_FRACTION);
@@ -67,14 +67,11 @@ export function computeWorkerForceRamSizeBytes(
  * Bun.spawn replaces (rather than merges) the child environment when `env` is
  * passed, so this spreads the full parent environment.
  */
-export function workerMemoryEnv(
-  parentEnv: Record<string, string | undefined> = process.env,
-  limitBytes: number | null = getContainerMemoryLimitBytes(),
-): Record<string, string | undefined> {
+export function workerMemoryEnv(): Record<string, string | undefined> {
   return {
-    ...parentEnv,
+    ...process.env,
     BUN_JSC_forceRAMSize:
-      parentEnv.BUN_JSC_forceRAMSize ??
-      String(computeWorkerForceRamSizeBytes(limitBytes)),
+      process.env.BUN_JSC_forceRAMSize ??
+      String(computeWorkerForceRamSizeBytes(getContainerMemoryLimitBytes())),
   };
 }

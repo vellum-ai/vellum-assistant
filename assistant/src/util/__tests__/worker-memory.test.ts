@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import {
   computeWorkerForceRamSizeBytes,
@@ -37,14 +37,28 @@ describe("computeWorkerForceRamSizeBytes", () => {
 });
 
 describe("workerMemoryEnv", () => {
-  test("adds BUN_JSC_forceRAMSize on top of the parent environment", () => {
-    const env = workerMemoryEnv({ PATH: "/usr/bin" }, 5 * GIB);
-    expect(env.PATH).toBe("/usr/bin");
-    expect(env.BUN_JSC_forceRAMSize).toBe(String(1.25 * GIB));
+  const savedForceRamSize = process.env.BUN_JSC_forceRAMSize;
+
+  afterEach(() => {
+    if (savedForceRamSize === undefined) {
+      delete process.env.BUN_JSC_forceRAMSize;
+    } else {
+      process.env.BUN_JSC_forceRAMSize = savedForceRamSize;
+    }
+  });
+
+  test("adds a clamped BUN_JSC_forceRAMSize on top of the parent environment", () => {
+    delete process.env.BUN_JSC_forceRAMSize;
+    const env = workerMemoryEnv();
+    expect(env.PATH).toBe(process.env.PATH);
+    const hint = Number(env.BUN_JSC_forceRAMSize);
+    expect(hint).toBeGreaterThanOrEqual(WORKER_FORCE_RAM_MIN_BYTES);
+    expect(hint).toBeLessThanOrEqual(WORKER_FORCE_RAM_MAX_BYTES);
   });
 
   test("keeps an operator-provided BUN_JSC_forceRAMSize", () => {
-    const env = workerMemoryEnv({ BUN_JSC_forceRAMSize: "12345" }, 5 * GIB);
+    process.env.BUN_JSC_forceRAMSize = "12345";
+    const env = workerMemoryEnv();
     expect(env.BUN_JSC_forceRAMSize).toBe("12345");
   });
 });
