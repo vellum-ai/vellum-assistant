@@ -40,6 +40,7 @@ import { getLogger } from "../util/logger.js";
 import { getMonitoringDataDir } from "../util/platform.js";
 import { buildProcessTree, listProcesses } from "../util/process-tree.js";
 import { SampleRingBuffer } from "./sample-ring-buffer.js";
+import { topSlabCaches } from "./slabinfo.js";
 
 const log = getLogger("resource-sampler");
 
@@ -208,8 +209,9 @@ function topProcessesByRss(limit: number): ProcessRss[] {
 
 /**
  * Capture a high-memory snapshot to the snapshots directory: the triggering
- * sample, the cgroup memory.events counters, the top processes by RSS, and the
- * full process tree of the container. Prunes to {@link MAX_SNAPSHOTS} newest.
+ * sample, the cgroup memory.events counters, the top processes by RSS, the top
+ * kernel slab caches, and the full process tree of the container. Prunes to
+ * {@link MAX_SNAPSHOTS} newest.
  */
 export async function writeHighMemSnapshot(
   dataDir: string,
@@ -233,6 +235,9 @@ export async function writeHighMemSnapshot(
     ts: sample.ts,
     sample,
     topProcessesByRss: topProcessesByRss(15),
+    // Slab memory belongs to no process; without this, cgroup usage that
+    // exceeds the RSS sum has no visible owner.
+    topSlabCaches: topSlabCaches(10),
     processTree: tree,
   };
 
