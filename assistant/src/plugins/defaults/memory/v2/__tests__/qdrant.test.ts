@@ -72,8 +72,8 @@ const FULL_SCHEMA_INFO: MockCollectionInfo = {
         summary_dense: { size: 384 },
       },
       sparse_vectors: {
-        sparse: {},
-        summary_sparse: {},
+        sparse: { index: { on_disk: true } },
+        summary_sparse: { index: { on_disk: true } },
       },
     },
   },
@@ -107,6 +107,10 @@ const state = {
     }>,
   },
   createCollectionThrows: null as Error | null,
+  // Tracks `client.updateCollection(name, params)` calls — the in-place
+  // sparse-index placement reconcile issues these on the compatible path.
+  updateCollectionCalls: [] as Array<{ name: string; params: unknown }>,
+  updateCollectionThrows: null as Error | null,
   // Schema returned by `client.getCollection`. Tests that exercise the
   // drift path point this at a partial schema; the default mirrors a fully
   // migrated collection so the no-drift path is the silent default.
@@ -148,6 +152,11 @@ class MockQdrantClient {
   async deleteCollection(name: string) {
     state.deleteCollectionCalls.push(name);
     state.collectionExistsBeforeCreate = false;
+    return {};
+  }
+  async updateCollection(name: string, params: unknown) {
+    state.updateCollectionCalls.push({ name, params });
+    if (state.updateCollectionThrows) throw state.updateCollectionThrows;
     return {};
   }
   async count(_name: string, _opts: { exact: boolean }) {
@@ -228,6 +237,8 @@ function resetState(): void {
   state.queryResponses.dense.length = 0;
   state.queryResponses.sparse.length = 0;
   state.createCollectionThrows = null;
+  state.updateCollectionCalls.length = 0;
+  state.updateCollectionThrows = null;
   state.getCollectionInfo = FULL_SCHEMA_INFO;
   state.getCollectionThrows = null;
   state.getCollectionCalls = 0;
@@ -277,8 +288,14 @@ describe("memory v2 qdrant — collection lifecycle", () => {
       distance: "Cosine",
       on_disk: true,
     });
-    expect(params.sparse_vectors.sparse).toEqual({});
-    expect(params.sparse_vectors.summary_sparse).toEqual({});
+    // Sparse inverted indexes follow the collection's on-disk setting instead
+    // of Qdrant's in-RAM default.
+    expect(params.sparse_vectors.sparse).toEqual({
+      index: { on_disk: true },
+    });
+    expect(params.sparse_vectors.summary_sparse).toEqual({
+      index: { on_disk: true },
+    });
     expect(params.hnsw_config).toEqual({
       on_disk: true,
       m: 16,
@@ -312,6 +329,100 @@ describe("memory v2 qdrant — collection lifecycle", () => {
       { field_name: "slug", field_schema: "keyword" },
       { field_name: "kind", field_schema: "keyword" },
     ]);
+    expect(state.collectionExistsCalls).toBe(1);
+    // The sparse indexes already sit on disk — no placement update issued.
+    expect(state.updateCollectionCalls).toEqual([]);
+  });
+
+  test("moves in-RAM sparse indexes to disk on an existing compatible collection", async () => {
+    // Collection created before sparse indexes carried an explicit placement:
+    // full named-vector schema, but both sparse channels default to RAM.
+    state.collectionExistsBeforeCreate = true;
+    state.getCollectionInfo = {
+      config: {
+        params: {
+          vectors: {
+            dense: { size: 384 },
+            summary_dense: { size: 384 },
+          },
+          sparse_vectors: { sparse: {}, summary_sparse: {} },
+        },
+      },
+    };
+
+    const result = await ensureConceptPageCollection();
+
+    // In-place update only — no destructive recreate, no reembed owed.
+    expect(result).toEqual({ migrated: false });
+    expect(state.deleteCollectionCalls).toEqual([]);
+    expect(state.createCollectionCalls).toBe(0);
+    expect(state.updateCollectionCalls).toEqual([
+      {
+        name: MEMORY_V2_COLLECTION,
+        params: {
+          sparse_vectors: {
+            sparse: { index: { on_disk: true } },
+            summary_sparse: { index: { on_disk: true } },
+          },
+        },
+      },
+    ]);
+  });
+
+  test("only updates the sparse channels that drift", async () => {
+    state.collectionExistsBeforeCreate = true;
+    state.getCollectionInfo = {
+      config: {
+        params: {
+          vectors: {
+            dense: { size: 384 },
+            summary_dense: { size: 384 },
+          },
+          sparse_vectors: {
+            sparse: { index: { on_disk: true } },
+            summary_sparse: {},
+          },
+        },
+      },
+    };
+
+    await ensureConceptPageCollection();
+
+    expect(state.updateCollectionCalls).toEqual([
+      {
+        name: MEMORY_V2_COLLECTION,
+        params: {
+          sparse_vectors: { summary_sparse: { index: { on_disk: true } } },
+        },
+      },
+    ]);
+  });
+
+  test("a failed sparse-placement update does not block collection readiness", async () => {
+    state.collectionExistsBeforeCreate = true;
+    state.getCollectionInfo = {
+      config: {
+        params: {
+          vectors: {
+            dense: { size: 384 },
+            summary_dense: { size: 384 },
+          },
+          sparse_vectors: { sparse: {}, summary_sparse: {} },
+        },
+      },
+    };
+    state.updateCollectionThrows = new Error("optimizer busy");
+
+    const result = await ensureConceptPageCollection();
+
+    // Best-effort: readiness latches and the collection keeps serving from
+    // its current in-RAM indexes.
+    expect(result).toEqual({ migrated: false });
+    expect(state.updateCollectionCalls.length).toBe(1);
+
+    // Readiness latched — a follow-up ensure is a pure cache hit.
+    const again = await ensureConceptPageCollection();
+    expect(again).toEqual({ migrated: false });
     expect(state.collectionExistsCalls).toBe(1);
   });
 
