@@ -67,7 +67,7 @@ describe("startCes", () => {
     const resources = {
       instanceDir: tempDir,
       name: "test-assistant",
-    } as any;
+    } as unknown as Parameters<typeof startCes>[1];
 
     // Create the socket file asynchronously after startCes unlinks it.
     // We use a small setTimeout to create it during the wait loop.
