@@ -11518,6 +11518,16 @@ paths:
           description:
             Return buffered events with seq strictly greater than this value — typically the seq watermark of a
             just-fetched /messages snapshot. Must be a non-negative integer.
+        - name: toSeq
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            Optional inclusive upper bound on returned seqs. A caller that already knows where its live delivery
+            resumed (e.g. the first live event after a gap) can trim the response to exactly the hole. Purely a
+            bandwidth trim — client folds are seq-idempotent, so overlap with live delivery is harmless without it. Must
+            be an integer >= fromSeq.
       responses:
         "200":
           description: Successful response

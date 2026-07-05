@@ -591,6 +591,22 @@ function handleEventsTail({
   if (!Number.isInteger(fromSeq) || fromSeq < 0) {
     throw new BadRequestError("fromSeq must be a non-negative integer");
   }
+  // Optional upper bound: a caller that already knows where its live
+  // delivery resumed (e.g. the seq-gap heal's first live event) can trim
+  // the response to exactly the hole. Purely a bandwidth trim — the
+  // client fold is seq-idempotent, so an unbounded overlap with live
+  // delivery is harmless.
+  const rawToSeq = queryParams?.toSeq;
+  let toSeq: number | null = null;
+  if (rawToSeq != null && rawToSeq.trim() !== "") {
+    const parsed = Number(rawToSeq);
+    if (!Number.isInteger(parsed) || parsed < fromSeq) {
+      throw new BadRequestError(
+        "toSeq must be an integer greater than or equal to fromSeq",
+      );
+    }
+    toSeq = parsed;
+  }
 
   // Same client-identity resolution as the SSE subscribe handler, so the
   // replay filter matches what a live subscription would have delivered.
@@ -615,10 +631,14 @@ function handleEventsTail({
   if (window === null) {
     return { events: [], complete: false, frontier: null };
   }
+  const bounded =
+    toSeq === null
+      ? window
+      : window.filter((e) => typeof e.seq === "number" && e.seq <= toSeq);
   const lastSeq =
-    window.length > 0 ? window[window.length - 1]?.seq : undefined;
+    bounded.length > 0 ? bounded[bounded.length - 1]?.seq : undefined;
   return {
-    events: window,
+    events: bounded,
     complete: true,
     frontier: typeof lastSeq === "number" ? lastSeq : fromSeq,
   };
@@ -712,6 +732,11 @@ export const ROUTES: RouteDefinition[] = [
         name: "fromSeq",
         description:
           "Return buffered events with seq strictly greater than this value — typically the seq watermark of a just-fetched /messages snapshot. Must be a non-negative integer.",
+      },
+      {
+        name: "toSeq",
+        description:
+          "Optional inclusive upper bound on returned seqs. A caller that already knows where its live delivery resumed (e.g. the first live event after a gap) can trim the response to exactly the hole. Purely a bandwidth trim — client folds are seq-idempotent, so overlap with live delivery is harmless without it. Must be an integer >= fromSeq.",
       },
     ],
     responseBody: z.object({

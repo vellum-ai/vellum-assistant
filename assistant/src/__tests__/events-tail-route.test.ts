@@ -142,6 +142,21 @@ describe("GET events/tail", () => {
     expect(other.events.map((e) => e.seq)).toEqual([1, 2]);
   });
 
+  test("toSeq bounds the window inclusively and moves the frontier", () => {
+    // GIVEN five buffered events for the conversation (seq 1..5)
+    for (let i = 0; i < 5; i++) {
+      stampAndBuffer(mkEvent());
+    }
+
+    // WHEN fetching (1, 3] — the caller already has 4+ from live delivery
+    const body = callTail({ conversationId: CONV, fromSeq: "1", toSeq: "3" });
+
+    // THEN only the hole comes back, with the frontier at the bound
+    expect(body.complete).toBe(true);
+    expect(body.events.map((e) => e.seq)).toEqual([2, 3]);
+    expect(body.frontier).toBe(3);
+  });
+
   test("rejects missing or invalid params", () => {
     expect(() => callTail({ fromSeq: "1" })).toThrow(BadRequestError);
     expect(() => callTail({ conversationId: CONV })).toThrow(BadRequestError);
@@ -154,5 +169,11 @@ describe("GET events/tail", () => {
     expect(() => callTail({ conversationId: CONV, fromSeq: "1.5" })).toThrow(
       BadRequestError,
     );
+    expect(() =>
+      callTail({ conversationId: CONV, fromSeq: "5", toSeq: "3" }),
+    ).toThrow(BadRequestError);
+    expect(() =>
+      callTail({ conversationId: CONV, fromSeq: "1", toSeq: "x" }),
+    ).toThrow(BadRequestError);
   });
 });
