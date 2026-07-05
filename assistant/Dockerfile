@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.20@sha256:26147acbda4f14c5add9946e2fd2ed543fc402884fd75146bd342a7f6271dc1d
 # Use debian as base image
 FROM debian:trixie-slim@sha256:4ffb3a1511099754cddc70eb1b12e50ffdb67619aa0ab6c13fcd800a78ef7c7a AS builder
 
@@ -16,28 +17,28 @@ RUN apt-get update && apt-get install -y \
 RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.11"
 ENV PATH="/root/.bun/bin:${PATH}"
 
-# Copy shared packages needed by assistant's repo-local dependencies
-COPY packages/ces-client ./packages/ces-client
-COPY packages/service-contracts ./packages/service-contracts
-COPY packages/credential-storage ./packages/credential-storage
-COPY packages/egress-proxy ./packages/egress-proxy
-COPY packages/environments ./packages/environments
-COPY packages/gateway-client ./packages/gateway-client
-COPY packages/ipc-server-utils ./packages/ipc-server-utils
-COPY packages/slack-text ./packages/slack-text
-COPY packages/twilio-client ./packages/twilio-client
+# Dependency resolution needs only the manifests, lockfile, and patch
+# files. Source never enters this stage, so source edits cannot
+# invalidate the install layer. Every member manifest must be present
+# for --frozen-lockfile to validate the workspace.
+COPY package.json bun.lock ./
+COPY patches ./patches
+COPY clients/web/patches ./clients/web/patches
+COPY clients/macos/package.json ./clients/macos/
+COPY clients/web/package.json ./clients/web/
+COPY cli/package.json ./cli/
+COPY gateway/package.json ./gateway/
+COPY credential-executor/package.json ./credential-executor/
+COPY assistant/package.json ./assistant/
+COPY assistant/src/api/package.json ./assistant/src/api/
+COPY --parents packages/*/package.json ./
 
-# Install deps for shared packages whose source is loaded at runtime.
-# Without this, bun's module resolution walks up from packages/<name>/src/
-# and can't find the package's own deps (zod, transitive file: refs)
-# because only assistant/node_modules gets populated.
-RUN cd /app/packages/ces-client && bun install --frozen-lockfile
-RUN cd /app/packages/gateway-client && bun install --frozen-lockfile
-RUN cd /app/packages/service-contracts && bun install --frozen-lockfile
-
-# Install assistant dependencies first for cache reuse
-COPY assistant/package.json assistant/bun.lock ./assistant/
-RUN cd /app/assistant && bun install --frozen-lockfile
+# The filter keeps unrelated workspace members out of the image while
+# still installing the runtime packages' own node_modules, which their
+# source needs at runtime. Lifecycle scripts are dev-environment
+# conveniences and are skipped.
+RUN bun install --frozen-lockfile --ignore-scripts \
+    --filter='./assistant' --filter='./assistant/src/api'
 
 # Copy bundled first-party skills and install their deps. The repo-root
 # .dockerignore is the single source of truth for which skills (and which
@@ -121,8 +122,21 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
-# Copy installed deps, shared packages, and bundled skills from the builder stage.
+# Copy installed deps and bundled skills from the builder stage.
 COPY --from=builder /app /app
+
+# Runtime source enters here, after the dependency layers: the workspace
+# symlinks in /app/node_modules already point at these directories, so
+# source edits invalidate only these copies — never the install.
+COPY packages/ces-client /app/packages/ces-client
+COPY packages/service-contracts /app/packages/service-contracts
+COPY packages/credential-storage /app/packages/credential-storage
+COPY packages/egress-proxy /app/packages/egress-proxy
+COPY packages/environments /app/packages/environments
+COPY packages/gateway-client /app/packages/gateway-client
+COPY packages/ipc-server-utils /app/packages/ipc-server-utils
+COPY packages/slack-text /app/packages/slack-text
+COPY packages/twilio-client /app/packages/twilio-client
 
 COPY assistant /app/assistant
 

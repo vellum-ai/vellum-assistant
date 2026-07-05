@@ -8,8 +8,8 @@
     "dist"
   ],
   "scripts": {
-    "predev": "bun run postinstall && bun run openapi-ts && node scripts/copy-skill-assets.mjs",
-    "dev": "bun run scripts/ensure-fresh-vite.ts && bun --bun vite",
+    "predev": "bun run openapi-ts && node scripts/copy-skill-assets.mjs",
+    "dev": "bun --bun vite",
     "prebuild": "node scripts/copy-skill-assets.mjs",
     "build": "bun --bun vite build",
     "preview": "bun --bun vite preview",
@@ -18,7 +18,7 @@
     "audit:cross-domain:check": "node scripts/audit-cross-domain-imports.mjs --check",
     "pretypecheck": "bun run openapi-ts",
     "typecheck": "bunx tsc --noEmit",
-    "postinstall": "bun run scripts/postinstall.ts",
+    "postinstall": "test -d src/generated || bun run openapi-ts",
     "openapi-ts": "bun run scripts/transform-daemon-spec.ts && bun run scripts/transform-gateway-spec.ts && openapi-ts",
     "ios:setup": "bunx cap sync ios && cd ../ios/App && xcodegen generate --spec project.yml",
     "ios:open": "bun run ios:setup && open ../ios/App/App.xcodeproj",
@@ -62,6 +62,7 @@
     "@tiptap/pm": "3.23.5",
     "@tiptap/react": "3.23.5",
     "@tiptap/starter-kit": "3.23.5",
+    "@vellumai/assistant-api": "workspace:*",
     "@vellumai/design-library": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",
     "@vellumai/local-mode": "workspace:*",

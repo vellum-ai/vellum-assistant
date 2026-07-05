@@ -14,6 +14,10 @@ const DESIGN_LIBRARY_SRC = path.resolve(
   import.meta.dirname,
   "../../packages/design-library/src",
 );
+const ASSISTANT_API_SRC = path.resolve(
+  import.meta.dirname,
+  "../../assistant/src/api",
+);
 
 // Keep in sync with PLATFORM_MODE_TRUTHY in src/lib/local-mode.ts
 const PLATFORM_MODE_TRUTHY = new Set(["1", "true", "yes"]);
@@ -147,11 +151,10 @@ export default defineConfig(({ mode }) => {
       port: parseInt(env.PORT || "3000"),
       strictPort: true,
       host: true,
-      // design-library is a workspace sibling: its source and the @font-face
-      // asset URLs in tokens.css resolve to packages/design-library, outside
-      // Vite's auto-detected root (clients/web). Allow both roots explicitly.
+      // These workspace siblings resolve outside Vite's auto-detected root
+      // and would be blocked in dev without an explicit allow.
       fs: {
-        allow: [import.meta.dirname, DESIGN_LIBRARY_SRC],
+        allow: [import.meta.dirname, DESIGN_LIBRARY_SRC, ASSISTANT_API_SRC],
       },
       proxy: {
         ...(isPlatformMode(env.VITE_PLATFORM_MODE)

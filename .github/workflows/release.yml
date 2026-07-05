@@ -1285,19 +1285,20 @@ jobs:
 
       - name: Install package dependencies
         run: |
-          PACKAGE="${{ matrix.package }}"
-          cd "$PACKAGE"
-          if ! bun install --frozen-lockfile; then
+          if ! bun install --frozen-lockfile --filter="./${{ matrix.package }}"; then
             echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
             rm -f bun.lock
             rm -rf node_modules
-            bun install
+            bun install --filter="./${{ matrix.package }}"
           fi
+      # bun pm pack bundles the workspace deps listed in bundledDependencies
+      # and rewrites workspace:* to concrete versions; npm pack does neither
+      # for symlinked workspace deps.
       - name: Pack tarball
         run: |
           cd "${{ matrix.package }}"
           mkdir -p /tmp/npm-dist
-          npm pack --pack-destination /tmp/npm-dist
+          bun pm pack --destination /tmp/npm-dist
           mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
           node -p "require('./package.json').name" > /tmp/npm-dist/name
           node -p "require('./package.json').version" > /tmp/npm-dist/version
@@ -1455,15 +1456,14 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd cli
-          if ! bun install --frozen-lockfile; then
-            rm -f bun.lock && rm -rf node_modules && bun install
+          if ! bun install --frozen-lockfile --filter=@vellumai/cli; then
+            rm -f bun.lock && rm -rf node_modules && bun install --filter=@vellumai/cli
           fi
 
       - name: Pack CLI tarball
         run: |
           cd cli
-          npm pack
+          bun pm pack
           TARBALL=$(ls vellumai-cli-*.tgz)
           echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
           echo "Packed: $TARBALL"
@@ -1524,15 +1524,14 @@ jobs:
         run: jq --arg v "${{ needs.extract-version.outputs.version }}" '.version = $v' ${{ matrix.package }}/package.json > ${{ matrix.package }}/package.json.tmp && mv ${{ matrix.package }}/package.json.tmp ${{ matrix.package }}/package.json
       - name: Install package dependencies
         run: |
-          cd "${{ matrix.package }}"
-          if ! bun install --frozen-lockfile; then
-            rm -f bun.lock && rm -rf node_modules && bun install
+          if ! bun install --frozen-lockfile --filter="./${{ matrix.package }}"; then
+            rm -f bun.lock && rm -rf node_modules && bun install --filter="./${{ matrix.package }}"
           fi
       - name: Pack tarball
         run: |
           cd "${{ matrix.package }}"
           mkdir -p /tmp/npm-dist
-          npm pack --pack-destination /tmp/npm-dist
+          bun pm pack --destination /tmp/npm-dist
           mv /tmp/npm-dist/*.tgz /tmp/npm-dist/package.tgz
           node -p "require('./package.json').name" > /tmp/npm-dist/name
           node -p "require('./package.json').version" > /tmp/npm-dist/version
@@ -2585,13 +2584,8 @@ jobs:
           bun-version: '1.3.11'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/assistant --filter=@vellumai/vellum-gateway
         working-directory: assistant
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/service-contracts packages/ces-client packages/gateway-client gateway
 
       - name: Lint
         run: bun run lint
@@ -2634,13 +2628,8 @@ jobs:
         with:
           bun-version: '1.3.11'
 
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
-
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/cli
         working-directory: cli
 
       - name: Lint
@@ -2662,13 +2651,8 @@ jobs:
         with:
           bun-version: '1.3.11'
 
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/service-contracts packages/ces-client packages/assistant-client packages/gateway-client
-
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/vellum-gateway
         working-directory: gateway
 
       - name: Lint
@@ -2695,13 +2679,8 @@ jobs:
           bun-version: '1.3.11'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/credential-executor
         working-directory: credential-executor
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/service-contracts
 
       - name: Typecheck
         run: bun run typecheck
