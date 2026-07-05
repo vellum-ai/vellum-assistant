@@ -1372,24 +1372,13 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-      - name: Install assistant dependencies
+      - name: Install dependencies
         run: |
-          cd assistant
-          if ! bun install --frozen-lockfile; then
+          if ! bun install --frozen-lockfile --filter=@vellumai/assistant; then
             echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
             rm -f bun.lock
-            rm -rf node_modules
-            bun install
+            bun install --filter=@vellumai/assistant
           fi
-      # The rollup compiles the `packages/*` contract sources the authoring
-      # surface reaches, so each must have its own node_modules (the repo uses
-      # per-package file: deps with no Bun workspaces — see the root AGENTS.md).
-      - name: Install shared package dependencies
-        run: |
-          for dir in packages/*/; do
-            [ -f "${dir}/package.json" ] || continue
-            (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
-          done
       - name: Build plugin-api package
         run: cd assistant && bun run scripts/build-plugin-api.ts --version "${{ needs.extract-version.outputs.version }}"
       - name: Pack tarball
@@ -1593,21 +1582,13 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
-      - name: Install assistant dependencies
+      - name: Install dependencies
         run: |
-          cd assistant
-          if ! bun install --frozen-lockfile; then
-            rm -f bun.lock && rm -rf node_modules && bun install
+          if ! bun install --frozen-lockfile --filter=@vellumai/assistant; then
+            echo "bun install --frozen-lockfile failed; regenerating lockfile and retrying..."
+            rm -f bun.lock
+            bun install --filter=@vellumai/assistant
           fi
-      # The rollup compiles the `packages/*` contract sources the authoring
-      # surface reaches, so each must have its own node_modules (the repo uses
-      # per-package file: deps with no Bun workspaces — see the root AGENTS.md).
-      - name: Install shared package dependencies
-        run: |
-          for dir in packages/*/; do
-            [ -f "${dir}/package.json" ] || continue
-            (cd "${dir}" && bun install --frozen-lockfile 2>/dev/null || bun install)
-          done
       - name: Build plugin-api package
         run: cd assistant && bun run scripts/build-plugin-api.ts --version "${{ needs.extract-version.outputs.version }}"
       - name: Pack tarball
