@@ -65,7 +65,6 @@ import memoryPostCompact from "./memory/hooks/post-compact.js";
 import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
 import { memoryInjectors } from "./memory/injectors.js";
 import memoryPkg from "./memory/package.json" with { type: "json" };
-import { registerDefaultPluginPersistenceHooks } from "./memory/persistence-hooks-registration.js";
 import {
   memoryV3Injector,
   memoryV3SpotlightInjector,
@@ -477,7 +476,10 @@ export function registerDefaultPluginInjectors(): void {
  * so integration tests that exercise the full agent loop have a
  * production-parity plugin stack. Use this in `beforeEach` of tests that
  * dispatch through pipelines with a terminal that assumes the default
- * plugin handles every op (e.g. compaction).
+ * plugin handles every op (e.g. compaction). Deliberately does NOT touch
+ * the memory plugin's persistence-lifecycle seam — that is a memory-plugin
+ * concept (`memory/persistence-hooks-registration.ts`), and tests that
+ * exercise persistence side effects register it themselves.
  *
  * Tests that specifically need an empty hook registry (pipeline-unit tests)
  * should continue to call {@link resetHookRegistryForTests} directly.
@@ -495,5 +497,4 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   registerDefaultPlugins();
   clearInjectorRegistry();
   registerDefaultPluginInjectors();
-  registerDefaultPluginPersistenceHooks();
 }
