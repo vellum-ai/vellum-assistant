@@ -90,11 +90,16 @@ const resolveProcessStateMock = mock<typeof processLib.resolveProcessState>(
 const stopProcessByPidFileMock = mock<typeof processLib.stopProcessByPidFile>(
   async () => true,
 );
+const isProcessAliveMock = mock<typeof processLib.isProcessAlive>(() => ({
+  alive: false,
+  pid: null,
+}));
 
 mock.module("../lib/process", () => ({
   ...realProcessLib,
   resolveProcessState: resolveProcessStateMock,
   stopProcessByPidFile: stopProcessByPidFileMock,
+  isProcessAlive: isProcessAliveMock,
 }));
 
 const generateLocalSigningKeyMock = mock<typeof local.generateLocalSigningKey>(
@@ -110,6 +115,7 @@ const startLocalDaemonMock = mock<typeof local.startLocalDaemon>(async () => {})
 const startGatewayMock = mock<typeof local.startGateway>(
   async () => "http://127.0.0.1:7830",
 );
+const startCesMock = mock<typeof local.startCes>(async () => {});
 
 mock.module("../lib/local", () => ({
   ...realLocal,
@@ -118,6 +124,7 @@ mock.module("../lib/local", () => ({
   isGatewayWatchModeAvailable: isGatewayWatchModeAvailableMock,
   startLocalDaemon: startLocalDaemonMock,
   startGateway: startGatewayMock,
+  startCes: startCesMock,
 }));
 
 const maybeStartNgrokTunnelMock = mock<typeof ngrok.maybeStartNgrokTunnel>(
@@ -184,6 +191,10 @@ beforeEach(() => {
   startLocalDaemonMock.mockResolvedValue(undefined);
   startGatewayMock.mockReset();
   startGatewayMock.mockResolvedValue("http://127.0.0.1:7830");
+  startCesMock.mockReset();
+  startCesMock.mockResolvedValue(undefined);
+  isProcessAliveMock.mockReset();
+  isProcessAliveMock.mockReturnValue({ alive: false, pid: null });
   seedGuardianTokenFromSiblingEnvMock.mockReset();
   seedGuardianTokenFromSiblingEnvMock.mockReturnValue(false);
   loadGuardianTokenMock.mockReset();
@@ -290,5 +301,28 @@ describe("vellum wake", () => {
       "local-assistant",
       "generated-bootstrap-secret",
     );
+  });
+
+  test("relaunches CES sibling when daemon is healthy but CES is dead", async () => {
+    // Daemon is healthy (default mock) but CES pid says dead.
+    // isProcessAliveMock defaults to { alive: false }.
+    await wake();
+
+    // startCes should be called to relaunch the dead sibling.
+    expect(startCesMock).toHaveBeenCalledTimes(1);
+    // startLocalDaemon should NOT be called (daemon already running).
+    expect(startLocalDaemonMock).not.toHaveBeenCalled();
+  });
+
+  test("does NOT relaunch CES sibling when both daemon and CES are healthy", async () => {
+    // Daemon is healthy (default mock). CES is also alive.
+    isProcessAliveMock.mockReturnValue({ alive: true, pid: 789 });
+
+    await wake();
+
+    // startCes should NOT be called (CES is alive).
+    expect(startCesMock).not.toHaveBeenCalled();
+    // startLocalDaemon should NOT be called (daemon already running).
+    expect(startLocalDaemonMock).not.toHaveBeenCalled();
   });
 });
