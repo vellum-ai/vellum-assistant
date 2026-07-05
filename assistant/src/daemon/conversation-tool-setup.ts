@@ -17,7 +17,7 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
-import { getAllDefaultPlugins } from "../plugins/defaults/index.js";
+import { getAllDefaultPluginNames } from "../plugins/defaults/main.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -158,8 +158,7 @@ export function getEffectiveEnabledPluginSet(conv: {
   const effective = new Set(conv.enabledPlugins);
   // Rules 2 + 3: add a default the conversation did not already decide, unless
   // it is disabled at the workspace level.
-  for (const plugin of getAllDefaultPlugins()) {
-    const name = plugin.manifest.name;
+  for (const name of getAllDefaultPluginNames()) {
     if (!effective.has(name) && !isPluginDisabled(name)) {
       effective.add(name);
     }
