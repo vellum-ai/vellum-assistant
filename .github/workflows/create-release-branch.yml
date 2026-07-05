@@ -336,6 +336,12 @@ jobs:
           # Bump Chrome extension version (manifest.json + package.json)
           jq --arg v "$VERSION" '.version = $v' clients/chrome-extension/manifest.json > tmp && mv tmp clients/chrome-extension/manifest.json
           jq --arg v "$VERSION" '.version = $v' clients/chrome-extension/package.json > tmp && mv tmp clients/chrome-extension/package.json
+          # Refresh the workspace lockfile so the committed member versions
+          # match the bumped manifests. Pre-workspace hotfix tags have no
+          # root lockfile and skip this.
+          if [ -f bun.lock ]; then
+            bun install --lockfile-only
+          fi
 
           # Regenerate OpenAPI spec with the new version
           cd assistant && bun run generate:openapi && cd ..
