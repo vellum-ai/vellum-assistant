@@ -10,13 +10,20 @@
  *
  * Everything here runs in the resource monitor's own OS process, off the
  * assistant's main event loop, so it keeps sampling even while that loop is
- * frozen mid-allocation and the samples survive an OOM SIGKILL.
+ * frozen mid-allocation and the samples survive an OOM SIGKILL. That
+ * independence is also what lets each tick check the daemon's event-loop
+ * heartbeat and capture the daemon's kernel-side state *during* a stall
+ * (`stall-capture.ts`).
  */
 
-import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { MonitoringConfig } from "../config/schemas/monitoring.js";
+import {
+  type ContainerCpuStat,
+  getContainerCpuStat,
+} from "../util/cgroup-cpu.js";
 import {
   type ContainerMemoryEvents,
   type ContainerMemoryStat,
@@ -29,14 +36,17 @@ import {
   parseReclaimCounters,
   readMemoryStatRaw,
 } from "../util/cgroup-memory.js";
+import { diffCounters } from "../util/counter-diff.js";
 import { getDiskUsageInfo } from "../util/disk-usage.js";
 import { getLogger } from "../util/logger.js";
 import { getMonitoringDataDir } from "../util/platform.js";
 import { buildProcessTree, listProcesses } from "../util/process-tree.js";
 import { getTrackedDataFiles, readFileResidency } from "./page-cache.js";
 import { topProcessesByMemory } from "./process-memory.js";
+import { prunePrefixedJsonFiles } from "./prune-snapshots.js";
 import { SampleRingBuffer } from "./sample-ring-buffer.js";
 import { topSlabCaches } from "./slabinfo.js";
+import { createStallCaptureMonitor } from "./stall-capture.js";
 
 const log = getLogger("resource-sampler");
 
@@ -69,6 +79,7 @@ export interface ResourceSampleDisk {
 export interface ResourceSampleDeltas {
   events: ContainerMemoryEvents | null;
   reclaim: ContainerReclaimCounters | null;
+  cpu: ContainerCpuStat | null;
 }
 
 export interface ResourceSample {
@@ -82,26 +93,16 @@ export interface ResourceSample {
   memoryStat: ContainerMemoryStat | null;
   /** Cumulative reclaim/thrash counters from memory.stat (since boot). */
   reclaim: ContainerReclaimCounters | null;
+  /**
+   * Cumulative cpu.stat counters (since boot). A rising `throttledUsec` delta
+   * means the container hit its CPU quota and the kernel paused its threads —
+   * indistinguishable from a busy event loop without this.
+   */
+  cpu: ContainerCpuStat | null;
   events: ContainerMemoryEvents | null;
   /** Since the previous sample; null on the monitor's first sample. */
   deltas: ResourceSampleDeltas | null;
   disk: ResourceSampleDisk | null;
-}
-
-function diffCounters<T extends Record<keyof T & string, number | null>>(
-  prev: T | null,
-  current: T | null,
-): T | null {
-  if (prev == null || current == null) {
-    return null;
-  }
-  const out: Record<string, number | null> = {};
-  for (const key of Object.keys(current) as Array<keyof T & string>) {
-    const before = prev[key];
-    const after = current[key];
-    out[key] = before != null && after != null ? after - before : null;
-  }
-  return out as T;
 }
 
 /** Per-counter increases from `prev` to `current`. */
@@ -112,6 +113,7 @@ export function computeSampleDeltas(
   return {
     events: diffCounters(prev.events, current.events),
     reclaim: diffCounters(prev.reclaim, current.reclaim),
+    cpu: diffCounters(prev.cpu, current.cpu),
   };
 }
 
@@ -145,6 +147,7 @@ export function takeSample(
     memory,
     memoryStat: statRaw != null ? parseMemoryStat(statRaw) : null,
     reclaim: statRaw != null ? parseReclaimCounters(statRaw) : null,
+    cpu: getContainerCpuStat(),
     events: getContainerMemoryEvents(),
     deltas: null,
     disk: disk
@@ -213,7 +216,7 @@ export async function writeHighMemSnapshot(
     join(snapshotsDir, filename),
     JSON.stringify(snapshot, null, 2),
   );
-  pruneSnapshots(snapshotsDir);
+  prunePrefixedJsonFiles(snapshotsDir, "snapshot-", MAX_SNAPSHOTS);
   log.warn(
     {
       currentBytes: sample.memory?.currentBytes,
@@ -227,27 +230,6 @@ export async function writeHighMemSnapshot(
     },
     "Captured high-memory snapshot",
   );
-}
-
-function pruneSnapshots(snapshotsDir: string): void {
-  let files: string[];
-  try {
-    files = readdirSync(snapshotsDir).filter(
-      (f) => f.startsWith("snapshot-") && f.endsWith(".json"),
-    );
-  } catch {
-    return;
-  }
-  if (files.length <= MAX_SNAPSHOTS) return;
-  // Filenames embed the millisecond timestamp, so lexical sort is chronological.
-  files.sort();
-  for (const stale of files.slice(0, files.length - MAX_SNAPSHOTS)) {
-    try {
-      rmSync(join(snapshotsDir, stale));
-    } catch {
-      // best-effort
-    }
-  }
 }
 
 export interface ResourceSamplerHandle {
@@ -271,6 +253,9 @@ export function startResourceSampler(
 
   let lastSnapshotAt = 0;
   let prevSample: ResourceSample | null = null;
+  // Watches the daemon's event-loop heartbeat; captures the daemon main
+  // thread's kernel state mid-stall when the heartbeat goes stale.
+  const stallCapture = createStallCaptureMonitor(dataDir);
 
   const tick = () => {
     const now = clock();
@@ -282,6 +267,12 @@ export function startResourceSampler(
     } catch (err) {
       log.warn({ err }, "Resource sample failed");
       return;
+    }
+
+    try {
+      stallCapture.check(sample, now);
+    } catch (err) {
+      log.warn({ err }, "Daemon stall check failed");
     }
 
     const ratio = sample.memory?.ratio;

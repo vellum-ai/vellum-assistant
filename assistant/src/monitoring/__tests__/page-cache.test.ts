@@ -63,19 +63,20 @@ describe("getTrackedDataFiles", () => {
     mkdirSync(join(getDataDir(), "db"), { recursive: true });
     writeFileSync(dbPath, "x".repeat(64));
     writeFileSync(`${dbPath}-wal`, "x".repeat(32));
-    // No -shm file — it must not be reported.
 
     const segments = join(getDataDir(), "qdrant", "collections", "c1");
     mkdirSync(segments, { recursive: true });
     writeFileSync(join(segments, "big.seg"), "x".repeat(100));
     writeFileSync(join(segments, "small.seg"), "x".repeat(10));
 
+    // Containment assertions: other suites sharing this process's workspace
+    // may create the -shm sidecar, so the exact list is not deterministic.
     const tracked = getTrackedDataFiles(1);
 
-    expect(tracked).toEqual([
-      dbPath,
-      `${dbPath}-wal`,
-      join(segments, "big.seg"),
-    ]);
+    expect(tracked).toContain(dbPath);
+    expect(tracked).toContain(`${dbPath}-wal`);
+    expect(tracked).toContain(join(segments, "big.seg"));
+    // The qdrant limit of 1 keeps the smaller segment out.
+    expect(tracked).not.toContain(join(segments, "small.seg"));
   });
 });

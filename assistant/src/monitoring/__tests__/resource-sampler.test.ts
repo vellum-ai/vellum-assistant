@@ -17,6 +17,7 @@ function makeSample(overrides: Partial<ResourceSample>): ResourceSample {
     memory: null,
     memoryStat: null,
     reclaim: null,
+    cpu: null,
     events: null,
     deltas: null,
     disk: null,
@@ -25,7 +26,7 @@ function makeSample(overrides: Partial<ResourceSample>): ResourceSample {
 }
 
 describe("computeSampleDeltas", () => {
-  test("diffs events and reclaim counters per key", () => {
+  test("diffs events, reclaim, and cpu counters per key", () => {
     const prev = makeSample({
       ts: 1000,
       events: { low: 0, high: 5, max: 100, oom: 0, oomKill: 0 },
@@ -33,6 +34,14 @@ describe("computeSampleDeltas", () => {
         pgscanDirect: 1_000_000,
         pgstealDirect: 900_000,
         workingsetRefaultFile: 500,
+      },
+      cpu: {
+        usageUsec: 4_000_000,
+        userUsec: 3_000_000,
+        systemUsec: 1_000_000,
+        nrPeriods: 100,
+        nrThrottled: 4,
+        throttledUsec: 200_000,
       },
     });
     const current = makeSample({
@@ -43,6 +52,14 @@ describe("computeSampleDeltas", () => {
         pgstealDirect: 1_200_000,
         workingsetRefaultFile: 800,
       },
+      cpu: {
+        usageUsec: 4_250_000,
+        userUsec: 3_100_000,
+        systemUsec: 1_150_000,
+        nrPeriods: 103,
+        nrThrottled: 6,
+        throttledUsec: 450_000,
+      },
     });
 
     expect(computeSampleDeltas(prev, current)).toEqual({
@@ -51,6 +68,14 @@ describe("computeSampleDeltas", () => {
         pgscanDirect: 400_000,
         pgstealDirect: 300_000,
         workingsetRefaultFile: 300,
+      },
+      cpu: {
+        usageUsec: 250_000,
+        userUsec: 100_000,
+        systemUsec: 150_000,
+        nrPeriods: 3,
+        nrThrottled: 2,
+        throttledUsec: 250_000,
       },
     });
   });
@@ -73,8 +98,9 @@ describe("computeSampleDeltas", () => {
     });
 
     const deltas = computeSampleDeltas(prev, current);
-    // prev.events is null, so no event deltas.
+    // prev.events and both cpu sides are null, so no deltas for those.
     expect(deltas.events).toBeNull();
+    expect(deltas.cpu).toBeNull();
     expect(deltas.reclaim).toEqual({
       pgscanDirect: 50,
       pgstealDirect: null,

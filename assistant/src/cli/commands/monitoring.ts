@@ -31,6 +31,15 @@ interface ReclaimCounters {
   workingsetRefaultFile: number | null;
 }
 
+interface CpuCounters {
+  usageUsec: number | null;
+  userUsec: number | null;
+  systemUsec: number | null;
+  nrPeriods: number | null;
+  nrThrottled: number | null;
+  throttledUsec: number | null;
+}
+
 interface LatestSample {
   ts: number;
   memory: {
@@ -49,6 +58,7 @@ interface LatestSample {
     reclaimableBytes: number | null;
   } | null;
   reclaim: ReclaimCounters | null;
+  cpu: CpuCounters | null;
   deltas: {
     events: {
       low: number | null;
@@ -58,6 +68,7 @@ interface LatestSample {
       oomKill: number | null;
     } | null;
     reclaim: ReclaimCounters | null;
+    cpu: CpuCounters | null;
   } | null;
   disk: {
     path: string;
@@ -125,7 +136,9 @@ Examples:
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .action(async (_opts: { json?: boolean }, cmd: Command) => {
           const r = await cliIpcCall<StartResponse>("monitoring_start");
-          if (!r.ok) return exitFromIpcResult(r);
+          if (!r.ok) {
+            return exitFromIpcResult(r);
+          }
           const res = r.result!;
 
           if (shouldOutputJson(cmd)) {
@@ -150,7 +163,9 @@ Examples:
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .action(async (_opts: { json?: boolean }, cmd: Command) => {
           const r = await cliIpcCall<StopResponse>("monitoring_stop");
-          if (!r.ok) return exitFromIpcResult(r);
+          if (!r.ok) {
+            return exitFromIpcResult(r);
+          }
           const res = r.result!;
 
           if (shouldOutputJson(cmd)) {
@@ -173,7 +188,9 @@ Examples:
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .action(async (_opts: { json?: boolean }, cmd: Command) => {
           const r = await cliIpcCall<StatusResponse>("monitoring_status");
-          if (!r.ok) return exitFromIpcResult(r);
+          if (!r.ok) {
+            return exitFromIpcResult(r);
+          }
           const res = r.result!;
 
           if (shouldOutputJson(cmd)) {
@@ -227,6 +244,17 @@ Examples:
             const d = sample.deltas?.reclaim;
             log.info(
               `  Reclaim: pgscan_direct ${counter(sample.reclaim.pgscanDirect, d?.pgscanDirect)}, pgsteal_direct ${counter(sample.reclaim.pgstealDirect, d?.pgstealDirect)}, workingset_refault_file ${counter(sample.reclaim.workingsetRefaultFile, d?.workingsetRefaultFile)}`,
+            );
+          }
+          if (sample.cpu && sample.cpu.throttledUsec != null) {
+            const throttleDelta = sample.deltas?.cpu?.throttledUsec;
+            const throttledMs = Math.round(sample.cpu.throttledUsec / 1000);
+            const deltaSuffix =
+              throttleDelta != null
+                ? ` (+${Math.round(throttleDelta / 1000)}ms)`
+                : "";
+            log.info(
+              `  CPU throttling: ${sample.cpu.nrThrottled ?? "?"} periods, ${throttledMs}ms total${deltaSuffix}`,
             );
           }
           if (sample.disk) {

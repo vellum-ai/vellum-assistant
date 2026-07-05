@@ -136,8 +136,8 @@ export interface ContainerMemoryStat {
   reclaimableBytes: number | null;
 }
 
-/** Parse `<key> <count>` lines (the memory.stat / memory.events format). */
-function parseKeyedCounts(raw: string): Record<string, number> {
+/** Parse `<key> <count>` lines (the memory.stat / memory.events / cpu.stat format). */
+export function parseKeyedCounts(raw: string): Record<string, number> {
   const counts: Record<string, number> = {};
   for (const line of raw.split("\n")) {
     const [key, value] = line.trim().split(/\s+/);

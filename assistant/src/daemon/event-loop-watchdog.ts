@@ -27,6 +27,18 @@
  * brackets — the code that froze. For sub-threshold contributors, time the
  * subsystem's synchronous calls at their source with `timeSyncSection`.
  *
+ * Kernel-side stall classification is owned by the resource monitor process,
+ * not this watchdog — nothing here reads sysfs or /proc. Each tick touches a
+ * heartbeat file (one mtime update; because the touch runs on the loop, a
+ * stale heartbeat *is* a blocked loop). The monitor watches that heartbeat
+ * from its own OS process and, mid-stall, captures the daemon main thread's
+ * kernel stack and process state alongside its regular memory.stat / reclaim /
+ * cpu.stat sample deltas (`monitoring/stall-capture.ts`). When this watchdog
+ * fires on unblock, the report attaches the monitor's capture for the window —
+ * classifying freezes that are not JS at all (synchronous kernel reclaim,
+ * CPU-quota throttling, lock waits). When monitoring is disabled the report
+ * degrades to blockedMs + section trail.
+ *
  * A cumulative event-loop-delay histogram is separately exposed pull-based over
  * SSE diagnostics (`runtime/routes/events-routes.ts`); this watchdog is the
  * push/alert counterpart and runs unconditionally for the daemon's lifetime.
@@ -34,6 +46,11 @@
 
 import * as Sentry from "@sentry/node";
 
+import { touchDaemonHeartbeat } from "../monitoring/daemon-heartbeat.js";
+import {
+  findRecentStallCapture,
+  type StallCapture,
+} from "../monitoring/stall-capture.js";
 import {
   getSectionTrail,
   type SectionTrailEntry,
@@ -62,6 +79,14 @@ const DEFAULT_BLOCK_THRESHOLD_MS = 5_000;
  */
 const REPORT_COOLDOWN_MS = 30_000;
 
+/**
+ * How far before the computed block start a monitor stall capture may be
+ * timestamped and still be attached to the report. Absorbs the skew between
+ * the heartbeat mtime, the monitor's sampling cadence, and this process's
+ * clock.
+ */
+const STALL_CAPTURE_MATCH_GRACE_MS = 5_000;
+
 let tickTimer: ReturnType<typeof setInterval> | null = null;
 let lastTickAt = 0;
 let lastReportAt = Number.NEGATIVE_INFINITY;
@@ -88,7 +113,10 @@ export function evaluateTick(
  */
 export const EVENT_LOOP_BLOCKED_CHECK_NAME = "event_loop_blocked";
 
-function reportBlock(blockedMs: number, thresholdMs: number): void {
+async function reportBlock(
+  blockedMs: number,
+  thresholdMs: number,
+): Promise<void> {
   // Attribution breadcrumbs: the block began ~`blockedMs` before this report,
   // so the newest trail entry started at least that long ago — and not yet
   // ended by then — is the section that was running when the loop froze.
@@ -98,8 +126,27 @@ function reportBlock(blockedMs: number, thresholdMs: number): void {
   } catch {
     // Diagnostics-only — never let it escape the timer callback.
   }
+  // The resource monitor's mid-stall capture of this block, if it took one:
+  // the monitor detects the stale heartbeat within its 250ms sampling cadence,
+  // so a capture for a threshold-length block exists before this report fires.
+  // The grace ahead of the block start absorbs heartbeat-vs-clock skew. Async
+  // read — the report path must not add synchronous I/O to the loop.
+  let stallCapture: StallCapture | null = null;
+  try {
+    stallCapture = await findRecentStallCapture(
+      Date.now() - blockedMs - STALL_CAPTURE_MATCH_GRACE_MS,
+    );
+  } catch {
+    // Diagnostics-only — never let it escape the timer callback.
+  }
   log.warn(
-    { blockedMs, thresholdMs, tickIntervalMs: TICK_INTERVAL_MS, sectionTrail },
+    {
+      blockedMs,
+      thresholdMs,
+      tickIntervalMs: TICK_INTERVAL_MS,
+      sectionTrail,
+      stallCapture,
+    },
     "event loop blocked",
   );
   // Persist a `watchdog` telemetry event so the platform can surface
@@ -116,6 +163,7 @@ function reportBlock(blockedMs: number, thresholdMs: number): void {
         threshold_ms: thresholdMs,
         tick_interval_ms: TICK_INTERVAL_MS,
         section_trail: sectionTrail,
+        stall_capture: stallCapture,
       },
     });
   } catch {
@@ -130,6 +178,7 @@ function reportBlock(blockedMs: number, thresholdMs: number): void {
         threshold_ms: thresholdMs,
         tick_interval_ms: TICK_INTERVAL_MS,
         section_trail: sectionTrail,
+        stall_capture: stallCapture,
       });
       Sentry.captureMessage(EVENT_LOOP_BLOCKED_CHECK_NAME);
     });
@@ -145,7 +194,9 @@ function reportBlock(blockedMs: number, thresholdMs: number): void {
 export function startEventLoopWatchdog(
   thresholdMs: number = DEFAULT_BLOCK_THRESHOLD_MS,
 ): void {
-  if (tickTimer) return;
+  if (tickTimer) {
+    return;
+  }
   lastTickAt = performance.now();
   lastReportAt = Number.NEGATIVE_INFINITY;
   tickTimer = setInterval(() => {
@@ -156,9 +207,14 @@ export function startEventLoopWatchdog(
       thresholdMs,
     );
     lastTickAt = now;
+    // One mtime touch per tick — the resource monitor reads its staleness to
+    // detect (and capture) a blocked loop while the stall is in progress.
+    touchDaemonHeartbeat();
     if (exceeded && now - lastReportAt >= REPORT_COOLDOWN_MS) {
       lastReportAt = now;
-      reportBlock(blockedMs, thresholdMs);
+      void reportBlock(blockedMs, thresholdMs).catch(() => {
+        // Diagnostics-only — never let it escape the timer callback.
+      });
     }
   }, TICK_INTERVAL_MS);
   tickTimer.unref?.();

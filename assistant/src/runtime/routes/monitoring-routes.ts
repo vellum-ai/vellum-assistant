@@ -86,6 +86,15 @@ const sampleReclaimSchema = z.object({
   workingsetRefaultFile: z.number().nullable(),
 });
 
+const sampleCpuSchema = z.object({
+  usageUsec: z.number().nullable(),
+  userUsec: z.number().nullable(),
+  systemUsec: z.number().nullable(),
+  nrPeriods: z.number().nullable(),
+  nrThrottled: z.number().nullable(),
+  throttledUsec: z.number().nullable(),
+});
+
 const sampleEventDeltasSchema = z.object({
   low: z.number().nullable(),
   high: z.number().nullable(),
@@ -97,6 +106,7 @@ const sampleEventDeltasSchema = z.object({
 const sampleDeltasSchema = z.object({
   events: sampleEventDeltasSchema.nullable(),
   reclaim: sampleReclaimSchema.nullable(),
+  cpu: sampleCpuSchema.nullable(),
 });
 
 const latestSampleSchema = z.object({
@@ -104,6 +114,7 @@ const latestSampleSchema = z.object({
   memory: sampleMemorySchema.nullable(),
   memoryStat: sampleMemoryStatSchema.nullable(),
   reclaim: sampleReclaimSchema.nullable(),
+  cpu: sampleCpuSchema.nullable(),
   events: sampleEventsSchema.nullable(),
   deltas: sampleDeltasSchema.nullable(),
   disk: sampleDiskSchema.nullable(),
