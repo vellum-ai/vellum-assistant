@@ -1,8 +1,8 @@
 /**
- * Tests for the `assistant memory` item CRUD verbs (list/get/create/update/delete).
+ * Tests for the `assistant memory items` CLI subgroup (item CRUD).
  *
  * Validates:
- *   - Verb registration directly under the `memory` namespace.
+ *   - Verb registration (list/get/create/update/delete) under `memory items`.
  *   - Each verb maps to the right `cliIpcCall` method with the right
  *     pathParams/queryParams/body shape.
  *   - Local validation (missing update flags, invalid --importance, blank ID)
@@ -73,26 +73,11 @@ mock.module("../../../logger.js", () => ({
   getCliLogger: () => fakeLogger,
 }));
 
-// Sibling subgroups pull in daemon-side modules (retrospective imports the
-// job handler directly); stub them out — the item verbs are what's under test.
-mock.module("../memory-v2.js", () => ({
-  registerMemoryV2Command: () => {},
-}));
-mock.module("../memory-v3.js", () => ({
-  registerMemoryV3Command: () => {},
-}));
-mock.module("../memory-retrospective.js", () => ({
-  registerMemoryRetrospectiveCommand: () => {},
-}));
-mock.module("../worker.js", () => ({
-  registerMemoryWorkerCommand: () => {},
-}));
-
 // ---------------------------------------------------------------------------
 // Import module under test (after mocks)
 // ---------------------------------------------------------------------------
 
-const { registerMemoryCommand } = await import("../index.js");
+const { registerMemoryItemsCommand } = await import("../items.js");
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -105,7 +90,8 @@ function buildProgram(): Command {
     writeErr: () => {},
     writeOut: () => {},
   });
-  registerMemoryCommand(program);
+  const memory = program.command("memory");
+  registerMemoryItemsCommand(memory);
   return program;
 }
 
@@ -171,11 +157,13 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe("verb registration", () => {
-  test("registers item CRUD verbs directly under memory", () => {
+  test("registers items under memory with the CRUD verbs", () => {
     const program = buildProgram();
     const memory = program.commands.find((c) => c.name() === "memory");
     expect(memory).toBeDefined();
-    const names = memory!.commands.map((c) => c.name());
+    const items = memory!.commands.find((c) => c.name() === "items");
+    expect(items).toBeDefined();
+    const names = items!.commands.map((c) => c.name());
     for (const verb of ["list", "get", "create", "update", "delete"]) {
       expect(names).toContain(verb);
     }
@@ -186,7 +174,7 @@ describe("verb registration", () => {
 // list
 // ---------------------------------------------------------------------------
 
-describe("memory list", () => {
+describe("memory items list", () => {
   test("calls listMemoryItems with only the provided filters", async () => {
     mockIpcResult = {
       ok: true,
@@ -194,6 +182,7 @@ describe("memory list", () => {
     };
     const { exitCode } = await runCommand([
       "memory",
+      "items",
       "list",
       "--kind",
       "semantic",
@@ -212,7 +201,12 @@ describe("memory list", () => {
       ok: true,
       result: { items: [ITEM], total: 1, kindCounts: { semantic: 1 } },
     };
-    const { exitCode, stdout } = await runCommand(["memory", "list", "--json"]);
+    const { exitCode, stdout } = await runCommand([
+      "memory",
+      "items",
+      "list",
+      "--json",
+    ]);
     expect(exitCode).toBe(0);
     const parsed = JSON.parse(stdout);
     expect(parsed.total).toBe(1);
@@ -221,7 +215,7 @@ describe("memory list", () => {
 
   test("IPC failure exits non-zero", async () => {
     mockIpcResult = { ok: false, error: "boom", statusCode: 500 };
-    const { exitCode } = await runCommand(["memory", "list"]);
+    const { exitCode } = await runCommand(["memory", "items", "list"]);
     expect(exitCode).toBe(3);
   });
 });
@@ -230,16 +224,16 @@ describe("memory list", () => {
 // get
 // ---------------------------------------------------------------------------
 
-describe("memory get", () => {
+describe("memory items get", () => {
   test("calls getMemoryItem with pathParams.id", async () => {
-    const { exitCode } = await runCommand(["memory", "get", ITEM.id]);
+    const { exitCode } = await runCommand(["memory", "items", "get", ITEM.id]);
     expect(exitCode).toBe(0);
     expect(lastIpcCall?.method).toBe("getMemoryItem");
     expect(lastIpcCall?.params).toEqual({ pathParams: { id: ITEM.id } });
   });
 
   test("blank ID fails without an IPC call", async () => {
-    const { exitCode } = await runCommand(["memory", "get", "  "]);
+    const { exitCode } = await runCommand(["memory", "items", "get", "  "]);
     expect(exitCode).toBe(1);
     expect(lastIpcCall).toBeNull();
   });
@@ -250,7 +244,7 @@ describe("memory get", () => {
       error: "Memory item not found",
       statusCode: 404,
     };
-    const { exitCode } = await runCommand(["memory", "get", ITEM.id]);
+    const { exitCode } = await runCommand(["memory", "items", "get", ITEM.id]);
     expect(exitCode).toBe(2);
   });
 });
@@ -259,10 +253,11 @@ describe("memory get", () => {
 // create
 // ---------------------------------------------------------------------------
 
-describe("memory create", () => {
+describe("memory items create", () => {
   test("calls createMemoryItem with the assembled body", async () => {
     const { exitCode } = await runCommand([
       "memory",
+      "items",
       "create",
       "--kind",
       "semantic",
@@ -289,6 +284,7 @@ describe("memory create", () => {
   test("rejects out-of-range --importance before IPC", async () => {
     const { exitCode } = await runCommand([
       "memory",
+      "items",
       "create",
       "--kind",
       "semantic",
@@ -304,6 +300,7 @@ describe("memory create", () => {
   test("missing required --statement fails parse", async () => {
     const { exitCode } = await runCommand([
       "memory",
+      "items",
       "create",
       "--kind",
       "semantic",
@@ -317,10 +314,11 @@ describe("memory create", () => {
 // update
 // ---------------------------------------------------------------------------
 
-describe("memory update", () => {
+describe("memory items update", () => {
   test("calls updateMemoryItem with pathParams and partial body", async () => {
     const { exitCode } = await runCommand([
       "memory",
+      "items",
       "update",
       ITEM.id,
       "--statement",
@@ -337,7 +335,12 @@ describe("memory update", () => {
   });
 
   test("requires at least one update flag", async () => {
-    const { exitCode } = await runCommand(["memory", "update", ITEM.id]);
+    const { exitCode } = await runCommand([
+      "memory",
+      "items",
+      "update",
+      ITEM.id,
+    ]);
     expect(exitCode).toBe(1);
     expect(lastIpcCall).toBeNull();
     expect(logOutput.join("\n")).toContain("At least one update flag");
@@ -346,6 +349,7 @@ describe("memory update", () => {
   test("--status active is forwarded (restore path)", async () => {
     const { exitCode } = await runCommand([
       "memory",
+      "items",
       "update",
       ITEM.id,
       "--status",
@@ -366,6 +370,7 @@ describe("memory update", () => {
     };
     const { exitCode } = await runCommand([
       "memory",
+      "items",
       "update",
       ITEM.id,
       "--statement",
@@ -379,11 +384,12 @@ describe("memory update", () => {
 // delete
 // ---------------------------------------------------------------------------
 
-describe("memory delete", () => {
+describe("memory items delete", () => {
   test("--force calls deleteMemoryItem without prompting", async () => {
     mockIpcResult = { ok: true, result: null };
     const { exitCode } = await runCommand([
       "memory",
+      "items",
       "delete",
       ITEM.id,
       "--force",
@@ -397,7 +403,12 @@ describe("memory delete", () => {
   test("refuses non-interactive delete without --force", async () => {
     // Tests run with stdin not a TTY, so the confirm prompt refuses.
     mockIpcResult = { ok: true, result: null };
-    const { exitCode } = await runCommand(["memory", "delete", ITEM.id]);
+    const { exitCode } = await runCommand([
+      "memory",
+      "items",
+      "delete",
+      ITEM.id,
+    ]);
     expect(exitCode).toBe(1);
     expect(lastIpcCall).toBeNull();
   });
@@ -406,6 +417,7 @@ describe("memory delete", () => {
     mockIpcResult = { ok: true, result: null };
     const { exitCode, stdout } = await runCommand([
       "memory",
+      "items",
       "delete",
       ITEM.id,
       "--force",
@@ -423,6 +435,7 @@ describe("memory delete", () => {
     };
     const { exitCode } = await runCommand([
       "memory",
+      "items",
       "delete",
       ITEM.id,
       "--force",
