@@ -40,7 +40,6 @@ export default defineMain({
           replacement: path.resolve(import.meta.dirname, "../src") + "/",
         },
       ],
-      preserveSymlinks: true,
     };
     return config;
   },
