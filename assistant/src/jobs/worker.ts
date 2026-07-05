@@ -16,6 +16,7 @@ import { getConfig } from "../config/loader.js";
 import { startInProcessMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
 import { registerMemoryPluginJobHandlers } from "../plugins/defaults/memory/job-handler-registration.js";
+import { initializeTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryWorkerPidPath } from "../util/platform.js";
 
@@ -24,7 +25,9 @@ const log = getLogger("memory-worker-process");
 function cleanupPidFile(): void {
   const pidPath = getMemoryWorkerPidPath();
   try {
-    if (existsSync(pidPath)) unlinkSync(pidPath);
+    if (existsSync(pidPath)) {
+      unlinkSync(pidPath);
+    }
   } catch {
     // best-effort
   }
@@ -50,6 +53,24 @@ async function main(): Promise<void> {
   // silently drop carried memory state).
   registerMemoryPluginJobHandlers();
   registerDefaultPluginPersistenceHooks();
+
+  // Populate the tool registry (core built-ins + workspace tools), exactly as
+  // the daemon and the schedule worker do at startup. Jobs in this process
+  // wake real agent conversations (retrospective and consolidation passes,
+  // and any subagents they spawn), and those conversations resolve their tool
+  // surface from this process's registry — without it, every tool such a pass
+  // is granted (including `remember`, the point of a retrospective) errors as
+  // "Unknown tool". Best-effort: a registry failure must not take the worker
+  // down; passes degrade to a reduced tool surface instead.
+  try {
+    await initializeTools();
+  } catch (err) {
+    log.warn(
+      { err },
+      "Failed to initialize tools in memory worker; continuing degraded",
+    );
+  }
+
   const worker = startInProcessMemoryJobsWorker();
 
   // Keep-alive: the worker's setTimeout timers are unref'd, so without
