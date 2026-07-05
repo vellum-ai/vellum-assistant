@@ -9,10 +9,8 @@ WORKDIR /app
 
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 
-# Dependency resolution needs only the manifests, lockfile, and patch
-# files. Source never enters this stage, so source edits cannot
-# invalidate the install layer. Every member manifest must be present
-# for --frozen-lockfile to validate the workspace.
+# Manifests only — source edits must not invalidate the install layer.
+# --frozen-lockfile needs every workspace member's manifest present.
 COPY package.json bun.lock ./
 COPY patches ./patches
 COPY clients/web/patches ./clients/web/patches
@@ -25,9 +23,7 @@ COPY assistant/package.json ./assistant/
 COPY assistant/src/api/package.json ./assistant/src/api/
 COPY --parents packages/*/package.json ./
 
-# The filter keeps unrelated workspace members out of the image while
-# still installing the runtime packages' own node_modules, which their
-# source needs at runtime.
+# Filtered: keeps unrelated workspace members out of the image.
 RUN bun install --frozen-lockfile --ignore-scripts --production \
     --filter='./gateway'
 
@@ -51,12 +47,10 @@ COPY --from=builder /usr/local/bin/bun /usr/local/bin/bun
 RUN groupadd --system --gid 1001 gateway && \
     useradd --system --uid 1001 --gid gateway --create-home gateway
 
-# Copy the whole workspace: gateway's node_modules symlinks resolve
-# relative to the workspace root, so the layout must be preserved.
+# node_modules symlinks resolve relative to the workspace root.
 COPY --from=builder --chown=gateway:gateway /app /app
 
-# Source is copied after the dependency layers so source edits never
-# invalidate them.
+# Source after the dependency layers, so source edits don't invalidate them.
 COPY --chown=gateway:gateway packages/assistant-client /app/packages/assistant-client
 COPY --chown=gateway:gateway packages/ces-client /app/packages/ces-client
 COPY --chown=gateway:gateway packages/gateway-client /app/packages/gateway-client

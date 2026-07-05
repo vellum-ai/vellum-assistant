@@ -17,10 +17,8 @@ RUN apt-get update && apt-get install -y \
 RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.11"
 ENV PATH="/root/.bun/bin:${PATH}"
 
-# Dependency resolution needs only the manifests, lockfile, and patch
-# files. Source never enters this stage, so source edits cannot
-# invalidate the install layer. Every member manifest must be present
-# for --frozen-lockfile to validate the workspace.
+# Manifests only — source edits must not invalidate the install layer.
+# --frozen-lockfile needs every workspace member's manifest present.
 COPY package.json bun.lock ./
 COPY patches ./patches
 COPY clients/web/patches ./clients/web/patches
@@ -33,17 +31,11 @@ COPY assistant/package.json ./assistant/
 COPY assistant/src/api/package.json ./assistant/src/api/
 COPY --parents packages/*/package.json ./
 
-# The filter keeps unrelated workspace members out of the image while
-# still installing the runtime packages' own node_modules, which their
-# source needs at runtime. Lifecycle scripts are dev-environment
-# conveniences and are skipped.
+# Filtered: keeps unrelated workspace members out of the image.
 RUN bun install --frozen-lockfile --ignore-scripts \
     --filter='./assistant' --filter='./assistant/src/api'
 
-# Copy bundled first-party skills and install their deps. The repo-root
-# .dockerignore is the single source of truth for which skills (and which
-# files within them) ship in the assistant image -- adding or removing a
-# bundled skill is a .dockerignore edit, not a Dockerfile edit.
+# The repo-root .dockerignore decides which skills (and files) ship.
 COPY skills ./skills
 RUN set -eu; for pkg in /app/skills/*/package.json; do \
       [ -e "$pkg" ] || continue; \
@@ -122,12 +114,9 @@ RUN apt-get update && apt-get install -y \
 COPY --from=builder /root/.bun/bin/bun /usr/local/bin/bun
 RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 
-# Copy installed deps and bundled skills from the builder stage.
 COPY --from=builder /app /app
 
-# Runtime source enters here, after the dependency layers: the workspace
-# symlinks in /app/node_modules already point at these directories, so
-# source edits invalidate only these copies — never the install.
+# Source after the dependency layers, so source edits don't invalidate them.
 COPY packages/ces-client /app/packages/ces-client
 COPY packages/service-contracts /app/packages/service-contracts
 COPY packages/credential-storage /app/packages/credential-storage
