@@ -14,10 +14,9 @@ RUN apt-get update && apt-get install -y \
 RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.11"
 ENV PATH="/root/.bun/bin:${PATH}"
 
-# Dependency resolution needs only the manifests, lockfile, and patch
-# files. Source never enters this stage, so source edits cannot
-# invalidate the install layer. Every member manifest must be present
-# for --frozen-lockfile to validate the workspace.
+# We must include every workspace member's manifest to validate and install the
+# workspace lockfile via --frozen-lockfile.
+# Note that we don't need source code to resolve cross-workspace dependencies.
 COPY package.json bun.lock ./
 COPY patches ./patches
 COPY clients/web/patches ./clients/web/patches
@@ -30,9 +29,6 @@ COPY assistant/package.json ./assistant/
 COPY assistant/src/api/package.json ./assistant/src/api/
 COPY --parents packages/*/package.json ./
 
-# The filter keeps unrelated workspace members out of the image while
-# still installing the runtime packages' own node_modules, which their
-# source needs at runtime.
 RUN bun install --frozen-lockfile --ignore-scripts \
     --filter='./credential-executor'
 
@@ -56,11 +52,9 @@ RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 RUN groupadd --system --gid 1001 ces && \
     useradd --system --uid 1001 --gid ces --create-home ces
 
-# Copy installed deps from builder.
 COPY --from=builder --chown=ces:ces /app /app
 
-# Source is copied after the dependency layers so source edits never
-# invalidate them.
+# Copy source after installing dependencies for better layer caching.
 COPY --chown=ces:ces packages/service-contracts /app/packages/service-contracts
 COPY --chown=ces:ces packages/credential-storage /app/packages/credential-storage
 COPY --chown=ces:ces packages/egress-proxy /app/packages/egress-proxy
