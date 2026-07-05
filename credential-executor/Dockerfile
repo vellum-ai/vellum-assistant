@@ -1,4 +1,3 @@
-# syntax=docker/dockerfile:1.20@sha256:26147acbda4f14c5add9946e2fd2ed543fc402884fd75146bd342a7f6271dc1d
 # Build stage
 FROM debian:trixie@sha256:3615a749858a1cba49b408fb49c37093db813321355a9ab7c1f9f4836341e9db AS builder
 
@@ -14,27 +13,18 @@ RUN apt-get update && apt-get install -y \
 RUN curl -fsSL https://bun.sh/install | bash -s "bun-v1.3.11"
 ENV PATH="/root/.bun/bin:${PATH}"
 
-# Dependency resolution needs only the manifests, lockfile, and patch
-# files. Source never enters this stage, so source edits cannot
-# invalidate the install layer. Every member manifest must be present
-# for --frozen-lockfile to validate the workspace.
-COPY package.json bun.lock ./
-COPY patches ./patches
-COPY clients/web/patches ./clients/web/patches
-COPY clients/macos/package.json ./clients/macos/
-COPY clients/web/package.json ./clients/web/
-COPY cli/package.json ./cli/
-COPY gateway/package.json ./gateway/
-COPY credential-executor/package.json ./credential-executor/
-COPY assistant/package.json ./assistant/
-COPY assistant/src/api/package.json ./assistant/src/api/
-COPY --parents packages/*/package.json ./
+# Copy shared packages first (needed for repo-local dependencies)
+COPY packages/service-contracts ./packages/service-contracts
+COPY packages/credential-storage ./packages/credential-storage
+COPY packages/egress-proxy ./packages/egress-proxy
 
-# The filter keeps unrelated workspace members out of the image while
-# still installing the runtime packages' own node_modules, which their
-# source needs at runtime.
-RUN bun install --frozen-lockfile --ignore-scripts \
-    --filter='./credential-executor'
+# Install deps for service-contracts so its own source can resolve zod
+# at runtime (loaded via grants.ts and siblings).
+RUN cd /app/packages/service-contracts && bun install --frozen-lockfile
+
+# Install credential-executor dependencies with local package resolution
+COPY credential-executor/package.json credential-executor/bun.lock* ./credential-executor/
+RUN cd /app/credential-executor && bun install --frozen-lockfile
 
 # Runtime stage
 FROM debian:trixie-slim@sha256:1d3c811171a08a5adaa4a163fbafd96b61b87aa871bbc7aa15431ac275d3d430 AS runner
@@ -56,14 +46,10 @@ RUN ln -sf /usr/local/bin/bun /usr/local/bin/bunx
 RUN groupadd --system --gid 1001 ces && \
     useradd --system --uid 1001 --gid ces --create-home ces
 
-# Copy installed deps from builder.
+# Copy installed deps + shared packages from builder.
 COPY --from=builder --chown=ces:ces /app /app
 
-# Source is copied after the dependency layers so source edits never
-# invalidate them.
-COPY --chown=ces:ces packages/service-contracts /app/packages/service-contracts
-COPY --chown=ces:ces packages/credential-storage /app/packages/credential-storage
-COPY --chown=ces:ces packages/egress-proxy /app/packages/egress-proxy
+# Copy source separately to avoid invalidating builder layer.
 COPY --chown=ces:ces credential-executor ./
 
 # Pre-create /ces-data so the non-root ces user can write to it

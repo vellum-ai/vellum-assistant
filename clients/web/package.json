@@ -8,8 +8,8 @@
     "dist"
   ],
   "scripts": {
-    "predev": "bun run openapi-ts && node scripts/copy-skill-assets.mjs",
-    "dev": "bun --bun vite",
+    "predev": "bun run postinstall && bun run openapi-ts && node scripts/copy-skill-assets.mjs",
+    "dev": "bun run scripts/ensure-fresh-vite.ts && bun --bun vite",
     "prebuild": "node scripts/copy-skill-assets.mjs",
     "build": "bun --bun vite build",
     "preview": "bun --bun vite preview",
@@ -18,7 +18,7 @@
     "audit:cross-domain:check": "node scripts/audit-cross-domain-imports.mjs --check",
     "pretypecheck": "bun run openapi-ts",
     "typecheck": "bunx tsc --noEmit",
-    "postinstall": "test -d src/generated || bun run openapi-ts",
+    "postinstall": "bun run scripts/postinstall.ts",
     "openapi-ts": "bun run scripts/transform-daemon-spec.ts && bun run scripts/transform-gateway-spec.ts && openapi-ts",
     "ios:setup": "bunx cap sync ios && cd ../ios/App && xcodegen generate --spec project.yml",
     "ios:open": "bun run ios:setup && open ../ios/App/App.xcodeproj",
@@ -62,10 +62,9 @@
     "@tiptap/pm": "3.23.5",
     "@tiptap/react": "3.23.5",
     "@tiptap/starter-kit": "3.23.5",
-    "@vellumai/assistant-api": "workspace:*",
-    "@vellumai/design-library": "workspace:*",
-    "@vellumai/ipc-contract": "workspace:*",
-    "@vellumai/local-mode": "workspace:*",
+    "@vellumai/design-library": "file:../../packages/design-library",
+    "@vellumai/ipc-contract": "file:../../packages/ipc-contract",
+    "@vellumai/local-mode": "file:../../packages/local-mode",
     "capacitor-plugin-safe-area": "5.0.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
@@ -99,7 +98,6 @@
     "@capacitor/cli": "8.3.4",
     "@happy-dom/global-registrator": "20.10.2",
     "@hey-api/openapi-ts": "0.97.1",
-    "@radix-ui/react-dismissable-layer": "1.1.13",
     "@sentry/vite-plugin": "5.3.0",
     "@storybook/addon-a11y": "10.4.0",
     "@storybook/addon-docs": "10.4.0",
@@ -124,5 +122,12 @@
     "typescript": "5.9.3",
     "typescript-eslint": "8.58.1",
     "vite": "8.0.11"
+  },
+  "overrides": {
+    "es-toolkit": "1.46.1",
+    "@radix-ui/react-dismissable-layer": "1.1.13"
+  },
+  "patchedDependencies": {
+    "@radix-ui/react-dismissable-layer@1.1.13": "patches/@radix-ui%2Freact-dismissable-layer@1.1.13.patch"
   }
 }
