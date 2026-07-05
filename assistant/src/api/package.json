@@ -6,8 +6,5 @@
   "private": true,
   "exports": {
     ".": "./index.ts"
-  },
-  "dependencies": {
-    "zod": "4.3.6"
   }
 }

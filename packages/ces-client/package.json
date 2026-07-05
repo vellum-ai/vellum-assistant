@@ -16,7 +16,7 @@
     "test": "bun test src/"
   },
   "dependencies": {
-    "@vellumai/service-contracts": "workspace:*"
+    "@vellumai/service-contracts": "file:../service-contracts"
   },
   "devDependencies": {
     "@types/bun": "1.2.4",
