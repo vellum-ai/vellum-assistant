@@ -5,21 +5,15 @@
  * accounting and workspace-disk usage and appends a compact sample to an
  * on-disk ring buffer. When memory crosses a configurable fraction of the
  * container limit it also captures a one-off "high-memory" snapshot — cgroup
- * stats plus the live process tree with per-process RSS — so a spike leaves
- * behind a record of *what was running* when it happened.
+ * stats plus the live process tree with per-process memory accounting — so a
+ * spike leaves behind a record of *what was running* when it happened.
  *
  * Everything here runs in the resource monitor's own OS process, off the
  * assistant's main event loop, so it keeps sampling even while that loop is
  * frozen mid-allocation and the samples survive an OOM SIGKILL.
  */
 
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { MonitoringConfig } from "../config/schemas/monitoring.js";
@@ -39,6 +33,7 @@ import { getDiskUsageInfo } from "../util/disk-usage.js";
 import { getLogger } from "../util/logger.js";
 import { getMonitoringDataDir } from "../util/platform.js";
 import { buildProcessTree, listProcesses } from "../util/process-tree.js";
+import { topProcessesByMemory } from "./process-memory.js";
 import { SampleRingBuffer } from "./sample-ring-buffer.js";
 import { topSlabCaches } from "./slabinfo.js";
 
@@ -48,8 +43,6 @@ const SAMPLES_FILE = "samples.jsonl";
 const SNAPSHOTS_DIR = "snapshots";
 /** Cap on retained high-memory snapshots so forensics can't fill the volume. */
 const MAX_SNAPSHOTS = 20;
-/** Linux page size assumed when converting `/proc/<pid>/statm` pages to bytes. */
-const PAGE_SIZE_BYTES = 4096;
 
 export interface ResourceSampleMemory {
   currentBytes: number;
@@ -168,45 +161,6 @@ export function takeSample(
   return sample;
 }
 
-interface ProcessRss {
-  pid: number;
-  command: string;
-  rssBytes: number;
-}
-
-/**
- * Best-effort per-process RSS read from `/proc/<pid>/statm` (resident pages,
- * field 2). Returns the top `limit` processes by RSS, largest first. Empty when
- * `/proc` is unavailable (e.g. macOS) — the snapshot's process *tree* still
- * captures what was running in that case.
- */
-function topProcessesByRss(limit: number): ProcessRss[] {
-  let pids: string[];
-  try {
-    pids = readdirSync("/proc").filter((e) => /^\d+$/.test(e));
-  } catch {
-    return [];
-  }
-
-  const rows: ProcessRss[] = [];
-  for (const entry of pids) {
-    const pid = Number(entry);
-    try {
-      const statm = readFileSync(`/proc/${pid}/statm`, "utf-8").trim();
-      const residentPages = parseInt(statm.split(/\s+/)[1], 10);
-      if (!Number.isFinite(residentPages)) continue;
-      const raw = readFileSync(`/proc/${pid}/cmdline`, "utf-8");
-      const command = raw.split("\0").filter(Boolean).join(" ") || `pid ${pid}`;
-      rows.push({ pid, command, rssBytes: residentPages * PAGE_SIZE_BYTES });
-    } catch {
-      // Process exited between readdir and read — skip.
-    }
-  }
-
-  rows.sort((a, b) => b.rssBytes - a.rssBytes);
-  return rows.slice(0, limit);
-}
-
 /**
  * Capture a high-memory snapshot to the snapshots directory: the triggering
  * sample, the cgroup memory.events counters, the top processes by RSS, the top
@@ -234,9 +188,11 @@ export async function writeHighMemSnapshot(
   const snapshot = {
     ts: sample.ts,
     sample,
-    topProcessesByRss: topProcessesByRss(15),
+    // PSS-ranked with per-process anon/file split; PSS sums reconcile against
+    // the cgroup total where an RSS sum double-counts shared pages.
+    topProcesses: topProcessesByMemory(15),
     // Slab memory belongs to no process; without this, cgroup usage that
-    // exceeds the RSS sum has no visible owner.
+    // exceeds the per-process sum has no visible owner.
     topSlabCaches: topSlabCaches(10),
     processTree: tree,
   };
