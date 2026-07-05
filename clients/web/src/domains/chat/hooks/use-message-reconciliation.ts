@@ -20,6 +20,7 @@ import {
 } from "@/domains/chat/utils/reconcile-detection";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
 import { ingestServerEventsTail } from "@/domains/chat/api/events-tail";
+import { supportsEventsTail } from "@/lib/backwards-compat/events-tail";
 import {
   fetchConversationMessages,
   RECONCILE_LATEST_PAGE_LIMIT,
@@ -370,6 +371,24 @@ export function useMessageReconciliation({
               serverSeq,
               serverProcessing,
             );
+
+            // On daemons that serve `/events/tail`, the reconcile above
+            // paired the snapshot with the event tail from its anchor —
+            // one pass is complete by construction, so there is nothing
+            // to poll for. The multi-tick poll-until-stable below exists
+            // only to wait out the partial-persist debounce on older
+            // daemons, and is deleted with them once the assistant
+            // version floor passes the tail endpoint.
+            if (supportsEventsTail()) {
+              recordDiagnostic("reconciliation_loop_finish", {
+                epoch,
+                reason: "single_pass_complete",
+                stableCount,
+                elapsedMs: Date.now() - startTime,
+              });
+              return;
+            }
+
             if (changed) {
               stableCount = 0;
             } else {
