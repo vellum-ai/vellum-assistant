@@ -22,6 +22,7 @@ import { getLogger } from "../util/logger.js";
 import { getAllTools, getTool, getToolOwner } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
+import { suggestToolName } from "./tool-name-aliases.js";
 import {
   type ExecutionTarget,
   isDiskPressureCleanupToolName,
@@ -502,12 +503,13 @@ export class ToolApprovalHandler {
       // from their `execute()` when no resolver is connected, rather than
       // being filtered out here — listing them surfaces a clearer path
       // than hiding their names entirely.
-      const available = getAllTools()
+      const availableNames = getAllTools()
         .map((t) => t.name)
         .filter((n) => !allowedToolNames || allowedToolNames.has(n))
-        .sort()
-        .join(", ");
-      const msg = `Unknown tool: ${name}. Available tools: ${available}`;
+        .sort();
+      const suggestion = suggestToolName(name, availableNames);
+      const didYouMean = suggestion ? ` Did you mean "${suggestion}"?` : "";
+      const msg = `Unknown tool: ${name}.${didYouMean} Available tools: ${availableNames.join(", ")}`;
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent({
         type: "error",
