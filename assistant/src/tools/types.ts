@@ -312,6 +312,13 @@ export interface ToolContext {
    */
   allowedToolNames?: Set<string>;
   /**
+   * When the conversation runs as a subagent, the parent-imposed tool
+   * allowlist (see `SubagentRoleConfig.allowedTools`). Carried so
+   * availability errors can name the allowlist as the gate instead of
+   * suggesting a skill load that cannot widen it.
+   */
+  subagentAllowedTools?: ReadonlySet<string>;
+  /**
    * True when this turn is restricted to storage cleanup-safe tools.
    * @legacy
    */

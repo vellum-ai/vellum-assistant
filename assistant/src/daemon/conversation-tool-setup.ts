@@ -301,6 +301,7 @@ export function createToolExecutor(
       onOutput,
       signal: ctx.abortController?.signal,
       allowedToolNames: ctx.allowedToolNames,
+      subagentAllowedTools: ctx.subagentAllowedTools,
       forcePromptSideEffects: ctx.forcePromptSideEffects,
       diskPressureCleanupModeActive: ctx.diskPressureCleanupModeActive,
       toolUseId,
