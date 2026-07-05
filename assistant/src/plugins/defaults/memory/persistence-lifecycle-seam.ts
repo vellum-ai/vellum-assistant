@@ -1,18 +1,31 @@
-import type { TrustClass } from "../runtime/actor-trust-resolver.js";
-import type { DrizzleDb } from "./db-connection.js";
+import type { DrizzleDb } from "../../../persistence/db-connection.js";
+import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 
 /**
- * Seam for the memory feature to react to persistence-layer lifecycle events
- * and to answer memory-domain queries the persistence layer needs.
+ * The memory plugin's persistence-lifecycle seam: the hook contract and the
+ * registered-handler slot.
  *
  * Persistence is a layer below the memory plugin, so it cannot import memory
  * internals directly. Instead it calls into this registered-handler seam: the
- * memory plugin installs an implementation at bootstrap
- * (`registerMemoryPersistenceHooks`), and persistence invokes the current
- * implementation (`getMemoryPersistenceHooks`) at the relevant call sites. When
- * no implementation is registered — memory absent, disabled before bootstrap,
- * or a unit test that skips plugin bootstrap — the calls fall through to a
- * no-op, which is the correct "memory is not present" behaviour.
+ * memory plugin installs an implementation at bootstrap (see
+ * `persistence-hooks-registration.ts`), and persistence invokes the current
+ * implementation (`getMemoryPersistenceHooks`) at the relevant call sites.
+ * When no implementation is registered — memory absent, disabled before
+ * bootstrap, or a unit test that skips plugin bootstrap — the calls fall
+ * through to a no-op, which is the correct "memory is not present" behaviour.
+ *
+ * The seam is a memory-plugin-only concept, owned by the plugin rather than
+ * the persistence layer: every event and query on it is memory-domain. The
+ * persistence call sites that invoke `getMemoryPersistenceHooks()` are
+ * documented back-imports in the persistence-layering guard, to be unwound by
+ * moving the memory jobs worker into this plugin and exposing the remaining
+ * lifecycle events through the first-class `hooks` system.
+ *
+ * This module is deliberately a LEAF (type-only imports, no runtime
+ * dependencies): the persistence layer imports it while the plugin's handler
+ * implementation transitively imports persistence, so any runtime dependency
+ * here would close an import cycle. The implementation and its registration
+ * live in `persistence-hooks-registration.ts` for the same reason.
  *
  * The seam is a single registered handler (not a multi-subscriber event bus)
  * because the persistence call sites run synchronously inside their write paths
@@ -21,7 +34,7 @@ import type { DrizzleDb } from "./db-connection.js";
  * job-handlers up-front at bootstrap.
  *
  * Payload types reference only persistence/host primitives so no memory type
- * leaks into this layer.
+ * leaks into the persistence layer.
  */
 
 /** A message that was just persisted to a conversation. */

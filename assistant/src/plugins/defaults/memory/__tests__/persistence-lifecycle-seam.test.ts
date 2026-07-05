@@ -6,7 +6,7 @@ import {
   type MessagePersistedEvent,
   registerMemoryPersistenceHooks,
   resetMemoryPersistenceHooksForTests,
-} from "./memory-lifecycle-hooks.js";
+} from "../persistence-lifecycle-seam.js";
 
 const event: MessagePersistedEvent = {
   messageId: "msg-1",

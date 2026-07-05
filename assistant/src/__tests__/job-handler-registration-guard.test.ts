@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 
 import * as jobsWorker from "../persistence/jobs-worker.js";
+import { registerMemoryPluginJobHandlers } from "../plugins/defaults/memory/job-handler-registration.js";
+import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
 import {
   getMemoryPersistenceHooks,
   resetMemoryPersistenceHooksForTests,
-} from "../persistence/memory-lifecycle-hooks.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
-import { registerMemoryPluginJobHandlers } from "../plugins/defaults/memory/job-handler-registration.js";
+} from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
 
 /**
  * The exact memory-plugin job types. Locks the contribution against an

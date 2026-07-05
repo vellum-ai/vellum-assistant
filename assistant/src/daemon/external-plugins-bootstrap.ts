@@ -54,9 +54,9 @@ import { HOOKS } from "../plugin-api/constants.js";
 import {
   getAllDefaultPlugins,
   registerDefaultPluginInjectors,
-  registerDefaultPluginPersistenceHooks,
   registerDefaultPlugins,
 } from "../plugins/defaults/index.js";
+import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
 import {
   registerPluginInjectors,
   unregisterPluginInjectors,

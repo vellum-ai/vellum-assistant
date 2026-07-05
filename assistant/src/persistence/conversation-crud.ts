@@ -28,6 +28,7 @@ import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
+import { getMemoryPersistenceHooks } from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { trustClassSchema } from "../runtime/trust-class.js";
@@ -73,7 +74,6 @@ import {
   type ForkIdPair,
 } from "./fork-message-copy.js";
 import { enqueueLexicalIndexForMessage } from "./job-handlers/message-lexical.js";
-import { getMemoryPersistenceHooks } from "./memory-lifecycle-hooks.js";
 import {
   rawExec,
   rawGet,

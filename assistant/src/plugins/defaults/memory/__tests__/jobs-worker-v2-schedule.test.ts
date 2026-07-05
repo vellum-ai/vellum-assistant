@@ -72,7 +72,7 @@ const { getMemoryCheckpoint, setMemoryCheckpoint, deleteMemoryCheckpoint } =
 const { maybeEnqueueGraphMaintenanceJobs } =
   await import("../../../../persistence/jobs-worker.js");
 const { registerMemoryPersistenceHooks, resetMemoryPersistenceHooksForTests } =
-  await import("../../../../persistence/memory-lifecycle-hooks.js");
+  await import("../persistence-lifecycle-seam.js");
 const { memoryPersistenceHooks } = await import("../persistence-hooks.js");
 
 // The scheduler reads the memory buffer's line count through the persistence

@@ -50,11 +50,11 @@ import {
   memoryRetrospectiveState,
   toolInvocations,
 } from "../persistence/schema/index.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
 import {
   loadGraphMemoryState,
   saveGraphMemoryState,
 } from "../plugins/defaults/memory/graph/graph-memory-state-store.js";
+import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
 
 await initializeDb();
 

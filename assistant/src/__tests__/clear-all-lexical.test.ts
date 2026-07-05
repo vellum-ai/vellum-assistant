@@ -35,12 +35,12 @@ mock.module("../persistence/job-handlers/message-lexical.js", () => ({
 
 import { clearAll } from "../persistence/conversation-crud.js";
 import { initializeDb } from "../persistence/db-init.js";
+import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
 import {
   getMemoryPersistenceHooks,
   registerMemoryPersistenceHooks,
   resetMemoryPersistenceHooksForTests,
-} from "../persistence/memory-lifecycle-hooks.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
+} from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
 
 await initializeDb();
 

@@ -14,8 +14,8 @@ import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 
 import { getConfig } from "../config/loader.js";
 import { startInProcessMemoryJobsWorker } from "../persistence/jobs-worker.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
 import { registerMemoryPluginJobHandlers } from "../plugins/defaults/memory/job-handler-registration.js";
+import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
 import { initializeTools } from "../tools/registry.js";
 import { getLogger } from "../util/logger.js";
 import { getMemoryWorkerPidPath } from "../util/platform.js";

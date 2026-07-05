@@ -6,17 +6,17 @@ import {
   enqueueDeleteMessageLexical,
   enqueuePurgeConversationLexical,
 } from "../../../persistence/job-handlers/message-lexical.js";
-import type {
-  ConversationForkedEvent,
-  MemoryPersistenceHooks,
-  MessagePersistedEvent,
-} from "../../../persistence/memory-lifecycle-hooks.js";
 import { getWorkspaceDir } from "../../../util/platform.js";
 import { getMemoryConfig } from "./config.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
+import type {
+  ConversationForkedEvent,
+  MemoryPersistenceHooks,
+  MessagePersistedEvent,
+} from "./persistence-lifecycle-seam.js";
 import { hasPkbBufferContent as pkbBufferHasContent } from "./pkb-schedule.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
 import {

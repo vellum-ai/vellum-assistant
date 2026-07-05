@@ -17,8 +17,8 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { getHooksFor } from "../hooks/registry.js";
 import { RiskLevel } from "../permissions/types.js";
-import type { MessagePersistedEvent } from "../persistence/memory-lifecycle-hooks.js";
-import { guardPersistenceHooksByDisabledState } from "../plugins/defaults/index.js";
+import { guardPersistenceHooksByDisabledState } from "../plugins/defaults/memory/persistence-hooks-registration.js";
+import type { MessagePersistedEvent } from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
 import {
   clearInjectorRegistry,
   getRegisteredInjectors,
