@@ -607,6 +607,11 @@ describe("command-registry", () => {
       expect(getAssistantPath("schedules cancel").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules delete").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules execute").baseRisk).toBe("high");
+      expect(getAssistantPath("memory list").baseRisk).toBe("low");
+      expect(getAssistantPath("memory get").baseRisk).toBe("low");
+      expect(getAssistantPath("memory create").baseRisk).toBe("medium");
+      expect(getAssistantPath("memory update").baseRisk).toBe("medium");
+      expect(getAssistantPath("memory delete").baseRisk).toBe("medium");
       expect(getAssistantPath("plugins list").baseRisk).toBe("low");
       expect(getAssistantPath("plugins inspect").baseRisk).toBe("low");
       expect(getAssistantPath("plugins diff").baseRisk).toBe("low");
