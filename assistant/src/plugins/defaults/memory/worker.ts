@@ -12,13 +12,13 @@
 
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 
-import { getConfig } from "../config/loader.js";
-import { startInProcessMemoryJobsWorker } from "../persistence/jobs-worker.js";
-import { registerMemoryPluginJobHandlers } from "../plugins/defaults/memory/job-handler-registration.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
-import { initializeTools } from "../tools/registry.js";
-import { getLogger } from "../util/logger.js";
-import { getMemoryWorkerPidPath } from "../util/platform.js";
+import { getConfig } from "../../../config/loader.js";
+import { initializeTools } from "../../../tools/registry.js";
+import { getLogger } from "../../../util/logger.js";
+import { getMemoryWorkerPidPath } from "../../../util/platform.js";
+import { registerMemoryPluginJobHandlers } from "./job-handler-registration.js";
+import { startInProcessMemoryJobsWorker } from "./jobs-worker.js";
+import { registerDefaultPluginPersistenceHooks } from "./persistence-hooks-registration.js";
 
 const log = getLogger("memory-worker-process");
 

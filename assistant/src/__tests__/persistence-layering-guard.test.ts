@@ -45,19 +45,15 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "plugins", "defaults", "memory");
  * (`persistence-lifecycle-seam.ts` — every event and query on it is
  * memory-domain), and these persistence call sites invoke the seam's
  * registered handlers through `getMemoryPersistenceHooks()` (no-op when
- * memory is not present). Decoupling plan: the memory jobs worker moves into
- * the memory plugin (retiring the jobs-worker entry), and the per-event
- * lifecycle notifications migrate to the first-class `hooks` system (retiring
- * the conversation-crud entry).
+ * memory is not present). Decoupling plan: the per-event lifecycle
+ * notifications migrate to the first-class `hooks` system, retiring the
+ * conversation-crud entry.
  *
  * Keyed by the importing persistence file (relative to repo root); the value
  * is the set of allowed `memory/<specifier>` module paths it may import.
  */
 const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   "assistant/src/persistence/conversation-crud.ts": new Set([
-    "persistence-lifecycle-seam",
-  ]),
-  "assistant/src/persistence/jobs-worker.ts": new Set([
     "persistence-lifecycle-seam",
   ]),
 };

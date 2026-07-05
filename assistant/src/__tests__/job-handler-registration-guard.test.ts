@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
 
-import * as jobsWorker from "../persistence/jobs-worker.js";
 import { registerMemoryPluginJobHandlers } from "../plugins/defaults/memory/job-handler-registration.js";
+import * as jobsWorker from "../plugins/defaults/memory/jobs-worker.js";
 import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
 import {
   getMemoryPersistenceHooks,

@@ -8,10 +8,10 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { eq } from "drizzle-orm";
 
-import { DEFAULT_CONFIG } from "../../config/defaults.js";
-import type { AssistantConfig } from "../../config/types.js";
+import { DEFAULT_CONFIG } from "../../../../config/defaults.js";
+import type { AssistantConfig } from "../../../../config/types.js";
 
-mock.module("../../util/logger.js", () => ({
+mock.module("../../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, {
       get: () => () => {},
@@ -27,17 +27,17 @@ const testConfig = (): AssistantConfig => ({
   },
 });
 
-mock.module("../../config/loader.js", () => ({
+mock.module("../../../../config/loader.js", () => ({
   getConfig: () => testConfig(),
   loadConfig: () => testConfig(),
   invalidateConfigCache: () => {},
 }));
 
-import { getMemoryDb } from "../db-connection.js";
-import { initializeDb } from "../db-init.js";
-import { enqueueMemoryJob } from "../jobs-store.js";
+import { getMemoryDb } from "../../../../persistence/db-connection.js";
+import { initializeDb } from "../../../../persistence/db-init.js";
+import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
+import { memoryJobs } from "../../../../persistence/schema/index.js";
 import { registerJobHandler, runMemoryJobsOnce } from "../jobs-worker.js";
-import { memoryJobs } from "../schema/index.js";
 
 await initializeDb();
 

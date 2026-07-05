@@ -35,9 +35,9 @@ import {
   purgeConversationLexicalJob,
 } from "../../../persistence/job-handlers/message-lexical.js";
 import { backfillLexicalIndexJob } from "../../../persistence/job-handlers/message-lexical-backfill.js";
-import { registerJobHandler } from "../../../persistence/jobs-worker.js";
 import { conversationAnalyzeJob } from "../../../runtime/services/conversation-analyze-job.js";
 import { memoryJobHandlers } from "./job-handlers.js";
+import { registerJobHandler } from "./jobs-worker.js";
 
 export function registerMemoryPluginJobHandlers(): void {
   // The memory plugin's own handlers.

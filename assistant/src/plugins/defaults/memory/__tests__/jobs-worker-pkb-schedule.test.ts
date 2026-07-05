@@ -70,7 +70,7 @@ const { getMemoryCheckpoint, setMemoryCheckpoint } =
 const { enqueueMemoryJob } =
   await import("../../../../persistence/jobs-store.js");
 const { GRAPH_MAINTENANCE_CHECKPOINTS, maybeEnqueueGraphMaintenanceJobs } =
-  await import("../../../../persistence/jobs-worker.js");
+  await import("../jobs-worker.js");
 const { registerMemoryPersistenceHooks } =
   await import("../persistence-lifecycle-seam.js");
 const { memoryPersistenceHooks } = await import("../persistence-hooks.js");

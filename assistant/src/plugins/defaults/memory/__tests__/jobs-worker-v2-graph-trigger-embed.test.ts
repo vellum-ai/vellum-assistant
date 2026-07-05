@@ -71,9 +71,9 @@ import { getMemoryDb } from "../../../../persistence/db-connection.js";
 import { initializeDb } from "../../../../persistence/db-init.js";
 import { _resetQdrantBreaker } from "../../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
-import { runMemoryJobsOnce } from "../../../../persistence/jobs-worker.js";
 import { memoryJobs } from "../../../../persistence/schema/index.js";
 import { registerMemoryPluginJobHandlers } from "../job-handler-registration.js";
+import { runMemoryJobsOnce } from "../jobs-worker.js";
 
 describe("graph_trigger_embed under memory v2", () => {
   beforeAll(async () => {
