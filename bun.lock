@@ -7,7 +7,7 @@
     },
     "assistant": {
       "name": "@vellumai/assistant",
-      "version": "0.10.4",
+      "version": "0.10.5",
       "bin": {
         "assistant": "./src/index.ts",
       },
@@ -93,7 +93,7 @@
     },
     "cli": {
       "name": "@vellumai/cli",
-      "version": "0.10.4",
+      "version": "0.10.5",
       "bin": {
         "vellum": "./src/index.ts",
       },
@@ -144,7 +144,7 @@
     },
     "clients/web": {
       "name": "@vellumai/web",
-      "version": "0.10.4",
+      "version": "0.10.5",
       "dependencies": {
         "@capacitor/app": "8.1.0",
         "@capacitor/browser": "8.0.3",
@@ -246,7 +246,7 @@
     },
     "credential-executor": {
       "name": "@vellumai/credential-executor",
-      "version": "0.10.4",
+      "version": "0.10.5",
       "bin": {
         "credential-executor": "./src/main.ts",
         "credential-executor-managed": "./src/managed-main.ts",
@@ -269,7 +269,7 @@
     },
     "gateway": {
       "name": "@vellumai/vellum-gateway",
-      "version": "0.10.4",
+      "version": "0.10.5",
       "dependencies": {
         "@slack/types": "2.21.1",
         "@vellumai/assistant-client": "workspace:*",
