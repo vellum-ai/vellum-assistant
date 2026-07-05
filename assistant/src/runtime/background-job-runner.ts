@@ -19,6 +19,7 @@
  */
 
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import { processMessage } from "../daemon/process-message.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import {
   commitDeferredConversation,
@@ -287,15 +288,6 @@ export async function runBackgroundJob(
       );
     }
 
-    // Loaded at call time: `processMessage` is the daemon's turn entrypoint
-    // and statically pulls the conversation stack (conversation-store →
-    // Conversation → conversation-tool-setup → the defaults barrel). Memory's
-    // job modules import this runner at module scope, so a static import here
-    // would put them on a cycle with the defaults barrel and its plugin
-    // definitions would hit their bindings mid-initialization (TDZ). By the
-    // time a job runs, the module graph has settled (and in the daemon the
-    // module is already loaded via the routes layer).
-    const { processMessage } = await import("../daemon/process-message.js");
     const work = processMessage(conversation.id, opts.prompt, {
       trustContext: opts.trustContext,
       callSite: opts.callSite,
