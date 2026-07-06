@@ -407,11 +407,20 @@ async function fetchGlobalThresholds(): Promise<GlobalThresholds> {
  *
  * Returns the freshly-resolved threshold, or `null` when the gateway
  * could not be reached. Callers must keep their original decision on
- * `null` — fail toward prompting, never toward silent approval. The
- * conversation-override read failing is also treated as `null` (rather
- * than falling through to the global threshold) because without the
- * override we cannot know whether the conversation is configured more
- * strictly than the global default.
+ * `null` — fail toward prompting, never toward silent approval.
+ *
+ * Failure invariant: a transport failure must never produce a looser
+ * outcome than the last successful read. That is why a failed
+ * conversation-override read or a failed channel-permission-cell read
+ * returns `null` here instead of falling through to the global threshold
+ * (the direction {@link getAutoApproveThreshold} takes): the caller has
+ * already computed a prompt from a threshold that consulted those layers,
+ * and without re-reading the more-specific layer we cannot know it is
+ * not stricter than global. Falling through would let a transient IPC
+ * blip re-evaluate a Strict-cell prompt against a looser global and
+ * silently auto-approve — `null` keeps the prompt instead. The two
+ * functions therefore differ deliberately: the hot path must produce a
+ * usable threshold, the refresh only ever *replaces* a prompt.
  */
 export async function refreshAutoApproveThreshold(
   conversationId: string | undefined,
@@ -451,7 +460,10 @@ export async function refreshAutoApproveThreshold(
 
   // Fresh cell read (cache bypassed, then primed). A transport failure here
   // returns null — the caller keeps its prompt rather than falling through
-  // to a global threshold that may be looser than the unreadable cell.
+  // to a global threshold that may be looser than the unreadable cell
+  // (e.g. a Strict cell + a "high" global: falling through would flip the
+  // prompt into an auto-approve on an IPC blip). See the failure invariant
+  // in the function JSDoc.
   if (cellQuery) {
     const cell = await resolveChannelPermissionCell(cellQuery, {
       bypassCache: true,

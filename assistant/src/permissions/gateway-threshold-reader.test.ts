@@ -358,12 +358,19 @@ describe("channel-permission cell layer", () => {
     ).toBe("none");
   });
 
-  test("refresh keeps the prompt when the cell read fails", async () => {
+  test("refresh returns null on a cell transport failure — never a looser global", async () => {
+    // Failure invariant (see refreshAutoApproveThreshold JSDoc): a transport
+    // failure must never produce a looser outcome than the last successful
+    // read. Scenario guarded here: a Strict ("none") cell computed the
+    // prompt, the cell IPC blips during the refresh, and the global is
+    // "high" — falling through to global would re-evaluate the prompt into
+    // a silent auto-approve. The refresh must return null (caller keeps its
+    // prompt) and must not even attempt the global read.
     ipcHandlers.set("get_conversation_threshold", () => null);
+    // No resolve_channel_permission_threshold handler → ipcCall returns
+    // undefined, the transport-failure shape (`{ ok: false }` cell result).
     setGlobals("high");
 
-    // The cell is unreadable: refresh must return null (caller keeps its
-    // prompt) rather than falling through to a possibly-looser global.
     expect(
       await refreshAutoApproveThreshold("conv-c10", "conversation", CELL_QUERY),
     ).toBeNull();
