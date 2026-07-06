@@ -74,12 +74,14 @@ describe("useMobileOverlayViewportStyle", () => {
     // WHEN the overlay style is computed
     const style = captureStyle();
 
-    // THEN it is pinned to the visible region above the keyboard, with the
-    // bottom safe-area padding dropped (matching RootLayout compensation)
+    // THEN it is pinned to the visible region above the keyboard, dropping the
+    // bottom safe-area padding while preserving the top notch inset (offsetTop
+    // is scroll compensation, not the device notch inset)
     expect(style.top).toBe("40px");
     expect(style.bottom).toBe("auto");
     expect(style.height).toBe("500px");
     expect(style.paddingBottom).toBe(0);
+    expect(style.paddingTop).toContain("safe-area-inset-top");
   });
 
   test("ignores sub-threshold height deltas as incidental drift", () => {

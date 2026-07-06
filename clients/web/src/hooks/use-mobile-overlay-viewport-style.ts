@@ -28,6 +28,12 @@ const SAFE_AREA_RIGHT =
  * `height: visualViewport.height`) so the overlay exactly covers the visible
  * region — the same compensation `RootLayout` applies to the main app shell.
  *
+ * The top safe-area inset is preserved in both states: `offsetTop` is the
+ * visual-viewport scroll compensation, not the device notch inset, so it can
+ * be `0` while the keyboard is up and would otherwise let a header render under
+ * the status bar. The bottom inset is dropped while the keyboard is open —
+ * the home indicator sits behind the keyboard.
+ *
  * Callers apply the returned style to a `position: fixed` element that also
  * sets `left/right` (e.g. `inset-x-0`) and stacking (`z-30`); animation
  * transforms compose on top without conflict.
@@ -51,7 +57,7 @@ export function useMobileOverlayViewportStyle(): CSSProperties {
       top: `${visibleViewport.offsetTop}px`,
       bottom: "auto",
       height: `${visibleViewport.height}px`,
-      paddingTop: 0,
+      paddingTop: SAFE_AREA_TOP,
       paddingBottom: 0,
       paddingLeft: SAFE_AREA_LEFT,
       paddingRight: SAFE_AREA_RIGHT,
