@@ -82,7 +82,6 @@ assistant/src/tools/verification-control-plane-policy.ts @noanflaherty
 assistant/src/tools/tool-approval-handler.ts @noanflaherty
 assistant/src/security/tool-approval-digest.ts @noanflaherty
 assistant/src/permissions/ @noanflaherty
-assistant/src/contacts/guardian-rate-limits.ts @noanflaherty
 assistant/src/approvals/scoped-approval-grants.ts @noanflaherty
 assistant/src/contacts/canonical-guardian-store.ts @noanflaherty
 assistant/src/calls/guardian-*.ts @noanflaherty
