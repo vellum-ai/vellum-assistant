@@ -1022,12 +1022,22 @@ function assertInvariantProfilesPreserved(
 async function commitConfigWrite(
   raw: Record<string, unknown>,
   opLabel: string,
+  options: { validateMergedSchema?: boolean } = {},
 ): Promise<void> {
   // `loadRawConfig()` reads fresh from disk and the save hasn't happened yet,
   // so it is the pre-write state; raw-to-raw comparison avoids parsed-vs-raw
   // false diffs. Runs before the watcher-suppress/save sequence so a
   // rejection needs no suppress-flag or cache cleanup.
   assertInvariantProfilesPreserved(loadRawConfig(), raw);
+
+  // Schema validation runs after the managed-profile guard so its specific,
+  // actionable message wins for a managed-profile write that also happens to
+  // be schema-invalid, and before the file write so a rejection leaves disk
+  // untouched. Opt-in per caller — the `config set` path validates the merged
+  // whole config; other write paths keep their existing narrower validation.
+  if (options.validateMergedSchema) {
+    assertMergedConfigValidForSet(raw);
+  }
 
   // Suppress the file-watcher callback for the duration of the debounce
   // window. Without this, the ConfigWatcher detects the config.json write
@@ -1096,6 +1106,72 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
 }
 
 /**
+ * Clear the leaf at `path`, mirroring `deepMergeOverwrite`'s null semantics so
+ * a cleared key validates as the schema intends rather than as an explicit
+ * `null` the schema may reject:
+ *
+ * - **Existing value is a plain object**: delete the key (clear entry). E.g.
+ *   `set llm.profiles.gemini-probe null` removes the profile so it validates
+ *   as absent, not as `null` (which `ProfileEntry` rejects).
+ * - **Existing value is a scalar / null / array**: assign `null`, preserving
+ *   nullable fields (e.g. `memory.cleanup.llmRequestLogRetentionMs`).
+ * - **Key absent**: no-op — assigning `null` to a missing key would persist a
+ *   spurious leaf.
+ */
+function clearLeafForNullSet(raw: Record<string, unknown>, path: string): void {
+  const keys = path.split(".");
+  let parent = raw;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const next = parent[keys[i]!];
+    if (next == null || typeof next !== "object" || Array.isArray(next)) {
+      return;
+    }
+    parent = next as Record<string, unknown>;
+  }
+  const leaf = keys[keys.length - 1]!;
+  if (!(leaf in parent)) {
+    return;
+  }
+  const existing = parent[leaf];
+  if (
+    existing != null &&
+    typeof existing === "object" &&
+    !Array.isArray(existing)
+  ) {
+    delete parent[leaf];
+  } else {
+    parent[leaf] = null;
+  }
+}
+
+/**
+ * Validate the whole post-write raw config against `AssistantConfigSchema`
+ * before it is persisted. A single-key `set` is validated against the merged
+ * config (not the fragment) so cross-field and record-key constraints are
+ * enforced. On failure, throws a `BadRequestError` listing every invalid path
+ * and its issue and stating that nothing was written — the divergence would
+ * otherwise surface only at load time, where invalid leaves are silently
+ * stripped and the effective runtime config diverges from what was written.
+ */
+function assertMergedConfigValidForSet(raw: Record<string, unknown>): void {
+  const result = AssistantConfigSchema.safeParse(raw);
+  if (result.success) {
+    return;
+  }
+  const details = Array.from(
+    new Set(
+      result.error.issues.map((issue) => {
+        const path = issue.path.join(".");
+        return `${path.length > 0 ? path : "(root)"}: ${issue.message}`;
+      }),
+    ),
+  ).join("; ");
+  throw new BadRequestError(
+    `Rejected config write: the resulting configuration is invalid, so nothing was written. ${details}`,
+  );
+}
+
+/**
  * Direct path assignment - replaces `config_patch` for the `assistant
  * config set <key> <value>` CLI path.
  *
@@ -1104,11 +1180,15 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
  * replaces) object subtrees. That's correct for partial updates (embedding
  * config, profile patches) but breaks single-key `set` semantics, where the
  * user expects:
- *   - `set heartbeat.activeHoursStart null` to persist explicit `null`
+ *   - `set memory.cleanup.llmRequestLogRetentionMs null` to persist explicit
+ *     `null` (a schema-nullable field)
  *   - `set llm {}` to replace `llm`, not merge into it
  *
- * `config_set` performs `setNestedValue` directly on the loaded raw config
- * (no merge), then runs the same post-write side effects as patch.
+ * `config_set` assigns `value` directly at `path` on the loaded raw config (no
+ * merge), validates the merged config against `AssistantConfigSchema`, and —
+ * only if valid — runs the same post-write side effects as patch. An invalid
+ * result is rejected before any file write. Clearing a key (`value` is `null`)
+ * follows `clearLeafForNullSet` so a cleared object entry validates as absent.
  */
 async function handleSetConfig({ body }: RouteHandlerArgs) {
   if (!body || typeof body !== "object" || Array.isArray(body)) {
@@ -1153,9 +1233,18 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
   rejectMcpTransportHeaderWrite(patchShape);
 
   const raw = loadRawConfig();
-  setNestedValue(raw, path, value);
+  if (value === null) {
+    clearLeafForNullSet(raw, path);
+  } else {
+    setNestedValue(raw, path, value);
+  }
 
-  await commitConfigWrite(raw, "set");
+  // `validateMergedSchema` rejects a write whose merged config fails the
+  // schema before anything is persisted. Invalid writes used to "succeed"
+  // here and only fail at load time, where the loader strips the bad leaves —
+  // leaving the effective runtime config diverging from what the caller (and
+  // the assistant that wrote it) believed was set.
+  await commitConfigWrite(raw, "set", { validateMergedSchema: true });
   return { ok: true };
 }
 
