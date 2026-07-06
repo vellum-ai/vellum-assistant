@@ -8,6 +8,8 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import {
+  getLiveVoiceInputAmplitude,
+  isLiveVoiceMicLive,
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
   useLiveVoiceStore,
@@ -185,5 +187,34 @@ describe("useLiveVoiceStore — session controls", () => {
     useLiveVoiceStore.getState().setControls(makeControls());
     useLiveVoiceStore.getState().reset();
     expect(useLiveVoiceStore.getState().controls).toBeNull();
+  });
+});
+
+describe("isLiveVoiceMicLive", () => {
+  test("true for the whole listening→speaking span (amplitude keeps flowing for barge-in)", () => {
+    const micLive: LiveVoiceSessionState[] = [
+      "listening",
+      "transcribing",
+      "thinking",
+      "speaking",
+    ];
+    for (const state of micLive) {
+      expect(isLiveVoiceMicLive(state)).toBe(true);
+    }
+  });
+
+  test("false before capture starts and during/after teardown", () => {
+    const micOff: LiveVoiceSessionState[] = ["idle", "connecting", "ending", "failed"];
+    for (const state of micOff) {
+      expect(isLiveVoiceMicLive(state)).toBe(false);
+    }
+  });
+});
+
+describe("getLiveVoiceInputAmplitude", () => {
+  test("reads the store's current amplitude", () => {
+    expect(getLiveVoiceInputAmplitude()).toBe(0);
+    useLiveVoiceStore.getState().setInputAmplitude(0.42);
+    expect(getLiveVoiceInputAmplitude()).toBe(0.42);
   });
 });

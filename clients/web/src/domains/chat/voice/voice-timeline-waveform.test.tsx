@@ -101,21 +101,27 @@ describe("VoiceTimelineWaveform — rendering", () => {
   });
 
   test("default sizing uses the full-height canvas class", () => {
-    const { container } = render(<VoiceTimelineWaveform active />);
+    const { container } = render(
+      <VoiceTimelineWaveform active getAmplitude={() => 0} />,
+    );
     const canvas = container.querySelector("canvas")!;
     expect(canvas.className).toContain("h-6");
     expect(canvas.className).toContain("w-full");
   });
 
   test("compact sizing uses the shorter canvas class", () => {
-    const { container } = render(<VoiceTimelineWaveform active compact />);
+    const { container } = render(
+      <VoiceTimelineWaveform active compact getAmplitude={() => 0} />,
+    );
     const canvas = container.querySelector("canvas")!;
     expect(canvas.className).toContain("h-4");
     expect(canvas.className).not.toContain("h-6");
   });
 
   test("merges a caller-supplied className", () => {
-    const { container } = render(<VoiceTimelineWaveform active className="flex-1" />);
+    const { container } = render(
+      <VoiceTimelineWaveform active className="flex-1" getAmplitude={() => 0} />,
+    );
     expect(container.querySelector("canvas")!.className).toContain("flex-1");
   });
 });
@@ -162,7 +168,9 @@ describe("VoiceTimelineWaveform — animation loop", () => {
   test("does not start a loop when the 2d context is unavailable", () => {
     HTMLCanvasElement.prototype.getContext = (() =>
       null) as unknown as typeof HTMLCanvasElement.prototype.getContext;
-    const { unmount } = render(<VoiceTimelineWaveform active />);
+    const { unmount } = render(
+      <VoiceTimelineWaveform active getAmplitude={() => 0} />,
+    );
     expect(rafCallCount).toBe(0);
     expect(() => unmount()).not.toThrow();
   });
