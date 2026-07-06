@@ -38,20 +38,37 @@ mock.module("../persistence/conversation-crud.js", () => ({
  */
 const capturedMessages: string[] = [];
 
+/** Parent conversation ids that a notification was routed to (findConversation). */
+const capturedParentIds: string[] = [];
+
+// Live subagent conversations, keyed by conversationId. notifyParentFromChild
+// routes to the parent recorded here (the non-writable in-process source), so
+// tests register a child before expecting a notification to route.
+const liveSubagents = new Map<string, { parentConversationId: string }>();
+
 mock.module("../daemon/conversation-registry.js", () => ({
-  findConversation: (_id: string) => ({
-    enqueueMessage: (options: { content: string }) => {
-      capturedMessages.push(options.content);
-      return { queued: true };
-    },
-    persistUserMessage: async () => ({ id: "mock-msg", deduplicated: false }),
-    runAgentLoop: async () => {},
-  }),
+  findConversation: (id: string) => {
+    capturedParentIds.push(id);
+    return {
+      enqueueMessage: (options: { content: string }) => {
+        capturedMessages.push(options.content);
+        return { queued: true };
+      },
+      persistUserMessage: async () => ({ id: "mock-msg", deduplicated: false }),
+      runAgentLoop: async () => {},
+    };
+  },
+  findConversationOrSubagent: (id: string) => {
+    const live = liveSubagents.get(id);
+    return live
+      ? { isSubagent: true, parentConversationId: live.parentConversationId }
+      : undefined;
+  },
 }));
 
-// notifyParentFromChild resolves the child → parent relation and lifecycle
-// status from the durable subagent record, not the live manager — so tests
-// seed records into this map rather than poking the manager's internals.
+// notifyParentFromChild reads cosmetic label/fork/objective from the durable
+// record. Routing does NOT come from here (see liveSubagents above), so a
+// tampered record can only mislabel, never redirect.
 const records = new Map<string, SubagentRecord>();
 mock.module("../persistence/subagent-store.js", () => ({
   getSubagentRecordByConversationId: (conversationId: string) =>
@@ -73,15 +90,19 @@ import {
 // ── Shared helpers ──────────────────────────────────────────────────
 
 /**
- * Seed a durable subagent record so `notifyParentFromChild` (and the
- * `notify_parent` tool) resolve `conversationId` to a subagent. Defaults to a
- * running general subagent; pass overrides for status, label, fork, etc.
+ * Register a subagent so `notifyParentFromChild` (and the `notify_parent` tool)
+ * treat `conversationId` as a live subagent: a live child conversation (the
+ * routing source) plus a durable record (cosmetic label/fork/objective).
+ * Defaults to a running general subagent; pass overrides for status, label,
+ * fork, etc. By default the live parent matches the record's parent; pass
+ * `liveParentConversationId` to diverge them (models a tampered record).
  */
 function seedSubagent(
   conversationId: string,
   overrides: Partial<SubagentRecord> = {},
+  liveParentConversationId?: string,
 ): void {
-  records.set(conversationId, {
+  const record: SubagentRecord = {
     id: `sub-${conversationId}`,
     parentConversationId: `parent-${conversationId}`,
     conversationId,
@@ -99,6 +120,11 @@ function seedSubagent(
     outputTokens: 0,
     estimatedCost: 0,
     ...overrides,
+  };
+  records.set(conversationId, record);
+  liveSubagents.set(conversationId, {
+    parentConversationId:
+      liveParentConversationId ?? record.parentConversationId,
   });
 }
 
@@ -304,5 +330,24 @@ describe("notifyParentFromChild", () => {
 
     notifyParentFromChild(conversationId, "branch result", "info");
     expect(lastCapturedMessage()).toBe('[Fork "Explore" — info] branch result');
+  });
+
+  test("routes to the live parent, ignoring a tampered record parent", () => {
+    clearCaptured();
+    capturedParentIds.length = 0;
+    const conversationId = "conv-tamper-1";
+    // The durable record claims a victim conversation as parent; the live
+    // child's real parent differs. Routing must follow the live child.
+    seedSubagent(
+      conversationId,
+      { parentConversationId: "victim-conversation" },
+      "real-parent-conversation",
+    );
+
+    expect(notifyParentFromChild(conversationId, "injected", "info")).toBe(
+      true,
+    );
+    expect(capturedParentIds).toContain("real-parent-conversation");
+    expect(capturedParentIds).not.toContain("victim-conversation");
   });
 });

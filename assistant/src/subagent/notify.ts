@@ -1,17 +1,21 @@
 /**
  * Subagent → parent notification, decoupled from the SubagentManager.
  *
- * The child → parent relation and the subagent's lifecycle status are read
- * from the persisted subagent record (see `persistence/subagent-store`), so
- * these helpers do not depend on the live manager and can be imported by tool
- * modules without pulling the conversation/agent-loop core into their graph.
+ * Routing (which parent a notification reaches) is taken from the live child
+ * `Conversation`, which records its parent at spawn and is not writable by the
+ * subagent's own sandbox tools. The durable subagent record supplies only the
+ * cosmetic label/fork/objective metadata for the notification text. Keeping the
+ * manager out of the import graph lets tool modules import these helpers without
+ * pulling in the conversation/agent-loop core.
  *
- * Delivery still targets the parent's in-process `Conversation` via the
- * conversation registry: a notification is injected only when the parent
- * conversation is live in this process.
+ * Delivery targets the parent's in-process `Conversation` via the conversation
+ * registry: a notification is injected only when the parent is live here.
  */
 
-import { findConversation } from "../daemon/conversation-registry.js";
+import {
+  findConversation,
+  findConversationOrSubagent,
+} from "../daemon/conversation-registry.js";
 import { getSubagentRecordByConversationId } from "../persistence/subagent-store.js";
 import { getLogger } from "../util/logger.js";
 import { type SubagentStatus, TERMINAL_STATUSES } from "./types.js";
@@ -62,7 +66,11 @@ export function injectMessageIntoParent(
 /**
  * Deliver a mid-run notification from a subagent to its parent conversation.
  *
- * Returns `false` when `childConversationId` is not a subagent, or when the
+ * The parent is resolved from the live child conversation's `parentConversationId`
+ * (set at spawn, not writable by the subagent), so a subagent cannot redirect
+ * the notification to another conversation by tampering with its durable record.
+ *
+ * Returns `false` when `childConversationId` is not a live subagent, or when the
  * subagent has already reached a terminal status (the parent receives the
  * terminal summary through a separate path); `true` when the notification was
  * injected into the parent.
@@ -72,27 +80,34 @@ export function notifyParentFromChild(
   message: string,
   urgency: string,
 ): boolean {
-  const record = getSubagentRecordByConversationId(childConversationId);
-  if (!record) {
+  const child = findConversationOrSubagent(childConversationId);
+  if (!child?.isSubagent || !child.parentConversationId) {
     return false;
   }
-  if (TERMINAL_STATUSES.has(record.status as SubagentStatus)) {
-    return false;
-  }
+  const parentConversationId = child.parentConversationId;
 
-  const prefix = record.isFork ? "Fork" : "Subagent";
-  let notificationString = `[${prefix} "${record.label}" — ${urgency}] ${message}`;
+  // Cosmetic metadata only — a tampered record can at most mislabel a
+  // notification to the child's own (routing is fixed to the live parent above).
+  const record = getSubagentRecordByConversationId(childConversationId);
+  if (record && TERMINAL_STATUSES.has(record.status as SubagentStatus)) {
+    return false;
+  }
+  const label = record?.label ?? "subagent";
+  const isFork = record?.isFork ?? false;
+
+  const prefix = isFork ? "Fork" : "Subagent";
+  let notificationString = `[${prefix} "${label}" — ${urgency}] ${message}`;
   if (urgency === "blocked") {
     notificationString += `\nUse subagent_message to send guidance to this ${prefix.toLowerCase()}.`;
   }
 
-  injectMessageIntoParent(record.parentConversationId, notificationString, {
+  injectMessageIntoParent(parentConversationId, notificationString, {
     subagentNotification: {
-      subagentId: record.id,
-      label: record.label,
+      subagentId: record?.id ?? childConversationId,
+      label,
       status: "running" as const,
-      conversationId: record.conversationId,
-      objective: record.objective,
+      conversationId: childConversationId,
+      objective: record?.objective ?? "",
     },
   });
   return true;

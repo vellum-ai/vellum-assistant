@@ -357,6 +357,15 @@ export class Conversation {
   currentCallSite?: LLMCallSite;
   /** @internal */ hasNoClient = false;
   /** @internal */ isSubagent = false;
+  /**
+   * For subagent conversations, the id of the parent that spawned this one.
+   * Set once at spawn from the trusted spawn config, so it is the authoritative
+   * (non-writable) source for routing child → parent notifications — as opposed
+   * to the durable subagent record, which lives under the sandbox workspace and
+   * could be tampered with by a subagent running sandbox tools.
+   * @internal
+   */
+  parentConversationId?: string;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
@@ -1402,6 +1411,10 @@ export class Conversation {
 
   setIsSubagent(value: boolean): void {
     this.isSubagent = value;
+  }
+
+  setParentConversationId(parentConversationId: string): void {
+    this.parentConversationId = parentConversationId;
   }
 
   /**

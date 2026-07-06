@@ -204,6 +204,7 @@ class FakeConversation {
   constructor() {}
   updateClient() {}
   setIsSubagent() {}
+  setParentConversationId() {}
   setTrustContext() {}
   setAuthContext() {}
   getAuthContext() {
