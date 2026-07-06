@@ -2,11 +2,9 @@
  * Tests for the `useLiveVoice` session controller.
  *
  * The three merged primitives — client, capture, player — are replaced with
- * hand-rolled fakes injected through `useLiveVoice`'s factory options, so no
- * WebSocket, microphone, or AudioContext is touched. The fakes expose drivers
- * (`emit`, `pushChunk`, `pushAmplitude`) so a test can drive a full turn and
- * assert the state-machine transitions, barge-in, automatic ptt_release, and
- * teardown.
+ * the shared fakes from `live-voice-fakes.test-helper.ts`, injected through
+ * `useLiveVoice`'s factory options, so no WebSocket, microphone, or
+ * AudioContext is touched.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -25,15 +23,16 @@ mock.module("@/domains/chat/voice/live-voice/connection", () => ({
 import type {
   LiveVoiceChannelClient,
   LiveVoiceClientError,
-  LiveVoiceClientEventMap,
-  LiveVoiceClientEventName,
 } from "@/domains/chat/voice/live-voice/live-voice-client";
-import type {
-  LiveVoiceAudioCapture,
-  LiveVoiceAudioCaptureOptions,
-  LiveVoiceCaptureResult,
-} from "@/domains/chat/voice/live-voice/pcm-capture";
+import type { LiveVoiceAudioCapture } from "@/domains/chat/voice/live-voice/pcm-capture";
 import type { LiveVoiceAudioPlayer } from "@/domains/chat/voice/live-voice/tts-playback";
+
+import {
+  FakeCapture,
+  FakeClient,
+  FakePlayer,
+  pcmChunk,
+} from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
 
 // Import the controller + store *after* the connection mock is registered, so
 // the real connection.ts (which imports the generated SDK) never enters the
@@ -46,150 +45,8 @@ const { useLiveVoiceStore } = await import(
 );
 
 // ---------------------------------------------------------------------------
-// Fakes
-// ---------------------------------------------------------------------------
-
-class FakeClient {
-  connectArgs: { assistantId: string; conversationId?: string } | null = null;
-  sentAudio: ArrayBuffer[] = [];
-  pttReleaseCount = 0;
-  interruptCount = 0;
-  ended = false;
-  closed = false;
-
-  private handlers = new Map<
-    LiveVoiceClientEventName,
-    Set<(payload: never) => void>
-  >();
-
-  on<E extends LiveVoiceClientEventName>(
-    event: E,
-    handler: (payload: LiveVoiceClientEventMap[E]) => void,
-  ): () => void {
-    let set = this.handlers.get(event);
-    if (!set) {
-      set = new Set();
-      this.handlers.set(event, set);
-    }
-    set.add(handler as (payload: never) => void);
-    return () => set?.delete(handler as (payload: never) => void);
-  }
-
-  async connect(args: {
-    assistantId: string;
-    conversationId?: string;
-  }): Promise<void> {
-    this.connectArgs = args;
-  }
-
-  sendAudio(pcm: ArrayBuffer): void {
-    this.sentAudio.push(pcm);
-  }
-  pttRelease(): void {
-    this.pttReleaseCount++;
-  }
-  interrupt(): void {
-    this.interruptCount++;
-  }
-  end(): void {
-    this.ended = true;
-  }
-  close(): void {
-    this.closed = true;
-  }
-
-  /** Drive a server event to the controller's subscribed handlers. */
-  emit<E extends LiveVoiceClientEventName>(
-    event: E,
-    payload: LiveVoiceClientEventMap[E],
-  ): void {
-    for (const handler of this.handlers.get(event) ?? []) {
-      (handler as (payload: LiveVoiceClientEventMap[E]) => void)(payload);
-    }
-  }
-}
-
-class FakeCapture {
-  readonly onChunk: (buf: ArrayBuffer) => void;
-  readonly onAmplitude?: (amplitude: number) => void;
-
-  startCount = 0;
-  stopCount = 0;
-  shutdownCount = 0;
-  startResult: LiveVoiceCaptureResult = { ok: true };
-
-  constructor(options: LiveVoiceAudioCaptureOptions) {
-    this.onChunk = options.onChunk;
-    this.onAmplitude = options.onAmplitude;
-  }
-
-  async start(): Promise<LiveVoiceCaptureResult> {
-    this.startCount++;
-    return this.startResult;
-  }
-  async stop(): Promise<void> {
-    this.stopCount++;
-  }
-  async shutdown(): Promise<void> {
-    this.shutdownCount++;
-  }
-
-  /** Feed a captured PCM chunk to the controller. */
-  pushChunk(buf: ArrayBuffer): void {
-    this.onChunk(buf);
-  }
-  /** Feed an amplitude reading to the controller. */
-  pushAmplitude(amplitude: number): void {
-    this.onAmplitude?.(amplitude);
-  }
-}
-
-class FakePlayer {
-  enqueued: unknown[] = [];
-  stopCount = 0;
-  disposeCount = 0;
-  isPlaying = false;
-  private drainResolvers: Array<() => void> = [];
-
-  enqueue(chunk: unknown): void {
-    this.enqueued.push(chunk);
-    this.isPlaying = true;
-  }
-  stop(): void {
-    this.stopCount++;
-    this.isPlaying = false;
-    this.resolveDrain();
-  }
-  async dispose(): Promise<void> {
-    this.disposeCount++;
-    this.stop();
-  }
-  async waitUntilDrained(): Promise<void> {
-    if (!this.isPlaying) return;
-    await new Promise<void>((resolve) => this.drainResolvers.push(resolve));
-  }
-
-  /** Simulate playback finishing naturally. */
-  finishPlayback(): void {
-    this.isPlaying = false;
-    this.resolveDrain();
-  }
-  private resolveDrain(): void {
-    const resolvers = this.drainResolvers;
-    this.drainResolvers = [];
-    for (const resolve of resolvers) resolve();
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Harness
 // ---------------------------------------------------------------------------
-
-/** A PCM chunk of `ms` milliseconds at 16 kHz mono Int16. */
-function pcmChunk(ms: number): ArrayBuffer {
-  const samples = Math.round((16000 * ms) / 1000);
-  return new Int16Array(samples).buffer;
-}
 
 function renderController(extraOptions: { observeAudioState?: boolean } = {}) {
   const client = new FakeClient();
@@ -559,6 +416,7 @@ describe("session context and controls", () => {
     const store = useLiveVoiceStore.getState();
     expect(store.assistantId).toBe("assistant-1");
     expect(store.conversationId).toBe("conv-1");
+    expect(store.startedConversationId).toBe("conv-1");
     expect(store.controls).not.toBeNull();
   });
 
@@ -570,9 +428,10 @@ describe("session context and controls", () => {
 
     expect(useLiveVoiceStore.getState().assistantId).toBe("assistant-1");
     expect(useLiveVoiceStore.getState().conversationId).toBeNull();
+    expect(useLiveVoiceStore.getState().startedConversationId).toBeNull();
   });
 
-  test("ready frame updates a null conversationId with the server-assigned id", async () => {
+  test("ready frame updates a null conversationId with the server-assigned id, keeping the started id", async () => {
     const h = renderController();
     await act(async () => {
       await h.view.result.current.start("assistant-1");
@@ -592,6 +451,9 @@ describe("session context and controls", () => {
     const store = useLiveVoiceStore.getState();
     expect(store.assistantId).toBe("assistant-1");
     expect(store.conversationId).toBe("conv-server-assigned");
+    // The started id must survive the republish: draft-session ownership
+    // (`isLiveVoiceSessionOwnedBy`) matches the draft composer against it.
+    expect(store.startedConversationId).toBeNull();
   });
 
   test("release() while listening sends ptt_release and moves to transcribing", async () => {

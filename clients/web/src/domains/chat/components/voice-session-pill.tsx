@@ -3,9 +3,10 @@
  * Presentational — the mounting host owns store wiring and visibility rules.
  *
  * Layout, left → right: two-line context label (primary action text over the
- * owning thread's name), circular stop control (only while the assistant is
- * `speaking`), mic glyph + compact timeline waveform, red ✕ (end session),
- * green ↑ (manual turn release — enabled only while `listening`).
+ * owning thread's name), optional circular stop control (only when the host
+ * provides `onStop` and the assistant is `speaking`), mic glyph + compact
+ * timeline waveform, red ✕ (end session), green ↑ (manual turn release —
+ * enabled only while `listening`).
  *
  * The pill lives inside `ChatLayoutHeader`, which doubles as the Electron
  * macOS title bar (`-webkit-app-region: drag`). The root opts the whole
@@ -44,8 +45,12 @@ export interface VoiceSessionPillProps {
   state: LiveVoiceSessionState;
   /** Polled by the waveform at ~30 Hz; must not force parent re-renders. */
   getAmplitude: () => number;
-  /** Stop the in-flight assistant response without ending the session. */
-  onStop: () => void;
+  /**
+   * Stop the in-flight assistant response without ending the session. The
+   * ■ control is hidden when absent — hosts must only wire this once a
+   * turn-scoped interrupt exists; the ✕ (`onEnd`) is the destructive control.
+   */
+  onStop?: () => void;
   /** End the voice session. */
   onEnd: () => void;
   /** Manual turn release ("send now") while listening. */
@@ -106,7 +111,7 @@ export function VoiceSessionPill({
       ) : (
         <div className={labelClass}>{labelContent}</div>
       )}
-      {state === "speaking" ? (
+      {onStop && state === "speaking" ? (
         <Button
           variant="primary"
           iconOnly={<Square fill="currentColor" />}

@@ -12,7 +12,7 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
-import { isAboutAssistantPath, routes } from "@/utils/routes";
+import { isAboutAssistantPath, isConversationPath, routes } from "@/utils/routes";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
@@ -62,6 +62,7 @@ import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/resea
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
 import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
+import { useLiveVoiceSessionController } from "@/domains/chat/voice/live-voice/use-live-voice-session-controller";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
@@ -138,6 +139,13 @@ export function ChatLayout() {
     (s) => s.assistantState.kind,
   );
   const isAssistantActive = assistantStateKind === "active";
+
+  // Live-voice session controller. Owned at layout scope — not by the
+  // composer — so a session survives every chat-side navigation (thread
+  // switch, Home/Library, the fullscreen app viewer) with the title-bar
+  // pill as its control surface. The composer starts/stops sessions
+  // through the seams this registers in `useLiveVoiceStore`.
+  useLiveVoiceSessionController();
 
   // Subscribe to the sidebar conversation list at the layout level so every
   // chat-layout child route (home, library, contacts, identity, chat)
@@ -511,10 +519,7 @@ export function ChatLayout() {
   // is intentionally left intact — many other consumers (SSE streams,
   // attention tracking, message reconciliation) rely on it persisting
   // across route changes.
-  const isOnConversationRoute =
-    location.pathname === routes.assistant ||
-    location.pathname === `${routes.assistant}/` ||
-    location.pathname.startsWith(`${routes.conversations}/`);
+  const isOnConversationRoute = isConversationPath(location.pathname);
   const sidebarActiveConversationId = isOnConversationRoute
     ? (activeConversationId ?? undefined)
     : undefined;
