@@ -21,7 +21,7 @@
  * cells are never overwritten. Safe to re-run.
  */
 
-import { readConfigFileOrEmpty } from "../../config-file-utils.js";
+import { readConfigFile } from "../../config-file-utils.js";
 import { getLogger } from "../../logger.js";
 import { ChannelPermissionStore } from "../channel-permission-store.js";
 
@@ -60,12 +60,21 @@ function extractChannelPermissions(
 }
 
 export function up(): MigrationResult {
-  const config = readConfigFileOrEmpty({
-    onMalformed: (detail) =>
-      log.warn({ detail }, "Assistant config unreadable; migrating nothing"),
-  });
+  // A missing config file reads as `{ ok: true, data: {} }` — a fresh
+  // install with genuinely nothing to migrate. A malformed/unreadable file
+  // (mid-write crash, transient permission error) is a different state:
+  // skip so the ledger retries on the next startup instead of permanently
+  // checkpointing the migration against a config it never read.
+  const configResult = readConfigFile();
+  if (!configResult.ok) {
+    log.warn(
+      { detail: configResult.detail },
+      "Assistant config unreadable; retrying migration on next startup",
+    );
+    return "skip";
+  }
 
-  const channelPermissions = extractChannelPermissions(config);
+  const channelPermissions = extractChannelPermissions(configResult.data);
   if (!channelPermissions) {
     log.info("No Slack channelPermissions config found; nothing to migrate");
     return "done";

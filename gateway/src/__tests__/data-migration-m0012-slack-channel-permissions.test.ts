@@ -99,6 +99,25 @@ describe("m0012-migrate-slack-channel-permissions", () => {
     expect(store.list()).toHaveLength(0);
   });
 
+  test("malformed config is skip — retried on next startup, not checkpointed", () => {
+    const path = getConfigPath();
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, '{"skills": {truncated-mid-wr', "utf-8");
+
+    expect(up()).toBe("skip");
+    expect(store.list()).toHaveLength(0);
+
+    // Once the config is readable again, the retry migrates normally.
+    writeConfig(slackConfig({ C123: { trustLevel: "restricted" } }));
+    expect(up()).toBe("done");
+    expect(
+      store.get(
+        { scope: "channel", adapter: "slack", channelExternalId: "C123" },
+        "trusted_contact",
+      ),
+    ).not.toBeNull();
+  });
+
   test("re-running never overwrites a guardian-edited cell", () => {
     writeConfig(slackConfig({ C123: { trustLevel: "restricted" } }));
     expect(up()).toBe("done");
