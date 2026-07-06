@@ -27,6 +27,8 @@ const CAPABILITIES = { supportsStreaming: true, supportedFormats: ["mp3"] };
 interface StreamingFakeOptions {
   /** Called between chunk deliveries so tests can abort/stale mid-stream. */
   betweenChunks?: (deliveredCount: number) => void;
+  /** Awaited after all chunks are delivered, before the stream resolves. */
+  resolveGate?: Promise<void>;
   contentType?: string;
 }
 
@@ -50,6 +52,7 @@ function makeStreamingProvider(
         onChunk(chunk);
         delivered += 1;
       }
+      await options.resolveGate;
       return {
         audio: Buffer.concat(chunks),
         contentType: options.contentType ?? "audio/mpeg",
@@ -295,6 +298,64 @@ describe("synthesizeAndEmit (streaming)", () => {
 
     expect(sink.events).toEqual([]);
     expect(result.emittedChunks).toBe(0);
+    expect(result.stopped).toBe(true);
+  });
+
+  test("abort after the last chunk but before the provider resolves returns stopped: true", async () => {
+    const abortController = new AbortController();
+    let releaseProvider: () => void = () => {};
+    const provider = makeStreamingProvider([bytes("a"), bytes("b")], {
+      resolveGate: new Promise<void>((resolve) => {
+        releaseProvider = resolve;
+      }),
+    });
+    const sink = makeRecordingSink();
+
+    const settled = synthesizeAndEmit({
+      provider,
+      text: "hello",
+      useCase: "phone-call",
+      signal: abortController.signal,
+      onChunk: sink.onChunk,
+      onFirstAudio: sink.onFirstAudio,
+    });
+    // All chunks pass their emit-time checks before the abort lands; the
+    // provider is still pending, so the returned flag must re-sample.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    abortController.abort();
+    releaseProvider();
+    const result = await settled;
+
+    expect(sink.events).toEqual(["firstAudio", "chunk:a", "chunk:b"]);
+    expect(result.emittedChunks).toBe(2);
+    expect(result.stopped).toBe(true);
+  });
+
+  test("isCurrent() flipping false after the last chunk but before the provider resolves returns stopped: true", async () => {
+    let current = true;
+    let releaseProvider: () => void = () => {};
+    const provider = makeStreamingProvider([bytes("a")], {
+      resolveGate: new Promise<void>((resolve) => {
+        releaseProvider = resolve;
+      }),
+    });
+    const sink = makeRecordingSink();
+
+    const settled = synthesizeAndEmit({
+      provider,
+      text: "hello",
+      useCase: "phone-call",
+      isCurrent: () => current,
+      onChunk: sink.onChunk,
+      onFirstAudio: sink.onFirstAudio,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    current = false;
+    releaseProvider();
+    const result = await settled;
+
+    expect(sink.events).toEqual(["firstAudio", "chunk:a"]);
+    expect(result.emittedChunks).toBe(1);
     expect(result.stopped).toBe(true);
   });
 
@@ -544,6 +605,27 @@ describe("synthesizeAndEmit (buffer)", () => {
 
     expect(sink.events).toEqual([]);
     expect(result.emittedChunks).toBe(0);
+    expect(result.stopped).toBe(true);
+  });
+
+  test("abort while the sink emit is in flight returns stopped: true", async () => {
+    const provider = makeBufferProvider(Buffer.from("abc"));
+    const abortController = new AbortController();
+    const emitted: string[] = [];
+
+    const result = await synthesizeAndEmit({
+      provider,
+      text: "hello",
+      useCase: "phone-call",
+      signal: abortController.signal,
+      async onChunk(chunk) {
+        emitted.push(chunk.audio.toString("utf8"));
+        abortController.abort();
+      },
+    });
+
+    expect(emitted).toEqual(["abc"]);
+    expect(result.emittedChunks).toBe(1);
     expect(result.stopped).toBe(true);
   });
 

@@ -166,7 +166,13 @@ export async function synthesizeAndEmit(
     if (emittedChunks === 0 && !stopped) {
       throw new Error("Streaming TTS returned no audio chunks");
     }
-    return { emittedChunks, contentType: result.contentType, stopped };
+    // Re-sampled: an abort landing after the last emit-time check but
+    // before the stream resolves must be visible in the returned flag.
+    return {
+      emittedChunks,
+      contentType: result.contentType,
+      stopped: shouldStop(),
+    };
   }
 
   const result = await provider.synthesize(request);
@@ -178,7 +184,12 @@ export async function synthesizeAndEmit(
     emittedChunks = 1;
     await onChunk({ audio: result.audio, contentType: result.contentType });
   }
-  return { emittedChunks, contentType: result.contentType, stopped };
+  // Re-sampled for the same final semantics as the streaming path.
+  return {
+    emittedChunks,
+    contentType: result.contentType,
+    stopped: shouldStop(),
+  };
 }
 
 // ---------------------------------------------------------------------------
