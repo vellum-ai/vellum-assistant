@@ -1,6 +1,10 @@
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 
+import {
+  MediaTurnDetector,
+  type TurnDetectorConfig,
+} from "../calls/media-turn-detector.js";
 import type {
   VoiceTurnHandle,
   VoiceTurnOptions,
@@ -10,6 +14,7 @@ import {
   supportsBoundary,
 } from "../providers/speech-to-text/provider-catalog.js";
 import type { ResolveStreamingTranscriberOptions } from "../providers/speech-to-text/resolve.js";
+import { detectPcm16SpeechActivity } from "../stt/speech-energy.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -52,6 +57,9 @@ type LiveVoiceSessionState =
 const LIVE_VOICE_TTS_SEGMENT_CHAR_THRESHOLD = 180;
 const SENTENCE_ENDING_PUNCTUATION = new Set([".", "!", "?"]);
 const TRAILING_SENTENCE_PUNCTUATION = new Set(['"', "'", ")", "]"]);
+// Cap on audio buffered while a server-VAD utterance waits for its
+// transcriber (PCM16 mono seconds; oldest chunks are dropped past the cap).
+const SERVER_VAD_PENDING_AUDIO_MAX_SECONDS = 10;
 
 export type LiveVoiceStreamingTranscriberResolver = (
   options: ResolveStreamingTranscriberOptions,
@@ -91,6 +99,8 @@ export interface LiveVoiceSessionOptions {
   emitMetrics?: boolean;
   metricsClock?: LiveVoiceMetricsClock;
   createTurnId?: () => string;
+  /** Overrides the server-VAD turn detector thresholds (tests). */
+  turnDetectorConfig?: TurnDetectorConfig;
 }
 
 type LiveVoiceUtterancePhase =
@@ -106,8 +116,12 @@ interface UtteranceCycle {
   phase: LiveVoiceUtterancePhase;
   released: boolean;
   assistantTurnStarted: boolean;
+  // The whole cycle (turn included) finalized; the record can no longer
+  // accept audio and the session may re-arm over it.
+  completed: boolean;
   transcriber: StreamingTranscriber | null;
   pendingAudioChunks: Buffer[];
+  pendingAudioBytes: number;
   finalTranscriptSegments: string[];
   turnId: string | null;
   userMessageId: string | null;
@@ -130,6 +144,9 @@ interface ActiveAssistantTurn {
   handle: VoiceTurnHandle | null;
   assistantCompleted: boolean;
   ttsDone: boolean;
+  // First tts_audio chunk forwarded to the client — the barge-in gate:
+  // speech only cancels a turn that has audibly started speaking.
+  ttsAudioStarted: boolean;
   finalized: boolean;
   ttsBuffer: string;
   ttsQueue: Promise<void>;
@@ -154,6 +171,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private outboundFrames: Promise<void> = Promise.resolve();
   private activeAssistantTurn: ActiveAssistantTurn | null = null;
   private sessionEndMetricsEmitted = false;
+  // Non-null iff the start frame requested turnDetection "server_vad".
+  private readonly turnDetector: MediaTurnDetector | null;
+  private readonly maxPendingAudioBytes: number;
+  // Set on VAD speech onset; consumed when the first speech chunk is routed
+  // to an utterance so the metric lands on the right turn.
+  private vadSpeechStartPending = false;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -174,6 +197,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       conversationId: this.conversationId,
       ...(options.metricsClock ? { clock: options.metricsClock } : {}),
     });
+    this.turnDetector =
+      context.startFrame.turnDetection === "server_vad"
+        ? new MediaTurnDetector(options.turnDetectorConfig ?? {}, {
+            onTurnStart: () => this.handleVadSpeechStart(),
+            onTurnEnd: (reason) => this.handleVadUtteranceEnd(reason),
+          })
+        : null;
+    this.maxPendingAudioBytes =
+      context.startFrame.audio.sampleRate *
+      2 *
+      SERVER_VAD_PENDING_AUDIO_MAX_SECONDS;
   }
 
   get finalTranscriptText(): string {
@@ -208,7 +242,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         await this.handleAudio(Buffer.from(frame.dataBase64, "base64"));
         return;
       case "ptt_release":
-        await this.releaseUtterance();
+        await this.releaseFromClient();
         return;
       case "interrupt":
         await this.interrupt();
@@ -229,6 +263,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const shouldEmitSessionEndMetrics = this.state !== "failed";
     this.state = "closed";
+    this.turnDetector?.dispose();
     const utterance = this.currentUtterance;
     if (utterance) {
       stopTranscriberBestEffort(utterance.transcriber);
@@ -250,8 +285,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       phase: "pending",
       released: false,
       assistantTurnStarted: false,
+      completed: false,
       transcriber: null,
       pendingAudioChunks: [],
+      pendingAudioBytes: 0,
       finalTranscriptSegments: [],
       turnId: null,
       userMessageId: null,
@@ -329,6 +366,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private async rearmAfterTurn(): Promise<void> {
     if (this.isClosed || this.state === "failed") return;
 
+    const current = this.currentUtterance;
+    if (current && !current.completed) {
+      // server_vad armed the next utterance during the finished turn; it may
+      // already be released and waiting to start its own turn.
+      await this.startAssistantTurnIfReady();
+      return;
+    }
+    await this.armUtterance();
+  }
+
+  private async armUtterance(): Promise<void> {
     const result = await this.beginUtterance();
     if (result.status === "started" || result.status === "stale") return;
 
@@ -341,6 +389,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private async handleAudio(chunk: Buffer): Promise<void> {
+    if (this.turnDetector) {
+      await this.handleServerVadAudio(this.turnDetector, chunk);
+      return;
+    }
+
     const utterance = this.currentUtterance;
     if (!utterance || this.isClosed || this.state === "failed") return;
 
@@ -357,6 +410,71 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       return;
     }
     await this.forwardAudioToTranscriber(utterance, chunk);
+  }
+
+  // server_vad ingress: every chunk feeds the energy VAD (never an error
+  // frame — audio is accepted in every non-closed state). Chunks route to
+  // the current utterance; once that cycle is spent, speech lazily arms the
+  // next utterance so barge-in speech is captured from its onset.
+  private async handleServerVadAudio(
+    detector: MediaTurnDetector,
+    chunk: Buffer,
+  ): Promise<void> {
+    if (
+      this.isClosed ||
+      this.state === "failed" ||
+      this.state === "initializing"
+    ) {
+      return;
+    }
+
+    const hasSpeech = detectPcm16SpeechActivity(chunk);
+    detector.onMediaChunk(hasSpeech);
+
+    let utterance = this.currentUtterance;
+    if (!utterance) return;
+    if (utterance.released || utterance.completed) {
+      if (!hasSpeech || !this.canArmNextUtterance(utterance)) return;
+      // Sets currentUtterance synchronously; the transcriber resolves async
+      // while this chunk lands in the new utterance's pending buffer.
+      void this.armUtterance();
+      utterance = this.currentUtterance;
+      if (!utterance || utterance.released || utterance.completed) return;
+    }
+
+    this.collectUserAudio(utterance, chunk);
+    if (this.vadSpeechStartPending) {
+      this.vadSpeechStartPending = false;
+      this.markSpeechStart(utterance);
+    }
+    if (utterance.phase === "pending") {
+      this.bufferPendingUtteranceAudio(utterance, chunk);
+      return;
+    }
+    await this.forwardAudioToTranscriber(utterance, chunk);
+  }
+
+  // A released utterance's transcription pipeline still reads
+  // currentUtterance; replacing it is only safe once its assistant turn has
+  // started (or the cycle fully finalized). Speech in the short
+  // release→turn-start window is not captured.
+  private canArmNextUtterance(utterance: UtteranceCycle): boolean {
+    return utterance.completed || utterance.assistantTurnStarted;
+  }
+
+  private bufferPendingUtteranceAudio(
+    utterance: UtteranceCycle,
+    chunk: Buffer,
+  ): void {
+    utterance.pendingAudioChunks.push(Buffer.from(chunk));
+    utterance.pendingAudioBytes += chunk.byteLength;
+    while (
+      utterance.pendingAudioBytes > this.maxPendingAudioBytes &&
+      utterance.pendingAudioChunks.length > 1
+    ) {
+      const dropped = utterance.pendingAudioChunks.shift();
+      utterance.pendingAudioBytes -= dropped?.byteLength ?? 0;
+    }
   }
 
   private async forwardAudioToTranscriber(
@@ -385,9 +503,70 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance: UtteranceCycle,
   ): Promise<void> {
     const chunks = utterance.pendingAudioChunks.splice(0);
+    utterance.pendingAudioBytes = 0;
     for (const chunk of chunks) {
       await this.forwardAudioToTranscriber(utterance, chunk);
     }
+  }
+
+  // VAD speech onset. Contract: speech_started always goes out (the client
+  // flushes tail playback immediately); barge-in then cancels the active
+  // turn only once its first tts_audio chunk was forwarded — speech during
+  // a pre-TTS "thinking" turn never kills the unspoken reply.
+  private handleVadSpeechStart(): void {
+    if (this.isClosed || this.state === "failed") return;
+
+    void this.sendFrame({ type: "speech_started" });
+    this.vadSpeechStartPending = true;
+
+    const turn = this.activeAssistantTurn;
+    if (turn && !turn.finalized && turn.ttsAudioStarted) {
+      this.bargeIn(turn);
+    }
+  }
+
+  private bargeIn(turn: ActiveAssistantTurn): void {
+    // Abort synchronously so no tts_audio frame can follow turn_cancelled,
+    // and settle the cancelled turn's metrics so the next utterance's marks
+    // do not collide with it in the collector.
+    turn.abortController.abort();
+    this.metrics.markBargeIn(turn.turnId);
+    void (async () => {
+      await this.finishMetricsTurn(
+        turn.utterance,
+        "cancelled",
+        "barge_in",
+        turn.turnId,
+      );
+      await this.sendFrame({ type: "turn_cancelled", turnId: turn.turnId });
+      await this.cancelAssistantTurn("barge_in");
+    })().catch(() => {});
+  }
+
+  // VAD closed the utterance — the analog of ptt_release: emit
+  // utterance_end, then run the standard release path.
+  private handleVadUtteranceEnd(reason: "silence" | "max-duration"): void {
+    void (async () => {
+      if (this.isClosed || this.state === "failed") return;
+      this.vadSpeechStartPending = false;
+      const utterance = this.currentUtterance;
+      if (!utterance || utterance.released || utterance.completed) return;
+      await this.sendFrame({ type: "utterance_end", reason });
+      await this.releaseUtterance();
+    })().catch(() => {});
+  }
+
+  // In server_vad mode a client ptt_release still works as a manual
+  // override: force the detector's utterance boundary so the release runs
+  // the same utterance_end path; without an open detector turn, fall back
+  // to a plain release.
+  private async releaseFromClient(): Promise<void> {
+    if (this.turnDetector?.isActive) {
+      this.turnDetector.forceEnd();
+      await this.drainOutboundFrames();
+      return;
+    }
+    await this.releaseUtterance();
   }
 
   private async releaseUtterance(): Promise<void> {
@@ -396,7 +575,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     if (utterance.phase === "transcriber_closed") {
       utterance.released = true;
-      this.markPushToTalkReleased(utterance);
+      this.markUtteranceReleased(utterance);
       await this.startAssistantTurnIfReady();
       await this.drainOutboundFrames();
       return;
@@ -405,7 +584,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (utterance.released) return;
 
     utterance.released = true;
-    this.markPushToTalkReleased(utterance);
+    this.markUtteranceReleased(utterance);
 
     if (utterance.phase === "pending") {
       // The transcriber is still starting; beginUtterance completes the release.
@@ -493,6 +672,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (utterance) {
       stopTranscriberBestEffort(utterance.transcriber);
       utterance.transcriber = null;
+      // In server_vad mode the current utterance may be the lazily armed
+      // next cycle, distinct from the in-flight turn's — finalize it too so
+      // the post-turn re-arm can replace it.
+      const turn = this.activeAssistantTurn;
+      if (turn && turn.utterance !== utterance) {
+        await this.finalizePendingUtterance(utterance, "interrupt");
+      }
     }
     await this.cancelAssistantTurn("interrupt");
     await this.drainOutboundFrames();
@@ -509,6 +695,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     ) {
       return;
     }
+    // One assistant turn at a time: a server_vad utterance that closes while
+    // the previous turn is still speaking waits; rearmAfterTurn retries it.
+    if (this.activeAssistantTurn) return;
     if (utterance.phase !== "transcriber_closed") {
       return;
     }
@@ -535,6 +724,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       handle: null,
       assistantCompleted: false,
       ttsDone: false,
+      ttsAudioStarted: false,
       finalized: false,
       ttsBuffer: "",
       ttsQueue: Promise.resolve(),
@@ -803,6 +993,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               );
               activeTurn.assistantAudioMimeType = chunk.contentType;
               activeTurn.assistantAudioSampleRate = chunk.sampleRate;
+              activeTurn.ttsAudioStarted = true;
               this.metrics.markFirstTtsAudio(activeTurn.turnId);
               ttsAudioFrames = ttsAudioFrames.then(() =>
                 this.sendFrame(
@@ -835,25 +1026,37 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private collectUserAudio(utterance: UtteranceCycle, chunk: Buffer): void {
     const turnId = this.ensureTurnId(utterance);
     utterance.userAudioChunks.push(Buffer.from(chunk));
-    this.startMetricsTurnIfNeeded(utterance, turnId);
+    if (!this.startMetricsTurnIfNeeded(utterance, turnId)) return;
     this.metrics.markFirstAudio(turnId);
   }
 
-  private markPushToTalkReleased(utterance: UtteranceCycle): void {
+  private markSpeechStart(utterance: UtteranceCycle): void {
     const turnId = this.ensureTurnId(utterance);
-    this.startMetricsTurnIfNeeded(utterance, turnId);
-    this.metrics.markPushToTalkRelease(turnId);
+    if (!this.startMetricsTurnIfNeeded(utterance, turnId)) return;
+    this.metrics.markSpeechStart(turnId);
+  }
+
+  // Manual mode stamps the PTT release; server_vad stamps the utterance-end
+  // boundary instead (utteranceEndToFinalTranscript plays the sttMs role).
+  private markUtteranceReleased(utterance: UtteranceCycle): void {
+    const turnId = this.ensureTurnId(utterance);
+    if (!this.startMetricsTurnIfNeeded(utterance, turnId)) return;
+    if (this.turnDetector) {
+      this.metrics.markUtteranceEnd(turnId);
+    } else {
+      this.metrics.markPushToTalkRelease(turnId);
+    }
   }
 
   private markFirstPartial(utterance: UtteranceCycle): void {
     const turnId = this.ensureTurnId(utterance);
-    this.startMetricsTurnIfNeeded(utterance, turnId);
+    if (!this.startMetricsTurnIfNeeded(utterance, turnId)) return;
     this.metrics.markFirstPartial(turnId);
   }
 
   private markFinalTranscript(utterance: UtteranceCycle): void {
     const turnId = this.ensureTurnId(utterance);
-    this.startMetricsTurnIfNeeded(utterance, turnId);
+    if (!this.startMetricsTurnIfNeeded(utterance, turnId)) return;
     this.metrics.markFinalTranscript(turnId);
   }
 
@@ -861,7 +1064,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance: UtteranceCycle,
     turnId: string,
   ): void {
-    this.startMetricsTurnIfNeeded(utterance, turnId);
+    if (!this.startMetricsTurnIfNeeded(utterance, turnId)) return;
     this.metrics.markFirstAssistantDelta(turnId);
   }
 
@@ -872,19 +1075,37 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     return utterance.turnId;
   }
 
+  // Returns whether marks may be recorded for this utterance's metrics turn.
   private startMetricsTurnIfNeeded(
     utterance: UtteranceCycle,
     turnId: string,
-  ): void {
-    if (utterance.metricsTurnStarted || utterance.metricsTurnFinished) return;
+  ): boolean {
+    if (utterance.metricsTurnFinished) return false;
+    if (utterance.metricsTurnStarted) return true;
+    if (this.hasBlockingMetricsTurn(utterance)) return false;
     this.metrics.startTurn(turnId);
     utterance.metricsTurnStarted = true;
+    return true;
+  }
+
+  // The collector tracks one turn at a time; while the previous cycle's
+  // metrics turn is still open (server_vad overlap), the next utterance's
+  // marks wait rather than superseding the in-flight turn.
+  private hasBlockingMetricsTurn(utterance: UtteranceCycle): boolean {
+    const turn = this.activeAssistantTurn;
+    return (
+      turn !== null &&
+      turn.utterance !== utterance &&
+      turn.utterance.metricsTurnStarted &&
+      !turn.utterance.metricsTurnFinished
+    );
   }
 
   private async finalizePendingUtterance(
     utterance: UtteranceCycle,
     reason: string,
   ): Promise<void> {
+    utterance.completed = true;
     const turnId = utterance.turnId;
     if (!turnId) return;
 
@@ -908,6 +1129,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (turn.finalized) return;
 
     turn.finalized = true;
+    turn.utterance.completed = true;
     await this.archiveBufferedAudio({
       turnId: turn.turnId,
       userMessageId: turn.utterance.userMessageId,
