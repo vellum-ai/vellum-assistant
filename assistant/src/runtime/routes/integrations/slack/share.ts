@@ -36,6 +36,10 @@ const NormalizedChannelSchema = z.object({
   name: z.string(),
   type: z.enum(["channel", "group", "dm"]),
   isPrivate: z.boolean(),
+  isMember: z.boolean(),
+  memberCount: z.number().optional(),
+  topic: z.string().optional(),
+  imageUrl: z.string().optional(),
 });
 
 type NormalizedChannel = z.infer<typeof NormalizedChannelSchema>;
@@ -53,9 +57,15 @@ const SlackShareResultSchema = z.object({
 function classifyConversation(
   conv: SlackConversation,
 ): "channel" | "group" | "dm" {
-  if (conv.is_im) return "dm";
-  if (conv.is_mpim) return "group";
-  if (conv.is_group) return "group";
+  if (conv.is_im) {
+    return "dm";
+  }
+  if (conv.is_mpim) {
+    return "group";
+  }
+  if (conv.is_group) {
+    return "group";
+  }
   return "channel";
 }
 
@@ -65,11 +75,15 @@ const TYPE_SORT_ORDER: Record<string, number> = {
   dm: 2,
 };
 
-export async function handleListSlackChannels() {
+export async function handleListSlackChannels({
+  queryParams,
+}: RouteHandlerArgs = {}) {
   const token = await resolveSlackToken("read");
   if (!token) {
     throw new ServiceUnavailableError("No Slack token configured");
   }
+
+  const memberOnly = queryParams?.memberOnly === "true";
 
   const allChannels: SlackConversation[] = [];
   let cursor: string | undefined;
@@ -85,11 +99,15 @@ export async function handleListSlackChannels() {
     cursor = resp.response_metadata?.next_cursor || undefined;
   } while (cursor);
 
-  const dmUserIds = allChannels
+  const conversations = memberOnly
+    ? allChannels.filter((c) => c.is_member === true)
+    : allChannels;
+
+  const dmUserIds = conversations
     .filter((c) => c.is_im && c.user)
     .map((c) => c.user!);
   const uniqueUserIds = [...new Set(dmUserIds)];
-  const nameResults = await Promise.allSettled(
+  const userResults = await Promise.allSettled(
     uniqueUserIds.map((uid) =>
       userInfo(token, uid).then((r) => ({
         uid,
@@ -98,34 +116,55 @@ export async function handleListSlackChannels() {
           r.user.profile?.real_name ||
           r.user.real_name ||
           r.user.name,
+        imageUrl: r.user.profile?.image_48,
       })),
     ),
   );
-  const nameMap = new Map<string, string>();
-  for (const r of nameResults) {
+  const dmUserMap = new Map<string, { name: string; imageUrl?: string }>();
+  for (const r of userResults) {
     if (r.status === "fulfilled") {
-      nameMap.set(r.value.uid, r.value.name);
+      dmUserMap.set(r.value.uid, {
+        name: r.value.name,
+        imageUrl: r.value.imageUrl,
+      });
     }
   }
 
-  const channels: NormalizedChannel[] = allChannels.map((c) => {
+  const channels: NormalizedChannel[] = conversations.map((c) => {
     const type = classifyConversation(c);
     let name = c.name ?? c.id;
+    let imageUrl: string | undefined;
     if (type === "dm" && c.user) {
-      name = nameMap.get(c.user) ?? c.user;
+      const dmUser = dmUserMap.get(c.user);
+      name = dmUser?.name ?? c.user;
+      imageUrl = dmUser?.imageUrl;
     }
-    return {
+    const topic = c.topic?.value || c.purpose?.value || undefined;
+    const channel: NormalizedChannel = {
       id: c.id,
       name,
       type,
       isPrivate: c.is_private ?? c.is_group ?? false,
+      isMember: c.is_member ?? false,
     };
+    if (c.num_members !== undefined) {
+      channel.memberCount = c.num_members;
+    }
+    if (topic) {
+      channel.topic = topic;
+    }
+    if (imageUrl) {
+      channel.imageUrl = imageUrl;
+    }
+    return channel;
   });
 
   channels.sort((a, b) => {
     const typeOrder =
       (TYPE_SORT_ORDER[a.type] ?? 9) - (TYPE_SORT_ORDER[b.type] ?? 9);
-    if (typeOrder !== 0) return typeOrder;
+    if (typeOrder !== 0) {
+      return typeOrder;
+    }
     return a.name.localeCompare(b.name);
   });
 
@@ -219,8 +258,16 @@ export const ROUTES: RouteDefinition[] = [
     summary: "List Slack channels",
     description: "List Slack channels, groups, and DMs for the channel picker.",
     tags: ["integrations"],
+    queryParams: [
+      {
+        name: "memberOnly",
+        schema: { type: "string", enum: ["true", "false"] },
+        description:
+          "When 'true', only return conversations the connected identity is a member of",
+      },
+    ],
     responseBody: SlackChannelsListResultSchema,
-    handler: () => handleListSlackChannels(),
+    handler: handleListSlackChannels,
   },
   {
     operationId: "slack_share_post",

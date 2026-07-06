@@ -27307,6 +27307,16 @@ paths:
       description: List Slack channels, groups, and DMs for the channel picker.
       tags:
         - integrations
+      parameters:
+        - name: memberOnly
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - "true"
+              - "false"
+          description: When 'true', only return conversations the connected identity is a member of
       responses:
         "200":
           description: Successful response
@@ -27332,11 +27342,20 @@ paths:
                             - dm
                         isPrivate:
                           type: boolean
+                        isMember:
+                          type: boolean
+                        memberCount:
+                          type: number
+                        topic:
+                          type: string
+                        imageUrl:
+                          type: string
                       required:
                         - id
                         - name
                         - type
                         - isPrivate
+                        - isMember
                       additionalProperties: false
                 required:
                   - channels
