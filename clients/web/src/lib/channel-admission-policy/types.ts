@@ -52,12 +52,18 @@ export const POLICY_LABELS: Record<AdmissionPolicy, string> = {
   strangers: "Strangers",
 };
 
-export const POLICY_DESCRIPTIONS: Record<AdmissionPolicy, string> = {
-  no_one: "Hard-deny every inbound message on this channel.",
-  guardian_only: "Only messages sent by you are admitted.",
-  trusted_contacts:
-    "Admit verified contacts and the guardian; deny everyone else.",
-  any_contact:
-    "Admit any matched contact (verified or pending) and the guardian.",
-  strangers: "Admit everyone, including unrecognised senders.",
-};
+/**
+ * Plain-English description of each admission policy, phrased around the
+ * assistant's display name (e.g. "Vex" or "your assistant").
+ */
+export function getPolicyDescriptions(
+  assistantDisplayName: string,
+): Record<AdmissionPolicy, string> {
+  return {
+    no_one: `No one can message ${assistantDisplayName} on this channel — every message is blocked, including yours.`,
+    guardian_only: `Only you can message ${assistantDisplayName}. Everyone else is ignored.`,
+    trusted_contacts: `You and the people you’ve verified can message ${assistantDisplayName}. Everyone else is ignored.`,
+    any_contact: `You and any known contact can message ${assistantDisplayName}, including contacts you haven’t verified yet. Strangers are ignored.`,
+    strangers: `Anyone can message ${assistantDisplayName}, including complete strangers.`,
+  };
+}

@@ -5,6 +5,7 @@ import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
+import { Notice } from "@vellumai/design-library/components/notice";
 import { Typography } from "@vellumai/design-library/components/typography";
 
 import { DetailCard } from "@/components/detail-card";
@@ -16,7 +17,7 @@ import type { AssistantChannelState } from "@/domains/contacts/types";
 import {
   ADMISSION_POLICY_DEFAULT,
   ADMISSION_POLICY_VALUES,
-  POLICY_DESCRIPTIONS,
+  getPolicyDescriptions,
   POLICY_LABELS,
   type AdmissionPolicy,
 } from "@/lib/channel-admission-policy/types";
@@ -24,12 +25,6 @@ import {
 export type { SlackThreadMode } from "@/components/slack-setup-wizard";
 
 type ChannelKey = AssistantChannelState["key"];
-
-const TRUST_FLOOR_OPTIONS = ADMISSION_POLICY_VALUES.map((value) => ({
-  value,
-  label: POLICY_LABELS[value],
-  tooltip: POLICY_DESCRIPTIONS[value],
-}));
 
 /**
  * Floors that loosen or hard-deny who can reach the assistant and warrant an
@@ -203,6 +198,7 @@ export function AssistantChannelsDetail({
               <ChannelRow
                 channel={channel}
                 assistantName={assistantName}
+                assistantDisplayName={displayName}
                 pending={pendingChannelKey === channel.key}
                 expanded={expandedChannels.has(channel.key)}
                 onToggleExpand={() => toggleExpanded(channel.key)}
@@ -288,6 +284,8 @@ export function AssistantChannelsDetail({
 interface ChannelRowProps {
   channel: AssistantChannelState;
   assistantName: string;
+  /** Trimmed assistant name with a "your assistant" fallback, for copy. */
+  assistantDisplayName: string;
   pending: boolean;
   expanded: boolean;
   onToggleExpand: () => void;
@@ -311,6 +309,7 @@ interface ChannelRowProps {
 function ChannelRow({
   channel,
   assistantName,
+  assistantDisplayName,
   pending,
   expanded,
   onToggleExpand,
@@ -400,6 +399,7 @@ function ChannelRow({
         <div className={connected ? "flex flex-col gap-4" : undefined}>
           {connected && onPolicyChange ? (
             <ChannelTrustFloorSection
+              assistantDisplayName={assistantDisplayName}
               policy={policy}
               saving={policySaving}
               loading={policyLoading}
@@ -441,6 +441,7 @@ function ChannelRow({
 // ---------------------------------------------------------------------------
 
 interface ChannelTrustFloorSectionProps {
+  assistantDisplayName: string;
   policy?: AdmissionPolicy;
   saving?: boolean;
   loading?: boolean;
@@ -449,6 +450,7 @@ interface ChannelTrustFloorSectionProps {
 }
 
 function ChannelTrustFloorSection({
+  assistantDisplayName,
   policy,
   saving = false,
   loading = false,
@@ -456,6 +458,12 @@ function ChannelTrustFloorSection({
   onChange,
 }: ChannelTrustFloorSectionProps) {
   const value = policy ?? ADMISSION_POLICY_DEFAULT;
+  const descriptions = getPolicyDescriptions(assistantDisplayName);
+  const options = ADMISSION_POLICY_VALUES.map((floor) => ({
+    value: floor,
+    label: POLICY_LABELS[floor],
+    tooltip: descriptions[floor],
+  }));
 
   return (
     <div className="flex flex-col gap-2 pl-7">
@@ -464,7 +472,7 @@ function ChannelTrustFloorSection({
         variant="body-small-emphasised"
         className="text-[color:var(--content-secondary)]"
       >
-        Who Can Reach
+        Who can message {assistantDisplayName}
       </Typography>
       {loading ? (
         // Hold off on rendering a concrete floor until the GET succeeds — the
@@ -491,9 +499,9 @@ function ChannelTrustFloorSection({
             <Dropdown<AdmissionPolicy>
               value={value}
               onChange={onChange}
-              options={TRUST_FLOOR_OPTIONS}
+              options={options}
               disabled={saving}
-              aria-label="Channel trust floor"
+              aria-label={`Who can message ${assistantDisplayName}`}
             />
           </div>
           <Typography
@@ -501,8 +509,15 @@ function ChannelTrustFloorSection({
             variant="body-small-default"
             className="text-[color:var(--content-tertiary)]"
           >
-            {POLICY_DESCRIPTIONS[value]}
+            {descriptions[value]}
           </Typography>
+          {value === "trusted_contacts" ? (
+            <Notice tone="info" className="max-w-lg">
+              People you haven’t verified yet are silently blocked — even
+              teammates in the same channel. Verify them in Contacts to let
+              them message {assistantDisplayName}.
+            </Notice>
+          ) : null}
         </>
       )}
     </div>
