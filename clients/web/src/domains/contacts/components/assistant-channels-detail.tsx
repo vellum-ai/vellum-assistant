@@ -513,9 +513,10 @@ function ChannelTrustFloorSection({
           </Typography>
           {value === "trusted_contacts" ? (
             <Notice tone="info" className="max-w-lg">
-              People you haven’t verified yet are silently blocked — even
-              teammates in the same channel. Verify them in Contacts to let
-              them message {assistantDisplayName}.
+              People you haven’t verified yet — even teammates in the same
+              channel — can’t get through: {assistantDisplayName} lets them
+              know they need to be verified and notifies you. You can verify
+              people ahead of time in Contacts.
             </Notice>
           ) : null}
         </>
