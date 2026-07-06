@@ -1,36 +1,65 @@
+/**
+ * Composition root for a full-duplex `/v1/live-voice` session.
+ *
+ * The session wires three collaborators together and owns nothing about
+ * turn-taking itself:
+ *
+ * - {@link LiveVoiceIngest} — inbound PCM16 audio: energy VAD, turn
+ *   segmentation, and streaming/batch STT. The client mic streams
+ *   continuously; audio is accepted in every non-closed state.
+ * - `CallController` (via the in-app `VoiceControllerProfile`) — turn
+ *   state (`idle|processing|speaking`), barge-in gating, control markers
+ *   (`[END_CALL]`), and the conversation pipeline via the voice bridge.
+ * - {@link LiveVoiceCallTransport} — the controller's token stream,
+ *   segmented streaming TTS, and `tts_audio`/`tts_done` frame emission.
+ *
+ * The session itself owns the socket-facing concerns: outbound frame
+ * serialization (one promise chain feeding the manager's sequencer),
+ * per-turn audio archiving, per-turn latency metrics, and the mapping
+ * from ingest/controller events to protocol frames.
+ *
+ * Assistant text deltas are tapped at the transport token input (the
+ * controller-facing transport wrapper below) rather than via bridge
+ * callbacks: by that point the controller has already stripped control
+ * markers and sanitized the text, so the `assistant_text_delta` frames
+ * match exactly what is synthesized for TTS.
+ */
+
 import { Buffer } from "node:buffer";
 import { randomUUID } from "node:crypto";
 
+import type { CallTransport } from "../calls/call-transport.js";
 import type {
-  VoiceTurnHandle,
-  VoiceTurnOptions,
-} from "../calls/voice-session-bridge.js";
-import {
-  listProviderIds,
-  supportsBoundary,
-} from "../providers/speech-to-text/provider-catalog.js";
-import type { ResolveStreamingTranscriberOptions } from "../providers/speech-to-text/resolve.js";
-import type {
-  StreamingTranscriber,
-  SttStreamServerEvent,
-} from "../stt/types.js";
+  VoiceSessionSnapshot,
+  VoiceSessionSource,
+} from "../calls/voice-session-source.js";
+import { getConfig } from "../config/loader.js";
 import type {
   LiveVoiceAudioArchiveResult,
   LiveVoiceAudioArchiveRole,
 } from "./live-voice-archive.js";
+import type { LiveVoiceCredentialReadiness } from "./live-voice-credential-preflight.js";
+import {
+  LiveVoiceIngest,
+  type LiveVoiceIngestCallbacks,
+  type LiveVoiceIngestConfig,
+} from "./live-voice-ingest.js";
 import {
   getLiveVoiceMetricsAggregateFields,
   type LiveVoiceMetricsClock,
   LiveVoiceMetricsCollector,
   type LiveVoiceMetricsEvent,
 } from "./live-voice-metrics.js";
-import { extractSpeakableSegments } from "./live-voice-segments.js";
 import {
   type LiveVoiceSession as LiveVoiceSessionContract,
   type LiveVoiceSessionCloseReason,
   type LiveVoiceSessionFactoryContext,
   LiveVoiceSessionStartupError,
 } from "./live-voice-session-manager.js";
+import {
+  LiveVoiceCallTransport,
+  type LiveVoiceCallTransportDeps,
+} from "./live-voice-transport.js";
 import type {
   LiveVoiceTtsOptions,
   LiveVoiceTtsResult,
@@ -39,28 +68,67 @@ import {
   type LiveVoiceClientFrame,
   LiveVoiceProtocolErrorCode,
   type LiveVoiceServerFramePayload,
+  type LiveVoiceSessionMode,
 } from "./protocol.js";
 
-type LiveVoiceSessionState =
-  | "initializing"
-  | "active"
-  | "utterance_released"
-  | "transcriber_closed"
-  | "interrupted"
-  | "failed"
-  | "closed";
-
-export type LiveVoiceStreamingTranscriberResolver = (
-  options: ResolveStreamingTranscriberOptions,
-) => Promise<StreamingTranscriber | null>;
-
-export type LiveVoiceTurnStarter = (
-  options: VoiceTurnOptions,
-) => Promise<VoiceTurnHandle>;
+// ---------------------------------------------------------------------------
+// Injectable collaborator surface
+// ---------------------------------------------------------------------------
 
 export type LiveVoiceTtsStreamer = (
   options: LiveVoiceTtsOptions,
 ) => Promise<LiveVoiceTtsResult>;
+
+/** Ingest surface the session drives (production: {@link LiveVoiceIngest}). */
+export interface LiveVoiceSessionIngest {
+  start(): void;
+  pushAudio(chunk: Buffer): void;
+  forceTurnEnd(): void;
+  stop(): void;
+  dispose(): void;
+}
+
+export type LiveVoiceIngestFactory = (
+  config: LiveVoiceIngestConfig,
+  callbacks: LiveVoiceIngestCallbacks,
+) => LiveVoiceSessionIngest;
+
+/**
+ * Transport surface the session drives. Extends the controller-facing
+ * `CallTransport` with the per-turn assistant-audio drain used for
+ * archiving (production: {@link LiveVoiceCallTransport}).
+ */
+export interface LiveVoiceSessionTransport extends CallTransport {
+  collectAssistantAudio(): Buffer[];
+}
+
+export type LiveVoiceTransportFactory = (
+  deps: LiveVoiceCallTransportDeps,
+) => LiveVoiceSessionTransport;
+
+/** Controller surface the session drives (production: `CallController`). */
+export interface LiveVoiceSessionController {
+  handleCallerUtterance(transcript: string): Promise<void>;
+  handleBargeIn(onAccepted?: () => void): boolean;
+  getState(): "idle" | "processing" | "speaking";
+  destroy(): void;
+}
+
+export interface LiveVoiceSessionControllerOptions {
+  /** The live-voice session id, used as the controller's callSessionId. */
+  callSessionId: string;
+  /** Controller-facing transport (the session's delta-tapping wrapper). */
+  transport: CallTransport;
+  /** In-app session source (no call_sessions row backs these sessions). */
+  sessionSource: VoiceSessionSource;
+}
+
+export type LiveVoiceControllerFactory = (
+  options: LiveVoiceSessionControllerOptions,
+) => LiveVoiceSessionController | Promise<LiveVoiceSessionController>;
+
+export type LiveVoiceCredentialPreflight =
+  () => Promise<LiveVoiceCredentialReadiness>;
 
 export interface LiveVoiceSessionArchiveAudioInput {
   messageId?: string | null;
@@ -81,55 +149,65 @@ export type LiveVoiceSessionAudioArchiver = (
 ) => LiveVoiceAudioArchiveResult | Promise<LiveVoiceAudioArchiveResult>;
 
 export interface LiveVoiceSessionOptions {
-  resolveTranscriber?: LiveVoiceStreamingTranscriberResolver;
-  startVoiceTurn?: LiveVoiceTurnStarter;
-  streamTtsAudio?: LiveVoiceTtsStreamer | null;
+  createIngest?: LiveVoiceIngestFactory;
+  createTransport?: LiveVoiceTransportFactory;
+  createController?: LiveVoiceControllerFactory;
+  credentialPreflight?: LiveVoiceCredentialPreflight;
   archiveAudio?: LiveVoiceSessionAudioArchiver | null;
   emitMetrics?: boolean;
   metricsClock?: LiveVoiceMetricsClock;
   createTurnId?: () => string;
 }
 
-interface ActiveAssistantTurn {
-  token: symbol;
+// ---------------------------------------------------------------------------
+// Session
+// ---------------------------------------------------------------------------
+
+type LiveVoiceSessionState = "open" | "closing" | "closed";
+
+/**
+ * One user-utterance → assistant-reply exchange. Created lazily when user
+ * audio (or a transcript) arrives, flipped to `responding` when the final
+ * transcript is dispatched to the controller, and finalized exactly once
+ * (archive + metrics) on `tts_done`, barge-in, supersession, or close.
+ */
+interface SessionTurn {
   turnId: string;
-  abortController: AbortController;
-  handle: VoiceTurnHandle | null;
-  assistantCompleted: boolean;
-  ttsDone: boolean;
-  finalized: boolean;
-  ttsBuffer: string;
-  ttsQueue: Promise<void>;
-  userMessageId: string | null;
-  assistantMessageId: string | null;
+  phase: "listening" | "responding";
   userAudioChunks: Buffer[];
-  assistantAudioChunks: Buffer[];
+  /** Running byte total of {@link userAudioChunks}, for the capture cap. */
+  userAudioBytes: number;
   assistantAudioMimeType: string;
   assistantAudioSampleRate?: number;
+  finalized: boolean;
 }
 
 export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly context: LiveVoiceSessionFactoryContext;
-  private readonly resolveTranscriber: LiveVoiceStreamingTranscriberResolver;
-  private readonly startVoiceTurn: LiveVoiceTurnStarter | null;
-  private readonly streamTtsAudio: LiveVoiceTtsStreamer | null;
+  private readonly createIngest: LiveVoiceIngestFactory;
+  private readonly createTransport: LiveVoiceTransportFactory;
+  private readonly createController: LiveVoiceControllerFactory;
+  private readonly credentialPreflight: LiveVoiceCredentialPreflight;
   private readonly archiveAudio: LiveVoiceSessionAudioArchiver | null;
   private readonly emitMetrics: boolean;
   private readonly metrics: LiveVoiceMetricsCollector;
   private readonly createTurnId: () => string;
   private readonly conversationId: string;
-  private state: LiveVoiceSessionState = "initializing";
-  private transcriber: StreamingTranscriber | null = null;
-  private readonly finalTranscriptSegments: string[] = [];
+
+  private state: LiveVoiceSessionState = "open";
+  private started = false;
+  private ingest: LiveVoiceSessionIngest | null = null;
+  private transport: LiveVoiceSessionTransport | null = null;
+  private controller: LiveVoiceSessionController | null = null;
+  private currentTurn: SessionTurn | null = null;
+  /**
+   * Per-turn user-audio capture cap in bytes (one VAD max-turn worth of
+   * PCM), so an idle open-mic stream cannot grow a turn buffer unbounded.
+   */
+  private userAudioByteCap = Number.POSITIVE_INFINITY;
+  /** Id of the most recent turn that reached the assistant phase. */
+  private lastAssistantTurnId: string | null = null;
   private outboundFrames: Promise<void> = Promise.resolve();
-  private pttReleased = false;
-  private assistantTurnStarted = false;
-  private activeAssistantTurn: ActiveAssistantTurn | null = null;
-  private currentTurnId: string | null = null;
-  private currentUserMessageId: string | null = null;
-  private currentUserAudioChunks: Buffer[] = [];
-  private metricsTurnStarted = false;
-  private metricsTurnFinished = false;
   private sessionEndMetricsEmitted = false;
 
   constructor(
@@ -137,12 +215,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     options: LiveVoiceSessionOptions = {},
   ) {
     this.context = context;
-    this.resolveTranscriber =
-      options.resolveTranscriber ?? defaultResolveStreamingTranscriber;
-    this.startVoiceTurn = options.startVoiceTurn ?? null;
-    this.streamTtsAudio = options.streamTtsAudio ?? null;
-    this.archiveAudio = options.archiveAudio ?? null;
-    this.emitMetrics = options.emitMetrics ?? false;
+    this.createIngest = options.createIngest ?? defaultCreateIngest;
+    this.createTransport = options.createTransport ?? defaultCreateTransport;
+    this.createController = options.createController ?? defaultCreateController;
+    this.credentialPreflight =
+      options.credentialPreflight ?? defaultCredentialPreflight;
+    this.archiveAudio =
+      options.archiveAudio === undefined
+        ? defaultArchiveLiveVoiceAudio
+        : options.archiveAudio;
+    this.emitMetrics = options.emitMetrics ?? true;
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
       context.startFrame.conversationId ?? context.sessionId;
@@ -153,72 +235,114 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     });
   }
 
-  get finalTranscriptText(): string {
-    return this.finalTranscriptSegments.join(" ");
-  }
-
   async start(): Promise<void> {
-    if (this.state !== "initializing") return;
+    if (this.state !== "open" || this.started) {
+      return;
+    }
+    this.started = true;
+
+    let readiness: LiveVoiceCredentialReadiness;
+    try {
+      readiness = await this.credentialPreflight();
+    } catch (err) {
+      await this.failStartup(
+        `Live voice could not verify provider credentials: ${errorMessage(err)}`,
+        LiveVoiceProtocolErrorCode.CredentialsMissing,
+      );
+      return;
+    }
+    if (this.state !== "open") {
+      return;
+    }
+    if (readiness.status === "not-ready") {
+      await this.failStartup(
+        readiness.userMessage,
+        LiveVoiceProtocolErrorCode.CredentialsMissing,
+      );
+      return;
+    }
 
     try {
-      const transcriber = await this.resolveTranscriber({
-        sampleRate: this.context.startFrame.audio.sampleRate,
-      });
+      const liveVoiceConfig = getConfig().liveVoice;
+      const mode: LiveVoiceSessionMode =
+        this.context.startFrame.mode ?? liveVoiceConfig.mode;
+      const { sampleRate } = this.context.startFrame.audio;
+      this.userAudioByteCap =
+        sampleRate * 2 * (liveVoiceConfig.vad.maxTurnDurationMs / 1000);
 
-      if (this.isClosed) {
-        stopTranscriberBestEffort(transcriber);
+      const transport = this.createTransport({
+        sendFrame: (payload) => this.sendTransportFrame(payload),
+        streamTtsAudio: defaultStreamLiveVoiceTtsAudio,
+        sampleRate,
+        turnId: () =>
+          this.currentTurn?.turnId ??
+          this.lastAssistantTurnId ??
+          this.context.sessionId,
+        onSessionEnd: () => this.handleControllerSessionEnd(),
+      });
+      this.transport = transport;
+
+      this.controller = await this.createController({
+        callSessionId: this.context.sessionId,
+        transport: this.wrapTransportForController(transport),
+        sessionSource: this.createSessionSource(),
+      });
+      if (this.state !== "open") {
+        this.controller.destroy();
+        this.controller = null;
         return;
       }
 
-      if (!transcriber) {
-        return await this.failStartup(unavailableTranscriberMessage());
-      }
-
-      this.transcriber = transcriber;
-      await transcriber.start((event) => {
-        void this.handleTranscriberEvent(event);
-      });
-
-      if (this.isClosed) {
-        stopTranscriberBestEffort(transcriber);
-        this.transcriber = null;
-        return;
-      }
-
-      this.state = "active";
-      this.metrics.markReady();
-      await this.sendFrame({
-        type: "ready",
-        sessionId: this.context.sessionId,
-        conversationId: this.conversationId,
-      });
-    } catch (err) {
-      if (err instanceof LiveVoiceSessionStartupError) {
-        throw err;
-      }
-
-      stopTranscriberBestEffort(this.transcriber);
-      this.transcriber = null;
-      if (this.isClosed) return;
-
-      await this.failStartup(
-        `Live voice transcription could not be started: ${errorMessage(err)}`,
+      this.ingest = this.createIngest(
+        {
+          sampleRate,
+          mode,
+          vad: liveVoiceConfig.vad,
+        },
+        this.createIngestCallbacks(),
       );
+      this.ingest.start();
+    } catch (err) {
+      this.teardownCollaborators();
+      await this.failStartup(
+        `Live voice session could not be started: ${errorMessage(err)}`,
+        LiveVoiceProtocolErrorCode.InvalidField,
+      );
+      return;
     }
+
+    this.metrics.markReady();
+    await this.sendFrame({
+      type: "ready",
+      sessionId: this.context.sessionId,
+      conversationId: this.conversationId,
+    });
   }
 
   async handleClientFrame(frame: LiveVoiceClientFrame): Promise<void> {
-    if (this.state === "closed" || this.state === "failed") return;
+    if (this.state !== "open") {
+      return;
+    }
 
     switch (frame.type) {
       case "audio":
-        await this.handleAudio(Buffer.from(frame.dataBase64, "base64"));
+        this.handleAudio(Buffer.from(frame.dataBase64, "base64"));
+        await this.drainOutboundFrames();
         return;
       case "ptt_release":
-        await this.releaseUtterance();
+        // Manual end-of-turn: authoritative in PTT, a hint in open-mic.
+        // No-ops in the ingest when the VAD never saw speech.
+        if (this.currentTurn?.phase === "listening") {
+          this.metrics.markPushToTalkRelease(this.currentTurn.turnId);
+        }
+        this.ingest?.forceTurnEnd();
+        await this.drainOutboundFrames();
         return;
       case "interrupt":
-        await this.interrupt();
+        // Manual barge-in override: same path as server-VAD speech onset.
+        // Ignored unless the assistant is actually speaking.
+        this.tryBargeIn();
+        await this.drainOutboundFrames();
         return;
       case "end":
         return;
@@ -228,554 +352,345 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   async handleBinaryAudio(chunk: Uint8Array): Promise<void> {
-    await this.handleAudio(Buffer.from(chunk));
+    if (this.state !== "open") {
+      return;
+    }
+    this.handleAudio(Buffer.from(chunk));
+    await this.drainOutboundFrames();
   }
 
   async close(_reason: LiveVoiceSessionCloseReason): Promise<void> {
-    if (this.isClosed) return;
+    if (this.state !== "open") {
+      return;
+    }
+    this.state = "closing";
 
-    const shouldEmitSessionEndMetrics = this.state !== "failed";
+    this.teardownCollaborators();
+
+    const turn = this.currentTurn;
+    if (turn) {
+      await this.finalizeTurn(turn, "cancelled", "session_closed");
+    }
+    await this.emitSessionEndMetrics();
     this.state = "closed";
-    stopTranscriberBestEffort(this.transcriber);
-    this.transcriber = null;
-    await this.cancelAssistantTurn("session_closed");
-    if (shouldEmitSessionEndMetrics) {
-      await this.emitSessionEndMetrics();
-    }
     await this.drainOutboundFrames();
   }
 
-  private async handleAudio(chunk: Buffer): Promise<void> {
-    if (
-      this.state === "utterance_released" ||
-      this.state === "transcriber_closed"
+  // ── Inbound audio ────────────────────────────────────────────────────
+
+  private handleAudio(chunk: Buffer): void {
+    const ingest = this.ingest;
+    if (!ingest) {
+      return;
+    }
+
+    // Push before capturing: a speech onset detected inside pushAudio can
+    // finalize the current (assistant) turn via barge-in, so the onset
+    // chunk itself is captured into the *new* turn below.
+    ingest.pushAudio(chunk);
+
+    if (this.state !== "open") {
+      return;
+    }
+    let turn = this.currentTurn;
+    if (turn?.phase === "responding") {
+      // Assistant is replying — the audio feeds the VAD (barge-in
+      // detection) only. Capture resumes when barge-in or tts_done
+      // opens the next turn.
+      return;
+    }
+    turn ??= this.beginTurn();
+    turn.userAudioChunks.push(chunk);
+    turn.userAudioBytes += chunk.byteLength;
+    while (
+      turn.userAudioBytes > this.userAudioByteCap &&
+      turn.userAudioChunks.length > 1
     ) {
-      await this.sendAudioAfterReleaseError();
-      return;
+      turn.userAudioBytes -= turn.userAudioChunks.shift()?.byteLength ?? 0;
     }
-
-    if (this.state !== "active") return;
-
-    this.collectUserAudio(chunk);
-    try {
-      this.transcriber?.sendAudio(
-        chunk,
-        this.context.startFrame.audio.mimeType,
-      );
-      await this.drainOutboundFrames();
-    } catch (err) {
-      await this.sendFrame({
-        type: "error",
-        code: LiveVoiceProtocolErrorCode.InvalidAudioPayload,
-        message: `Live voice audio could not be sent to transcription: ${errorMessage(
-          err,
-        )}`,
-      });
-      await this.finalizePendingTurn("audio_error");
+    if (turn.userAudioChunks.length === 1) {
+      this.metrics.markFirstAudio(turn.turnId);
     }
   }
 
-  private async releaseUtterance(): Promise<void> {
-    if (this.state === "utterance_released") {
-      return;
-    }
+  // ── Ingest events ────────────────────────────────────────────────────
 
-    if (this.state === "transcriber_closed") {
-      this.pttReleased = true;
-      this.markPushToTalkReleased();
-      await this.startAssistantTurnIfReady();
-      await this.drainOutboundFrames();
-      return;
-    }
-
-    if (this.state !== "active") return;
-
-    this.pttReleased = true;
-    this.markPushToTalkReleased();
-    this.state = "utterance_released";
-    try {
-      this.transcriber?.stop();
-    } catch (err) {
-      await this.sendFrame({
-        type: "error",
-        code: LiveVoiceProtocolErrorCode.InvalidField,
-        message: `Live voice transcription could not be stopped: ${errorMessage(
-          err,
-        )}`,
-      });
-      this.state = "transcriber_closed";
-    }
-    await this.startAssistantTurnIfReady();
-    await this.drainOutboundFrames();
-  }
-
-  private async handleTranscriberEvent(
-    event: SttStreamServerEvent,
-  ): Promise<void> {
-    if (
-      this.isClosed ||
-      this.state === "failed" ||
-      this.state === "interrupted"
-    ) {
-      return;
-    }
-
-    switch (event.type) {
-      case "partial":
-        this.markFirstPartial();
-        await this.sendFrame({ type: "stt_partial", text: event.text });
-        return;
-      case "final": {
-        const transcript = event.text.trim();
-        if (transcript.length > 0) {
-          this.finalTranscriptSegments.push(transcript);
-        }
-        this.markFinalTranscript();
-        await this.sendFrame({ type: "stt_final", text: event.text });
-        await this.startAssistantTurnIfReady();
-        return;
-      }
-      case "error":
-        // Non-terminal: providers like OpenAI Whisper emit `error` for
-        // transient poll failures and continue streaming. Let `closed` /
-        // `final` drive turn lifecycle so we don't drain audio buffers or
-        // mark the turn cancelled prematurely.
-        await this.sendFrame({
-          type: "error",
-          code: LiveVoiceProtocolErrorCode.InvalidField,
-          message: event.message,
-        });
-        return;
-      case "closed":
-        if (!this.isClosed) {
-          this.state = "transcriber_closed";
-          this.transcriber = null;
-          await this.startAssistantTurnIfReady();
-        }
-        return;
-    }
-  }
-
-  private async interrupt(): Promise<void> {
-    if (this.isClosed || this.state === "failed") return;
-
-    this.state = "interrupted";
-    stopTranscriberBestEffort(this.transcriber);
-    this.transcriber = null;
-    await this.cancelAssistantTurn("interrupt");
-    await this.drainOutboundFrames();
-  }
-
-  private async startAssistantTurnIfReady(): Promise<void> {
-    if (
-      !this.pttReleased ||
-      this.assistantTurnStarted ||
-      this.isClosed ||
-      this.state === "failed"
-    ) {
-      return;
-    }
-    if (this.state !== "transcriber_closed") {
-      return;
-    }
-    if (!this.startVoiceTurn) return;
-
-    const content = this.finalTranscriptText.trim();
-    if (content.length === 0) {
-      await this.finalizePendingTurn("empty_transcript");
-      return;
-    }
-
-    this.assistantTurnStarted = true;
-    const token = Symbol("live-voice-assistant-turn");
-    const turnId = this.ensureTurnId();
-    this.startMetricsTurnIfNeeded(turnId);
-    const abortController = new AbortController();
-    this.activeAssistantTurn = {
-      token,
-      turnId,
-      abortController,
-      handle: null,
-      assistantCompleted: false,
-      ttsDone: false,
-      finalized: false,
-      ttsBuffer: "",
-      ttsQueue: Promise.resolve(),
-      userMessageId: this.currentUserMessageId,
-      assistantMessageId: null,
-      userAudioChunks: this.currentUserAudioChunks,
-      assistantAudioChunks: [],
-      assistantAudioMimeType: "audio/pcm",
-    };
-
-    await this.sendFrame({ type: "thinking", turnId });
-    if (!this.isActiveAssistantTurn(token)) return;
-
-    try {
-      const handle = await this.startVoiceTurn({
-        conversationId: this.conversationId,
-        voiceSessionId: this.context.sessionId,
-        userMessageChannel: "vellum",
-        assistantMessageChannel: "vellum",
-        userMessageInterface: "macos",
-        assistantMessageInterface: "macos",
-        voiceControlPrompt:
-          "You are speaking in a local live voice session. Keep replies brief and conversational.",
-        approvalMode: "local-live-voice",
-        content,
-        isInbound: true,
-        signal: abortController.signal,
-        callbacks: {
-          assistant_text_delta: (msg) => {
-            if (!this.isForwardingAssistantText(token)) return;
-            this.markFirstAssistantDelta(turnId);
-            void this.sendFrame({
-              type: "assistant_text_delta",
-              text: msg.text,
-            });
-            this.bufferAssistantTextForTts(token, msg.text);
-          },
-          message_complete: (msg) => {
-            const activeTurn = this.activeAssistantTurn;
-            if (
-              activeTurn?.token !== token ||
-              activeTurn.assistantCompleted ||
-              this.isClosed
-            ) {
-              return;
-            }
-            activeTurn.assistantCompleted = true;
-            if (msg.type === "generation_cancelled") {
-              void this.finalizeAssistantTurn(
-                activeTurn,
-                "cancelled",
-                "generation_cancelled",
-              );
-              return;
-            }
-            activeTurn.assistantMessageId = msg.messageId ?? null;
-            this.completeTtsForTurn(token);
-          },
-          persisted_user_message_id: (messageId) => {
-            const activeTurn = this.activeAssistantTurn;
-            if (activeTurn?.token !== token) return;
-            activeTurn.userMessageId = messageId;
-            this.currentUserMessageId = messageId;
-          },
-          persisted_assistant_message_id: (messageId) => {
-            const activeTurn = this.activeAssistantTurn;
-            if (activeTurn?.token !== token) return;
-            activeTurn.assistantMessageId = messageId;
-          },
-        },
-        onError: (message) => {
-          const activeTurn = this.activeAssistantTurn;
-          if (
-            !this.isActiveAssistantTurn(token) ||
-            activeTurn?.assistantCompleted
-          ) {
-            return;
-          }
-          void (async () => {
-            await this.sendFrame({
-              type: "error",
-              code: LiveVoiceProtocolErrorCode.InvalidField,
-              message,
-            });
-            const currentTurn = this.activeAssistantTurn;
-            if (currentTurn?.token !== token) return;
-            await this.finalizeAssistantTurn(currentTurn, "cancelled", "error");
-          })();
-        },
-      });
-
-      const activeTurn = this.activeAssistantTurn;
-      if (activeTurn?.token !== token) {
-        handle.abort();
-        return;
-      }
-      if (activeTurn.finalized) {
-        this.activeAssistantTurn = null;
-        return;
-      }
-
-      activeTurn.handle = handle;
-    } catch (err) {
-      if (!this.isActiveAssistantTurn(token)) return;
-
-      this.activeAssistantTurn = null;
-      await this.sendFrame({
-        type: "error",
-        code: LiveVoiceProtocolErrorCode.InvalidField,
-        message: `Live voice assistant turn could not be started: ${errorMessage(
-          err,
-        )}`,
-      });
-      await this.finalizePendingTurn("assistant_start_error");
-    }
-  }
-
-  private async cancelAssistantTurn(reason: string): Promise<void> {
-    const turn = this.activeAssistantTurn;
-    if (!turn) {
-      await this.finalizePendingTurn(reason);
-      return;
-    }
-
-    this.activeAssistantTurn = null;
-    turn.abortController.abort();
-    turn.handle?.abort();
-    await this.finalizeAssistantTurn(turn, "cancelled", reason);
-  }
-
-  private isActiveAssistantTurn(token: symbol): boolean {
-    const activeTurn = this.activeAssistantTurn;
-    return (
-      activeTurn?.token === token && !activeTurn.finalized && !this.isClosed
-    );
-  }
-
-  private isForwardingAssistantText(token: symbol): boolean {
-    const activeTurn = this.activeAssistantTurn;
-    return (
-      activeTurn?.token === token &&
-      !activeTurn.assistantCompleted &&
-      !activeTurn.finalized &&
-      !this.isClosed
-    );
-  }
-
-  private isForwardingTts(token: symbol): boolean {
-    const activeTurn = this.activeAssistantTurn;
-    return (
-      activeTurn?.token === token &&
-      !activeTurn.ttsDone &&
-      !activeTurn.finalized &&
-      !activeTurn.abortController.signal.aborted &&
-      !this.isClosed
-    );
-  }
-
-  private bufferAssistantTextForTts(token: symbol, text: string): void {
-    if (!this.streamTtsAudio || text.length === 0) return;
-
-    const activeTurn = this.activeAssistantTurn;
-    if (activeTurn?.token !== token || activeTurn.assistantCompleted) return;
-
-    activeTurn.ttsBuffer += text;
-    this.flushTtsBuffer(token, false);
-  }
-
-  private completeTtsForTurn(token: symbol): void {
-    const activeTurn = this.activeAssistantTurn;
-    if (activeTurn?.token !== token) return;
-
-    this.flushTtsBuffer(token, true);
-    activeTurn.ttsQueue = activeTurn.ttsQueue
-      .catch(() => {})
-      .then(async () => {
-        const currentTurn = this.activeAssistantTurn;
-        if (currentTurn?.token !== token || currentTurn.ttsDone) return;
-
-        currentTurn.ttsDone = true;
-        await this.finalizeAssistantTurn(
-          currentTurn,
-          "completed",
-          "completed",
-          {
-            clearActive: false,
-          },
-        );
-        await this.sendFrame(
-          { type: "tts_done", turnId: currentTurn.turnId },
-          () =>
-            this.activeAssistantTurn?.token === token &&
-            currentTurn.finalized &&
-            !this.isClosed,
-        );
-
-        if (this.activeAssistantTurn?.token === token) {
-          if (currentTurn.handle && currentTurn.finalized) {
-            this.activeAssistantTurn = null;
-          }
-        }
-      });
-  }
-
-  private flushTtsBuffer(token: symbol, force: boolean): void {
-    const activeTurn = this.activeAssistantTurn;
-    if (activeTurn?.token !== token) return;
-
-    if (!this.streamTtsAudio) {
-      activeTurn.ttsBuffer = "";
-      return;
-    }
-
-    const { segments, remainder } = extractSpeakableSegments(
-      activeTurn.ttsBuffer,
-      force,
-    );
-    activeTurn.ttsBuffer = remainder;
-
-    for (const segment of segments) {
-      this.enqueueTtsSegment(token, segment);
-    }
-  }
-
-  private enqueueTtsSegment(token: symbol, segment: string): void {
-    const activeTurn = this.activeAssistantTurn;
-    const streamTtsAudio = this.streamTtsAudio;
-    if (activeTurn?.token !== token || !streamTtsAudio) return;
-
-    activeTurn.ttsQueue = activeTurn.ttsQueue
-      .catch(() => {})
-      .then(async () => {
-        const currentTurn = this.activeAssistantTurn;
-        if (
-          currentTurn?.token !== token ||
-          currentTurn.abortController.signal.aborted
-        ) {
+  private createIngestCallbacks(): LiveVoiceIngestCallbacks {
+    return {
+      onSpeechStart: () => {
+        if (this.state !== "open") {
           return;
         }
-
-        try {
-          let ttsAudioFrames: Promise<void> = Promise.resolve();
-          await streamTtsAudio({
-            text: segment,
-            signal: currentTurn.abortController.signal,
-            outputFormat: "pcm",
-            sampleRate: this.context.startFrame.audio.sampleRate,
-            onAudioChunk: (chunk) => {
-              if (!this.isForwardingTts(token)) return;
-              const activeTurn = this.activeAssistantTurn;
-              if (activeTurn?.token !== token) return;
-              activeTurn.assistantAudioChunks.push(
-                Buffer.from(chunk.dataBase64, "base64"),
-              );
-              activeTurn.assistantAudioMimeType = chunk.contentType;
-              activeTurn.assistantAudioSampleRate = chunk.sampleRate;
-              this.metrics.markFirstTtsAudio(activeTurn.turnId);
-              ttsAudioFrames = ttsAudioFrames.then(() =>
-                this.sendFrame(
-                  {
-                    type: "tts_audio",
-                    mimeType: chunk.contentType,
-                    sampleRate: chunk.sampleRate,
-                    dataBase64: chunk.dataBase64,
-                  },
-                  () => this.isForwardingTts(token),
-                ),
-              );
-            },
-          });
-          await ttsAudioFrames;
-        } catch (err) {
-          if (!this.isForwardingTts(token)) return;
-          await this.sendFrame(
-            {
-              type: "error",
-              code: LiveVoiceProtocolErrorCode.InvalidField,
-              message: `Live voice TTS failed: ${errorMessage(err)}`,
-            },
-            () => this.isForwardingTts(token),
-          );
+        if (this.controller?.getState() === "speaking") {
+          this.tryBargeIn();
+          return;
         }
+        // New speech onset while listening: drop inter-turn silence that
+        // accumulated in the capture buffer (mirrors the ingest's own
+        // turn-start buffer clear) so archives start at the utterance.
+        const turn = this.currentTurn;
+        if (turn?.phase === "listening") {
+          turn.userAudioChunks.length = 0;
+          turn.userAudioBytes = 0;
+        }
+      },
+      onPartial: (text) => {
+        if (this.state !== "open") {
+          return;
+        }
+        const turn = this.currentTurn;
+        if (turn?.phase === "listening") {
+          this.metrics.markFirstPartial(turn.turnId);
+        }
+        void this.sendFrame({ type: "stt_partial", text });
+      },
+      onTranscriptFinal: (text) => {
+        this.handleTranscriptFinal(text);
+      },
+      onTurnBoundary: () => {
+        if (this.state !== "open") {
+          return;
+        }
+        void this.sendFrame({ type: "turn_boundary" });
+      },
+      onError: (category, message) => {
+        if (this.state !== "open") {
+          return;
+        }
+        void this.sendFrame({
+          type: "error",
+          code: LiveVoiceProtocolErrorCode.InvalidField,
+          message: `Live voice transcription error (${category}): ${message}`,
+        });
+      },
+    };
+  }
+
+  private handleTranscriptFinal(text: string): void {
+    if (this.state !== "open" || !this.controller) {
+      return;
+    }
+
+    void this.sendFrame({ type: "stt_final", text });
+
+    const content = text.trim();
+    let turn = this.currentTurn;
+    if (content.length === 0) {
+      // Nothing to dispatch. A listening turn that transcribed to nothing
+      // is retired; a responding turn is left alone (the empty final came
+      // from residual noise, not a competing utterance).
+      if (turn?.phase === "listening") {
+        void this.finalizeTurn(turn, "cancelled", "empty_transcript");
+      }
+      return;
+    }
+
+    if (turn?.phase === "responding") {
+      // The user finished a new utterance while the assistant was still
+      // responding (barge-in that never crossed the speaking gate, or a
+      // fast follow-up). handleCallerUtterance aborts the in-flight
+      // generation; retire the superseded turn first.
+      void this.finalizeTurn(turn, "cancelled", "superseded");
+      turn = null;
+    }
+
+    turn ??= this.beginTurn();
+    this.metrics.markFinalTranscript(turn.turnId);
+    turn.phase = "responding";
+    this.lastAssistantTurnId = turn.turnId;
+    void this.sendFrame({ type: "thinking", turnId: turn.turnId });
+
+    const controller = this.controller;
+    void controller.handleCallerUtterance(content).catch((err) => {
+      if (this.state !== "open") {
+        return;
+      }
+      void this.sendFrame({
+        type: "error",
+        code: LiveVoiceProtocolErrorCode.InvalidField,
+        message: `Live voice assistant turn failed: ${errorMessage(err)}`,
       });
-  }
-
-  private collectUserAudio(chunk: Buffer): void {
-    const turnId = this.ensureTurnId();
-    this.currentUserAudioChunks.push(Buffer.from(chunk));
-    this.startMetricsTurnIfNeeded(turnId);
-    this.metrics.markFirstAudio(turnId);
-  }
-
-  private markPushToTalkReleased(): void {
-    const turnId = this.ensureTurnId();
-    this.startMetricsTurnIfNeeded(turnId);
-    this.metrics.markPushToTalkRelease(turnId);
-  }
-
-  private markFirstPartial(): void {
-    const turnId = this.ensureTurnId();
-    this.startMetricsTurnIfNeeded(turnId);
-    this.metrics.markFirstPartial(turnId);
-  }
-
-  private markFinalTranscript(): void {
-    const turnId = this.ensureTurnId();
-    this.startMetricsTurnIfNeeded(turnId);
-    this.metrics.markFinalTranscript(turnId);
-  }
-
-  private markFirstAssistantDelta(turnId: string): void {
-    this.startMetricsTurnIfNeeded(turnId);
-    this.metrics.markFirstAssistantDelta(turnId);
-  }
-
-  private ensureTurnId(): string {
-    if (!this.currentTurnId) {
-      this.currentTurnId = this.createTurnId();
-    }
-    return this.currentTurnId;
-  }
-
-  private startMetricsTurnIfNeeded(turnId: string): void {
-    if (this.metricsTurnStarted || this.metricsTurnFinished) return;
-    this.metrics.startTurn(turnId);
-    this.metricsTurnStarted = true;
-  }
-
-  private async finalizePendingTurn(reason: string): Promise<void> {
-    const turnId = this.currentTurnId;
-    if (!turnId) return;
-
-    await this.archiveBufferedAudio({
-      turnId,
-      userMessageId: this.currentUserMessageId,
-      assistantMessageId: null,
-      userAudioChunks: this.currentUserAudioChunks,
-      assistantAudioChunks: [],
-      assistantAudioMimeType: "audio/pcm",
     });
-    await this.finishMetricsTurn("cancelled", reason, turnId);
   }
 
-  private async finalizeAssistantTurn(
-    turn: ActiveAssistantTurn,
-    status: "completed" | "cancelled",
-    reason = "completed",
-    options: { clearActive?: boolean } = {},
+  // ── Barge-in ─────────────────────────────────────────────────────────
+
+  /**
+   * Attempt to interrupt the assistant. Accepted only while the
+   * controller is `speaking`; the controller flushes the transport's
+   * pending text/synthesis itself (via discardPendingText) inside
+   * handleInterrupt. `onAccepted` runs before that flush, so the
+   * `interrupted` frame and the turn's cancellation are ordered ahead
+   * of any frames the flush suppresses.
+   */
+  private tryBargeIn(): boolean {
+    const controller = this.controller;
+    if (!controller) {
+      return false;
+    }
+
+    const turn = this.currentTurn;
+    return controller.handleBargeIn(() => {
+      const interruptedTurnId =
+        turn?.turnId ?? this.lastAssistantTurnId ?? this.context.sessionId;
+      void this.sendFrame({ type: "interrupted", turnId: interruptedTurnId });
+      if (turn && turn.phase === "responding") {
+        void this.finalizeTurn(turn, "cancelled", "barge_in");
+      }
+    });
+  }
+
+  // ── Assistant output ─────────────────────────────────────────────────
+
+  /**
+   * Controller-facing transport wrapper: taps the token stream so each
+   * (already marker-stripped, TTS-sanitized) token is forwarded to the
+   * client as an `assistant_text_delta` frame in addition to reaching
+   * the real transport for TTS synthesis.
+   */
+  private wrapTransportForController(
+    transport: LiveVoiceSessionTransport,
+  ): CallTransport {
+    return {
+      sendTextToken: (token, last) => {
+        this.handleAssistantToken(token);
+        transport.sendTextToken(token, last);
+      },
+      sendPlayUrl: (url) => transport.sendPlayUrl(url),
+      endSession: (reason) => transport.endSession(reason),
+      setAudioStartCallback: (cb) => transport.setAudioStartCallback?.(cb),
+      discardPendingText: () => transport.discardPendingText?.(),
+    };
+  }
+
+  private handleAssistantToken(token: string): void {
+    if (token.length === 0 || this.state !== "open") {
+      return;
+    }
+    const turn = this.currentTurn;
+    if (turn?.phase === "responding") {
+      this.metrics.markFirstAssistantDelta(turn.turnId);
+    }
+    void this.sendFrame({ type: "assistant_text_delta", text: token });
+  }
+
+  /**
+   * Outbound sink for the transport's frames. `tts_audio` is annotated
+   * into the current turn (archive metadata + first-audio metric);
+   * `tts_done` completes the turn — a `tts_done` whose turn is already
+   * finalized (the controller emits one while unwinding a barge-in) is
+   * dropped so an aborted turn's end-of-turn marker never reaches the
+   * client or completes the next turn.
+   */
+  private sendTransportFrame(
+    payload: LiveVoiceServerFramePayload,
   ): Promise<void> {
-    if (turn.finalized) return;
-
-    turn.finalized = true;
-    await this.archiveBufferedAudio({
-      turnId: turn.turnId,
-      userMessageId: turn.userMessageId,
-      assistantMessageId: turn.assistantMessageId,
-      userAudioChunks: turn.userAudioChunks,
-      assistantAudioChunks: turn.assistantAudioChunks,
-      assistantAudioMimeType: turn.assistantAudioMimeType,
-      ...(turn.assistantAudioSampleRate !== undefined
-        ? { assistantAudioSampleRate: turn.assistantAudioSampleRate }
-        : {}),
-    });
-    await this.finishMetricsTurn(status, reason, turn.turnId);
-
-    if (
-      (options.clearActive ?? true) &&
-      this.activeAssistantTurn?.token === turn.token &&
-      turn.handle
-    ) {
-      this.activeAssistantTurn = null;
+    if (payload.type === "tts_audio") {
+      const turn = this.currentTurn;
+      if (turn?.phase === "responding") {
+        turn.assistantAudioMimeType = payload.mimeType;
+        turn.assistantAudioSampleRate = payload.sampleRate;
+        this.metrics.markFirstTtsAudio(turn.turnId);
+      }
+      return this.sendFrame(payload);
     }
+
+    if (payload.type === "tts_done") {
+      const turn = this.currentTurn;
+      if (
+        !turn ||
+        turn.phase !== "responding" ||
+        turn.turnId !== payload.turnId
+      ) {
+        return Promise.resolve();
+      }
+      const sendPromise = this.sendFrame(payload);
+      void this.finalizeTurn(turn, "completed", "completed");
+      return sendPromise;
+    }
+
+    return this.sendFrame(payload);
   }
+
+  /** [END_CALL] / max-duration: the controller asked to end the session. */
+  private handleControllerSessionEnd(): void {
+    void this.close("client_end");
+  }
+
+  // ── Turn lifecycle ───────────────────────────────────────────────────
+
+  private beginTurn(): SessionTurn {
+    // Drop idle-period assistant audio (e.g. the silence nudge) so it is
+    // never archived under this turn's id.
+    this.transport?.collectAssistantAudio();
+
+    const turn: SessionTurn = {
+      turnId: this.createTurnId(),
+      phase: "listening",
+      userAudioChunks: [],
+      userAudioBytes: 0,
+      assistantAudioMimeType: "audio/pcm",
+      finalized: false,
+    };
+    this.currentTurn = turn;
+    this.metrics.startTurn(turn.turnId);
+    return turn;
+  }
+
+  /**
+   * Finalize a turn exactly once: settle its metrics synchronously (so a
+   * successor turn can start immediately without racing the collector),
+   * snapshot both audio buffers, then archive and emit the `archived` +
+   * `metrics` frames asynchronously on the outbound chain.
+   */
+  private finalizeTurn(
+    turn: SessionTurn,
+    status: "completed" | "cancelled",
+    reason: string,
+  ): Promise<void> {
+    if (turn.finalized) {
+      return Promise.resolve();
+    }
+    turn.finalized = true;
+    if (this.currentTurn === turn) {
+      this.currentTurn = null;
+    }
+
+    if (status === "completed") {
+      this.metrics.completeTurn(turn.turnId);
+    } else {
+      this.metrics.cancelTurn(reason, turn.turnId);
+    }
+
+    // Snapshot audio now: draining the transport here (not later) is the
+    // stale-turn guard — audio synthesized for this turn can never be
+    // attributed to a successor turn's archive.
+    const userAudioChunks = turn.userAudioChunks;
+    const assistantAudioChunks = this.transport?.collectAssistantAudio() ?? [];
+
+    return (async () => {
+      await this.archiveBufferedAudio({
+        turnId: turn.turnId,
+        userAudioChunks,
+        assistantAudioChunks,
+        assistantAudioMimeType: turn.assistantAudioMimeType,
+        ...(turn.assistantAudioSampleRate !== undefined
+          ? { assistantAudioSampleRate: turn.assistantAudioSampleRate }
+          : {}),
+      });
+      if (this.emitMetrics) {
+        await this.emitMetricsFrame(
+          status === "completed" ? "turn_completed" : "turn_cancelled",
+          turn.turnId,
+        );
+      }
+    })();
+  }
+
+  // ── Archiving ────────────────────────────────────────────────────────
 
   private async archiveBufferedAudio(input: {
     turnId: string;
-    userMessageId: string | null;
-    assistantMessageId: string | null;
     userAudioChunks: Buffer[];
     assistantAudioChunks: Buffer[];
     assistantAudioMimeType: string;
@@ -786,7 +701,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await this.archiveBufferedRoleAudio({
         turnId: input.turnId,
         role: "user",
-        messageId: input.userMessageId,
         mimeType: this.context.startFrame.audio.mimeType,
         sampleRate: this.context.startFrame.audio.sampleRate,
         audio: userAudio,
@@ -801,7 +715,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await this.archiveBufferedRoleAudio({
         turnId: input.turnId,
         role: "assistant",
-        messageId: input.assistantMessageId,
         mimeType: input.assistantAudioMimeType,
         sampleRate,
         audio: assistantAudio,
@@ -812,13 +725,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private async archiveBufferedRoleAudio(input: {
     turnId: string;
     role: LiveVoiceAudioArchiveRole;
-    messageId: string | null;
     mimeType: string;
     sampleRate: number;
     audio: Buffer;
   }): Promise<void> {
     const archiveAudio = this.archiveAudio;
-    if (!archiveAudio) return;
+    if (!archiveAudio) {
+      return;
+    }
 
     const durationMs = estimatePcmDurationMs({
       byteLength: input.audio.byteLength,
@@ -828,7 +742,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     let result: LiveVoiceAudioArchiveResult;
     try {
       result = await archiveAudio({
-        messageId: input.messageId,
+        messageId: null,
         sessionId: this.context.sessionId,
         turnId: input.turnId,
         role: input.role,
@@ -881,37 +795,23 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     });
   }
 
-  private async finishMetricsTurn(
-    status: "completed" | "cancelled",
-    reason: string,
-    turnId: string,
-  ): Promise<void> {
-    if (!this.metricsTurnStarted || this.metricsTurnFinished) return;
-
-    if (status === "completed") {
-      this.metrics.completeTurn(turnId);
-    } else {
-      this.metrics.cancelTurn(reason, turnId);
-    }
-    this.metricsTurnFinished = true;
-
-    if (!this.emitMetrics) return;
-    await this.emitMetricsFrame(
-      status === "completed" ? "turn_completed" : "turn_cancelled",
-      turnId,
-    );
-  }
+  // ── Metrics frames ───────────────────────────────────────────────────
 
   private async emitSessionEndMetrics(): Promise<void> {
-    if (!this.emitMetrics || this.sessionEndMetricsEmitted) return;
+    if (!this.emitMetrics || this.sessionEndMetricsEmitted) {
+      return;
+    }
 
     this.sessionEndMetricsEmitted = true;
-    await this.emitMetricsFrame("session_ended");
+    await this.emitMetricsFrame(
+      "session_ended",
+      this.lastAssistantTurnId ?? this.context.sessionId,
+    );
   }
 
   private async emitMetricsFrame(
     event: LiveVoiceMetricsEvent,
-    turnId = this.currentTurnId ?? this.context.sessionId,
+    turnId: string,
   ): Promise<void> {
     const metrics = this.metrics.getSnapshot();
     await this.sendFrame({
@@ -925,32 +825,47 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     });
   }
 
-  private async failStartup(message: string): Promise<never> {
-    this.state = "failed";
-    await this.sendFrame({
-      type: "error",
-      code: LiveVoiceProtocolErrorCode.InvalidField,
-      message,
-    });
+  // ── Startup failure / teardown ───────────────────────────────────────
+
+  private async failStartup(
+    message: string,
+    code: LiveVoiceProtocolErrorCode,
+  ): Promise<never> {
+    this.state = "closed";
+    await this.sendFrame({ type: "error", code, message });
+    await this.drainOutboundFrames();
     throw new LiveVoiceSessionStartupError(message);
   }
 
-  private async sendAudioAfterReleaseError(): Promise<void> {
-    await this.sendFrame({
-      type: "error",
-      code: LiveVoiceProtocolErrorCode.InvalidAudioPayload,
-      message: "Live voice audio received after push-to-talk release.",
-    });
+  private teardownCollaborators(): void {
+    const ingest = this.ingest;
+    this.ingest = null;
+    if (ingest) {
+      try {
+        ingest.stop();
+      } catch {
+        // Best-effort deliberate stop; dispose below clears state anyway.
+      }
+      ingest.dispose();
+    }
+
+    const controller = this.controller;
+    this.controller = null;
+    if (controller) {
+      try {
+        controller.destroy();
+      } catch {
+        // Controller teardown failures must not block session close.
+      }
+    }
   }
 
-  private async sendFrame(
-    frame: LiveVoiceServerFramePayload,
-    shouldSend: () => boolean = () => true,
-  ): Promise<void> {
+  // ── Outbound frame serialization ─────────────────────────────────────
+
+  private async sendFrame(frame: LiveVoiceServerFramePayload): Promise<void> {
     this.outboundFrames = this.outboundFrames
       .catch(() => {})
       .then(async () => {
-        if (!shouldSend()) return;
         await this.context.sendFrame(frame);
       })
       .catch(() => {
@@ -964,8 +879,24 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.outboundFrames.catch(() => {});
   }
 
-  private get isClosed(): boolean {
-    return this.state === "closed";
+  // ── Session source ───────────────────────────────────────────────────
+
+  private createSessionSource(): VoiceSessionSource {
+    const startedAt = Date.now();
+    return {
+      conversationId: this.conversationId,
+      // The user launched the session themselves — no disclosure.
+      skipDisclosure: true,
+      getSnapshot: (): VoiceSessionSnapshot => ({
+        // Terminal once closing so the controller's end paths (END_CALL,
+        // max duration) short-circuit instead of re-finalizing.
+        status: this.state === "open" ? "in_progress" : "completed",
+        conversationId: this.conversationId,
+        initiatedFromConversationId: null,
+        startedAt,
+        toNumber: "",
+      }),
+    };
   }
 }
 
@@ -973,34 +904,46 @@ export function createLiveVoiceSession(
   context: LiveVoiceSessionFactoryContext,
   options: LiveVoiceSessionOptions = {},
 ): LiveVoiceSession {
-  return new LiveVoiceSession(context, {
-    ...options,
-    startVoiceTurn: options.startVoiceTurn ?? defaultStartVoiceTurn,
-    streamTtsAudio:
-      options.streamTtsAudio === undefined
-        ? defaultStreamLiveVoiceTtsAudio
-        : options.streamTtsAudio,
-    archiveAudio:
-      options.archiveAudio === undefined
-        ? defaultArchiveLiveVoiceAudio
-        : options.archiveAudio,
-    emitMetrics: options.emitMetrics ?? true,
+  return new LiveVoiceSession(context, options);
+}
+
+// ---------------------------------------------------------------------------
+// Production defaults (heavy dependencies loaded lazily)
+// ---------------------------------------------------------------------------
+
+function defaultCreateIngest(
+  config: LiveVoiceIngestConfig,
+  callbacks: LiveVoiceIngestCallbacks,
+): LiveVoiceSessionIngest {
+  return new LiveVoiceIngest(config, callbacks);
+}
+
+function defaultCreateTransport(
+  deps: LiveVoiceCallTransportDeps,
+): LiveVoiceSessionTransport {
+  return new LiveVoiceCallTransport(deps);
+}
+
+async function defaultCreateController(
+  options: LiveVoiceSessionControllerOptions,
+): Promise<LiveVoiceSessionController> {
+  const [{ CallController }, { createInAppVoiceControllerProfile }] =
+    await Promise.all([
+      import("../calls/call-controller.js"),
+      import("../calls/voice-session-source.js"),
+    ]);
+  // task: null → inbound semantics; the session opens listening (no
+  // startInitialGreeting) — in-app users speak first.
+  return new CallController(options.callSessionId, options.transport, null, {
+    sessionSource: options.sessionSource,
+    profile: createInAppVoiceControllerProfile(),
   });
 }
 
-async function defaultResolveStreamingTranscriber(
-  options: ResolveStreamingTranscriberOptions,
-): Promise<StreamingTranscriber | null> {
-  const { resolveStreamingTranscriber } =
-    await import("../providers/speech-to-text/resolve.js");
-  return resolveStreamingTranscriber(options);
-}
-
-async function defaultStartVoiceTurn(
-  options: VoiceTurnOptions,
-): Promise<VoiceTurnHandle> {
-  const { startVoiceTurn } = await import("../calls/voice-session-bridge.js");
-  return startVoiceTurn(options);
+async function defaultCredentialPreflight(): Promise<LiveVoiceCredentialReadiness> {
+  const { resolveLiveVoiceCredentialReadiness } =
+    await import("./live-voice-credential-preflight.js");
+  return resolveLiveVoiceCredentialReadiness();
 }
 
 async function defaultStreamLiveVoiceTtsAudio(
@@ -1022,8 +965,14 @@ async function defaultArchiveLiveVoiceAudio(
     : linkLiveVoiceAssistantResponseAudioToMessage(input);
 }
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
 function takeBufferedAudio(chunks: Buffer[]): Buffer | null {
-  if (chunks.length === 0) return null;
+  if (chunks.length === 0) {
+    return null;
+  }
 
   const audio = Buffer.concat(chunks);
   chunks.length = 0;
@@ -1047,26 +996,6 @@ function estimatePcmDurationMs(input: {
   return Math.round(
     (input.byteLength / (input.sampleRate * bytesPerMonoSample)) * 1000,
   );
-}
-
-function unavailableTranscriberMessage(): string {
-  const supportedProviders = listProviderIds()
-    .filter((id) => supportsBoundary(id, "daemon-streaming"))
-    .join(", ");
-
-  return `Live voice transcription is unavailable. Check that the configured STT provider supports streaming transcription and has credentials configured. Streaming-capable providers: ${supportedProviders}.`;
-}
-
-function stopTranscriberBestEffort(
-  transcriber: StreamingTranscriber | null,
-): void {
-  if (!transcriber) return;
-
-  try {
-    transcriber.stop();
-  } catch {
-    // Best effort cleanup during failed startup or session close.
-  }
 }
 
 function errorMessage(err: unknown): string {
