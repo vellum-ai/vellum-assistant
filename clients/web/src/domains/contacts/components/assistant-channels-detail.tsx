@@ -67,6 +67,13 @@ const POLICY_CONFIRMATIONS: Partial<
 
 interface AssistantChannelsDetailProps {
   assistantName: string;
+  /**
+   * Show the contact-style "<name> (Your Assistant)" header card above the
+   * channel list. On when the surface renders as the assistant's detail view
+   * inside Contacts; off on the standalone Channels tab, where the assistant
+   * heading already lives in the page chrome.
+   */
+  showIdentityCard?: boolean;
   channels: AssistantChannelState[];
   pendingChannelKey?: ChannelKey | null;
   slackThreadMode?: SlackThreadMode;
@@ -120,6 +127,7 @@ const CHANNEL_META: Record<
 
 export function AssistantChannelsDetail({
   assistantName,
+  showIdentityCard = true,
   channels,
   pendingChannelKey = null,
   slackThreadMode,
@@ -181,11 +189,13 @@ export function AssistantChannelsDetail({
 
   return (
     <div className="flex flex-col gap-6">
-      <DetailCard
-        title={`${displayName} (Your Assistant)`}
-        accessory={<ContactTypeBadge role="assistant" />}
-        compactAccessory
-      />
+      {showIdentityCard ? (
+        <DetailCard
+          title={`${displayName} (Your Assistant)`}
+          accessory={<ContactTypeBadge role="assistant" />}
+          compactAccessory
+        />
+      ) : null}
 
       <DetailCard
         title="Channels"

@@ -144,6 +144,8 @@ export const routes = {
 
   connect: r("/assistant/connect"),
 
+  channels: r("/assistant/channels"),
+
   contacts: {
     root: r("/assistant/contacts"),
   },

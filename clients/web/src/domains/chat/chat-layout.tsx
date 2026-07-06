@@ -246,6 +246,7 @@ export function ChatLayout() {
     location.pathname === routes.identity ||
     location.pathname === routes.skills ||
     location.pathname === routes.workspace ||
+    location.pathname === routes.channels ||
     location.pathname.startsWith(routes.contacts.root);
 
   // --- Sidebar collapsed / drawer state ---

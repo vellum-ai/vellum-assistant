@@ -341,6 +341,7 @@ export const routeTree = [
                     { path: "skills", lazy: { Component: () => import("@/domains/intelligence/skills-page").then((m) => m.SkillsPage) } },
                     { path: "workspace", lazy: { Component: () => import("@/domains/workspace/workspace-page").then((m) => m.WorkspacePage) } },
                     { path: "contacts", lazy: { Component: () => import("@/contacts-page-route").then((m) => m.ContactsPageRoute) } },
+                    { path: "channels", lazy: { Component: () => import("@/channels-page-route").then((m) => m.ChannelsPageRoute) } },
                   ],
                 },
                 { path: "library", lazy: { Component: () => import("@/domains/library/library-page").then((m) => m.LibraryPage) } },
