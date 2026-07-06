@@ -84,7 +84,9 @@ describe("LowBalanceAlertCard", () => {
     fireEvent.click(getByTestId("low-balance-alert-save-button"));
 
     await waitFor(() => {
-      if (updateCalls.length === 0) throw new Error("PUT not called");
+      if (updateCalls.length === 0) {
+        throw new Error("PUT not called");
+      }
     });
     expect(updateCalls[0]!.body).toEqual({ threshold_usd: "50.00" });
   });
@@ -94,7 +96,9 @@ describe("LowBalanceAlertCard", () => {
     fireEvent.click(getByTestId("low-balance-alert-reset-button"));
 
     await waitFor(() => {
-      if (updateCalls.length === 0) throw new Error("PUT not called");
+      if (updateCalls.length === 0) {
+        throw new Error("PUT not called");
+      }
     });
     expect(updateCalls[0]!.body).toEqual({ threshold_usd: null });
   });

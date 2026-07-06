@@ -24,7 +24,9 @@ function formatUsd(value: string): string {
  * the override" and is sent to the API as `null`.
  */
 export function validateThreshold(raw: string): string | undefined {
-  if (raw.trim() === "") return undefined;
+  if (raw.trim() === "") {
+    return undefined;
+  }
   const n = parseFloat(raw);
   if (!Number.isFinite(n) || n < 1 || n > 1000) {
     return "Must be between $1 and $1,000";
@@ -108,7 +110,9 @@ export function LowBalanceAlertCard() {
 
   const handleSave = () => {
     setTouched(true);
-    if (clientError) return;
+    if (clientError) {
+      return;
+    }
     // Empty input clears the override (revert to the global default).
     const trimmed = value.trim();
     persist(trimmed === "" ? null : parseFloat(trimmed).toFixed(2));
