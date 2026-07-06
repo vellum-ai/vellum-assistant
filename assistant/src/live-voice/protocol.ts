@@ -13,6 +13,8 @@ const _LIVE_VOICE_SERVER_FRAME_TYPES = [
   "busy",
   "stt_partial",
   "stt_final",
+  "turn_boundary",
+  "interrupted",
   "thinking",
   "assistant_text_delta",
   "tts_audio",
@@ -53,10 +55,15 @@ export interface LiveVoiceAudioConfig {
   readonly channels: 1;
 }
 
+const LIVE_VOICE_SESSION_MODES = ["ptt", "open-mic"] as const;
+
+export type LiveVoiceSessionMode = (typeof LIVE_VOICE_SESSION_MODES)[number];
+
 export interface LiveVoiceClientStartFrame {
   readonly type: "start";
   readonly conversationId?: string;
   readonly audio: LiveVoiceAudioConfig;
+  readonly mode?: LiveVoiceSessionMode;
 }
 
 export interface LiveVoiceClientAudioFrame {
@@ -112,6 +119,24 @@ export interface LiveVoiceSttPartialServerFrame extends LiveVoiceServerFrameBase
 export interface LiveVoiceSttFinalServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "stt_final";
   readonly text: string;
+}
+
+/**
+ * Server-detected end of user speech; the assistant turn is starting.
+ * Emitted in both modes: in PTT it follows `ptt_release`/final transcript,
+ * in open-mic it is the primary turn signal.
+ */
+export interface LiveVoiceTurnBoundaryServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "turn_boundary";
+}
+
+/**
+ * Barge-in (server-VAD or client `interrupt` frame) was accepted for the
+ * given assistant turn; playback must flush and the session keeps listening.
+ */
+export interface LiveVoiceInterruptedServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "interrupted";
+  readonly turnId: string;
 }
 
 export interface LiveVoiceThinkingServerFrame extends LiveVoiceServerFrameBase {
@@ -174,6 +199,8 @@ export type LiveVoiceServerFrame =
   | LiveVoiceBusyServerFrame
   | LiveVoiceSttPartialServerFrame
   | LiveVoiceSttFinalServerFrame
+  | LiveVoiceTurnBoundaryServerFrame
+  | LiveVoiceInterruptedServerFrame
   | LiveVoiceThinkingServerFrame
   | LiveVoiceAssistantTextDeltaServerFrame
   | LiveVoiceTtsAudioServerFrame
@@ -189,6 +216,8 @@ export type LiveVoiceServerFramePayload =
   | WithoutSeq<LiveVoiceBusyServerFrame>
   | WithoutSeq<LiveVoiceSttPartialServerFrame>
   | WithoutSeq<LiveVoiceSttFinalServerFrame>
+  | WithoutSeq<LiveVoiceTurnBoundaryServerFrame>
+  | WithoutSeq<LiveVoiceInterruptedServerFrame>
   | WithoutSeq<LiveVoiceThinkingServerFrame>
   | WithoutSeq<LiveVoiceAssistantTextDeltaServerFrame>
   | WithoutSeq<LiveVoiceTtsAudioServerFrame>
@@ -357,6 +386,15 @@ function validateStartFrame(
     );
   }
 
+  if ("mode" in value && !isLiveVoiceSessionMode(value.mode)) {
+    return protocolError(
+      "invalid_field",
+      `start frame field mode must be one of: ${LIVE_VOICE_SESSION_MODES.join(", ")}`,
+      "mode",
+      "start",
+    );
+  }
+
   return {
     ok: true,
     frame: {
@@ -365,6 +403,7 @@ function validateStartFrame(
         ? { conversationId: value.conversationId }
         : {}),
       audio: audioConfig.frame,
+      ...(isLiveVoiceSessionMode(value.mode) ? { mode: value.mode } : {}),
     },
   };
 }
@@ -466,6 +505,13 @@ function isLiveVoiceClientFrameType(
   value: string,
 ): value is LiveVoiceClientFrameType {
   return (LIVE_VOICE_CLIENT_FRAME_TYPES as readonly string[]).includes(value);
+}
+
+function isLiveVoiceSessionMode(value: unknown): value is LiveVoiceSessionMode {
+  return (
+    typeof value === "string" &&
+    (LIVE_VOICE_SESSION_MODES as readonly string[]).includes(value)
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
