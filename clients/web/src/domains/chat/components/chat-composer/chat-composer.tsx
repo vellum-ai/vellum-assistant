@@ -33,8 +33,11 @@ import {
     type VoiceInputButtonHandle,
 } from "@/domains/chat/components/voice-input-button";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
-import { useLiveVoiceStore } from "@/domains/chat/voice/live-voice/live-voice-store";
-import { useLiveVoice } from "@/domains/chat/voice/live-voice/use-live-voice";
+import {
+    isLiveVoiceSessionActive,
+    useIsLiveVoiceSessionOwnedBy,
+    useLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useAudioAmplitude } from "@/domains/chat/voice/use-audio-amplitude";
 import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-store";
 import { useIsMobile } from "@/hooks/use-is-mobile";
@@ -113,10 +116,13 @@ export interface ChatComposerProps {
   // assistant id used by AttachFileButton's disabled guard
   assistantId: string | null;
 
-  // Active conversation the live-voice session should attach to. Optional —
-  // when absent (e.g. the empty/new-conversation state) live voice still
-  // starts a fresh session for the assistant. The app-editing variant, which
-  // has no voice, leaves this undefined.
+  // Conversation this composer is bound to — used to attach live-voice
+  // sessions and to decide whether this composer owns the active session
+  // (see `isLiveVoiceSessionOwnedBy`). Pass the routing-truth id
+  // (`activeConversationId`), including client-generated draft ids, so the
+  // session lands in the thread the user is looking at. Optional — when
+  // absent the session starts without a conversation and the server assigns
+  // one. The app-editing variant, which has no voice, leaves this undefined.
   conversationId?: string | null;
 
   // chrome surfacing existing buttons (rendered in the form's bottom-left row)
@@ -217,53 +223,44 @@ export function ChatComposer({
   // dictation button (`showVoiceInput` + a non-null assistant id) — so with
   // the flag off no session can ever start and the session state below stays
   // `idle`, keeping the composer byte-identical for users without the flag.
-  // The composer owns the single `useLiveVoice()` controller instance. It has
-  // to live here (not in `LiveVoiceButton`): while a session is active the
-  // action row that hosts the button is swapped out for `VoiceComposerBar`,
-  // and the hook tears the session down when its owner unmounts — a
-  // button-owned controller would kill the session the moment it started.
-  // The button is purely the presentational entry point (see its docs).
   //
-  // `observeAudioState: false` — the composer only needs the low-frequency
-  // session phase + error + actions. Without it the hook would subscribe this
-  // whole component to `inputAmplitude` (updated per mic sample) and the
-  // transcript fields, re-rendering the entire composer on every mic-level
-  // tick; the voice bar's waveform instead polls amplitude via `getState()`
-  // in its canvas draw loop (see `getLiveVoiceAmplitude` below).
-  const {
-    state: liveVoiceState,
-    error: liveVoiceError,
-    start: liveVoiceStart,
-    stop: liveVoiceStop,
-    release: liveVoiceRelease,
-  } = useLiveVoice({ observeAudioState: false });
-  // Anything but idle/failed counts as an active session; while active the
-  // whole action row (including both mic buttons) is replaced by the voice
-  // bar, so the two capture flows can never run at once. `failed` is a
-  // retryable/inactive state, so it must fall back to the normal row —
-  // otherwise dictation would stay unavailable after a failed start.
+  // The session controller (`useLiveVoice`) is NOT owned here: it lives in
+  // the persistent `useLiveVoiceSessionController` mount in `ChatLayout`, so
+  // a session survives thread switches, Home/Library navigation, and the
+  // fullscreen app viewer — the navigations that unmount this composer. The
+  // composer only observes the session through narrow store selectors and
+  // drives it through the store-registered `starter`/`controls` seams.
+  const liveVoiceState = useLiveVoiceStore.use.state();
+  const liveVoiceError = useLiveVoiceStore.use.error();
+  // Whether any session is live anywhere (this thread or another). `failed`
+  // is a retryable/inactive state, so it must count as inactive — otherwise
+  // dictation would stay unavailable after a failed start.
+  const isLiveVoiceSessionLive = isLiveVoiceSessionActive(liveVoiceState);
+  // Whether THIS composer owns the active session — its conversation matches
+  // the session's, or the session was started from this composer's draft.
+  // Ownership scopes the surface swap: a session started in thread A must
+  // not hijack thread B's composer — B keeps its normal row and the
+  // title-bar pill is the session surface there (exactly one of the two
+  // renders at any time; see `isLiveVoiceSessionOwnedBy`).
   //
-  // Deliberately based on the session state alone — NOT on the entry-point
-  // eligibility (the `voice-mode` flag / a non-null `assistantId`) — so a
-  // mid-session eligibility drop (flag flip, `assistantId` transiently
-  // cleared) can't unmount the voice bar while the still-mounted controller
-  // keeps the mic/socket live: the bar's ✕ stays available until teardown
-  // completes and the state returns to `idle`. `showVoiceInput` (static per
-  // variant) scopes the swap to the voice-enabled composer — the app-editing
-  // variant shares the global live-voice store but must never swap its row
-  // for a session it doesn't own.
-  const isLiveVoiceActive =
-    showVoiceInput &&
-    liveVoiceState !== "idle" &&
-    liveVoiceState !== "failed";
+  // Deliberately based on session state + ownership alone — NOT on the
+  // entry-point eligibility (the `voice-mode` flag / a non-null
+  // `assistantId`) — so a mid-session eligibility drop (flag flip,
+  // `assistantId` transiently cleared) can't unmount the voice bar while the
+  // session keeps the mic/socket live: the bar's ✕ stays available until
+  // teardown completes. `showVoiceInput` (static per variant) scopes the
+  // swap to the voice-enabled composer — the app-editing variant shares the
+  // global live-voice store but must never swap its row.
+  const ownsLiveVoiceSession = useIsLiveVoiceSessionOwnedBy(conversationId);
+  const isLiveVoiceActive = showVoiceInput && ownsLiveVoiceSession;
   // Whether the session has any speech transcript to show. A boolean
   // *presence* subscription, not the text itself: zustand only re-renders
   // when the selected value changes identity, so per-delta transcript
   // updates never reach the composer — the bit flips once when speech
   // starts and once when the store clears. The streaming text is rendered
   // by `VoiceLiveTranscript`, which subscribes to the store on its own,
-  // keeping this component's deliberate opt-out of high-frequency
-  // live-voice updates (see `observeAudioState: false` above) intact.
+  // keeping the composer's deliberate opt-out of high-frequency live-voice
+  // updates (amplitude ticks, transcript deltas) intact.
   const hasLiveVoiceTranscript = useLiveVoiceStore(
     (s) => Boolean(s.partialTranscript || s.finalTranscript),
   );
@@ -278,13 +275,22 @@ export function ChatComposer({
     () => useLiveVoiceStore.getState().inputAmplitude,
     [],
   );
+  // Session verbs go through the store seams registered by the layout-owned
+  // controller: `starter` (registered for the controller's whole mount) to
+  // start, per-session `controls` to stop/release. Read via `getState()` in
+  // handlers per STATE_MANAGEMENT.md — no subscription needed.
   const handleLiveVoiceStart = useCallback(() => {
-    if (!assistantId) return;
-    void liveVoiceStart(assistantId, conversationId ?? undefined);
-  }, [assistantId, conversationId, liveVoiceStart]);
+    if (!assistantId) {
+      return;
+    }
+    useLiveVoiceStore.getState().starter?.(assistantId, conversationId ?? null);
+  }, [assistantId, conversationId]);
   const handleLiveVoiceEnd = useCallback(() => {
-    void liveVoiceStop();
-  }, [liveVoiceStop]);
+    useLiveVoiceStore.getState().controls?.stop();
+  }, []);
+  const handleLiveVoiceSend = useCallback(() => {
+    useLiveVoiceStore.getState().controls?.release();
+  }, []);
   // Dismissing the failure notice resets the store back to idle — `failed` is
   // terminal for the session, so this only clears the surfaced error.
   const dismissLiveVoiceError = useCallback(() => {
@@ -393,12 +399,12 @@ export function ChatComposer({
       {/* Composer-owned draft/attachment notices (self-sourced), above the
           orchestration banner stack. */}
       <ComposerDraftNotices />
-      {/* Live-voice failure notice — composer-owned (the session controller
-          lives here), mirroring the dictation `voiceError` Notice rendered by
-          `ComposerNotices` in the orchestration stack below. Keyed on the
-          session state (not entry eligibility) for the same reason as
-          `isLiveVoiceActive`: a session that fails right after an eligibility
-          drop must still surface its error. */}
+      {/* Live-voice failure notice — surfaced by the voice-enabled composer
+          the user is looking at, mirroring the dictation `voiceError` Notice
+          rendered by `ComposerNotices` in the orchestration stack below.
+          Keyed on the session state (not entry eligibility) for the same
+          reason as `isLiveVoiceActive`: a session that fails right after an
+          eligibility drop must still surface its error. */}
       {showVoiceInput && liveVoiceState === "failed" && liveVoiceError && (
         <div className="mb-2">
           <Notice tone="error" onDismiss={dismissLiveVoiceError}>
@@ -605,9 +611,10 @@ export function ChatComposer({
                   }
                 }}
                 placeholder={ghostSuffix ? "" : placeholder}
-                // Inert during a live-voice session so focus/typing can't
-                // fight the session (a later PR streams the live transcript
-                // into this region). The grid mirror keeps the height stable.
+                // Inert while this composer's live-voice session is active so
+                // focus/typing can't fight the session — `VoiceLiveTranscript`
+                // streams the live speech into this grid cell (see below).
+                // The grid mirror keeps the height stable.
                 disabled={typingDisabled || isLiveVoiceActive}
                 rows={1}
                 className={`col-start-1 row-start-1 w-full resize-none overflow-y-auto border-none bg-transparent px-4 pt-3 pb-2 text-chat text-[var(--content-default)] placeholder:text-[var(--content-disabled)] focus:outline-none disabled:opacity-50 ${
@@ -666,7 +673,7 @@ export function ChatComposer({
                 state={liveVoiceState}
                 getAmplitude={getLiveVoiceAmplitude}
                 onEnd={handleLiveVoiceEnd}
-                onSend={liveVoiceRelease}
+                onSend={handleLiveVoiceSend}
               />
             ) : (
               <div className="flex items-center justify-between px-2 pb-2">
@@ -718,12 +725,12 @@ export function ChatComposer({
                         <VoiceInputButton
                           ref={voiceInputRef}
                           assistantId={assistantId}
-                          // Mutual exclusion: an active live-voice session
-                          // replaces this whole row with the voice bar, so the
-                          // two capture flows never run simultaneously; the
-                          // `isLiveVoiceActive` term is defense-in-depth for
-                          // that structural guarantee.
-                          disabled={typingDisabled || isLiveVoiceActive}
+                          // Mutual exclusion: a live-voice session anywhere —
+                          // owned by this composer (whose row is swapped for
+                          // the voice bar anyway) or by another thread — must
+                          // block dictation, or two mic capture flows could
+                          // run at once.
+                          disabled={typingDisabled || isLiveVoiceSessionLive}
                           onTranscript={onVoiceTranscript}
                           onInterimTranscript={onVoiceInterimTranscript}
                           onError={onVoiceError}
@@ -742,12 +749,17 @@ export function ChatComposer({
                         // owns stopping.
                         //
                         // Mutual exclusion (reverse direction): while dictation
-                        // is active (`isVoiceActive`) live voice is disabled so
-                        // it can't start a second mic/voice session alongside
-                        // the recorder.
+                        // is active (`isVoiceActive`) — or a live-voice session
+                        // already runs in another thread — starting a session
+                        // here is disabled so a second mic/voice session can't
+                        // open alongside the running one.
                         <LiveVoiceButton
                           onStart={handleLiveVoiceStart}
-                          disabled={typingDisabled || isVoiceActive}
+                          disabled={
+                            typingDisabled ||
+                            isVoiceActive ||
+                            isLiveVoiceSessionLive
+                          }
                         />
                       )}
                       {/* macOS parity: the send button is hidden during recording

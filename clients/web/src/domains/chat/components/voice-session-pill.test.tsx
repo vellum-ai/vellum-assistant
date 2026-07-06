@@ -99,6 +99,14 @@ describe("VoiceSessionPill — stop control", () => {
     expect(onStop).toHaveBeenCalledTimes(1);
     expect(onNavigate).not.toHaveBeenCalled();
   });
+
+  test("hidden even while speaking when onStop is not provided", () => {
+    // Hosts omit onStop while stopping a response would end the whole
+    // session (V1 interrupt); the ✕ stays the only destructive control.
+    renderPill({ state: "speaking", onStop: undefined });
+    expect(stopButton()).toBeNull();
+    expect(endButton()).toBeTruthy();
+  });
 });
 
 describe("VoiceSessionPill — send control", () => {

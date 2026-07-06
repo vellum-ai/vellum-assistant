@@ -5,8 +5,12 @@
  * presentational `VoiceSessionPill`, so tests drive those stores directly and
  * mock only the modules with heavy dependency graphs: router hooks (mutable
  * pathname + navigate spy), `useActiveConversation` (TanStack Query), the
- * viewer store (generated SDK imports), and the imperative
- * `navigateToConversation` util (haptics/sounds).
+ * viewer store (generated SDK imports), the `useIsMobile` media-query hook,
+ * and the imperative `navigateToConversation` util (haptics/sounds).
+ *
+ * Visibility is asserted as the exact complement of the composer's voice bar
+ * (`isLiveVoiceSessionOwnedBy`): for any active session exactly one of
+ * {composer bar, title-bar pill} renders.
  *
  * The embedded `VoiceTimelineWaveform` renders a real canvas — happy-dom's
  * `getContext("2d")` returns `null`, which that component treats as "don't
@@ -56,6 +60,12 @@ mock.module("@/stores/viewer-store", () => ({
   },
 }));
 
+let mockIsMobile = false;
+mock.module("@/hooks/use-is-mobile", () => ({
+  useIsMobile: () => mockIsMobile,
+  MOBILE_MEDIA_QUERY: "(max-width: 767px)",
+}));
+
 const navigateToConversationSpy = mock(
   (_navigate: unknown, _conversationId: string) => {},
 );
@@ -88,6 +98,7 @@ function startSession(
 beforeEach(() => {
   mockPathname = routes.conversation(OTHER_CONVERSATION_ID);
   mockMainView = "chat";
+  mockIsMobile = false;
   mockOwningConversation = {
     conversationId: OWNING_CONVERSATION_ID,
     title: "Owning thread",
@@ -136,7 +147,7 @@ describe("VoiceSessionPillHost — visibility", () => {
     expect(container.firstChild).toBeNull();
   });
 
-  test("shows the pill over the fullscreen app viewer even in the owning conversation", () => {
+  test("shows the pill over the desktop fullscreen app viewer even in the owning conversation", () => {
     startSession("listening");
     useConversationStore
       .getState()
@@ -145,6 +156,18 @@ describe("VoiceSessionPillHost — visibility", () => {
     mockMainView = "app";
     render(<VoiceSessionPillHost />);
     expect(pill()).not.toBeNull();
+  });
+
+  test("keeps the pill hidden for the mobile app view (composer stays mounted under the overlay)", () => {
+    startSession("listening");
+    useConversationStore
+      .getState()
+      .setActiveConversationId(OWNING_CONVERSATION_ID);
+    mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
+    mockMainView = "app";
+    mockIsMobile = true;
+    const { container } = render(<VoiceSessionPillHost />);
+    expect(container.firstChild).toBeNull();
   });
 
   test("shows the pill on a non-conversation route even when the owning id is still active", () => {
@@ -159,10 +182,37 @@ describe("VoiceSessionPillHost — visibility", () => {
     expect(pill()).not.toBeNull();
   });
 
-  test("hides the pill for a session with no owning conversation", () => {
+  test("shows the pill for a not-yet-attached session when away from the owning composer", () => {
+    // A live mic must always have a visible control: a session still in its
+    // pre-`ready` window (no conversation yet) shows the pill — without a
+    // thread name or navigation target — whenever another composer is the
+    // current surface.
+    startSession("connecting", null);
+    render(<VoiceSessionPillHost />);
+    expect(pill()).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Go to voice session thread" }),
+    ).toBeNull();
+  });
+
+  test("hides the pill while the draft composer that started the session is on screen", () => {
+    // Draft case: started with no conversation; the server assigned one on
+    // `ready`. The draft composer (bound to no conversation) still owns the
+    // session, so the pill must not double-render next to its voice bar.
     startSession("listening", null);
+    useLiveVoiceStore.getState().setConversationId("conv-server-assigned");
+    useConversationStore.getState().setActiveConversationId(null);
+    mockPathname = routes.assistant;
     const { container } = render(<VoiceSessionPillHost />);
     expect(container.firstChild).toBeNull();
+  });
+
+  test("shows the pill for a draft-started session once another thread is viewed", () => {
+    startSession("listening", null);
+    useLiveVoiceStore.getState().setConversationId("conv-server-assigned");
+    // beforeEach: viewing OTHER_CONVERSATION_ID on its conversation route.
+    render(<VoiceSessionPillHost />);
+    expect(pill()).not.toBeNull();
   });
 
   test("renders nothing after the session fails", () => {
@@ -218,14 +268,13 @@ describe("VoiceSessionPillHost — controls", () => {
     expect(controls.stop).not.toHaveBeenCalled();
   });
 
-  test("■ interrupts the assistant via controls.interrupt while speaking", () => {
+  test("■ stop-response control is not offered — V1 interrupt would end the whole session", () => {
     startSession("speaking");
     render(<VoiceSessionPillHost />);
-    fireEvent.click(
-      screen.getByRole("button", { name: "Stop assistant response" }),
-    );
-    expect(controls.interrupt).toHaveBeenCalledTimes(1);
-    expect(controls.stop).not.toHaveBeenCalled();
+    expect(pill()).not.toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Stop assistant response" }),
+    ).toBeNull();
   });
 
   test("controls are no-ops when none are registered", () => {

@@ -4,7 +4,7 @@
  * glyph and muted state label on the left, the dotted timeline waveform
  * filling the middle, and end (✕) / send-now (↑) controls on the right.
  *
- * Purely presentational: the parent owns the `useLiveVoice` session and
+ * Purely presentational: the composer observes the live-voice store and
  * wires `state`, an amplitude poll function, and the two callbacks. The
  * green ↑ is a manual "send now" (push-to-talk release) and is only
  * meaningful while the session is listening; the red ✕ ends the session

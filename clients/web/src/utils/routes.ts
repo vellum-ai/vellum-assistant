@@ -212,6 +212,19 @@ export function isAboutAssistantPath(pathname: string): boolean {
   );
 }
 
+/**
+ * Whether `pathname` is a conversation route — the `/assistant` index (draft
+ * conversation) or `/assistant/conversations/:id` — i.e. a route where
+ * `ChatPage` mounts the active conversation's composer.
+ */
+export function isConversationPath(pathname: string): boolean {
+  return (
+    pathname === routes.assistant ||
+    pathname === `${routes.assistant}/` ||
+    pathname.startsWith(`${routes.conversations}/`)
+  );
+}
+
 const WWW_DOMAIN = "vellum.ai";
 
 /** Full external URL for a legal/docs page hosted on the marketing site. */

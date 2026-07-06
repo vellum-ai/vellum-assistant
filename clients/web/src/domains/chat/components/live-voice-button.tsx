@@ -7,11 +7,13 @@
  * playback + barge-in). The button is gated behind the `voice-mode` assistant
  * flag and renders nothing when the flag is off.
  *
- * Purely presentational: the `useLiveVoice` controller lives in the composer
- * (which binds the assistant/conversation into `onStart`). While a session is
- * active the composer swaps its whole action row — this button included — for
- * the `VoiceComposerBar`, whose ✕ owns ending the session; so this control only
- * ever renders while no session is active and never needs a stop affordance.
+ * Purely presentational: the `useLiveVoice` controller lives in the
+ * layout-mounted `useLiveVoiceSessionController`; the composer binds the
+ * assistant/conversation into `onStart`, which drives the store-registered
+ * session starter. While a session is active the owning composer swaps its
+ * whole action row — this button included — for the `VoiceComposerBar`, whose
+ * ✕ owns ending the session; in non-owning composers the button stays visible
+ * but disabled, so this control never needs a stop affordance.
  */
 
 import { Mic } from "lucide-react";
