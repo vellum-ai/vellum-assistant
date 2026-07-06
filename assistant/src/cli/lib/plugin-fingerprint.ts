@@ -159,12 +159,6 @@ export function parseFingerprint(value: unknown): Fingerprint | null {
   return { algorithm: "sha256", files };
 }
 
-// The preserved-entries constant lives with the shared walk so install
-// fingerprinting and the live-reload source fingerprint can't disagree on
-// what counts as the plugin's source tree; re-exported here for the
-// install/upgrade/diff callers that treat this module as the fingerprint API.
-export { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
-
 /**
  * Aggregate SHA-256 digest over a tree's contents, returned as `v2:<hex>`.
  *

@@ -34,7 +34,7 @@ mock.module("../daemon/conversation-plugin-scope.js", () => ({
   resolveConversationPluginScope: (id: string) => resolveScopeMock(id),
 }));
 
-import { collectUserHooks } from "../hooks/hook-loader.js";
+import { collectUserHooks, preImportHooksDir } from "../hooks/hook-loader.js";
 import { getHooksFor } from "../hooks/registry.js";
 import {
   registerPlugin,
@@ -149,7 +149,9 @@ describe("collectUserHooks per-chat plugin scope (user-land hooks)", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  function pluginDirWithHook(name: string): string {
+  // Hooks enter the dispatch cache at owner activation (preImportHooksDir),
+  // so the fixture activates each plugin the way the orchestrator would.
+  async function pluginDirWithHook(name: string): Promise<string> {
     const dir = join(root, name);
     const hooksDir = join(dir, "hooks");
     mkdirSync(hooksDir, { recursive: true });
@@ -157,13 +159,14 @@ describe("collectUserHooks per-chat plugin scope (user-land hooks)", () => {
       join(hooksDir, "user-prompt-submit.ts"),
       "export default () => ({});\n",
     );
+    await preImportHooksDir(hooksDir, name);
     return dir;
   }
 
   test("null set runs both user plugins' hooks (unchanged)", async () => {
     const dirs: Array<readonly [string, string]> = [
-      [pluginDirWithHook("uplug-a"), "uplug-a"],
-      [pluginDirWithHook("uplug-b"), "uplug-b"],
+      [await pluginDirWithHook("uplug-a"), "uplug-a"],
+      [await pluginDirWithHook("uplug-b"), "uplug-b"],
     ];
 
     expect(await collectUserHooks("user-prompt-submit", dirs)).toHaveLength(2);
@@ -174,8 +177,8 @@ describe("collectUserHooks per-chat plugin scope (user-land hooks)", () => {
 
   test("a set excluding plugin b drops b's user-land hook", async () => {
     const dirs: Array<readonly [string, string]> = [
-      [pluginDirWithHook("uplug-a"), "uplug-a"],
-      [pluginDirWithHook("uplug-b"), "uplug-b"],
+      [await pluginDirWithHook("uplug-a"), "uplug-a"],
+      [await pluginDirWithHook("uplug-b"), "uplug-b"],
     ];
 
     expect(

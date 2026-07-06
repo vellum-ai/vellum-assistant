@@ -134,8 +134,11 @@ export interface ModelProfileInfo {
  * - `uninstall` — the plugin's directory was removed at runtime.
  * - `disable` — the plugin was disabled at runtime (e.g. a `.disabled`
  *   sentinel was added, or a feature flag turned it off).
+ * - `reload` — a source file inside the plugin directory changed and the
+ *   plugin is being redeployed in place; the old version's `shutdown` runs
+ *   before the new version is imported and its `init` fires.
  */
-export type ShutdownReason = "shutdown" | "uninstall" | "disable";
+export type ShutdownReason = "shutdown" | "uninstall" | "disable" | "reload";
 
 /**
  * Context passed to the `shutdown` hook. Kept intentionally narrower than

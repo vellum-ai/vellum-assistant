@@ -26,15 +26,13 @@ import {
   test,
 } from "bun:test";
 
-import {
-  computeFingerprint,
-  PRESERVED_ENTRIES,
-} from "../cli/lib/plugin-fingerprint.js";
+import { computeFingerprint } from "../cli/lib/plugin-fingerprint.js";
 import { resetHookCacheForTests } from "../hooks/hook-loader.js";
 import {
   populateCacheAtBoot,
   resetPluginCacheForTests,
 } from "../plugins/mtime-cache.js";
+import { PRESERVED_ENTRIES } from "../plugins/plugin-tree-walk.js";
 
 const ROOT = join(
   tmpdir(),

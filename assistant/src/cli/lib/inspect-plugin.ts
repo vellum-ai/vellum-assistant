@@ -16,6 +16,7 @@
  * is a thin wrapper that supplies production deps and formats the result.
  */
 
+import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import {
   DEFAULT_PLUGIN_REF,
   type FetchLike,
@@ -30,7 +31,6 @@ import {
 import {
   compareFingerprint,
   type FingerprintComparison,
-  PRESERVED_ENTRIES,
 } from "./plugin-fingerprint.js";
 import {
   fetchMarketplaceEntries,
@@ -238,15 +238,25 @@ async function fetchCommitDate(
         "User-Agent": "vellum-assistant-cli",
       },
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      return null;
+    }
     const json: unknown = JSON.parse(await res.text());
-    if (typeof json !== "object" || json === null) return null;
+    if (typeof json !== "object" || json === null) {
+      return null;
+    }
     const commit = (json as Record<string, unknown>).commit;
-    if (typeof commit !== "object" || commit === null) return null;
+    if (typeof commit !== "object" || commit === null) {
+      return null;
+    }
     const committer = (commit as Record<string, unknown>).committer;
-    if (typeof committer !== "object" || committer === null) return null;
+    if (typeof committer !== "object" || committer === null) {
+      return null;
+    }
     const date = (committer as Record<string, unknown>).date;
-    if (typeof date !== "string") return null;
+    if (typeof date !== "string") {
+      return null;
+    }
     const ms = Date.parse(date);
     return Number.isFinite(ms) ? new Date(ms).toISOString() : null;
   } catch {
@@ -312,10 +322,18 @@ function classify(
   remote: PluginRemoteInfo | null,
   remoteError: string | null,
 ): PluginUpdateStatus {
-  if (!installed) return "not-installed";
-  if (remoteError && !remote) return "remote-unavailable";
-  if (!remote) return "not-in-marketplace";
-  if (!local?.commit) return "unknown-provenance";
+  if (!installed) {
+    return "not-installed";
+  }
+  if (remoteError && !remote) {
+    return "remote-unavailable";
+  }
+  if (!remote) {
+    return "not-in-marketplace";
+  }
+  if (!local?.commit) {
+    return "unknown-provenance";
+  }
   return local.commit.toLowerCase() === remote.commit.toLowerCase()
     ? "up-to-date"
     : "update-available";

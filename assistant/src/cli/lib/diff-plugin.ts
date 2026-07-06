@@ -38,6 +38,7 @@ import { join } from "node:path";
 
 import { createTwoFilesPatch } from "diff";
 
+import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   DEFAULT_PLUGIN_REF,
@@ -55,7 +56,6 @@ import {
   compareFingerprint,
   computeFingerprint,
   type Fingerprint,
-  PRESERVED_ENTRIES,
 } from "./plugin-fingerprint.js";
 import { PluginNotInstalledError } from "./uninstall-plugin.js";
 
@@ -141,7 +141,9 @@ export interface DiffPluginDeps {
 function isBinary(buf: Buffer): boolean {
   const len = Math.min(buf.length, 8000);
   for (let i = 0; i < len; i++) {
-    if (buf[i] === 0) return true;
+    if (buf[i] === 0) {
+      return true;
+    }
   }
   return false;
 }
@@ -214,7 +216,9 @@ function baselineContent(
   recorded: Fingerprint,
   materialized: Fingerprint,
 ): FileContent | null {
-  if (materialized.files[path] !== recorded.files[path]) return null;
+  if (materialized.files[path] !== recorded.files[path]) {
+    return null;
+  }
   return readContent(join(baselineRoot, path));
 }
 

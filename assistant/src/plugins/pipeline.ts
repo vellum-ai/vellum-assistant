@@ -9,8 +9,9 @@
  * place (returning `void`) or returns a partial context whose fields are merged
  * onto the draft. Failed hook drafts are discarded.
  *
- * `getHooksFor` is now async — it pulls user-land hooks from the mtime
- * cache (filesystem-as-truth) and default plugin hooks from the registry
+ * `getHooksFor` is now async — it pulls user-land hooks from the plugin
+ * cache (filesystem-as-truth via the source-versions reconcile) and default
+ * plugin hooks from the registry
  * in a single unified call.
  *
  * Design doc: `.private/plans/agent-plugin-system.md`.

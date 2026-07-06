@@ -32,6 +32,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
+import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
 import {
   inspectPlugin,
@@ -55,11 +56,7 @@ import {
   sanitizePluginName,
 } from "./install-from-github.js";
 import { type ConflictLabels, mergePluginTree } from "./merge-plugin-tree.js";
-import {
-  computeFingerprint,
-  fingerprintsEqual,
-  PRESERVED_ENTRIES,
-} from "./plugin-fingerprint.js";
+import { computeFingerprint, fingerprintsEqual } from "./plugin-fingerprint.js";
 import { PluginNotInstalledError } from "./uninstall-plugin.js";
 
 /**
