@@ -75,6 +75,12 @@ interface RiskClassificationWithMeta extends RiskClassification {
   actionKeys?: string[];
   /** Whether the command qualifies for sandbox auto-approve (bash tools). */
   sandboxAutoApprove?: boolean;
+  /**
+   * Lexically-resolved path args from the gateway for bash sandbox
+   * auto-approve. Stored in the cache so the symlink escape check can be
+   * re-run on cache hits (symlink targets may change between calls).
+   */
+  sandboxPathArgs?: string[];
   /** Allowlist options from the gateway for generateAllowlistOptions(). */
   allowlistOptions?: AllowlistOption[];
   /** Resolved filesystem path arguments for directory-scoped rule matching. */
@@ -596,6 +602,37 @@ function riskStringToLevel(risk: string): RiskLevel {
   }
 }
 
+/**
+ * Re-check bash sandbox auto-approve path args against the workspace root
+ * with symlink resolution. The gateway's lexical check cannot follow
+ * symlinks (no filesystem access), so the daemon resolves each path arg
+ * through {@link isPathWithinWorkspaceRoot} (which uses realpathSync) and
+ * revokes auto-approve if any escapes the workspace boundary.
+ *
+ * Called both on fresh gateway results and on cache hits, because symlink
+ * targets can change between invocations — a path that was safe on the
+ * first call may escape on the second if the symlink was retargeted.
+ */
+function applyBashSymlinkEscapeCheck(
+  result: RiskClassificationWithMeta,
+  sandboxPathArgs?: string[],
+): void {
+  if (
+    !result.sandboxAutoApprove ||
+    !sandboxPathArgs ||
+    sandboxPathArgs.length === 0
+  ) {
+    return;
+  }
+  const wsRoot = getWorkspaceDir();
+  const escaped = sandboxPathArgs.some(
+    (p) => !isPathWithinWorkspaceRoot(p, wsRoot),
+  );
+  if (escaped) {
+    result.sandboxAutoApprove = false;
+  }
+}
+
 export async function classifyRisk(
   toolName: string,
   input: Record<string, unknown>,
@@ -619,6 +656,14 @@ export async function classifyRisk(
     // LRU refresh
     riskCache.delete(cacheKey);
     riskCache.set(cacheKey, cached);
+    // Re-run the symlink escape check on cache hits: symlink targets can
+    // change between invocations, so a path that was safe when cached may
+    // now escape. Return a shallow copy so the cache entry is not mutated.
+    if (cached.sandboxPathArgs && cached.sandboxPathArgs.length > 0) {
+      const fresh = { ...cached };
+      applyBashSymlinkEscapeCheck(fresh, cached.sandboxPathArgs);
+      return fresh;
+    }
     return cached;
   }
 
@@ -643,6 +688,7 @@ export async function classifyRisk(
     commandCandidates: gatewayResult.commandCandidates,
     actionKeys: gatewayResult.actionKeys,
     sandboxAutoApprove: gatewayResult.sandboxAutoApprove,
+    sandboxPathArgs: gatewayResult.sandboxPathArgs,
     allowlistOptions: gatewayResult.allowlistOptions,
     resolvedPaths: gatewayResult.resolvedPaths,
   };
@@ -654,19 +700,9 @@ export async function classifyRisk(
   // `ln -s /etc /workspace/escape`) would pass the lexical check and
   // be auto-approved. Resolve the gateway-provided path args through
   // symlinks here and revoke auto-approve if any escapes the workspace.
-  if (
-    result.sandboxAutoApprove &&
-    gatewayResult.sandboxPathArgs &&
-    gatewayResult.sandboxPathArgs.length > 0
-  ) {
-    const wsRoot = getWorkspaceDir();
-    const escaped = gatewayResult.sandboxPathArgs.some(
-      (p) => !isPathWithinWorkspaceRoot(p, wsRoot),
-    );
-    if (escaped) {
-      result.sandboxAutoApprove = false;
-    }
-  }
+  // The check is also re-run on cache hits (see above) because symlink
+  // targets can change between invocations.
+  applyBashSymlinkEscapeCheck(result, gatewayResult.sandboxPathArgs);
 
   // Cache the result.
   if (riskCache.size >= RISK_CACHE_MAX) {

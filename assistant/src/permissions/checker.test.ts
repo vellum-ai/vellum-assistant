@@ -396,6 +396,33 @@ describe("Permission Checker (gateway IPC)", () => {
       mockIsPathWithinWorkspaceRoot = true;
     });
 
+    test("cache hit re-runs symlink escape check after symlink retargeted", async () => {
+      // First call: path args within workspace → sandboxAutoApprove true.
+      mockIsPathWithinWorkspaceRoot = true;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "cat (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        sandboxPathArgs: ["/workspace/escape/secret42.bin"],
+      };
+      const first = await classifyRisk("bash", {
+        command: "cat /workspace/escape/secret42.bin",
+      });
+      expect((first as any).sandboxAutoApprove).toBe(true);
+
+      // Second call with the same command: cache hit, but symlink now
+      // resolves outside workspace. The cache hit must re-run the check
+      // and override sandboxAutoApprove to false.
+      mockIsPathWithinWorkspaceRoot = false;
+      const second = await classifyRisk("bash", {
+        command: "cat /workspace/escape/secret42.bin",
+      });
+      expect((second as any).sandboxAutoApprove).toBe(false);
+      mockIsPathWithinWorkspaceRoot = true;
+    });
+
     test("preserves allowlistOptions from gateway response", async () => {
       const mockOptions = [
         { label: "date", description: "Exact command", pattern: "date" },
