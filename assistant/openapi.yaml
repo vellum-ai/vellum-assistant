@@ -21295,6 +21295,44 @@ paths:
                   showPlatformLogin:
                     type: boolean
                 additionalProperties: false
+  /v1/platform/credits:
+    get:
+      operationId: platform_credits_get
+      summary: Get the organization's remaining credit balance
+      description:
+        Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform
+        billing summary.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  remaining:
+                    type: number
+                  settled:
+                    type: number
+                  pending:
+                    type: number
+                  unit:
+                    type: string
+                    const: USD
+                  stale:
+                    type: boolean
+                  as_of:
+                    type: string
+                required:
+                  - remaining
+                  - settled
+                  - pending
+                  - unit
+                  - stale
+                  - as_of
+                additionalProperties: false
   /v1/platform/disconnect:
     post:
       operationId: platform_disconnect_post
