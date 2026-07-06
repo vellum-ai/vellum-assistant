@@ -2,27 +2,15 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 type AppUrlOpenHandler = (payload: { url: string }) => void;
 
-let isNative = true;
-const isNativePlatformMock = mock(() => isNative);
 mock.module("@/runtime/native-auth", () => ({
-  isNativePlatform: isNativePlatformMock,
+  isNativePlatform: () => true,
 }));
 
 let urlOpenHandler: AppUrlOpenHandler | null = null;
-const handleRemoveMock = mock(async () => {});
-let addListenerResolver:
-  ((value: { remove: typeof handleRemoveMock }) => void) | null = null;
-let addListenerRejecter: ((err: Error) => void) | null = null;
-
 const addListenerMock = mock(
   (_event: "appUrlOpen", handler: AppUrlOpenHandler) => {
     urlOpenHandler = handler;
-    return new Promise<{ remove: typeof handleRemoveMock }>(
-      (resolve, reject) => {
-        addListenerResolver = resolve;
-        addListenerRejecter = reject;
-      },
-    );
+    return Promise.resolve({ remove: async () => {} });
   },
 );
 
@@ -31,6 +19,10 @@ mock.module("@capacitor/app", () => ({
     addListener: addListenerMock,
   },
 }));
+
+// Warm the module cache so the source's lazy `import("@capacitor/app")`
+// resolves within microtasks instead of a full loader turn.
+await import("@capacitor/app");
 
 const captureErrorMock = mock(() => {});
 mock.module("@/lib/sentry/capture-error", () => ({
@@ -47,40 +39,26 @@ import {
 const { publishCapacitorDeepLinksSource } =
   await import("@/runtime/event-sources/capacitor-deep-links");
 
+// The dynamic `import("@capacitor/app")` and its `.then` chain each
+// queue a microtask, so listener registration lags synchronous test
+// code — flush before driving the captured handler.
 const flushMicrotasks = async (rounds = 4) => {
-  for (let i = 0; i < rounds; i++) await Promise.resolve();
-};
-const resolveAddListener = async () => {
-  // The dynamic `import("@capacitor/app")` and its `.then` chain each
-  // queue a microtask, so the source's `addListenerMock` call lags
-  // synchronous test code. Flush before resolving the pending promise,
-  // then flush again so the `.then` that stores the `handle` runs.
-  await flushMicrotasks();
-  addListenerResolver?.({ remove: handleRemoveMock });
-  await flushMicrotasks();
+  for (let i = 0; i < rounds; i++) {
+    await Promise.resolve();
+  }
 };
 
 beforeEach(() => {
-  isNative = true;
   urlOpenHandler = null;
-  addListenerResolver = null;
-  addListenerRejecter = null;
-  isNativePlatformMock.mockClear();
   addListenerMock.mockClear();
-  handleRemoveMock.mockClear();
   captureErrorMock.mockClear();
 });
 
+// The platform guard, unsubscribe races, and failure reporting are the
+// `subscribeCapacitorListener` contract, covered by
+// `runtime/capacitor-listener.test.ts`. This suite covers only this
+// source's wiring: URL routing and its error context.
 describe("publishCapacitorDeepLinksSource", () => {
-  test("is a no-op off Capacitor iOS (returns a no-op unsubscribe, never imports the plugin)", () => {
-    isNative = false;
-
-    const unsubscribe = publishCapacitorDeepLinksSource();
-    unsubscribe();
-
-    expect(addListenerMock).not.toHaveBeenCalled();
-  });
-
   test("dispatches the OAuth-complete window CustomEvent for an oauth-complete deep link", async () => {
     const received: OAuthCompleteDeepLinkPayload[] = [];
     const windowListener = (
@@ -91,8 +69,8 @@ describe("publishCapacitorDeepLinksSource", () => {
     window.addEventListener(OAUTH_COMPLETE_DEEP_LINK_EVENT, windowListener);
 
     try {
-      const unsubscribe = publishCapacitorDeepLinksSource();
-      await resolveAddListener();
+      publishCapacitorDeepLinksSource();
+      await flushMicrotasks();
 
       const payload: OAuthCompleteDeepLinkPayload = {
         requestId: "req-123",
@@ -105,7 +83,6 @@ describe("publishCapacitorDeepLinksSource", () => {
       });
 
       expect(received).toEqual([payload]);
-      unsubscribe();
     } finally {
       window.removeEventListener(
         OAUTH_COMPLETE_DEEP_LINK_EVENT,
@@ -121,45 +98,24 @@ describe("publishCapacitorDeepLinksSource", () => {
     });
 
     try {
-      const unsubscribe = publishCapacitorDeepLinksSource();
-      await resolveAddListener();
+      publishCapacitorDeepLinksSource();
+      await flushMicrotasks();
 
       urlOpenHandler!({ url: "vellum-assistant://some-future-link?x=1" });
 
       expect(received).toEqual([
         { url: "vellum-assistant://some-future-link?x=1" },
       ]);
-      unsubscribe();
     } finally {
       unsubscribeBus();
     }
   });
 
-  test("returned unsubscribe removes the listener once it resolves", async () => {
-    const unsubscribe = publishCapacitorDeepLinksSource();
-
-    await resolveAddListener();
-    expect(handleRemoveMock).not.toHaveBeenCalled();
-
-    unsubscribe();
-    expect(handleRemoveMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("unsubscribe BEFORE the lazy import resolves still removes the just-registered listener", async () => {
-    const unsubscribe = publishCapacitorDeepLinksSource();
-
-    unsubscribe();
-    await resolveAddListener();
-
-    expect(handleRemoveMock).toHaveBeenCalledTimes(1);
-  });
-
-  test("reports a lazy-import failure instead of throwing", async () => {
-    publishCapacitorDeepLinksSource();
-
-    await flushMicrotasks();
+  test("reports listener-registration failures under the 'capacitor_deep_links' context", async () => {
     const err = new Error("plugin missing");
-    addListenerRejecter?.(err);
+    addListenerMock.mockImplementationOnce(() => Promise.reject(err));
+
+    publishCapacitorDeepLinksSource();
     await flushMicrotasks();
 
     expect(captureErrorMock).toHaveBeenCalledWith(err, {
