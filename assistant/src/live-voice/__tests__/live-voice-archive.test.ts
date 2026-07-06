@@ -253,7 +253,7 @@ describe("live voice audio archive", () => {
     expect(getLiveVoiceArtifacts(message.id)).toEqual([result.artifact]);
   });
 
-  test("returns an unlinked result when the assistant message id is unavailable", () => {
+  test("stores an unlinked artifact when the assistant message id is unavailable", async () => {
     const result = linkLiveVoiceAssistantResponseAudioToMessage({
       messageId: undefined,
       sessionId: "session-assistant-unlinked",
@@ -265,18 +265,37 @@ describe("live voice audio archive", () => {
       },
     });
 
-    expect(result).toEqual({
+    // The audio must never be silently dropped: it is stored as an
+    // attachment even though no message exists to link it to.
+    expect(result).toMatchObject({
       type: "unlinked",
-      warning: {
-        code: "message_id_unavailable",
-        message:
-          "Live voice audio archive could not be linked because no message id was available.",
-      },
+      warning: { code: "message_id_unavailable" },
       sessionId: "session-assistant-unlinked",
       turnId: "turn-assistant-unlinked",
       role: "assistant",
+      artifact: {
+        archiveKey:
+          "live-voice:session-assistant-unlinked:turn-assistant-unlinked:assistant",
+        role: "assistant",
+        mimeType: "audio/pcm",
+      },
     });
-    expect(countAllAttachments()).toBe(0);
+    if (result.type !== "unlinked" || !result.artifact) {
+      throw new Error("expected stored unlinked result");
+    }
+    expect(countAllAttachments()).toBe(1);
+    expect(getAttachmentContent(result.artifact.attachmentId)?.toString()).toBe(
+      "unlinked assistant audio",
+    );
+
+    // The stored artifact can be linked once a message id is known.
+    const { message } = await createMessage("assistant");
+    const linked = linkLiveVoiceAudioArtifactToMessage({
+      messageId: message.id,
+      artifact: result.artifact,
+    });
+    expect(linked.type).toBe("archived");
+    expect(getAttachmentsForMessage(message.id)).toHaveLength(1);
   });
 
   test("is idempotent for the session turn role key", async () => {

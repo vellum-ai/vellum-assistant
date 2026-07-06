@@ -294,6 +294,107 @@ describe("LiveVoiceSession archive and metrics events", () => {
     expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
   });
 
+  test("persisted message ids reported during the turn are linked into the archives", async () => {
+    const archiveAudio = mock(
+      async (input: LiveVoiceSessionArchiveAudioInput) =>
+        makeArchiveResult(input),
+    );
+    const harness = createArchivingHarness(archiveAudio);
+    const { frames, transport, controller } = harness;
+
+    await startRespondingTurn(harness, "hello");
+    // The voice bridge reports the persisted user message right after
+    // dispatch and the assistant message at generation complete — both
+    // while the turn is still responding.
+    controller.options?.onPersistedUserMessageId("msg-user-1");
+    controller.options?.onPersistedAssistantMessageId("msg-assistant-1");
+    await transport.emitTtsAudio("assistant audio");
+    await transport.emitTtsDone();
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_completed",
+      ),
+    );
+
+    expect(
+      archiveAudio.mock.calls.map((call) => [call[0].role, call[0].messageId]),
+    ).toEqual([
+      ["user", "msg-user-1"],
+      ["assistant", "msg-assistant-1"],
+    ]);
+  });
+
+  test("archives with null message ids when none arrived before finalize (unlinked fallback)", async () => {
+    const archiveAudio = mock(
+      async (input: LiveVoiceSessionArchiveAudioInput) =>
+        makeArchiveResult(input),
+    );
+    const harness = createArchivingHarness(archiveAudio);
+    const { frames, transport } = harness;
+
+    await startRespondingTurn(harness, "hello");
+    await transport.emitTtsAudio("assistant audio");
+    await transport.emitTtsDone();
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_completed",
+      ),
+    );
+
+    expect(
+      archiveAudio.mock.calls.map((call) => call[0].messageId ?? null),
+    ).toEqual([null, null]);
+  });
+
+  test("message ids arriving after the turn finalized are dropped, not misattributed", async () => {
+    const archiveAudio = mock(
+      async (input: LiveVoiceSessionArchiveAudioInput) =>
+        makeArchiveResult(input),
+    );
+    const harness = createArchivingHarness(archiveAudio);
+    const { session, frames, ingest, transport, controller } = harness;
+
+    await startRespondingTurn(harness, "first utterance");
+    controller.options?.onPersistedUserMessageId("msg-user-1");
+    // Barge-in finalizes the turn before the assistant message persists.
+    controller.state = "speaking";
+    ingest.callbacks.onSpeechStart?.();
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_cancelled",
+      ),
+    );
+    // Late id for the aborted generation: no responding turn — dropped.
+    controller.options?.onPersistedAssistantMessageId("msg-assistant-stale");
+
+    await session.handleClientFrame(audioFrame("second user audio"));
+    ingest.callbacks.onTranscriptFinal?.("second utterance");
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "thinking").length === 2,
+    );
+    controller.options?.onPersistedUserMessageId("msg-user-2");
+    controller.options?.onPersistedAssistantMessageId("msg-assistant-2");
+    await transport.emitTtsAudio("second assistant audio");
+    await transport.emitTtsDone();
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_completed",
+      ),
+    );
+
+    expect(
+      archiveAudio.mock.calls.map((call) => [
+        call[0].turnId,
+        call[0].role,
+        call[0].messageId ?? null,
+      ]),
+    ).toEqual([
+      ["live-turn-1", "user", "msg-user-1"],
+      ["live-turn-2", "user", "msg-user-2"],
+      ["live-turn-2", "assistant", "msg-assistant-2"],
+    ]);
+  });
+
   test("session close cancels the open turn and archives its user audio", async () => {
     const archiveAudio = mock(
       async (input: LiveVoiceSessionArchiveAudioInput) =>

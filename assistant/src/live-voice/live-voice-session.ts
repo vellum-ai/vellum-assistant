@@ -34,6 +34,7 @@ import type {
   VoiceSessionSource,
 } from "../calls/voice-session-source.js";
 import { getConfig } from "../config/loader.js";
+import { errorMessage } from "../util/errors.js";
 import type {
   LiveVoiceAudioArchiveResult,
   LiveVoiceAudioArchiveRole,
@@ -96,10 +97,12 @@ export type LiveVoiceIngestFactory = (
 /**
  * Transport surface the session drives. Extends the controller-facing
  * `CallTransport` with the per-turn assistant-audio drain used for
- * archiving (production: {@link LiveVoiceCallTransport}).
+ * archiving and the TTS-queue drain awaited before a server-initiated
+ * close (production: {@link LiveVoiceCallTransport}).
  */
 export interface LiveVoiceSessionTransport extends CallTransport {
   collectAssistantAudio(): Buffer[];
+  waitForTtsDrain(): Promise<void>;
 }
 
 export type LiveVoiceTransportFactory = (
@@ -121,6 +124,13 @@ export interface LiveVoiceSessionControllerOptions {
   transport: CallTransport;
   /** In-app session source (no call_sessions row backs these sessions). */
   sessionSource: VoiceSessionSource;
+  /**
+   * Persisted-message-id hooks the controller profile forwards into each
+   * voice turn; the session uses them to link per-turn audio archives to
+   * the conversation messages.
+   */
+  onPersistedUserMessageId: (messageId: string) => void;
+  onPersistedAssistantMessageId: (messageId: string) => void;
 }
 
 export type LiveVoiceControllerFactory = (
@@ -179,8 +189,19 @@ interface SessionTurn {
   userAudioBytes: number;
   assistantAudioMimeType: string;
   assistantAudioSampleRate?: number;
+  /**
+   * Persisted conversation message ids for this exchange, reported by the
+   * voice bridge (via the in-app profile hooks) once the pipeline persists
+   * each message. Null until reported; archives fall back to unlinked
+   * storage when a turn finalizes before the id arrives.
+   */
+  userMessageId: string | null;
+  assistantMessageId: string | null;
   finalized: boolean;
 }
+
+/** How long a server-initiated end waits for queued TTS (the goodbye). */
+const SERVER_END_TTS_DRAIN_TIMEOUT_MS = 5_000;
 
 export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly context: LiveVoiceSessionFactoryContext;
@@ -209,6 +230,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private lastAssistantTurnId: string | null = null;
   private outboundFrames: Promise<void> = Promise.resolve();
   private sessionEndMetricsEmitted = false;
+  /** Guards the async server-initiated end flow against re-entry. */
+  private serverEndStarted = false;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -278,7 +301,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           this.currentTurn?.turnId ??
           this.lastAssistantTurnId ??
           this.context.sessionId,
-        onSessionEnd: () => this.handleControllerSessionEnd(),
+        onSessionEnd: (reason) => this.handleControllerSessionEnd(reason),
       });
       this.transport = transport;
 
@@ -286,6 +309,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         callSessionId: this.context.sessionId,
         transport: this.wrapTransportForController(transport),
         sessionSource: this.createSessionSource(),
+        onPersistedUserMessageId: (messageId) =>
+          this.handlePersistedMessageId("user", messageId),
+        onPersistedAssistantMessageId: (messageId) =>
+          this.handlePersistedMessageId("assistant", messageId),
       });
       if (this.state !== "open") {
         this.controller.destroy();
@@ -359,7 +386,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.drainOutboundFrames();
   }
 
-  async close(_reason: LiveVoiceSessionCloseReason): Promise<void> {
+  async close(reason: LiveVoiceSessionCloseReason): Promise<void> {
     if (this.state !== "open") {
       return;
     }
@@ -374,6 +401,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.emitSessionEndMetrics();
     this.state = "closed";
     await this.drainOutboundFrames();
+    // Release the owner last so the manager slot (and the socket) is only
+    // freed once the session has fully unwound.
+    this.context.onSessionEnded?.(reason);
   }
 
   // ── Inbound audio ────────────────────────────────────────────────────
@@ -421,7 +451,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         if (this.state !== "open") {
           return;
         }
-        if (this.controller?.getState() === "speaking") {
+        // Barge-in while the controller speaks, or while a responding
+        // turn's synthesis tail is still playing after the controller
+        // already went idle (tryBargeIn handles both).
+        if (
+          this.controller?.getState() === "speaking" ||
+          this.currentTurn?.phase === "responding"
+        ) {
           this.tryBargeIn();
           return;
         }
@@ -459,7 +495,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         }
         void this.sendFrame({
           type: "error",
-          code: LiveVoiceProtocolErrorCode.InvalidField,
+          code: LiveVoiceProtocolErrorCode.SttFailed,
           message: `Live voice transcription error (${category}): ${message}`,
         });
       },
@@ -477,10 +513,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     let turn = this.currentTurn;
     if (content.length === 0) {
       // Nothing to dispatch. A listening turn that transcribed to nothing
-      // is retired; a responding turn is left alone (the empty final came
-      // from residual noise, not a competing utterance).
+      // is retired — with a turn_cancelled notice so the client resumes
+      // listening instead of waiting for a response that never starts. A
+      // responding turn is left alone (the empty final came from residual
+      // noise, not a competing utterance).
       if (turn?.phase === "listening") {
-        void this.finalizeTurn(turn, "cancelled", "empty_transcript");
+        this.cancelTurnWithNotice(turn, "empty_transcript");
       }
       return;
     }
@@ -501,27 +539,51 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     void this.sendFrame({ type: "thinking", turnId: turn.turnId });
 
     const controller = this.controller;
+    const dispatchedTurn = turn;
     void controller.handleCallerUtterance(content).catch((err) => {
       if (this.state !== "open") {
         return;
       }
       void this.sendFrame({
         type: "error",
-        code: LiveVoiceProtocolErrorCode.InvalidField,
+        code: LiveVoiceProtocolErrorCode.TurnFailed,
         message: `Live voice assistant turn failed: ${errorMessage(err)}`,
       });
+      // The turn will never produce a response; retire it so the client
+      // resumes listening instead of waiting on a dead turn.
+      if (!dispatchedTurn.finalized) {
+        this.cancelTurnWithNotice(dispatchedTurn, "turn_failed");
+      }
     });
+  }
+
+  /**
+   * Retire a turn that will never produce an assistant response and tell
+   * the client so it resumes listening (the `archived`/`metrics` frames
+   * alone do not advance the client's state machine).
+   */
+  private cancelTurnWithNotice(turn: SessionTurn, reason: string): void {
+    void this.sendFrame({ type: "turn_cancelled", reason });
+    void this.finalizeTurn(turn, "cancelled", reason);
   }
 
   // ── Barge-in ─────────────────────────────────────────────────────────
 
   /**
-   * Attempt to interrupt the assistant. Accepted only while the
-   * controller is `speaking`; the controller flushes the transport's
-   * pending text/synthesis itself (via discardPendingText) inside
-   * handleInterrupt. `onAccepted` runs before that flush, so the
-   * `interrupted` frame and the turn's cancellation are ordered ahead
-   * of any frames the flush suppresses.
+   * Attempt to interrupt the assistant.
+   *
+   * Controller path: accepted while the controller is `speaking`; the
+   * controller flushes the transport's pending text/synthesis itself (via
+   * discardPendingText) inside handleInterrupt. `onAccepted` runs before
+   * that flush, so the `interrupted` frame and the turn's cancellation are
+   * ordered ahead of any frames the flush suppresses.
+   *
+   * Session path: the controller flips `idle` when *generation* ends, but
+   * the synthesized tail can still be playing (tts_done not yet emitted).
+   * An interrupt in that window is handled at the session layer — flush
+   * the transport's remaining synthesis, emit `interrupted`, and retire
+   * the turn — without touching the controller's (shared, phone-critical)
+   * turn lifecycle.
    */
   private tryBargeIn(): boolean {
     const controller = this.controller;
@@ -530,7 +592,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     }
 
     const turn = this.currentTurn;
-    return controller.handleBargeIn(() => {
+    const accepted = controller.handleBargeIn(() => {
       const interruptedTurnId =
         turn?.turnId ?? this.lastAssistantTurnId ?? this.context.sessionId;
       void this.sendFrame({ type: "interrupted", turnId: interruptedTurnId });
@@ -538,6 +600,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         void this.finalizeTurn(turn, "cancelled", "barge_in");
       }
     });
+    if (accepted) {
+      return true;
+    }
+
+    if (
+      controller.getState() === "idle" &&
+      turn?.phase === "responding" &&
+      !turn.finalized
+    ) {
+      this.transport?.discardPendingText?.();
+      void this.sendFrame({ type: "interrupted", turnId: turn.turnId });
+      void this.finalizeTurn(turn, "cancelled", "barge_in");
+      return true;
+    }
+
+    return false;
   }
 
   // ── Assistant output ─────────────────────────────────────────────────
@@ -561,6 +639,27 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       setAudioStartCallback: (cb) => transport.setAudioStartCallback?.(cb),
       discardPendingText: () => transport.discardPendingText?.(),
     };
+  }
+
+  /**
+   * The voice bridge persisted a conversation message for the in-flight
+   * exchange. Recorded on the responding turn so its audio archives link
+   * to the message. Ids for a turn that already finalized (barge-in,
+   * supersession) are dropped — that turn's audio was archived unlinked.
+   */
+  private handlePersistedMessageId(
+    role: LiveVoiceAudioArchiveRole,
+    messageId: string,
+  ): void {
+    const turn = this.currentTurn;
+    if (turn?.phase !== "responding") {
+      return;
+    }
+    if (role === "user") {
+      turn.userMessageId = messageId;
+    } else {
+      turn.assistantMessageId = messageId;
+    }
   }
 
   private handleAssistantToken(token: string): void {
@@ -612,9 +711,38 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     return this.sendFrame(payload);
   }
 
-  /** [END_CALL] / max-duration: the controller asked to end the session. */
-  private handleControllerSessionEnd(): void {
-    void this.close("client_end");
+  /**
+   * [END_CALL] / max-duration: the controller asked to end the session.
+   * The goodbye is typically still in the transport's TTS queue at this
+   * point, so drain it (bounded — a hung provider must not block close),
+   * tell the client the session is over, then close. Closing eagerly would
+   * destroy the controller, whose teardown discards the queued goodbye.
+   */
+  private handleControllerSessionEnd(reason?: string): void {
+    if (this.state !== "open" || this.serverEndStarted) {
+      return;
+    }
+    this.serverEndStarted = true;
+
+    void (async () => {
+      const drained = this.transport?.waitForTtsDrain();
+      if (drained) {
+        await Promise.race([
+          drained,
+          new Promise<void>((resolve) =>
+            setTimeout(resolve, SERVER_END_TTS_DRAIN_TIMEOUT_MS),
+          ),
+        ]);
+      }
+      if (this.state !== "open") {
+        return;
+      }
+      await this.sendFrame({
+        type: "session_ended",
+        reason: reason ?? "session_ended",
+      });
+      await this.close("client_end");
+    })();
   }
 
   // ── Turn lifecycle ───────────────────────────────────────────────────
@@ -630,6 +758,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       userAudioChunks: [],
       userAudioBytes: 0,
       assistantAudioMimeType: "audio/pcm",
+      userMessageId: null,
+      assistantMessageId: null,
       finalized: false,
     };
     this.currentTurn = turn;
@@ -674,6 +804,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         userAudioChunks,
         assistantAudioChunks,
         assistantAudioMimeType: turn.assistantAudioMimeType,
+        userMessageId: turn.userMessageId,
+        assistantMessageId: turn.assistantMessageId,
         ...(turn.assistantAudioSampleRate !== undefined
           ? { assistantAudioSampleRate: turn.assistantAudioSampleRate }
           : {}),
@@ -695,6 +827,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     assistantAudioChunks: Buffer[];
     assistantAudioMimeType: string;
     assistantAudioSampleRate?: number;
+    userMessageId: string | null;
+    assistantMessageId: string | null;
   }): Promise<void> {
     const userAudio = takeBufferedAudio(input.userAudioChunks);
     if (userAudio) {
@@ -704,6 +838,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         mimeType: this.context.startFrame.audio.mimeType,
         sampleRate: this.context.startFrame.audio.sampleRate,
         audio: userAudio,
+        messageId: input.userMessageId,
       });
     }
 
@@ -718,6 +853,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         mimeType: input.assistantAudioMimeType,
         sampleRate,
         audio: assistantAudio,
+        messageId: input.assistantMessageId,
       });
     }
   }
@@ -728,6 +864,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     mimeType: string;
     sampleRate: number;
     audio: Buffer;
+    /** Persisted message to link to; null archives unlinked (but stored). */
+    messageId: string | null;
   }): Promise<void> {
     const archiveAudio = this.archiveAudio;
     if (!archiveAudio) {
@@ -742,7 +880,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     let result: LiveVoiceAudioArchiveResult;
     try {
       result = await archiveAudio({
-        messageId: null,
+        messageId: input.messageId,
         sessionId: this.context.sessionId,
         turnId: input.turnId,
         role: input.role,
@@ -936,7 +1074,10 @@ async function defaultCreateController(
   // startInitialGreeting) — in-app users speak first.
   return new CallController(options.callSessionId, options.transport, null, {
     sessionSource: options.sessionSource,
-    profile: createInAppVoiceControllerProfile(),
+    profile: createInAppVoiceControllerProfile({
+      onPersistedUserMessageId: options.onPersistedUserMessageId,
+      onPersistedAssistantMessageId: options.onPersistedAssistantMessageId,
+    }),
   });
 }
 
@@ -996,8 +1137,4 @@ function estimatePcmDurationMs(input: {
   return Math.round(
     (input.byteLength / (input.sampleRate * bytesPerMonoSample)) * 1000,
   );
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }

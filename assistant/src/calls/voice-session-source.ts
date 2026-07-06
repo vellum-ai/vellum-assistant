@@ -35,7 +35,10 @@ import type {
   CallPendingQuestion,
   CallStatus,
 } from "./types.js";
-import { buildLiveVoiceControlPrompt } from "./voice-session-bridge.js";
+import {
+  buildLiveVoiceControlPrompt,
+  type VoiceTurnCallbacks,
+} from "./voice-session-bridge.js";
 
 /** Point-in-time view of the session lifecycle fields CallController reads. */
 export interface VoiceSessionSnapshot {
@@ -96,6 +99,12 @@ export interface VoiceTurnProfileContext {
   assistantMessageInterface: InterfaceId;
   /** Per-turn control prompt. Undefined builds the phone prompt; null disables it. */
   voiceControlPrompt: string | null | undefined;
+  /**
+   * Event-name callbacks forwarded to every startVoiceTurn call. The in-app
+   * profile uses these to learn the persisted user/assistant message ids so
+   * the live-voice session can link per-turn audio archives to them.
+   */
+  callbacks?: VoiceTurnCallbacks;
 }
 
 /**
@@ -154,6 +163,14 @@ export interface VoiceControllerProfile {
   voiceTurn: VoiceTurnProfileContext;
   timers: VoiceControllerTimers;
   /**
+   * Whether the controller may speak outside a user-initiated turn (the
+   * silence nudge and the pre-max-duration warning). Phone calls keep
+   * these; in-app live-voice disables them because out-of-turn speech has
+   * no turn to anchor its `tts_done` and wedges the client state machine.
+   * The max-duration END-of-session (with its goodbye) applies regardless.
+   */
+  unpromptedSpeech: "enabled" | "disabled";
+  /**
    * "auto": resolve the call TTS provider per turn (synthesized-play vs
    * native token streaming). "token-stream": always stream tokens through
    * the transport — the transport owns synthesis and sendPlayUrl is never
@@ -211,8 +228,19 @@ export function createPhoneVoiceControllerProfile(
       endCallListenWindowMs: getEndCallListenWindowMs,
       consultTimeoutMs: getUserConsultationTimeoutMs,
     },
+    unpromptedSpeech: "enabled",
     speechOutput: "auto",
   };
+}
+
+/**
+ * Per-turn persistence hooks the in-app profile forwards to the voice
+ * bridge, letting the live-voice session link archived turn audio to the
+ * conversation messages the pipeline persisted.
+ */
+export interface InAppVoiceProfileHooks {
+  onPersistedUserMessageId?: (messageId: string) => void;
+  onPersistedAssistantMessageId?: (messageId: string) => void;
 }
 
 /**
@@ -222,7 +250,18 @@ export function createPhoneVoiceControllerProfile(
  * approvals surface interactively through the client; and the transport
  * owns TTS synthesis (token-stream).
  */
-export function createInAppVoiceControllerProfile(): VoiceControllerProfile {
+export function createInAppVoiceControllerProfile(
+  hooks: InAppVoiceProfileHooks = {},
+): VoiceControllerProfile {
+  const callbacks: VoiceTurnCallbacks = {
+    ...(hooks.onPersistedUserMessageId
+      ? { persisted_user_message_id: hooks.onPersistedUserMessageId }
+      : {}),
+    ...(hooks.onPersistedAssistantMessageId
+      ? { persisted_assistant_message_id: hooks.onPersistedAssistantMessageId }
+      : {}),
+  };
+
   return {
     recordEvent() {},
     updateStatus() {},
@@ -235,6 +274,7 @@ export function createInAppVoiceControllerProfile(): VoiceControllerProfile {
       userMessageInterface: "macos",
       assistantMessageInterface: "macos",
       voiceControlPrompt: buildLiveVoiceControlPrompt(),
+      ...(Object.keys(callbacks).length > 0 ? { callbacks } : {}),
     },
     timers: {
       maxDurationMs: () =>
@@ -246,6 +286,10 @@ export function createInAppVoiceControllerProfile(): VoiceControllerProfile {
       // Unreachable while guardian consultation is disabled.
       consultTimeoutMs: getUserConsultationTimeoutMs,
     },
+    // Out-of-turn speech (silence nudge, duration warning) has no place in
+    // the in-app protocol: its tts_done has no current turn and the web
+    // client would stick in `speaking`.
+    unpromptedSpeech: "disabled",
     speechOutput: "token-stream",
   };
 }

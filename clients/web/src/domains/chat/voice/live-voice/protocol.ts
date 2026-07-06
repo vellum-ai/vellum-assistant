@@ -87,8 +87,10 @@ const LIVE_VOICE_SERVER_FRAME_TYPES = [
   "assistant_text_delta",
   "tts_audio",
   "tts_done",
+  "turn_cancelled",
   "metrics",
   "archived",
+  "session_ended",
   "error",
 ] as const;
 
@@ -161,6 +163,26 @@ export interface LiveVoiceTtsDoneServerFrame extends LiveVoiceServerFrameBase {
   readonly turnId: string;
 }
 
+/**
+ * The in-flight user turn was retired without an assistant response (e.g.
+ * empty transcript, failed assistant turn). Resume listening rather than
+ * waiting for `thinking`/`tts_done` that will never come.
+ */
+export interface LiveVoiceTurnCancelledServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "turn_cancelled";
+  readonly reason?: string;
+}
+
+/**
+ * The server ended the session ([END_CALL] goodbye, max session duration).
+ * Sent after pending TTS has been flushed and before the session closes;
+ * tear down cleanly back to idle.
+ */
+export interface LiveVoiceSessionEndedServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "session_ended";
+  readonly reason: string;
+}
+
 export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "metrics";
   readonly turnId: string;
@@ -201,8 +223,10 @@ export type LiveVoiceServerFrame =
   | LiveVoiceAssistantTextDeltaServerFrame
   | LiveVoiceTtsAudioServerFrame
   | LiveVoiceTtsDoneServerFrame
+  | LiveVoiceTurnCancelledServerFrame
   | LiveVoiceMetricsServerFrame
   | LiveVoiceArchivedServerFrame
+  | LiveVoiceSessionEndedServerFrame
   | LiveVoiceErrorServerFrame;
 
 /**

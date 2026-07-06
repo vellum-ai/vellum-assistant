@@ -1549,7 +1549,10 @@ export class CallController {
     const maxDurationMs = this.profile.timers.maxDurationMs();
     const warningMs = maxDurationMs - 2 * 60 * 1000; // 2 minutes before max
 
-    if (warningMs > 0) {
+    // The warning is unprompted speech (spoken outside any caller turn);
+    // profiles that disable unprompted speech skip it. The max-duration
+    // goodbye + endSession below still applies.
+    if (warningMs > 0 && this.profile.unpromptedSpeech === "enabled") {
       this.durationWarningTimer = setTimeout(() => {
         log.info(
           { callSessionId: this.callSessionId },
@@ -1602,6 +1605,9 @@ export class CallController {
   private resetSilenceTimer(): void {
     if (this.silenceTimer) clearTimeout(this.silenceTimer);
     if (this.destroyed) return;
+    // The silence nudge is unprompted speech; profiles that disable it
+    // never arm the watchdog (in-app sessions have no idle hangup notion).
+    if (this.profile.unpromptedSpeech === "disabled") return;
     this.silenceTimer = setTimeout(() => {
       // During an in-call guardian consultation, suppress the generic
       // "Are you still there?" — it is confusing when the caller is

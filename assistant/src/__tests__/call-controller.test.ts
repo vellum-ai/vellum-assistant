@@ -3730,9 +3730,150 @@ describe("call-controller", () => {
 
       expect(profile.timers.maxDurationMs()).toBe(1800 * 1000);
       expect(profile.timers.endCallListenWindowMs()).toBe(0);
-      expect(profile.timers.silenceTimeoutMs()).toBe(30_000);
       expect(profile.guardianConsultation.mode).toBe("disabled");
+      expect(profile.unpromptedSpeech).toBe("disabled");
       expect(profile.speechOutput).toBe("token-stream");
+    });
+
+    test("persisted-message-id hooks are forwarded to startVoiceTurn as event callbacks", async () => {
+      const userIds: string[] = [];
+      const assistantIds: string[] = [];
+      let captured:
+        | {
+            callbacks?: {
+              persisted_user_message_id?: (id: string) => void;
+              persisted_assistant_message_id?: (id: string) => void;
+            };
+          }
+        | undefined;
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          callbacks?: {
+            persisted_user_message_id?: (id: string) => void;
+            persisted_assistant_message_id?: (id: string) => void;
+          };
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+        }) => {
+          captured = opts;
+          opts.callbacks?.persisted_user_message_id?.("msg-user-1");
+          opts.onTextDelta("Hi.");
+          opts.callbacks?.persisted_assistant_message_id?.("msg-assistant-1");
+          opts.onComplete();
+          return { turnId: "run-hooks", abort: () => {} };
+        },
+      );
+
+      ensureConversation("conv-inapp-hooks");
+      const sessionSource: VoiceSessionSource = {
+        conversationId: "conv-inapp-hooks",
+        skipDisclosure: true,
+        getSnapshot: () => ({
+          status: "in_progress",
+          conversationId: "conv-inapp-hooks",
+          initiatedFromConversationId: null,
+          startedAt: Date.now(),
+          toNumber: "",
+        }),
+      };
+      const controller = new CallController(
+        "live-voice-session-hooks",
+        createMockTransport(),
+        null,
+        {
+          sessionSource,
+          profile: createInAppVoiceControllerProfile({
+            onPersistedUserMessageId: (id) => userIds.push(id),
+            onPersistedAssistantMessageId: (id) => assistantIds.push(id),
+          }),
+        },
+      );
+
+      await controller.handleCallerUtterance("Hello");
+
+      expect(captured?.callbacks?.persisted_user_message_id).toBeDefined();
+      expect(captured?.callbacks?.persisted_assistant_message_id).toBeDefined();
+      expect(userIds).toEqual(["msg-user-1"]);
+      expect(assistantIds).toEqual(["msg-assistant-1"]);
+
+      controller.destroy();
+    });
+
+    test("without hooks the in-app profile passes no callbacks (phone shape preserved)", () => {
+      expect(createInAppVoiceControllerProfile().voiceTurn.callbacks).toBe(
+        undefined,
+      );
+    });
+
+    test("unprompted speech disabled: no silence nudge fires even with a tiny timeout", async () => {
+      ensureConversation("conv-inapp-silence");
+      const sessionSource: VoiceSessionSource = {
+        conversationId: "conv-inapp-silence",
+        skipDisclosure: true,
+        getSnapshot: () => ({
+          status: "in_progress",
+          conversationId: "conv-inapp-silence",
+          initiatedFromConversationId: null,
+          startedAt: Date.now(),
+          toNumber: "",
+        }),
+      };
+      const profile = createInAppVoiceControllerProfile();
+      profile.timers = { ...profile.timers, silenceTimeoutMs: () => 10 };
+      const transport = createMockTransport();
+      const controller = new CallController(
+        "live-voice-session-silence",
+        transport,
+        null,
+        { sessionSource, profile },
+      );
+
+      await controller.handleCallerUtterance("Hello");
+      // A phone profile would arm the nudge on returning to idle; give it
+      // several timeout windows to (incorrectly) fire.
+      await new Promise((r) => setTimeout(r, 80));
+
+      const allText = transport.sentTokens.map((t) => t.token).join("");
+      expect(allText).not.toContain("Are you still there?");
+
+      controller.destroy();
+    });
+
+    test("unprompted speech disabled: no pre-max-duration warning is spoken", async () => {
+      ensureConversation("conv-inapp-warning");
+      const sessionSource: VoiceSessionSource = {
+        conversationId: "conv-inapp-warning",
+        skipDisclosure: true,
+        getSnapshot: () => ({
+          status: "in_progress",
+          conversationId: "conv-inapp-warning",
+          initiatedFromConversationId: null,
+          startedAt: Date.now(),
+          toNumber: "",
+        }),
+      };
+      const profile = createInAppVoiceControllerProfile();
+      // warningMs = maxDurationMs - 2min → 20ms; the max-duration end
+      // timer itself stays far in the future.
+      profile.timers = {
+        ...profile.timers,
+        maxDurationMs: () => 2 * 60 * 1000 + 20,
+      };
+      const transport = createMockTransport();
+      const controller = new CallController(
+        "live-voice-session-warning",
+        transport,
+        null,
+        { sessionSource, profile },
+      );
+
+      await new Promise((r) => setTimeout(r, 80));
+
+      const allText = transport.sentTokens.map((t) => t.token).join("");
+      expect(allText).not.toContain("running low on time");
+      expect(transport.endCalled).toBe(false);
+
+      controller.destroy();
     });
   });
 });

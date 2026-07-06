@@ -98,6 +98,9 @@ export class FakeTransport implements CallTransport {
   deps: LiveVoiceCallTransportDeps | null = null;
   readonly tokens: Array<{ token: string; last: boolean }> = [];
   discardCount = 0;
+  ttsDrainWaits = 0;
+  /** When set, waitForTtsDrain blocks on this until the test resolves it. */
+  ttsDrainGate: Promise<void> | null = null;
   private assistantAudio: Buffer[] = [];
 
   sendTextToken(token: string, last: boolean): void {
@@ -120,6 +123,11 @@ export class FakeTransport implements CallTransport {
     const chunks = this.assistantAudio;
     this.assistantAudio = [];
     return chunks;
+  }
+
+  waitForTtsDrain(): Promise<void> {
+    this.ttsDrainWaits += 1;
+    return this.ttsDrainGate ?? Promise.resolve();
   }
 
   /** Simulate a streaming-TTS audio chunk reaching the socket. */

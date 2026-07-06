@@ -25,12 +25,26 @@ export interface LiveVoiceSession {
 
 export interface LiveVoiceServerFrameSink {
   sendFrame(frame: LiveVoiceServerFrame): MaybePromise<void>;
+  /**
+   * Invoked once a session under this sink has fully closed and its
+   * manager slot is released — including server-initiated ends ([END_CALL],
+   * max session duration) where no client/socket event triggered the close.
+   * The socket owner should detach and close the connection; this must be
+   * idempotent for owner-initiated closes where the socket is already gone.
+   */
+  onSessionEnded?(sessionId: string, reason: string): void;
 }
 
 export interface LiveVoiceSessionFactoryContext {
   sessionId: string;
   startFrame: LiveVoiceClientStartFrame;
   sendFrame(frame: LiveVoiceServerFramePayload): Promise<LiveVoiceServerFrame>;
+  /**
+   * Owner-release hook: the session calls this once when it has finished
+   * closing, so the owner (manager) can drop its active-session slot even
+   * when the close was session-initiated rather than owner-initiated.
+   */
+  onSessionEnded?(reason: string): void;
 }
 
 export type LiveVoiceSessionFactory = (
@@ -130,6 +144,12 @@ export class LiveVoiceSessionManager {
         const frame = sequencer.next(payload);
         await sink.sendFrame(frame);
         return frame;
+      },
+      onSessionEnded: (reason) => {
+        if (this.activeSession?.sessionId === sessionId) {
+          this.activeSession = null;
+        }
+        sink.onSessionEnded?.(sessionId, reason);
       },
     };
     const session = this.createSession(context);
