@@ -49,6 +49,17 @@ export const MonitoringConfigSchema = z
       .describe(
         "Minimum interval between high-memory snapshots, in milliseconds, so a sustained spike does not write a snapshot on every sample.",
       ),
+    pluginSourceScanIntervalMs: z
+      .number({
+        error: "monitoring.pluginSourceScanIntervalMs must be a number",
+      })
+      .int("monitoring.pluginSourceScanIntervalMs must be an integer")
+      .min(250, "monitoring.pluginSourceScanIntervalMs must be at least 250ms")
+      .max(60_000, "monitoring.pluginSourceScanIntervalMs must be <= 60000ms")
+      .default(2_000)
+      .describe(
+        "How often the plugin source watcher walks the workspace plugin directories and publishes the source-versions sentinel, in milliseconds. Bounds how quickly a plugin source edit becomes visible to live reload.",
+      ),
     baselineSnapshotIntervalMs: z
       .number({
         error: "monitoring.baselineSnapshotIntervalMs must be a number",

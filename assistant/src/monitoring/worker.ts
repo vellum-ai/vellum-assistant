@@ -19,6 +19,10 @@ import {
   getMonitoringPidPath,
 } from "../util/platform.js";
 import {
+  type PluginSourceWatchHandle,
+  startPluginSourceWatch,
+} from "./plugin-source-watch.js";
+import {
   type ResourceSamplerHandle,
   startResourceSampler,
 } from "./resource-sampler.js";
@@ -58,9 +62,13 @@ async function main(): Promise<void> {
   const sampler: ResourceSamplerHandle = startResourceSampler(
     config.monitoring,
   );
+  const sourceWatch: PluginSourceWatchHandle = startPluginSourceWatch(
+    config.monitoring.pluginSourceScanIntervalMs,
+  );
 
   const shutdown = (signal: string) => {
     log.info({ signal }, "Resource monitor process shutting down");
+    sourceWatch.stop();
     sampler.stop();
     cleanupPidFile();
     process.exit(0);
@@ -71,6 +79,7 @@ async function main(): Promise<void> {
 
   process.on("uncaughtException", (err) => {
     log.error({ err }, "Uncaught exception in resource monitor process");
+    sourceWatch.stop();
     sampler.stop();
     cleanupPidFile();
     process.exit(1);
@@ -78,12 +87,14 @@ async function main(): Promise<void> {
 
   process.on("unhandledRejection", (reason) => {
     log.error({ reason }, "Unhandled rejection in resource monitor process");
+    sourceWatch.stop();
     sampler.stop();
     cleanupPidFile();
     process.exit(1);
   });
 
   process.on("exit", () => {
+    sourceWatch.stop();
     sampler.stop();
     cleanupPidFile();
   });
