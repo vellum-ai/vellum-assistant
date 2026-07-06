@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, mock, test } from "bun:test";
 
+import type { VoiceTurnOptions } from "../../calls/voice-session-bridge.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -99,6 +100,17 @@ function createSessionWithTranscriber(
   return { frames, resolver, session, transcriber };
 }
 
+async function waitFor(
+  predicate: () => boolean,
+  message = "Timed out waiting for live voice STT test condition",
+): Promise<void> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(message);
+}
+
 describe("LiveVoiceSession STT", () => {
   test("resolves streaming STT through the injected resolver and sends ready", async () => {
     const { frames, resolver, session, transcriber } =
@@ -176,6 +188,47 @@ describe("LiveVoiceSession STT", () => {
         code: "invalid_audio_payload",
         message: "Live voice audio received after push-to-talk release.",
       },
+    ]);
+  });
+
+  test("arms a fresh streaming transcriber for the next utterance after a completed turn", async () => {
+    const transcribers: MockStreamingTranscriber[] = [];
+    const resolver = mock(async () => {
+      const transcriber = new MockStreamingTranscriber();
+      transcribers.push(transcriber);
+      return transcriber;
+    });
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.message_complete?.({
+        type: "message_complete",
+        conversationId: options.conversationId,
+        messageId: "assistant-message-123",
+      });
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { context, frames } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+      startVoiceTurn,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(startVoiceTurn).toHaveBeenCalledTimes(1);
+    expect(transcribers).toHaveLength(2);
+    expect(transcribers[1]?.started).toBe(true);
+    expect(transcribers[1]?.stopped).toBe(false);
+
+    await session.handleBinaryAudio(new Uint8Array([2]));
+
+    expect(transcribers[0]?.audioChunks.map((chunk) => [...chunk])).toEqual([
+      [1],
+    ]);
+    expect(transcribers[1]?.audioChunks.map((chunk) => [...chunk])).toEqual([
+      [2],
     ]);
   });
 
