@@ -19,29 +19,12 @@ import { ArrowUp, Mic, X } from "lucide-react";
 
 import { Button } from "@vellumai/design-library";
 
-import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  LIVE_VOICE_STATE_LABELS,
+  isLiveVoiceMicLive,
+  type LiveVoiceSessionState,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { VoiceTimelineWaveform } from "@/domains/chat/voice/voice-timeline-waveform";
-
-/**
- * Deliberately minimal state treatment (decided 2026-07-06): assistant
- * output streams into the thread transcript like text chat, so the bar
- * only carries a small label. `idle`/`failed` map to an empty label —
- * the parent unmounts the bar in those states.
- *
- * Exported for the title-bar session pill (`voice-session-pill-host.tsx`),
- * which shows the same activity label while the user is away from the
- * owning thread.
- */
-export const STATE_LABELS: Record<LiveVoiceSessionState, string> = {
-  idle: "",
-  connecting: "Connecting…",
-  listening: "Listening…",
-  transcribing: "Transcribing…",
-  thinking: "Thinking…",
-  speaking: "Speaking…",
-  ending: "Ending…",
-  failed: "",
-};
 
 export interface VoiceComposerBarProps {
   state: LiveVoiceSessionState;
@@ -76,12 +59,12 @@ export function VoiceComposerBar({
           aria-live="polite"
           className="text-chat text-[var(--content-disabled)]"
         >
-          {STATE_LABELS[state]}
+          {LIVE_VOICE_STATE_LABELS[state]}
         </span>
       </div>
       <VoiceTimelineWaveform
         getAmplitude={getAmplitude}
-        active={state === "listening"}
+        active={isLiveVoiceMicLive(state)}
         className="min-w-0 flex-1"
       />
       <div className="flex shrink-0 items-center gap-1">

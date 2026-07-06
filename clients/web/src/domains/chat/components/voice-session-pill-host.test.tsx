@@ -147,6 +147,20 @@ describe("VoiceSessionPillHost — visibility", () => {
     expect(container.firstChild).toBeNull();
   });
 
+  test("shows the pill on the owning conversation's inspector route (no composer there)", () => {
+    // `/assistant/conversations/:id/inspect` mounts `InspectPage`, which has
+    // no composer — even though the pathname sits under the owning
+    // conversation, the pill must stay up as the session's only control
+    // surface.
+    startSession("listening");
+    useConversationStore
+      .getState()
+      .setActiveConversationId(OWNING_CONVERSATION_ID);
+    mockPathname = routes.inspect(OWNING_CONVERSATION_ID);
+    render(<VoiceSessionPillHost />);
+    expect(pill()).not.toBeNull();
+  });
+
   test("shows the pill over the desktop fullscreen app viewer even in the owning conversation", () => {
     startSession("listening");
     useConversationStore
