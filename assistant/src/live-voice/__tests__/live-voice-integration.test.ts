@@ -1,47 +1,127 @@
-import { describe, expect, mock, test } from "bun:test";
+/**
+ * Wired end-to-end tests for the duplex live-voice session: real
+ * LiveVoiceIngest (with a mock streaming/batch transcriber via its deps
+ * seam), real LiveVoiceCallTransport (with a fake TTS streamer), and the
+ * real CallController + in-app VoiceControllerProfile. Only the outermost
+ * boundaries are faked; the conversation pipeline is stubbed by
+ * mock-moduling voice-session-bridge's startVoiceTurn.
+ *
+ * `mock.module` is process-global in Bun and leaks into sibling files in
+ * the same `bun test` invocation, so the stub delegates to the real
+ * implementation unless this file's tests are active (`wiredMocksActive`).
+ */
+
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import type {
-  VoiceTurnCallbacks,
+  VoiceTurnHandle,
   VoiceTurnOptions,
 } from "../../calls/voice-session-bridge.js";
+
+// Silence controller lifecycle logging (registered before any module that
+// captures a logger at import time).
+mock.module("../../util/logger.js", () => ({
+  getLogger: () =>
+    new Proxy({} as Record<string, unknown>, {
+      get: () => () => {},
+    }),
+}));
+
+let wiredMocksActive = false;
+const realBridgeModule = {
+  ...(await import("../../calls/voice-session-bridge.js")),
+};
+
+// ── Scripted voice-turn stub (the conversation pipeline boundary) ────
+
+interface FakeTurnScript {
+  deltas: string[];
+  /** When false, the turn stays in flight until aborted (barge-in). */
+  autoComplete?: boolean;
+}
+
+let turnScripts: FakeTurnScript[] = [];
+let voiceTurnCalls: VoiceTurnOptions[] = [];
+
+async function fakeStartVoiceTurn(
+  opts: VoiceTurnOptions,
+): Promise<VoiceTurnHandle> {
+  voiceTurnCalls.push(opts);
+  const script = turnScripts[voiceTurnCalls.length - 1] ?? {
+    deltas: ["Okay."],
+  };
+
+  if (opts.signal?.aborted) {
+    const err = new Error("aborted");
+    err.name = "AbortError";
+    throw err;
+  }
+  for (const delta of script.deltas) {
+    if (opts.signal?.aborted) {
+      break;
+    }
+    opts.onTextDelta?.(delta);
+  }
+  if (script.autoComplete !== false && !opts.signal?.aborted) {
+    opts.onComplete?.();
+  }
+
+  return { turnId: `bridge-turn-${voiceTurnCalls.length}`, abort: () => {} };
+}
+
+mock.module("../../calls/voice-session-bridge.js", () => ({
+  ...realBridgeModule,
+  startVoiceTurn: (opts: VoiceTurnOptions) =>
+    wiredMocksActive
+      ? fakeStartVoiceTurn(opts)
+      : realBridgeModule.startVoiceTurn(opts),
+}));
+
 import type {
+  BatchTranscriber,
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
-import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
+import { LiveVoiceIngest } from "../live-voice-ingest.js";
 import {
   createLiveVoiceSession,
+  type LiveVoiceSession,
   type LiveVoiceSessionArchiveAudioInput,
   type LiveVoiceTtsStreamer,
-  type LiveVoiceTurnStarter,
 } from "../live-voice-session.js";
-import type { LiveVoiceSessionFactoryContext } from "../live-voice-session-manager.js";
-import type {
-  LiveVoiceTtsAudioChunk,
-  LiveVoiceTtsOptions,
-  LiveVoiceTtsResult,
-} from "../live-voice-tts.js";
+import { LiveVoiceCallTransport } from "../live-voice-transport.js";
+import type { LiveVoiceTtsOptions } from "../live-voice-tts.js";
 import {
   createLiveVoiceServerFrameSequencer,
   type LiveVoiceClientStartFrame,
   type LiveVoiceServerFrame,
+  type LiveVoiceSessionMode,
 } from "../protocol.js";
+import { makeArchiveResult } from "./live-voice-session-harness.js";
 
-const START_FRAME = {
-  type: "start",
-  conversationId: "conversation-123",
-  audio: {
-    mimeType: "audio/pcm",
-    sampleRate: 24_000,
-    channels: 1,
-  },
-} as const satisfies LiveVoiceClientStartFrame;
+beforeAll(() => {
+  wiredMocksActive = true;
+});
 
-class FakeStreamingTranscriber implements StreamingTranscriber {
+afterAll(() => {
+  wiredMocksActive = false;
+});
+
+// ── Outermost fakes ───────────────────────────────────────────────────
+
+class MockStreamingTranscriber implements StreamingTranscriber {
   readonly providerId = "deepgram" as const;
   readonly boundaryId = "daemon-streaming" as const;
   readonly audioChunks: Buffer[] = [];
-  stopped = false;
   private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
 
   async start(onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
@@ -50,310 +130,368 @@ class FakeStreamingTranscriber implements StreamingTranscriber {
 
   sendAudio(audio: Buffer): void {
     this.audioChunks.push(Buffer.from(audio));
-    this.emit({ type: "partial", text: "hel" });
   }
 
-  stop(): void {
-    this.stopped = true;
-    this.emit({ type: "final", text: "hello from live voice" });
-    this.emit({ type: "closed" });
-  }
+  stop(): void {}
 
-  private emit(event: SttStreamServerEvent): void {
+  emit(event: SttStreamServerEvent): void {
     this.onEvent?.(event);
   }
 }
 
-function createContext(): {
-  context: LiveVoiceSessionFactoryContext;
-  frames: LiveVoiceServerFrame[];
-} {
-  const sequencer = createLiveVoiceServerFrameSequencer();
-  const frames: LiveVoiceServerFrame[] = [];
+/** Whether the fake TTS holds each synthesis job open until aborted. */
+let ttsHoldUntilAbort = false;
 
-  return {
-    frames,
-    context: {
-      sessionId: "session-123",
-      startFrame: START_FRAME,
-      sendFrame: mock(async (payload) => {
-        const frame = sequencer.next(payload);
-        frames.push(frame);
-        return frame;
-      }),
-    },
-  };
-}
-
-function createClock(): () => number {
-  let now = 1_000;
-  return () => {
-    now += 25;
-    return now;
-  };
-}
-
-function makeArchiveResult(
-  input: LiveVoiceSessionArchiveAudioInput,
-): LiveVoiceAudioArchiveResult {
-  const attachmentId = `${input.role}-attachment-123`;
-  return {
-    type: "archived",
-    artifact: {
-      source: "live-voice",
-      archiveKey: `live-voice:${input.sessionId}:${input.turnId}:${input.role}`,
-      attachmentId,
-      sessionId: input.sessionId,
-      turnId: input.turnId,
-      role: input.role,
-      mimeType: input.mimeType,
-      ...(input.sampleRate !== undefined
-        ? { sampleRate: input.sampleRate }
-        : {}),
-      ...(input.durationMs !== undefined
-        ? { durationMs: input.durationMs }
-        : {}),
-      sizeBytes: Buffer.byteLength(input.audio.dataBase64, "base64"),
-      filename: `${attachmentId}.pcm`,
-      archivedAt: 1_234,
-    },
-    idempotent: false,
-  };
-}
-
-function makeTtsChunk(text: string): LiveVoiceTtsAudioChunk {
-  return {
+const fakeStreamTtsAudio: LiveVoiceTtsStreamer = async (
+  options: LiveVoiceTtsOptions,
+) => {
+  options.onAudioChunk({
     type: "tts_audio",
     contentType: "audio/pcm",
-    sampleRate: 24_000,
-    dataBase64: Buffer.from(text).toString("base64"),
-  };
-}
-
-function makeTtsResult(text: string): LiveVoiceTtsResult {
+    sampleRate: options.sampleRate ?? 24_000,
+    dataBase64: Buffer.from(`audio:${options.text}`).toString("base64"),
+  });
+  if (ttsHoldUntilAbort) {
+    await new Promise<void>((resolve) => {
+      if (options.signal?.aborted) {
+        resolve();
+        return;
+      }
+      options.signal?.addEventListener("abort", () => resolve(), {
+        once: true,
+      });
+    });
+  }
   return {
     provider: "fish-audio",
     contentType: "audio/pcm",
-    sampleRate: 24_000,
+    sampleRate: options.sampleRate ?? 24_000,
     chunks: 1,
-    bytes: Buffer.byteLength(text),
+    bytes: 1,
   };
+};
+
+// ── Harness ───────────────────────────────────────────────────────────
+
+/** A PCM16 chunk loud enough to trip the default 800 energy threshold. */
+function loudChunk(samples = 480): Buffer {
+  const chunk = Buffer.alloc(samples * 2);
+  for (let i = 0; i < samples; i += 1) {
+    chunk.writeInt16LE(8_000, i * 2);
+  }
+  return chunk;
 }
 
-function makeTextDelta(
-  text: string,
-): Parameters<NonNullable<VoiceTurnCallbacks["assistant_text_delta"]>>[0] {
-  return {
-    type: "assistant_text_delta",
-    text,
-    conversationId: "conversation-123",
-  };
+interface WiredHarness {
+  session: LiveVoiceSession;
+  frames: LiveVoiceServerFrame[];
+  transcriber: MockStreamingTranscriber;
+  archiveAudio: ReturnType<typeof mock>;
 }
 
-function makeMessageComplete(): Parameters<
-  NonNullable<VoiceTurnCallbacks["message_complete"]>
->[0] {
-  return {
-    type: "message_complete",
+const openSessions: LiveVoiceSession[] = [];
+
+function createWiredHarness(
+  options: {
+    mode?: LiveVoiceSessionMode;
+    /** Streaming resolver returns null so the ingest settles on batch. */
+    batchTranscript?: string;
+    silenceThresholdMs?: number;
+  } = {},
+): WiredHarness {
+  const sequencer = createLiveVoiceServerFrameSequencer();
+  const frames: LiveVoiceServerFrame[] = [];
+  const startFrame: LiveVoiceClientStartFrame = {
+    type: "start",
     conversationId: "conversation-123",
-    messageId: "assistant-message-123",
+    audio: { mimeType: "audio/pcm", sampleRate: 24_000, channels: 1 },
+    ...(options.mode ? { mode: options.mode } : {}),
   };
+  const transcriber = new MockStreamingTranscriber();
+  const batchTranscriber: BatchTranscriber = {
+    providerId: "openai-whisper",
+    boundaryId: "daemon-batch",
+    transcribe: async () => ({ text: options.batchTranscript ?? "" }),
+  };
+  const archiveAudio = mock(async (input: LiveVoiceSessionArchiveAudioInput) =>
+    makeArchiveResult(input),
+  );
+  let turnCounter = 0;
+
+  const session = createLiveVoiceSession(
+    {
+      sessionId: "session-123",
+      startFrame,
+      sendFrame: async (payload) => {
+        const frame = sequencer.next(payload);
+        frames.push(frame);
+        return frame;
+      },
+    },
+    {
+      createIngest: (config, callbacks) =>
+        new LiveVoiceIngest(
+          {
+            ...config,
+            vad: {
+              ...config.vad,
+              ...(options.silenceThresholdMs !== undefined
+                ? { silenceThresholdMs: options.silenceThresholdMs }
+                : {}),
+            },
+          },
+          callbacks,
+          {
+            resolveStreamingTranscriber: async () =>
+              options.batchTranscript !== undefined ? null : transcriber,
+            resolveBatchTranscriber: async () => batchTranscriber,
+          },
+        ),
+      createTransport: (deps) =>
+        new LiveVoiceCallTransport({
+          ...deps,
+          streamTtsAudio: fakeStreamTtsAudio,
+        }),
+      credentialPreflight: async () => ({ status: "ready" }),
+      archiveAudio,
+      emitMetrics: true,
+      createTurnId: () => `live-turn-${++turnCounter}`,
+    },
+  );
+  openSessions.push(session);
+
+  return { session, frames, transcriber, archiveAudio };
 }
 
 async function waitFor(
   predicate: () => boolean,
-  message = "Timed out waiting for live voice integration condition",
+  message = "Timed out waiting for wired live voice condition",
 ): Promise<void> {
-  for (let attempt = 0; attempt < 80; attempt += 1) {
-    if (predicate()) return;
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    if (predicate()) {
+      return;
+    }
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
   throw new Error(message);
 }
 
-function frameTypes(frames: LiveVoiceServerFrame[]): string[] {
-  return frames.map((frame) => frame.type);
+function typedFrames<T extends LiveVoiceServerFrame["type"]>(
+  frames: LiveVoiceServerFrame[],
+  type: T,
+): Array<Extract<LiveVoiceServerFrame, { type: T }>> {
+  return frames.filter(
+    (frame): frame is Extract<LiveVoiceServerFrame, { type: T }> =>
+      frame.type === type,
+  );
 }
 
-describe("LiveVoiceSession integration smoke harness", () => {
-  test("runs a full credential-free live voice turn through STT, bridge, TTS, archive, and metrics", async () => {
-    const transcriber = new FakeStreamingTranscriber();
-    const archiveAudio = mock(
-      async (input: LiveVoiceSessionArchiveAudioInput) =>
-        makeArchiveResult(input),
-    );
-    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
-      options.callbacks?.persisted_user_message_id?.("user-message-123");
-      options.callbacks?.assistant_text_delta?.(
-        makeTextDelta("Hello from the assistant."),
-      );
-      options.callbacks?.message_complete?.(makeMessageComplete());
-      return { turnId: "bridge-turn-1", abort: mock() };
-    });
-    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
-      options.onAudioChunk(makeTtsChunk(`audio:${options.text}`));
-      return makeTtsResult(options.text);
-    });
-    const { context, frames } = createContext();
-    const session = createLiveVoiceSession(context, {
-      resolveTranscriber: mock(async () => transcriber),
-      startVoiceTurn,
-      streamTtsAudio,
-      archiveAudio,
-      metricsClock: createClock(),
-      createTurnId: () => "live-turn-1",
-    });
+beforeEach(() => {
+  turnScripts = [];
+  voiceTurnCalls = [];
+  ttsHoldUntilAbort = false;
+});
+
+afterEach(async () => {
+  for (const session of openSessions.splice(0)) {
+    await session.close("manager_shutdown");
+  }
+});
+
+describe("LiveVoiceSession wired duplex integration", () => {
+  test("runs two full turns over one session with strictly increasing seq", async () => {
+    turnScripts = [
+      { deltas: ["Hello ", "there."] },
+      { deltas: ["Second answer."] },
+    ];
+    const { session, frames, transcriber, archiveAudio } = createWiredHarness();
 
     await session.start();
-    await session.handleBinaryAudio(new Uint8Array([1, 2, 3, 4]));
+    await session.handleBinaryAudio(loudChunk());
+    await session.handleBinaryAudio(loudChunk());
+    await waitFor(() => transcriber.audioChunks.length >= 2);
+    transcriber.emit({ type: "partial", text: "first utt" });
     await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "turn_boundary"));
+    transcriber.emit({ type: "final", text: "first utterance" });
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
 
-    expect(transcriber.audioChunks).toHaveLength(1);
-    expect(transcriber.audioChunks[0]).toEqual(Buffer.from([1, 2, 3, 4]));
-    expect(transcriber.stopped).toBe(true);
-    expect(startVoiceTurn).toHaveBeenCalledTimes(1);
-    expect(startVoiceTurn.mock.calls[0]?.[0]).toMatchObject({
+    // Second turn over the same session: audio after tts_done is accepted
+    // (regression on the removed V1 terminal-ptt_release behavior).
+    await session.handleBinaryAudio(loudChunk());
+    await waitFor(() => transcriber.audioChunks.length >= 3);
+    await session.handleClientFrame({ type: "ptt_release" });
+    transcriber.emit({ type: "final", text: "second utterance" });
+    await waitFor(
+      () => typedFrames(frames, "tts_done").length === 2,
+      "Timed out waiting for the second turn's tts_done",
+    );
+
+    expect(voiceTurnCalls).toHaveLength(2);
+    expect(voiceTurnCalls[0]).toMatchObject({
       conversationId: "conversation-123",
-      voiceSessionId: "session-123",
+      callSessionId: "session-123",
+      content: "first utterance",
+      approvalMode: "local-live-voice",
       userMessageChannel: "vellum",
       assistantMessageChannel: "vellum",
       userMessageInterface: "macos",
       assistantMessageInterface: "macos",
-      content: "hello from live voice",
       isInbound: true,
+      task: null,
+      skipDisclosure: true,
     });
-    expect(streamTtsAudio).toHaveBeenCalledTimes(1);
-    expect(streamTtsAudio.mock.calls[0]?.[0]).toMatchObject({
-      text: "Hello from the assistant.",
-      outputFormat: "pcm",
-      sampleRate: 24_000,
-    });
-    expect(archiveAudio.mock.calls.map((call) => call[0].role)).toEqual([
-      "user",
-      "assistant",
-    ]);
+    expect(voiceTurnCalls[0]?.voiceControlPrompt).toContain(
+      "VOICE SESSION RULES",
+    );
+    expect(voiceTurnCalls[1]).toMatchObject({ content: "second utterance" });
 
-    expect(frameTypes(frames)).toEqual([
-      "ready",
-      "stt_partial",
-      "stt_final",
-      "thinking",
-      "assistant_text_delta",
-      "tts_audio",
-      "archived",
-      "archived",
-      "metrics",
-      "tts_done",
+    const thinkingFrames = typedFrames(frames, "thinking");
+    expect(thinkingFrames.map((frame) => frame.turnId)).toEqual([
+      "live-turn-1",
+      "live-turn-2",
     ]);
-    expect(frames[5]).toMatchObject({
-      type: "tts_audio",
-      dataBase64: Buffer.from("audio:Hello from the assistant.").toString(
-        "base64",
+    expect(
+      typedFrames(frames, "tts_done").map((frame) => frame.turnId),
+    ).toEqual(["live-turn-1", "live-turn-2"]);
+    expect(
+      typedFrames(frames, "assistant_text_delta").map((frame) => frame.text),
+    ).toEqual(["Hello ", "there.", "Second answer."]);
+    expect(typedFrames(frames, "stt_partial")).toHaveLength(1);
+    expect(typedFrames(frames, "tts_audio").length).toBeGreaterThanOrEqual(2);
+    expect(
+      typedFrames(frames, "metrics").filter(
+        (frame) => frame.event === "turn_completed",
       ),
-    });
-    expect(frames[6]).toMatchObject({
-      type: "archived",
-      role: "user",
-      attachmentIds: ["user-attachment-123"],
-    });
-    expect(frames[7]).toMatchObject({
-      type: "archived",
-      role: "assistant",
-      attachmentIds: ["assistant-attachment-123"],
-    });
-    expect(frames[8]).toMatchObject({
-      type: "metrics",
-      event: "turn_completed",
-      sessionId: "session-123",
-      conversationId: "conversation-123",
-      turnId: "live-turn-1",
-      metrics: {
-        summary: {
-          completedTurnCount: 1,
-          cancelledTurnCount: 0,
-        },
-      },
-    });
-    expect(frames[9]).toMatchObject({
-      type: "tts_done",
-      turnId: "live-turn-1",
-    });
+    ).toHaveLength(2);
+    // Per-turn archives: user + assistant for each turn.
+    expect(archiveAudio.mock.calls.map((call) => call[0].turnId)).toEqual([
+      "live-turn-1",
+      "live-turn-1",
+      "live-turn-2",
+      "live-turn-2",
+    ]);
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+
+    const seqs = frames.map((frame) => frame.seq);
+    expect(seqs).toEqual([...seqs].sort((a, b) => a - b));
+    expect(new Set(seqs).size).toBe(seqs.length);
   });
 
-  test("emits archive and cancelled metrics for an interrupted live voice turn", async () => {
-    const transcriber = new FakeStreamingTranscriber();
-    const abort = mock();
-    const archiveAudio = mock(
-      async (input: LiveVoiceSessionArchiveAudioInput) =>
-        makeArchiveResult(input),
-    );
-    const startVoiceTurn: LiveVoiceTurnStarter = mock(
-      async (options: VoiceTurnOptions) => {
-        options.callbacks?.persisted_user_message_id?.("user-message-123");
-        return { turnId: "bridge-turn-1", abort };
+  test("server-VAD barge-in interrupts mid-speech and the next utterance opens a new turn", async () => {
+    turnScripts = [
+      {
+        deltas: ["This is a long answer. It keeps going for quite a while."],
+        autoComplete: false,
       },
+      { deltas: ["Sure thing."] },
+    ];
+    ttsHoldUntilAbort = true;
+    const { session, frames, transcriber } = createWiredHarness();
+
+    await session.start();
+    await session.handleBinaryAudio(loudChunk());
+    await waitFor(() => transcriber.audioChunks.length >= 1);
+    await session.handleClientFrame({ type: "ptt_release" });
+    transcriber.emit({ type: "final", text: "question one" });
+    // The first synthesized chunk fires the transport's audio-start
+    // callback, flipping the controller to `speaking`.
+    await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+
+    // User starts speaking over the assistant: server-VAD speech onset.
+    await session.handleBinaryAudio(loudChunk());
+    await waitFor(() => frames.some((frame) => frame.type === "interrupted"));
+    expect(frames.find((frame) => frame.type === "interrupted")).toMatchObject({
+      type: "interrupted",
+      turnId: "live-turn-1",
+    });
+
+    // No further audio from the aborted turn, and its unwind tts_done is
+    // suppressed.
+    const ttsAudioAfterInterrupt = typedFrames(frames, "tts_audio").length;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+    expect(typedFrames(frames, "tts_audio")).toHaveLength(
+      ttsAudioAfterInterrupt,
     );
-    const streamTtsAudio: LiveVoiceTtsStreamer = mock(
-      async (options: LiveVoiceTtsOptions) => {
-        options.onAudioChunk(makeTtsChunk("late audio"));
-        return makeTtsResult("late audio");
-      },
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+
+    // The interrupted utterance transcribes and produces a fresh turn.
+    ttsHoldUntilAbort = false;
+    await session.handleClientFrame({ type: "ptt_release" });
+    transcriber.emit({ type: "final", text: "question two" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(voiceTurnCalls.map((call) => call.content)).toEqual([
+      "question one",
+      "question two",
+    ]);
+    expect(
+      typedFrames(frames, "thinking").map((frame) => frame.turnId),
+    ).toEqual(["live-turn-1", "live-turn-2"]);
+    expect(
+      typedFrames(frames, "tts_done").map((frame) => frame.turnId),
+    ).toEqual(["live-turn-2"]);
+    const metricsEvents = typedFrames(frames, "metrics").map(
+      (frame) => `${frame.event}:${frame.turnId}`,
     );
-    const { context, frames } = createContext();
-    const session = createLiveVoiceSession(context, {
-      resolveTranscriber: mock(async () => transcriber),
-      startVoiceTurn,
-      streamTtsAudio,
-      archiveAudio,
-      metricsClock: createClock(),
-      createTurnId: () => "live-turn-1",
+    expect(metricsEvents).toContain("turn_cancelled:live-turn-1");
+    expect(metricsEvents).toContain("turn_completed:live-turn-2");
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+  });
+
+  test("open-mic mode ends the turn from silence detection without ptt_release", async () => {
+    turnScripts = [{ deltas: ["Heard you loud and clear."] }];
+    const { session, frames } = createWiredHarness({
+      mode: "open-mic",
+      batchTranscript: "open mic utterance",
+      silenceThresholdMs: 40,
     });
 
     await session.start();
-    await session.handleBinaryAudio(new Uint8Array([9, 8, 7, 6]));
-    await session.handleClientFrame({ type: "ptt_release" });
-    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    await session.handleBinaryAudio(loudChunk());
+    await session.handleBinaryAudio(loudChunk());
+    // No ptt_release: the VAD's silence window ends the turn on its own.
+    await waitFor(
+      () => frames.some((frame) => frame.type === "turn_boundary"),
+      "Timed out waiting for the silence-detected turn boundary",
+    );
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
 
-    await session.handleClientFrame({ type: "interrupt" });
-    await waitFor(() =>
-      frames.some(
-        (frame) => frame.type === "metrics" && frame.event === "turn_cancelled",
-      ),
+    expect(voiceTurnCalls).toHaveLength(1);
+    expect(voiceTurnCalls[0]).toMatchObject({ content: "open mic utterance" });
+    expect(frames.some((frame) => frame.type === "stt_final")).toBe(true);
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+  });
+
+  test("[END_CALL] ends the session gracefully with a final metrics frame", async () => {
+    turnScripts = [{ deltas: ["Goodbye! [END_CALL]"] }];
+    const { session, frames, transcriber } = createWiredHarness();
+
+    await session.start();
+    await session.handleBinaryAudio(loudChunk());
+    await waitFor(() => transcriber.audioChunks.length >= 1);
+    await session.handleClientFrame({ type: "ptt_release" });
+    transcriber.emit({ type: "final", text: "that's all, thanks" });
+    await waitFor(
+      () =>
+        frames.some(
+          (frame) =>
+            frame.type === "metrics" && frame.event === "session_ended",
+        ),
+      "Timed out waiting for the session_ended metrics frame",
     );
 
-    expect(abort).toHaveBeenCalledTimes(1);
-    expect(streamTtsAudio).not.toHaveBeenCalled();
-    expect(archiveAudio).toHaveBeenCalledTimes(1);
-    expect(archiveAudio.mock.calls[0]?.[0]).toMatchObject({
-      role: "user",
-      messageId: "user-message-123",
-      sessionId: "session-123",
-      turnId: "live-turn-1",
-    });
-    expect(frameTypes(frames)).toEqual([
-      "ready",
-      "stt_partial",
-      "stt_final",
-      "thinking",
-      "archived",
-      "metrics",
-    ]);
-    expect(frames[4]).toMatchObject({
-      type: "archived",
-      role: "user",
-      attachmentIds: ["user-attachment-123"],
-    });
-    expect(frames[5]).toMatchObject({
-      type: "metrics",
-      event: "turn_cancelled",
-      turnId: "live-turn-1",
-      metrics: {
-        summary: {
-          completedTurnCount: 0,
-          cancelledTurnCount: 1,
-        },
-      },
-    });
+    // The control marker never reaches the client.
+    const deltas = typedFrames(frames, "assistant_text_delta").map(
+      (frame) => frame.text,
+    );
+    expect(deltas.join("")).toContain("Goodbye!");
+    expect(deltas.join("")).not.toContain("[END_CALL]");
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+
+    // The session is closed: further audio is ignored.
+    const pushedBefore = transcriber.audioChunks.length;
+    await session.handleBinaryAudio(loudChunk());
+    expect(transcriber.audioChunks).toHaveLength(pushedBefore);
   });
 });

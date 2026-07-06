@@ -423,18 +423,18 @@ External users who are not the guardian can gain access to the assistant through
 
 **Key source files:**
 
-| File                                                   | Purpose                                                                       |
-| ------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| `src/runtime/routes/inbound-message-handler.ts`        | Ingress ACL, unknown-contact rejection, verification code interception        |
-| `src/runtime/routes/access-request-decision.ts`        | Guardian decision → verification session creation                             |
-| `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler |
-| `src/runtime/channel-verification-service.ts`          | Verification session lifecycle, identity binding, rate limiting               |
-| `src/runtime/routes/contact-routes.ts`                 | HTTP/IPC handlers for contacts, channels, and invites (invite ops relay to gateway IPC) |
+| File                                                   | Purpose                                                                                         |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| `src/runtime/routes/inbound-message-handler.ts`        | Ingress ACL, unknown-contact rejection, verification code interception                          |
+| `src/runtime/routes/access-request-decision.ts`        | Guardian decision → verification session creation                                               |
+| `src/runtime/routes/guardian-approval-interception.ts` | Routes guardian decisions (button + conversational) to access request handler                   |
+| `src/runtime/channel-verification-service.ts`          | Verification session lifecycle, identity binding, rate limiting                                 |
+| `src/runtime/routes/contact-routes.ts`                 | HTTP/IPC handlers for contacts, channels, and invites (invite ops relay to gateway IPC)         |
 | `src/runtime/invite-service.ts`                        | Daemon-owned invite presentation (share link, guardian instruction) over gateway-minted invites |
-| `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations           |
-| `src/memory/guardian-approvals.ts`                     | Approval request persistence                                                  |
-| `src/channels/channel-verification-sessions.ts`        | Verification challenge persistence                                            |
-| `src/config/bundled-skills/contacts/SKILL.md`          | Unified skill for contact management, access control, and invite links        |
+| `src/contacts/contact-store.ts`                        | Contact read queries — lookup, search, list, and channel operations                             |
+| `src/memory/guardian-approvals.ts`                     | Approval request persistence                                                                    |
+| `src/channels/channel-verification-sessions.ts`        | Verification challenge persistence                                                              |
+| `src/config/bundled-skills/contacts/SKILL.md`          | Unified skill for contact management, access control, and invite links                          |
 
 ### Guardian-Initiated Invite Links
 
@@ -480,11 +480,11 @@ A complementary access-granting flow where the guardian proactively creates a sh
 
 **Channel adapter status:**
 
-| Channel  | Status   | Prerequisites                                                                                                                                                 |
-| -------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Telegram | Shipped  | Bot username resolved from credential metadata or config                                                                                                      |
+| Channel  | Status   | Prerequisites                                                                                                                                             |
+| -------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Telegram | Shipped  | Bot username resolved from credential metadata or config                                                                                                  |
 | Voice    | Shipped  | Identity-bound voice code redemption via DTMF/speech in the call setup flow. Always-on canonical behavior with personalized friend/guardian name prompts. |
-| Slack    | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing                                                       |
+| Slack    | Deferred | Needs DM-safe ingress — Socket Mode handles channel messages but DM-initiated invite flows need routing                                                   |
 
 ### Voice Invite Flow (invite_redemption)
 
@@ -514,17 +514,17 @@ Voice invites use a short numeric code (6 digits) instead of a URL token. The gu
 
 **Key source files:**
 
-| File                                                | Purpose                                                                                                            |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `gateway/src/verification/invite-redemption.ts` (gateway) | Core redemption engine + gateway-ingress token/code intercept — validation, atomic claim, ACL activation, discriminated-union outcomes  |
-| `src/runtime/channel-invite-transport.ts`           | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface                           |
-| `src/runtime/channel-invite-transports/telegram.ts` | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                        |
-| `src/runtime/channel-invite-transports/voice.ts`    | Voice transport adapter — code-based redemption metadata                                                           |
-| `src/daemon/guardian-invite-intent.ts`              | Intent detection — routes create/list/revoke requests into the contacts skill                                      |
-| `src/runtime/invite-service.ts`                     | Daemon-owned invite presentation (share link, guardian instruction, channel handle) over gateway-minted invites    |
-| `src/runtime/routes/contact-routes.ts`              | HTTP/IPC invite handlers — relay mint/list/revoke/redeem to the gateway's invite IPC routes                        |
-| `src/calls/call-setup-flow.ts`                      | Transport-agnostic call setup flow — `invite_redemption` sub-flow (always-on canonical behavior)                   |
-| `src/calls/gateway-invite-reader.ts`                | Gateway IPC read of the active voice invite for a caller identity                                                  |
+| File                                                      | Purpose                                                                                                                                |
+| --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| `gateway/src/verification/invite-redemption.ts` (gateway) | Core redemption engine + gateway-ingress token/code intercept — validation, atomic claim, ACL activation, discriminated-union outcomes |
+| `src/runtime/channel-invite-transport.ts`                 | Transport adapter registry with `buildShareableInvite` / `extractInboundToken` interface                                               |
+| `src/runtime/channel-invite-transports/telegram.ts`       | Telegram adapter — `t.me/<bot>?start=iv_<token>` deep links, `/start iv_<token>` extraction                                            |
+| `src/runtime/channel-invite-transports/voice.ts`          | Voice transport adapter — code-based redemption metadata                                                                               |
+| `src/daemon/guardian-invite-intent.ts`                    | Intent detection — routes create/list/revoke requests into the contacts skill                                                          |
+| `src/runtime/invite-service.ts`                           | Daemon-owned invite presentation (share link, guardian instruction, channel handle) over gateway-minted invites                        |
+| `src/runtime/routes/contact-routes.ts`                    | HTTP/IPC invite handlers — relay mint/list/revoke/redeem to the gateway's invite IPC routes                                            |
+| `src/calls/call-setup-flow.ts`                            | Transport-agnostic call setup flow — `invite_redemption` sub-flow (always-on canonical behavior)                                       |
+| `src/calls/gateway-invite-reader.ts`                      | Gateway IPC read of the active voice invite for a caller identity                                                                      |
 
 ### Voice Inbound Security Model (Canonical)
 
@@ -586,9 +586,9 @@ All guardian decisions for voice access requests flow through:
 
 | File                                           | Purpose                                                                                |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `src/calls/call-setup-router.ts`              | Inbound call decision tree (`routeSetup`)                                               |
-| `src/calls/call-setup-flow.ts`                 | Name capture, verification, and invite sub-flows over the media-stream transport        |
-| `src/calls/guardian-wait-controller.ts`        | Guardian approval wait — hold messaging, heartbeats, poll/timeout                       |
+| `src/calls/call-setup-router.ts`               | Inbound call decision tree (`routeSetup`)                                              |
+| `src/calls/call-setup-flow.ts`                 | Name capture, verification, and invite sub-flows over the media-stream transport       |
+| `src/calls/guardian-wait-controller.ts`        | Guardian approval wait — hold messaging, heartbeats, poll/timeout                      |
 | `src/runtime/access-request-helper.ts`         | Creates canonical access request and notifies guardian                                 |
 | `src/approvals/guardian-decision-primitive.ts` | `applyCanonicalGuardianDecision` — unified decision primitive                          |
 | `src/approvals/guardian-request-resolvers.ts`  | `access_request` resolver — voice direct activation, text-channel verification session |
@@ -603,13 +603,13 @@ Audio-to-text conversion occurs in six distinct runtime boundaries, each with it
 
 **Boundary overview:**
 
-| Boundary                   | Runtime                                                                       | Provider (current)                           | Adapter module                                                                                                                                                                                                                                             | Caller                                                  |
-| -------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| **Telephony (media-stream)** | Daemon process (Twilio Media Streams WebSocket)                             | Configured STT provider (via `services.stt`) | `src/calls/media-stream-stt-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                                                                                                            | `src/calls/media-stream-server.ts`                      |
-| **Daemon batch**           | Daemon process (REST API to provider)                                         | Configured STT provider (via `services.stt`) | `src/stt/daemon-batch-transcriber.ts`                                                                                                                                                                                                                      | `src/runtime/routes/inbound-stages/transcribe-audio.ts` |
-| **Conversation streaming** | Daemon process (WebSocket-based)                                              | Configured STT provider (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts`, `src/providers/speech-to-text/openai-whisper-stream.ts`, `src/providers/speech-to-text/xai-realtime.ts` | Web/Electron dictation client via gateway WS proxy      |
-| **Live voice channel**     | Assistant process (gateway-authenticated WebSocket)                           | Configured STT provider (via `services.stt`) | `src/runtime/http-server.ts`, `src/live-voice/live-voice-session-manager.ts`, `src/live-voice/live-voice-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                               | Web/Electron live voice client via `/v1/live-voice`     |
-| **Client service-first**   | Web/Electron via gateway → daemon                                             | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`                                                                                                                                                                                                                         | Web/Electron dictation and voice clients                |
+| Boundary                     | Runtime                                             | Provider (current)                           | Adapter module                                                                                                                                                                                                                                             | Caller                                                  |
+| ---------------------------- | --------------------------------------------------- | -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| **Telephony (media-stream)** | Daemon process (Twilio Media Streams WebSocket)     | Configured STT provider (via `services.stt`) | `src/calls/media-stream-stt-session.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                                                                                                                                            | `src/calls/media-stream-server.ts`                      |
+| **Daemon batch**             | Daemon process (REST API to provider)               | Configured STT provider (via `services.stt`) | `src/stt/daemon-batch-transcriber.ts`                                                                                                                                                                                                                      | `src/runtime/routes/inbound-stages/transcribe-audio.ts` |
+| **Conversation streaming**   | Daemon process (WebSocket-based)                    | Configured STT provider (via `services.stt`) | `src/stt/stt-stream-session.ts`, `src/providers/speech-to-text/deepgram-realtime.ts`, `src/providers/speech-to-text/google-gemini-live-stream.ts`, `src/providers/speech-to-text/openai-whisper-stream.ts`, `src/providers/speech-to-text/xai-realtime.ts` | Web/Electron dictation client via gateway WS proxy      |
+| **Live voice channel**       | Assistant process (gateway-authenticated WebSocket) | Configured STT provider (via `services.stt`) | `src/runtime/http-server.ts`, `src/live-voice/live-voice-session-manager.ts`, `src/live-voice/live-voice-session.ts`, `src/live-voice/live-voice-ingest.ts`, `src/providers/speech-to-text/resolve.ts`, streaming provider adapters                        | Web/Electron live voice client via `/v1/live-voice`     |
+| **Client service-first**     | Web/Electron via gateway → daemon                   | Configured STT provider (via `services.stt`) | `src/runtime/routes/stt-routes.ts`                                                                                                                                                                                                                         | Web/Electron dictation and voice clients                |
 
 **Telephony boundary (media-stream):**
 
@@ -624,18 +624,18 @@ A credential preflight (`resolveTelephonyCredentialReadiness()` in `src/calls/te
 
 Key modules:
 
-| Module                                              | Purpose                                                                          |
-| --------------------------------------------------- | -------------------------------------------------------------------------------- |
+| Module                                              | Purpose                                                                                               |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
 | `src/calls/twilio-routes.ts`                        | Voice webhook handler; generates `<Connect><Stream>` TwiML, enforces the inbound credential preflight |
-| `src/calls/telephony-credential-preflight.ts`       | Combined STT + TTS credential-readiness resolver                                 |
-| `src/calls/media-stream-parser.ts`                  | Twilio Media Streams protocol parser                                             |
-| `src/calls/media-turn-detector.ts`                  | Energy-based VAD turn detector for raw audio (batch mode)                        |
-| `src/calls/media-stream-stt-session.ts`             | STT session — streaming/batch mode selection and transcription via `services.stt` |
-| `src/calls/media-stream-audio-transcode.ts`         | Mu-law ↔ PCM16 codecs and resampling                                             |
-| `src/calls/call-transport.ts`                       | Transport interface decoupling CallController from wire protocol                 |
-| `src/calls/media-stream-output.ts`                  | Output adapter for sending TTS audio back via Media Streams                      |
-| `src/calls/media-stream-server.ts`                  | WebSocket server binding media-stream lifecycle to call sessions and setup flows |
-| `gateway/src/http/routes/twilio-media-websocket.ts` | Gateway WebSocket proxy for Media Streams frames                                 |
+| `src/calls/telephony-credential-preflight.ts`       | Combined STT + TTS credential-readiness resolver                                                      |
+| `src/calls/media-stream-parser.ts`                  | Twilio Media Streams protocol parser                                                                  |
+| `src/calls/media-turn-detector.ts`                  | Energy-based VAD turn detector for raw audio (batch mode)                                             |
+| `src/calls/media-stream-stt-session.ts`             | STT session — streaming/batch mode selection and transcription via `services.stt`                     |
+| `src/calls/media-stream-audio-transcode.ts`         | Mu-law ↔ PCM16 codecs and resampling                                                                  |
+| `src/calls/call-transport.ts`                       | Transport interface decoupling CallController from wire protocol                                      |
+| `src/calls/media-stream-output.ts`                  | Output adapter for sending TTS audio back via Media Streams                                           |
+| `src/calls/media-stream-server.ts`                  | WebSocket server binding media-stream lifecycle to call sessions and setup flows                      |
+| `gateway/src/http/routes/twilio-media-websocket.ts` | Gateway WebSocket proxy for Media Streams frames                                                      |
 
 Guard tests in `__tests__/twilio-routes-twiml.test.ts` and `__tests__/twilio-routes.test.ts` assert that every supported STT provider yields `<Connect><Stream>` TwiML for both inbound and outbound calls.
 
@@ -719,24 +719,37 @@ The conversation streaming path degrades gracefully to the existing batch STT pa
 
 The local live voice channel uses a single gateway-authenticated WebSocket at `/v1/live-voice`. Native clients connect to the gateway route, the gateway validates an actor token, mints a gateway service token, and opens an upstream WebSocket to the assistant runtime route. Both text control frames and binary audio frames are proxied opaquely by `gateway/src/http/routes/live-voice-websocket.ts`; `gateway/src/index.ts` dispatches `open`, `message`, and `close` callbacks to that handler before the generic runtime proxy fallback.
 
-The assistant runtime route lives in `src/runtime/http-server.ts`. It mirrors the STT streaming security posture: direct access must come from private-network peers/origins, and authenticated deployments require the gateway service token. The runtime parses JSON frames with `parseLiveVoiceClientTextFrame()`, parses binary frames with `parseLiveVoiceBinaryAudioFrame()`, and routes accepted sessions through `LiveVoiceSessionManager`. The V1 manager owns a single-active-session lock and returns a `busy` frame for concurrent sessions.
+The assistant runtime route lives in `src/runtime/http-server.ts`. It mirrors the STT streaming security posture: direct access must come from private-network peers/origins, and authenticated deployments require the gateway service token. The runtime parses JSON frames with `parseLiveVoiceClientTextFrame()`, parses binary frames with `parseLiveVoiceBinaryAudioFrame()`, and routes accepted sessions through `LiveVoiceSessionManager`. The manager owns a single-active-session lock and returns a `busy` frame for concurrent sessions.
+
+Sessions are full-duplex and multi-turn: one WebSocket spans the whole conversation, the client mic streams continuously (audio frames are accepted in every non-closed state), and turn-taking is owned by the phone stack's `CallController` running under the in-app `VoiceControllerProfile` (`src/calls/voice-session-source.ts` — no `call_sessions` row, lifecycle writes are no-ops, guardian dispatch disabled, token-stream speech output). `LiveVoiceSession` is a composition root that wires three collaborators:
+
+- `LiveVoiceIngest` — inbound PCM16 audio: energy VAD (`pcm-speech-activity.ts`), turn segmentation (`MediaTurnDetector`), and streaming STT with per-turn batch fallback. Sessions negotiate a mic mode on the `start` frame (`ptt` default, `open-mic`); server-side VAD runs in both modes.
+- `CallController` — turn state (`idle|processing|speaking`), barge-in gating (accepted only while speaking), control markers (`[END_CALL]` ends the session via the transport), and voice turns through `voice-session-bridge`.
+- `LiveVoiceCallTransport` — consumes the controller's token stream, runs segmented streaming TTS, and emits `tts_audio`/`tts_done` frames.
+
+Server-VAD speech onset (or a client `interrupt` frame) during assistant speech is a barge-in: the controller aborts the in-flight turn, the transport flushes pending synthesis, and the session emits an `interrupted` frame with the aborted turn id, then keeps listening. `ptt_release` is a manual end-of-turn signal (authoritative in PTT, a hint in open-mic; the ingest emits `turn_boundary` when the local detector ends a turn). Session startup is gated by `resolveLiveVoiceCredentialReadiness()` — a missing STT or TTS credential fails the `start` frame with a `credentials_missing` error instead of failing mid-conversation. The session-wide duration limit (`liveVoice.maxSessionDurationSeconds`) is enforced by the controller's in-app timers.
 
 The assistant-side live voice module is intentionally bounded under `src/live-voice/`:
 
-| File                            | Boundary                                                                                                                                                    |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `protocol.ts`                   | Provider-agnostic client/server frame types, validation, binary audio parsing, and monotonic server-frame sequencing                                        |
-| `live-voice-session-manager.ts` | Single-active-session lock, session factory context, and dispatch/release lifecycle                                                                         |
-| `live-voice-session.ts`         | Session orchestration: streaming STT, push-to-talk release, voice turn bridge callbacks, assistant text deltas, TTS, archive, metrics, interrupt, and close |
-| `live-voice-tts.ts`             | Streaming TTS helper that resolves `services.tts`, requires `TtsProvider.synthesizeStream()`, and forwards audio chunks as `tts_audio` frames               |
-| `live-voice-archive.ts`         | Audio artifact creation/linking for user utterance and assistant response message IDs                                                                       |
-| `live-voice-metrics.ts`         | Per-session and per-turn latency snapshots emitted as `metrics` frames                                                                                      |
+| File                                 | Boundary                                                                                                                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `protocol.ts`                        | Provider-agnostic client/server frame types (incl. `turn_boundary`, `interrupted`, mic-mode negotiation), validation, binary audio parsing, and sequencing    |
+| `live-voice-session-manager.ts`      | Single-active-session lock, session factory context, and dispatch/release lifecycle                                                                           |
+| `live-voice-session.ts`              | Duplex composition root: wires ingest → CallController → transport, owns outbound frame serialization, per-turn archiving/metrics, barge-in frames, and close |
+| `live-voice-ingest.ts`               | Inbound PCM16 pipeline: energy VAD, turn detection, streaming STT with startup buffering and batch fallback                                                   |
+| `live-voice-transport.ts`            | `CallTransport` implementation: token stream → speakable segments → serialized streaming TTS → `tts_audio`/`tts_done` frames                                  |
+| `live-voice-credential-preflight.ts` | Session-start readiness verdict for the configured STT and TTS providers                                                                                      |
+| `live-voice-segments.ts`             | Speakable-segment extraction shared by the transport's TTS chunking                                                                                           |
+| `pcm-speech-activity.ts`             | PCM16 energy-based speech activity detector (config-driven threshold)                                                                                         |
+| `live-voice-tts.ts`                  | Streaming TTS helper that resolves `services.tts` and requires `TtsProvider.synthesizeStream()`                                                               |
+| `live-voice-archive.ts`              | Audio artifact creation/linking for user utterance and assistant response audio                                                                               |
+| `live-voice-metrics.ts`              | Per-session and per-turn latency snapshots emitted as `metrics` frames                                                                                        |
 
-Live voice STT uses the same `resolveStreamingTranscriber()` path as conversation streaming. For V1 latency-sensitive behavior, the selected `services.stt.provider` must resolve to a `daemon-streaming` transcriber whose catalog entry has `conversationStreamingMode: "realtime-ws"` and usable credentials. Providers that only support batch or incremental-batch transcription remain valid for other voice surfaces, but do not satisfy live voice's streaming STT requirement.
+Live voice STT uses the same `resolveStreamingTranscriber()` path as conversation streaming, with utterance-boundary finals. When no streaming transcriber resolves (or the provider closes mid-session), the ingest falls back to per-turn batch transcription via `resolveBatchTranscriber()` — a batch-capable provider keeps live voice usable at higher latency.
 
-Live voice TTS uses `streamLiveVoiceTtsAudio()` and the configured `services.tts.provider`. The selected provider must be registered, catalog-compatible, and expose `capabilities.supportsStreaming` plus `synthesizeStream()`. Fish Audio is the current catalog provider with streaming synthesis support; non-streaming providers remain available for buffered message playback or other supported surfaces, but live voice reports a TTS error instead of silently falling back to buffered playback.
+Live voice TTS uses `streamLiveVoiceTtsAudio()` and the configured `services.tts.provider`. The selected provider must be registered, catalog-compatible, and expose `capabilities.supportsStreaming` plus `synthesizeStream()`. Fish Audio is the current catalog provider with streaming synthesis support; non-streaming providers remain available for buffered message playback or other supported surfaces, but live voice fails the credential preflight instead of silently falling back to buffered playback.
 
-V1 is local/gateway-scoped. Managed/cloud WebSocket proxy support, cross-region routing, and p50/p95 latency guarantees are out of scope for this version. Metrics frames expose timing data for measurement, but the architecture does not promise a hard latency SLO.
+Live voice is local/gateway-scoped. Managed/cloud WebSocket proxy support, cross-region routing, and p50/p95 latency guarantees are out of scope. Metrics frames expose timing data for measurement, but the architecture does not promise a hard latency SLO. VAD thresholds, mic-mode default, and the session duration cap live under the `liveVoice` config namespace (`src/config/schemas/live-voice.ts`).
 
 **Client service-first boundary:**
 

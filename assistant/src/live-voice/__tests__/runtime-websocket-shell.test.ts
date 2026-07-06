@@ -21,6 +21,15 @@ mock.module("../../config/loader.js", () => {
     rateLimit: { maxRequestsPerMinute: 0 },
     secretDetection: { enabled: false },
     contextWindow: { maxInputTokens: 200_000 },
+    liveVoice: {
+      mode: "ptt",
+      vad: {
+        speechEnergyThreshold: 800,
+        silenceThresholdMs: 800,
+        maxTurnDurationMs: 30_000,
+      },
+      maxSessionDurationSeconds: 1800,
+    },
     services: {
       stt: { provider: "deepgram" },
       inference: {
@@ -87,6 +96,37 @@ const resolveStreamingTranscriberMock = mock(() =>
 
 mock.module("../../providers/speech-to-text/resolve.js", () => ({
   resolveStreamingTranscriber: resolveStreamingTranscriberMock,
+  resolveBatchTranscriber: async () => null,
+}));
+
+// Credential preflight stub: the session gates startup on STT+TTS
+// readiness; these shell tests exercise the WebSocket routing, not the
+// provider credential resolution (covered in
+// live-voice-credential-preflight.test.ts). `mock.module` is
+// process-global in Bun, so the stub delegates to the real resolver
+// unless this file's tests are active.
+const realPreflightModule = {
+  ...(await import("../live-voice-credential-preflight.js")),
+};
+let shellTestsActive = false;
+let preflightReady = true;
+mock.module("../live-voice-credential-preflight.js", () => ({
+  ...realPreflightModule,
+  resolveLiveVoiceCredentialReadiness: async () => {
+    if (!shellTestsActive) {
+      return realPreflightModule.resolveLiveVoiceCredentialReadiness();
+    }
+    return preflightReady
+      ? { status: "ready" }
+      : {
+          status: "not-ready",
+          missing: [
+            { kind: "tts", providerId: "fish-audio", reason: "no key" },
+          ],
+          userMessage:
+            "Live voice is unavailable because it requires an API key for the text-to-speech provider.",
+        };
+  },
 }));
 
 import { CURRENT_POLICY_EPOCH } from "../../runtime/auth/policy.js";
@@ -132,7 +172,9 @@ function startFrame(conversationId = "conversation-123"): string {
 }
 
 async function waitForOpen(ws: WebSocket, timeoutMs = 2000): Promise<void> {
-  if (ws.readyState === WebSocket.OPEN) return;
+  if (ws.readyState === WebSocket.OPEN) {
+    return;
+  }
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
@@ -157,7 +199,9 @@ async function waitForOpen(ws: WebSocket, timeoutMs = 2000): Promise<void> {
 }
 
 async function waitForClose(ws: WebSocket, timeoutMs = 2000): Promise<void> {
-  if (ws.readyState === WebSocket.CLOSED) return;
+  if (ws.readyState === WebSocket.CLOSED) {
+    return;
+  }
   await new Promise<void>((resolve, reject) => {
     const timer = setTimeout(() => {
       cleanup();
@@ -237,6 +281,8 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
 
   beforeEach(async () => {
     delete process.env.DISABLE_HTTP_AUTH;
+    shellTestsActive = true;
+    preflightReady = true;
     resolveStreamingTranscriberImpl = async () => createResolvedTranscriber();
     resolveStreamingTranscriberMock.mockClear();
     resolvedTranscribers.length = 0;
@@ -249,6 +295,7 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
   });
 
   afterEach(async () => {
+    shellTestsActive = false;
     for (const client of clients) {
       closeClient(client);
     }
@@ -314,6 +361,7 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
     expect(typeof ready.sessionId).toBe("string");
     expect(resolveStreamingTranscriberMock).toHaveBeenCalledWith({
       sampleRate: 24_000,
+      utteranceBoundaryFinals: true,
     });
     expect(resolvedTranscribers).toHaveLength(1);
     expect(resolvedTranscribers[0]?.started).toBe(true);
@@ -326,7 +374,9 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
       text: "partial-1",
     });
     expect(resolvedTranscribers[0]?.audioChunks).toEqual([[1, 2, 3]]);
-    expect(resolvedTranscribers[0]?.mimeTypes).toEqual(["audio/pcm"]);
+    expect(resolvedTranscribers[0]?.mimeTypes).toEqual([
+      "audio/pcm;rate=24000",
+    ]);
   });
 
   test("sends an error for malformed frames and can still start", async () => {
@@ -379,15 +429,8 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
     expect(secondReady.sessionId).not.toBe(firstReady.sessionId);
   });
 
-  test("releases the session lock after startup STT failure without WebSocket close", async () => {
-    let attempts = 0;
-    resolveStreamingTranscriberImpl = async () => {
-      attempts += 1;
-      if (attempts === 1) {
-        throw new Error("Deepgram credentials missing");
-      }
-      return createResolvedTranscriber();
-    };
+  test("releases the session lock after a failed credential preflight without WebSocket close", async () => {
+    preflightReady = false;
     const ws = openLiveVoiceClient();
     await waitForOpen(ws);
 
@@ -395,10 +438,11 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
     const error = await waitForJsonFrame(ws);
     expect(error).toMatchObject({
       type: "error",
-      code: "invalid_field",
-      message: expect.stringContaining("Deepgram credentials missing"),
+      code: "credentials_missing",
+      message: expect.stringContaining("Live voice is unavailable"),
     });
 
+    preflightReady = true;
     ws.send(startFrame("conversation-retry"));
     const ready = await waitForJsonFrame(ws);
 
@@ -407,7 +451,6 @@ describe("RuntimeHttpServer live voice WebSocket shell", () => {
       conversationId: "conversation-retry",
     });
     expect(typeof ready.sessionId).toBe("string");
-    expect(resolveStreamingTranscriberMock).toHaveBeenCalledTimes(2);
     expect(resolvedTranscribers).toHaveLength(1);
     expect(resolvedTranscribers[0]?.started).toBe(true);
   });
