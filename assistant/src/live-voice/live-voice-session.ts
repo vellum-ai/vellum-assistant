@@ -196,6 +196,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Bounded ring of idle-mic chunks skipped while the VAD detector is idle;
   // flushed ahead of the first routed chunk on speech onset.
   private vadPreRollChunks: Buffer[] = [];
+  // The ring holds speech parked during the release→turn-start window;
+  // protected from silent-chunk eviction until it flushes.
+  private vadPreRollHasSpeech = false;
+  // Detector turn-end that fired while its speech sat parked in the ring;
+  // replayed once the parked speech flushes into the next armed utterance.
+  private vadPendingTurnEnd: "silence" | "max-duration" | null = null;
   private readonly metricsClock: LiveVoiceMetricsClock;
 
   constructor(
@@ -325,6 +331,12 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       },
     };
     this.currentUtterance = utterance;
+    // Speech parked while the previous cycle wound down belongs to this
+    // cycle: buffer it before the transcriber arms, and capture the detector
+    // turn-end that already fired for it (if any) to replay below.
+    this.flushVadPreRollIntoPending(utterance);
+    const replayTurnEnd = this.vadPendingTurnEnd;
+    this.vadPendingTurnEnd = null;
 
     try {
       const transcriber = await this.resolveTranscriber({
@@ -359,6 +371,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       await this.flushPendingUtteranceAudio(utterance);
       if (utterance.released) {
         await this.stopUtteranceForRelease(utterance);
+      } else if (replayTurnEnd) {
+        // The parked utterance completed during the window (detector already
+        // idle): replay its boundary so it turns without more speech.
+        await this.sendFrame({ type: "utterance_end", reason: replayTurnEnd });
+        await this.releaseUtterance();
       }
       return { status: "started" };
     } catch (err) {
@@ -466,18 +483,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // collecting or streaming them; flushed on speech onset so the
     // transcriber still gets leading context ahead of the first syllable.
     if (!hasSpeech && !detector.isActive) {
-      this.pushVadPreRoll(chunk);
+      this.pushVadPreRoll(chunk, false);
       return;
     }
 
     let utterance = this.currentUtterance;
     if (!utterance) return;
     if (utterance.released || utterance.completed) {
-      if (!hasSpeech) return;
+      // Parked speech makes silent chunks arm-worthy too: the parked
+      // utterance must flush without requiring more speech.
+      if (!hasSpeech && !this.vadPreRollHasSpeech) return;
       if (!this.canArmNextUtterance(utterance)) {
         // Speech in the release→turn-start window: hold it in the pre-roll
         // ring so it flushes into the next utterance once it arms.
-        this.pushVadPreRoll(chunk);
+        this.pushVadPreRoll(chunk, hasSpeech);
         return;
       }
       // Sets currentUtterance synchronously; the transcriber resolves async
@@ -487,7 +506,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       if (!utterance || utterance.released || utterance.completed) return;
     }
 
-    for (const preRollChunk of this.vadPreRollChunks.splice(0)) {
+    for (const preRollChunk of this.takeVadPreRoll()) {
       await this.routeVadAudio(utterance, preRollChunk);
     }
     await this.routeVadAudio(utterance, chunk);
@@ -517,10 +536,33 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     return utterance.completed || utterance.assistantTurnStarted;
   }
 
-  private pushVadPreRoll(chunk: Buffer): void {
+  private pushVadPreRoll(chunk: Buffer, hasSpeech: boolean): void {
+    // A full ring never lets idle silence evict parked speech.
+    if (
+      !hasSpeech &&
+      this.vadPreRollHasSpeech &&
+      this.vadPreRollChunks.length >= SERVER_VAD_PRE_ROLL_MAX_CHUNKS
+    ) {
+      return;
+    }
+    if (hasSpeech) this.vadPreRollHasSpeech = true;
     this.vadPreRollChunks.push(Buffer.from(chunk));
     while (this.vadPreRollChunks.length > SERVER_VAD_PRE_ROLL_MAX_CHUNKS) {
       this.vadPreRollChunks.shift();
+    }
+  }
+
+  private takeVadPreRoll(): Buffer[] {
+    this.vadPreRollHasSpeech = false;
+    return this.vadPreRollChunks.splice(0);
+  }
+
+  // Arm-time flush: parked release-window audio joins the new cycle's
+  // pending buffer so a completed parked utterance needs no further speech.
+  private flushVadPreRollIntoPending(utterance: UtteranceCycle): void {
+    for (const chunk of this.takeVadPreRoll()) {
+      this.collectUserAudio(utterance, chunk);
+      this.bufferPendingUtteranceAudio(utterance, chunk);
     }
   }
 
@@ -612,7 +654,15 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       if (this.isClosed || this.state === "failed") return;
       this.vadSpeechStartPending = false;
       const utterance = this.currentUtterance;
-      if (!utterance || utterance.released || utterance.completed) return;
+      if (!utterance || utterance.released || utterance.completed) {
+        // The ended turn's speech sits parked in the pre-roll ring (the
+        // spent cycle still owns currentUtterance); record the boundary so
+        // beginUtterance replays it once the parked speech flushes.
+        if (this.vadPreRollHasSpeech) {
+          this.vadPendingTurnEnd = reason;
+        }
+        return;
+      }
       await this.sendFrame({ type: "utterance_end", reason });
       await this.releaseUtterance();
     })().catch(() => {});
@@ -704,19 +754,21 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         await this.startAssistantTurnIfReady();
         return;
       }
-      case "error":
-        // Non-terminal: providers like OpenAI Whisper emit `error` for
-        // transient poll failures and continue streaming. Let `closed` /
-        // `final` drive turn lifecycle so we don't drain audio buffers or
-        // mark the turn cancelled prematurely. The entry guard above ensures
-        // the session is still live, so the frame is recoverable.
+      case "error": {
+        // Providers emit `error` mid-stream and may keep streaming; `closed`
+        // / `final` still drive turn lifecycle. Only transient categories are
+        // recoverable — auth/rate-limit/invalid-audio will not self-heal, so
+        // hands-free clients must surface them instead of suppressing them.
+        const recoverable =
+          event.category === "timeout" || event.category === "provider-error";
         await this.sendFrame({
           type: "error",
           code: LiveVoiceProtocolErrorCode.InvalidField,
           message: event.message,
-          recoverable: true,
+          ...(recoverable ? { recoverable: true } : {}),
         });
         return;
+      }
       case "closed":
         utterance.phase = "transcriber_closed";
         utterance.transcriber = null;
@@ -729,6 +781,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (this.isClosed || this.state === "failed") return;
 
     this.state = "interrupted";
+    // A client interrupt also discards speech parked in the pre-roll ring.
+    this.takeVadPreRoll();
+    this.vadPendingTurnEnd = null;
     const utterance = this.currentUtterance;
     if (utterance) {
       stopTranscriberBestEffort(utterance.transcriber);
@@ -767,12 +822,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const content = utterance.finalTranscriptSegments.join(" ").trim();
     if (content.length === 0) {
       utterance.assistantTurnStarted = true;
-      await this.finalizePendingUtterance(utterance, "empty_transcript");
       if (this.turnDetector) {
         // Hands-free clients moved to "transcribing" on utterance_end; tell
-        // them the utterance was dropped so they return to listening.
+        // them the utterance was dropped so they return to listening. Sent
+        // before the finalization awaits so a newer utterance armed in the
+        // meantime cannot be blipped by a stale discard.
         await this.sendFrame({ type: "utterance_discarded" });
       }
+      await this.finalizePendingUtterance(utterance, "empty_transcript");
       this.scheduleRearmAfterTurn();
       return;
     }

@@ -164,6 +164,60 @@ describe("LiveVoiceSession STT", () => {
     ]);
   });
 
+  test("marks timeout transcriber errors recoverable", async () => {
+    const { frames, session, transcriber } = createSessionWithTranscriber();
+
+    await session.start();
+    transcriber.emit({
+      type: "error",
+      category: "timeout",
+      message: "request timed out",
+    });
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
+
+    expect(frames.find((frame) => frame.type === "error")).toMatchObject({
+      type: "error",
+      message: "request timed out",
+      recoverable: true,
+    });
+  });
+
+  test("marks terminal transcriber errors non-recoverable", async () => {
+    const { frames, session, transcriber } = createSessionWithTranscriber();
+
+    await session.start();
+    transcriber.emit({
+      type: "error",
+      category: "auth",
+      message: "invalid credentials",
+    });
+    transcriber.emit({
+      type: "error",
+      category: "rate-limit",
+      message: "rate limited",
+    });
+    transcriber.emit({
+      type: "error",
+      category: "invalid-audio",
+      message: "unsupported audio",
+    });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "error").length === 3,
+    );
+
+    const errorFrames = frames.flatMap((frame) =>
+      frame.type === "error" ? [frame] : [],
+    );
+    expect(errorFrames.map((frame) => frame.message)).toEqual([
+      "invalid credentials",
+      "rate limited",
+      "unsupported audio",
+    ]);
+    for (const frame of errorFrames) {
+      expect(frame).not.toHaveProperty("recoverable");
+    }
+  });
+
   test("forwards binary audio to the transcriber and emits STT frames", async () => {
     const { frames, session, transcriber } = createSessionWithTranscriber();
 
