@@ -28,7 +28,6 @@ import { isElectron } from "@/runtime/is-electron";
 import { isNativePlatform } from "@/runtime/native-auth";
 import { setSelectedAssistant } from "@/assistant/selection";
 import { useAuthStore } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { useOrganizationStore } from "@/stores/organization-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { isSessionSettled } from "@/stores/session-status";
@@ -232,16 +231,13 @@ export function HatchingScreen() {
             });
             return;
           }
-          // A local hatch feeds the research-onboarding flow when it's enabled:
-          // the assistant is now live, so the research route adopts it (its
-          // background hatch resolves the existing local assistant instead of
-          // provisioning a managed one). Read the flag non-reactively so this
-          // navigation decision doesn't re-arm the hatch effect. Everything
-          // else keeps the legacy pre-chat funnel.
-          if (
-            useLocalHatch &&
-            useClientFeatureFlagStore.getState().researchOnboarding
-          ) {
+          // A local hatch feeds the research/personality flow — now THE default
+          // onboarding. The assistant is live, so the research route adopts it
+          // (its background hatch resolves the existing local assistant instead
+          // of provisioning a managed one). The legacy pre-chat funnel is
+          // retired; it only remains as a fallback for any non-local hatch that
+          // still lands here.
+          if (useLocalHatch) {
             void navigate(routes.onboarding.research, { replace: true });
             return;
           }

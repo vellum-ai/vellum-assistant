@@ -18,11 +18,10 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { Navigate, useNavigate } from "react-router";
+import { useNavigate } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
 import { useAuthStore } from "@/stores/auth-store";
-import { useClientFeatureFlagStore } from "@/stores/client-feature-flag-store";
 import { routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import { DEFAULT_GROUP_ID } from "@/domains/onboarding/prechat-names";
@@ -122,14 +121,10 @@ export function ResearchOnboardingRoute() {
     useOnboardingFocusStore.use.setPendingAvatarTraits();
   const requestSidebarCollapse =
     useOnboardingFocusStore.use.requestSidebarCollapse();
-  // Belt-and-suspenders gate: the spike lives at a dedicated path AND behind
-  // this flag (off by default; enable locally via the feature-flags panel).
-  const enabled = useClientFeatureFlagStore.use.researchOnboarding();
-  // Sub-gate for the "Create my personality" step; when off it's skipped
-  // entirely (pitch → integration, with the back nav mirrored).
-  const personalityEnabled =
-    useClientFeatureFlagStore.use.personalityOnboarding();
-  const flagsHydrated = useClientFeatureFlagStore.use.hydrated();
+  // Research/personality onboarding is now THE onboarding — it fully replaces
+  // the legacy pre-chat funnel and is no longer flag-gated, so the route always
+  // renders and the "Create my personality" step is always shown.
+  const personalityEnabled = true;
 
   // Sub-steps share this route: details form → avatar/name picker →
   // introduction → pitch (the "different" step, which carousels its lines to
@@ -266,17 +261,13 @@ export function ResearchOnboardingRoute() {
 
   // Landing on the form means a fresh run — clear any stale focus state left
   // behind by an abandoned previous attempt so the form itself never renders
-  // chrome-less — and kick off the background hatch (idempotent).
-  //
-  // Gate the hatch on the flag: a cold visit starts with `researchOnboarding`
-  // defaulting to false until LD hydrates, and this effect runs before the
-  // `!enabled` redirect below. Without the gate a flag-off visitor would
-  // provision + poll an assistant before being bounced away.
+  // chrome-less — and kick off the background hatch (idempotent). This is now
+  // the default onboarding, so the hatch fires unconditionally on mount.
   useEffect(() => {
     exitFocus();
     setPendingAvatarTraits(null);
-    if (enabled && flagsHydrated) startHatch();
-  }, [exitFocus, setPendingAvatarTraits, startHatch, enabled, flagsHydrated]);
+    startHatch();
+  }, [exitFocus, setPendingAvatarTraits, startHatch]);
 
   // Resume a journey saved by a previous session (a page refresh). Runs once,
   // as soon as the user id is known, BEFORE the persistence write / research
@@ -368,7 +359,7 @@ export function ResearchOnboardingRoute() {
   // resume hydrates the status to "done". The meeting is never re-booked here:
   // that only fires from the calendar step, which a resume skips past.
   useEffect(() => {
-    if (!restored || !enabled || !flagsHydrated) return;
+    if (!restored) return;
     if (!formValues || research.status !== "idle") return;
     startResearch({
       awaitAssistantId: awaitHatchReady,
@@ -382,8 +373,6 @@ export function ResearchOnboardingRoute() {
     });
   }, [
     restored,
-    enabled,
-    flagsHydrated,
     formValues,
     researchConversationId,
     research.status,
@@ -572,14 +561,6 @@ export function ResearchOnboardingRoute() {
         .finally(() => setCheckinPending(false));
     }
     goForwardTo("meeting");
-  }
-
-  if (!enabled) {
-    // A cold load starts with the default-off value while the LD flag is still
-    // being fetched; wait for that response before bouncing so a flag that's
-    // actually `true` isn't redirected away on first render.
-    if (!flagsHydrated) return null;
-    return <Navigate to={routes.assistant} replace />;
   }
 
   // The later steps share one persistent toned backdrop (assistant color +

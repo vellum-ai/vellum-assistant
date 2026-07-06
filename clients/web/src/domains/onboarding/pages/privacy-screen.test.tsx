@@ -130,18 +130,7 @@ describe("PrivacyScreen — Start navigation", () => {
     expect(emitFunnelStepCompletedMock).not.toHaveBeenCalled();
   });
 
-  test("normal mode persists consent and advances to hatching", () => {
-    searchParamsValue = new URLSearchParams();
-    render(<PrivacyScreen />);
-
-    clickStart();
-
-    expect(saveConsentMock).toHaveBeenCalledTimes(1);
-    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hatching);
-  });
-
-  test("flag on (web) persists consent and advances to the research flow, preserving hosting", () => {
-    researchFlag = true;
+  test("web persists consent and advances to the research flow (now the default), preserving hosting", () => {
     nativePlatform = false;
     searchParamsValue = new URLSearchParams("hosting=managed");
     render(<PrivacyScreen />);
@@ -155,8 +144,7 @@ describe("PrivacyScreen — Start navigation", () => {
     expect(target).toContain("hosting=managed");
   });
 
-  test("flag on but native keeps the standard hatching flow", () => {
-    researchFlag = true;
+  test("native keeps the standard hatching flow (research not wired for the native shell)", () => {
     nativePlatform = true;
     searchParamsValue = new URLSearchParams();
     render(<PrivacyScreen />);
@@ -165,17 +153,4 @@ describe("PrivacyScreen — Start navigation", () => {
 
     expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hatching);
   });
-
-  test("flag on but local mode keeps the standard hatching flow (research is managed-only)", () => {
-    researchFlag = true;
-    nativePlatform = false;
-    localMode = true;
-    searchParamsValue = new URLSearchParams();
-    render(<PrivacyScreen />);
-
-    clickStart();
-
-    expect(navigateMock).toHaveBeenCalledWith(routes.onboarding.hatching);
-  });
-
 });
