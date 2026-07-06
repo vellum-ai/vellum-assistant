@@ -118,9 +118,7 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
 // Now import modules under test (after mocks are in place)
 // ---------------------------------------------------------------------------
 
-import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { updateSessionDelivery } from "../runtime/channel-verification-service.js";
 import {
   handleCancelVerificationSession,
   handleCreateVerificationSession,
@@ -133,6 +131,10 @@ import {
   startOutbound,
 } from "../runtime/verification-outbound-actions.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
+import {
+  resetVerificationSessionsSim,
+  updateSessionDelivery,
+} from "./helpers/verification-sessions-ipc-sim.js";
 
 // Initialize the database (creates all tables)
 await initializeDb();
@@ -143,13 +145,7 @@ afterAll(() => {
 });
 
 function resetTables(): void {
-  const db = getDb();
-  db.run("DELETE FROM channel_verification_sessions");
-  try {
-    db.run("DELETE FROM channel_guardian_rate_limits");
-  } catch {
-    /* table may not exist */
-  }
+  resetVerificationSessionsSim();
 }
 
 // ---------------------------------------------------------------------------

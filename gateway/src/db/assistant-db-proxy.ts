@@ -7,15 +7,14 @@
  * ≤3.51.2), so the gateway reaches the assistant DB only through this route.
  *
  * The caller allowlist is pinned by `__tests__/db-proxy-allowlist.test.ts`.
- * The surface serves exactly three groups:
- *   (a) verification-session + rate-limit state (`verification/*`, `voice/*`),
- *   (b) the contact-merge identity-mirror cluster in `db/contact-store.ts` —
+ * The surface serves exactly two groups:
+ *   (a) the contact-merge identity-mirror cluster in `db/contact-store.ts` —
  *       pending a merge-shaped op that expresses a notes-only survivor UPDATE
  *       and a resolved-slug dual-write INSERT the typed mirror ops cannot, and
- *   (c) data migrations (one-time backfills).
+ *   (b) data migrations (one-time backfills and drops).
  *
- * NOT a general-purpose query layer. Slated for removal with the
- * verification-session source-of-truth move.
+ * NOT a general-purpose query layer. Slated for removal once the
+ * contact-merge cluster gets typed mirror ops.
  */
 
 import {

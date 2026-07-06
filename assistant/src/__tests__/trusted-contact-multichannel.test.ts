@@ -80,37 +80,28 @@ import { findContactChannel } from "../contacts/contact-store.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import {
-  createOutboundSession,
-  findActiveSession,
-  getPendingSession,
-  validateAndConsumeVerification,
-} from "../runtime/channel-verification-service.js";
-import {
   handleChannelInbound,
   seedContactChannel,
 } from "./helpers/channel-test-adapter.js";
+import {
+  createOutboundSession,
+  createOutboundSessionGuarded,
+  findActiveSession,
+  getPendingSession,
+  resetVerificationSessionsSim,
+  validateAndConsumeVerification,
+} from "./helpers/verification-sessions-ipc-sim.js";
 
 // The inbound stages read/write sessions via the gateway-backed IPC client;
-// delegate it to the local service so the challenge lanes keep running
-// against the test DB.
+// delegate it to the in-memory sim so the challenge lanes keep running
+// without a live gateway.
 mock.module("../channels/gateway-verification-sessions.js", () => ({
   createOutboundSession: async (
     params: Parameters<typeof createOutboundSession>[0],
   ) => createOutboundSession(params),
-  createOutboundSessionConditional: async ({
-    ifNoneActiveForExternalUserId,
-    ...params
-  }: Parameters<typeof createOutboundSession>[0] & {
-    ifNoneActiveForExternalUserId?: string;
-  }) => {
-    if (ifNoneActiveForExternalUserId !== undefined) {
-      const active = findActiveSession(params.channel);
-      if (active?.expectedExternalUserId === ifNoneActiveForExternalUserId) {
-        return { conflict: true as const, reason: "active_session_exists" };
-      }
-    }
-    return createOutboundSession(params);
-  },
+  createOutboundSessionConditional: async (
+    params: Parameters<typeof createOutboundSessionGuarded>[0],
+  ) => createOutboundSessionGuarded(params),
   getPendingSession: async (channel: string) => getPendingSession(channel),
   findActiveSession: async (channel: string) => findActiveSession(channel),
 }));
@@ -129,9 +120,8 @@ await initializeDb();
 const TEST_BEARER_TOKEN = "test-token";
 
 function resetState(): void {
+  resetVerificationSessionsSim();
   const db = getDb();
-  db.run("DELETE FROM channel_verification_sessions");
-  db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
@@ -282,8 +272,6 @@ for (const config of CHANNEL_CONFIGS) {
         session.secret,
         config.senderExternalUserId,
         config.externalChatId,
-        "test_requester",
-        "Test Requester",
       );
 
       expect(challengeResult.success).toBe(true);

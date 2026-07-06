@@ -31,6 +31,7 @@ import * as m0009 from "./m0009-invite-fields-backfill.js";
 import * as m0010 from "./m0010-drop-assistant-ingress-invites.js";
 import * as m0011 from "./m0011-drop-gw-verification-sessions.js";
 import * as m0012 from "./m0012-verification-sessions-backfill.js";
+import * as m0013 from "./m0013-drop-assistant-verification-tables.js";
 
 const log = getLogger("data-migrations");
 
@@ -55,8 +56,9 @@ export const MIGRATIONS: { key: string; mod: MigrationModule }[] = [
   // m0010 must stay after m0009: it drops the assistant table m0009 reads.
   { key: "m0010-drop-assistant-ingress-invites", mod: m0010 },
   { key: "m0011-drop-gw-verification-sessions", mod: m0011 },
-  // m0013 (the assistant-table drop) must be checkpoint-gated on m0012.
   { key: "m0012-verification-sessions-backfill", mod: m0012 },
+  // m0013 must stay after m0012: it drops the assistant tables m0012 reads.
+  { key: "m0013-drop-assistant-verification-tables", mod: m0013 },
 ];
 
 /**
