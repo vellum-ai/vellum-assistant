@@ -63,6 +63,13 @@ export interface LiveVoiceState {
   assistantTranscript: string;
   /** Smoothed RMS mic amplitude in [0, 1] for UI / barge-in. */
   inputAmplitude: number;
+  /**
+   * Machine reason from the last server `turn_cancelled` frame (e.g.
+   * `empty_transcript`, `stt_failed`, `turn_failed`, `tts_failed`).
+   * Non-fatal — the session resumed listening. Cleared when the next turn
+   * is accepted and on reset.
+   */
+  turnCancelledReason: string | null;
   /** Human-readable error message when `state === "failed"`, `null` otherwise. */
   error: string | null;
 }
@@ -77,6 +84,7 @@ export interface LiveVoiceActions {
   /** Reset the assistant transcript ahead of a new response. */
   clearAssistantTranscript: () => void;
   setInputAmplitude: (amplitude: number) => void;
+  setTurnCancelledReason: (reason: string | null) => void;
   /** Transition to `failed` with a message. */
   fail: (message: string) => void;
   /** Reset every field back to the idle defaults. */
@@ -95,6 +103,7 @@ const INITIAL_STATE: LiveVoiceState = {
   finalTranscript: "",
   assistantTranscript: "",
   inputAmplitude: 0,
+  turnCancelledReason: null,
   error: null,
 };
 
@@ -108,6 +117,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
     set((s) => ({ assistantTranscript: s.assistantTranscript + delta })),
   clearAssistantTranscript: () => set({ assistantTranscript: "" }),
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
+  setTurnCancelledReason: (turnCancelledReason) => set({ turnCancelledReason }),
   fail: (message) => set({ state: "failed", error: message }),
   reset: () => set({ ...INITIAL_STATE }),
 }));

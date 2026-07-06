@@ -344,6 +344,29 @@ function createMockTransport(): MockTransport {
   } as MockTransport;
 }
 
+/**
+ * VoiceSessionSource for a controller with no call_sessions row (the
+ * in-app live-voice wiring): a fixed in-progress snapshot bound to the
+ * given conversation, which is created if needed.
+ */
+function makeInAppSessionSource(
+  conversationId: string,
+  toNumber = "",
+): VoiceSessionSource {
+  ensureConversation(conversationId);
+  return {
+    conversationId,
+    skipDisclosure: true,
+    getSnapshot: () => ({
+      status: "in_progress",
+      conversationId,
+      initiatedFromConversationId: null,
+      startedAt: Date.now(),
+      toNumber,
+    }),
+  };
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 let ensuredConvIds = new Set<string>();
@@ -3517,18 +3540,10 @@ describe("call-controller", () => {
   // ── Injected VoiceSessionSource ─────────────────────────────────────
 
   test("injected session source: constructor resolves conversationId without a call_sessions row", async () => {
-    ensureConversation("conv-injected-source");
-    const sessionSource: VoiceSessionSource = {
-      conversationId: "conv-injected-source",
-      skipDisclosure: true,
-      getSnapshot: () => ({
-        status: "in_progress",
-        conversationId: "conv-injected-source",
-        initiatedFromConversationId: null,
-        startedAt: Date.now(),
-        toNumber: "+15555550100",
-      }),
-    };
+    const sessionSource = makeInAppSessionSource(
+      "conv-injected-source",
+      "+15555550100",
+    );
     const transport = createMockTransport();
     const controller = new CallController(
       "call-session-without-row",
@@ -3561,18 +3576,7 @@ describe("call-controller", () => {
      * source (no call_sessions row exists) plus the in-app profile.
      */
     function setupInAppController() {
-      ensureConversation("conv-inapp-test");
-      const sessionSource: VoiceSessionSource = {
-        conversationId: "conv-inapp-test",
-        skipDisclosure: true,
-        getSnapshot: () => ({
-          status: "in_progress",
-          conversationId: "conv-inapp-test",
-          initiatedFromConversationId: null,
-          startedAt: Date.now(),
-          toNumber: "",
-        }),
-      };
+      const sessionSource = makeInAppSessionSource("conv-inapp-test");
       const transport = createMockTransport();
       const controller = new CallController(
         IN_APP_SESSION_ID,
@@ -3764,24 +3768,12 @@ describe("call-controller", () => {
         },
       );
 
-      ensureConversation("conv-inapp-hooks");
-      const sessionSource: VoiceSessionSource = {
-        conversationId: "conv-inapp-hooks",
-        skipDisclosure: true,
-        getSnapshot: () => ({
-          status: "in_progress",
-          conversationId: "conv-inapp-hooks",
-          initiatedFromConversationId: null,
-          startedAt: Date.now(),
-          toNumber: "",
-        }),
-      };
       const controller = new CallController(
         "live-voice-session-hooks",
         createMockTransport(),
         null,
         {
-          sessionSource,
+          sessionSource: makeInAppSessionSource("conv-inapp-hooks"),
           profile: createInAppVoiceControllerProfile({
             onPersistedUserMessageId: (id) => userIds.push(id),
             onPersistedAssistantMessageId: (id) => assistantIds.push(id),
@@ -3805,19 +3797,63 @@ describe("call-controller", () => {
       );
     });
 
+    test("persisted-message-id callbacks from a superseded run are dropped", async () => {
+      const userIds: string[] = [];
+      let firstTurnCallbacks:
+        | { persisted_user_message_id?: (id: string) => void }
+        | undefined;
+      let turnCount = 0;
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          callbacks?: { persisted_user_message_id?: (id: string) => void };
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+        }) => {
+          turnCount += 1;
+          if (turnCount === 1) {
+            // First turn: hold its callbacks and never complete, so the
+            // test can fire a late persisted-id after the run is
+            // superseded by the second utterance.
+            firstTurnCallbacks = opts.callbacks;
+            return { turnId: "run-stale", abort: () => {} };
+          }
+          opts.callbacks?.persisted_user_message_id?.("msg-turn-2");
+          opts.onTextDelta("Hi.");
+          opts.onComplete();
+          return { turnId: "run-current", abort: () => {} };
+        },
+      );
+
+      const controller = new CallController(
+        "live-voice-session-stale-run",
+        createMockTransport(),
+        null,
+        {
+          sessionSource: makeInAppSessionSource("conv-inapp-stale-run"),
+          profile: createInAppVoiceControllerProfile({
+            onPersistedUserMessageId: (id) => userIds.push(id),
+          }),
+        },
+      );
+
+      const firstTurn = controller.handleCallerUtterance("First utterance");
+      await pollUntil(() => turnCount === 1);
+      // Barge-in with a new utterance supersedes the first run.
+      await controller.handleCallerUtterance("Second utterance");
+      await firstTurn.catch(() => {});
+
+      // The stale run's pipeline reports its persisted user message only
+      // now — the run guard must drop it instead of delivering it as if
+      // it belonged to the current turn.
+      firstTurnCallbacks?.persisted_user_message_id?.("msg-turn-1-late");
+
+      expect(userIds).toEqual(["msg-turn-2"]);
+
+      controller.destroy();
+    });
+
     test("unprompted speech disabled: no silence nudge fires even with a tiny timeout", async () => {
-      ensureConversation("conv-inapp-silence");
-      const sessionSource: VoiceSessionSource = {
-        conversationId: "conv-inapp-silence",
-        skipDisclosure: true,
-        getSnapshot: () => ({
-          status: "in_progress",
-          conversationId: "conv-inapp-silence",
-          initiatedFromConversationId: null,
-          startedAt: Date.now(),
-          toNumber: "",
-        }),
-      };
+      const sessionSource = makeInAppSessionSource("conv-inapp-silence");
       const profile = createInAppVoiceControllerProfile();
       profile.timers = { ...profile.timers, silenceTimeoutMs: () => 10 };
       const transport = createMockTransport();
@@ -3840,18 +3876,7 @@ describe("call-controller", () => {
     });
 
     test("unprompted speech disabled: no pre-max-duration warning is spoken", async () => {
-      ensureConversation("conv-inapp-warning");
-      const sessionSource: VoiceSessionSource = {
-        conversationId: "conv-inapp-warning",
-        skipDisclosure: true,
-        getSnapshot: () => ({
-          status: "in_progress",
-          conversationId: "conv-inapp-warning",
-          initiatedFromConversationId: null,
-          startedAt: Date.now(),
-          toNumber: "",
-        }),
-      };
+      const sessionSource = makeInAppSessionSource("conv-inapp-warning");
       const profile = createInAppVoiceControllerProfile();
       // warningMs = maxDurationMs - 2min → 20ms; the max-duration end
       // timer itself stays far in the future.

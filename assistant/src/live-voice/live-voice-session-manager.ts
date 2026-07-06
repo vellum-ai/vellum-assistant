@@ -32,7 +32,7 @@ export interface LiveVoiceServerFrameSink {
    * The socket owner should detach and close the connection; this must be
    * idempotent for owner-initiated closes where the socket is already gone.
    */
-  onSessionEnded?(sessionId: string, reason: string): void;
+  onSessionEnded?(sessionId: string): void;
 }
 
 export interface LiveVoiceSessionFactoryContext {
@@ -44,7 +44,7 @@ export interface LiveVoiceSessionFactoryContext {
    * closing, so the owner (manager) can drop its active-session slot even
    * when the close was session-initiated rather than owner-initiated.
    */
-  onSessionEnded?(reason: string): void;
+  onSessionEnded?(): void;
 }
 
 export type LiveVoiceSessionFactory = (
@@ -145,11 +145,11 @@ export class LiveVoiceSessionManager {
         await sink.sendFrame(frame);
         return frame;
       },
-      onSessionEnded: (reason) => {
+      onSessionEnded: () => {
         if (this.activeSession?.sessionId === sessionId) {
           this.activeSession = null;
         }
-        sink.onSessionEnded?.(sessionId, reason);
+        sink.onSessionEnded?.(sessionId);
       },
     };
     const session = this.createSession(context);

@@ -751,6 +751,10 @@ describe("turn_cancelled", () => {
     });
 
     expect(h.view.result.current.state).toBe("listening");
+    // The machine reason is surfaced non-fatally.
+    expect(useLiveVoiceStore.getState().turnCancelledReason).toBe(
+      "empty_transcript",
+    );
 
     // Forwarding re-opened: the next utterance streams again.
     act(() => {
@@ -758,6 +762,46 @@ describe("turn_cancelled", () => {
       h.getCapture().pushChunk(pcmChunk(20));
     });
     expect(h.client.sentAudio).toHaveLength(1);
+
+    // The next accepted turn clears the surfaced reason.
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 5, turnId: "t2" });
+    });
+    expect(useLiveVoiceStore.getState().turnCancelledReason).toBeNull();
+  });
+
+  test("while speaking flushes playback and resumes listening", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 3,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+
+    // A mid-response TTS failure cancels the turn after audio started; no
+    // tts_done is coming for it.
+    act(() => {
+      h.client.emit("turnCancelled", {
+        type: "turn_cancelled",
+        seq: 4,
+        reason: "tts_failed",
+      });
+    });
+
+    expect(h.player.stopCount).toBeGreaterThanOrEqual(1);
+    expect(h.view.result.current.state).toBe("listening");
+    expect(useLiveVoiceStore.getState().turnCancelledReason).toBe(
+      "tts_failed",
+    );
+    expect(h.client.closed).toBe(false);
   });
 
   test("an empty stt_final after release does not advance to thinking", async () => {
@@ -807,6 +851,54 @@ describe("turn_cancelled", () => {
 
     expect(h.view.result.current.state).toBe("listening");
     expect(h.client.closed).toBe(false);
+  });
+
+  test("stuck-turn backstop disarms once the server confirms the turn with thinking", async () => {
+    const h = renderController({ stuckTurnTimeoutMs: 40 });
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("turnBoundary", { type: "turn_boundary", seq: 2 });
+      h.client.emit("thinking", { type: "thinking", seq: 3, turnId: "t1" });
+    });
+    expect(h.view.result.current.state).toBe("thinking");
+
+    // A long tool-using turn: the server emits nothing between `thinking`
+    // and the first delta. The backstop must not flip the session back to
+    // listening — turn_cancelled / fatal error own the failure modes now.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 90));
+    });
+
+    expect(h.view.result.current.state).toBe("thinking");
+
+    // The turn still completes normally afterwards.
+    act(() => {
+      h.client.emit("assistantTextDelta", {
+        type: "assistant_text_delta",
+        seq: 4,
+        text: "Done.",
+      });
+    });
+    expect(h.view.result.current.state).toBe("thinking");
+
+    // The backstop re-arms for the next turn once listening resumes.
+    act(() => {
+      h.client.emit("turnCancelled", {
+        type: "turn_cancelled",
+        seq: 5,
+        reason: "turn_failed",
+      });
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    act(() => {
+      h.client.emit("turnBoundary", { type: "turn_boundary", seq: 6 });
+    });
+    expect(h.view.result.current.state).toBe("transcribing");
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 90));
+    });
+    expect(h.view.result.current.state).toBe("listening");
   });
 
   test("stuck-turn backstop does not fire once the response is speaking", async () => {

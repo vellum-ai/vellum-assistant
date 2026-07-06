@@ -84,9 +84,14 @@ const SILENCE_DURATION_BEFORE_RELEASE_MS = 1000;
 const MINIMUM_SPEECH_DURATION_BEFORE_RELEASE_MS = 120;
 
 /**
- * Backstop for a wedged turn: if the session sits in `transcribing`/`thinking`
- * this long with no server progress (no partial/final/delta/audio), resume
- * listening so a turn the server silently dropped can't strand the client.
+ * Backstop for a turn the server never picked up: if the session sits in
+ * `transcribing`/`thinking` this long with no server progress *before* a
+ * `thinking` frame confirmed the turn, resume listening so a silently
+ * dropped turn can't strand the client. Once `thinking` arrives the
+ * backstop disarms for the rest of the turn — the server owns the turn's
+ * failure modes from there (`turn_cancelled` with a reason, or a fatal
+ * `error`), and long tool-using turns legitimately emit nothing between
+ * `thinking` and the first delta.
  */
 const STUCK_TURN_TIMEOUT_MS = 15_000;
 
@@ -169,7 +174,13 @@ interface SessionContext {
    * down mid-goodbye.
    */
   serverEnded: boolean;
-  /** Stuck-turn backstop timer (armed while transcribing/thinking). */
+  /**
+   * Set when a `thinking` frame (or an assistant delta) confirms the server
+   * accepted the current turn; disarms the stuck-turn backstop until the
+   * next turn starts listening.
+   */
+  serverAcceptedTurn: boolean;
+  /** Stuck-turn backstop timer (armed while awaiting turn acceptance). */
   turnBackstopTimer: ReturnType<typeof setTimeout> | null;
   /** Backstop timeout (injectable for tests). */
   stuckTurnTimeoutMs: number;
@@ -285,6 +296,7 @@ export function useLiveVoice(
         speechMs: 0,
         silenceMs: 0,
         serverEnded: false,
+        serverAcceptedTurn: false,
         turnBackstopTimer: null,
         stuckTurnTimeoutMs: opts.stuckTurnTimeoutMs ?? STUCK_TURN_TIMEOUT_MS,
       };
@@ -332,16 +344,22 @@ export function useLiveVoice(
         }),
         client.on("thinking", () => {
           if (!live()) return;
-          // New response: reset the per-response transcript and barge-in flags.
+          // New response: reset the per-response transcript and barge-in
+          // flags. The server has accepted the turn, so the stuck-turn
+          // backstop stands down for the rest of it.
+          session.serverAcceptedTurn = true;
           session.responseAudioStarted = false;
           session.interruptSent = false;
           const s = useLiveVoiceStore.getState();
+          s.setTurnCancelledReason(null);
           s.clearAssistantTranscript();
           s.setState("thinking");
           syncTurnBackstop(session);
         }),
         client.on("assistantTextDelta", (frame) => {
           if (!live() || frame.text.length === 0) return;
+          // A delta proves the server is generating this turn's response.
+          session.serverAcceptedTurn = true;
           const s = useLiveVoiceStore.getState();
           s.appendAssistantTranscript(frame.text);
           const phase = s.state;
@@ -366,12 +384,23 @@ export function useLiveVoice(
           if (!live()) return;
           void finishResponseAfterPlayback(session);
         }),
-        client.on("turnCancelled", () => {
+        client.on("turnCancelled", (frame) => {
           if (!live()) return;
-          // The server retired the turn without a response (empty transcript,
-          // failed turn). Resume listening instead of waiting forever.
-          const phase = useLiveVoiceStore.getState().state;
-          if (phase === "transcribing" || phase === "thinking") {
+          // The server retired the turn without completing a response
+          // (empty transcript, or a turn-scoped STT/LLM/TTS failure).
+          // Surface the machine reason non-fatally, flush any partial
+          // playback (a mid-response TTS failure cancels while audio is
+          // already playing), and resume listening instead of waiting for
+          // a `tts_done` that will never come.
+          const s = useLiveVoiceStore.getState();
+          s.setTurnCancelledReason(frame.reason ?? null);
+          const phase = s.state;
+          if (
+            phase === "transcribing" ||
+            phase === "thinking" ||
+            phase === "speaking"
+          ) {
+            session.player.stop();
             resumeListening(session);
           }
         }),
@@ -548,13 +577,18 @@ function releasePushToTalk(session: SessionContext): void {
 }
 
 /**
- * Arm the stuck-turn backstop while awaiting the server (`transcribing` /
- * `thinking`), clear it otherwise. Every server signal re-syncs, so the
- * timeout measures *silence from the server*, not total turn duration. On
- * expiry the session resumes listening (generation-guarded).
+ * Arm the stuck-turn backstop while awaiting server acceptance of the turn
+ * (`transcribing`/`thinking` before a `thinking` frame), clear it otherwise.
+ * Every server signal re-syncs, so the timeout measures *silence from the
+ * server*, not total turn duration. Once the server confirmed the turn
+ * (`serverAcceptedTurn`) the backstop stays disarmed — `turn_cancelled` and
+ * fatal `error` frames cover the turn's failure modes from there, and long
+ * tool-using turns produce no frames between `thinking` and the first
+ * delta. On expiry the session resumes listening (generation-guarded).
  */
 function syncTurnBackstop(session: SessionContext): void {
   clearTurnBackstop(session);
+  if (session.serverAcceptedTurn) return;
   const phase = useLiveVoiceStore.getState().state;
   if (phase !== "transcribing" && phase !== "thinking") return;
 
@@ -587,6 +621,7 @@ function resumeListening(session: SessionContext): void {
   session.interruptSent = false;
   session.responseAudioStarted = false;
   session.releaseInFlight = false;
+  session.serverAcceptedTurn = false;
   session.speechMs = 0;
   session.silenceMs = 0;
   const s = useLiveVoiceStore.getState();

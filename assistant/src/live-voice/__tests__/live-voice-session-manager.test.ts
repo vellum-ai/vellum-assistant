@@ -206,24 +206,22 @@ describe("LiveVoiceSessionManager", () => {
       },
     });
     const first = createSink();
-    const endedNotices: Array<{ sessionId: string; reason: string }> = [];
+    const endedNotices: string[] = [];
 
     await manager.startSession(START_FRAME, {
       ...first.sink,
-      onSessionEnded: (sessionId, reason) => {
-        endedNotices.push({ sessionId, reason });
+      onSessionEnded: (sessionId) => {
+        endedNotices.push(sessionId);
       },
     });
     expect(manager.activeSessionId).toBe("session-1");
 
     // The session closed itself (e.g. [END_CALL] / max duration) — no
     // socket event or manager release call is coming.
-    contexts[0]?.onSessionEnded?.("client_end");
+    contexts[0]?.onSessionEnded?.();
 
     expect(manager.activeSessionId).toBeNull();
-    expect(endedNotices).toEqual([
-      { sessionId: "session-1", reason: "client_end" },
-    ]);
+    expect(endedNotices).toEqual(["session-1"]);
 
     // The slot is genuinely free: a new session is accepted.
     const next = await manager.startSession(START_FRAME, createSink().sink);

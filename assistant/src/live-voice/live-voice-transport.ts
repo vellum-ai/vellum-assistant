@@ -5,10 +5,7 @@ import { errorMessage } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { extractSpeakableSegments } from "./live-voice-segments.js";
 import type { LiveVoiceTtsStreamer } from "./live-voice-session.js";
-import {
-  LiveVoiceProtocolErrorCode,
-  type LiveVoiceServerFramePayload,
-} from "./protocol.js";
+import type { LiveVoiceServerFramePayload } from "./protocol.js";
 
 const log = getLogger("live-voice-transport");
 
@@ -26,6 +23,13 @@ export interface LiveVoiceCallTransportDeps {
   turnId: () => string;
   /** Invoked when the controller ends the session ([END_CALL], timers). */
   onSessionEnd: (reason?: string) => void;
+  /**
+   * Invoked when a TTS synthesis job fails (non-abort). A TTS failure is
+   * turn-scoped, so the session owns the client-visible reaction (it
+   * cancels the affected turn); the transport logs the failure detail and
+   * keeps draining its queue.
+   */
+  onTtsFailure: () => void;
 }
 
 /**
@@ -183,11 +187,8 @@ export class LiveVoiceCallTransport implements CallTransport {
         if (abort.signal.aborted) {
           return;
         }
-        await this.deps.sendFrame({
-          type: "error",
-          code: LiveVoiceProtocolErrorCode.TtsFailed,
-          message: `Live voice TTS failed: ${errorMessage(err)}`,
-        });
+        log.warn({ err }, `Live voice TTS failed: ${errorMessage(err)}`);
+        this.deps.onTtsFailure();
       } finally {
         this.pendingJobAborts.delete(abort);
       }
@@ -216,8 +217,8 @@ export class LiveVoiceCallTransport implements CallTransport {
 
   private enqueueJob(job: () => Promise<void>): void {
     this.ttsQueue = this.ttsQueue.then(job).catch(() => {
-      // Job failures are reported as error frames inside the job;
-      // transport failures are owned by the session. Keep draining.
+      // Job failures are surfaced via onTtsFailure inside the job;
+      // frame-sink failures are owned by the session. Keep draining.
     });
   }
 
