@@ -193,6 +193,50 @@ describe("streamLiveVoiceTtsAudio", () => {
     });
   });
 
+  test("skips the buffered non-PCM emit when the signal aborts mid-stream", async () => {
+    const controller = new AbortController();
+    _setTtsProviderForTests({
+      id: "fish-audio",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize(): Promise<TtsSynthesisResult> {
+        throw new Error("buffered synthesis should not be used");
+      },
+      async synthesizeStream(
+        _request: TtsSynthesisRequest,
+        onChunk: (chunk: Uint8Array) => void,
+      ): Promise<TtsSynthesisResult> {
+        onChunk(Buffer.from("chunk-one"));
+        // Let the deferred emit flush so chunk-one is actually buffered
+        // before the abort lands.
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        controller.abort();
+        onChunk(Buffer.from("chunk-two"));
+        return {
+          audio: Buffer.from("chunk-onechunk-two"),
+          contentType: "audio/mpeg",
+        };
+      },
+    });
+
+    const frames: LiveVoiceTtsAudioChunk[] = [];
+    const result = await streamLiveVoiceTtsAudio({
+      config,
+      text: "hello from live voice",
+      signal: controller.signal,
+      onAudioChunk: (chunk) => frames.push(chunk),
+    });
+
+    expect(frames).toEqual([]);
+    expect(result).toMatchObject({
+      provider: "fish-audio",
+      chunks: 0,
+      bytes: 0,
+    });
+  });
+
   test("returns a typed configuration error for a non-streaming provider", async () => {
     config = makeConfig({ provider: "elevenlabs" });
     _setTtsProviderForTests({
