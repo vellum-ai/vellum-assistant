@@ -73,6 +73,12 @@ export interface AssistantChannelsListProps {
   slackChannelsLoading?: boolean;
   slackChannelsError?: boolean;
   /**
+   * Whether the connected assistant serves the channel-list endpoint
+   * (backwards-compat gate). `false` hides the list entirely — the
+   * pre-feature Slack sub-tab layout.
+   */
+  slackChannelsSupported?: boolean;
+  /**
    * Per-channel admission floor, keyed by channel. Omit (or pass no
    * `onChannelPolicyChange`) to hide the trust-floor control entirely — used
    * when the `channelTrustFloors` flag is off.
@@ -148,6 +154,7 @@ export function AssistantChannelsList({
   slackChannels,
   slackChannelsLoading = false,
   slackChannelsError = false,
+  slackChannelsSupported = true,
   channelPolicies,
   policySavingKey = null,
   policiesLoading = false,
@@ -260,6 +267,7 @@ export function AssistantChannelsList({
                 slackChannels={slackChannels}
                 slackChannelsLoading={slackChannelsLoading}
                 slackChannelsError={slackChannelsError}
+                slackChannelsSupported={slackChannelsSupported}
                 onSaveTwilioCredentials={onSaveTwilioCredentials}
                 policy={channelPolicies?.[channel.key]}
                 policySaving={policySavingKey === channel.key}
@@ -390,6 +398,7 @@ interface ChannelPanelProps {
   slackChannels?: SlackChannel[];
   slackChannelsLoading?: boolean;
   slackChannelsError?: boolean;
+  slackChannelsSupported?: boolean;
   onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
   policy?: AdmissionPolicy;
   policySaving?: boolean;
@@ -416,6 +425,7 @@ function ChannelPanel({
   slackChannels,
   slackChannelsLoading = false,
   slackChannelsError = false,
+  slackChannelsSupported = true,
   onSaveTwilioCredentials,
   policy,
   policySaving = false,
@@ -517,7 +527,7 @@ function ChannelPanel({
         </SlackChannelCard>
       ) : null}
 
-      {channel.key === "slack" && connected ? (
+      {channel.key === "slack" && connected && slackChannelsSupported ? (
         <SlackChannelList
           assistantDisplayName={assistantDisplayName}
           slackHandle={channel.address}

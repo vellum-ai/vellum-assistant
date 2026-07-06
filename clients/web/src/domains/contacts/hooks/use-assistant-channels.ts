@@ -25,6 +25,7 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import type { IntegrationsSlackChannelConfigGetResponse } from "@/generated/daemon/types.gen";
 import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
+import { useSupportsSlackChannelList } from "@/lib/backwards-compat/slack-channel-list";
 import { useSaveTelegramConfig } from "@/hooks/use-save-telegram-config";
 import { useSaveTwilioCredentials } from "@/hooks/use-save-twilio-credentials";
 
@@ -96,12 +97,15 @@ export function useAssistantChannels({
 
   // Presence-only channel list for the Slack sub-tab. Member-only is the
   // product contract (no toggle), so the filter is baked into the query.
+  // Version-gated: older assistants don't serve GET /v1/slack/channels,
+  // so the query stays off and the list stays hidden against them.
+  const supportsSlackChannelList = useSupportsSlackChannelList();
   const slackChannelsQuery = useQuery({
     ...slackChannelsGetOptions({
       path: { assistant_id: assistantId },
       query: { memberOnly: "true" },
     }),
-    enabled: slackConnected,
+    enabled: slackConnected && supportsSlackChannelList,
     select: (data) => data.channels,
   });
 
@@ -206,6 +210,7 @@ export function useAssistantChannels({
     slackChannels: slackChannelsQuery.data,
     slackChannelsLoading: slackChannelsQuery.isPending,
     slackChannelsError: slackChannelsQuery.isError,
+    slackChannelsSupported: supportsSlackChannelList,
     channelPolicies: channelTrustFloors.policies,
     policySavingKey: channelTrustFloors.savingKey,
     policiesLoading: channelTrustFloors.isLoading,
