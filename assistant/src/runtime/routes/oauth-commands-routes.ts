@@ -38,6 +38,7 @@ import { VellumPlatformClient } from "../../platform/client.js";
 import { withValidToken } from "../../security/token-manager.js";
 import { matchHostPattern } from "../../tools/credentials/host-pattern-match.js";
 import { getLogger } from "../../util/logger.js";
+import { readStdinSync } from "../../util/read-stdin.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError, InternalError, NotFoundError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
@@ -694,7 +695,7 @@ function tryJsonParse(raw: string): unknown {
 
 function readBodyData(data: string): unknown {
   if (data === "@-") {
-    const raw = readFileSync("/dev/stdin", "utf-8");
+    const raw = readStdinSync();
     return tryJsonParse(raw);
   }
 
