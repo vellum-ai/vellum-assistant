@@ -23,6 +23,7 @@ import { z } from "zod";
 import type { ChannelId, InterfaceId } from "../channels/types.js";
 import { parseChannelId, parseInterfaceId } from "../channels/types.js";
 import { CHANNEL_IDS, isChannelId } from "../channels/types.js";
+import { getConfig } from "../config/loader.js";
 import { findDisplayTurnEndIndex } from "../conversations/message-consolidation.js";
 import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
@@ -73,7 +74,12 @@ import {
   copyForkMessagesViaSubprocess,
   type ForkIdPair,
 } from "./fork-message-copy.js";
-import { enqueueLexicalIndexForMessage } from "./job-handlers/message-lexical.js";
+import {
+  clearMessagesLexicalIndex,
+  enqueueDeleteMessageLexical,
+  enqueueLexicalIndexForMessage,
+  enqueuePurgeConversationLexical,
+} from "./job-handlers/message-lexical.js";
 import {
   rawExec,
   rawGet,
@@ -1507,12 +1513,19 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
-  // Let the memory feature purge the conversation's per-message index (e.g. its
-  // lexical points). Fired from the shared primitive so every delete caller —
-  // route, retrospective cleanup/GC — cleans up. Routed through the
-  // persistence-hook seam so this layer stays decoupled from the memory plugin;
-  // a no-op when memory is not present.
+  // Let the memory feature fail its still-pending jobs for this conversation.
+  // Routed through the persistence-hook seam so this layer stays decoupled
+  // from the memory plugin; a no-op when memory is not present.
   memoryPersistenceHooks.onConversationDeleted(id);
+
+  // Purge the conversation's points from the lexical (Qdrant) index. Fired
+  // from the shared primitive so every delete caller — route, retrospective
+  // cleanup/GC — cleans up. Enqueued AFTER the hook above, whose cancellation
+  // pass sweeps pending `conversationId`-keyed jobs — the purge must not be
+  // swept by it. The enqueue helper self-selects: enqueue a job when memory is
+  // enabled, run the delete inline (best-effort, breaker-wrapped) when it is
+  // disabled.
+  enqueuePurgeConversationLexical(id);
 
   return result;
 }
@@ -1620,11 +1633,16 @@ export async function deleteConversationGently(
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
-  // Let the memory feature purge the conversation's per-message index — the
-  // gentle path is the retrospective-GC caller, which would otherwise leak the
-  // conversation's lexical points. Routed through the persistence-hook seam;
-  // a no-op when memory is not present.
+  // Let the memory feature fail its still-pending jobs for this conversation.
+  // Routed through the persistence-hook seam; a no-op when memory is not
+  // present.
   memoryPersistenceHooks.onConversationDeleted(id);
+
+  // Purge the conversation's points from the lexical (Qdrant) index — the
+  // gentle path is the retrospective-GC caller, which would otherwise leak the
+  // conversation's lexical points. Enqueued AFTER the hook above so the
+  // hook's cancellation pass cannot sweep the purge.
+  enqueuePurgeConversationLexical(id);
 
   return result;
 }
@@ -2706,18 +2724,15 @@ export async function clearAll(): Promise<{
     Date.now(),
   );
 
-  // Let the memory feature drop its bulk per-message index (e.g. the whole
-  // lexical Qdrant collection) — a "delete all" leaves no ids to key
-  // per-message cleanup on. Routed through the persistence-hook seam so this
-  // layer stays decoupled from the memory plugin; a no-op when memory is not
-  // present. AWAITED so the drop completes before clear-all returns and writes
-  // resume — a message created right after must not upsert into a collection
-  // that is about to be dropped. Best-effort — a failure must not fail the
-  // whole clear-all.
+  // Drop the whole lexical (Qdrant) collection — a "delete all" leaves no ids
+  // to key per-message cleanup on. AWAITED so the drop completes before
+  // clear-all returns and writes resume — a message created right after must
+  // not upsert into a collection that is about to be dropped. Best-effort — a
+  // failure must not fail the whole clear-all.
   try {
-    await memoryPersistenceHooks.onAllConversationsCleared();
+    await clearMessagesLexicalIndex(getConfig());
   } catch (err) {
-    log.warn({ err }, "clearAll: failed to clear memory per-message index");
+    log.warn({ err }, "clearAll: failed to clear messages lexical index");
   }
 
   // Clear the disk-view conversations directory and recreate it empty
@@ -2809,11 +2824,14 @@ export function deleteLastExchange(conversationId: string): number {
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
-  // Let the memory feature clean up the undone messages' per-message index
-  // entries. This bulk delete bypasses `deleteMessageById`, so notify the seam
-  // with the collected ids — after the transaction and off the write path. A
-  // no-op when memory is not present.
-  memoryPersistenceHooks.onMessagesDeleted(messageIds);
+  // Remove the undone messages' points from the lexical index. This bulk
+  // delete bypasses `deleteMessageById`, so enqueue the collected ids here —
+  // after the transaction and off the write path. The enqueue helper
+  // self-selects: enqueue a job when memory is enabled, run the delete inline
+  // (best-effort, breaker-wrapped) when it is disabled.
+  for (const deletedMessageId of messageIds) {
+    enqueueDeleteMessageLexical(deletedMessageId);
+  }
 
   return deleted;
 }
@@ -3042,13 +3060,12 @@ export function deleteMessageById(messageId: string): DeletedMemoryIds {
 
   deleteOrphanAttachments(candidateAttachmentIds);
 
-  // Let the memory feature clean up the deleted message's per-message index
-  // entry. Notified only when the row actually existed (`msgRow` set), after the
-  // transaction and off the write path, via the persistence-hook seam (a no-op
-  // when memory is not present). Covers single-message deletes (consolidation)
-  // that do not go through the conversation-level purge.
+  // Remove the deleted message's point from the lexical index. Enqueued only
+  // when the row actually existed (`msgRow` set), after the transaction and
+  // off the write path. Covers single-message deletes (consolidation) that do
+  // not go through the conversation-level purge.
   if (msgRow) {
-    memoryPersistenceHooks.onMessagesDeleted([messageId]);
+    enqueueDeleteMessageLexical(messageId);
   }
 
   return result;
