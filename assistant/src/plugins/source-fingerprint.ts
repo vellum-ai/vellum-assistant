@@ -18,24 +18,22 @@
  *
  * Exclusions: dot-entries anywhere (`.disabled`, `.git`, …), `node_modules`
  * anywhere (vendored deps change only through install flows, which recycle
- * the plugin directory), and — at the plugin root only — the `data/` runtime
- * directory and the `config.json` / `install-meta.json` sidecars, none of
- * which are importable source. Imports that reach *outside* the plugin
- * directory are out of scope by design: shared deps keep their module
- * identity across reloads, and cross-plugin imports are unsupported.
+ * the plugin directory), and — at the plugin root only — the runtime-owned
+ * {@link PRESERVED_ENTRIES} (`data/`, `config.json`, `install-meta.json`),
+ * none of which are importable source. Symlinked entries inside the tree are
+ * neither watched nor followed (see {@link walkPluginTree}); a symlinked
+ * plugin *root* is supported via realpath resolution. Imports that reach
+ * *outside* the plugin directory are out of scope by design: shared deps
+ * keep their module identity across reloads, and cross-plugin imports are
+ * unsupported.
  */
 
-import { readdirSync, realpathSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { realpathSync, statSync } from "node:fs";
+
+import { PRESERVED_ENTRIES, walkPluginTree } from "./plugin-tree-walk.js";
 
 /** Directory names skipped at any depth. */
 const EXCLUDED_DIRS_ANYWHERE = new Set(["node_modules"]);
-
-/** Directory names skipped only directly under the plugin root. */
-const EXCLUDED_ROOT_DIRS = new Set(["data"]);
-
-/** File names skipped only directly under the plugin root. */
-const EXCLUDED_ROOT_FILES = new Set(["config.json", "install-meta.json"]);
 
 /**
  * The result of one source walk over a plugin directory.
@@ -75,7 +73,22 @@ export function snapshotPluginSource(pluginDir: string): SourceSnapshot {
   }
 
   const files: Array<{ path: string; mtimeMs: number }> = [];
-  walk(realRoot, realRoot, files);
+  walkPluginTree(
+    realRoot,
+    {
+      excludeRootEntries: PRESERVED_ENTRIES,
+      excludeDirsAnywhere: EXCLUDED_DIRS_ANYWHERE,
+      excludeDotEntries: true,
+      bestEffort: true,
+    },
+    (_rel, abs) => {
+      try {
+        files.push({ path: abs, mtimeMs: statSync(abs).mtimeMs });
+      } catch {
+        // Deleted between readdir and stat — the next pass sees the removal.
+      }
+    },
+  );
 
   // readdir order is platform-dependent; sort for a stable fingerprint.
   files.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
@@ -92,56 +105,4 @@ export function snapshotPluginSource(pluginDir: string): SourceSnapshot {
   }
 
   return { fingerprint, evictionPaths };
-}
-
-function walk(
-  dir: string,
-  root: string,
-  out: Array<{ path: string; mtimeMs: number }>,
-): void {
-  let entries;
-  try {
-    entries = readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-
-  for (const entry of entries) {
-    const name = entry.name;
-    if (name.startsWith(".")) {
-      continue;
-    }
-
-    const path = join(dir, name);
-    let isDir = entry.isDirectory();
-    let isFile = entry.isFile();
-    if (entry.isSymbolicLink()) {
-      try {
-        const st = statSync(path);
-        isDir = st.isDirectory();
-        isFile = st.isFile();
-      } catch {
-        continue; // dangling symlink
-      }
-    }
-
-    if (isDir) {
-      if (EXCLUDED_DIRS_ANYWHERE.has(name)) {
-        continue;
-      }
-      if (dir === root && EXCLUDED_ROOT_DIRS.has(name)) {
-        continue;
-      }
-      walk(path, root, out);
-    } else if (isFile) {
-      if (dir === root && EXCLUDED_ROOT_FILES.has(name)) {
-        continue;
-      }
-      try {
-        out.push({ path, mtimeMs: statSync(path).mtimeMs });
-      } catch {
-        // Deleted between readdir and stat — the next scan sees the removal.
-      }
-    }
-  }
 }

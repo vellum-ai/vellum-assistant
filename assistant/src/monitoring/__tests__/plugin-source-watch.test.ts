@@ -72,10 +72,22 @@ function makePlugin(name: string): string {
 beforeEach(() => {
   rmSync(PLUGINS_DIR, { recursive: true, force: true });
   rmSync(WORKSPACE_HOOKS_DIR, { recursive: true, force: true });
+  // The sentinel lives outside the plugins dir, so it must be cleared
+  // explicitly between tests.
+  rmSync(getSourceVersionsPath(), { force: true });
   mkdirSync(PLUGINS_DIR, { recursive: true });
 });
 
 describe("plugin source watch", () => {
+  test("the sentinel lives in the monitoring data dir, not the workspace git surface", () => {
+    // The document carries absolute host paths; parking it under the
+    // plugins dir would let the workspace git service commit it.
+    expect(getSourceVersionsPath().startsWith(PLUGINS_DIR)).toBe(false);
+    expect(
+      getSourceVersionsPath().startsWith(join(ROOT, "data", "monitoring")),
+    ).toBe(true);
+  });
+
   test("first pass publishes a baseline covering plugins and workspace hooks", () => {
     const dirA = makePlugin("plugin-a");
     const dirB = makePlugin("plugin-b");

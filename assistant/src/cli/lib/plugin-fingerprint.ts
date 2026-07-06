@@ -16,8 +16,9 @@
  */
 
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
+
+import { walkPluginTree } from "../../plugins/plugin-tree-walk.js";
 
 /** Digest algorithm recorded alongside the file map, for forward compatibility. */
 export type FingerprintAlgorithm = "sha256";
@@ -54,34 +55,18 @@ function hashFile(absPath: string): string {
 
 /**
  * Walk `root` and return a content digest for every regular file, keyed by its
- * POSIX-relative path. Symlinks are skipped (the loader does not follow them,
- * and install never materializes them); top-level entries named in `exclude`
- * are skipped so the provenance sidecar never fingerprints itself.
+ * POSIX-relative path. Symlinks are skipped (see {@link walkPluginTree});
+ * top-level entries named in `exclude` are skipped so the provenance sidecar
+ * never fingerprints itself.
  */
 export function computeFingerprint(
   root: string,
   exclude: readonly string[] = [],
 ): Fingerprint {
-  const excluded = new Set(exclude);
   const files: Record<string, string> = {};
-
-  const walk = (relDir: string): void => {
-    const absDir = relDir ? join(root, relDir) : root;
-    for (const entry of readdirSync(absDir, { withFileTypes: true })) {
-      if (relDir === "" && excluded.has(entry.name)) continue;
-      // Only regular files contribute to the digest; symlinks are never part of
-      // a materialized install and a directory is descended into, not hashed.
-      if (entry.isSymbolicLink()) continue;
-      const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
-        walk(rel);
-      } else if (entry.isFile()) {
-        files[rel] = hashFile(join(root, rel));
-      }
-    }
-  };
-
-  walk("");
+  walkPluginTree(root, { excludeRootEntries: exclude }, (rel, abs) => {
+    files[rel] = hashFile(abs);
+  });
   return { algorithm: "sha256", files };
 }
 
@@ -102,11 +87,16 @@ export function compareFingerprint(
 
   for (const [path, digest] of Object.entries(current)) {
     const recorded = baseline.files[path];
-    if (recorded === undefined) added.push(path);
-    else if (recorded !== digest) modified.push(path);
+    if (recorded === undefined) {
+      added.push(path);
+    } else if (recorded !== digest) {
+      modified.push(path);
+    }
   }
   for (const path of Object.keys(baseline.files)) {
-    if (current[path] === undefined) removed.push(path);
+    if (current[path] === undefined) {
+      removed.push(path);
+    }
   }
 
   modified.sort();
@@ -127,9 +117,13 @@ export function compareFingerprint(
  */
 export function fingerprintsEqual(a: Fingerprint, b: Fingerprint): boolean {
   const aKeys = Object.keys(a.files);
-  if (aKeys.length !== Object.keys(b.files).length) return false;
+  if (aKeys.length !== Object.keys(b.files).length) {
+    return false;
+  }
   for (const key of aKeys) {
-    if (a.files[key] !== b.files[key]) return false;
+    if (a.files[key] !== b.files[key]) {
+      return false;
+    }
   }
   return true;
 }
@@ -144,7 +138,9 @@ export function parseFingerprint(value: unknown): Fingerprint | null {
     return null;
   }
   const obj = value as Record<string, unknown>;
-  if (obj.algorithm !== "sha256") return null;
+  if (obj.algorithm !== "sha256") {
+    return null;
+  }
   const rawFiles = obj.files;
   if (
     typeof rawFiles !== "object" ||
@@ -155,33 +151,19 @@ export function parseFingerprint(value: unknown): Fingerprint | null {
   }
   const files: Record<string, string> = {};
   for (const [path, digest] of Object.entries(rawFiles)) {
-    if (typeof digest !== "string") return null;
+    if (typeof digest !== "string") {
+      return null;
+    }
     files[path] = digest;
   }
   return { algorithm: "sha256", files };
 }
 
-/**
- * Top-level entries that are preserved across upgrades and excluded from
- * fingerprinting / drift detection / content hashing. These are runtime-owned
- * state, not part of the plugin's source tree at the pinned commit:
- *
- * - `install-meta.json` — provenance sidecar written at install time.
- * - `config.json` — user-editable plugin config (lives in the plugin dir but
- *   is not tracked as source content, so user edits don't count as drift).
- * - `data` — runtime data directory (plugin writes whatever it wants here).
- * - `.disabled` — sentinel file created by `assistant plugins disable`.
- *
- * Without these exclusions, a user editing `config.json` or the plugin writing
- * to `data/` would surface as drift against the install-time baseline, and an
- * upgrade would try to overwrite or merge around user-owned state.
- */
-export const PRESERVED_ENTRIES = [
-  "install-meta.json",
-  "config.json",
-  "data",
-  ".disabled",
-] as const;
+// The preserved-entries constant lives with the shared walk so install
+// fingerprinting and the live-reload source fingerprint can't disagree on
+// what counts as the plugin's source tree; re-exported here for the
+// install/upgrade/diff callers that treat this module as the fingerprint API.
+export { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 
 /**
  * Aggregate SHA-256 digest over a tree's contents, returned as `v2:<hex>`.
@@ -201,23 +183,10 @@ export function computeContentHash(
   root: string,
   exclude: readonly string[] = [],
 ): string {
-  const excluded = new Set(exclude);
   const entries: Array<{ rel: string; abs: string }> = [];
-
-  const walk = (relDir: string): void => {
-    const absDir = relDir ? join(root, relDir) : root;
-    for (const entry of readdirSync(absDir, { withFileTypes: true })) {
-      if (relDir === "" && excluded.has(entry.name)) continue;
-      if (entry.isSymbolicLink()) continue;
-      const rel = relDir ? `${relDir}/${entry.name}` : entry.name;
-      if (entry.isDirectory()) {
-        walk(rel);
-      } else if (entry.isFile()) {
-        entries.push({ rel, abs: join(root, rel) });
-      }
-    }
-  };
-  walk("");
+  walkPluginTree(root, { excludeRootEntries: exclude }, (rel, abs) => {
+    entries.push({ rel, abs });
+  });
   entries.sort((a, b) => a.rel.localeCompare(b.rel));
 
   const hash = createHash("sha256");

@@ -44,6 +44,7 @@ import {
 } from "../plugins/source-versions.js";
 import { getLogger } from "../util/logger.js";
 import {
+  getMonitoringDataDir,
   getWorkspaceHooksDir,
   getWorkspacePluginsDir,
 } from "../util/platform.js";
@@ -210,12 +211,12 @@ export function runSourceWatchPass(state: SourceWatchState): boolean {
 
 /**
  * Write the sentinel via temp-file + rename so readers never observe a torn
- * document. The temp file shares the sentinel's dotfile prefix, keeping it
- * outside every fingerprint walk.
+ * document. Both files live in the monitoring data directory, outside every
+ * fingerprint walk and outside the workspace git surface.
  */
 function writeSentinelAtomically(doc: SourceVersionsDocument): void {
   const path = getSourceVersionsPath();
-  mkdirSync(getWorkspacePluginsDir(), { recursive: true });
+  mkdirSync(getMonitoringDataDir(), { recursive: true });
   const tmpPath = `${path}.tmp`;
   writeFileSync(tmpPath, JSON.stringify(doc, null, 2));
   renameSync(tmpPath, path);
