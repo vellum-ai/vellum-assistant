@@ -1,7 +1,7 @@
 /**
  * Platform route handlers for the shared HTTP/IPC route table.
  *
- * Serves five operations:
+ * Serves six operations:
  *   - platform_status (GET platform/status): aggregates platform context,
  *     credentials, assistant ID, webhook secret, and Velay tunnel status.
  *   - platform_connect (POST platform/connect): checks existing credentials
@@ -403,7 +403,7 @@ async function handlePlatformCredits(
     settled_balance_usd: string;
     pending_compute_usd: string;
     effective_balance_usd: string;
-    stale: boolean;
+    is_degraded: boolean;
   };
 
   return {
@@ -411,9 +411,9 @@ async function handlePlatformCredits(
     settled: Number(summary.settled_balance_usd),
     pending: Number(summary.pending_compute_usd),
     unit: "USD",
-    stale: summary.stale,
-    // ponytail: as_of is response receipt time; add a server as_of field if the
-    // billing summary endpoint ever returns one.
+    stale: summary.is_degraded,
+    // as_of is response receipt time; add a server as_of field if the billing
+    // summary endpoint ever returns one.
     as_of: new Date().toISOString(),
   };
 }
