@@ -29,11 +29,15 @@ import {
   LIVE_VOICE_AUDIO_FORMAT,
   type LiveVoiceMetricsServerFrame,
   type LiveVoiceReadyServerFrame,
+  type LiveVoiceSpeechStartedServerFrame,
   type LiveVoiceSttFinalServerFrame,
   type LiveVoiceSttPartialServerFrame,
   type LiveVoiceThinkingServerFrame,
   type LiveVoiceTtsAudioServerFrame,
   type LiveVoiceTtsDoneServerFrame,
+  type LiveVoiceTurnCancelledServerFrame,
+  type LiveVoiceTurnDetectionMode,
+  type LiveVoiceUtteranceEndServerFrame,
   parseServerFrame,
 } from "@/domains/chat/voice/live-voice/protocol";
 
@@ -60,12 +64,18 @@ export interface LiveVoiceClientError {
  */
 export interface LiveVoiceClientEventMap {
   ready: LiveVoiceReadyServerFrame;
+  /** Server VAD detected user speech — stop local TTS playback immediately. */
+  speechStarted: LiveVoiceSpeechStartedServerFrame;
+  /** Server VAD closed the utterance; transcription begins. */
+  utteranceEnd: LiveVoiceUtteranceEndServerFrame;
   sttPartial: LiveVoiceSttPartialServerFrame;
   sttFinal: LiveVoiceSttFinalServerFrame;
   thinking: LiveVoiceThinkingServerFrame;
   assistantTextDelta: LiveVoiceAssistantTextDeltaServerFrame;
   ttsAudio: LiveVoiceTtsAudioServerFrame;
   ttsDone: LiveVoiceTtsDoneServerFrame;
+  /** Barge-in aborted the turn — drop buffered tts_audio; no tts_done follows. */
+  turnCancelled: LiveVoiceTurnCancelledServerFrame;
   metrics: LiveVoiceMetricsServerFrame;
   archived: LiveVoiceArchivedServerFrame;
   busy: LiveVoiceBusyServerFrame;
@@ -84,6 +94,11 @@ export interface LiveVoiceConnectArgs {
   assistantId: string;
   /** Optional conversation to attach the session to. */
   conversationId?: string;
+  /**
+   * Turn-detection mode sent on the `start` frame. Omitted means "manual"
+   * (push-to-talk).
+   */
+  turnDetection?: LiveVoiceTurnDetectionMode;
 }
 
 /** Factory so tests can inject a mock WebSocket. Defaults to the global. */
@@ -110,17 +125,21 @@ export class LiveVoiceChannelClient {
   private ws: WebSocket | null = null;
   private connectTimeout: ReturnType<typeof setTimeout> | null = null;
   private conversationId: string | undefined;
+  private turnDetection: LiveVoiceTurnDetectionMode | undefined;
 
   private readonly listeners: {
     [E in LiveVoiceClientEventName]: Set<LiveVoiceClientEventHandler<E>>;
   } = {
     ready: new Set(),
+    speechStarted: new Set(),
+    utteranceEnd: new Set(),
     sttPartial: new Set(),
     sttFinal: new Set(),
     thinking: new Set(),
     assistantTextDelta: new Set(),
     ttsAudio: new Set(),
     ttsDone: new Set(),
+    turnCancelled: new Set(),
     metrics: new Set(),
     archived: new Set(),
     busy: new Set(),
@@ -165,10 +184,12 @@ export class LiveVoiceChannelClient {
   async connect({
     assistantId,
     conversationId,
+    turnDetection,
   }: LiveVoiceConnectArgs): Promise<void> {
     if (this.state !== "idle") return;
     this.state = "connecting";
     this.conversationId = conversationId;
+    this.turnDetection = turnDetection;
 
     let url: string;
     try {
@@ -249,6 +270,7 @@ export class LiveVoiceChannelClient {
       type: "start",
       audio: LIVE_VOICE_AUDIO_FORMAT,
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
+      ...(this.turnDetection ? { turnDetection: this.turnDetection } : {}),
     };
     this.trySend(JSON.stringify(startFrame));
   }
@@ -272,6 +294,12 @@ export class LiveVoiceChannelClient {
         this.emit("busy", frame);
         this.close();
         return;
+      case "speech_started":
+        this.emit("speechStarted", frame);
+        return;
+      case "utterance_end":
+        this.emit("utteranceEnd", frame);
+        return;
       case "stt_partial":
         this.emit("sttPartial", frame);
         return;
@@ -290,6 +318,9 @@ export class LiveVoiceChannelClient {
       case "tts_done":
         this.emit("ttsDone", frame);
         return;
+      case "turn_cancelled":
+        this.emit("turnCancelled", frame);
+        return;
       case "metrics":
         this.emit("metrics", frame);
         return;
@@ -298,6 +329,13 @@ export class LiveVoiceChannelClient {
         return;
       case "error":
         this.fail("protocol-error", frame.message, frame.code);
+        return;
+      case "unknown_frame":
+        // Frame types from a newer server than this client. Ignore so
+        // protocol additions never kill older clients.
+        console.warn(
+          `live-voice: ignoring unknown server frame type "${frame.frameType}"`,
+        );
         return;
     }
   }
