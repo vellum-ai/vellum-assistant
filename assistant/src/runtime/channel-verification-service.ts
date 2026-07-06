@@ -19,13 +19,9 @@ import {
 // Constants
 // ---------------------------------------------------------------------------
 
-/**
- * Challenge TTL in milliseconds (10 minutes). Mirrors the gateway session
- * service's TTL; exported so consumers that reason about "is a just-issued
- * code still redeemable" (e.g. the access-request handshake window) share
- * this exact bound.
- */
-export const CHALLENGE_TTL_MS = 10 * 60 * 1000;
+// Re-exported for consumers that reason about "is a just-issued code still
+// redeemable" (e.g. the access-request handshake window).
+export { CHALLENGE_TTL_MS } from "@vellumai/gateway-client";
 
 // ---------------------------------------------------------------------------
 // Types

@@ -20,7 +20,17 @@
 
 import { randomBytes, randomUUID } from "node:crypto";
 
-import { hashVerificationSecret } from "@vellumai/gateway-client";
+import {
+  CHALLENGE_TTL_MS,
+  hashVerificationSecret,
+} from "@vellumai/gateway-client";
+import type {
+  CreateInboundSessionIpcResponse,
+  CreateOutboundSessionConditionalIpcResponse,
+  CreateOutboundSessionConflict,
+  CreateOutboundSessionIpcResponse,
+  ValidateConsumeSessionIpcResponse,
+} from "@vellumai/gateway-client";
 
 import type { GuardianBindingGatewayWrites } from "../auth/guardian-bootstrap.js";
 import {
@@ -31,7 +41,6 @@ import { getGatewayDb } from "../db/connection.js";
 import type {
   IdentityBindingStatus,
   VerificationPurpose,
-  VerificationSession,
 } from "../db/session-store.js";
 import {
   consumeSession,
@@ -60,23 +69,12 @@ import { applyTrustedContactSideEffects } from "./text-verification.js";
 
 const log = getLogger("verification-session-service");
 
-/** Challenge TTL in milliseconds (10 minutes). */
-export const CHALLENGE_TTL_MS = 10 * 60 * 1000;
+// Result shapes are the shared contract's IPC response types — the service
+// returns exactly what transits the wire.
+export type CreateInboundVerificationSessionResult =
+  CreateInboundSessionIpcResponse;
 
-export interface CreateInboundVerificationSessionResult {
-  session: VerificationSession;
-  secret: string;
-  verifyCommand: string;
-  ttlSeconds: number;
-}
-
-export interface CreateOutboundSessionResult {
-  sessionId: string;
-  secret: string;
-  challengeHash: string;
-  expiresAt: number;
-  ttlSeconds: number;
-}
+export type CreateOutboundSessionResult = CreateOutboundSessionIpcResponse;
 
 /**
  * Generate a numeric secret with the specified number of digits
@@ -180,12 +178,10 @@ export function createOutboundSession(params: {
 }
 
 export type CreateOutboundSessionConflictReason =
-  | "source_session_not_pending"
-  | "active_session_exists";
+  CreateOutboundSessionConflict["reason"];
 
 export type GuardedCreateOutboundSessionResult =
-  | CreateOutboundSessionResult
-  | { conflict: true; reason: CreateOutboundSessionConflictReason };
+  CreateOutboundSessionConditionalIpcResponse;
 
 /**
  * Guarded variant of `createOutboundSession` for callers whose check→mint
@@ -256,9 +252,7 @@ export function createOutboundSessionGuarded(
  */
 export const VALIDATE_CONSUME_FAILURE_REASON = "invalid_or_expired";
 
-export type ValidateConsumeSessionResult =
-  | { success: true; verificationType: VerificationPurpose }
-  | { success: false; reason: string };
+export type ValidateConsumeSessionResult = ValidateConsumeSessionIpcResponse;
 
 const CONSUME_FAILURE: ValidateConsumeSessionResult = {
   success: false,
@@ -375,15 +369,17 @@ export async function validateAndConsumeSession(
       return CONSUME_FAILURE;
     }
 
-    await resetRateLimit(channel, actorExternalUserId, actorChatId);
-
     if (txn.blocked) {
+      // Fail closed WITHOUT resetting the rate limit: a blocked actor's
+      // lockout state must survive a correct code.
       log.warn(
         { channel, actorExternalUserId },
         "Guardian phone binding rejected: gateway channel is blocked",
       );
       return CONSUME_FAILURE;
     }
+
+    await resetRateLimit(channel, actorExternalUserId, actorChatId);
 
     if (txn.binding) await mirrorGuardianBinding(txn.binding);
 
@@ -514,24 +510,4 @@ function applyPhoneGuardianBindingGatewayWrites(
     guardianPrincipalId: canonicalPrincipal,
     verifiedVia: "challenge",
   });
-}
-
-/**
- * Standalone entry point for the consume-time guardian phone binding:
- * runs the sync gateway writes in their own transaction, then the
- * best-effort assistant mirror. Idempotent under retries.
- */
-export async function createPhoneGuardianBinding(
-  phoneNumber: string,
-  chatId: string,
-  sessionUpdatedAt: number,
-): Promise<void> {
-  const writes = getGatewayDb().transaction(() =>
-    applyPhoneGuardianBindingGatewayWrites(
-      phoneNumber,
-      chatId,
-      sessionUpdatedAt,
-    ),
-  );
-  if (writes) await mirrorGuardianBinding(writes);
 }

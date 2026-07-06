@@ -1,6 +1,7 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 
 import type { GuardianDelivery } from "@vellumai/gateway-client";
+import { hashVerificationSecret } from "@vellumai/gateway-client";
 import { MarkChannelRevokedIpcResponseSchema } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
 import { startVerificationCall } from "../../calls/call-domain.js";
@@ -404,7 +405,12 @@ export async function verifyTrustedContact(
 
       const now = Date.now();
       const sendCount = 1;
-      await updateSessionDelivery(sessionResult.sessionId, now, sendCount, null);
+      await updateSessionDelivery(
+        sessionResult.sessionId,
+        now,
+        sendCount,
+        null,
+      );
       deliverVerificationTelegram(
         channel.externalChatId,
         telegramBody,
@@ -434,9 +440,7 @@ export async function verifyTrustedContact(
     }
 
     const bootstrapToken = randomBytes(16).toString("hex");
-    const bootstrapTokenHash = createHash("sha256")
-      .update(bootstrapToken)
-      .digest("hex");
+    const bootstrapTokenHash = hashVerificationSecret(bootstrapToken);
 
     const sessionResult = await createOutboundSession({
       channel: verificationChannel,

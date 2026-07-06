@@ -16,16 +16,19 @@
  * Verification sessions and rate limits live in the gateway DB.
  */
 
-import { createHash } from "node:crypto";
+import { hashVerificationSecret } from "@vellumai/gateway-client";
 
-import { findLatestSessionByStatuses } from "../db/session-store.js";
+import type { VerificationSession } from "../db/session-store.js";
+import {
+  consumeSession,
+  findLatestSessionByStatuses,
+} from "../db/session-store.js";
 import { getLogger } from "../logger.js";
 import {
   getRateLimit,
   recordInvalidAttempt,
   resetRateLimit,
 } from "../verification/rate-limit-helpers.js";
-import { consumeSession } from "../verification/session-helpers.js";
 
 const log = getLogger("voice-verification");
 
@@ -39,25 +42,11 @@ const MAX_ATTEMPTS = 3;
 // Types
 // ---------------------------------------------------------------------------
 
-interface PendingSession {
-  id: string;
-  challengeHash: string;
-  expiresAt: number;
-  status: string;
-  verificationPurpose: string;
-  expectedExternalUserId: string | null;
-  expectedChatId: string | null;
-  expectedPhoneE164: string | null;
-  identityBindingStatus: string | null;
-  codeDigits: number;
-  maxAttempts: number;
-}
-
 export interface VoiceVerificationResult {
   /** Whether a pending verification session exists for the phone channel. */
   hasPendingSession: boolean;
   /** The pending session details (only set when hasPendingSession is true). */
-  session?: PendingSession;
+  session?: VerificationSession;
 }
 
 export interface CodeValidationResult {
@@ -67,14 +56,6 @@ export interface CodeValidationResult {
   failureMessage?: string;
   /** Whether the caller has exhausted all attempts. */
   exhausted?: boolean;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function hashSecret(secret: string): string {
-  return createHash("sha256").update(secret).digest("hex");
 }
 
 // ---------------------------------------------------------------------------
@@ -88,7 +69,7 @@ function hashSecret(secret: string): string {
  * sessions never use 'awaiting_response' (that status is created only by
  * outbound text verification), so it is deliberately excluded here.
  */
-export async function findPendingPhoneSession(): Promise<PendingSession | null> {
+export async function findPendingPhoneSession(): Promise<VerificationSession | null> {
   return findLatestSessionByStatuses("phone", ["pending", "pending_bootstrap"]);
 }
 
@@ -106,7 +87,7 @@ export async function findPendingPhoneSession(): Promise<PendingSession | null> 
  * a failure message suitable for TTS playback.
  */
 export async function validateVerificationCode(
-  session: PendingSession,
+  session: VerificationSession,
   enteredCode: string,
   fromNumber: string,
   attempt: number,
@@ -133,7 +114,7 @@ export async function validateVerificationCode(
   }
 
   // Hash the entered code and compare
-  const enteredHash = hashSecret(enteredCode);
+  const enteredHash = hashVerificationSecret(enteredCode);
   if (enteredHash !== session.challengeHash) {
     await recordInvalidAttempt("phone", fromNumber, fromNumber);
 
@@ -210,10 +191,10 @@ export async function validateVerificationCode(
     }
   }
 
-  // Success — consume session via the shared status-guarded helper. A
-  // false return means a concurrent request already consumed it; preserve
+  // Success — consume via the store's status-guarded UPDATE. A non-consumed
+  // return means a concurrent request already consumed it; preserve
   // one-time-code semantics by treating that as verification failure.
-  const consumed = await consumeSession(session.id, fromNumber, fromNumber);
+  const { consumed } = consumeSession(session.id, fromNumber, fromNumber);
   if (!consumed) {
     log.warn(
       { sessionId: session.id },

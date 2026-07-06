@@ -15,7 +15,6 @@ import {
   findPendingSessionByHash,
   findPendingSessionForChannel,
   findSessionByBootstrapTokenHash,
-  findSessionByIdentity,
   hasInterceptableSession,
   revokePendingSessions,
   updateSessionDelivery,
@@ -385,53 +384,6 @@ describe("findSessionByBootstrapTokenHash", () => {
     });
     expect(findSessionByBootstrapTokenHash("telegram", "tok-bound")).toBeNull();
     expect(findSessionByBootstrapTokenHash("telegram", "tok-stale")).toBeNull();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// findSessionByIdentity
-// ---------------------------------------------------------------------------
-
-describe("findSessionByIdentity", () => {
-  test("returns null when no identity parameter is supplied", () => {
-    insertRaw({ id: "s1", status: "awaiting_response" });
-    expect(findSessionByIdentity("telegram")).toBeNull();
-  });
-
-  test("matches on any supplied identity field", () => {
-    insertRaw({
-      id: "s1",
-      status: "awaiting_response",
-      expectedExternalUserId: "user-1",
-      expectedChatId: "chat-1",
-      expectedPhoneE164: "+15555550111",
-    });
-
-    expect(findSessionByIdentity("telegram", "user-1")?.id).toBe("s1");
-    expect(findSessionByIdentity("telegram", undefined, "chat-1")?.id).toBe(
-      "s1",
-    );
-    expect(
-      findSessionByIdentity("telegram", undefined, undefined, "+15555550111")
-        ?.id,
-    ).toBe("s1");
-    expect(findSessionByIdentity("telegram", "user-other")).toBeNull();
-  });
-
-  test("ignores expired and non-active sessions", () => {
-    insertRaw({
-      id: "stale",
-      status: "awaiting_response",
-      expectedExternalUserId: "user-1",
-      expiresAt: PAST(),
-    });
-    insertRaw({
-      id: "done",
-      status: "consumed",
-      expectedExternalUserId: "user-2",
-    });
-    expect(findSessionByIdentity("telegram", "user-1")).toBeNull();
-    expect(findSessionByIdentity("telegram", "user-2")).toBeNull();
   });
 });
 

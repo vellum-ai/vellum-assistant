@@ -123,6 +123,7 @@ export type {
 // status enums, wire DTO + verification_sessions_* IPC schemas
 export {
   BindSessionIdentityIpcParamsSchema,
+  CHALLENGE_TTL_MS,
   CountRecentSendsIpcParamsSchema,
   CountRecentSendsIpcResponseSchema,
   CreateInboundSessionIpcParamsSchema,
@@ -134,11 +135,9 @@ export {
   FindActiveSessionIpcParamsSchema,
   GetPendingSessionIpcParamsSchema,
   hashVerificationSecret,
-  IDENTITY_BINDING_STATUS_VALUES,
   IdentityBindingStatusSchema,
   ResolveBootstrapSessionIpcParamsSchema,
   RevokePendingSessionsIpcParamsSchema,
-  SESSION_STATUS_VALUES,
   SessionLookupIpcResponseSchema,
   SessionMutationIpcResponseSchema,
   SessionStatusSchema,
@@ -146,7 +145,6 @@ export {
   UpdateSessionStatusIpcParamsSchema,
   ValidateConsumeSessionIpcParamsSchema,
   ValidateConsumeSessionIpcResponseSchema,
-  VERIFICATION_PURPOSE_VALUES,
   VERIFICATION_SESSIONS_IPC_METHODS,
   VerificationPurposeSchema,
   VerificationSessionSchema,
