@@ -64,7 +64,9 @@ export function getMtime(filePath: string): number {
  * (mtime moved, or the file was deleted and recreated) — evicting on every
  * read would defeat the module cache entirely. Eviction is per-file: modules
  * the evicted file imports stay cached, so an edit to a hook's helper module
- * takes effect only if the helper is evicted as well.
+ * takes effect only if the helper is evicted as well. The plugin scan sweeps
+ * every path under a changed plugin directory for exactly that reason (see
+ * `./source-fingerprint.ts`).
  */
 export function evictModule(filePath: string): void {
   delete require.cache[filePath];

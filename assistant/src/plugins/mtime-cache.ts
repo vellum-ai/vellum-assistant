@@ -9,9 +9,13 @@
  * plugins directory, registers tools, and drives hook pre-import / init /
  * shutdown by handing the discovered directories to the hook loader.
  *
- * - A changed tool file triggers a re-import of just that tool, not a full
- *   plugin rebuild. Added and removed surface files are picked up live, since
- *   discovery is by directory listing.
+ * - Added and removed surface files are picked up live, since discovery is
+ *   by directory listing.
+ * - Any source change inside a plugin directory (hook, tool, or a helper
+ *   module either imports) redeploys the plugin in place: shutdown → module
+ *   eviction → re-import → init. Detection is a per-directory source
+ *   fingerprint (see `./source-fingerprint.ts`), so edits land on the next
+ *   scan without a daemon restart.
  * - Plugins are never "registered" as a unit — we register their tools into
  *   the global tool registry and cache-bust them using mtime on reads.
  *
@@ -49,8 +53,11 @@ import {
   listSurfaceDir,
   parsePluginManifest,
 } from "./external-plugin-loader.js";
+import type { SourceSnapshot } from "./source-fingerprint.js";
+import { snapshotPluginSource } from "./source-fingerprint.js";
 import {
   clearSurfaceImportInflight,
+  evictModule,
   getMtime,
   importWithTimeout,
   setSurfaceImportTimeout,
@@ -93,7 +100,9 @@ const INSTALL_META_FILENAME = "install-meta.json";
  */
 function getInstallDate(pluginDir: string): number {
   const cached = installDateCache.get(pluginDir);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined) {
+    return cached;
+  }
 
   // Try install-meta.json first.
   const metaPath = join(pluginDir, INSTALL_META_FILENAME);
@@ -170,6 +179,16 @@ const discoveredPluginDirs = new Map<string, string>();
  * transitions back to active or is evicted entirely.
  */
 const disabledPluginDirs = new Set<string>();
+
+/**
+ * Last observed source snapshot per plugin directory. A fingerprint change
+ * between scans means some source file inside the directory was edited,
+ * added, removed, or renamed — including helper modules that hooks/tools
+ * import — and triggers an in-place redeploy of the plugin. The snapshot's
+ * eviction list is what gets swept from the module registry so the redeploy
+ * re-evaluates a mutually consistent set of modules.
+ */
+const sourceSnapshots = new Map<string, SourceSnapshot>();
 
 // ─── Hook reads ──────────────────────────────────────────────────────────────
 
@@ -282,7 +301,9 @@ async function reconcilePluginTools(
   // Evict cached tools whose files no longer exist on disk.
   for (const key of toolCache.keys()) {
     const [cachedPluginName, cachedToolName] = key.split("/");
-    if (cachedPluginName !== pluginName) continue;
+    if (cachedPluginName !== pluginName) {
+      continue;
+    }
     if (!onDiskNames.has(cachedToolName)) {
       toolCache.delete(key);
     }
@@ -330,11 +351,15 @@ async function scanPlugins(): Promise<void> {
   for (const entry of entries) {
     const pluginDir = join(pluginsDir, entry);
     try {
-      if (!statSync(pluginDir).isDirectory()) continue;
+      if (!statSync(pluginDir).isDirectory()) {
+        continue;
+      }
     } catch {
       continue;
     }
-    if (!existsSync(join(pluginDir, "package.json"))) continue;
+    if (!existsSync(join(pluginDir, "package.json"))) {
+      continue;
+    }
 
     // Check for the .disabled sentinel. A plugin is disabled when a file
     // named `.disabled` exists inside its plugin directory. Disabled
@@ -358,7 +383,9 @@ async function scanPlugins(): Promise<void> {
     }
 
     const manifest = await parsePluginManifest(pluginDir);
-    if (manifest === undefined) continue;
+    if (manifest === undefined) {
+      continue;
+    }
     const { name: pluginName } = manifest;
 
     currentDirs.set(pluginDir, pluginName);
@@ -366,6 +393,42 @@ async function scanPlugins(): Promise<void> {
 
     if (!discoveredPluginDirs.has(pluginDir)) {
       log.info({ plugin: pluginName, pluginDir }, "plugin discovered");
+    }
+
+    // Live reload: a fingerprint change means some source file inside the
+    // plugin directory changed since the last scan — including helper
+    // modules that hooks/tools import, which no per-entry-file mtime check
+    // can see. Redeploy the plugin in place: shut the old version down,
+    // sweep every source path (old and new — deleted files may still be
+    // cached) out of the module registry so nothing re-binds to a stale
+    // module, and drop its cache entries. The activation pass at the end of
+    // this scan brings the new version up (pre-import, tool registration,
+    // `init`). The whole directory is the reload unit on purpose: partial
+    // eviction would let a re-imported hook pair with a stale intermediate
+    // helper, silently mixing versions.
+    const snapshot = snapshotPluginSource(pluginDir);
+    const previous = sourceSnapshots.get(pluginDir);
+    sourceSnapshots.set(pluginDir, snapshot);
+    if (
+      previous !== undefined &&
+      previous.fingerprint !== snapshot.fingerprint &&
+      activatedNames.has(pluginName)
+    ) {
+      log.info(
+        { plugin: pluginName, pluginDir },
+        "plugin source changed — reloading",
+      );
+      // Shutdown reads the old version's hook from the cache, so it must run
+      // before the hook cache is cleared.
+      await deactivatePlugin(pluginName, "reload");
+      evictHooksForOwner(pluginName);
+      evictToolCacheEntries(pluginName);
+      for (const path of new Set([
+        ...previous.evictionPaths,
+        ...snapshot.evictionPaths,
+      ])) {
+        evictModule(path);
+      }
     }
 
     // Reconcile this plugin's tools (re-imports changed files).
@@ -413,12 +476,12 @@ async function evictPlugin(
   evictHooksForOwner(pluginName);
 
   // Evict tools.
-  const toolPrefix = `${pluginName}/`;
-  for (const key of toolCache.keys()) {
-    if (key.startsWith(toolPrefix)) {
-      toolCache.delete(key);
-    }
-  }
+  evictToolCacheEntries(pluginName);
+
+  // Sweep the plugin's source modules out of the module registry, so a
+  // reinstall at the same path re-evaluates fresh files instead of serving
+  // the removed install's cached modules.
+  evictSnapshotModules(pluginDir);
 
   log.info(
     { plugin: pluginName, pluginDir },
@@ -426,6 +489,32 @@ async function evictPlugin(
   );
   discoveredPluginDirs.delete(pluginDir);
   installDateCache.delete(pluginDir);
+}
+
+/** Drop every `toolCache` entry owned by `pluginName`. */
+function evictToolCacheEntries(pluginName: string): void {
+  const toolPrefix = `${pluginName}/`;
+  for (const key of toolCache.keys()) {
+    if (key.startsWith(toolPrefix)) {
+      toolCache.delete(key);
+    }
+  }
+}
+
+/**
+ * Evict the module-registry entries recorded in `pluginDir`'s last source
+ * snapshot and forget the snapshot. No-op for a directory that was never
+ * snapshotted.
+ */
+function evictSnapshotModules(pluginDir: string): void {
+  const snapshot = sourceSnapshots.get(pluginDir);
+  if (snapshot === undefined) {
+    return;
+  }
+  for (const path of snapshot.evictionPaths) {
+    evictModule(path);
+  }
+  sourceSnapshots.delete(pluginDir);
 }
 
 /**
@@ -440,6 +529,9 @@ async function evictAll(): Promise<void> {
   discoveredPluginDirs.clear();
   installDateCache.clear();
   disabledPluginDirs.clear();
+  for (const pluginDir of [...sourceSnapshots.keys()]) {
+    evictSnapshotModules(pluginDir);
+  }
 }
 
 // ─── Activation lifecycle ────────────────────────────────────────────────────
@@ -477,7 +569,9 @@ async function activatePlugin(
   pluginDir: string,
   pluginName: string,
 ): Promise<void> {
-  if (activatedNames.has(pluginName)) return;
+  if (activatedNames.has(pluginName)) {
+    return;
+  }
   // Reserve synchronously, before any await, so a re-entrant or concurrent
   // scan observes this plugin as already handled.
   activatedNames.add(pluginName);
@@ -523,10 +617,14 @@ async function deactivatePlugin(
   pluginName: string,
   reason: ShutdownReason,
 ): Promise<void> {
-  if (!activatedNames.has(pluginName)) return;
+  if (!activatedNames.has(pluginName)) {
+    return;
+  }
   activatedNames.delete(pluginName);
   const idx = activatedPlugins.findIndex((p) => p.name === pluginName);
-  if (idx >= 0) activatedPlugins.splice(idx, 1);
+  if (idx >= 0) {
+    activatedPlugins.splice(idx, 1);
+  }
 
   // Unregister tools before running shutdown so the model-visible surface is
   // clean before teardown.
@@ -610,6 +708,7 @@ export function resetPluginCacheForTests(): void {
   activatedPlugins.length = 0;
   activatedNames.clear();
   disabledPluginDirs.clear();
+  sourceSnapshots.clear();
 }
 
 /**

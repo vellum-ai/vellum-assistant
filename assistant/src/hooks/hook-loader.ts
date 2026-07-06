@@ -161,9 +161,12 @@ async function resolveCachedHook<TCtx>(
  * Added, removed, and edited hook files are all picked up live: discovery is
  * by directory listing, and a changed source mtime evicts the module from
  * the runtime registry before re-import, so the edited hook takes effect on
- * the next dispatch without a daemon restart. Eviction is per-file — an edit
- * to a helper module a hook imports is not detected (the hook file's own
- * mtime is what's watched) and still needs a restart.
+ * the next dispatch without a daemon restart. For plugin hooks, helper
+ * modules are covered too: the plugin scan in `../plugins/mtime-cache.ts`
+ * fingerprints every source file under the plugin directory and redeploys
+ * the plugin when any of them change. Standalone workspace hooks are single
+ * files by design (every file in the directory is treated as a hook), so
+ * only the hook file itself is watched there.
  *
  * `effectiveEnabledPlugins` carries the per-chat plugin scope: when non-null, a
  * plugin whose name is not in the set is skipped (its hooks do not run for this

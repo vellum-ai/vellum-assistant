@@ -661,3 +661,167 @@ describe("plugin runtime activation", () => {
     expect(getToolOwner("disable-tool")).toBeUndefined();
   });
 });
+
+// ─── Live reload via source fingerprint ──────────────────────────────────────
+
+/** Write a helper module at `relPath` (e.g. `lib/helper.ts`) inside a plugin. */
+function writeLibFile(dir: string, relPath: string, body: string): string {
+  const path = join(dir, relPath);
+  mkdirSync(join(path, ".."), { recursive: true });
+  writeFileSync(path, body);
+  return path;
+}
+
+/** Dispatch `hookName` for the discovered plugins and return the first hook's result. */
+async function dispatchFirst(hookName: string): Promise<unknown> {
+  const hooks = await getUserHooksFor(hookName);
+  expect(hooks).toHaveLength(1);
+  return (hooks[0] as unknown as () => unknown)();
+}
+
+describe("plugin live reload (source fingerprint)", () => {
+  test("editing a helper imported by a hook redeploys the plugin", async () => {
+    const dir = freshPluginDir("helper-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "helper-plugin" });
+    const helperPath = writeLibFile(
+      dir,
+      join("lib", "helper.ts"),
+      `export const value = "v1";`,
+    );
+    writeHook(
+      dir,
+      "helper-reload",
+      `import { value } from "../lib/helper.ts";\nexport default () => value;`,
+    );
+
+    await populateCacheAtBoot();
+    expect(await dispatchFirst("helper-reload")).toBe("v1");
+
+    // Only the helper changes — the hook file's own mtime never moves, so
+    // any per-entry-file scheme would keep serving v1 here.
+    writeFileSync(helperPath, `export const value = "v2";`);
+    touchFile(helperPath, 2);
+    expect(await dispatchFirst("helper-reload")).toBe("v2");
+
+    // A reloaded plugin must itself be reloadable.
+    writeFileSync(helperPath, `export const value = "v3";`);
+    touchFile(helperPath, 4);
+    expect(await dispatchFirst("helper-reload")).toBe("v3");
+  });
+
+  test("editing a transitive helper (hook → a → b) redeploys consistently", async () => {
+    const dir = freshPluginDir("transitive-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "transitive-plugin" });
+    const bPath = writeLibFile(
+      dir,
+      join("lib", "b.ts"),
+      `export const leaf = "b1";`,
+    );
+    writeLibFile(
+      dir,
+      join("lib", "a.ts"),
+      `import { leaf } from "./b.ts";\nexport const mid = "a:" + leaf;`,
+    );
+    writeHook(
+      dir,
+      "transitive-reload",
+      `import { mid } from "../lib/a.ts";\nexport default () => mid;`,
+    );
+
+    await populateCacheAtBoot();
+    expect(await dispatchFirst("transitive-reload")).toBe("a:b1");
+
+    // The intermediate module `a` is untouched. Whole-plugin eviction is
+    // what keeps it from pairing a re-imported hook with its stale cached
+    // binding to the old `b`.
+    writeFileSync(bPath, `export const leaf = "b2";`);
+    touchFile(bPath, 2);
+    expect(await dispatchFirst("transitive-reload")).toBe("a:b2");
+  });
+
+  test("a reload runs the old shutdown (reason: reload) and the new init", async () => {
+    const dir = freshPluginDir("lifecycle-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "lifecycle-plugin" });
+    const helperPath = writeLibFile(
+      dir,
+      join("lib", "helper.ts"),
+      `export const value = 1;`,
+    );
+    const initMarker = join(ROOT, "reload-init.log");
+    const shutdownMarker = join(ROOT, "reload-shutdown.log");
+    writeMarkerHook(dir, "init", initMarker, "init");
+    writeHook(
+      dir,
+      "shutdown",
+      `import { appendFileSync } from "node:fs";\nexport default (ctx: { reason: string }) => { appendFileSync(${JSON.stringify(shutdownMarker)}, ctx.reason + "\\n"); };`,
+    );
+
+    await populateCacheAtBoot();
+    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
+    expect(existsSync(shutdownMarker)).toBe(false);
+
+    writeFileSync(helperPath, `export const value = 2;`);
+    touchFile(helperPath, 2);
+    await triggerScan();
+
+    // The edit is a redeploy: old version torn down with reason "reload",
+    // new version brought up through the same init path as boot.
+    expect(readFileSync(shutdownMarker, "utf8").trim().split("\n")).toEqual([
+      "reload",
+    ]);
+    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(2);
+  });
+
+  test("scans without source changes do not redeploy", async () => {
+    const dir = freshPluginDir("stable-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "stable-plugin" });
+    writeLibFile(dir, join("lib", "helper.ts"), `export const value = 1;`);
+    writeHook(
+      dir,
+      "stable-reload",
+      `import { value } from "../lib/helper.ts";\nexport default () => value;`,
+    );
+    const initMarker = join(ROOT, "stable-init.log");
+    writeMarkerHook(dir, "init", initMarker, "init");
+
+    await populateCacheAtBoot();
+    await triggerScan();
+    await triggerScan();
+
+    // A false-positive fingerprint change would re-run init on every scan —
+    // a redeploy storm on the per-turn dispatch path.
+    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
+  });
+
+  test("editing a tool file re-registers the new definition in the tool registry", async () => {
+    const dir = freshPluginDir("tool-reload-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "tool-reload-plugin" });
+    const toolPath = join(dir, "tools", "reloading-tool.ts");
+    writeTool(
+      dir,
+      "reloading-tool",
+      `export default { name: "reloading-tool", description: "one", parameters: { type: "object", properties: {} } };`,
+    );
+
+    await populateCacheAtBoot();
+    expect(
+      getAllToolDefinitions().find((t) => t.name === "reloading-tool")
+        ?.description,
+    ).toBe("one");
+
+    writeFileSync(
+      toolPath,
+      `export default { name: "reloading-tool", description: "two", parameters: { type: "object", properties: {} } };`,
+    );
+    touchFile(toolPath, 2);
+    await triggerScan();
+
+    // The global registry — not just the tool cache — must serve the new
+    // definition: reload unregisters the old tool and re-registers the
+    // freshly imported one.
+    expect(
+      getAllToolDefinitions().find((t) => t.name === "reloading-tool")
+        ?.description,
+    ).toBe("two");
+  });
+});
