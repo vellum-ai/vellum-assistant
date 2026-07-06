@@ -4581,6 +4581,7 @@ paths:
       - VellumAPIKey: []
       - cookieAuth: []
       - XSessionTokenAuth: []
+      - AssistantAPIKey: []
       responses:
         '200':
           content:
