@@ -30,7 +30,7 @@ const providers = new Map<string, Provider>();
 const routingSources = new Map<string, "user-key" | "managed-proxy">();
 const NATIVE_WEB_SEARCH_PROVIDER_IDS = new Set(["anthropic", "openai"]);
 
-/** Per-connection provider cache, keyed by connection name and model. */
+/** Per-connection provider cache, keyed by connection name, effective provider, and model. */
 const connectionProviders = new Map<string, Provider>();
 
 function getConnectionProviderCacheKey(
