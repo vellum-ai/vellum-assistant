@@ -209,6 +209,13 @@ export class NotificationBroadcaster {
         : undefined;
     const results: NotificationDeliveryResult[] = [];
 
+    // Vellum pairing carried forward for the platform channel's deep link.
+    // A single-pass carry is safe because orderedChannels sorts vellum first.
+    let vellumPairing: {
+      conversationId: string;
+      messageId: string | null;
+    } | null = null;
+
     for (const channel of orderedChannels) {
       const adapter = this.adapters.get(channel);
       if (!adapter) {
@@ -335,29 +342,42 @@ export class NotificationBroadcaster {
         { conversationAction, bindingContext: destination.bindingContext },
       );
 
+      if (channel === "vellum" && pairing.conversationId) {
+        vellumPairing = {
+          conversationId: pairing.conversationId,
+          messageId: pairing.messageId,
+        };
+      }
+
       // For the vellum and platform channels, merge the conversationId into
       // deep-link metadata so clients can navigate directly to the conversation
       // (macOS reads it from notification_intent; the platform relays it to
-      // iOS inside the APNs payload as deep_link). Prefer the
-      // paired conversation (interactive opt-in flows); otherwise fall back
+      // iOS inside the APNs payload as deep_link). Prefer the channel's own
+      // paired conversation (interactive opt-in flows); the platform channel
+      // is a push_only relay that pairs no conversation of its own, so it
+      // prefers the vellum pairing from this broadcast. Otherwise fall back
       // to the originating conversation referenced by `sourceContextId` when it
       // resolves to a real row. Sentinel context ids (job IDs, call session IDs,
       // access-req-* strings) leave the deep link without a conversation, and
       // the client opens the app to its default landing.
       let deepLinkTarget = decision.deepLinkTarget;
       if (channel === "vellum" || channel === "platform") {
+        const deepLinkPairing =
+          channel === "platform" && !pairing.conversationId
+            ? (vellumPairing ?? pairing)
+            : pairing;
         const deepLinkConversationId =
-          pairing.conversationId ??
+          deepLinkPairing.conversationId ??
           resolveSourceConversationId(signal.sourceContextId);
         if (deepLinkConversationId) {
           deepLinkTarget = {
             ...deepLinkTarget,
             conversationId: deepLinkConversationId,
           };
-          if (pairing.messageId) {
+          if (deepLinkPairing.messageId) {
             deepLinkTarget = {
               ...deepLinkTarget,
-              messageId: pairing.messageId,
+              messageId: deepLinkPairing.messageId,
             };
           }
         }
