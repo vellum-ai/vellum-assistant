@@ -131,6 +131,12 @@ export interface UseLiveVoiceResult {
   ) => Promise<void>;
   /** End the session and release the mic, socket, and audio context. */
   stop: () => Promise<void>;
+  /**
+   * Manually release push-to-talk (the "send now" button) — force-ends the
+   * current user turn exactly like the automatic silence release. No-op unless
+   * the session is `listening`.
+   */
+  release: () => void;
 }
 
 /** Per-session options for {@link UseLiveVoiceResult.start}. */
@@ -274,6 +280,28 @@ export function useLiveVoice(
     useLiveVoiceStore.getState().reset();
   }, []);
 
+  /**
+   * Manual push-to-talk release — same internal path as the automatic silence
+   * release. Guarded to `listening` so a stray click (or the store-registered
+   * control firing late) can't disturb another phase.
+   */
+  const release = useCallback(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    if (useLiveVoiceStore.getState().state !== "listening") return;
+    releasePushToTalk(session);
+  }, []);
+
+  /**
+   * Stop in-flight assistant playback — the barge-in interrupt path without
+   * the amplitude gate. `interruptIfSpeaking` itself guards to `speaking`.
+   */
+  const interrupt = useCallback(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    interruptIfSpeaking(session, teardown);
+  }, [teardown]);
+
   const start = useCallback(
     async (
       assistantId: string,
@@ -289,6 +317,11 @@ export function useLiveVoice(
       const store = useLiveVoiceStore.getState();
       store.reset();
       store.setState("connecting");
+      store.setSessionContext(assistantId, conversationId ?? null);
+      // Registered here (not on `ready`) so a globally mounted surface can
+      // drive the session from the moment it exists; cleared by the store
+      // reset in teardown()/stop().
+      store.setControls({ stop: () => void stop(), release, interrupt });
 
       const opts = optionsRef.current;
       const client = (opts.createClient ?? (() => new LiveVoiceChannelClient()))();
@@ -332,6 +365,13 @@ export function useLiveVoice(
           if (session.handsFree && frame.turnDetection !== "server_vad") {
             session.handsFree = false;
           }
+          // When started from a new/empty conversation, `conversationId` was
+          // undefined at start() and the store published `null`. The server
+          // assigns (or confirms) the attached conversation on `ready`, so
+          // republish the context with the authoritative id.
+          useLiveVoiceStore
+            .getState()
+            .setSessionContext(assistantId, frame.conversationId);
           void startCapture(session, teardown);
         }),
         client.on("speechStarted", () => {
@@ -469,7 +509,7 @@ export function useLiveVoice(
         ...(session.handsFree ? { turnDetection: "server_vad" as const } : {}),
       });
     },
-    [teardown],
+    [teardown, stop, release, interrupt],
   );
 
   // Release everything if the consumer unmounts mid-session. teardown() also
@@ -486,6 +526,7 @@ export function useLiveVoice(
     error,
     start,
     stop,
+    release,
   };
 }
 

@@ -1089,6 +1089,157 @@ describe("failure", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Session context + shared controls
+// ---------------------------------------------------------------------------
+
+describe("session context and controls", () => {
+  test("start() publishes the session context and controls to the store", async () => {
+    const h = renderController();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+    });
+
+    const store = useLiveVoiceStore.getState();
+    expect(store.assistantId).toBe("assistant-1");
+    expect(store.conversationId).toBe("conv-1");
+    expect(store.controls).not.toBeNull();
+  });
+
+  test("start() without a conversation publishes a null conversationId", async () => {
+    const h = renderController();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1");
+    });
+
+    expect(useLiveVoiceStore.getState().assistantId).toBe("assistant-1");
+    expect(useLiveVoiceStore.getState().conversationId).toBeNull();
+  });
+
+  test("ready frame updates a null conversationId with the server-assigned id", async () => {
+    const h = renderController();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1");
+    });
+    expect(useLiveVoiceStore.getState().conversationId).toBeNull();
+
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId: "conv-server-assigned",
+      });
+      await Promise.resolve();
+    });
+
+    const store = useLiveVoiceStore.getState();
+    expect(store.assistantId).toBe("assistant-1");
+    expect(store.conversationId).toBe("conv-server-assigned");
+  });
+
+  test("release() while listening sends ptt_release and moves to transcribing", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    act(() => {
+      h.view.result.current.release();
+    });
+
+    expect(h.client.pttReleaseCount).toBe(1);
+    expect(h.view.result.current.state).toBe("transcribing");
+  });
+
+  test("release() outside listening is a no-op", async () => {
+    const h = renderController();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+
+    act(() => {
+      h.view.result.current.release();
+    });
+
+    expect(h.client.pttReleaseCount).toBe(0);
+    expect(h.view.result.current.state).toBe("connecting");
+  });
+
+  test("store controls.release drives the manual ptt release", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    act(() => {
+      useLiveVoiceStore.getState().controls?.release();
+    });
+
+    expect(h.client.pttReleaseCount).toBe(1);
+    expect(h.view.result.current.state).toBe("transcribing");
+  });
+
+  test("store controls.interrupt stops playback while speaking and is a no-op otherwise", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    // Not speaking yet: interrupt is a guarded no-op.
+    act(() => {
+      useLiveVoiceStore.getState().controls?.interrupt();
+    });
+    expect(h.client.interruptCount).toBe(0);
+    expect(h.view.result.current.state).toBe("listening");
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 3,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+
+    act(() => {
+      useLiveVoiceStore.getState().controls?.interrupt();
+    });
+
+    // Same path as barge-in: playback stopped, one interrupt, session ends.
+    expect(h.player.isPlaying).toBe(false);
+    expect(h.client.interruptCount).toBe(1);
+    expect(h.view.result.current.state).toBe("idle");
+  });
+
+  test("teardown clears the session context and controls", async () => {
+    const h = renderController();
+    await startListening(h);
+    expect(useLiveVoiceStore.getState().controls).not.toBeNull();
+
+    act(() => {
+      h.view.unmount();
+    });
+
+    const store = useLiveVoiceStore.getState();
+    expect(store.controls).toBeNull();
+    expect(store.assistantId).toBeNull();
+    expect(store.conversationId).toBeNull();
+  });
+
+  test("stop() clears the session context and controls", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+
+    const store = useLiveVoiceStore.getState();
+    expect(store.controls).toBeNull();
+    expect(store.assistantId).toBeNull();
+    expect(store.conversationId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Teardown
 // ---------------------------------------------------------------------------
 
