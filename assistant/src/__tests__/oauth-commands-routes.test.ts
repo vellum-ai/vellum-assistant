@@ -777,6 +777,73 @@ describe("POST oauth/request", () => {
     expect(result.hint).toContain("oauth status");
   });
 
+  test("attaches wrong-host/path hint on HTML 404 for a relative path", async () => {
+    mockResolveResponse = {
+      status: 404,
+      headers: { "content-type": "text/html; charset=UTF-8" },
+      body: "<html><title>Error 404 (Not Found)</title></html>",
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "google",
+          url: "/calendar/v3/calendars/primary/events",
+        },
+      }),
+    )) as { ok: boolean; status: number; hint?: string };
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(404);
+    expect(result.hint).toContain("HTML");
+    // Reports the resolved base URL the relative path was joined onto.
+    expect(result.hint).toContain("https://api.google.com");
+    // Steers the caller toward an absolute URL.
+    expect(result.hint).toContain("absolute URL");
+  });
+
+  test("does not attach HTML-404 hint when a 404 body is JSON", async () => {
+    mockResolveResponse = {
+      status: 404,
+      headers: { "content-type": "application/json" },
+      body: { error: "not found" },
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: { provider: "google", url: "/v1/missing" },
+      }),
+    )) as { ok: boolean; status: number; hint?: string };
+    expect(result.ok).toBe(false);
+    expect(result.status).toBe(404);
+    expect(result.hint).toBeUndefined();
+  });
+
+  test("HTML-404 hint reports an absolute URL's own host as the resolved base", async () => {
+    mockProviders.google = {
+      ...baseProvider,
+      injectionTemplates: JSON.stringify([
+        {
+          hostPattern: "www.googleapis.com",
+          injectionType: "header",
+          headerName: "Authorization",
+          valuePrefix: "Bearer ",
+        },
+      ]),
+    };
+    mockResolveResponse = {
+      status: 404,
+      headers: { "content-type": "text/html" },
+      body: "<html>nope</html>",
+    };
+    const result = (await getRoute("POST", "oauth/request").handler(
+      makeArgs({
+        body: {
+          provider: "google",
+          url: "https://www.googleapis.com/calendar/v3/nope",
+        },
+      }),
+    )) as { hint?: string };
+    expect(result.hint).toContain("https://www.googleapis.com");
+  });
+
   test("rejects unregistered client_id in BYO mode", async () => {
     // No entry in mockApps for google:client-x
     await expect(
