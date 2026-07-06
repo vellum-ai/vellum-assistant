@@ -45,8 +45,27 @@ mock.module("@/domains/onboarding/prefs", () => ({
   readDiagnosticsConsentCurrent: () => true,
 }));
 
+// Clamp whenStoreState timeouts so hydration-timeout paths are testable
+// without real 5s waits; untimed waits and predicate semantics are the real
+// implementation's. Bind the real function BEFORE registering the mock —
+// mock.module patches the imported namespace object in place, so a call-time
+// `actual.whenStoreState` lookup would resolve to this wrapper and recurse.
+const WAIT_TIMEOUT_CLAMP_MS = 100;
+const whenStoreStateReal = (await import("@/utils/when-store-state"))
+  .whenStoreState;
+mock.module("@/utils/when-store-state", () => ({
+  whenStoreState: ((store, predicate, options) =>
+    whenStoreStateReal(store, predicate, {
+      ...options,
+      ...(options?.timeoutMs !== undefined
+        ? { timeoutMs: Math.min(options.timeoutMs, WAIT_TIMEOUT_CLAMP_MS) }
+        : {}),
+    })) as typeof whenStoreStateReal,
+}));
+
 import { authMiddleware } from "./auth-middleware";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
+import { useOnboardingStore } from "@/domains/onboarding/onboarding-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { useAuthStore, type AuthUser } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
@@ -79,7 +98,9 @@ async function runMiddlewareOutcome(
     await authMiddleware(args, next);
     return { admitted: true };
   } catch (thrown) {
-    if (thrown instanceof Response) return { admitted: false, response: thrown };
+    if (thrown instanceof Response) {
+      return { admitted: false, response: thrown };
+    }
     throw thrown;
   }
 }
@@ -97,7 +118,9 @@ async function runMiddleware(pathname: string): Promise<Response> {
   try {
     await authMiddleware(args, next);
   } catch (thrown) {
-    if (thrown instanceof Response) return thrown;
+    if (thrown instanceof Response) {
+      return thrown;
+    }
     throw thrown;
   }
   throw new Error("expected a redirect to be thrown");
@@ -241,6 +264,42 @@ describe("authMiddleware — app-access admit gate", () => {
       expect(outcome.response.headers.get("Location")).toBe(
         `${routes.account.login}?returnTo=${encodeURIComponent("/assistant/home")}`,
       );
+    }
+  });
+});
+
+describe("authMiddleware — hydration timeout", () => {
+  test("a hung hydration degrades to a decision instead of re-entering the wait", async () => {
+    isLocalModeMock.mockImplementation(() => false);
+    useAuthStore.setState({
+      sessionStatus: "authenticated",
+      user: fakeUser,
+      platformSession: "present",
+    });
+    // Simulate consent/assistants fetches that hang: neither store ever
+    // reports hydration, so both waits run out their (clamped) timeouts.
+    const priorConsentHydrated = useOnboardingStore.getState().consentHydrated;
+    const priorAssistantsHydrated =
+      useResolvedAssistantsStore.getState().assistantsHydrated;
+    useOnboardingStore.setState({ consentHydrated: false });
+    useResolvedAssistantsStore.setState({
+      assistants: [],
+      assistantsHydrated: false,
+    });
+
+    try {
+      // Must settle (the consent prefs are pinned current above, so with the
+      // hydration flags forced after the timeout, requireAssistant lands on
+      // the consented no-assistant branch) — pre-guard this recursed into the
+      // identical wait forever.
+      const res = await runMiddleware(routes.home);
+      expect(res.status).toBe(302);
+      expect(res.headers.get("Location")).toBe(routes.onboarding.hatching);
+    } finally {
+      useOnboardingStore.setState({ consentHydrated: priorConsentHydrated });
+      useResolvedAssistantsStore.setState({
+        assistantsHydrated: priorAssistantsHydrated,
+      });
     }
   });
 });
