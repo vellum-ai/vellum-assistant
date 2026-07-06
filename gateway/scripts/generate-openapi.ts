@@ -22,8 +22,11 @@ import type { GatewayRouteDefinition } from "../src/http/routes/types.js";
 
 // Import ROUTES from each route module that declares schemas.
 // Add new route modules here as they adopt zod-openapi schemas.
+import { ROUTES as autoApproveThresholdRoutes } from "../src/http/routes/auto-approve-thresholds-routes.js";
+import { ROUTES as channelAdmissionPolicyRoutes } from "../src/http/routes/channel-admission-policy-routes.js";
 import { ROUTES as contactsControlPlaneRoutes } from "../src/http/routes/contacts-control-plane-routes.js";
 import { ROUTES as featureFlagRoutes } from "../src/http/routes/feature-flags.js";
+import { ROUTES as trustRuleRoutes } from "../src/http/routes/trust-rules-routes.js";
 
 const ROOT = resolve(import.meta.dir, "..");
 const OUTPUT_PATH = resolve(ROOT, "openapi.json");
@@ -31,8 +34,11 @@ const PKG_PATH = resolve(ROOT, "package.json");
 
 // Collect all route definitions
 const ALL_ROUTES: GatewayRouteDefinition[] = [
+  ...autoApproveThresholdRoutes,
+  ...channelAdmissionPolicyRoutes,
   ...contactsControlPlaneRoutes,
   ...featureFlagRoutes,
+  ...trustRuleRoutes,
 ];
 
 // ---------------------------------------------------------------------------
@@ -52,6 +58,17 @@ function buildSpec(version: string) {
           name: param.name,
           in: "path",
           required: true,
+          schema: { type: "string" },
+          ...(param.description ? { description: param.description } : {}),
+        });
+      }
+    }
+    if (route.queryParameters) {
+      for (const param of route.queryParameters) {
+        parameters.push({
+          name: param.name,
+          in: "query",
+          required: false,
           schema: { type: "string" },
           ...(param.description ? { description: param.description } : {}),
         });

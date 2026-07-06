@@ -81,7 +81,6 @@ mock.module("@/domains/chat/api/interactions", () => ({
   submitConfirmation: stubFromOtherTest("submitConfirmation"),
   submitContactPrompt: stubFromOtherTest("submitContactPrompt"),
   submitQuestionResponse: stubFromOtherTest("submitQuestionResponse"),
-  submitTrustRule: stubFromOtherTest("submitTrustRule"),
 }));
 
 const { useAttentionTracking } = await import(

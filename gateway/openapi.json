@@ -2,11 +2,352 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Vellum Gateway API",
-    "version": "0.10.5",
+    "version": "0.10.6",
     "description": "Auto-generated OpenAPI specification for the Vellum Gateway HTTP endpoints."
   },
   "servers": [{ "url": "", "description": "Same-origin (gateway)" }],
   "paths": {
+    "/v1/permissions/thresholds": {
+      "get": {
+        "operationId": "permissionsThresholdsGet",
+        "summary": "Get global auto-approve thresholds",
+        "tags": ["permissions"],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "interactive": {
+                      "type": "string",
+                      "enum": ["none", "low", "medium", "high"]
+                    },
+                    "autonomous": {
+                      "type": "string",
+                      "enum": ["none", "low", "medium", "high"]
+                    },
+                    "headless": {
+                      "type": "string",
+                      "enum": ["none", "low", "medium", "high"]
+                    }
+                  },
+                  "required": ["interactive", "autonomous", "headless"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "permissionsThresholdsPut",
+        "summary": "Update global auto-approve thresholds",
+        "tags": ["permissions"],
+        "description": "Partial update — omitted modes keep their current value. Returns the full post-update set.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "interactive": {
+                    "type": "string",
+                    "enum": ["none", "low", "medium", "high"]
+                  },
+                  "autonomous": {
+                    "type": "string",
+                    "enum": ["none", "low", "medium", "high"]
+                  },
+                  "headless": {
+                    "type": "string",
+                    "enum": ["none", "low", "medium", "high"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "interactive": {
+                      "type": "string",
+                      "enum": ["none", "low", "medium", "high"]
+                    },
+                    "autonomous": {
+                      "type": "string",
+                      "enum": ["none", "low", "medium", "high"]
+                    },
+                    "headless": {
+                      "type": "string",
+                      "enum": ["none", "low", "medium", "high"]
+                    }
+                  },
+                  "required": ["interactive", "autonomous", "headless"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/permissions/thresholds/conversations/{conversation_id}": {
+      "get": {
+        "operationId": "conversationThresholdGet",
+        "summary": "Get a conversation's threshold override",
+        "tags": ["permissions"],
+        "description": "Returns { threshold: null } when no override exists. (Gateways predating that behavior returned 404 for the same condition; clients tolerate both during rollout.)",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The conversation id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "threshold": {
+                      "anyOf": [{ "type": "string" }, { "type": "null" }]
+                    }
+                  },
+                  "required": ["threshold"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "conversationThresholdPut",
+        "summary": "Set a conversation's threshold override",
+        "tags": ["permissions"],
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The conversation id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "threshold": {
+                    "type": "string",
+                    "enum": ["none", "low", "medium", "high"]
+                  }
+                },
+                "required": ["threshold"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "conversationId": { "type": "string" },
+                    "threshold": {
+                      "type": "string",
+                      "enum": ["none", "low", "medium", "high"]
+                    }
+                  },
+                  "required": ["conversationId", "threshold"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "conversationThresholdDelete",
+        "summary": "Clear a conversation's threshold override",
+        "tags": ["permissions"],
+        "description": "Idempotent — succeeds even when no override exists.",
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The conversation id"
+          }
+        ],
+        "responses": { "204": { "description": "Successful response" } }
+      }
+    },
+    "/v1/channel-admission-policy": {
+      "get": {
+        "operationId": "channelAdmissionPolicyList",
+        "summary": "List per-channel admission floors",
+        "tags": ["channel-admission-policy"],
+        "description": "Returns one entry per enforced channel (exempt and hidden channels are omitted), seeded with defaults for channels without a stored row.",
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "policies": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "channelType": { "type": "string" },
+                          "policy": {
+                            "type": "string",
+                            "enum": [
+                              "no_one",
+                              "guardian_only",
+                              "trusted_contacts",
+                              "any_contact",
+                              "strangers"
+                            ]
+                          },
+                          "note": {
+                            "anyOf": [{ "type": "string" }, { "type": "null" }]
+                          },
+                          "updatedAt": {
+                            "anyOf": [{ "type": "number" }, { "type": "null" }]
+                          }
+                        },
+                        "required": [
+                          "channelType",
+                          "policy",
+                          "note",
+                          "updatedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["policies"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/channel-admission-policy/{channel_type}": {
+      "put": {
+        "operationId": "channelAdmissionPolicySet",
+        "summary": "Set a channel's admission floor",
+        "tags": ["channel-admission-policy"],
+        "description": "Upserts the channel's admission policy. Exempt and hidden channels return 403.",
+        "parameters": [
+          {
+            "name": "channel_type",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The channel type (e.g. slack)"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "policy": {
+                    "type": "string",
+                    "enum": [
+                      "no_one",
+                      "guardian_only",
+                      "trusted_contacts",
+                      "any_contact",
+                      "strangers"
+                    ]
+                  },
+                  "note": {
+                    "anyOf": [{ "type": "string" }, { "type": "null" }]
+                  }
+                },
+                "required": ["policy"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "policy": {
+                      "type": "object",
+                      "properties": {
+                        "channelType": { "type": "string" },
+                        "policy": {
+                          "type": "string",
+                          "enum": [
+                            "no_one",
+                            "guardian_only",
+                            "trusted_contacts",
+                            "any_contact",
+                            "strangers"
+                          ]
+                        },
+                        "note": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "updatedAt": {
+                          "anyOf": [{ "type": "number" }, { "type": "null" }]
+                        }
+                      },
+                      "required": [
+                        "channelType",
+                        "policy",
+                        "note",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["policy"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/v1/contacts": {
       "post": {
         "operationId": "contactsUpsert",
@@ -537,6 +878,494 @@
                     }
                   },
                   "required": ["key", "enabled"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trust-rules": {
+      "get": {
+        "operationId": "trustRulesList",
+        "summary": "List trust rules",
+        "tags": ["trust-rules"],
+        "description": "Returns trust rules, filtered to user-relevant rules by default. Pass include_all=true for the full set or origin/tool to filter.",
+        "parameters": [
+          {
+            "name": "origin",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Filter by origin (default | user_defined)"
+          },
+          {
+            "name": "tool",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Filter by tool name"
+          },
+          {
+            "name": "include_deleted",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "\"true\" to include soft-deleted rules"
+          },
+          {
+            "name": "include_all",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "\"true\" to disable the user-relevant filter"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rules": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "id": { "type": "string" },
+                          "tool": { "type": "string" },
+                          "pattern": { "type": "string" },
+                          "risk": {
+                            "type": "string",
+                            "enum": ["low", "medium", "high"]
+                          },
+                          "description": { "type": "string" },
+                          "origin": {
+                            "type": "string",
+                            "enum": ["default", "user_defined"]
+                          },
+                          "userModified": { "type": "boolean" },
+                          "deleted": { "type": "boolean" },
+                          "createdAt": { "type": "string" },
+                          "updatedAt": { "type": "string" }
+                        },
+                        "required": [
+                          "id",
+                          "tool",
+                          "pattern",
+                          "risk",
+                          "description",
+                          "origin",
+                          "userModified",
+                          "deleted",
+                          "createdAt",
+                          "updatedAt"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["rules"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "operationId": "trustRuleCreate",
+        "summary": "Create a trust rule",
+        "tags": ["trust-rules"],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tool": { "type": "string", "minLength": 1 },
+                  "pattern": { "type": "string", "minLength": 1 },
+                  "risk": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"]
+                  },
+                  "description": { "type": "string", "minLength": 1 },
+                  "scope": {
+                    "description": "Directory scope selected in the rule editor. Accepted on the wire but not yet persisted by the gateway.",
+                    "type": "string"
+                  }
+                },
+                "required": ["tool", "pattern", "risk", "description"]
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "string" },
+                        "tool": { "type": "string" },
+                        "pattern": { "type": "string" },
+                        "risk": {
+                          "type": "string",
+                          "enum": ["low", "medium", "high"]
+                        },
+                        "description": { "type": "string" },
+                        "origin": {
+                          "type": "string",
+                          "enum": ["default", "user_defined"]
+                        },
+                        "userModified": { "type": "boolean" },
+                        "deleted": { "type": "boolean" },
+                        "createdAt": { "type": "string" },
+                        "updatedAt": { "type": "string" }
+                      },
+                      "required": [
+                        "id",
+                        "tool",
+                        "pattern",
+                        "risk",
+                        "description",
+                        "origin",
+                        "userModified",
+                        "deleted",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["rule"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trust-rules/suggest": {
+      "post": {
+        "operationId": "trustRuleSuggest",
+        "summary": "Generate a trust-rule suggestion",
+        "tags": ["trust-rules"],
+        "description": "LLM-backed suggestion for a rule matching the given tool invocation. Returns 503 when the daemon suggestion relay is unavailable.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "tool": { "type": "string", "minLength": 1 },
+                  "command": { "type": "string", "minLength": 1 },
+                  "riskAssessment": {
+                    "type": "object",
+                    "properties": {
+                      "risk": { "type": "string" },
+                      "reasoning": { "type": "string" },
+                      "reasonDescription": { "type": "string" }
+                    },
+                    "required": ["risk", "reasoning", "reasonDescription"]
+                  },
+                  "scopeOptions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "pattern": { "type": "string" },
+                        "label": { "type": "string" }
+                      },
+                      "required": ["pattern", "label"]
+                    }
+                  },
+                  "directoryScopeOptions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "scope": { "type": "string" },
+                        "label": { "type": "string" }
+                      },
+                      "required": ["scope", "label"]
+                    }
+                  },
+                  "intent": {
+                    "type": "string",
+                    "enum": ["auto_approve", "escalate"]
+                  },
+                  "existingRule": {
+                    "type": "object",
+                    "properties": {
+                      "id": { "type": "string" },
+                      "pattern": { "type": "string" },
+                      "risk": { "type": "string" }
+                    },
+                    "required": ["id", "pattern", "risk"]
+                  }
+                },
+                "required": [
+                  "tool",
+                  "command",
+                  "riskAssessment",
+                  "scopeOptions",
+                  "intent"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "suggestion": {
+                      "type": "object",
+                      "properties": {
+                        "pattern": { "type": "string" },
+                        "risk": { "type": "string" },
+                        "scope": {
+                          "anyOf": [{ "type": "string" }, { "type": "null" }]
+                        },
+                        "description": { "type": "string" },
+                        "scopeOptions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "pattern": { "type": "string" },
+                              "label": { "type": "string" }
+                            },
+                            "required": ["pattern", "label"],
+                            "additionalProperties": false
+                          }
+                        },
+                        "directoryScopeOptions": {
+                          "anyOf": [
+                            {
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "scope": { "type": "string" },
+                                  "label": { "type": "string" }
+                                },
+                                "required": ["scope", "label"],
+                                "additionalProperties": false
+                              }
+                            },
+                            { "type": "null" }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "pattern",
+                        "risk",
+                        "scope",
+                        "description",
+                        "scopeOptions"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["suggestion"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trust-rules/{rule_id}": {
+      "patch": {
+        "operationId": "trustRuleUpdate",
+        "summary": "Update a trust rule",
+        "tags": ["trust-rules"],
+        "description": "Updates risk and/or description. Updating a default-origin rule marks it userModified.",
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The trust rule id"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "risk": {
+                    "type": "string",
+                    "enum": ["low", "medium", "high"]
+                  },
+                  "description": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "string" },
+                        "tool": { "type": "string" },
+                        "pattern": { "type": "string" },
+                        "risk": {
+                          "type": "string",
+                          "enum": ["low", "medium", "high"]
+                        },
+                        "description": { "type": "string" },
+                        "origin": {
+                          "type": "string",
+                          "enum": ["default", "user_defined"]
+                        },
+                        "userModified": { "type": "boolean" },
+                        "deleted": { "type": "boolean" },
+                        "createdAt": { "type": "string" },
+                        "updatedAt": { "type": "string" }
+                      },
+                      "required": [
+                        "id",
+                        "tool",
+                        "pattern",
+                        "risk",
+                        "description",
+                        "origin",
+                        "userModified",
+                        "deleted",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["rule"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "trustRuleDelete",
+        "summary": "Delete a trust rule",
+        "tags": ["trust-rules"],
+        "description": "Soft-deletes the rule. Default-origin rules can be reset later.",
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The trust rule id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": { "success": { "type": "boolean" } },
+                  "required": ["success"],
+                  "additionalProperties": false
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/trust-rules/{rule_id}/reset": {
+      "post": {
+        "operationId": "trustRuleReset",
+        "summary": "Reset a default trust rule",
+        "tags": ["trust-rules"],
+        "description": "Restores a default-origin rule to its registry risk and description, clearing userModified and deleted.",
+        "parameters": [
+          {
+            "name": "rule_id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string" },
+            "description": "The trust rule id"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "rule": {
+                      "type": "object",
+                      "properties": {
+                        "id": { "type": "string" },
+                        "tool": { "type": "string" },
+                        "pattern": { "type": "string" },
+                        "risk": {
+                          "type": "string",
+                          "enum": ["low", "medium", "high"]
+                        },
+                        "description": { "type": "string" },
+                        "origin": {
+                          "type": "string",
+                          "enum": ["default", "user_defined"]
+                        },
+                        "userModified": { "type": "boolean" },
+                        "deleted": { "type": "boolean" },
+                        "createdAt": { "type": "string" },
+                        "updatedAt": { "type": "string" }
+                      },
+                      "required": [
+                        "id",
+                        "tool",
+                        "pattern",
+                        "risk",
+                        "description",
+                        "origin",
+                        "userModified",
+                        "deleted",
+                        "createdAt",
+                        "updatedAt"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "required": ["rule"],
                   "additionalProperties": false
                 }
               }
