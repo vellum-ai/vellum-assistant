@@ -37,6 +37,82 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
   });
 
+  test("parses start frames with an explicit session mode", () => {
+    for (const mode of ["ptt", "open-mic"] as const) {
+      const result = parseLiveVoiceClientTextFrame(
+        JSON.stringify({
+          type: "start",
+          audio: {
+            mimeType: "audio/pcm",
+            sampleRate: 24000,
+            channels: 1,
+          },
+          mode,
+        }),
+      );
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) continue;
+
+      expect(result.frame).toEqual({
+        type: "start",
+        audio: {
+          mimeType: "audio/pcm",
+          sampleRate: 24000,
+          channels: 1,
+        },
+        mode,
+      });
+    }
+  });
+
+  test("omits mode from start frames when the client does not send one", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        channels: 1,
+      },
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    expect(result.frame).toEqual({
+      type: "start",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        channels: 1,
+      },
+    });
+    expect("mode" in result.frame).toBe(false);
+  });
+
+  test("rejects start frames with an unknown session mode", () => {
+    for (const mode of ["banana", 42, null, ""]) {
+      const result = validateLiveVoiceClientFrame({
+        type: "start",
+        audio: {
+          mimeType: "audio/pcm",
+          sampleRate: 24000,
+          channels: 1,
+        },
+        mode,
+      });
+
+      expect(result.ok).toBe(false);
+      if (result.ok) continue;
+
+      expect(result.error).toMatchObject({
+        code: "invalid_field",
+        field: "mode",
+        frameType: "start",
+      });
+    }
+  });
+
   test("parses base64 JSON audio frames", () => {
     const result = parseLiveVoiceClientTextFrame(
       JSON.stringify({ type: "audio", dataBase64: "AQIDBA==" }),
@@ -269,6 +345,38 @@ describe("LiveVoiceServerFrameSequencer", () => {
         turnId: "turn-2",
       }).seq,
     ).toBe(1);
+  });
+
+  test("sequences turn_boundary and interrupted frames", () => {
+    const sequencer = createLiveVoiceServerFrameSequencer();
+
+    const boundary = sequencer.next({ type: "turn_boundary" });
+    const interrupted = sequencer.next({
+      type: "interrupted",
+      turnId: "turn-1",
+    });
+
+    expect(boundary).toEqual({ type: "turn_boundary", seq: 1 });
+    expect(interrupted).toEqual({
+      type: "interrupted",
+      turnId: "turn-1",
+      seq: 2,
+    });
+    expect(sequencer.lastSeq).toBe(2);
+  });
+
+  test("turn_boundary and interrupted frames survive a JSON round-trip", () => {
+    const sequencer = createLiveVoiceServerFrameSequencer();
+
+    for (const frame of [
+      sequencer.next({ type: "turn_boundary" }),
+      sequencer.next({ type: "interrupted", turnId: "turn-42" }),
+    ]) {
+      const roundTripped = JSON.parse(
+        JSON.stringify(frame),
+      ) as LiveVoiceServerFrame;
+      expect(roundTripped).toEqual(frame);
+    }
   });
 
   test("preserves the server frame discriminated union after sequencing", () => {
