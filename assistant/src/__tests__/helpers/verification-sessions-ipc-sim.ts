@@ -324,33 +324,6 @@ export function findActiveSession(
   );
 }
 
-export function findSessionByIdentity(
-  channel: string,
-  externalUserId?: string,
-  chatId?: string,
-  phoneE164?: string,
-): VerificationSessionWire | null {
-  if (!externalUserId && !chatId && !phoneE164) {
-    return null;
-  }
-  const now = Date.now();
-  return (
-    [...sessions.values()]
-      .filter(
-        (s) =>
-          s.channel === channel &&
-          (s.status === "pending_bootstrap" ||
-            s.status === "awaiting_response") &&
-          s.expiresAt > now &&
-          ((externalUserId != null &&
-            s.expectedExternalUserId === externalUserId) ||
-            (chatId != null && s.expectedChatId === chatId) ||
-            (phoneE164 != null && s.expectedPhoneE164 === phoneE164)),
-      )
-      .sort(newestFirst)[0] ?? null
-  );
-}
-
 /** Takes the RAW token — hashing happens engine-side, as at the gateway. */
 export function resolveBootstrapToken(
   channel: string,

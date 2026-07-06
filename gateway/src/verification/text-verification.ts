@@ -18,6 +18,11 @@
  */
 
 import { createGuardianBinding } from "../auth/guardian-bootstrap.js";
+import {
+  consumeSession,
+  findPendingSessionByHash,
+  hasInterceptableSession,
+} from "../db/session-store.js";
 import { getLogger } from "../logger.js";
 
 import {
@@ -47,11 +52,6 @@ import {
   composeVerificationSuccessReply,
   deliverVerificationReply,
 } from "./reply-delivery.js";
-import {
-  consumeSession,
-  findSessionByHash,
-  hasPendingOrActiveSession,
-} from "./session-helpers.js";
 
 const log = getLogger("text-verification");
 
@@ -111,8 +111,7 @@ export async function tryTextVerificationIntercept(
   }
 
   // 2. Fast guard — is there any pending session for this channel?
-  const hasSessions = await hasPendingOrActiveSession(sourceChannel);
-  if (!hasSessions) {
+  if (!hasInterceptableSession(sourceChannel)) {
     return { intercepted: false };
   }
 
@@ -142,7 +141,7 @@ export async function tryTextVerificationIntercept(
 
   // 4. Hash + find session
   const challengeHash = hashVerificationSecret(code);
-  const session = await findSessionByHash(sourceChannel, challengeHash);
+  const session = findPendingSessionByHash(sourceChannel, challengeHash);
 
   if (!session) {
     await recordInvalidAttempt(sourceChannel, canonicalUserId, actorChatId);
@@ -189,11 +188,7 @@ export async function tryTextVerificationIntercept(
   }
 
   // 6. Consume session (atomic — only the first consumer wins)
-  const consumed = await consumeSession(
-    session.id,
-    canonicalUserId,
-    actorChatId,
-  );
+  const { consumed } = consumeSession(session.id, canonicalUserId, actorChatId);
   if (!consumed) {
     log.warn(
       { sessionId: session.id },

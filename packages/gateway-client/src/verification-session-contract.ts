@@ -24,19 +24,27 @@ import { z } from "zod";
 
 /**
  * SHA-256 hash a verification secret (challenge code or bootstrap token) for
- * storage comparison. Must remain stable: stored session rows hold
- * `challenge_hash` / `bootstrap_token_hash` values produced by this scheme
- * (`assistant/src/runtime/channel-verification-service.ts` hashSecret).
+ * storage comparison. Must remain stable: rows in the gateway-owned
+ * `channel_verification_sessions` table (including backfilled assistant-era
+ * rows) hold `challenge_hash` / `bootstrap_token_hash` values produced by
+ * this scheme.
  */
 export function hashVerificationSecret(secret: string): string {
   return createHash("sha256").update(secret).digest("hex");
 }
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/** Challenge TTL in milliseconds (10 minutes) — shared gateway/daemon bound. */
+export const CHALLENGE_TTL_MS = 10 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
 // Enums
 // ---------------------------------------------------------------------------
 
-export const SESSION_STATUS_VALUES = [
+const SESSION_STATUS_VALUES = [
   "pending",
   "consumed",
   "pending_bootstrap",
@@ -51,19 +59,13 @@ export const SessionStatusSchema = z.enum(SESSION_STATUS_VALUES);
 
 export type SessionStatus = z.infer<typeof SessionStatusSchema>;
 
-export const VERIFICATION_PURPOSE_VALUES = [
-  "guardian",
-  "trusted_contact",
-] as const;
+const VERIFICATION_PURPOSE_VALUES = ["guardian", "trusted_contact"] as const;
 
 export const VerificationPurposeSchema = z.enum(VERIFICATION_PURPOSE_VALUES);
 
 export type VerificationPurpose = z.infer<typeof VerificationPurposeSchema>;
 
-export const IDENTITY_BINDING_STATUS_VALUES = [
-  "pending_bootstrap",
-  "bound",
-] as const;
+const IDENTITY_BINDING_STATUS_VALUES = ["pending_bootstrap", "bound"] as const;
 
 export const IdentityBindingStatusSchema = z.enum(
   IDENTITY_BINDING_STATUS_VALUES,
@@ -76,10 +78,9 @@ export type IdentityBindingStatus = z.infer<typeof IdentityBindingStatusSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * Verification session as carried on the daemon ↔ gateway wire. Mirrors the
- * daemon's `VerificationSession` interface
- * (`assistant/src/channels/channel-verification-sessions.ts`) field-for-field
- * so consumer flips are mechanical.
+ * Verification session as carried on the daemon ↔ gateway wire. The gateway
+ * session store's `VerificationSession` row type aliases this DTO, so store
+ * reads serialize onto the wire unchanged.
  */
 export const VerificationSessionSchema = z.object({
   id: z.string(),
@@ -153,9 +154,9 @@ export type SessionLookupIpcResponse = z.infer<
   typeof SessionLookupIpcResponseSchema
 >;
 
-/** Shared minimal ack for session mutations. */
+/** Shared minimal ack for session mutations (failures travel as errors). */
 export const SessionMutationIpcResponseSchema = z.object({
-  ok: z.boolean(),
+  ok: z.literal(true),
 });
 
 export type SessionMutationIpcResponse = z.infer<
@@ -221,8 +222,8 @@ export type CreateOutboundSessionIpcParams = z.infer<
 >;
 
 /**
- * Response for `verification_sessions_create_outbound`. Mirrors the daemon's
- * `CreateOutboundSessionResult` so consumer flips are mechanical; `secret`
+ * Response for `verification_sessions_create_outbound`. The gateway service's
+ * and daemon client's `CreateOutboundSessionResult` alias this type; `secret`
  * transits for daemon-owned delivery.
  */
 export const CreateOutboundSessionIpcResponseSchema = z.object({

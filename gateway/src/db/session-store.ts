@@ -8,56 +8,30 @@
  */
 
 import type { Database } from "bun:sqlite";
-import { and, count, desc, eq, gt, gte, inArray, or } from "drizzle-orm";
+import { and, count, desc, eq, gt, gte, inArray } from "drizzle-orm";
+
+import type {
+  IdentityBindingStatus,
+  SessionStatus,
+  VerificationPurpose,
+  VerificationSessionWire,
+} from "@vellumai/gateway-client";
 
 import { getGatewayDb } from "./connection.js";
 import { channelVerificationSessions } from "./schema.js";
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (single-sourced from the shared contract)
 // ---------------------------------------------------------------------------
 
-export type SessionStatus =
-  | "pending"
-  | "consumed"
-  | "pending_bootstrap"
-  | "awaiting_response"
-  | "verified"
-  | "expired"
-  | "revoked"
-  | "locked";
-export type IdentityBindingStatus = "pending_bootstrap" | "bound";
-export type VerificationPurpose = "guardian" | "trusted_contact";
+export type {
+  IdentityBindingStatus,
+  SessionStatus,
+  VerificationPurpose,
+} from "@vellumai/gateway-client";
 
-export interface VerificationSession {
-  id: string;
-  channel: string;
-  challengeHash: string;
-  expiresAt: number;
-  status: SessionStatus;
-  sourceConversationId: string | null;
-  consumedByExternalUserId: string | null;
-  consumedByChatId: string | null;
-  // Outbound session: expected-identity binding
-  expectedExternalUserId: string | null;
-  expectedChatId: string | null;
-  expectedPhoneE164: string | null;
-  identityBindingStatus: IdentityBindingStatus | null;
-  // Outbound session: delivery tracking
-  destinationAddress: string | null;
-  lastSentAt: number | null;
-  sendCount: number;
-  nextResendAt: number | null;
-  // Session configuration
-  codeDigits: number;
-  maxAttempts: number;
-  // Distinguishes guardian verification from trusted contact verification
-  verificationPurpose: VerificationPurpose;
-  // Telegram bootstrap deep-link token hash
-  bootstrapTokenHash: string | null;
-  createdAt: number;
-  updatedAt: number;
-}
+/** Session row as the store returns it — identical to the wire DTO. */
+export type VerificationSession = VerificationSessionWire;
 
 /**
  * Statuses that represent an interceptable (consumable) session:
@@ -425,62 +399,6 @@ export function findSessionByBootstrapTokenHash(
         gt(channelVerificationSessions.expiresAt, now),
       ),
     )
-    .get();
-
-  return row ? rowToSession(row) : null;
-}
-
-/**
- * Identity-bound lookup for the consume path. Finds a session matching the
- * given identity fields with an active status.
- */
-export function findSessionByIdentity(
-  channel: string,
-  externalUserId?: string,
-  chatId?: string,
-  phoneE164?: string,
-): VerificationSession | null {
-  // Require at least one identity parameter to avoid accidentally matching
-  // an unrelated session when the caller has no parsed identity fields.
-  if (!externalUserId && !chatId && !phoneE164) {
-    return null;
-  }
-
-  const db = getGatewayDb();
-  const now = Date.now();
-
-  const identityConditions = [];
-  if (externalUserId) {
-    identityConditions.push(
-      eq(channelVerificationSessions.expectedExternalUserId, externalUserId),
-    );
-  }
-  if (chatId) {
-    identityConditions.push(
-      eq(channelVerificationSessions.expectedChatId, chatId),
-    );
-  }
-  if (phoneE164) {
-    identityConditions.push(
-      eq(channelVerificationSessions.expectedPhoneE164, phoneE164),
-    );
-  }
-
-  const row = db
-    .select()
-    .from(channelVerificationSessions)
-    .where(
-      and(
-        eq(channelVerificationSessions.channel, channel),
-        inArray(channelVerificationSessions.status, [
-          "pending_bootstrap",
-          "awaiting_response",
-        ]),
-        gt(channelVerificationSessions.expiresAt, now),
-        or(...identityConditions),
-      ),
-    )
-    .orderBy(desc(channelVerificationSessions.createdAt))
     .get();
 
   return row ? rowToSession(row) : null;

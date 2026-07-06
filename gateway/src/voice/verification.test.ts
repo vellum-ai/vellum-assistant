@@ -35,26 +35,12 @@ async function setupTestDirs(): Promise<void> {
 }
 
 function seedPendingSession(id: string, code: string): PendingSession {
-  const session = createInboundSession({
+  return createInboundSession({
     id,
     channel: "phone",
     challengeHash: hashSecret(code),
     expiresAt: Date.now() + 5 * 60 * 1000,
   });
-
-  return {
-    id: session.id,
-    challengeHash: session.challengeHash,
-    expiresAt: session.expiresAt,
-    status: session.status,
-    verificationPurpose: session.verificationPurpose,
-    expectedExternalUserId: null,
-    expectedChatId: null,
-    expectedPhoneE164: null,
-    identityBindingStatus: null,
-    codeDigits: session.codeDigits,
-    maxAttempts: session.maxAttempts,
-  };
 }
 
 function sessionStatus(id: string): string | undefined {

@@ -27,10 +27,12 @@ import {
   CreateOutboundSessionConditionalIpcResponseSchema,
   type CreateOutboundSessionConflict,
   type CreateOutboundSessionIpcParams,
+  type CreateOutboundSessionIpcResponse,
   CreateOutboundSessionIpcResponseSchema,
   SessionLookupIpcResponseSchema,
   SessionMutationIpcResponseSchema,
   type SessionStatus,
+  type ValidateConsumeSessionIpcResponse,
   ValidateConsumeSessionIpcResponseSchema,
   VERIFICATION_SESSIONS_IPC_METHODS,
   type VerificationSessionsIpcMethod,
@@ -51,17 +53,11 @@ export interface CreateVerificationSessionResult {
   instruction: string;
 }
 
-export interface CreateOutboundSessionResult {
-  sessionId: string;
-  secret: string;
-  challengeHash: string;
-  expiresAt: number;
-  ttlSeconds: number;
-}
+// Result shapes are the shared contract's IPC response types; the historical
+// export names are kept for consumers.
+export type CreateOutboundSessionResult = CreateOutboundSessionIpcResponse;
 
-export type ValidateVerificationResult =
-  | { success: true; verificationType: "guardian" | "trusted_contact" }
-  | { success: false; reason: string };
+export type ValidateVerificationResult = ValidateConsumeSessionIpcResponse;
 
 /**
  * Call a gateway session route and validate the response against its
@@ -85,14 +81,7 @@ async function callMutation(
   method: VerificationSessionsIpcMethod,
   params: Record<string, unknown>,
 ): Promise<void> {
-  const ack = await callGateway(
-    method,
-    params,
-    SessionMutationIpcResponseSchema,
-  );
-  if (!ack.ok) {
-    throw new Error(`Gateway rejected ${method}`);
-  }
+  await callGateway(method, params, SessionMutationIpcResponseSchema);
 }
 
 /**

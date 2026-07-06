@@ -20,7 +20,15 @@
  *   session for retry when the side effect throws.
  */
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  setSystemTime,
+  test,
+} from "bun:test";
 import { Database } from "bun:sqlite";
 import { and, eq } from "drizzle-orm";
 
@@ -93,7 +101,6 @@ const {
 const {
   VALIDATE_CONSUME_FAILURE_REASON,
   createOutboundSession,
-  createPhoneGuardianBinding,
   validateAndConsumeSession,
 } = await import("../verification/session-service.js");
 const { consumeSession: storeConsumeSession } =
@@ -288,9 +295,17 @@ describe("guardian consume — synchronous phone binding", () => {
     );
     expect(replay).toEqual(GENERIC_FAILURE);
 
-    // Re-running the side effect directly is also idempotent (binding for
-    // the same number already exists → skip).
-    await createPhoneGuardianBinding(PHONE, PHONE, Date.now());
+    // Redeeming a fresh session for the same number is idempotent: the
+    // binding side effect skips (already bound / not newer) and never
+    // creates a second binding row.
+    const again = createPhoneGuardianSession();
+    const rerun = await validateAndConsumeSession(
+      "phone",
+      again.secret,
+      PHONE,
+      PHONE,
+    );
+    expect(rerun.success).toBe(true);
 
     expect(guardianPhoneBindings()).toEqual([
       { address: PHONE, status: "active" },
@@ -370,22 +385,39 @@ describe("guardian consume — synchronous phone binding", () => {
     const result = storeConsumeSession(sessionId, PHONE, PHONE);
     if (!result.consumed) throw new Error("expected consume to succeed");
 
-    // The returned timestamp is exactly the row's persisted updated_at.
+    // The returned timestamp is exactly the row's persisted updated_at —
+    // the anchor the binding side effect compares against.
     expect(result.consumedAt).toBe(sessionRow(sessionId)!.updatedAt);
 
-    // A guardian revoke lands after the consume was persisted but before the
-    // binding side effect runs (IPC retry / replay shape). Anchored on the
-    // persisted timestamp the stale binding is rejected; a re-sampled clock
-    // would have looked newer than the revoke and rebound.
-    seedGuardianPhoneBinding({
-      contactId: "c-newer-revoke",
-      address: PHONE,
-      status: "revoked",
-      updatedAt: result.consumedAt + 1,
-    });
-    await createPhoneGuardianBinding(PHONE, PHONE, result.consumedAt);
+    // Exact-boundary replay shape through the public path: freeze the clock
+    // so the consume timestamp is exactly t0, with a guardian revoke stamped
+    // one tick later. The consume succeeds (the code is legitimately spent)
+    // but the stale binding must be rejected at the one-tick boundary.
+    const t0 = Date.now();
+    setSystemTime(new Date(t0));
+    try {
+      seedGuardianPhoneBinding({
+        contactId: "c-newer-revoke",
+        address: PHONE,
+        status: "revoked",
+        updatedAt: t0 + 1,
+      });
+      const { secret } = createPhoneGuardianSession(PHONE);
+      const replay = await validateAndConsumeSession(
+        "phone",
+        secret,
+        PHONE,
+        PHONE,
+      );
+      expect(replay.success).toBe(true);
+    } finally {
+      setSystemTime();
+    }
 
     expect(activeGuardianPhoneBindings()).toEqual([]);
+    expect(guardianPhoneBindings()).toEqual([
+      { address: PHONE, status: "revoked" },
+    ]);
   });
 
   test("blocked actor: correct code fails closed, existing guardian is not revoked", async () => {
@@ -424,6 +456,13 @@ describe("guardian consume — synchronous phone binding", () => {
       .run();
 
     const { sessionId, secret } = createPhoneGuardianSession(PHONE);
+
+    // Seed one invalid attempt so the reset-vs-preserve behavior is
+    // observable on the blocked path.
+    expect(
+      await validateAndConsumeSession("phone", "000000", PHONE, PHONE),
+    ).toEqual(GENERIC_FAILURE);
+
     const result = await validateAndConsumeSession(
       "phone",
       secret,
@@ -446,6 +485,11 @@ describe("guardian consume — synchronous phone binding", () => {
       .get();
     expect(channel?.status).toBe("blocked");
     expect(channel?.policy).toBe("deny");
+
+    // The blocked consume must NOT reset the actor's rate-limit state —
+    // failing closed preserves any accumulated lockout progress.
+    const rl = getRateLimit("phone", PHONE, PHONE);
+    expect(JSON.parse(rl?.attemptTimestampsJson ?? "[]")).toHaveLength(1);
   });
 
   test("binding write failure rolls back the consume: the code stays redeemable", async () => {

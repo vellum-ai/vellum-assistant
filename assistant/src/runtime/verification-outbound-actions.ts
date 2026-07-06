@@ -11,7 +11,9 @@
  * fallback writes). Message composition and delivery stay daemon-side.
  */
 
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
+
+import { hashVerificationSecret } from "@vellumai/gateway-client";
 
 import { startVerificationCall } from "../calls/call-domain.js";
 import {
@@ -130,7 +132,12 @@ interface OutboundActionResult {
    *  deliverVerificationSlack() after receiving this payload. */
   _pendingSlackDm?: { userId: string; text: string; assistantId: string };
   /** Internal: email delivery payload for the caller to dispatch (same pattern as Slack). */
-  _pendingEmail?: { to: string; text: string; subject: string; assistantId: string };
+  _pendingEmail?: {
+    to: string;
+    text: string;
+    subject: string;
+    assistantId: string;
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -374,9 +381,7 @@ async function startOutboundTelegram(
   }
 
   const bootstrapToken = randomBytes(16).toString("hex");
-  const bootstrapTokenHash = createHash("sha256")
-    .update(bootstrapToken)
-    .digest("hex");
+  const bootstrapTokenHash = hashVerificationSecret(bootstrapToken);
 
   const sessionResult = await createOutboundSession({
     channel,
@@ -542,12 +547,12 @@ export function deliverVerificationEmail(
 ): void {
   (async () => {
     try {
-      const { VellumPlatformClient } = await import(
-        "../platform/client.js"
-      );
+      const { VellumPlatformClient } = await import("../platform/client.js");
       const client = await VellumPlatformClient.create();
       if (!client?.platformAssistantId) {
-        log.error("Cannot deliver verification email: platform client not configured");
+        log.error(
+          "Cannot deliver verification email: platform client not configured",
+        );
         return;
       }
 
@@ -555,7 +560,10 @@ export function deliverVerificationEmail(
         `/v1/assistants/${client.platformAssistantId}/email-addresses/`,
       );
       if (!listResponse.ok) {
-        log.error({ status: listResponse.status }, "Failed to list email addresses for verification");
+        log.error(
+          { status: listResponse.status },
+          "Failed to list email addresses for verification",
+        );
         return;
       }
       const listData = (await listResponse.json()) as {
@@ -563,14 +571,14 @@ export function deliverVerificationEmail(
       };
       const addresses = listData.results ?? [];
       if (addresses.length === 0) {
-        log.error("No email address registered — cannot deliver verification email");
+        log.error(
+          "No email address registered — cannot deliver verification email",
+        );
         return;
       }
       const fromAddress = addresses[0].address;
 
-      const { markdownToEmailHtml } = await import(
-        "../email/html-renderer.js"
-      );
+      const { markdownToEmailHtml } = await import("../email/html-renderer.js");
       const html = markdownToEmailHtml(text);
 
       const response = await client.fetch("/v1/runtime-proxy/email/send/", {
@@ -694,8 +702,7 @@ async function startOutboundEmail(
     return {
       success: false,
       error: "missing_destination",
-      message:
-        "An email address is required for outbound email verification.",
+      message: "An email address is required for outbound email verification.",
       channel,
     };
   }
