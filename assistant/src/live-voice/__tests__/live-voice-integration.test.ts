@@ -44,6 +44,8 @@ class FakeStreamingTranscriber implements StreamingTranscriber {
   stopped = false;
   private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
 
+  constructor(private readonly transcript = "hello from live voice") {}
+
   async start(onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
     this.onEvent = onEvent;
   }
@@ -55,7 +57,7 @@ class FakeStreamingTranscriber implements StreamingTranscriber {
 
   stop(): void {
     this.stopped = true;
-    this.emit({ type: "final", text: "hello from live voice" });
+    this.emit({ type: "final", text: this.transcript });
     this.emit({ type: "closed" });
   }
 
@@ -173,6 +175,42 @@ async function waitFor(
 
 function frameTypes(frames: LiveVoiceServerFrame[]): string[] {
   return frames.map((frame) => frame.type);
+}
+
+// Harness for multi-cycle tests: every resolve yields a fresh transcriber
+// whose transcript is "utterance <n>", and turn ids count up per cycle.
+function createMultiCycleHarness(startVoiceTurn: LiveVoiceTurnStarter) {
+  const transcribers: FakeStreamingTranscriber[] = [];
+  const resolveTranscriber = mock(async () => {
+    const transcriber = new FakeStreamingTranscriber(
+      `utterance ${transcribers.length + 1}`,
+    );
+    transcribers.push(transcriber);
+    return transcriber;
+  });
+  const archiveAudio = mock(
+    async (input: LiveVoiceSessionArchiveAudioInput) =>
+      makeArchiveResult(input),
+  );
+  const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+    options.onAudioChunk(makeTtsChunk(`audio:${options.text}`));
+    return makeTtsResult(options.text);
+  });
+  const { context, frames } = createContext();
+  let turnCount = 0;
+  const session = createLiveVoiceSession(context, {
+    resolveTranscriber,
+    startVoiceTurn,
+    streamTtsAudio,
+    archiveAudio,
+    metricsClock: createClock(),
+    createTurnId: () => {
+      turnCount += 1;
+      return `live-turn-${turnCount}`;
+    },
+  });
+
+  return { archiveAudio, frames, session, transcribers };
 }
 
 describe("LiveVoiceSession integration smoke harness", () => {
@@ -355,5 +393,140 @@ describe("LiveVoiceSession integration smoke harness", () => {
         },
       },
     });
+  });
+
+  test("runs two full push-to-talk cycles on one session with isolated per-turn archives", async () => {
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.persisted_user_message_id?.("user-message-123");
+      options.callbacks?.assistant_text_delta?.(
+        makeTextDelta(`Reply to ${options.content}.`),
+      );
+      options.callbacks?.message_complete?.(makeMessageComplete());
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { archiveAudio, frames, session, transcribers } =
+      createMultiCycleHarness(startVoiceTurn);
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1, 1, 1]));
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 1,
+    );
+
+    await session.handleBinaryAudio(new Uint8Array([2, 2, 2, 2]));
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "tts_done").length === 2,
+    );
+
+    expect(startVoiceTurn.mock.calls.map((call) => call[0].content)).toEqual([
+      "utterance 1",
+      "utterance 2",
+    ]);
+    expect(
+      frames.flatMap((frame) =>
+        frame.type === "stt_final" ? [frame.text] : [],
+      ),
+    ).toEqual(["utterance 1", "utterance 2"]);
+    expect(
+      frames.flatMap((frame) =>
+        frame.type === "tts_done" ? [frame.turnId] : [],
+      ),
+    ).toEqual(["live-turn-1", "live-turn-2"]);
+    expect(
+      archiveAudio.mock.calls.map((call) => [call[0].role, call[0].turnId]),
+    ).toEqual([
+      ["user", "live-turn-1"],
+      ["assistant", "live-turn-1"],
+      ["user", "live-turn-2"],
+      ["assistant", "live-turn-2"],
+    ]);
+    const archivedUserAudio = archiveAudio.mock.calls
+      .filter((call) => call[0].role === "user")
+      .map((call) => [...Buffer.from(call[0].audio.dataBase64, "base64")]);
+    expect(archivedUserAudio).toEqual([
+      [1, 1, 1],
+      [2, 2, 2, 2],
+    ]);
+    const archivedAssistantAudio = archiveAudio.mock.calls
+      .filter((call) => call[0].role === "assistant")
+      .map((call) =>
+        Buffer.from(call[0].audio.dataBase64, "base64").toString(),
+      );
+    expect(archivedAssistantAudio).toEqual([
+      "audio:Reply to utterance 1.",
+      "audio:Reply to utterance 2.",
+    ]);
+    expect(transcribers).toHaveLength(3);
+    expect(transcribers[0]?.stopped).toBe(true);
+    expect(transcribers[1]?.stopped).toBe(true);
+    expect(transcribers[2]?.stopped).toBe(false);
+  });
+
+  test("completes a full second cycle after an interrupt mid-turn", async () => {
+    const abort = mock();
+    let voiceTurnCalls = 0;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      voiceTurnCalls += 1;
+      if (voiceTurnCalls === 1) {
+        options.callbacks?.persisted_user_message_id?.("user-message-123");
+        return { turnId: "bridge-turn-1", abort };
+      }
+      options.callbacks?.assistant_text_delta?.(makeTextDelta("Second reply."));
+      options.callbacks?.message_complete?.(makeMessageComplete());
+      return { turnId: "bridge-turn-2", abort: mock() };
+    });
+    const { archiveAudio, frames, session } =
+      createMultiCycleHarness(startVoiceTurn);
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1, 2]));
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    await session.handleClientFrame({ type: "interrupt" });
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_cancelled",
+      ),
+    );
+    expect(abort).toHaveBeenCalledTimes(1);
+
+    await session.handleBinaryAudio(new Uint8Array([3, 4, 5]));
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(startVoiceTurn).toHaveBeenCalledTimes(2);
+    expect(startVoiceTurn.mock.calls[1]?.[0]).toMatchObject({
+      content: "utterance 2",
+    });
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-2",
+    });
+    expect(
+      frames.find(
+        (frame) => frame.type === "metrics" && frame.event === "turn_completed",
+      ),
+    ).toMatchObject({
+      type: "metrics",
+      event: "turn_completed",
+      turnId: "live-turn-2",
+    });
+    expect(
+      archiveAudio.mock.calls.map((call) => [call[0].role, call[0].turnId]),
+    ).toEqual([
+      ["user", "live-turn-1"],
+      ["user", "live-turn-2"],
+      ["assistant", "live-turn-2"],
+    ]);
+    const archivedUserAudio = archiveAudio.mock.calls
+      .filter((call) => call[0].role === "user")
+      .map((call) => [...Buffer.from(call[0].audio.dataBase64, "base64")]);
+    expect(archivedUserAudio).toEqual([
+      [1, 2],
+      [3, 4, 5],
+    ]);
   });
 });

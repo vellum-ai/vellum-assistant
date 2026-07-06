@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, mock, test } from "bun:test";
 
+import type { VoiceTurnOptions } from "../../calls/voice-session-bridge.js";
 import type {
   StreamingTranscriber,
   SttStreamServerEvent,
@@ -99,6 +100,17 @@ function createSessionWithTranscriber(
   return { frames, resolver, session, transcriber };
 }
 
+async function waitFor(
+  predicate: () => boolean,
+  message = "Timed out waiting for live voice STT test condition",
+): Promise<void> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  throw new Error(message);
+}
+
 describe("LiveVoiceSession STT", () => {
   test("resolves streaming STT through the injected resolver and sends ready", async () => {
     const { frames, resolver, session, transcriber } =
@@ -177,6 +189,179 @@ describe("LiveVoiceSession STT", () => {
         message: "Live voice audio received after push-to-talk release.",
       },
     ]);
+  });
+
+  test("arms a fresh streaming transcriber for the next utterance after a completed turn", async () => {
+    const transcribers: MockStreamingTranscriber[] = [];
+    const resolver = mock(async () => {
+      const transcriber = new MockStreamingTranscriber();
+      transcribers.push(transcriber);
+      return transcriber;
+    });
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.message_complete?.({
+        type: "message_complete",
+        conversationId: options.conversationId,
+        messageId: "assistant-message-123",
+      });
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { context, frames } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+      startVoiceTurn,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(startVoiceTurn).toHaveBeenCalledTimes(1);
+    expect(transcribers).toHaveLength(2);
+    expect(transcribers[1]?.started).toBe(true);
+    expect(transcribers[1]?.stopped).toBe(false);
+
+    await session.handleBinaryAudio(new Uint8Array([2]));
+
+    expect(transcribers[0]?.audioChunks.map((chunk) => [...chunk])).toEqual([
+      [1],
+    ]);
+    expect(transcribers[1]?.audioChunks.map((chunk) => [...chunk])).toEqual([
+      [2],
+    ]);
+  });
+
+  test("sends tts_done even when the next transcriber's startup never resolves", async () => {
+    const firstTranscriber = new MockStreamingTranscriber();
+    let resolverCalls = 0;
+    const resolver: LiveVoiceStreamingTranscriberResolver = mock(async () => {
+      resolverCalls += 1;
+      if (resolverCalls === 1) return firstTranscriber;
+      return new Promise<StreamingTranscriber | null>(() => {});
+    });
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.message_complete?.({
+        type: "message_complete",
+        conversationId: options.conversationId,
+        messageId: "assistant-message-123",
+      });
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { context, frames } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+      startVoiceTurn,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    await waitFor(() => resolverCalls === 2);
+
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+
+    // Audio ahead of the still-starting transcriber buffers instead of erroring.
+    await session.handleBinaryAudio(new Uint8Array([2]));
+
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+    expect(firstTranscriber.audioChunks.map((chunk) => [...chunk])).toEqual([
+      [1],
+    ]);
+  });
+
+  test("surfaces a re-arm startup failure after tts_done without failing the completed turn", async () => {
+    let resolverCalls = 0;
+    const resolver: LiveVoiceStreamingTranscriberResolver = mock(async () => {
+      resolverCalls += 1;
+      if (resolverCalls === 1) return new MockStreamingTranscriber();
+      throw new Error("next stt unavailable");
+    });
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.message_complete?.({
+        type: "message_complete",
+        conversationId: options.conversationId,
+        messageId: "assistant-message-123",
+      });
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { context, frames } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+      startVoiceTurn,
+      emitMetrics: true,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
+
+    const frameTypes = frames.map((frame) => frame.type);
+    expect(frameTypes.indexOf("tts_done")).toBeGreaterThanOrEqual(0);
+    expect(frameTypes.indexOf("tts_done")).toBeLessThan(
+      frameTypes.indexOf("error"),
+    );
+    const errorFrame = frames.find((frame) => frame.type === "error");
+    if (errorFrame?.type !== "error") {
+      throw new Error("Expected a live voice error frame");
+    }
+    expect(errorFrame.message).toContain("next stt unavailable");
+    expect(
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_completed",
+      ),
+    ).toBe(true);
+    expect(
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_cancelled",
+      ),
+    ).toBe(false);
+  });
+
+  test("stops the late transcriber when the session closes during re-arm", async () => {
+    const secondTranscriber = new MockStreamingTranscriber();
+    let resolveSecond:
+      | ((transcriber: StreamingTranscriber | null) => void)
+      | undefined;
+    let resolverCalls = 0;
+    const resolver: LiveVoiceStreamingTranscriberResolver = mock(() => {
+      resolverCalls += 1;
+      if (resolverCalls === 1) {
+        return Promise.resolve(new MockStreamingTranscriber());
+      }
+      return new Promise<StreamingTranscriber | null>((resolve) => {
+        resolveSecond = resolve;
+      });
+    });
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      options.callbacks?.message_complete?.({
+        type: "message_complete",
+        conversationId: options.conversationId,
+        messageId: "assistant-message-123",
+      });
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const { context, frames } = createContext();
+    const session = new LiveVoiceSession(context, {
+      resolveTranscriber: resolver,
+      startVoiceTurn,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(new Uint8Array([1]));
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    await waitFor(() => resolveSecond !== undefined);
+
+    await session.close("websocket_close");
+    resolveSecond?.(secondTranscriber);
+    await waitFor(() => secondTranscriber.stopped);
+
+    expect(secondTranscriber.started).toBe(false);
+    expect(secondTranscriber.stopped).toBe(true);
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
   });
 
   test("returns a readable error frame when streaming STT is unavailable", async () => {
