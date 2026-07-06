@@ -120,6 +120,8 @@ mock.module("../persistence/embeddings/embedding-backend.js", () => ({
 mock.module("../providers/inference/connections.js", () => ({
   listConnections: () => [],
   createConnection: () => ({ ok: false, error: { code: "already_exists" } }),
+  getConnection: () => null,
+  VELLUM_MANAGED_CONNECTION_NAME: "vellum",
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: new Set(["openai-compatible"]),
 }));
 

@@ -84,11 +84,15 @@ import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/v2
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
 import {
   createConnection,
+  getConnection,
+  LEGACY_MANAGED_CONNECTION_NAMES,
   listConnections,
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+  VELLUM_MANAGED_CONNECTION_NAME,
 } from "../../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
 import { initializeProviders } from "../../providers/registry.js";
+import { MANAGED_ROUTABLE_PROVIDERS } from "../../providers/vellum-model-routing.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { validateAllowlistFile } from "../../security/secret-allowlist.js";
 import {
@@ -1296,9 +1300,22 @@ async function handleReplaceInferenceProfile({
   if (!isManaged && fragment.provider && !fragment.provider_connection) {
     const provider = fragment.provider as string;
     const db = getDb();
-    const [active] = listConnections(db, { provider });
+    // Exclude the orphaned legacy `*-managed` rows: they may still linger in
+    // provider_connections on upgraded workspaces (hidden from the list route
+    // until a follow-up migration deletes them). Auto-binding to one would keep
+    // the profile stale and break it once those rows are removed.
+    const [active] = listConnections(db, { provider }).filter(
+      (c) => !LEGACY_MANAGED_CONNECTION_NAMES.has(c.name),
+    );
     if (active) {
       fragment.provider_connection = active.name;
+    } else if (
+      MANAGED_ROUTABLE_PROVIDERS.has(provider) &&
+      getConnection(db, VELLUM_MANAGED_CONNECTION_NAME)
+    ) {
+      // Managed-routable providers are served by the single Vellum-managed
+      // connection; prefer it over lazily creating a personal connection.
+      fragment.provider_connection = VELLUM_MANAGED_CONNECTION_NAME;
     } else if (!PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(provider)) {
       const connectionName = `${provider}-personal`;
       const isKeyless = provider === "ollama";
