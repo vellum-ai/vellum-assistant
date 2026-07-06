@@ -98,7 +98,7 @@
   "devDependencies": {
     "@capacitor/cli": "8.3.4",
     "@happy-dom/global-registrator": "20.10.2",
-    "@hey-api/openapi-ts": "0.97.1",
+    "@hey-api/openapi-ts": "0.97.3",
     "@sentry/vite-plugin": "5.3.0",
     "@storybook/addon-a11y": "10.4.0",
     "@storybook/addon-docs": "10.4.0",
