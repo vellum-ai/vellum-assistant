@@ -15,6 +15,7 @@ import {
     resolveOnboardingFunnelVariant,
 } from "@/domains/onboarding/funnel-events";
 import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboarding-destination";
+import { isLocalMode } from "@/lib/local-mode";
 import {
     usePrivacyConsent,
     useShareAnalytics,
@@ -81,7 +82,16 @@ export function PrivacyScreen() {
     const params = new URLSearchParams();
     if (hostingParam) params.set("hosting", hostingParam);
     const qs = params.toString();
-    const destination = onboardingDestinationAfterConsent({ isNative });
+    // A local-hosting onboarding (hosting=local/docker in a local-mode build)
+    // must run the foreground local hatch first, so it goes to `hatching`, which
+    // then redirects into the research flow. Vellum-Cloud goes straight to
+    // research (managed background hatch).
+    const isLocalHatch =
+      isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+    const destination = onboardingDestinationAfterConsent({
+      isNative,
+      isLocalHatch,
+    });
     void navigate(`${destination}${qs ? `?${qs}` : ""}`);
   }, [
     privacyConsent,

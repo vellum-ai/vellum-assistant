@@ -144,6 +144,19 @@ describe("PrivacyScreen — Start navigation", () => {
     expect(target).toContain("hosting=managed");
   });
 
+  test("local hosting routes to hatching first (foreground local hatch), preserving hosting", () => {
+    localMode = true;
+    nativePlatform = false;
+    searchParamsValue = new URLSearchParams("hosting=local");
+    render(<PrivacyScreen />);
+
+    clickStart();
+
+    const target = navigateMock.mock.calls[0]?.[0] as string;
+    expect(target.startsWith(routes.onboarding.hatching)).toBe(true);
+    expect(target).toContain("hosting=local");
+  });
+
   test("native keeps the standard hatching flow (research not wired for the native shell)", () => {
     nativePlatform = true;
     searchParamsValue = new URLSearchParams();

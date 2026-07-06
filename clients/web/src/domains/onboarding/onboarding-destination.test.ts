@@ -4,15 +4,24 @@ import { onboardingDestinationAfterConsent } from "@/domains/onboarding/onboardi
 import { routes } from "@/utils/routes";
 
 describe("onboardingDestinationAfterConsent", () => {
-  test("web routes to the research flow (now the default onboarding)", () => {
-    expect(onboardingDestinationAfterConsent({ isNative: false })).toBe(
-      routes.onboarding.research,
-    );
+  test("platform/Vellum-Cloud routes straight to the research flow", () => {
+    expect(
+      onboardingDestinationAfterConsent({
+        isNative: false,
+        isLocalHatch: false,
+      }),
+    ).toBe(routes.onboarding.research);
   });
 
-  test("native keeps the hatching path (research not wired for the native shell)", () => {
-    expect(onboardingDestinationAfterConsent({ isNative: true })).toBe(
-      routes.onboarding.hatching,
-    );
+  test("local hosting routes to hatching first (foreground local hatch → research)", () => {
+    expect(
+      onboardingDestinationAfterConsent({ isNative: false, isLocalHatch: true }),
+    ).toBe(routes.onboarding.hatching);
+  });
+
+  test("native keeps the standard hatching path", () => {
+    expect(
+      onboardingDestinationAfterConsent({ isNative: true, isLocalHatch: false }),
+    ).toBe(routes.onboarding.hatching);
   });
 });
