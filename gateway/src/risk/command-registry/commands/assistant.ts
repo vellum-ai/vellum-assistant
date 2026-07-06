@@ -203,6 +203,7 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "platform",
   "platform connect",
   "platform status",
+  "platform credits",
   "platform disconnect",
   "platform callback-routes",
   "platform callback-routes register",

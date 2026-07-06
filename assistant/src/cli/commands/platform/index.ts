@@ -25,6 +25,15 @@ interface PlatformStatusResult {
   velayTunnel: { connected: boolean; publicUrl: string | null } | null;
 }
 
+interface PlatformCreditsResult {
+  remaining: number;
+  settled: number;
+  pending: number;
+  unit: "USD";
+  stale: boolean;
+  as_of: string;
+}
+
 export function registerPlatformCommand(program: Command): void {
   registerCommand(program, {
     name: "platform",
@@ -47,6 +56,7 @@ assistants.
 
 Examples:
   $ assistant platform status --json
+  $ assistant platform credits --json
   $ assistant platform connect
   $ assistant platform disconnect
   $ assistant platform callback-routes register --path webhooks/telegram --type telegram --json`,
@@ -95,7 +105,11 @@ Examples:
             "platform_status",
             {},
           );
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
 
           const result = r.result!;
 
@@ -114,7 +128,9 @@ Examples:
             log.info(
               `Callback registration available: ${result.available ? "yes" : "no"}`,
             );
-            log.info(`Organization ID: ${result.organizationId || "(not set)"}`);
+            log.info(
+              `Organization ID: ${result.organizationId || "(not set)"}`,
+            );
             log.info(`User ID: ${result.userId || "(not set)"}`);
             if (result.velayTunnel !== null) {
               const tunnelState = result.velayTunnel.connected
@@ -124,6 +140,64 @@ Examples:
             } else {
               log.info(`Velay tunnel: (gateway not running)`);
             }
+          }
+        });
+
+      // -----------------------------------------------------------------------
+      // credits
+      // -----------------------------------------------------------------------
+
+      platform
+        .command("credits")
+        .description("Show the organization's remaining credit balance")
+        .addHelpText(
+          "after",
+          `
+Fetches the org's credit balance from the platform billing summary.
+
+Fields:
+  remaining   Effective balance (settled minus pending charges) in USD
+  settled     On-ledger balance in USD
+  pending     Estimated pending compute charges not yet settled, in USD
+  unit        Balance currency (USD)
+  stale       True when pending-charge data may be stale or unavailable
+  as_of       When this balance was read (response receipt time)
+
+Combine with 'assistant usage daily' to compute runway (remaining divided
+by rolling daily average) and warn before credits run out.
+
+Requires platform credentials (run 'assistant platform connect' first or
+ensure VELLUM_PLATFORM_URL is set and credentials are stored).
+
+Examples:
+  $ assistant platform credits
+  $ assistant platform credits --json`,
+        )
+        .action(async (_opts: Record<string, unknown>, cmd: Command) => {
+          const r = await cliIpcCall<PlatformCreditsResult>(
+            "platform_credits",
+            {},
+          );
+          if (!r.ok)
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
+
+          const result = r.result!;
+
+          if (shouldOutputJson(cmd)) {
+            writeOutput(cmd, result);
+          } else {
+            const staleNote = result.stale
+              ? " (pending data may be stale)"
+              : "";
+            log.info(
+              `Remaining: $${result.remaining.toFixed(2)} ${result.unit} (as of ${result.as_of})${staleNote}`,
+            );
+            log.info(
+              `Settled:   $${result.settled.toFixed(2)}   Pending: $${result.pending.toFixed(2)}`,
+            );
           }
         });
 
@@ -209,7 +283,11 @@ Examples:
           }>("platform_callback_routes_register", {
             body: { path: opts.path, type: opts.type },
           });
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
 
           writeOutput(cmd, { ok: true, ...r.result });
 
@@ -248,7 +326,11 @@ Examples:
               callback_url: string;
             }>;
           }>("platform_callback_routes_list", {});
-          if (!r.ok) return exitFromIpcResult({ ok: false, error: r.error, statusCode: r.statusCode }, cmd);
+          if (!r.ok)
+            return exitFromIpcResult(
+              { ok: false, error: r.error, statusCode: r.statusCode },
+              cmd,
+            );
 
           const routes = r.result!.routes;
 
