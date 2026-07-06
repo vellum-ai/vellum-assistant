@@ -63,22 +63,39 @@ type MockLiveVoiceState = "idle" | "listening" | "failed";
 
 let mockLiveVoiceState: MockLiveVoiceState = "idle";
 let mockLiveVoiceError: string | null = null;
+let mockLiveVoicePartial = "";
+let mockLiveVoiceFinal = "";
 const liveStartSpy = mock(
   async (_assistantId: string, _conversationId?: string) => {},
 );
 const liveStopSpy = mock(async () => {});
 const liveReleaseSpy = mock(() => {});
 const liveResetSpy = mock(() => {});
-// The composer only touches the store imperatively (`getState()` for the voice
-// bar's amplitude poll and for resetting a failed session from the error
-// notice); reactive session state flows through the mocked hook below.
-mock.module("@/domains/chat/voice/live-voice/live-voice-store", () => ({
-  useLiveVoiceStore: {
-    getState: () => ({
-      inputAmplitude: 0,
-      reset: liveResetSpy,
-    }),
+// The store mock mirrors the three surfaces the composer tree touches:
+// `getState()` (voice bar amplitude poll + failed-session reset), a callable
+// selector subscription (the composer's low-frequency transcript-presence
+// bit), and `.use` per-field hooks (`VoiceLiveTranscript`'s self-sourced
+// transcript). Reactive session state flows through the mocked hook below.
+const liveVoiceStoreState = () => ({
+  inputAmplitude: 0,
+  partialTranscript: mockLiveVoicePartial,
+  finalTranscript: mockLiveVoiceFinal,
+  reset: liveResetSpy,
+});
+type MockLiveVoiceStoreState = ReturnType<typeof liveVoiceStoreState>;
+const useLiveVoiceStoreMock = Object.assign(
+  <T,>(selector: (s: MockLiveVoiceStoreState) => T): T =>
+    selector(liveVoiceStoreState()),
+  {
+    getState: liveVoiceStoreState,
+    use: {
+      partialTranscript: () => mockLiveVoicePartial,
+      finalTranscript: () => mockLiveVoiceFinal,
+    },
   },
+);
+mock.module("@/domains/chat/voice/live-voice/live-voice-store", () => ({
+  useLiveVoiceStore: useLiveVoiceStoreMock,
 }));
 // Spy wrapper so tests can assert the composer opts out of the hook's
 // high-frequency audio-state subscription (`observeAudioState: false`) —
@@ -135,6 +152,8 @@ function resetLiveVoiceMocks() {
   mockVoiceMode = false;
   mockLiveVoiceState = "idle";
   mockLiveVoiceError = null;
+  mockLiveVoicePartial = "";
+  mockLiveVoiceFinal = "";
   mockVoicePhase = "idle";
   setAudioLevelSpy.mockClear();
   liveStartSpy.mockClear();
@@ -1058,5 +1077,70 @@ describe("ChatComposer — live-voice integration", () => {
     // THEN its action row is untouched — no voice bar, normal send button
     expect(html).not.toContain('aria-label="Voice session"');
     expect(html).toContain('aria-label="Send message"');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Live-voice transcript in the composer text area (Light 55)
+//
+// While speech streams, the disabled textarea is visually hidden and the
+// display-only `VoiceLiveTranscript` renders in its grid cell; with no
+// transcript yet the textarea (and its placeholder) stays visible.
+// ---------------------------------------------------------------------------
+
+describe("ChatComposer — live-voice transcript area", () => {
+  test("streaming speech hides the textarea and renders the transcript in its place", () => {
+    // GIVEN a listening session with an in-flight partial transcript
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockLiveVoiceState = "listening";
+    mockLiveVoicePartial = "this is a text that I am just speaking";
+
+    // WHEN the composer renders
+    const { container, getByLabelText } = renderVoiceComposer();
+
+    // THEN the transcript region shows the speech as composer text...
+    const region = getByLabelText("Voice transcript");
+    expect(region.textContent).toContain(
+      "this is a text that I am just speaking",
+    );
+    // ...with a caret, in place of the visually hidden (still-mounted,
+    // still-uneditable) textarea
+    expect(region.querySelector('[data-testid="voice-transcript-caret"]')).toBeTruthy();
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea.className).toContain("hidden");
+    expect(textarea.disabled).toBe(true);
+  });
+
+  test("empty transcript keeps the textarea (and its placeholder) visible", () => {
+    // GIVEN an active session with no speech yet (Light 53 baseline)
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockLiveVoiceState = "listening";
+
+    // WHEN the composer renders
+    const { container, queryByLabelText } = renderVoiceComposer();
+
+    // THEN nothing replaces the textarea — its placeholder shows through
+    expect(queryByLabelText("Voice transcript")).toBeNull();
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea.className).not.toContain("hidden");
+  });
+
+  test("textarea is restored after the session ends, even with a leftover final transcript", () => {
+    // GIVEN the session has ended (store not yet reset, final text lingering)
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockLiveVoiceState = "idle";
+    mockLiveVoiceFinal = "what I said last";
+
+    // WHEN the composer renders
+    const { container, queryByLabelText } = renderVoiceComposer();
+
+    // THEN the composer behaves normally: no transcript region, editable textarea
+    expect(queryByLabelText("Voice transcript")).toBeNull();
+    const textarea = container.querySelector("textarea") as HTMLTextAreaElement;
+    expect(textarea.className).not.toContain("hidden");
+    expect(textarea.disabled).toBe(false);
   });
 });
