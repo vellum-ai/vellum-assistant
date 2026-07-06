@@ -30,13 +30,13 @@ import { createSelectors } from "@/utils/create-selectors";
 // ---------------------------------------------------------------------------
 
 /**
- * Phase of the live-voice session. Mirrors the macOS
- * `LiveVoiceChannelManager.State` enum 1:1.
+ * Phase of the live-voice session.
  *
  * - `idle` — no session (or a finished one cleaned up).
  * - `connecting` — minting a token / opening the socket, before `ready`.
  * - `listening` — mic is capturing and streaming PCM to the server.
- * - `transcribing` — push-to-talk released; waiting on the final transcript.
+ * - `transcribing` — user turn ended (push-to-talk released or server turn
+ *   boundary); waiting on the final transcript.
  * - `thinking` — server is generating the assistant response.
  * - `speaking` — TTS audio is queued/playing.
  * - `ending` — graceful teardown in progress.
