@@ -121,19 +121,14 @@ export async function waitForAssistant(): Promise<boolean> {
  */
 let deferredTasksRan = false;
 
-/** Test-only: allow re-running the one-shot deferred tasks. */
-export function resetPostAssistantReadyForTest(): void {
-  deferredTasksRan = false;
-}
-
 /**
- * The deferred startup tasks that require a migration-ready assistant.
- * One-shot per process; repeat calls are no-ops.
+ * The deferred startup task implementations, behind an indirection so tests
+ * can substitute them: `mock.module` is unreliable here — suite runs share
+ * one bun process, and an earlier test file that materializes these modules
+ * pins the real implementations into this module's bindings (and the real
+ * data migrations must never execute against the test DB).
  */
-async function runDeferredTasks(): Promise<void> {
-  if (deferredTasksRan) return;
-  deferredTasksRan = true;
-
+async function executeDeferredTasks(): Promise<void> {
   // 1. Data migrations (some read/write the assistant DB)
   try {
     await runDataMigrations(getRawDb(getGatewayDb()));
@@ -151,6 +146,30 @@ async function runDeferredTasks(): Promise<void> {
   // 3. Outbound voice verification sync — polls the assistant DB via IPC,
   // so it must start after the assistant is confirmed ready.
   startOutboundVoiceVerificationSync();
+}
+
+let deferredTasksExecutor: () => Promise<void> = executeDeferredTasks;
+
+/**
+ * Test-only: allow re-running the one-shot deferred tasks, optionally
+ * substituting the task implementations (omit the override to restore the
+ * real ones).
+ */
+export function resetPostAssistantReadyForTest(
+  executorOverride?: () => Promise<void>,
+): void {
+  deferredTasksRan = false;
+  deferredTasksExecutor = executorOverride ?? executeDeferredTasks;
+}
+
+/**
+ * The deferred startup tasks that require a migration-ready assistant.
+ * One-shot per process; repeat calls are no-ops.
+ */
+async function runDeferredTasks(): Promise<void> {
+  if (deferredTasksRan) return;
+  deferredTasksRan = true;
+  await deferredTasksExecutor();
 }
 
 /**

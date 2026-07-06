@@ -7,6 +7,13 @@
  * voice verification syncs). `runDeferredTasksWhenAssistantReady` keeps
  * polling the assistant and runs the tasks exactly once when it finally
  * reports migrations ready.
+ *
+ * The task implementations are substituted via
+ * `resetPostAssistantReadyForTest` rather than `mock.module`: suite runs
+ * share one bun process, so module mocks here are both unreliable (an
+ * earlier file materializing the real modules pins them into
+ * post-assistant-ready's bindings) and hazardous (they leak into later
+ * files that need the real modules).
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -28,26 +35,6 @@ mock.module("../ipc/assistant-client.js", () => ({
   },
 }));
 
-let runDataMigrationsMock = mock(async () => {});
-mock.module("../db/data-migrations/index.js", () => ({
-  runDataMigrations: (...args: unknown[]) =>
-    (runDataMigrationsMock as (...a: unknown[]) => Promise<void>)(...args),
-}));
-
-mock.module("../db/connection.js", () => ({
-  getGatewayDb: () => ({ $client: {} }),
-}));
-
-let guardianBindingMock = mock(async () => {});
-mock.module("../auth/guardian-bootstrap.js", () => ({
-  ensureVellumGuardianBinding: () => guardianBindingMock(),
-}));
-
-let outboundVoiceSyncMock = mock(() => {});
-mock.module("../verification/outbound-voice-verification-sync.js", () => ({
-  startOutboundVoiceVerificationSync: () => outboundVoiceSyncMock(),
-}));
-
 const {
   resetPostAssistantReadyForTest,
   runDeferredTasksWhenAssistantReady,
@@ -60,13 +47,13 @@ const MIGRATING_HEALTH = {
 };
 const READY_HEALTH = { status: "healthy" };
 
+let deferredTasksMock = mock(async () => {});
+
 beforeEach(() => {
-  resetPostAssistantReadyForTest();
+  deferredTasksMock = mock(async () => {});
+  resetPostAssistantReadyForTest(() => deferredTasksMock());
   ipcCalls = 0;
   healthResponder = () => READY_HEALTH;
-  runDataMigrationsMock = mock(async () => {});
-  guardianBindingMock = mock(async () => {});
-  outboundVoiceSyncMock = mock(() => {});
 });
 
 describe("runDeferredTasksWhenAssistantReady", () => {
@@ -76,9 +63,7 @@ describe("runDeferredTasksWhenAssistantReady", () => {
     await runDeferredTasksWhenAssistantReady(5);
 
     expect(ipcCalls).toBeGreaterThanOrEqual(3);
-    expect(runDataMigrationsMock).toHaveBeenCalledTimes(1);
-    expect(guardianBindingMock).toHaveBeenCalledTimes(1);
-    expect(outboundVoiceSyncMock).toHaveBeenCalledTimes(1);
+    expect(deferredTasksMock).toHaveBeenCalledTimes(1);
   });
 
   test("keeps polling through transport errors while the assistant is down", async () => {
@@ -89,16 +74,14 @@ describe("runDeferredTasksWhenAssistantReady", () => {
 
     await runDeferredTasksWhenAssistantReady(5);
 
-    expect(runDataMigrationsMock).toHaveBeenCalledTimes(1);
+    expect(deferredTasksMock).toHaveBeenCalledTimes(1);
   });
 
   test("deferred tasks are one-shot per process", async () => {
     await runDeferredTasksWhenAssistantReady(5);
     await runDeferredTasksWhenAssistantReady(5);
 
-    expect(runDataMigrationsMock).toHaveBeenCalledTimes(1);
-    expect(guardianBindingMock).toHaveBeenCalledTimes(1);
-    expect(outboundVoiceSyncMock).toHaveBeenCalledTimes(1);
+    expect(deferredTasksMock).toHaveBeenCalledTimes(1);
   });
 
   test("waitForAssistant returns unready immediately on terminally failed migrations", async () => {
@@ -132,6 +115,6 @@ describe("runDeferredTasksWhenAssistantReady", () => {
     await runDeferredTasksWhenAssistantReady(5);
 
     expect(ipcCalls).toBe(callsAfterFirstRun);
-    expect(runDataMigrationsMock).toHaveBeenCalledTimes(1);
+    expect(deferredTasksMock).toHaveBeenCalledTimes(1);
   });
 });
