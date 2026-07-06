@@ -53,6 +53,27 @@ export type LiveVoiceSessionState =
   | "failed";
 
 /**
+ * User-facing activity label per session state, shared by every surface that
+ * shows session activity (the composer's voice bar and the title-bar session
+ * pill), so the two always agree.
+ *
+ * Deliberately minimal treatment (decided 2026-07-06): assistant output
+ * streams into the thread transcript like text chat, so surfaces only carry a
+ * small label. `idle`/`failed` map to an empty label — hosts unmount their
+ * voice UI in those states.
+ */
+export const LIVE_VOICE_STATE_LABELS: Record<LiveVoiceSessionState, string> = {
+  idle: "",
+  connecting: "Connecting…",
+  listening: "Listening…",
+  transcribing: "Transcribing…",
+  thinking: "Thinking…",
+  speaking: "Speaking…",
+  ending: "Ending…",
+  failed: "",
+};
+
+/**
  * Imperative controls for the active session, registered by the
  * {@link useLiveVoice} controller instance that owns it. Lets a globally
  * mounted component (e.g. the title-bar session pill) drive a session owned by
@@ -184,6 +205,27 @@ export function isLiveVoiceSessionActive(state: LiveVoiceSessionState): boolean 
 }
 
 /**
+ * Whether the mic is live in `state` — capturing audio with amplitude flowing
+ * into the store. True for the whole listening→speaking span: the capture
+ * graph runs for the entire session so amplitude keeps flowing for barge-in
+ * even while the assistant is transcribing/thinking/speaking (see
+ * `use-live-voice.ts` "Mic forwarding"). False for `connecting` (capture not
+ * started) and `ending`/terminal states (teardown).
+ *
+ * Drives the `active` flag of every session waveform (composer voice bar and
+ * title-bar pill): the bars scroll in new samples exactly while the mic is
+ * hot, and freeze otherwise.
+ */
+export function isLiveVoiceMicLive(state: LiveVoiceSessionState): boolean {
+  return (
+    state === "listening" ||
+    state === "transcribing" ||
+    state === "thinking" ||
+    state === "speaking"
+  );
+}
+
+/**
  * Whether the composer bound to `composerConversationId` owns the active
  * session — i.e. it is the surface whose action row swaps to the voice bar
  * (and whose title-bar pill therefore hides).
@@ -257,6 +299,16 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
 }));
 
 export const useLiveVoiceStore = createSelectors(useLiveVoiceStoreBase);
+
+/**
+ * Stable amplitude poll function for waveform canvases: sampled ~30 Hz inside
+ * their draw loops, so amplitude must never flow through props/re-renders.
+ * Module-level (not a per-component `useCallback`) so every surface shares the
+ * one identity.
+ */
+export function getLiveVoiceInputAmplitude(): number {
+  return useLiveVoiceStore.getState().inputAmplitude;
+}
 
 /**
  * Reactive form of {@link isLiveVoiceSessionOwnedBy} for components: whether

@@ -14,9 +14,11 @@
  * when:
  *
  * - the user is viewing a different conversation than the session's,
- * - the user is off the conversation routes entirely (Home, Library, …) —
- *   `activeConversationId` deliberately persists across route changes (see
- *   `chat-layout.tsx`), so the id comparison alone can't detect this,
+ * - the user is off the chat routes entirely (Home, Library, …) or on a
+ *   composer-less conversation subroute like the inspector
+ *   (`/assistant/conversations/:id/inspect`) — `activeConversationId`
+ *   deliberately persists across route changes (see `chat-layout.tsx`), so
+ *   the id comparison alone can't detect this,
  * - the desktop fullscreen app viewer covers the thread (`mainView === "app"`;
  *   on mobile that view keeps the composer mounted under a portal overlay
  *   that covers the header too, so the composer stays the owning surface).
@@ -39,12 +41,13 @@ import { useLocation, useNavigate } from "react-router";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { navigateToConversation } from "@/utils/conversation-navigation";
-import { isConversationPath } from "@/utils/routes";
+import { isConversationChatPath } from "@/utils/routes";
 
-import { STATE_LABELS } from "@/domains/chat/components/chat-composer/voice-composer-bar";
 import { VoiceSessionPill } from "@/domains/chat/components/voice-session-pill";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import {
+  LIVE_VOICE_STATE_LABELS,
+  getLiveVoiceInputAmplitude,
   isLiveVoiceSessionActive,
   useIsLiveVoiceSessionOwnedBy,
   useLiveVoiceStore,
@@ -67,9 +70,13 @@ export function VoiceSessionPillHost() {
   const sessionActive = isLiveVoiceSessionActive(state);
   // Mirror of `chat-content-layout.tsx`: the desktop `app` view replaces
   // `ChatMainPanel` (composer included); every other view — and mobile's
-  // portal-overlay `app` view — keeps the composer mounted.
+  // portal-overlay `app` view — keeps the composer mounted. The strict chat
+  // predicate matters: conversation subroutes like the inspector
+  // (`/assistant/conversations/:id/inspect`) render no composer, so the pill
+  // must stay up there even for the owning conversation.
   const composerOnScreen =
-    isConversationPath(location.pathname) && !(mainView === "app" && !isMobile);
+    isConversationChatPath(location.pathname) &&
+    !(mainView === "app" && !isMobile);
   // Same ownership predicate the composer's voice bar uses, evaluated for the
   // composer currently on screen — keeps the two surfaces exact complements.
   const activeComposerOwnsSession =
@@ -84,14 +91,6 @@ export function VoiceSessionPillHost() {
     sessionAssistantId,
     sessionConversationId,
     visible && sessionConversationId !== null,
-  );
-
-  // Stable poll function — the waveform samples ~30 Hz via its draw loop, so
-  // amplitude must not flow through props/re-renders (same pattern as the
-  // composer's voice bar wiring).
-  const getAmplitude = useCallback(
-    () => useLiveVoiceStore.getState().inputAmplitude,
-    [],
   );
 
   const handleNavigate = useCallback(() => {
@@ -109,12 +108,12 @@ export function VoiceSessionPillHost() {
 
   return (
     <VoiceSessionPill
-      primaryLabel={STATE_LABELS[state]}
+      primaryLabel={LIVE_VOICE_STATE_LABELS[state]}
       secondaryLabel={
         owningConversation ? (owningConversation.title ?? "Untitled") : undefined
       }
       state={state}
-      getAmplitude={getAmplitude}
+      getAmplitude={getLiveVoiceInputAmplitude}
       onEnd={handleEnd}
       onSend={handleSend}
       onNavigate={sessionConversationId ? handleNavigate : undefined}

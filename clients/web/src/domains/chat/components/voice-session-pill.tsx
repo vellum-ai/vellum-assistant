@@ -22,23 +22,17 @@ import { ArrowUp, Mic, Square, X } from "lucide-react";
 
 import { Button, Typography, cn } from "@vellumai/design-library";
 
-import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
+import {
+  isLiveVoiceMicLive,
+  type LiveVoiceSessionState,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 import { VoiceTimelineWaveform } from "@/domains/chat/voice/voice-timeline-waveform";
 
-/**
- * States in which the mic is live and the waveform should keep scrolling in
- * new amplitude samples. Outside these (connecting/ending/terminal states) the
- * bars freeze in place.
- */
-const WAVEFORM_ACTIVE_STATES: ReadonlySet<LiveVoiceSessionState> = new Set([
-  "listening",
-  "transcribing",
-  "thinking",
-  "speaking",
-]);
-
 export interface VoiceSessionPillProps {
-  /** Line 1: what the assistant is doing (e.g. "Working on App…"). */
+  /**
+   * Line 1: the session's activity label (e.g. "Listening…" — see
+   * `LIVE_VOICE_STATE_LABELS`).
+   */
   primaryLabel: string;
   /** Line 2: the owning thread's name. */
   secondaryLabel?: string;
@@ -128,7 +122,7 @@ export function VoiceSessionPill({
         <Mic aria-hidden className="size-3.5 shrink-0 text-[var(--content-default)]" />
         <VoiceTimelineWaveform
           compact
-          active={WAVEFORM_ACTIVE_STATES.has(state)}
+          active={isLiveVoiceMicLive(state)}
           getAmplitude={getAmplitude}
           className="w-24"
         />

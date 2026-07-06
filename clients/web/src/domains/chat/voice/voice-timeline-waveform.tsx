@@ -9,12 +9,11 @@
  * component because the visual — dotted baseline + bounded bar segment — is
  * distinct from that component's full-width bar field.
  *
- * Amplitude is preferably supplied via `getAmplitude` so the parent can poll
- * a store/analyser without re-rendering per sample; a plain `amplitude` prop
- * is the fallback. Colors resolve from CSS var tokens at draw time so all
- * themes (including runtime `data-theme` switches) render correctly. Under
- * reduced motion the component draws a single static, amplitude-independent
- * frame and never starts the animation loop.
+ * Amplitude is supplied via `getAmplitude` so the parent can poll a
+ * store/analyser without re-rendering per sample. Colors resolve from CSS var
+ * tokens at draw time so all themes (including runtime `data-theme` switches)
+ * render correctly. Under reduced motion the component draws a single static,
+ * amplitude-independent frame and never starts the animation loop.
  */
 
 import { useReducedMotion } from "motion/react";
@@ -119,12 +118,10 @@ function drawTimeline(
 
 export interface VoiceTimelineWaveformProps {
   /**
-   * Preferred amplitude source (0–1), polled at ~30 Hz inside the draw loop
-   * so the parent never re-renders per sample.
+   * Amplitude source (0–1), polled at ~30 Hz inside the draw loop so the
+   * parent never re-renders per sample.
    */
-  getAmplitude?: () => number;
-  /** Plain amplitude fallback (0–1) when no poll function is supplied. */
-  amplitude?: number;
+  getAmplitude: () => number;
   /** While true new samples scroll in; when false the bars freeze in place. */
   active: boolean;
   /** Title-bar pill sizing: shorter canvas and a narrower bar segment. */
@@ -134,7 +131,6 @@ export interface VoiceTimelineWaveformProps {
 
 export function VoiceTimelineWaveform({
   getAmplitude,
-  amplitude = 0,
   active,
   compact = false,
   className,
@@ -143,17 +139,12 @@ export function VoiceTimelineWaveform({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // Refs let the rAF loop read the latest inputs without re-initializing.
   const getAmplitudeRef = useRef(getAmplitude);
-  const amplitudeRef = useRef(amplitude);
   const activeRef = useRef(active);
   const samplesRef = useRef<number[]>([]);
 
   useLayoutEffect(() => {
     getAmplitudeRef.current = getAmplitude;
   }, [getAmplitude]);
-
-  useLayoutEffect(() => {
-    amplitudeRef.current = amplitude;
-  }, [amplitude]);
 
   useLayoutEffect(() => {
     activeRef.current = active;
@@ -194,10 +185,7 @@ export function VoiceTimelineWaveform({
     const tick = (ts: number) => {
       if (activeRef.current && ts - lastSampleTs >= SAMPLE_MS) {
         lastSampleTs = ts;
-        const raw = getAmplitudeRef.current
-          ? getAmplitudeRef.current()
-          : amplitudeRef.current;
-        samplesRef.current.push(clamp01(raw));
+        samplesRef.current.push(clamp01(getAmplitudeRef.current()));
         const maxBars = Math.floor(segmentWidth / STEP);
         if (samplesRef.current.length > maxBars * 2) {
           samplesRef.current = samplesRef.current.slice(-maxBars);

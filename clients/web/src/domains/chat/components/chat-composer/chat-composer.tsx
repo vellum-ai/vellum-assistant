@@ -34,6 +34,7 @@ import {
 } from "@/domains/chat/components/voice-input-button";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import {
+    getLiveVoiceInputAmplitude,
     isLiveVoiceSessionActive,
     useIsLiveVoiceSessionOwnedBy,
     useLiveVoiceStore,
@@ -269,12 +270,6 @@ export function ChatComposer({
   // transcript yet, the textarea stays visible so its placeholder shows
   // through (Light 53 baseline).
   const showLiveVoiceTranscript = isLiveVoiceActive && hasLiveVoiceTranscript;
-  // Amplitude is polled by the voice bar's canvas draw loop straight from the
-  // store (~30 Hz), so per-sample updates never flow through props.
-  const getLiveVoiceAmplitude = useCallback(
-    () => useLiveVoiceStore.getState().inputAmplitude,
-    [],
-  );
   // Session verbs go through the store seams registered by the layout-owned
   // controller: `starter` (registered for the controller's whole mount) to
   // start, per-session `controls` to stop/release. Read via `getState()` in
@@ -671,7 +666,7 @@ export function ChatComposer({
               // green ↑ manually releases the current turn while listening.
               <VoiceComposerBar
                 state={liveVoiceState}
-                getAmplitude={getLiveVoiceAmplitude}
+                getAmplitude={getLiveVoiceInputAmplitude}
                 onEnd={handleLiveVoiceEnd}
                 onSend={handleLiveVoiceSend}
               />
