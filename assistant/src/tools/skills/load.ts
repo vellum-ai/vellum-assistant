@@ -267,7 +267,13 @@ export const skillLoadTool = {
     if (!cleanupMode && skill.source === "managed") {
       const outcome = await refreshCatalogSkillBounded(skill.id);
       if (outcome === "refreshed") {
-        const reloaded = loadSkillBySelector(selector);
+        // Re-resolve by the stable id, not the original selector: a
+        // display-name or id-prefix selector can fail or match a different
+        // skill if the refreshed SKILL.md changed the name. The directory id
+        // is invariant across an in-place refresh, so it always re-reads the
+        // freshly-installed copy. If the reload somehow fails, keep serving
+        // the pre-refresh object so body and marker stay mutually consistent.
+        const reloaded = loadSkillBySelector(skill.id);
         if (reloaded.skill) {
           skill = reloaded.skill;
         }
@@ -483,6 +489,11 @@ export const skillLoadTool = {
     // its activation marker stays consistent with the body injected here even
     // if a background refresh swaps the child's on-disk copy mid-load.
     const childServedVersionHashes = new Map<string, string | undefined>();
+    // Children that cleared every gate against their post-refresh metadata and
+    // were therefore listed/loaded. The marker loop below emits `<loaded_skill>`
+    // markers only for these, so a child gated out after its refresh gets
+    // neither body nor marker.
+    const activatedChildIds = new Set<string>();
     if (skill.includes && skill.includes.length > 0 && catalogIndex) {
       const childLines: string[] = [];
       for (const childId of skill.includes) {
@@ -490,6 +501,9 @@ export const skillLoadTool = {
         if (!child) continue;
         // Skip a child whose owning plugin is outside this conversation's
         // effective set — do not list it, load its body, or surface its tools.
+        // Plugin ownership is a function of where the skill lives, so it is
+        // stable across an in-place refresh; the feature-flag gate below is
+        // re-evaluated post-refresh because the flag comes from frontmatter.
         if (childOutOfPluginScope(child)) continue;
         const childFlagKey = skillFlagKey(child);
         if (
@@ -497,10 +511,6 @@ export const skillLoadTool = {
           !isAssistantFeatureFlagEnabled(childFlagKey, config)
         )
           continue;
-
-        childLines.push(
-          `  - ${child.id}: ${child.displayName} - ${child.description} (${child.skillFilePath})`,
-        );
 
         // Included children are read directly here rather than through
         // skill_load, so refresh a stale managed include before reading its
@@ -512,7 +522,28 @@ export const skillLoadTool = {
 
         // Load the included skill's body content
         const childLoaded = loadSkillBySelector(childId);
-        if (childLoaded.skill && childLoaded.skill.body.length > 0) {
+        if (!childLoaded.skill) continue;
+
+        // Re-run the feature-flag gate against the (possibly refreshed)
+        // frontmatter: a catalog update may have moved the child behind a
+        // now-disabled flag, and the pre-refresh gate above evaluated the
+        // stale summary. Gate the refreshed body + marker out if so.
+        const freshChildFlagKey = skillFlagKey(childLoaded.skill);
+        if (
+          freshChildFlagKey &&
+          !isAssistantFeatureFlagEnabled(freshChildFlagKey, config)
+        ) {
+          continue;
+        }
+
+        activatedChildIds.add(childId);
+        // List from the refreshed metadata so the summary line matches the
+        // body actually injected.
+        childLines.push(
+          `  - ${childLoaded.skill.id}: ${childLoaded.skill.displayName} - ${childLoaded.skill.description} (${childLoaded.skill.skillFilePath})`,
+        );
+
+        if (childLoaded.skill.body.length > 0) {
           // Pin the hash of the child content read here (no await between the
           // refresh above and this read), so its marker below matches the
           // injected body rather than a later background-refreshed copy.
@@ -633,25 +664,22 @@ export const skillLoadTool = {
       ? ` version="${servedVersionHash}"`
       : "";
 
-    // Emit markers for included skills so their tools get projected
+    // Emit markers for included skills so their tools get projected. Gate on
+    // the body loop's post-refresh activation decision (which already applied
+    // plugin scope + the refreshed feature flag), so a child's marker is
+    // emitted iff its body was, keeping activation consistent with what was
+    // injected.
     const includeMarkers: string[] = [];
     if (skill.includes && skill.includes.length > 0 && catalogIndex) {
       for (const childId of skill.includes) {
+        if (!activatedChildIds.has(childId)) continue;
         const child = catalogIndex.get(childId);
         if (!child) continue;
-        // Same per-chat plugin scope gate as the body loop: never emit a
-        // loaded-skill marker (which projects the child's tools) for a child
-        // whose owning plugin is outside the effective set.
-        if (childOutOfPluginScope(child)) continue;
-        const childFlagKey2 = skillFlagKey(child);
-        if (
-          childFlagKey2 &&
-          !isAssistantFeatureFlagEnabled(childFlagKey2, config)
-        )
-          continue;
         // Prefer the hash pinned when the child body was read (kept
         // consistent with the injected body); fall back to a fresh read for a
-        // child that was listed but whose body was empty/unread above.
+        // child that was activated but whose body was empty/unread above. The
+        // directory id is stable across refresh, so this reads the same
+        // (refreshed) copy.
         const childHash = childServedVersionHashes.has(childId)
           ? childServedVersionHashes.get(childId)
           : safeComputeVersionHash(child.directoryPath, { skillId: childId });
