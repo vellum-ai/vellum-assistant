@@ -14,10 +14,17 @@
  *   utterance final at each local turn boundary by stopping the provider
  *   session and starting a fresh one for the next turn). Partials are
  *   forwarded via `onPartial` (the in-app UI displays live transcripts);
- *   non-empty finals fire `onTranscriptFinal`. Chunks arriving while the
- *   provider session is starting (or restarting between plain-tier turns)
- *   are held in a bounded buffer and flushed on start (overflow drops the
- *   oldest chunks and is counted + logged at teardown).
+ *   finals fire `onTranscriptFinal`. Every locally-detected turn boundary
+ *   produces exactly one final: when a turn transcribes to nothing (noise
+ *   in open-mic, a speechless PTT press) an empty final is emitted — in
+ *   the plain tier when the cycled provider session closes without
+ *   flushing a final, in the boundary tier after a short fallback window
+ *   with no provider final. Chunks arriving while the provider session is
+ *   starting (or restarting between plain-tier turns) are held in a
+ *   bounded buffer and flushed on start (overflow drops the oldest chunks
+ *   and is counted + logged at teardown); turns that complete during that
+ *   gap are batch-transcribed when the settled tier cannot deliver their
+ *   finals itself.
  * - **Batch** — segmented audio turns are wrapped in a WAV container and
  *   transcribed per turn via the batch transcriber, strictly in turn order.
  *   Used when no streaming transcriber is available for the configured
@@ -88,12 +95,33 @@ export interface LiveVoiceIngestConfig {
 
   /** Per-request batch transcription timeout in milliseconds. Default: 10_000. */
   transcriptionTimeoutMs?: number;
+
+  /**
+   * Boundary-tier streaming only: how long after a local turn boundary
+   * to wait for the provider's utterance final before emitting an empty
+   * final for the turn. Default:
+   * {@link DEFAULT_STREAMING_BOUNDARY_FINAL_TIMEOUT_MS}. Injectable for
+   * tests.
+   */
+  streamingBoundaryFinalTimeoutMs?: number;
 }
 
 const DEFAULT_TRANSCRIPTION_TIMEOUT_MS = 10_000;
 
 /** Default bound for the startup chunk buffer. */
 const DEFAULT_STREAMING_STARTUP_BUFFER_FRAMES = 500;
+
+/**
+ * How long the boundary streaming tier waits after a local turn boundary
+ * for the provider's utterance final before concluding the turn carried no
+ * transcribable speech and emitting an empty final (which the session
+ * layer surfaces as a cancelled turn). Boundary providers emit nothing at
+ * all for non-speech noise, so without this fallback a noise-triggered
+ * open-mic turn or speechless PTT press would never produce a final and
+ * the client would wait out its own backstop. 2s comfortably exceeds
+ * typical provider endpointing latency without stalling the client long.
+ */
+const DEFAULT_STREAMING_BOUNDARY_FINAL_TIMEOUT_MS = 2_000;
 
 /**
  * Silence threshold used in `ptt` mode: the maximum delay `setTimeout`
@@ -134,9 +162,10 @@ export interface LiveVoiceIngestCallbacks {
   /**
    * Called when a completed user utterance has been transcribed.
    *
-   * Batch mode: fires per detected turn; text may be empty for turns whose
-   * audio transcribed to nothing. Streaming mode: fires per
-   * utterance-boundary final from the provider; empty finals are suppressed.
+   * Fires exactly once per locally-detected turn boundary in every mode;
+   * text is empty for turns whose audio transcribed to nothing (the
+   * session layer cancels such turns). Streaming mode may additionally
+   * fire for provider utterance finals that split a local turn.
    *
    * @param text - The transcribed text (trimmed).
    * @param durationMs - Approximate duration of the audio turn, when known.
@@ -280,9 +309,12 @@ export class LiveVoiceIngest {
 
   /**
    * Turns the local VAD completed while the mode was `streaming-pending`,
-   * queued with their buffered audio. {@link enterBatchMode} transcribes
-   * them in order if streaming never materializes. Cleared when streaming
-   * settles active and on dispose.
+   * queued with their buffered audio. Resolved when the mode settles:
+   * batch-transcribed in order when streaming never materializes or the
+   * settled tier is `plain` (a plain-tier session is never cycled for an
+   * already-ended turn, so its final would merge into the next turn's or
+   * never arrive); in a boundary settle the flushed audio produces the
+   * finals and each queued turn arms the empty-final fallback.
    */
   private pendingCompletedTurns: { chunks: Buffer[]; durationMs: number }[] =
     [];
@@ -296,11 +328,83 @@ export class LiveVoiceIngest {
   /** Chunks evicted from the startup buffer on overflow. */
   private startupFramesDroppedCount = 0;
 
+  /**
+   * Total chunks pushed into {@link startupFrames} during the current
+   * pending window, including chunks since evicted. Reset when the mode
+   * settles.
+   */
+  private startupFramesPushedTotal = 0;
+
+  /**
+   * Absolute index (in {@link startupFramesPushedTotal} terms) up to which
+   * buffered startup frames belong to turns that already completed while
+   * streaming was pending. On a plain-tier settle those turns are
+   * batch-transcribed from {@link pendingCompletedTurns}, so their frames
+   * are excluded from the flush (no double transcription).
+   */
+  private startupFramesCompletedTurnsMark = 0;
+
   /** Whether the startup-drop metric has been logged at teardown. */
   private startupDropsLogged = false;
 
   /** Speech-bearing audio milliseconds since the last streaming final. */
   private utteranceAudioMs = 0;
+
+  /**
+   * Tail of {@link batchTurnQueue} that streaming-path finals must not
+   * overtake. Set when a plain-tier settle routes pending completed turns
+   * through the batch queue: their finals must reach the session before
+   * finals of later streaming turns, so streaming finals chain behind the
+   * queue until it drains. `null` when no ordering hold is active.
+   */
+  private streamingFinalsGate: Promise<void> | null = null;
+
+  /** Boundary-tier empty-final fallback window (see config). */
+  private readonly boundaryFinalTimeoutMs: number;
+
+  /**
+   * Boundary tier: local turn boundaries still awaiting a provider
+   * utterance final, oldest first. Each entry is resolved by the next
+   * non-empty provider final, or emits an empty final when
+   * {@link boundaryFinalTimer} fires.
+   */
+  private boundaryTurnsAwaitingFinal: { durationMs: number }[] = [];
+
+  /**
+   * Boundary tier: non-empty provider finals that arrived before their
+   * local turn boundary (provider endpointing typically beats the local
+   * silence threshold). Each one satisfies the next boundary so no empty
+   * final follows a turn that already has a real transcript. Reset at
+   * each turn start — a final never precedes its own turn's audio, so an
+   * unmatched early final at a new turn's onset belongs to a prior turn.
+   */
+  private earlyBoundaryFinalsCount = 0;
+
+  /** Timer backing the boundary-tier empty-final fallback. */
+  private boundaryFinalTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /**
+   * Plain tier: the per-turn stop-cycle whose forced end-of-stream final
+   * is still outstanding. If the stopped session closes without flushing
+   * a non-empty final, an empty final is emitted for the turn so every
+   * turn boundary yields exactly one final.
+   */
+  private plainForcedFinal: {
+    source: StreamingTranscriber;
+    durationMs: number;
+    /** A final (real or empty) has been emitted for this turn. */
+    settled: boolean;
+    /** The empty fallback was emitted — drop the source's late finals. */
+    emittedEmpty: boolean;
+  } | null = null;
+
+  /**
+   * Whether the live streaming session already emitted a non-empty final
+   * attributable to the current turn (plain-tier providers may commit
+   * segment finals mid-turn). Suppresses the empty fallback for that
+   * turn's stop-cycle. Reset per plain-tier cycle and on settle.
+   */
+  private liveSessionEmittedFinal = false;
 
   constructor(
     config: LiveVoiceIngestConfig,
@@ -317,6 +421,9 @@ export class LiveVoiceIngest {
     this.startupBufferFrames =
       config.streamingStartupBufferFrames ??
       DEFAULT_STREAMING_STARTUP_BUFFER_FRAMES;
+    this.boundaryFinalTimeoutMs =
+      config.streamingBoundaryFinalTimeoutMs ??
+      DEFAULT_STREAMING_BOUNDARY_FINAL_TIMEOUT_MS;
     this.streamingMimeType = `audio/pcm;rate=${config.sampleRate}`;
 
     this.turnDetector = new MediaTurnDetector(
@@ -335,6 +442,10 @@ export class LiveVoiceIngest {
           // Clear inter-turn silence that accumulated while idle so each
           // transcription request contains only speech-relevant chunks.
           this.currentTurnChunks = [];
+          // See earlyBoundaryFinalsCount: unmatched early finals at a new
+          // turn's onset belong to prior turns and must not suppress this
+          // turn's empty-final fallback.
+          this.earlyBoundaryFinalsCount = 0;
           this.callbacks.onSpeechStart?.();
         },
         onTurnEnd: (_reason, durationMs) => {
@@ -430,6 +541,9 @@ export class LiveVoiceIngest {
     // cycle — the direct stop below flushes the trailing final instead.
     this.deliberateStop = true;
     this.turnDetector.forceEnd();
+    // The session layer is tearing down: an empty fallback final after
+    // onStop would be noise, so cancel any pending boundary fallback.
+    this.clearBoundaryFinalFallback();
     stopStreamingBestEffort(this.streamingTranscriber);
     this.logStartupDrops();
     this.callbacks.onStop?.();
@@ -445,6 +559,8 @@ export class LiveVoiceIngest {
     this.activeTranscriptionAbort?.abort();
     this.activeTranscriptionAbort = null;
     this.turnDetector.dispose();
+    this.clearBoundaryFinalFallback();
+    this.plainForcedFinal = null;
     this.currentTurnChunks = [];
     this.pendingCompletedTurns = [];
     this.startupFrames = [];
@@ -527,17 +643,53 @@ export class LiveVoiceIngest {
     this.streamingTranscriber = transcriber;
     this.streamingTier = tier;
     this.mode = "streaming";
+    this.liveSessionEmittedFinal = false;
 
-    // Flush audio buffered while the provider session was starting.
-    const buffered = this.startupFrames;
+    // Flush audio buffered while the provider session was starting. Turns
+    // that already COMPLETED during the gap need per-tier handling:
+    // - boundary: flush their audio too — the provider emits their
+    //   utterance finals — but arm the empty-final fallback per turn so a
+    //   noise-only turn still resolves.
+    // - plain: the new session is never cycled for an already-ended turn
+    //   (its final would merge into the next turn's forced final, or
+    //   never arrive), so batch-transcribe the completed turns from their
+    //   captured chunks and exclude their frames from the flush. Turns
+    //   still in progress keep flowing into the new session.
+    const pending = this.pendingCompletedTurns;
+    this.pendingCompletedTurns = [];
+    let buffered = this.startupFrames;
     this.startupFrames = [];
+    if (pending.length > 0) {
+      if (tier === "plain") {
+        const evictedFrames = this.startupFramesPushedTotal - buffered.length;
+        buffered = buffered.slice(
+          Math.max(0, this.startupFramesCompletedTurnsMark - evictedFrames),
+        );
+        log.info(
+          { turnCount: pending.length },
+          "Batch-transcribing turns completed during plain-tier streaming startup",
+        );
+        for (const { chunks, durationMs } of pending) {
+          this.enqueueTurnTranscription(chunks, durationMs);
+        }
+        // Their finals are now in flight on the batch queue — hold later
+        // streaming finals behind it so turn order is preserved.
+        this.holdStreamingFinalsBehindBatchQueue();
+      } else {
+        for (const { durationMs } of pending) {
+          this.armBoundaryFinalFallback(durationMs);
+        }
+      }
+    }
+    this.startupFramesPushedTotal = 0;
+    this.startupFramesCompletedTurnsMark = 0;
+
     for (const frame of buffered) {
       transcriber.sendAudio(frame, this.streamingMimeType);
     }
 
-    // The batch fallback is settled — drop its turn buffers.
+    // The batch fallback is settled — drop its turn buffer.
     this.currentTurnChunks = [];
-    this.pendingCompletedTurns = [];
   }
 
   /**
@@ -554,6 +706,8 @@ export class LiveVoiceIngest {
   private enterBatchMode(): void {
     this.mode = "batch";
     this.startupFrames = [];
+    this.startupFramesPushedTotal = 0;
+    this.startupFramesCompletedTurnsMark = 0;
 
     const pending = this.pendingCompletedTurns;
     this.pendingCompletedTurns = [];
@@ -592,19 +746,19 @@ export class LiveVoiceIngest {
       case "partial":
         this.callbacks.onPartial?.(event.text);
         return;
-      case "final": {
-        const durationMs = Math.round(this.utteranceAudioMs);
-        this.utteranceAudioMs = 0;
-        const text = event.text.trim();
-        if (text.length > 0) {
-          this.callbacks.onTranscriptFinal?.(text, durationMs);
-        }
+      case "final":
+        this.handleStreamingFinal(event.text.trim(), source);
         return;
-      }
       case "error":
         this.callbacks.onError?.(event.category, event.message);
         return;
       case "closed":
+        // A stopped plain-tier session closing without having flushed a
+        // non-empty final: the turn transcribed to nothing — emit the
+        // empty final so the session layer can cancel the turn.
+        if (this.plainForcedFinal?.source === source) {
+          this.settlePlainForcedFinalEmpty();
+        }
         if (this.streamingTranscriber !== source) {
           // Stale close from a stopped/replaced session (e.g. the previous
           // plain-tier turn's transcriber) — the live session is unaffected.
@@ -626,18 +780,206 @@ export class LiveVoiceIngest {
   }
 
   /**
+   * Handle a `final` event from a streaming transcriber session.
+   *
+   * Finals flushed by a stopped plain-tier session belong to the turn
+   * whose boundary forced the stop ({@link plainForcedFinal}); finals from
+   * the live session belong to the current turn. Empty provider finals
+   * never emit directly — empty-turn signaling flows through the per-tier
+   * fallbacks (plain: session close; boundary: the fallback timer; batch:
+   * per-turn transcription) so each boundary yields exactly one final.
+   */
+  private handleStreamingFinal(
+    text: string,
+    source: StreamingTranscriber,
+  ): void {
+    const forced = this.plainForcedFinal;
+    if (
+      forced !== null &&
+      forced.source === source &&
+      source !== this.streamingTranscriber
+    ) {
+      if (forced.emittedEmpty) {
+        // The empty fallback already resolved this turn — a late real
+        // final would be a second final for the same boundary.
+        return;
+      }
+      if (text.length === 0) {
+        return; // the closed handler emits the empty fallback
+      }
+      forced.settled = true;
+      this.emitStreamingFinal(text, forced.durationMs);
+      return;
+    }
+
+    if (text.length === 0) {
+      return;
+    }
+
+    const durationMs = Math.round(this.utteranceAudioMs);
+    this.utteranceAudioMs = 0;
+    if (source === this.streamingTranscriber) {
+      this.liveSessionEmittedFinal = true;
+      if (this.streamingTier === "boundary") {
+        this.matchBoundaryFinal();
+      }
+    }
+    this.emitStreamingFinal(text, durationMs);
+  }
+
+  /**
+   * Emit a streaming-path final (possibly empty), deferring behind the
+   * batch queue while {@link streamingFinalsGate} holds — finals of turns
+   * completed during a plain-tier startup gap are in flight there and
+   * must reach the session first.
+   */
+  private emitStreamingFinal(text: string, durationMs: number): void {
+    if (this.streamingFinalsGate === null) {
+      this.callbacks.onTranscriptFinal?.(text, durationMs);
+      return;
+    }
+    this.batchTurnQueue = this.batchTurnQueue.then(() => {
+      if (!this.disposed) {
+        this.callbacks.onTranscriptFinal?.(text, durationMs);
+      }
+    });
+    // Extend the gate to the new tail so deferred finals stay ordered
+    // among themselves too.
+    this.holdStreamingFinalsBehindBatchQueue();
+  }
+
+  /**
+   * Hold streaming-path finals behind the current tail of the batch queue
+   * until it drains (see {@link streamingFinalsGate}).
+   */
+  private holdStreamingFinalsBehindBatchQueue(): void {
+    const gate = this.batchTurnQueue;
+    this.streamingFinalsGate = gate;
+    void gate.then(() => {
+      if (this.streamingFinalsGate === gate) {
+        this.streamingFinalsGate = null;
+      }
+    });
+  }
+
+  /**
    * Force the just-ended turn's utterance final in the plain streaming
    * tier: stop the provider session (plain-tier providers flush their
    * final at end-of-stream — V1's ptt_release did exactly this) and start
    * a fresh session for the next turn, reusing the startup-buffer
    * machinery so no audio is lost in the restart gap.
+   *
+   * The stopped session is recorded in {@link plainForcedFinal}: if it
+   * closes without flushing a non-empty final, the turn transcribed to
+   * nothing and an empty final is emitted in its place.
+   *
+   * @param durationMs - Duration of the turn that just ended, reported
+   *   with its forced (or empty) final.
    */
-  private async restartPlainStreamingForNextTurn(): Promise<void> {
+  private async restartPlainStreamingForNextTurn(
+    durationMs: number,
+  ): Promise<void> {
     const transcriber = this.streamingTranscriber;
     this.streamingTranscriber = null;
     this.mode = "streaming-pending";
+    // The previous cycle's session should have settled by now; if it
+    // never closed, resolve its turn empty before this turn's final can
+    // emit (finals stay in boundary order).
+    this.settlePlainForcedFinalEmpty();
+    if (transcriber === null) {
+      // No session to flush a final from — the turn transcribed to nothing.
+      this.plainForcedFinal = null;
+      this.emitStreamingFinal("", durationMs);
+    } else {
+      this.plainForcedFinal = {
+        source: transcriber,
+        durationMs,
+        // Mid-turn segment finals already gave this turn a transcript.
+        settled: this.liveSessionEmittedFinal,
+        emittedEmpty: false,
+      };
+    }
+    this.liveSessionEmittedFinal = false;
+    this.utteranceAudioMs = 0;
     stopStreamingBestEffort(transcriber);
     await this.startStreaming();
+  }
+
+  /**
+   * Emit the empty fallback final for an unsettled plain-tier stop-cycle
+   * (see {@link plainForcedFinal}). No-op when the turn already settled.
+   */
+  private settlePlainForcedFinalEmpty(): void {
+    const forced = this.plainForcedFinal;
+    if (forced === null || forced.settled) {
+      return;
+    }
+    forced.settled = true;
+    forced.emittedEmpty = true;
+    this.emitStreamingFinal("", forced.durationMs);
+  }
+
+  // ── Boundary-tier empty-final fallback ─────────────────────────────
+
+  /**
+   * Boundary tier: a local turn boundary fired — expect a provider
+   * utterance final for it within {@link boundaryFinalTimeoutMs}, or emit
+   * an empty final so the turn still resolves (boundary providers emit
+   * nothing at all for non-speech noise).
+   */
+  private armBoundaryFinalFallback(durationMs: number): void {
+    if (this.earlyBoundaryFinalsCount > 0) {
+      // The provider's final for this turn already arrived (its
+      // endpointing beat the local silence threshold) — never emit an
+      // empty final after a real one for the same turn.
+      this.earlyBoundaryFinalsCount -= 1;
+      return;
+    }
+    this.boundaryTurnsAwaitingFinal.push({ durationMs });
+    this.restartBoundaryFinalTimer();
+  }
+
+  /**
+   * Boundary tier: a non-empty live final arrived — it resolves the
+   * oldest boundary still awaiting one (finals for turn N may land after
+   * turn N+1 started), or counts as an early final for the current turn.
+   */
+  private matchBoundaryFinal(): void {
+    if (this.boundaryTurnsAwaitingFinal.length === 0) {
+      this.earlyBoundaryFinalsCount += 1;
+      return;
+    }
+    this.boundaryTurnsAwaitingFinal.shift();
+    if (this.boundaryTurnsAwaitingFinal.length === 0) {
+      this.clearBoundaryFinalFallback();
+    } else {
+      // Give the remaining boundaries a fresh window.
+      this.restartBoundaryFinalTimer();
+    }
+  }
+
+  /** (Re-)arm the boundary-tier fallback timer. */
+  private restartBoundaryFinalTimer(): void {
+    if (this.boundaryFinalTimer !== null) {
+      clearTimeout(this.boundaryFinalTimer);
+    }
+    this.boundaryFinalTimer = setTimeout(() => {
+      this.boundaryFinalTimer = null;
+      const awaiting = this.boundaryTurnsAwaitingFinal;
+      this.boundaryTurnsAwaitingFinal = [];
+      for (const { durationMs } of awaiting) {
+        this.emitStreamingFinal("", durationMs);
+      }
+    }, this.boundaryFinalTimeoutMs);
+  }
+
+  /** Cancel the boundary-tier fallback timer and drop awaiting boundaries. */
+  private clearBoundaryFinalFallback(): void {
+    if (this.boundaryFinalTimer !== null) {
+      clearTimeout(this.boundaryFinalTimer);
+      this.boundaryFinalTimer = null;
+    }
+    this.boundaryTurnsAwaitingFinal = [];
   }
 
   /**
@@ -646,6 +988,7 @@ export class LiveVoiceIngest {
    */
   private bufferStartupFrame(chunk: Buffer): void {
     this.startupFrames.push(chunk);
+    this.startupFramesPushedTotal += 1;
     if (this.startupFrames.length > this.startupBufferFrames) {
       this.startupFrames.shift();
       this.startupFramesDroppedCount++;
@@ -669,21 +1012,30 @@ export class LiveVoiceIngest {
   private handleTurnEnd(durationMs: number): void {
     // Streaming modes take transcripts from the provider's finals, not
     // the local VAD. Turns completed while streaming is still pending are
-    // queued so a later batch fallback can transcribe their buffered audio.
+    // queued with their captured audio so the settle path can resolve
+    // them (batch fallback, plain-tier batch routing, or the boundary
+    // tier's flushed-audio finals + empty-final fallback).
     if (this.mode !== "batch") {
       if (this.mode === "streaming-pending") {
         const chunks = this.currentTurnChunks;
         this.currentTurnChunks = [];
-        if (chunks.length > 0) {
-          this.pendingCompletedTurns.push({ chunks, durationMs });
-        }
+        this.pendingCompletedTurns.push({ chunks, durationMs });
+        this.startupFramesCompletedTurnsMark = this.startupFramesPushedTotal;
         return;
       }
-      // Plain-tier streaming never emits an utterance-boundary final on
-      // its own — force it by cycling the provider session. (During a
-      // deliberate stop the direct transcriber stop flushes it instead.)
-      if (this.streamingTier === "plain" && !this.deliberateStop) {
-        void this.restartPlainStreamingForNextTurn();
+      if (this.deliberateStop) {
+        // stop() flushes any trailing final by stopping the live session
+        // directly; the session layer is tearing down.
+        return;
+      }
+      if (this.streamingTier === "plain") {
+        // Plain-tier streaming never emits an utterance-boundary final on
+        // its own — force it by cycling the provider session.
+        void this.restartPlainStreamingForNextTurn(durationMs);
+      } else {
+        // Boundary tier: the provider emits the final itself — but not
+        // for noise-only turns, so arm the empty-final fallback.
+        this.armBoundaryFinalFallback(durationMs);
       }
       return;
     }
