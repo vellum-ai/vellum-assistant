@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook, act } from "@testing-library/react";
 
+import { useSubagentStore } from "@/domains/chat/subagent-store";
+import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { __resetForTesting, publish } from "@/lib/event-bus";
+import { useConversationStore } from "@/stores/conversation-store";
 import {
   __resetPendingDeepLinkForTesting,
   usePendingDeepLinkStore,
@@ -30,20 +33,27 @@ mock.module("@sentry/react", () => ({
 const { useGlobalDeepLinkConsumer } =
   await import("./use-global-deep-link-consumer");
 
+const resetStores = () => {
+  useViewerStore.setState({ mainView: "chat" });
+  useSubagentStore.getState().reset();
+  useWorkflowStore.getState().reset();
+  useConversationStore.getState().reset();
+};
+
 beforeEach(() => {
   __resetForTesting();
   __resetPendingDeepLinkForTesting();
   navigateMock.mockClear();
   ensureMainWindowVisibleMock.mockClear();
   sentryBreadcrumbMock.mockClear();
-  useViewerStore.setState({ mainView: "chat" });
+  resetStores();
 });
 
 afterEach(() => {
   cleanup();
   __resetForTesting();
   __resetPendingDeepLinkForTesting();
-  useViewerStore.setState({ mainView: "chat" });
+  resetStores();
 });
 
 describe("deeplink.send", () => {
@@ -87,6 +97,23 @@ describe("deeplink.openThread", () => {
     expect(useViewerStore.getState().mainView).toBe("chat");
     expect(navigateMock).toHaveBeenCalledWith(
       "/assistant/conversations/abc-123",
+    );
+  });
+
+  test("runs the full conversation-switch path — subagent/workflow resets + active id sync", () => {
+    useSubagentStore.setState({ orderedIds: ["sub-1"] });
+    useWorkflowStore.setState({ orderedIds: ["wf-1"] });
+    useConversationStore.setState({ activeConversationId: "old-conversation" });
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.openThread", { threadId: "abc-123" });
+    });
+
+    expect(useSubagentStore.getState().orderedIds).toEqual([]);
+    expect(useWorkflowStore.getState().orderedIds).toEqual([]);
+    expect(useConversationStore.getState().activeConversationId).toBe(
+      "abc-123",
     );
   });
 });
