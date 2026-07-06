@@ -155,6 +155,55 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(turn.durations.totalTurnDurationMs).toBe(350);
   });
 
+  test("startTurn seeds stashed marks and backdates the turn start", () => {
+    const clock = makeClock(1_000);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-5",
+      clock: clock.now,
+    });
+
+    clock.advance(500);
+    const turn = collector.startTurn("turn-seeded", {
+      firstAudioAtMs: 1_100,
+      speechStartAtMs: 1_150,
+      utteranceEndAtMs: 1_300,
+      finalTranscriptAtMs: 1_400,
+    });
+
+    expect(turn.timestamps.startedAtMs).toBe(1_100);
+    expect(turn.timestamps.firstAudioAtMs).toBe(1_100);
+    expect(turn.timestamps.speechStartAtMs).toBe(1_150);
+    expect(turn.timestamps.utteranceEndAtMs).toBe(1_300);
+    expect(turn.timestamps.finalTranscriptAtMs).toBe(1_400);
+    expect(turn.durations.utteranceEndToFinalTranscriptMs).toBe(100);
+
+    // A live mark never overwrites a seeded mark (first timestamp wins).
+    clock.advance(100);
+    collector.markFinalTranscript("turn-seeded");
+    expect(
+      collector.getSnapshot().activeTurn?.timestamps.finalTranscriptAtMs,
+    ).toBe(1_400);
+
+    clock.advance(100);
+    const completed = collector.completeTurn("turn-seeded");
+    expect(completed.durations.totalTurnDurationMs).toBe(600);
+  });
+
+  test("seed marks ahead of the turn start are clamped to it", () => {
+    const clock = makeClock(2_000);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-6",
+      clock: clock.now,
+    });
+
+    const turn = collector.startTurn("turn-clamped", {
+      utteranceEndAtMs: 5_000,
+    });
+
+    expect(turn.timestamps.startedAtMs).toBe(2_000);
+    expect(turn.timestamps.utteranceEndAtMs).toBe(2_000);
+  });
+
   test("records only the first timestamp for first-phase metrics", () => {
     const clock = makeClock(10_000);
     const collector = new LiveVoiceMetricsCollector({

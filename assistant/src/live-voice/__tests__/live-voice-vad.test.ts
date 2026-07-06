@@ -9,8 +9,10 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../../stt/types.js";
+import type { LiveVoiceAudioArchiveResult } from "../live-voice-archive.js";
 import {
   LiveVoiceSession,
+  type LiveVoiceSessionAudioArchiver,
   type LiveVoiceTtsStreamer,
   type LiveVoiceTurnStarter,
 } from "../live-voice-session.js";
@@ -87,6 +89,7 @@ function createHarness(options: {
   finals?: string[];
   startVoiceTurn?: LiveVoiceTurnStarter;
   streamTtsAudio?: LiveVoiceTtsStreamer | null;
+  archiveAudio?: LiveVoiceSessionAudioArchiver;
   turnDetectorConfig?: TurnDetectorConfig;
   emitMetrics?: boolean;
   metricsClock?: () => number;
@@ -123,6 +126,7 @@ function createHarness(options: {
       options.startVoiceTurn ??
       mock(async () => ({ turnId: "bridge-turn", abort: mock() })),
     streamTtsAudio: options.streamTtsAudio ?? null,
+    archiveAudio: options.archiveAudio ?? null,
     emitMetrics: options.emitMetrics ?? false,
     ...(options.metricsClock ? { metricsClock: options.metricsClock } : {}),
     createTurnId: () => {
@@ -443,6 +447,125 @@ describe("LiveVoiceSession server VAD", () => {
       turnId: "live-turn-1",
       sttMs: 10,
     });
+  });
+
+  test("idle silence is skipped and a bounded pre-roll flushes on speech onset", async () => {
+    const archivedUserAudio: Buffer[] = [];
+    const archiveAudio: LiveVoiceSessionAudioArchiver = async (input) => {
+      if (input.role === "user") {
+        archivedUserAudio.push(Buffer.from(input.audio.dataBase64, "base64"));
+      }
+      const result: LiveVoiceAudioArchiveResult = {
+        type: "warning",
+        warning: { code: "archive_failed", message: "not archived in test" },
+      };
+      return result;
+    };
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello there"],
+      startVoiceTurn: makeAutoCompletingTurnStarter(["Hi."]).startVoiceTurn,
+      archiveAudio,
+    });
+
+    await session.start();
+    const transcriber = transcribers[0];
+    for (let index = 0; index < 40; index += 1) {
+      await session.handleBinaryAudio(SILENT_CHUNK);
+    }
+
+    // An open idle mic never reaches the transcriber or the archive buffer.
+    expect(transcriber?.received).toHaveLength(0);
+    expect(frameTypes(frames)).toEqual(["ready"]);
+
+    await session.handleBinaryAudio(LOUD_CHUNK);
+
+    // Speech onset flushes the capped pre-roll ahead of the speech chunk.
+    const silent = Buffer.from(SILENT_CHUNK);
+    const loud = Buffer.from(LOUD_CHUNK);
+    expect(transcriber?.received).toHaveLength(26);
+    expect(
+      transcriber?.received.slice(0, 25).every((chunk) => chunk.equals(silent)),
+    ).toBe(true);
+    expect(transcriber?.received.at(-1)?.equals(loud)).toBe(true);
+
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    await waitFor(() => archivedUserAudio.length === 1);
+    // Archived user audio covers pre-roll + speech, not the idle stretch.
+    expect(archivedUserAudio[0]?.byteLength).toBe(
+      26 * SILENT_CHUNK.byteLength,
+    );
+  });
+
+  test("an utterance captured during an open turn seeds its metrics marks", async () => {
+    let now = 0;
+    const turnCallbacks: VoiceTurnCallbacks[] = [];
+    const startVoiceTurn: LiveVoiceTurnStarter = async (options) => {
+      turnCallbacks.push(options.callbacks ?? {});
+      return { turnId: `bridge-turn-${turnCallbacks.length}`, abort: mock() };
+    };
+    const { frames, session } = createHarness({
+      finals: ["first question", "second question"],
+      startVoiceTurn,
+      emitMetrics: true,
+      metricsClock: () => {
+        now += 10;
+        return now;
+      },
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    // The second utterance runs its full VAD cycle while turn 1 is still
+    // thinking, so its early marks land before its metrics turn can open.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => countType(frames, "utterance_end") === 2);
+    await waitFor(() => countType(frames, "stt_final") === 2);
+
+    turnCallbacks[0]?.assistant_text_delta?.(makeTextDelta("First answer."));
+    turnCallbacks[0]?.message_complete?.(makeMessageComplete());
+    await waitFor(() => turnCallbacks.length === 2);
+    turnCallbacks[1]?.assistant_text_delta?.(makeTextDelta("Second answer."));
+    turnCallbacks[1]?.message_complete?.(makeMessageComplete());
+
+    await waitFor(() =>
+      frames.some(
+        (frame) =>
+          frame.type === "metrics" &&
+          frame.event === "turn_completed" &&
+          frame.turnId === "live-turn-2",
+      ),
+    );
+    const completedMetrics = frames.find(
+      (frame) =>
+        frame.type === "metrics" &&
+        frame.event === "turn_completed" &&
+        frame.turnId === "live-turn-2",
+    );
+    if (completedMetrics?.type !== "metrics") {
+      throw new Error("Expected a turn_completed metrics frame for turn 2.");
+    }
+
+    // sttMs spans the stashed utterance_end → final_transcript marks.
+    expect(completedMetrics.sttMs).toBe(10);
+    expect(completedMetrics.llmFirstDeltaMs).not.toBeNull();
+    expect(completedMetrics.totalMs).toBeGreaterThan(0);
+
+    const snapshot = completedMetrics.metrics as {
+      recentTurns: Array<{
+        turnId: string;
+        timestamps: {
+          speechStartAtMs: number | null;
+          utteranceEndAtMs: number | null;
+        };
+      }>;
+    };
+    const turn = snapshot.recentTurns.find(
+      (recent) => recent.turnId === "live-turn-2",
+    );
+    expect(turn?.timestamps.speechStartAtMs).not.toBeNull();
+    expect(turn?.timestamps.utteranceEndAtMs).not.toBeNull();
   });
 
   test("manual mode emits none of the VAD frames", async () => {

@@ -35,6 +35,24 @@ interface LiveVoiceSessionMetrics {
   startToReadyMs: number | null;
 }
 
+// Marks captured before a turn opened in the collector (server-VAD overlap);
+// passed to startTurn to backfill the new turn's timestamps.
+export interface LiveVoiceTurnSeedMarks {
+  firstAudioAtMs?: number;
+  firstPartialAtMs?: number;
+  speechStartAtMs?: number;
+  utteranceEndAtMs?: number;
+  finalTranscriptAtMs?: number;
+}
+
+const SEEDABLE_MARK_FIELDS = [
+  "firstAudioAtMs",
+  "firstPartialAtMs",
+  "speechStartAtMs",
+  "utteranceEndAtMs",
+  "finalTranscriptAtMs",
+] as const satisfies ReadonlyArray<keyof LiveVoiceTurnSeedMarks>;
+
 interface LiveVoiceTurnTimestamps {
   startedAtMs: number;
   firstAudioAtMs: number | null;
@@ -149,7 +167,10 @@ export class LiveVoiceMetricsCollector {
     return this.emit("session_ready");
   }
 
-  startTurn(turnId = this.createTurnId()): LiveVoiceTurnMetrics {
+  startTurn(
+    turnId = this.createTurnId(),
+    seedMarks: LiveVoiceTurnSeedMarks = {},
+  ): LiveVoiceTurnMetrics {
     if (this.activeTurn !== null) {
       this.cancelTurn("superseded");
     }
@@ -172,8 +193,30 @@ export class LiveVoiceMetricsCollector {
         cancelledAtMs: null,
       },
     };
+    this.applySeedMarks(this.activeTurn, seedMarks);
     this.emit("turn_started", turnId);
     return snapshotTurn(this.activeTurn);
+  }
+
+  // Backfills marks stashed before this turn opened. Seeds never overwrite
+  // an existing mark (first timestamp wins) and are clamped to the turn's
+  // start timestamp; the earliest seed becomes the turn start so total
+  // durations cover the stashed span.
+  private applySeedMarks(
+    turn: MutableTurn,
+    seeds: LiveVoiceTurnSeedMarks,
+  ): void {
+    const startedAtMs = turn.timestamps.startedAtMs;
+    let earliestMs = startedAtMs;
+    for (const field of SEEDABLE_MARK_FIELDS) {
+      const value = seeds[field];
+      if (value === undefined || !Number.isFinite(value)) continue;
+      if (turn.timestamps[field] !== null) continue;
+      const seededMs = Math.min(value, startedAtMs);
+      turn.timestamps[field] = seededMs;
+      earliestMs = Math.min(earliestMs, seededMs);
+    }
+    turn.timestamps.startedAtMs = earliestMs;
   }
 
   markFirstAudio(turnId?: string): LiveVoiceMetricsFrame {

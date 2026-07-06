@@ -28,6 +28,7 @@ import {
   type LiveVoiceMetricsClock,
   LiveVoiceMetricsCollector,
   type LiveVoiceMetricsEvent,
+  type LiveVoiceTurnSeedMarks,
 } from "./live-voice-metrics.js";
 import {
   type LiveVoiceSession as LiveVoiceSessionContract,
@@ -60,6 +61,10 @@ const TRAILING_SENTENCE_PUNCTUATION = new Set(['"', "'", ")", "]"]);
 // Cap on audio buffered while a server-VAD utterance waits for its
 // transcriber (PCM16 mono seconds; oldest chunks are dropped past the cap).
 const SERVER_VAD_PENDING_AUDIO_MAX_SECONDS = 10;
+// Idle-mic chunks retained while the VAD detector is idle; flushed on speech
+// onset so the transcriber gets leading context without streaming an open
+// quiet mic.
+const SERVER_VAD_PRE_ROLL_MAX_CHUNKS = 25;
 
 export type LiveVoiceStreamingTranscriberResolver = (
   options: ResolveStreamingTranscriberOptions,
@@ -128,6 +133,18 @@ interface UtteranceCycle {
   userAudioChunks: Buffer[];
   metricsTurnStarted: boolean;
   metricsTurnFinished: boolean;
+  // Marks captured while the previous cycle's metrics turn was still open
+  // (server_vad overlap); seeded into the collector when this cycle's
+  // metrics turn starts.
+  stashedMetricsMarks: StashedMetricsMarks;
+}
+
+interface StashedMetricsMarks {
+  firstAudioAtMs: number | null;
+  firstPartialAtMs: number | null;
+  speechStartAtMs: number | null;
+  utteranceEndAtMs: number | null;
+  finalTranscriptAtMs: number | null;
 }
 
 type UtteranceStartResult =
@@ -177,6 +194,10 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // Set on VAD speech onset; consumed when the first speech chunk is routed
   // to an utterance so the metric lands on the right turn.
   private vadSpeechStartPending = false;
+  // Bounded ring of idle-mic chunks skipped while the VAD detector is idle;
+  // flushed ahead of the first routed chunk on speech onset.
+  private vadPreRollChunks: Buffer[] = [];
+  private readonly metricsClock: LiveVoiceMetricsClock;
 
   constructor(
     context: LiveVoiceSessionFactoryContext,
@@ -192,6 +213,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.createTurnId = options.createTurnId ?? randomUUID;
     this.conversationId =
       context.startFrame.conversationId ?? context.sessionId;
+    this.metricsClock = options.metricsClock ?? Date.now;
     this.metrics = new LiveVoiceMetricsCollector({
       sessionId: context.sessionId,
       conversationId: this.conversationId,
@@ -295,6 +317,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       userAudioChunks: [],
       metricsTurnStarted: false,
       metricsTurnFinished: false,
+      stashedMetricsMarks: {
+        firstAudioAtMs: null,
+        firstPartialAtMs: null,
+        speechStartAtMs: null,
+        utteranceEndAtMs: null,
+        finalTranscriptAtMs: null,
+      },
     };
     this.currentUtterance = utterance;
 
@@ -431,6 +460,17 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const hasSpeech = detectPcm16SpeechActivity(chunk);
     detector.onMediaChunk(hasSpeech);
 
+    // Idle mic: hold silent chunks in the bounded pre-roll instead of
+    // collecting or streaming them; flushed on speech onset so the
+    // transcriber still gets leading context ahead of the first syllable.
+    if (!hasSpeech && !detector.isActive) {
+      this.vadPreRollChunks.push(Buffer.from(chunk));
+      while (this.vadPreRollChunks.length > SERVER_VAD_PRE_ROLL_MAX_CHUNKS) {
+        this.vadPreRollChunks.shift();
+      }
+      return;
+    }
+
     let utterance = this.currentUtterance;
     if (!utterance) return;
     if (utterance.released || utterance.completed) {
@@ -442,6 +482,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       if (!utterance || utterance.released || utterance.completed) return;
     }
 
+    for (const preRollChunk of this.vadPreRollChunks.splice(0)) {
+      await this.routeVadAudio(utterance, preRollChunk);
+    }
+    await this.routeVadAudio(utterance, chunk);
+  }
+
+  private async routeVadAudio(
+    utterance: UtteranceCycle,
+    chunk: Buffer,
+  ): Promise<void> {
     this.collectUserAudio(utterance, chunk);
     if (this.vadSpeechStartPending) {
       this.vadSpeechStartPending = false;
@@ -1024,40 +1074,62 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   private collectUserAudio(utterance: UtteranceCycle, chunk: Buffer): void {
-    const turnId = this.ensureTurnId(utterance);
     utterance.userAudioChunks.push(Buffer.from(chunk));
-    if (!this.startMetricsTurnIfNeeded(utterance, turnId)) return;
-    this.metrics.markFirstAudio(turnId);
+    this.markUtteranceMetric(utterance, "firstAudioAtMs", (turnId) =>
+      this.metrics.markFirstAudio(turnId),
+    );
   }
 
   private markSpeechStart(utterance: UtteranceCycle): void {
-    const turnId = this.ensureTurnId(utterance);
-    if (!this.startMetricsTurnIfNeeded(utterance, turnId)) return;
-    this.metrics.markSpeechStart(turnId);
+    this.markUtteranceMetric(utterance, "speechStartAtMs", (turnId) =>
+      this.metrics.markSpeechStart(turnId),
+    );
   }
 
   // Manual mode stamps the PTT release; server_vad stamps the utterance-end
   // boundary instead (utteranceEndToFinalTranscript plays the sttMs role).
   private markUtteranceReleased(utterance: UtteranceCycle): void {
+    if (this.turnDetector) {
+      this.markUtteranceMetric(utterance, "utteranceEndAtMs", (turnId) =>
+        this.metrics.markUtteranceEnd(turnId),
+      );
+      return;
+    }
     const turnId = this.ensureTurnId(utterance);
     if (!this.startMetricsTurnIfNeeded(utterance, turnId)) return;
-    if (this.turnDetector) {
-      this.metrics.markUtteranceEnd(turnId);
-    } else {
-      this.metrics.markPushToTalkRelease(turnId);
-    }
+    this.metrics.markPushToTalkRelease(turnId);
   }
 
   private markFirstPartial(utterance: UtteranceCycle): void {
-    const turnId = this.ensureTurnId(utterance);
-    if (!this.startMetricsTurnIfNeeded(utterance, turnId)) return;
-    this.metrics.markFirstPartial(turnId);
+    this.markUtteranceMetric(utterance, "firstPartialAtMs", (turnId) =>
+      this.metrics.markFirstPartial(turnId),
+    );
   }
 
   private markFinalTranscript(utterance: UtteranceCycle): void {
+    this.markUtteranceMetric(utterance, "finalTranscriptAtMs", (turnId) =>
+      this.metrics.markFinalTranscript(turnId),
+    );
+  }
+
+  // Records the mark on the utterance's metrics turn, or — while a previous
+  // cycle's still-open turn blocks the collector — stashes the timestamp on
+  // the utterance (first timestamp wins) so startMetricsTurnIfNeeded can
+  // seed it when this cycle's turn starts.
+  private markUtteranceMetric(
+    utterance: UtteranceCycle,
+    field: keyof StashedMetricsMarks,
+    mark: (turnId: string) => void,
+  ): void {
     const turnId = this.ensureTurnId(utterance);
-    if (!this.startMetricsTurnIfNeeded(utterance, turnId)) return;
-    this.metrics.markFinalTranscript(turnId);
+    if (this.startMetricsTurnIfNeeded(utterance, turnId)) {
+      mark(turnId);
+      return;
+    }
+    if (utterance.metricsTurnFinished) return;
+    if (utterance.stashedMetricsMarks[field] === null) {
+      utterance.stashedMetricsMarks[field] = this.metricsClock();
+    }
   }
 
   private markFirstAssistantDelta(
@@ -1083,7 +1155,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (utterance.metricsTurnFinished) return false;
     if (utterance.metricsTurnStarted) return true;
     if (this.hasBlockingMetricsTurn(utterance)) return false;
-    this.metrics.startTurn(turnId);
+    this.metrics.startTurn(turnId, toSeedMarks(utterance.stashedMetricsMarks));
     utterance.metricsTurnStarted = true;
     return true;
   }
@@ -1480,6 +1552,26 @@ function findLastWhitespaceBoundary(
 
 function isWhitespace(value: string): boolean {
   return /\s/.test(value);
+}
+
+function toSeedMarks(stashed: StashedMetricsMarks): LiveVoiceTurnSeedMarks {
+  return {
+    ...(stashed.firstAudioAtMs !== null
+      ? { firstAudioAtMs: stashed.firstAudioAtMs }
+      : {}),
+    ...(stashed.firstPartialAtMs !== null
+      ? { firstPartialAtMs: stashed.firstPartialAtMs }
+      : {}),
+    ...(stashed.speechStartAtMs !== null
+      ? { speechStartAtMs: stashed.speechStartAtMs }
+      : {}),
+    ...(stashed.utteranceEndAtMs !== null
+      ? { utteranceEndAtMs: stashed.utteranceEndAtMs }
+      : {}),
+    ...(stashed.finalTranscriptAtMs !== null
+      ? { finalTranscriptAtMs: stashed.finalTranscriptAtMs }
+      : {}),
+  };
 }
 
 function takeBufferedAudio(chunks: Buffer[]): Buffer | null {
