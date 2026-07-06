@@ -39,7 +39,6 @@ import { useVoiceRecordingStore } from "@/domains/chat/voice/voice-recording-sto
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { isPointerCoarse } from "@/utils/pointer";
 import { Button, Notice, Popover } from "@vellumai/design-library";
 
@@ -212,33 +211,48 @@ export function ChatComposer({
     voiceInputRef !== undefined && onVoiceTranscript !== undefined;
 
   // ---- Live voice (full-duplex conversation) ----------------------------
-  // Coexists with dictation: `LiveVoiceButton` self-gates on the `voice-mode`
-  // flag, but the row swap and the mutual-exclusion wiring below must also
-  // no-op when the flag is off so the composer is byte-identical for users
-  // without the flag. The live-voice button only appears alongside the
-  // dictation button (same `showVoiceInput` precondition + a non-null id).
-  const voiceMode = useAssistantFeatureFlagStore.use.voiceMode();
-  const liveVoiceEligible = voiceMode && showVoiceInput && !!assistantId;
+  // Coexists with dictation: entry is gated on eligibility — `LiveVoiceButton`
+  // self-gates on the `voice-mode` flag and only renders alongside the
+  // dictation button (`showVoiceInput` + a non-null assistant id) — so with
+  // the flag off no session can ever start and the session state below stays
+  // `idle`, keeping the composer byte-identical for users without the flag.
   // The composer owns the single `useLiveVoice()` controller instance. It has
   // to live here (not in `LiveVoiceButton`): while a session is active the
   // action row that hosts the button is swapped out for `VoiceComposerBar`,
   // and the hook tears the session down when its owner unmounts — a
   // button-owned controller would kill the session the moment it started.
   // The button is purely the presentational entry point (see its docs).
+  //
+  // `observeAudioState: false` — the composer only needs the low-frequency
+  // session phase + error + actions. Without it the hook would subscribe this
+  // whole component to `inputAmplitude` (updated per mic sample) and the
+  // transcript fields, re-rendering the entire composer on every mic-level
+  // tick; the voice bar's waveform instead polls amplitude via `getState()`
+  // in its canvas draw loop (see `getLiveVoiceAmplitude` below).
   const {
     state: liveVoiceState,
     error: liveVoiceError,
     start: liveVoiceStart,
     stop: liveVoiceStop,
     release: liveVoiceRelease,
-  } = useLiveVoice();
+  } = useLiveVoice({ observeAudioState: false });
   // Anything but idle/failed counts as an active session; while active the
   // whole action row (including both mic buttons) is replaced by the voice
   // bar, so the two capture flows can never run at once. `failed` is a
   // retryable/inactive state, so it must fall back to the normal row —
   // otherwise dictation would stay unavailable after a failed start.
+  //
+  // Deliberately based on the session state alone — NOT on the entry-point
+  // eligibility (the `voice-mode` flag / a non-null `assistantId`) — so a
+  // mid-session eligibility drop (flag flip, `assistantId` transiently
+  // cleared) can't unmount the voice bar while the still-mounted controller
+  // keeps the mic/socket live: the bar's ✕ stays available until teardown
+  // completes and the state returns to `idle`. `showVoiceInput` (static per
+  // variant) scopes the swap to the voice-enabled composer — the app-editing
+  // variant shares the global live-voice store but must never swap its row
+  // for a session it doesn't own.
   const isLiveVoiceActive =
-    liveVoiceEligible &&
+    showVoiceInput &&
     liveVoiceState !== "idle" &&
     liveVoiceState !== "failed";
   // Amplitude is polled by the voice bar's canvas draw loop straight from the
@@ -364,8 +378,11 @@ export function ChatComposer({
       <ComposerDraftNotices />
       {/* Live-voice failure notice — composer-owned (the session controller
           lives here), mirroring the dictation `voiceError` Notice rendered by
-          `ComposerNotices` in the orchestration stack below. */}
-      {liveVoiceEligible && liveVoiceState === "failed" && liveVoiceError && (
+          `ComposerNotices` in the orchestration stack below. Keyed on the
+          session state (not entry eligibility) for the same reason as
+          `isLiveVoiceActive`: a session that fails right after an eligibility
+          drop must still surface its error. */}
+      {showVoiceInput && liveVoiceState === "failed" && liveVoiceError && (
         <div className="mb-2">
           <Notice tone="error" onDismiss={dismissLiveVoiceError}>
             {liveVoiceError}

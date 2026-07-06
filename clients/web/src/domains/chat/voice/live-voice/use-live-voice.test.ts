@@ -191,27 +191,31 @@ function pcmChunk(ms: number): ArrayBuffer {
   return new Int16Array(samples).buffer;
 }
 
-function renderController() {
+function renderController(extraOptions: { observeAudioState?: boolean } = {}) {
   const client = new FakeClient();
   const player = new FakePlayer();
   let capture!: FakeCapture;
+  let renderCount = 0;
 
-  const view = renderHook(() =>
-    useLiveVoice({
+  const view = renderHook(() => {
+    renderCount++;
+    return useLiveVoice({
       createClient: () => client as unknown as LiveVoiceChannelClient,
       createPlayer: () => player as unknown as LiveVoiceAudioPlayer,
       createCapture: (options) => {
         capture = new FakeCapture(options);
         return capture as unknown as LiveVoiceAudioCapture;
       },
-    }),
-  );
+      ...extraOptions,
+    });
+  });
 
   return {
     view,
     client,
     player,
     getCapture: () => capture,
+    getRenderCount: () => renderCount,
   };
 }
 
@@ -689,6 +693,75 @@ describe("session context and controls", () => {
     expect(store.controls).toBeNull();
     expect(store.assistantId).toBeNull();
     expect(store.conversationId).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// observeAudioState — high-frequency subscription opt-out
+// ---------------------------------------------------------------------------
+
+describe("observeAudioState", () => {
+  test("default: amplitude and transcript updates re-render the consumer and surface values", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    // Amplitude below the speech/barge-in thresholds so no phase transition
+    // can account for the re-render — only the amplitude subscription.
+    act(() => {
+      h.getCapture().pushAmplitude(0.02);
+    });
+    expect(h.view.result.current.inputAmplitude).toBe(0.02);
+
+    act(() => {
+      h.client.emit("sttPartial", { type: "stt_partial", seq: 2, text: "hel" });
+    });
+    expect(h.view.result.current.partialTranscript).toBe("hel");
+  });
+
+  test("false: amplitude ticks do not re-render the consumer; fields pinned at defaults", async () => {
+    const h = renderController({ observeAudioState: false });
+    await startListening(h);
+    expect(h.view.result.current.state).toBe("listening");
+
+    const rendersBefore = h.getRenderCount();
+    act(() => {
+      // A burst of mic-level samples (all below the speech/barge-in
+      // thresholds, so no state transition is involved).
+      h.getCapture().pushAmplitude(0.01);
+      h.getCapture().pushAmplitude(0.02);
+      h.getCapture().pushAmplitude(0.015);
+    });
+
+    // The store received the samples (the voice bar polls them via
+    // getState())...
+    expect(useLiveVoiceStore.getState().inputAmplitude).toBe(0.015);
+    // ...but the opted-out consumer did not re-render and returns the
+    // pinned default.
+    expect(h.getRenderCount()).toBe(rendersBefore);
+    expect(h.view.result.current.inputAmplitude).toBe(0);
+  });
+
+  test("false: transcript deltas do not re-render; state transitions still do", async () => {
+    const h = renderController({ observeAudioState: false });
+    await startListening(h);
+
+    const rendersBefore = h.getRenderCount();
+    act(() => {
+      h.client.emit("sttPartial", { type: "stt_partial", seq: 2, text: "hel" });
+      h.client.emit("sttPartial", { type: "stt_partial", seq: 3, text: "hello" });
+    });
+    // Transcript writes reached the store but not the consumer.
+    expect(useLiveVoiceStore.getState().partialTranscript).toBe("hello");
+    expect(h.getRenderCount()).toBe(rendersBefore);
+    expect(h.view.result.current.partialTranscript).toBe("");
+
+    // Low-frequency session state still flows: releasing push-to-talk moves
+    // the returned state to `transcribing` (a re-render).
+    act(() => {
+      h.view.result.current.release();
+    });
+    expect(h.view.result.current.state).toBe("transcribing");
+    expect(h.getRenderCount()).toBeGreaterThan(rendersBefore);
   });
 });
 

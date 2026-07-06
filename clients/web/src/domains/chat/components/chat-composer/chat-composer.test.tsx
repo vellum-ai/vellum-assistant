@@ -42,9 +42,10 @@ mock.module("@/runtime/is-electron", () => ({
 // controller (it must outlive the `LiveVoiceButton`, which is swapped out with
 // the rest of the action row during a session) and polls amplitude through
 // `useLiveVoiceStore.getState()`. Both are mocked so the composer renders in
-// isolation: the flag via a mutable `mockVoiceMode`, and the session via a
-// mutable state/error bag exposed through the mocked hook. Defaults (flag
-// off, idle, no error) keep the existing HTML-surface assertions unchanged.
+// isolation: the flag via a mutable `mockVoiceMode` (consumed by the real
+// `LiveVoiceButton`, which self-gates on it), and the session via a mutable
+// state/error bag exposed through the mocked hook. Defaults (flag off, idle,
+// no error) keep the existing HTML-surface assertions unchanged.
 let mockVoiceMode = false;
 mock.module("@/stores/assistant-feature-flag-store", () => ({
   useAssistantFeatureFlagStore: {
@@ -79,18 +80,23 @@ mock.module("@/domains/chat/voice/live-voice/live-voice-store", () => ({
     }),
   },
 }));
+// Spy wrapper so tests can assert the composer opts out of the hook's
+// high-frequency audio-state subscription (`observeAudioState: false`) —
+// the guard that keeps per-mic-sample amplitude updates from re-rendering
+// the whole composer (the voice bar polls amplitude via `getState()`).
+const useLiveVoiceSpy = mock((_options?: { observeAudioState?: boolean }) => ({
+  state: mockLiveVoiceState,
+  partialTranscript: "",
+  finalTranscript: "",
+  assistantTranscript: "",
+  inputAmplitude: 0,
+  error: mockLiveVoiceError,
+  start: liveStartSpy,
+  stop: liveStopSpy,
+  release: liveReleaseSpy,
+}));
 mock.module("@/domains/chat/voice/live-voice/use-live-voice", () => ({
-  useLiveVoice: () => ({
-    state: mockLiveVoiceState,
-    partialTranscript: "",
-    finalTranscript: "",
-    assistantTranscript: "",
-    inputAmplitude: 0,
-    error: mockLiveVoiceError,
-    start: liveStartSpy,
-    stop: liveStopSpy,
-    release: liveReleaseSpy,
-  }),
+  useLiveVoice: useLiveVoiceSpy,
 }));
 
 // The real `VoiceInputButton` self-suppresses (returns null) unless the test
@@ -135,6 +141,7 @@ function resetLiveVoiceMocks() {
   liveStopSpy.mockClear();
   liveReleaseSpy.mockClear();
   liveResetSpy.mockClear();
+  useLiveVoiceSpy.mockClear();
 }
 
 // Imported after the mocks so the component (and its transitive flag-store /
@@ -964,5 +971,92 @@ describe("ChatComposer — live-voice integration", () => {
 
     // THEN no dismissible notice is mounted
     expect(queryByLabelText("Dismiss")).toBeNull();
+  });
+
+  test("composer opts out of the hook's high-frequency audio state (observeAudioState: false)", () => {
+    // GIVEN a voice-enabled composer
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+
+    // WHEN it renders
+    renderVoiceComposer();
+
+    // THEN it consumes only the low-frequency session state + actions —
+    // amplitude ticks and transcript deltas must not re-render the whole
+    // composer (the voice bar polls amplitude via getState() instead)
+    expect(useLiveVoiceSpy).toHaveBeenCalled();
+    for (const call of useLiveVoiceSpy.mock.calls) {
+      expect(call[0]).toEqual({ observeAudioState: false });
+    }
+  });
+
+  test("voice bar persists when the flag flips off mid-session (no stranded session)", () => {
+    // GIVEN an active session but the voice-mode flag has since flipped off
+    // while the composer (and its session-owning controller) stayed mounted
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = false;
+    mockLiveVoiceState = "listening";
+
+    // WHEN the composer renders
+    const { getByRole, getByLabelText, queryByLabelText } =
+      renderVoiceComposer();
+
+    // THEN the active-UI swap follows the session state, not eligibility:
+    // the bar (and its ✕ stop control) stays until teardown completes...
+    expect(getByRole("group", { name: "Voice session" })).toBeTruthy();
+    const end = getByLabelText("End voice session") as HTMLButtonElement;
+    expect(end.disabled).toBe(false);
+    // ...while the entry-point button stays flag-gated off
+    expect(queryByLabelText("Start voice mode")).toBeNull();
+
+    // AND the ✕ still ends the live session
+    fireEvent.click(end);
+    expect(liveStopSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("voice bar persists when assistantId is transiently cleared mid-session", () => {
+    // GIVEN an active session whose assistantId has been cleared from props
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockLiveVoiceState = "listening";
+
+    // WHEN the composer renders without an assistant id
+    const { getByRole, getByLabelText } = renderVoiceComposer({
+      assistantId: null,
+    });
+
+    // THEN the stop control remains available for the live mic/socket
+    expect(getByRole("group", { name: "Voice session" })).toBeTruthy();
+    fireEvent.click(getByLabelText("End voice session"));
+    expect(liveStopSpy).toHaveBeenCalledTimes(1);
+  });
+
+  test("failure after an eligibility drop still surfaces the error notice", () => {
+    // GIVEN a session that failed right after the flag flipped off
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = false;
+    mockLiveVoiceState = "failed";
+    mockLiveVoiceError = "Connection lost.";
+
+    // WHEN the composer renders
+    const { getByText } = renderVoiceComposer();
+
+    // THEN the user still learns why voice stopped
+    expect(getByText("Connection lost.")).toBeTruthy();
+  });
+
+  test("no-voice variant (app-editing) never swaps its row for a session it doesn't own", () => {
+    // GIVEN a live session exists in the global store (owned by another
+    // composer instance) and this variant has no voice props
+    useTurnStore.setState(INITIAL_TURN_STATE);
+    mockVoiceMode = true;
+    mockLiveVoiceState = "listening";
+
+    // WHEN the app-editing variant renders (no voiceInputRef/onVoiceTranscript)
+    const html = renderComposer();
+
+    // THEN its action row is untouched — no voice bar, normal send button
+    expect(html).not.toContain('aria-label="Voice session"');
+    expect(html).toContain('aria-label="Send message"');
   });
 });
