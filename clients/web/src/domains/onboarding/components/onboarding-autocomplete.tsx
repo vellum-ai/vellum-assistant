@@ -31,6 +31,8 @@ import { Plus, Search } from "lucide-react";
 import { Tag } from "@vellumai/design-library/components/tag";
 import { cn } from "@vellumai/design-library/utils/cn";
 
+import { MOBILE_INPUT_NO_ZOOM } from "@/domains/onboarding/onboarding-step-layout";
+
 /** Field shell shared by both fields — label + token-matched container. */
 const FIELD_BOX = cn(
   "flex w-full items-center gap-1.5 rounded-md border bg-[var(--field-bg)] px-3",
@@ -41,6 +43,8 @@ const FIELD_BOX = cn(
 const BARE_INPUT = cn(
   "min-w-0 flex-1 bg-transparent text-body-medium-lighter text-[var(--content-default)]",
   "placeholder:text-[var(--content-tertiary)] outline-none",
+  // iOS auto-zoom guard — render at 16px on touch phones. See LUM-2597.
+  MOBILE_INPUT_NO_ZOOM,
 );
 
 function normalize(value: string): string {
