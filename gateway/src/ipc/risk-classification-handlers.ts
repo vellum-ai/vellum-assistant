@@ -119,6 +119,13 @@ interface ClassificationResult {
   opaqueConstructs?: boolean;
   isComplexSyntax?: boolean;
   sandboxAutoApprove?: boolean;
+  /**
+   * Lexically-resolved path arguments from sandbox-auto-approve-eligible
+   * segments. The daemon resolves these through symlinks and re-checks
+   * against the workspace root to catch symlink-based escapes that the
+   * gateway's lexical check cannot detect.
+   */
+  sandboxPathArgs?: string[];
   directoryScopeOptions?: DirectoryScopeOption[];
   resolvedPaths?: string[];
   matchType: string;
@@ -152,19 +159,34 @@ function isPathWithinRoot(filePath: string, root: string): boolean {
 
 // ── Sandbox auto-approve ────────────────────────────────────────────────────
 
+interface SandboxAutoApproveResult {
+  approved: boolean;
+  /**
+   * Absolute path arguments extracted from all auto-approve-eligible segments,
+   * lexically resolved against workingDir. The daemon resolves these through
+   * symlinks (which the gateway cannot do — it has no filesystem access) and
+   * re-checks against the workspace root to catch symlink-based escapes.
+   * Only populated for non-containerized environments.
+   */
+  pathArgs: string[];
+}
+
 async function computeSandboxAutoApprove(
   command: string,
   workingDir: string,
   workspaceRoot: string,
   isContainerized: boolean,
-): Promise<boolean> {
+): Promise<SandboxAutoApproveResult> {
   const parsed = await cachedParse(command);
 
-  if (parsed.segments.length === 0) return false;
-  if (parsed.hasOpaqueConstructs) return false;
-  if (parsed.dangerousPatterns.length > 0) return false;
+  if (parsed.segments.length === 0) return { approved: false, pathArgs: [] };
+  if (parsed.hasOpaqueConstructs) return { approved: false, pathArgs: [] };
+  if (parsed.dangerousPatterns.length > 0)
+    return { approved: false, pathArgs: [] };
 
-  return parsed.segments.every((seg) => {
+  const collectedPathArgs: string[] = [];
+
+  const approved = parsed.segments.every((seg) => {
     const name = seg.program.split("/").pop() ?? seg.program;
     const spec: CommandRiskSpec | undefined = Object.hasOwn(
       DEFAULT_COMMAND_REGISTRY,
@@ -184,19 +206,23 @@ async function computeSandboxAutoApprove(
     // If no path args, auto-approve (operating on cwd/stdin which is workspace)
     if (parsedArgs.pathArgs.length === 0) return true;
 
-    // All path args must resolve within workspace
+    // All path args must resolve within workspace (lexical check —
+    // the daemon re-checks with symlink resolution)
     return parsedArgs.pathArgs.every((p) => {
+      let resolved: string;
       if (p === "~" || p.startsWith("~/")) {
-        const expanded = p === "~" ? homedir() : join(homedir(), p.slice(2));
-        return isPathWithinRoot(expanded, workspaceRoot);
-      }
-      if (p.startsWith("~")) {
+        resolved = p === "~" ? homedir() : join(homedir(), p.slice(2));
+      } else if (p.startsWith("~")) {
         return false;
+      } else {
+        resolved = p.startsWith("/") ? p : resolve(workingDir, p);
       }
-      const resolved = p.startsWith("/") ? p : resolve(workingDir, p);
+      collectedPathArgs.push(resolved);
       return isPathWithinRoot(resolved, workspaceRoot);
     });
   });
+
+  return { approved, pathArgs: collectedPathArgs };
 }
 
 // ── Handler ─────────────────────────────────────────────────────────────────
@@ -240,14 +266,22 @@ export async function handleClassifyRisk(
 
       // Compute sandbox auto-approve for "bash" tool only
       let sandboxAutoApprove = false;
+      let sandboxPathArgs: string[] | undefined;
       if (tool === "bash") {
         const wsRoot = params.workspaceRoot ?? workingDir;
-        sandboxAutoApprove = await computeSandboxAutoApprove(
+        const autoApproveResult = await computeSandboxAutoApprove(
           command,
           workingDir,
           wsRoot,
           isContainerized,
         );
+        sandboxAutoApprove = autoApproveResult.approved;
+        // Return lexically-resolved path args so the daemon can re-check
+        // with symlink resolution (the gateway has no filesystem access).
+        // Only needed for non-containerized — containerized skips path checks.
+        if (!isContainerized && autoApproveResult.pathArgs.length > 0) {
+          sandboxPathArgs = autoApproveResult.pathArgs;
+        }
       }
 
       // Detect complex syntax and collect filesystem-op path args for the
@@ -419,6 +453,7 @@ export async function handleClassifyRisk(
         opaqueConstructs: analysis.hasOpaqueConstructs,
         isComplexSyntax,
         sandboxAutoApprove,
+        sandboxPathArgs,
         directoryScopeOptions,
         resolvedPaths,
         matchType: assessment.matchType,
