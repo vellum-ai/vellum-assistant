@@ -161,7 +161,7 @@ interface ActiveAssistantTurn {
   handle: VoiceTurnHandle | null;
   assistantCompleted: boolean;
   ttsDone: boolean;
-  // First tts_audio chunk forwarded to the client — the barge-in gate:
+  // A tts_audio frame actually went out to the client — the barge-in gate:
   // speech only cancels a turn that has audibly started speaking.
   ttsAudioStarted: boolean;
   finalized: boolean;
@@ -1043,10 +1043,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
               );
               activeTurn.assistantAudioMimeType = chunk.contentType;
               activeTurn.assistantAudioSampleRate = chunk.sampleRate;
-              activeTurn.ttsAudioStarted = true;
-              this.metrics.markFirstTtsAudio(activeTurn.turnId);
-              ttsAudioFrames = ttsAudioFrames.then(() =>
-                this.sendFrame(
+              ttsAudioFrames = ttsAudioFrames.then(async () => {
+                const sent = await this.sendFrame(
                   {
                     type: "tts_audio",
                     mimeType: chunk.contentType,
@@ -1054,8 +1052,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
                     dataBase64: chunk.dataBase64,
                   },
                   () => this.isForwardingTts(token),
-                ),
-              );
+                );
+                // Arm the barge-in gate only once a tts_audio frame was
+                // actually written — a backed-up outbound queue must not
+                // let speech cancel a still-unspoken reply. Token match
+                // keeps a stale turn's late send from arming a newer turn.
+                if (!sent) return;
+                const turnAfterSend = this.activeAssistantTurn;
+                if (
+                  turnAfterSend?.token !== token ||
+                  turnAfterSend.ttsAudioStarted
+                ) {
+                  return;
+                }
+                turnAfterSend.ttsAudioStarted = true;
+                this.metrics.markFirstTtsAudio(turnAfterSend.turnId);
+              });
             },
           });
           await ttsAudioFrames;
@@ -1400,21 +1412,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     });
   }
 
+  // Resolves true only if the frame passed shouldSend and was written.
   private async sendFrame(
     frame: LiveVoiceServerFramePayload,
     shouldSend: () => boolean = () => true,
-  ): Promise<void> {
+  ): Promise<boolean> {
+    let sent = false;
     this.outboundFrames = this.outboundFrames
       .catch(() => {})
       .then(async () => {
         if (!shouldSend()) return;
         await this.context.sendFrame(frame);
+        sent = true;
       })
       .catch(() => {
         // Transport failures are handled by the WebSocket/session owner.
       });
 
     await this.outboundFrames;
+    return sent;
   }
 
   private async drainOutboundFrames(): Promise<void> {

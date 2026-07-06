@@ -93,6 +93,11 @@ function createHarness(options: {
   turnDetectorConfig?: TurnDetectorConfig;
   emitMetrics?: boolean;
   metricsClock?: () => number;
+  // Return a promise to hold a frame's transport write open (a backed-up
+  // outbound queue); return null to write immediately.
+  holdSendFrame?: (
+    payload: Parameters<LiveVoiceSessionFactoryContext["sendFrame"]>[0],
+  ) => Promise<void> | null;
 }) {
   const sequencer = createLiveVoiceServerFrameSequencer();
   const frames: LiveVoiceServerFrame[] = [];
@@ -100,6 +105,7 @@ function createHarness(options: {
     sessionId: "session-123",
     startFrame: options.startFrame ?? VAD_START_FRAME,
     sendFrame: mock(async (payload) => {
+      await options.holdSendFrame?.(payload);
       const frame = sequencer.next(payload);
       frames.push(frame);
       return frame;
@@ -318,6 +324,70 @@ describe("LiveVoiceSession server VAD", () => {
       content: "actually never mind",
     });
     expect(countType(frames, "utterance_end")).toBe(2);
+  });
+
+  test("speech while the first tts_audio send is stuck in the queue does not cancel; barge-in works once it lands", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const abort = mock();
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks ??= options.callbacks;
+      return { turnId: "bridge-turn", abort };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk("assistant audio"));
+      return makeTtsResult("assistant audio");
+    });
+    let releaseDeltaSend: (() => void) | undefined;
+    const { frames, session } = createHarness({
+      finals: ["what's the weather", "wait actually", "stop please"],
+      startVoiceTurn,
+      streamTtsAudio,
+      // Hold the assistant_text_delta write open so the queued tts_audio
+      // frame sits behind it, unsent.
+      holdSendFrame: (payload) => {
+        if (payload.type !== "assistant_text_delta" || releaseDeltaSend) {
+          return null;
+        }
+        return new Promise<void>((resolve) => {
+          releaseDeltaSend = resolve;
+        });
+      },
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    callbacks?.assistant_text_delta?.(makeTextDelta("It is sunny today."));
+    await waitFor(() => releaseDeltaSend !== undefined);
+    await waitFor(() => streamTtsAudio.mock.calls.length === 1);
+
+    // User speaks while the tts_audio frame is queued but unsent: no audio
+    // has reached the client, so the turn must not be treated as audible.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await flushAsyncCallbacks();
+    expect(countType(frames, "turn_cancelled")).toBe(0);
+    expect(abort).not.toHaveBeenCalled();
+
+    // Unblock the queue: the reply's audio is actually delivered.
+    releaseDeltaSend?.();
+    await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+    expect(countType(frames, "turn_cancelled")).toBe(0);
+    expect(abort).not.toHaveBeenCalled();
+
+    // Once audio has genuinely gone out, a new speech onset barge-ins.
+    await waitFor(() => countType(frames, "utterance_end") === 2);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({
+      type: "turn_cancelled",
+      turnId: "live-turn-1",
+    });
+    await waitFor(() => abort.mock.calls.length === 1);
   });
 
   test("speech while the turn is still thinking emits speech_started but does not cancel", async () => {
