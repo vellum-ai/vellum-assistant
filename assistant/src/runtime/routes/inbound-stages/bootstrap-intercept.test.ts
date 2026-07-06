@@ -14,6 +14,8 @@
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { createGatewayVerificationSessionsStub } from "../../../__tests__/helpers/gateway-verification-sessions-stub.js";
+
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
@@ -21,51 +23,19 @@ mock.module("../../../util/logger.js", () => ({
 
 // Gateway-backed session client (async IPC); throw toggles simulate an
 // unreachable gateway per lifecycle call.
-let bootstrapSessionForTest: Record<string, unknown> | null = null;
-let resolveThrows = false;
-let bindThrows = false;
-let createThrows = false;
-let createConflicts = false;
-let updateDeliveryThrows = false;
-
-const resolveCalls: unknown[][] = [];
-const bindCalls: unknown[][] = [];
-const updateStatusCalls: unknown[][] = [];
-const createCalls: unknown[] = [];
-const updateDeliveryCalls: unknown[][] = [];
-
-mock.module("../../../channels/gateway-verification-sessions.js", () => ({
-  resolveBootstrapToken: async (channel: string, token: string) => {
-    if (resolveThrows) throw new Error("gateway unreachable");
-    resolveCalls.push([channel, token]);
-    return bootstrapSessionForTest;
-  },
-  bindSessionIdentity: async (...args: unknown[]) => {
-    if (bindThrows) throw new Error("gateway unreachable");
-    bindCalls.push(args);
-  },
-  updateSessionStatus: async (...args: unknown[]) => {
-    updateStatusCalls.push(args);
-  },
-  createOutboundSessionConditional: async (params: unknown) => {
-    if (createThrows) throw new Error("gateway unreachable");
-    createCalls.push(params);
-    if (createConflicts) {
-      return { conflict: true, reason: "source_session_not_pending" };
-    }
-    return {
-      sessionId: "new-session-1",
-      secret: "654321",
-      challengeHash: "hash-1",
-      expiresAt: Date.now() + 600_000,
-      ttlSeconds: 600,
-    };
-  },
-  updateSessionDelivery: async (...args: unknown[]) => {
-    if (updateDeliveryThrows) throw new Error("gateway unreachable");
-    updateDeliveryCalls.push(args);
-  },
-}));
+const gatewaySessions = createGatewayVerificationSessionsStub({
+  mintResult: () => ({
+    sessionId: "new-session-1",
+    secret: "654321",
+    challengeHash: "hash-1",
+    expiresAt: Date.now() + 600_000,
+    ttlSeconds: 600,
+  }),
+});
+mock.module(
+  "../../../channels/gateway-verification-sessions.js",
+  () => gatewaySessions.module,
+);
 
 const telegramReplies: Array<{ chatId: string; text: string }> = [];
 mock.module("../../../messaging/providers/telegram-bot/send.js", () => ({
@@ -98,21 +68,12 @@ function makeParams(
 }
 
 beforeEach(() => {
-  bootstrapSessionForTest = {
+  gatewaySessions.reset();
+  gatewaySessions.state.bootstrapSession = {
     id: "bootstrap-session-1",
     channel: "telegram",
     status: "pending_bootstrap",
   };
-  resolveThrows = false;
-  bindThrows = false;
-  createThrows = false;
-  createConflicts = false;
-  updateDeliveryThrows = false;
-  resolveCalls.length = 0;
-  bindCalls.length = 0;
-  updateStatusCalls.length = 0;
-  createCalls.length = 0;
-  updateDeliveryCalls.length = 0;
   telegramReplies.length = 0;
 });
 
@@ -128,12 +89,16 @@ describe("handleBootstrapIntercept", () => {
     });
 
     // Raw token (gv_ prefix stripped); hashing is gateway-side.
-    expect(resolveCalls).toEqual([["telegram", "token123"]]);
-    expect(bindCalls).toEqual([["bootstrap-session-1", "user-42", "chat-123"]]);
+    expect(gatewaySessions.calls.resolveBootstrapToken).toEqual([
+      ["telegram", "token123"],
+    ]);
+    expect(gatewaySessions.calls.bindSessionIdentity).toEqual([
+      ["bootstrap-session-1", "user-42", "chat-123"],
+    ]);
     // The mint revokes the bootstrap session gateway-side; no separate
     // status transition — that would make a mint failure unretryable.
-    expect(updateStatusCalls).toHaveLength(0);
-    expect(createCalls).toEqual([
+    expect(gatewaySessions.calls.updateSessionStatus).toHaveLength(0);
+    expect(gatewaySessions.calls.create).toEqual([
       {
         channel: "telegram",
         expectedExternalUserId: "user-42",
@@ -144,22 +109,24 @@ describe("handleBootstrapIntercept", () => {
         requireSourceSessionPending: "bootstrap-session-1",
       },
     ]);
-    expect(updateDeliveryCalls).toHaveLength(1);
-    expect(updateDeliveryCalls[0][0]).toBe("new-session-1");
+    expect(gatewaySessions.calls.updateSessionDelivery).toHaveLength(1);
+    expect(gatewaySessions.calls.updateSessionDelivery[0][0]).toBe(
+      "new-session-1",
+    );
   });
 
   test("unresolvable token falls through to normal /start handling", async () => {
-    bootstrapSessionForTest = null;
+    gatewaySessions.state.bootstrapSession = null;
 
     const result = await handleBootstrapIntercept(makeParams());
 
     expect(result).toBeNull();
-    expect(bindCalls).toHaveLength(0);
-    expect(createCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.bindSessionIdentity).toHaveLength(0);
+    expect(gatewaySessions.calls.create).toHaveLength(0);
   });
 
   test("non-pending_bootstrap session falls through", async () => {
-    bootstrapSessionForTest = {
+    gatewaySessions.state.bootstrapSession = {
       id: "bootstrap-session-1",
       channel: "telegram",
       status: "consumed",
@@ -168,7 +135,7 @@ describe("handleBootstrapIntercept", () => {
     const result = await handleBootstrapIntercept(makeParams());
 
     expect(result).toBeNull();
-    expect(bindCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.bindSessionIdentity).toHaveLength(0);
   });
 
   test("non-bootstrap commands fall through untouched", async () => {
@@ -183,11 +150,11 @@ describe("handleBootstrapIntercept", () => {
     expect(
       await handleBootstrapIntercept(makeParams({ rawSenderId: undefined })),
     ).toBeNull();
-    expect(resolveCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.resolveBootstrapToken).toHaveLength(0);
   });
 
   test("gateway unreachable on token resolution returns a handled unavailable response — no fall-through", async () => {
-    resolveThrows = true;
+    gatewaySessions.unreachable.resolveBootstrapToken = true;
 
     const result = await handleBootstrapIntercept(makeParams());
 
@@ -197,14 +164,14 @@ describe("handleBootstrapIntercept", () => {
       eventId: "event-1",
       verificationOutcome: "bootstrap_unavailable",
     });
-    expect(bindCalls).toHaveLength(0);
-    expect(createCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.bindSessionIdentity).toHaveLength(0);
+    expect(gatewaySessions.calls.create).toHaveLength(0);
     expect(telegramReplies).toHaveLength(1);
     expect(telegramReplies[0].text).toContain("tap the link again");
   });
 
   test("gateway unreachable on identity bind leaves the session pending_bootstrap and responds unavailable", async () => {
-    bindThrows = true;
+    gatewaySessions.unreachable.bindSessionIdentity = true;
 
     const result = await handleBootstrapIntercept(makeParams());
 
@@ -212,13 +179,13 @@ describe("handleBootstrapIntercept", () => {
       verificationOutcome: "bootstrap_unavailable",
     });
     // Nothing moved the session out of pending_bootstrap — re-tap retries.
-    expect(updateStatusCalls).toHaveLength(0);
-    expect(createCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.updateSessionStatus).toHaveLength(0);
+    expect(gatewaySessions.calls.create).toHaveLength(0);
     expect(telegramReplies).toHaveLength(1);
   });
 
   test("gateway unreachable on session creation leaves the session pending_bootstrap and responds unavailable", async () => {
-    createThrows = true;
+    gatewaySessions.unreachable.createOutboundSessionConditional = true;
 
     const result = await handleBootstrapIntercept(makeParams());
 
@@ -227,9 +194,9 @@ describe("handleBootstrapIntercept", () => {
     });
     // Bind ran but binding never changes status, so the token is still
     // resolvable and the deep link remains retryable.
-    expect(bindCalls).toHaveLength(1);
-    expect(updateStatusCalls).toHaveLength(0);
-    expect(updateDeliveryCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.bindSessionIdentity).toHaveLength(1);
+    expect(gatewaySessions.calls.updateSessionStatus).toHaveLength(0);
+    expect(gatewaySessions.calls.updateSessionDelivery).toHaveLength(0);
     expect(telegramReplies).toHaveLength(1);
   });
 
@@ -245,12 +212,14 @@ describe("handleBootstrapIntercept", () => {
     );
 
     expect(result).toMatchObject({ verificationOutcome: "bootstrap_bound" });
-    expect(resolveCalls).toHaveLength(0);
-    expect(bindCalls).toEqual([["bootstrap-session-1", "user-42", "chat-123"]]);
+    expect(gatewaySessions.calls.resolveBootstrapToken).toHaveLength(0);
+    expect(gatewaySessions.calls.bindSessionIdentity).toEqual([
+      ["bootstrap-session-1", "user-42", "chat-123"],
+    ]);
   });
 
   test("ACL-threaded session with a failing handoff still returns the handled unavailable response", async () => {
-    bindThrows = true;
+    gatewaySessions.unreachable.bindSessionIdentity = true;
 
     const result = await handleBootstrapIntercept(
       makeParams({
@@ -265,12 +234,12 @@ describe("handleBootstrapIntercept", () => {
     expect(result).toMatchObject({
       verificationOutcome: "bootstrap_unavailable",
     });
-    expect(resolveCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.resolveBootstrapToken).toHaveLength(0);
     expect(telegramReplies).toHaveLength(1);
   });
 
   test("losing the concurrent claim race returns a handled response without a second code", async () => {
-    createConflicts = true;
+    gatewaySessions.state.conflictReason = "source_session_not_pending";
 
     const result = await handleBootstrapIntercept(makeParams());
 
@@ -282,13 +251,13 @@ describe("handleBootstrapIntercept", () => {
       eventId: "event-1",
       verificationOutcome: "bootstrap_already_claimed",
     });
-    expect(createCalls).toHaveLength(1);
-    expect(updateDeliveryCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.create).toHaveLength(1);
+    expect(gatewaySessions.calls.updateSessionDelivery).toHaveLength(0);
     expect(telegramReplies).toHaveLength(0);
   });
 
   test("delivery-tracking failure after the code is sent does not unwind the bootstrap", async () => {
-    updateDeliveryThrows = true;
+    gatewaySessions.unreachable.updateSessionDelivery = true;
 
     const result = await handleBootstrapIntercept(makeParams());
 

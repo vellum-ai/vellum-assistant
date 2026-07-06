@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { createGatewayVerificationSessionsStub } from "../../../__tests__/helpers/gateway-verification-sessions-stub.js";
+
 // ---------------------------------------------------------------------------
 // Mocks — must be set up before importing the module under test
 // ---------------------------------------------------------------------------
@@ -7,17 +9,8 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 // Gateway guardian-delivery list: empty = unbound, one entry = bound,
 // null = gateway unreachable.
 let mockGuardianList: Array<Record<string, unknown>> | null = [];
-let mockActiveSession: Record<string, unknown> | null = null;
-let mockSessionResult = {
-  sessionId: "sess-1",
-  secret: "123456",
-  challengeHash: "hash-1",
-  expiresAt: Date.now() + 600_000,
-  ttlSeconds: 600,
-};
 
 // Track calls manually to avoid TypeScript issues with mock() generics
-let createOutboundSessionCalls: unknown[] = [];
 let deliverChannelReplyCalls: unknown[][] = [];
 let emitNotificationSignalCalls: unknown[] = [];
 let messageIdCounter = 0;
@@ -28,33 +21,24 @@ mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
   guardianForChannel: (
     list: Array<{ channelType: string; status: string }>,
     channelType: string,
-  ) =>
-    list.find((g) => g.channelType === channelType && g.status === "active"),
+  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
 }));
 
 // Gateway-backed session client (async IPC); the throw toggles simulate an
 // unreachable gateway, where the client wrappers throw transport errors.
-let findActiveSessionThrows = false;
-let createOutboundSessionThrows = false;
-let createOutboundSessionConflicts = false;
-mock.module("../../../channels/gateway-verification-sessions.js", () => ({
-  createOutboundSessionConditional: async (params: unknown) => {
-    if (createOutboundSessionThrows) {
-      throw new Error("gateway unreachable");
-    }
-    createOutboundSessionCalls.push(params);
-    if (createOutboundSessionConflicts) {
-      return { conflict: true, reason: "active_session_exists" };
-    }
-    return mockSessionResult;
-  },
-  findActiveSession: async () => {
-    if (findActiveSessionThrows) {
-      throw new Error("gateway unreachable");
-    }
-    return mockActiveSession;
-  },
-}));
+const gatewaySessions = createGatewayVerificationSessionsStub({
+  mintResult: () => ({
+    sessionId: "sess-1",
+    secret: "123456",
+    challengeHash: "hash-1",
+    expiresAt: Date.now() + 600_000,
+    ttlSeconds: 600,
+  }),
+});
+mock.module(
+  "../../../channels/gateway-verification-sessions.js",
+  () => gatewaySessions.module,
+);
 
 mock.module("../../gateway-client.js", () => ({
   deliverChannelReply: (url: unknown, payload: unknown, token: unknown) => {
@@ -120,25 +104,13 @@ function makeParams(
 
 describe("handleGuardianActivationIntercept", () => {
   beforeEach(() => {
+    gatewaySessions.reset();
     mockGuardianList = [];
-    mockActiveSession = null;
-    mockSessionResult = {
-      sessionId: "sess-1",
-      secret: "123456",
-      challengeHash: "hash-1",
-      expiresAt: Date.now() + 600_000,
-      ttlSeconds: 600,
-    };
-    createOutboundSessionCalls = [];
     deliverChannelReplyCalls = [];
     emitNotificationSignalCalls = [];
-    findActiveSessionThrows = false;
-    createOutboundSessionThrows = false;
-    createOutboundSessionConflicts = false;
   });
 
   afterEach(() => {
-    createOutboundSessionCalls = [];
     deliverChannelReplyCalls = [];
     emitNotificationSignalCalls = [];
   });
@@ -151,8 +123,8 @@ describe("handleGuardianActivationIntercept", () => {
     expect(body).toEqual({ accepted: true, guardianActivation: true });
 
     // Verify createOutboundSessionConditional was called with correct params
-    expect(createOutboundSessionCalls).toHaveLength(1);
-    expect(createOutboundSessionCalls[0]).toEqual({
+    expect(gatewaySessions.calls.create).toHaveLength(1);
+    expect(gatewaySessions.calls.create[0]).toEqual({
       channel: "telegram",
       expectedExternalUserId: "user-42",
       expectedChatId: "chat-123",
@@ -188,7 +160,7 @@ describe("handleGuardianActivationIntercept", () => {
 
     const result = await handleGuardianActivationIntercept(makeParams());
     expect(result).toBeNull();
-    expect(createOutboundSessionCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.create).toHaveLength(0);
   });
 
   test("null guardian list (gateway unreachable) does NOT auto-start", async () => {
@@ -196,7 +168,7 @@ describe("handleGuardianActivationIntercept", () => {
 
     const result = await handleGuardianActivationIntercept(makeParams());
     expect(result).toBeNull();
-    expect(createOutboundSessionCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.create).toHaveLength(0);
   });
 
   test("/start with payload returns null", async () => {
@@ -208,7 +180,7 @@ describe("handleGuardianActivationIntercept", () => {
       }),
     );
     expect(result).toBeNull();
-    expect(createOutboundSessionCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.create).toHaveLength(0);
   });
 
   test("non-/start message returns null", async () => {
@@ -218,7 +190,7 @@ describe("handleGuardianActivationIntercept", () => {
       }),
     );
     expect(result).toBeNull();
-    expect(createOutboundSessionCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.create).toHaveLength(0);
   });
 
   test("no commandIntent returns null", async () => {
@@ -231,7 +203,7 @@ describe("handleGuardianActivationIntercept", () => {
       makeParams({ sourceMetadata: undefined }),
     );
     expect(result2).toBeNull();
-    expect(createOutboundSessionCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.create).toHaveLength(0);
   });
 
   test("non-telegram channel returns null", async () => {
@@ -239,7 +211,7 @@ describe("handleGuardianActivationIntercept", () => {
       makeParams({ sourceChannel: "slack" as any }),
     );
     expect(result).toBeNull();
-    expect(createOutboundSessionCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.create).toHaveLength(0);
   });
 
   test("missing sender ID returns null", async () => {
@@ -247,11 +219,11 @@ describe("handleGuardianActivationIntercept", () => {
       makeParams({ rawSenderId: undefined }),
     );
     expect(result).toBeNull();
-    expect(createOutboundSessionCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.create).toHaveLength(0);
   });
 
   test("existing active session from same sender sends 'already in progress' reply", async () => {
-    mockActiveSession = {
+    gatewaySessions.state.activeSession = {
       id: "existing-sess",
       channel: "telegram",
       status: "awaiting_response",
@@ -266,7 +238,7 @@ describe("handleGuardianActivationIntercept", () => {
     expect(body).toEqual({ accepted: true, guardianActivationPending: true });
 
     // createOutboundSession should NOT be called
-    expect(createOutboundSessionCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.create).toHaveLength(0);
 
     // deliverChannelReply should be called with the "already in progress" message
     expect(deliverChannelReplyCalls).toHaveLength(1);
@@ -281,7 +253,7 @@ describe("handleGuardianActivationIntercept", () => {
   });
 
   test("existing active session from different sender allows superseding", async () => {
-    mockActiveSession = {
+    gatewaySessions.state.activeSession = {
       id: "existing-sess",
       channel: "telegram",
       status: "awaiting_response",
@@ -295,11 +267,11 @@ describe("handleGuardianActivationIntercept", () => {
     expect(result).not.toBeNull();
     const body = result!;
     expect(body).toEqual({ accepted: true, guardianActivation: true });
-    expect(createOutboundSessionCalls).toHaveLength(1);
+    expect(gatewaySessions.calls.create).toHaveLength(1);
     // Deliberate supersede: the create-if-absent guard is omitted so the
     // stale session gets revoked.
     expect(
-      (createOutboundSessionCalls[0] as Record<string, unknown>).ifNoneActive,
+      (gatewaySessions.calls.create[0] as Record<string, unknown>).ifNoneActive,
     ).toBeUndefined();
     expect(emitNotificationSignalCalls).toHaveLength(1);
   });
@@ -307,7 +279,7 @@ describe("handleGuardianActivationIntercept", () => {
   test("losing the concurrent create race does not invalidate the first activation's code", async () => {
     // Both bare /starts read "no active session"; the gateway-side
     // create-if-absent makes the second one conflict instead of minting.
-    createOutboundSessionConflicts = true;
+    gatewaySessions.state.conflictReason = "active_session_exists";
 
     const result = await handleGuardianActivationIntercept(makeParams());
 
@@ -317,7 +289,7 @@ describe("handleGuardianActivationIntercept", () => {
       accepted: true,
       guardianActivationPending: true,
     });
-    expect(createOutboundSessionCalls).toHaveLength(1);
+    expect(gatewaySessions.calls.create).toHaveLength(1);
     expect(deliverChannelReplyCalls).toHaveLength(1);
     expect(deliverChannelReplyCalls[0][1]).toEqual({
       chatId: "chat-123",
@@ -328,19 +300,19 @@ describe("handleGuardianActivationIntercept", () => {
   });
 
   test("gateway unreachable on the session read skips auto-activation without throwing", async () => {
-    findActiveSessionThrows = true;
+    gatewaySessions.unreachable.findActiveSession = true;
 
     const result = await handleGuardianActivationIntercept(makeParams());
 
     // Degrades to the normal pipeline: no session, no reply, no signal.
     expect(result).toBeNull();
-    expect(createOutboundSessionCalls).toHaveLength(0);
+    expect(gatewaySessions.calls.create).toHaveLength(0);
     expect(deliverChannelReplyCalls).toHaveLength(0);
     expect(emitNotificationSignalCalls).toHaveLength(0);
   });
 
   test("gateway unreachable on session creation skips auto-activation and stays retryable", async () => {
-    createOutboundSessionThrows = true;
+    gatewaySessions.unreachable.createOutboundSessionConditional = true;
     const params = makeParams({ externalMessageId: "retry-after-outage" });
 
     const result = await handleGuardianActivationIntercept(params);
@@ -349,10 +321,10 @@ describe("handleGuardianActivationIntercept", () => {
 
     // Not marked processed on failure: the next webhook retry succeeds once
     // the gateway is reachable again.
-    createOutboundSessionThrows = false;
+    gatewaySessions.unreachable.createOutboundSessionConditional = false;
     const retry = await handleGuardianActivationIntercept(params);
     expect(retry).toEqual({ accepted: true, guardianActivation: true });
-    expect(createOutboundSessionCalls).toHaveLength(1);
+    expect(gatewaySessions.calls.create).toHaveLength(1);
   });
 
   test("duplicate webhook retry is silently deduped", async () => {
@@ -363,7 +335,7 @@ describe("handleGuardianActivationIntercept", () => {
     expect(result1).not.toBeNull();
     const body1 = result1!;
     expect(body1).toEqual({ accepted: true, guardianActivation: true });
-    expect(createOutboundSessionCalls).toHaveLength(1);
+    expect(gatewaySessions.calls.create).toHaveLength(1);
     expect(deliverChannelReplyCalls).toHaveLength(1);
     expect(emitNotificationSignalCalls).toHaveLength(1);
 
@@ -374,7 +346,7 @@ describe("handleGuardianActivationIntercept", () => {
     expect(body2).toEqual({ accepted: true, guardianActivation: true });
 
     // No additional session/reply/signal calls
-    expect(createOutboundSessionCalls).toHaveLength(1);
+    expect(gatewaySessions.calls.create).toHaveLength(1);
     expect(deliverChannelReplyCalls).toHaveLength(1);
     expect(emitNotificationSignalCalls).toHaveLength(1);
   });
