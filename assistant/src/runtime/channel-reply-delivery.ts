@@ -88,16 +88,21 @@ function toDeliverableTextSegments(
 
 /**
  * A reply worth delivering on its own merits: real text after sentinel
- * stripping, or attachments. A bare `<no_response/>` row does NOT count.
+ * stripping, or attachments. A bare `<no_response/>` row does NOT count —
+ * even when it carries attachments, since `deliverRenderedReplyViaCallback`
+ * suppresses attachment delivery for marker rows; counting such a row as
+ * real would stop the turn scan on a row that delivers nothing.
  */
 function hasRealDeliverableReply(
   rendered: RenderedHistoryContent,
   attachments: RuntimeAttachmentMetadata[],
 ): boolean {
-  return (
-    toDeliverableTextSegments(rendered.textSegments, rendered.text).length >
-      0 || attachments.length > 0
-  );
+  if (
+    toDeliverableTextSegments(rendered.textSegments, rendered.text).length > 0
+  ) {
+    return true;
+  }
+  return attachments.length > 0 && !hasNoResponseMarker(rendered.textSegments);
 }
 
 /**

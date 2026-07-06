@@ -572,6 +572,71 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls[0].payload.text).toBe("current answer");
   });
 
+  // A bare-sentinel row never delivers its attachments (marker rows suppress
+  // attachment delivery), so attachments alone must not make the row count
+  // as the turn's real reply and stop the fall-through.
+  it("falls through a bare no_response row with attachments to the turn's real reply", async () => {
+    conversationMessages.push(
+      { id: "msg-current-user", role: "user", content: "current prompt" },
+      {
+        id: "msg-current-text",
+        role: "assistant",
+        content: '[{"type":"text","text":"current answer"}]',
+      },
+      {
+        id: "msg-current-silent",
+        role: "assistant",
+        content: '[{"type":"text","text":"<no_response/>"}]',
+      },
+    );
+    attachmentsByMessageId.set("msg-current-silent", [
+      {
+        id: "att-silent",
+        originalFilename: "chart.png",
+        mimeType: "image/png",
+        sizeBytes: 10,
+        kind: "generated",
+      },
+    ]);
+    const silentStub = {
+      text: "<no_response/>",
+      textSegments: ["<no_response/>"],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    };
+    const answerStub = {
+      text: "current answer",
+      textSegments: ["current answer"],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    };
+    // messageId branch reads the targeted silent row, the turn scan reads
+    // the silent row then the text row, and delivery re-reads the text row.
+    renderedHistoryContentQueue.push(
+      silentStub,
+      silentStub,
+      answerStub,
+      answerStub,
+    );
+
+    await deliverReplyViaCallback(
+      "conv-1",
+      "chat-current",
+      "http://gateway/deliver/slack",
+      "assistant-current",
+      { messageId: "msg-current-silent", sinceMessageId: "msg-current-user" },
+    );
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.text).toBe("current answer");
+  });
+
   it("skips already-delivered segments when startFromSegment is set", async () => {
     await deliverRenderedReplyViaCallback({
       callbackUrl: "http://gateway/deliver/telegram",
