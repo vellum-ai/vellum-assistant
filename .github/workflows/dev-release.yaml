@@ -808,9 +808,12 @@ jobs:
   # ── Web SPA (dev bucket) ─────────────────────────────────────────────
   # The platform SPA ships to the dev GCS bucket with every dev release,
   # not on merge to main; staging/production deploys live in release.yml.
+  # Gated on register-release so the dev bucket only updates when the dev
+  # backend release actually registered with the platform — if register-release
+  # fails or is skipped, this job is skipped too.
   deploy-web-spa:
     name: Deploy Web SPA (dev)
-    needs: [ci-web]
+    needs: [ci-web, register-release]
     permissions:
       contents: read
       id-token: write
