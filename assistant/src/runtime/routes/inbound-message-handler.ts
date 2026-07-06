@@ -16,7 +16,6 @@ import {
   attachmentsToContentBlocks,
   type MessageAttachmentInput,
 } from "../../agent/attachments.js";
-import { getChannelPermissionProfile } from "../../channels/permission-profiles.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -38,7 +37,10 @@ import {
 import { getDiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-policy.js";
 import { processMessage } from "../../daemon/process-message.js";
-import type { TrustContext } from "../../daemon/trust-context.js";
+import {
+  mapChatTypeToConversationType,
+  type TrustContext,
+} from "../../daemon/trust-context.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import {
@@ -998,28 +1000,6 @@ export async function handleChannelInbound({
       )
     : [];
 
-  // Inject channel-scoped permission hints for Slack channel messages
-  if (sourceChannel === "slack") {
-    const channelProfile = getChannelPermissionProfile(conversationExternalId);
-    if (channelProfile) {
-      if (channelProfile.blockedTools?.length) {
-        metadataHints.push(
-          `Channel policy: the following tools are blocked in this channel: ${channelProfile.blockedTools.join(", ")}`,
-        );
-      }
-      if (channelProfile.allowedToolCategories?.length) {
-        metadataHints.push(
-          `Channel policy: only these tool categories are allowed in this channel: ${channelProfile.allowedToolCategories.join(", ")}`,
-        );
-      }
-      if (channelProfile.trustLevel === "restricted") {
-        metadataHints.push(
-          "Channel policy: this channel has restricted trust level. Exercise caution with tool usage.",
-        );
-      }
-    }
-  }
-
   const metadataUxBrief =
     typeof sourceMetadata?.uxBrief === "string" &&
     sourceMetadata.uxBrief.trim().length > 0
@@ -1041,6 +1021,7 @@ export async function handleChannelInbound({
     sourceMetadata.chatType.trim().length > 0
       ? sourceMetadata.chatType.trim()
       : undefined;
+  trustCtx.conversationType = mapChatTypeToConversationType(sourceChatType);
 
   // Preserve locale from sourceMetadata so the model can greet in the user's language
   const sourceLanguageCode =

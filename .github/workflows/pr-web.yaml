@@ -4,6 +4,9 @@ on:
   pull_request:
     types: [synchronize, opened, reopened]
     paths:
+      - 'package.json'
+      - 'bun.lock'
+      - 'patches/**'
       - 'clients/web/**'
       - 'packages/design-library/**'
       - 'packages/local-mode/**'
@@ -12,7 +15,6 @@ on:
       # regenerations must run the web tests on the PR that introduces drift.
       - 'meta/llm-provider-catalog.json'
       - '.github/workflows/pr-web.yaml'
-      - '.github/actions/install-shared-packages/**'
 
 concurrency:
   group: pr-web-${{ github.event.pull_request.number }}
@@ -38,15 +40,10 @@ jobs:
           bun-version: '1.3.11'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/web
 
       - name: Generate API clients
         run: bun run openapi-ts
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
 
       - name: Lint
         run: bun run lint
@@ -80,15 +77,10 @@ jobs:
           bun-version: '1.3.11'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/web
 
       - name: Generate API clients
         run: bun run openapi-ts
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
 
       - name: Type check
         run: bun run typecheck
@@ -108,20 +100,11 @@ jobs:
         with:
           bun-version: '1.3.11'
 
-      - name: Install design-library dependencies
-        working-directory: packages/design-library
-        run: bun install --frozen-lockfile
-
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/web
 
       - name: Generate API clients
         run: bun run openapi-ts
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
 
       - name: Test
         run: bun run test:ci
@@ -142,15 +125,10 @@ jobs:
           bun-version: '1.3.11'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile
+        run: bun install --frozen-lockfile --filter=@vellumai/web
 
       - name: Generate API clients
         run: bun run openapi-ts
-
-      - name: Install shared packages
-        uses: ./.github/actions/install-shared-packages
-        with:
-          packages: packages/environments packages/local-mode
 
       - name: Build
         env:

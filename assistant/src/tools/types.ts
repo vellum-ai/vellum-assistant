@@ -438,7 +438,17 @@ export interface ToolContext {
    */
   requesterDisplayName?: string;
   /**
-   * Slack channel ID for channel-scoped permission enforcement. When set, tools are checked against the channel's permission profile.
+   * Conversation type of the current channel chat on the permission-matrix
+   * axis (dm | private | public). Feeds the channel-type tier of matrix cell
+   * resolution; undefined when the chat type is unknown or ambiguous.
+   * @legacy
+   */
+  channelConversationType?: "dm" | "private" | "public";
+  /**
+   * External channel/conversation ID of the current chat (the binding's
+   * external chat id — Slack channel, Telegram chat, …). Keys the channel
+   * tier of permission-matrix cell resolution for every channel adapter;
+   * for Slack it also drives the legacy per-tool channel gate.
    * @legacy
    */
   channelPermissionChannelId?: string;
