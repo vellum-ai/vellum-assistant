@@ -31,6 +31,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import type { ConversationDeletedInputContext } from "../hooks/types.js";
 import { HOOKS } from "../plugin-api/constants.js";
+import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import { memoryPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks.js";
 import { runHook } from "../plugins/pipeline.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
@@ -1726,11 +1727,13 @@ export async function addMessage(
   // Hidden rows are machine signals suppressed from the transcript — they
   // must not surface as search excerpts or be embedded into memory either.
   if (!skipIndexing && !isHiddenMessageMetadata(metadata)) {
-    // Message-content lexical indexing is host infrastructure, invoked
-    // directly (not through the memory hook seam, whose active side effects go
-    // inert while the memory plugin is disabled — search indexing must not).
-    // The direct write seams (streaming finalize, import, edit) enqueue for
-    // themselves; this covers the plain addMessage path.
+    // Message-content lexical indexing is host infrastructure and must run
+    // even while the memory plugin is disabled (search indexing is not a
+    // memory-feature side effect), so it is enqueued unconditionally. The
+    // memory segment indexing below is the memory feature's own write path and
+    // self-gates on the memory config. The direct write seams (streaming
+    // finalize, import, edit) run both for themselves; this covers the plain
+    // addMessage path.
     enqueueLexicalIndexForMessage(message.id);
     try {
       const parsed = metadata
@@ -1740,15 +1743,19 @@ export async function addMessage(
         ? parsed.data.provenanceTrustClass
         : undefined;
       const automated = parsed?.success ? parsed.data.automated : undefined;
-      await memoryPersistenceHooks.onMessagePersisted({
-        messageId: message.id,
-        conversationId: message.conversationId,
-        role: message.role,
-        content: message.content,
-        createdAt: message.createdAt,
-        provenanceTrustClass,
-        automated,
-      });
+      await indexMessageNow(
+        {
+          messageId: message.id,
+          conversationId: message.conversationId,
+          role: message.role,
+          content: message.content,
+          createdAt: message.createdAt,
+          scopeId: "default",
+          provenanceTrustClass,
+          automated,
+        },
+        getConfig().memory,
+      );
     } catch (err) {
       log.warn(
         { err, conversationId, messageId: message.id },
