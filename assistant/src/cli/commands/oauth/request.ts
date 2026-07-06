@@ -216,6 +216,8 @@ Examples:
             headers: Record<string, string>;
             body: unknown;
             hint?: string;
+            account?: string | null;
+            accountWarning?: string;
           }>("oauth_request", { body });
 
           if (!r.ok) return exitFromIpcResult(r);
@@ -225,6 +227,14 @@ Examples:
           // Non-2xx exit code
           if (result.status < 200 || result.status >= 300) {
             process.exitCode = 1;
+          }
+
+          // Which account served the request, and any multi-account ambiguity.
+          if (result.account) {
+            writeInfo(`* Account: ${result.account}`);
+          }
+          if (result.accountWarning) {
+            writeInfo(result.accountWarning);
           }
 
           // Auth hint
