@@ -987,16 +987,22 @@ export async function wakeAgentForOpportunity(
             event.rawResponse,
             1,
             undefined,
-            // Mirror the profile state the request actually ran under:
-            // `forceOverrideProfile` floats the override above the call-site
-            // profile (fork retrospectives with matchConversationProfile), and
-            // the conversation-id seed resolves the same mix arm the dispatch
-            // path chose. Without these, attribution credits the call-site
-            // profile/arm instead of the one that ran.
+            // Mirror the profile state the request actually ran under. The
+            // loop stamps the override applied at send time onto the usage
+            // event — the wake's pinned override (fork retrospectives with
+            // matchConversationProfile keep their forced float) or a
+            // `PRE_MODEL_CALL` hook's per-message routing, null when the hook
+            // cleared it. The conversation-id seed resolves the same mix arm
+            // the dispatch path chose. Falling back to the wake's pre-run
+            // values covers usage events that don't carry the applied fields.
             {
               callSite,
-              overrideProfile: overrideProfile ?? null,
-              forceOverrideProfile,
+              overrideProfile:
+                event.appliedOverrideProfile !== undefined
+                  ? event.appliedOverrideProfile
+                  : (overrideProfile ?? null),
+              forceOverrideProfile:
+                event.appliedForceOverrideProfile ?? forceOverrideProfile,
               selectionSeed: conversationId,
             },
             opts.cronRunId ?? null,

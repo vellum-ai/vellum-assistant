@@ -2520,6 +2520,92 @@ describe("wakeAgentForOpportunity", () => {
     });
   });
 
+  test("wake records the hook-applied profile from the usage event, not the pre-run override", async () => {
+    // The loop stamps the override applied at send time onto the usage event
+    // (a PRE_MODEL_CALL hook can route the call to a different profile after
+    // the wake resolves its pre-run override). Attribution must credit the
+    // event's applied profile so the usage row matches what actually ran.
+    const usageEvent: AgentEvent = {
+      type: "usage",
+      inputTokens: 100,
+      outputTokens: 5,
+      model: "test-model",
+      actualProvider: "test-provider",
+      providerDurationMs: 10,
+      rawRequest: { request: "hook-routed wake" },
+      rawResponse: { response: "real reply" },
+      appliedOverrideProfile: "hook-routed-profile",
+      appliedForceOverrideProfile: false,
+    };
+    const conversation = makeWakeConversation({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedEvents: [usageEvent],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "real reply" }],
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "do reply",
+        source: "unit-test",
+        callSite: "memoryRetrospective",
+        // The wake's pre-run override — superseded by the hook's routing.
+        forceOverrideProfile: "source-profile",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(recordUsageCalls).toHaveLength(1);
+    expect(recordUsageCalls[0]).toMatchObject({
+      overrideProfile: "hook-routed-profile",
+      forceOverrideProfile: false,
+      selectionSeed: conversation.conversationId,
+    });
+  });
+
+  test("wake records a null applied override when the hook cleared the pre-run one", async () => {
+    const usageEvent: AgentEvent = {
+      type: "usage",
+      inputTokens: 100,
+      outputTokens: 5,
+      model: "test-model",
+      actualProvider: "test-provider",
+      providerDurationMs: 10,
+      rawRequest: { request: "hook-cleared wake" },
+      rawResponse: { response: "real reply" },
+      appliedOverrideProfile: null,
+      appliedForceOverrideProfile: false,
+    };
+    const conversation = makeWakeConversation({
+      baseline: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+      scriptedEvents: [usageEvent],
+      scriptedAssistant: {
+        role: "assistant",
+        content: [{ type: "text", text: "real reply" }],
+      },
+    });
+
+    await wakeAgentForOpportunity(
+      {
+        conversationId: conversation.conversationId,
+        hint: "do reply",
+        source: "unit-test",
+        callSite: "memoryRetrospective",
+        forceOverrideProfile: "source-profile",
+      },
+      { resolveTarget: async () => conversation },
+    );
+
+    expect(recordUsageCalls).toHaveLength(1);
+    expect(recordUsageCalls[0]).toMatchObject({
+      overrideProfile: null,
+      forceOverrideProfile: false,
+    });
+  });
+
   test("silent no-op wake still records usage even though its request log is dropped", async () => {
     const usageEvent: AgentEvent = {
       type: "usage",
