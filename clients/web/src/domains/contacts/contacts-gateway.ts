@@ -2,12 +2,20 @@
  * Gateway-native contact operations.
  *
  * These endpoints are handled directly by the gateway control plane
- * (contacts-control-plane-proxy.ts), not the daemon, so they don't
- * appear in the generated daemon SDK. They use the platform client
- * which routes through the gateway proxy.
+ * (contacts-control-plane-proxy.ts), not the daemon, so they live in the
+ * generated gateway SDK rather than the daemon SDK. The gateway client's
+ * interceptor forwards them to the self-hosted gateway in local /
+ * self-hosted mode and falls through to the platform proxy for
+ * platform-hosted assistants.
  */
 
 import { client } from "@/generated/api/client.gen";
+import {
+  assistantContactDelete,
+  assistantContactsUpsert,
+  assistantContactChannelVerify,
+} from "@/generated/gateway/sdk.gen";
+import type { AssistantContactsUpsertData } from "@/generated/gateway/types.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -19,16 +27,11 @@ type Contact = ContactsGetResponse["contacts"][number];
 
 export async function upsertContact(
   assistantId: string,
-  body: Record<string, unknown>,
+  body: AssistantContactsUpsertData["body"],
 ): Promise<Contact> {
-  const { data, error, response } = await client.post<
-    { 200: { ok?: boolean; contact?: Contact } },
-    unknown
-  >({
-    url: "/v1/assistants/{assistant_id}/contacts/",
+  const { data, error, response } = await assistantContactsUpsert({
     path: { assistant_id: assistantId },
     body,
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to save contact");
@@ -38,15 +41,16 @@ export async function upsertContact(
       extractErrorMessage(error, response, "Failed to save contact"),
     );
   }
-  return data.contact;
+  // The gateway's ContactPayload matches the daemon contact wire shape the
+  // contacts list is typed with (see toContactPayload in the gateway).
+  return data.contact as Contact;
 }
 
 export async function deleteContact(
   assistantId: string,
   contactId: string,
 ): Promise<void> {
-  const { error, response } = await client.delete<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/contacts/{contact_id}/",
+  const { error, response } = await assistantContactDelete({
     path: { assistant_id: assistantId, contact_id: contactId },
     throwOnError: false,
   });
@@ -63,8 +67,7 @@ export async function verifyContactChannel(
   assistantId: string,
   channelId: string,
 ): Promise<void> {
-  const { error, response } = await client.post<unknown, unknown>({
-    url: "/v1/assistants/{assistant_id}/contact-channels/{channel_id}/verify/",
+  const { error, response } = await assistantContactChannelVerify({
     path: { assistant_id: assistantId, channel_id: channelId },
     throwOnError: false,
   });

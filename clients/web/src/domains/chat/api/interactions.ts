@@ -14,6 +14,7 @@ import {
   questionresponsePost,
   secretPost,
 } from "@/generated/daemon/sdk.gen";
+import { assistantContactsPromptSubmit } from "@/generated/gateway/sdk.gen";
 import type {
   PendinginteractionsGetResponse,
   QuestionresponsePostData,
@@ -183,8 +184,7 @@ export async function submitContactPrompt(
   displayName?: string,
 ): Promise<SubmitSecretResponseResult> {
   try {
-    const { error, response } = await client.post<unknown, unknown>({
-      url: "/v1/assistants/{assistant_id}/contacts/prompt/submit/",
+    const { error, response } = await assistantContactsPromptSubmit({
       path: { assistant_id: assistantId },
       body: { requestId, address, channelType, role, displayName },
       throwOnError: false,
