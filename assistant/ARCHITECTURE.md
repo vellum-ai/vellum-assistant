@@ -528,7 +528,7 @@ Voice invites use a short numeric code (6 digits) instead of a URL token. The gu
 
 ### Voice Inbound Security Model (Canonical)
 
-The voice inbound security model determines how unknown callers are handled when they dial in. Three paths exist, evaluated in priority order by `routeSetup` (`relay-setup-router.ts`) when the media-stream session starts. All guardian decisions route through `applyCanonicalGuardianDecision` in the canonical guardian request system.
+The voice inbound security model determines how unknown callers are handled when they dial in. Three paths exist, evaluated in priority order by `routeSetup` (`call-setup-router.ts`) when the media-stream session starts. All guardian decisions route through `applyCanonicalGuardianDecision` in the canonical guardian request system.
 
 **Decision tree for inbound unknown callers:**
 
@@ -586,7 +586,7 @@ All guardian decisions for voice access requests flow through:
 
 | File                                           | Purpose                                                                                |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------- |
-| `src/calls/relay-setup-router.ts`              | Inbound call decision tree (`routeSetup`)                                               |
+| `src/calls/call-setup-router.ts`              | Inbound call decision tree (`routeSetup`)                                               |
 | `src/calls/call-setup-flow.ts`                 | Name capture, verification, and invite sub-flows over the media-stream transport        |
 | `src/calls/guardian-wait-controller.ts`        | Guardian approval wait — hold messaging, heartbeats, poll/timeout                       |
 | `src/runtime/access-request-helper.ts`         | Creates canonical access request and notifies guardian                                 |
@@ -2206,10 +2206,10 @@ The `TtsUseCase` discriminator (`"phone-call"` or `"message-playback"`) lets pro
 
 **Call strategy abstraction (`tts-call-strategy.ts`):** The call strategy layer determines how a TTS provider integrates with the telephony path. Instead of inferring call behavior from runtime capabilities, `resolveCallStrategy(config)` reads the provider's `callMode` from the canonical catalog and returns a `TtsCallStrategy` with the provider ID and call mode. Two modes exist:
 
-- **`native-twilio`** — the text-token path: spoken text is sent via `sendTextToken()`, which the media-stream transport re-synthesizes through daemon TTS. The profile carries a real `ttsProvider` name (e.g. `"ElevenLabs"`) and a provider-specific voice spec string built by a registered `NativeTwilioVoiceSpecBuilder`. Collapsing this mode is a documented deferred follow-up.
-- **`synthesized-play`** — The assistant synthesises audio via the provider's HTTP API and streams it through the audio store / `sendPlayUrl()` path. Uses a placeholder TTS provider (`"Google"`) and an empty voice string.
+- **`native-twilio`** — the text-token path: spoken text is sent via `sendTextToken()`, which the media-stream transport re-synthesizes through daemon TTS. Collapsing this mode into `synthesized-play` is a documented deferred follow-up.
+- **`synthesized-play`** — The assistant synthesises audio via the provider's HTTP API and streams it through the audio store / `sendPlayUrl()` path.
 
-**Phone call integration:** Phone calls run on the media-stream transport, where the daemon synthesises speech via the configured TTS provider and transcodes it to mu-law 8 kHz frames (`media-stream-output.ts`). Each catalog entry declares `mediaStreamPlayback.outputFormat` (`pcm`, `wav`, or `none`); `resolveTelephonyTtsCapability()` (`src/calls/telephony-tts-capability.ts`) combines that field with credential availability into a playable / not-playable verdict, and the call TTS resolver falls back to a credentialed playable provider rather than producing silence. `resolveVoiceQualityProfile()` in `voice-quality.ts` uses `resolveCallStrategy()` to determine the call mode and build the voice profile.
+**Phone call integration:** Phone calls run on the media-stream transport, where the daemon synthesises speech via the configured TTS provider and transcodes it to mu-law 8 kHz frames (`media-stream-output.ts`). Each catalog entry declares `mediaStreamPlayback.outputFormat` (`pcm`, `wav`, or `none`); `resolveTelephonyTtsCapability()` (`src/calls/telephony-tts-capability.ts`) combines that field with credential availability into a playable / not-playable verdict, and the call TTS resolver falls back to a credentialed playable provider rather than producing silence.
 
 **Adding a new TTS provider (catalog-first checklist):**
 
@@ -2218,7 +2218,6 @@ The `TtsUseCase` discriminator (`"phone-call"` or `"message-playback"`) lets pro
 3. **Config schema** — Add a new Zod object under `TtsProvidersSchema` in `src/config/schemas/tts.ts` for the provider's settings. The valid provider ID enum is catalog-driven.
 4. **Provider adapter** — Create `src/tts/providers/<id>-provider.ts` implementing `TtsProvider` with the appropriate `capabilities` and `synthesize`/`synthesizeStream` methods.
 5. **Register the adapter** — Add a factory entry for the provider to the `providerFactories` map in `src/tts/providers/index.ts`. The `register-builtins.ts` module iterates the catalog at startup and looks up each ID in this map — a missing entry is a fatal error.
-6. **Optional: native Twilio voice builder** — If the provider uses `native-twilio` call mode, add a `NativeTwilioVoiceSpec` entry to the `nativeVoiceSpecs` map in `src/tts/providers/register-builtins.ts`. Synthesized-play providers skip this step entirely.
 
 No hardcoded enum edits are required — the `TtsProviderId` union in `types.ts` uses an open string union (`(string & {})`), the config schema reads valid IDs from the catalog, and the call strategy dispatches based on the catalog's `callMode` field. The registry, resolver, orchestrator, and call strategy all automatically pick up the new provider when selected via `services.tts.provider`.
 
@@ -2235,8 +2234,7 @@ No hardcoded enum edits are required — the `TtsProviderId` union in `types.ts`
 | `src/tts/providers/elevenlabs-provider.ts`                 | ElevenLabs adapter implementation                                                            |
 | `src/tts/providers/fish-audio-provider.ts`                 | Fish Audio adapter implementation                                                            |
 | `src/config/schemas/tts.ts`                                | Zod schema for `services.tts` config block (catalog-driven valid provider IDs)               |
-| `src/calls/tts-call-strategy.ts`                           | Explicit call strategy: resolves call mode from catalog, native voice spec registry          |
-| `src/calls/voice-quality.ts`                               | Phone call integration: `resolveVoiceQualityProfile()` uses call strategy                    |
+| `src/calls/tts-call-strategy.ts`                           | Explicit call strategy: resolves call mode from catalog                                      |
 | `meta/tts-provider-catalog.json`                           | Client artifact: provider metadata for macOS settings UI                                     |
 | `src/tts/__tests__/provider-catalog-consistency.test.ts`   | CI guard: catalog vs client artifact provider ID consistency                                 |
 | `src/workspace/migrations/032-tts-provider-unification.ts` | Migration that materialised canonical `services.tts` fields                                  |

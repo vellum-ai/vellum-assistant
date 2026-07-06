@@ -27,7 +27,7 @@ import { getLogger } from "../util/logger.js";
 import { getActiveVoiceInvite } from "./gateway-invite-reader.js";
 import type { CallSession } from "./types.js";
 
-const log = getLogger("relay-setup-router");
+const log = getLogger("call-setup-router");
 
 // ── Setup context ────────────────────────────────────────────────────
 

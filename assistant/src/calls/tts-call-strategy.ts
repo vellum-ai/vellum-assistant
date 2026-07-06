@@ -10,57 +10,19 @@
  *
  * - **native-twilio** -- the text-token path: spoken text is sent via
  *   `sendTextToken()`, which the media-stream transport re-synthesizes
- *   through daemon TTS. The profile carries a real `ttsProvider` name
- *   (e.g. `"ElevenLabs"`) and a provider-specific voice spec string built
- *   by the {@link NativeTwilioVoiceSpecBuilder} the provider declares in
- *   its catalog definition.
+ *   through daemon TTS.
  *
  * - **synthesized-play** -- The assistant synthesises audio via the
  *   provider API and streams it through the audio store / `sendPlayUrl()`
- *   path. The profile still carries a valid native fallback voice
- *   (see `resolveVoiceQualityProfile`) so a mid-call synthesis failure can
- *   degrade to the text-token path.
+ *   path.
  *
  * @module
  */
 
 import type { AssistantConfig } from "../config/types.js";
-import {
-  getCatalogProvider,
-  getProviderDefinition,
-} from "../tts/provider-catalog.js";
-import type { NativeTwilioVoiceSpec } from "../tts/provider-definition.js";
+import { getCatalogProvider } from "../tts/provider-catalog.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import type { TtsCallMode, TtsProviderId } from "../tts/types.js";
-
-export type {
-  NativeTwilioVoiceSpec,
-  NativeTwilioVoiceSpecBuilder,
-} from "../tts/provider-definition.js";
-
-// ---------------------------------------------------------------------------
-// Native Twilio voice-spec lookup
-// ---------------------------------------------------------------------------
-
-/**
- * Look up the native Twilio voice-spec builder a provider declares in its
- * catalog definition.
- *
- * @throws if the provider is not in the catalog, or is not a
- *   `native-twilio` provider (synthesized-play providers have no spec).
- */
-export function getNativeTwilioVoiceSpec(
-  providerId: string,
-): NativeTwilioVoiceSpec {
-  const definition = getProviderDefinition(providerId);
-  if (definition.callMode !== "native-twilio") {
-    throw new Error(
-      `No native Twilio voice spec for "${providerId}" — its call mode is ` +
-        `"${definition.callMode}", not "native-twilio".`,
-    );
-  }
-  return definition.nativeTwilioVoiceSpec;
-}
 
 // ---------------------------------------------------------------------------
 // Strategy resolution

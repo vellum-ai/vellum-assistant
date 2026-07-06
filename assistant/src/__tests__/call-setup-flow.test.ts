@@ -10,11 +10,11 @@ import type {
   SetupFlowState,
   SetupFlowTransport,
 } from "../calls/call-setup-flow-types.js";
-import type { MediaStreamOutput } from "../calls/media-stream-output.js";
 import type {
   SetupOutcome,
   SetupResolved,
-} from "../calls/relay-setup-router.js";
+} from "../calls/call-setup-router.js";
+import type { MediaStreamOutput } from "../calls/media-stream-output.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { TrustClass } from "../runtime/trust-class.js";
 

@@ -35,7 +35,7 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-// Config loader — drives the intervals relay-access-wait reads directly.
+// Config loader — drives the intervals access-request-wait reads directly.
 const mockConfig = {
   calls: {
     userConsultTimeoutSeconds: 120 as number,
@@ -75,7 +75,7 @@ mock.module("../notifications/emit-signal.js", () => ({
   },
 }));
 
-// call-store — relay-access-wait's heartbeat helper records events here.
+// call-store — access-request-wait's heartbeat helper records events here.
 let storeEvents: Array<{
   eventType: string;
   payload?: Record<string, unknown>;

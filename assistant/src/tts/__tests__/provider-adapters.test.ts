@@ -1096,10 +1096,9 @@ describe("xAI TTS provider adapter", () => {
 // ===========================================================================
 // Static catalog wiring
 // ===========================================================================
-// Catalog completeness (one definition per canonical ID, native-twilio ⟷
-// voice-spec pairing) is enforced at compile time by the `satisfies` check
-// in provider-catalog.ts and the discriminated TtsProviderDefinition union;
-// these are runtime smoke checks over the assembled definitions.
+// Catalog completeness (one definition per canonical ID) is enforced at
+// compile time by the `satisfies` check in provider-catalog.ts; these are
+// runtime smoke checks over the assembled definitions.
 
 describe("static provider catalog wiring", () => {
   test("every catalog provider resolves to an adapter with a matching ID", () => {
@@ -1107,20 +1106,6 @@ describe("static provider catalog wiring", () => {
       const provider = getTtsProvider(id);
       expect(provider.id).toBe(id);
       expect(typeof provider.synthesize).toBe("function");
-    }
-  });
-
-  test("every native-twilio provider carries a voice-spec builder", () => {
-    for (const id of listCatalogProviderIds()) {
-      const definition = getProviderDefinition(id);
-      if (definition.callMode === "native-twilio") {
-        expect(
-          definition.nativeTwilioVoiceSpec.twilioProviderName.length,
-        ).toBeGreaterThan(0);
-        expect(typeof definition.nativeTwilioVoiceSpec.buildVoiceSpec).toBe(
-          "function",
-        );
-      }
     }
   });
 

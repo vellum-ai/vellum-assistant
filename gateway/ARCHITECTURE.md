@@ -1004,7 +1004,6 @@ sequenceDiagram
 | `assistant/src/calls/call-state.ts`                              | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and controller registry                                                     |
 | `assistant/src/calls/call-constants.ts`                          | Config-backed constants: max call duration, user consultation timeout, silence timeout, denied emergency numbers                                                                                                       |
 | `assistant/src/calls/voice-provider.ts`                          | Abstract VoiceProvider interface for provider-agnostic call initiation                                                                                                                                                 |
-| `assistant/src/calls/voice-quality.ts`                           | Voice quality profile resolution: `resolveVoiceQualityProfile()` reads `calls.voice` config and returns effective TTS provider, voice spec, and fallback settings for the active mode                                  |
 | `assistant/src/calls/twilio-config.ts`                           | Twilio credential and configuration resolution from secure key store and environment                                                                                                                                   |
 | `assistant/src/calls/types.ts`                                   | TypeScript type definitions: CallSession, CallEvent, CallPendingQuestion, CallStatus, CallEventType                                                                                                                    |
 | `gateway/src/http/routes/twilio-voice-webhook.ts`                | Gateway route: validates Twilio signature, forwards voice webhook to runtime                                                                                                                                           |
@@ -1183,13 +1182,13 @@ The resolution is performed by `resolveCallerIdentity()` in `call-domain.ts`:
 
 Both the resolved mode and source are logged at info level on success, and rejections are logged at warn level.
 
-### Voice Quality Profile Resolution
+### Voice and TTS Configuration
 
-Voice and TTS settings are configurable via the `calls.voice` and `services.tts` config blocks — they are not hardcoded. The function `resolveVoiceQualityProfile()` in `voice-quality.ts` uses the catalog-driven call strategy abstraction to determine how the active TTS provider integrates with the Twilio telephony path, then resolves the result into a `VoiceQualityProfile` containing the TTS provider, voice spec string, and language.
+Voice and TTS settings are configurable via the `calls.voice` and `services.tts` config blocks — they are not hardcoded.
 
 The active TTS provider is determined by `services.tts.provider` (default: `"elevenlabs"`). Provider-specific settings (voice ID, model, tuning parameters) are read from `services.tts.providers.<id>`. The call mode (`native-twilio` or `synthesized-play`) is resolved from the canonical provider catalog via `resolveCallStrategy()` in `tts-call-strategy.ts` — it reads the provider's declared `callMode` rather than inferring behavior from runtime capabilities.
 
-For `native-twilio` providers (e.g. ElevenLabs), the voice quality profile looks up a registered `NativeTwilioVoiceSpecBuilder` to construct the provider-specific voice spec string; on the media-stream transport spoken text sent via `sendTextToken()` is re-synthesized through daemon TTS, so this mode no longer routes to Twilio's built-in TTS — collapsing the callMode split is a documented deferred follow-up. For `synthesized-play` providers (e.g. Fish Audio), the assistant synthesises audio via the provider's HTTP API and delivers it through the audio store / `sendPlayUrl()` path.
+For `native-twilio` providers (e.g. ElevenLabs), spoken text sent via `sendTextToken()` is re-synthesized through daemon TTS on the media-stream transport — collapsing the callMode split is a documented deferred follow-up. For `synthesized-play` providers (e.g. Fish Audio), the assistant synthesises audio via the provider's HTTP API and delivers it through the audio store / `sendPlayUrl()` path.
 
 On the media-stream transport, call playback requires audio the daemon can transcode to mu-law: each TTS catalog entry declares `mediaStreamPlayback.outputFormat`, `resolveTelephonyTtsCapability()` combines that with credential availability, and the call TTS resolver falls back to a credentialed playable provider rather than producing silence.
 

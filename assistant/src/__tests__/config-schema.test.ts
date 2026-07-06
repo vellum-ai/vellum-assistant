@@ -51,7 +51,6 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-import { resolveVoiceQualityProfile } from "../calls/voice-quality.js";
 import { invalidateConfigCache, loadConfig } from "../config/loader.js";
 import {
   AssistantConfigSchema,
@@ -61,7 +60,6 @@ import { SttServiceSchema } from "../config/schemas/stt.js";
 import { TtsServiceSchema } from "../config/schemas/tts.js";
 import type { AssistantConfig } from "../config/types.js";
 import { listCatalogProviderIds } from "../tts/provider-catalog.js";
-import { buildElevenLabsVoiceSpec } from "../tts/providers/elevenlabs-provider.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import { TTS_PROVIDER_IDS } from "../tts/types.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
@@ -886,7 +884,6 @@ describe("AssistantConfigSchema", () => {
       },
       voice: {
         language: "en-US",
-        hints: [],
         interruptSensitivity: "low",
         telephonyStreaming: true,
       },
@@ -994,7 +991,6 @@ describe("AssistantConfigSchema", () => {
   test("config without calls.voice parses correctly and produces defaults", () => {
     const result = AssistantConfigSchema.parse({});
     expect(result.calls.voice.language).toBe("en-US");
-    expect(result.calls.voice.hints).toEqual([]);
     expect(result.calls.voice.interruptSensitivity).toBe("low");
     expect(result.calls.voice.telephonyStreaming).toBe(true);
   });
@@ -1621,110 +1617,6 @@ describe("AssistantConfigSchema", () => {
       enabled: true,
       cooldownMs: 30_000,
     });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Tests: Voice quality profile resolver
-// ---------------------------------------------------------------------------
-
-describe("resolveVoiceQualityProfile", () => {
-  test("always returns ElevenLabs ttsProvider", () => {
-    const config = AssistantConfigSchema.parse({});
-    const profile = resolveVoiceQualityProfile(config);
-    expect(profile.ttsProvider).toBe("ElevenLabs");
-  });
-
-  test("uses services.tts.providers.elevenlabs.voiceId for voice", () => {
-    const config = AssistantConfigSchema.parse({
-      services: {
-        tts: {
-          providers: { elevenlabs: { voiceId: "test-voice-id" } },
-        },
-      },
-    });
-    const profile = resolveVoiceQualityProfile(config);
-    expect(profile.ttsProvider).toBe("ElevenLabs");
-    expect(profile.voice).toBe("test-voice-id");
-  });
-
-  test("defaults to Amelia voice ID when elevenlabs.voiceId is not set", () => {
-    const config = AssistantConfigSchema.parse({});
-    const profile = resolveVoiceQualityProfile(config);
-    expect(profile.voice).toBe(DEFAULT_ELEVENLABS_VOICE_ID);
-  });
-
-  test("applies voice tuning params from services.tts.providers.elevenlabs config", () => {
-    const config = AssistantConfigSchema.parse({
-      services: {
-        tts: {
-          providers: {
-            elevenlabs: {
-              voiceId: "abc123",
-              voiceModelId: "turbo_v2_5",
-              speed: 0.9,
-              stability: 0.8,
-              similarityBoost: 0.9,
-            },
-          },
-        },
-      },
-    });
-    const profile = resolveVoiceQualityProfile(config);
-    expect(profile.voice).toBe("abc123-turbo_v2_5-0.9_0.8_0.9");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Tests: buildElevenLabsVoiceSpec
-// ---------------------------------------------------------------------------
-
-describe("buildElevenLabsVoiceSpec", () => {
-  test("produces Twilio-compliant voice string: voiceId-model-speed_stability_similarity", () => {
-    const spec = buildElevenLabsVoiceSpec({
-      voiceId: "abc123",
-      voiceModelId: "turbo_v2_5",
-      speed: 1.0,
-      stability: 0.5,
-      similarityBoost: 0.75,
-    });
-    expect(spec).toBe("abc123-turbo_v2_5-1_0.5_0.75");
-  });
-
-  test("returns empty string when voiceId is empty", () => {
-    const spec = buildElevenLabsVoiceSpec({
-      voiceId: "",
-      voiceModelId: "turbo_v2_5",
-      speed: 1.0,
-      stability: 0.5,
-      similarityBoost: 0.75,
-    });
-    expect(spec).toBe("");
-  });
-
-  test("formats custom parameters correctly", () => {
-    const spec = buildElevenLabsVoiceSpec({
-      voiceId: "myVoice",
-      voiceModelId: "eleven_multilingual_v2",
-      speed: 0.9,
-      stability: 0.8,
-      similarityBoost: 0.9,
-    });
-    expect(spec).toBe("myVoice-eleven_multilingual_v2-0.9_0.8_0.9");
-  });
-
-  test("default config uses a bare voiceId when no model override is set", () => {
-    const config = AssistantConfigSchema.parse({
-      services: {
-        tts: {
-          providers: { elevenlabs: { voiceId: "test" } },
-        },
-      },
-    });
-    const spec = buildElevenLabsVoiceSpec(
-      config.services.tts.providers.elevenlabs,
-    );
-    expect(spec).toBe("test");
   });
 });
 

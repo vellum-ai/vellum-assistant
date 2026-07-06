@@ -57,6 +57,7 @@ import {
 } from "./call-pointer-messages.js";
 import { CallSetupFlow, type CallSetupFlowDeps } from "./call-setup-flow.js";
 import type { SetupFlowResult } from "./call-setup-flow-types.js";
+import { routeSetup } from "./call-setup-router.js";
 import { speakSystemPrompt } from "./call-speech-output.js";
 import {
   fireCallTranscriptNotifier,
@@ -80,7 +81,6 @@ import {
   type MediaStreamSttSessionCallbacks,
   type MediaStreamSttSessionConfig,
 } from "./media-stream-stt-session.js";
-import { routeSetup } from "./relay-setup-router.js";
 
 const log = getLogger("media-stream-server");
 const UUID_SHAPED_NAME =
@@ -224,7 +224,7 @@ export class MediaStreamCallSession {
    * audio processing.
    */
   handleMessage(raw: string): void {
-    if (this.disposed) return;
+    if (this.disposed) {return;}
 
     // Intercept `start` to bootstrap the session before forwarding.
     const parseResult = parseMediaStreamFrame(raw);
@@ -250,7 +250,7 @@ export class MediaStreamCallSession {
    * in a terminal state.
    */
   handleTransportClosed(code?: number, reason?: string): void {
-    if (this.disposed) return;
+    if (this.disposed) {return;}
 
     // Tear down an in-flight setup flow first: clears its timers and emits
     // the guardian-wait callback handoff when the caller opted in.
@@ -259,7 +259,7 @@ export class MediaStreamCallSession {
     setupFlow?.dispose("transport_closed");
 
     const session = getCallSession(this.callSessionId);
-    if (!session) return;
+    if (!session) {return;}
     if (isTerminalState(session.status)) {
       // A hangup during a flow-terminal goodbye: dispose above swallowed the
       // flow's pending complete(), so finalize + revoke grants here. Normal
@@ -346,7 +346,7 @@ export class MediaStreamCallSession {
    * Dispose of the session, cleaning up all resources.
    */
   destroy(): void {
-    if (this.disposed) return;
+    if (this.disposed) {return;}
     this.disposed = true;
 
     this.sttSession.dispose();
@@ -400,7 +400,7 @@ export class MediaStreamCallSession {
         session.status !== "waiting_on_user"
       ) {
         updates.status = "in_progress";
-        if (!session.startedAt) updates.startedAt = Date.now();
+        if (!session.startedAt) {updates.startedAt = Date.now();}
       }
       updateCallSession(this.callSessionId, updates);
     }
@@ -702,7 +702,7 @@ export class MediaStreamCallSession {
   }
 
   private handleTranscriptFinal(text: string, _durationMs: number): void {
-    if (!text.trim()) return;
+    if (!text.trim()) {return;}
 
     // Drop transcripts arriving while setup routing is still pending so a
     // not-yet-authorized / floor-denied caller's speech is never persisted

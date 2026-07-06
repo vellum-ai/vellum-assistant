@@ -18,7 +18,7 @@ import {
 } from "./call-constants.js";
 import { recordCallEvent } from "./call-store.js";
 
-const log = getLogger("relay-access-wait");
+const log = getLogger("access-request-wait");
 
 // ── Wait-utterance classification ────────────────────────────────────
 

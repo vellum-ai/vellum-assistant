@@ -97,7 +97,7 @@ let mockRouteSetupResult: {
 // Captures the last context passed to routeSetup so preflight tests can
 // assert the resolved phone admission policy was threaded through.
 let lastRouteSetupCtx: Record<string, unknown> | null = null;
-mock.module("../calls/relay-setup-router.js", () => ({
+mock.module("../calls/call-setup-router.js", () => ({
   routeSetup: (ctx: Record<string, unknown>) => {
     lastRouteSetupCtx = ctx;
     return mockRouteSetupResult;
