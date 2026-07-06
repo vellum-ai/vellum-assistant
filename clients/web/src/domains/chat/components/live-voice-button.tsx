@@ -13,8 +13,6 @@
  *   - any other (active)  → stop-circle icon, click to stop; the live
  *                           `inputAmplitude` drives a subtle pulse so the user
  *                           sees the mic is hearing them.
- *
- * Wiring into the composer happens in a later PR; this is the standalone control.
  */
 
 import { Loader2, Mic, StopCircle } from "lucide-react";

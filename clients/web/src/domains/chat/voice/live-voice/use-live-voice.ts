@@ -12,36 +12,33 @@
  * controller instance drives at most one session at a time; `start()` while a
  * session is live is a no-op.
  *
- * ## Single-utterance sessions
- * A live-voice session handles exactly one utterance → one response. The runtime
- * (and the macOS reference) treat `ptt_release` as terminal: once released, the
- * session never re-accepts audio (sending more yields `invalid_audio_payload`).
- * So this controller does NOT keep one socket open across turns — after the
- * assistant finishes speaking it ends the session (→ idle), and the user starts
- * a fresh one for the next turn. Barge-in is the one case that reconnects
- * automatically (see below).
+ * ## Multi-turn sessions
+ * One session spans many turns over a single socket and a single mic
+ * acquisition: after the assistant's response finishes playing (or is
+ * interrupted), the controller re-opens audio forwarding and returns to
+ * `listening` for the next utterance. The session ends only via `stop()`
+ * (user), a server/socket `closed`, `busy`, or an error.
  *
- * ## State transitions (one session = one turn)
+ * ## State transitions
  * `idle → connecting` (start) → `listening` (ready + capture started) →
- * `transcribing` (ptt released) → `thinking` (server response) → `speaking`
- * (tts_audio) → `idle` (tts_done drained → session ended). The mic keeps
- * capturing for the whole session; `stop()`, teardown, an error, a server
- * `archived`/`closed`, or end-of-response returns to `idle`/`failed`.
+ * `transcribing` (ptt released / server turn boundary) → `thinking` (server
+ * response) → `speaking` (tts_audio) → `listening` (tts_done drained, or
+ * barge-in confirmed via `interrupted`) → … repeating until `stop()`, an
+ * error, or a server `closed` returns to `idle`/`failed`.
  *
  * ## Mic forwarding
  * The mic capture graph runs for the entire active session so amplitude keeps
  * flowing for barge-in even while the assistant is thinking/speaking. Audio
  * *forwarding* (`session.forwardingAudio`) is gated to the user's turn: captured
  * PCM is streamed only while forwarding is on. Push-to-talk release flips
- * forwarding off (without stopping the mic); it is not re-opened within a
- * session (the session is single-utterance — see above).
+ * forwarding off (without stopping the mic); resuming listening for the next
+ * turn re-opens it.
  *
  * ## Barge-in
  * While `speaking`, a captured amplitude over {@link BARGE_IN_AMPLITUDE_THRESHOLD}
- * stops playback, sends `interrupt` (once per response), and ends the session
- * (→ idle) — the interrupted session is terminal on the runtime, so the user
- * starts a fresh session to respond. (Seamless reconnect-on-barge-in is a
- * follow-up.)
+ * stops playback and sends `interrupt` (once per response). The server confirms
+ * with an `interrupted` frame — which also arrives unprompted on server-VAD
+ * barge-in — flushing playback and resuming `listening` on the same socket.
  *
  * ## Automatic push-to-talk release
  * While `listening`, sustained speech (≥ {@link MINIMUM_SPEECH_DURATION_BEFORE_RELEASE_MS})
@@ -132,12 +129,10 @@ interface SessionContext {
   captureRunning: boolean;
   /**
    * Whether captured PCM is currently streamed to the server. On while the user
-   * is speaking (`listening`); turned off after an automatic push-to-talk
-   * release. A live-voice session is single-utterance (the runtime treats
-   * `ptt_release` as terminal — it never re-accepts audio), so forwarding is not
-   * re-opened within a session: the session ends after the response, and a fresh
-   * session is started for the next turn. Amplitude keeps flowing regardless so
-   * barge-in works while not forwarding.
+   * is speaking (`listening`); turned off by push-to-talk release and while the
+   * assistant response plays, then re-opened by {@link resumeListening} for the
+   * next turn. Amplitude keeps flowing regardless so barge-in works while not
+   * forwarding.
    */
   forwardingAudio: boolean;
   /** Whether the assistant has sent any TTS audio for the current response. */
@@ -259,7 +254,7 @@ export function useLiveVoice(
 
       const capture = (opts.createCapture ?? ((o) => new LiveVoiceAudioCapture(o)))({
         onChunk: (buf) => handleChunk(session, buf),
-        onAmplitude: (amplitude) => handleAmplitude(session, amplitude, teardown),
+        onAmplitude: (amplitude) => handleAmplitude(session, amplitude),
       });
       session.capture = capture;
       sessionRef.current = session;
@@ -321,7 +316,25 @@ export function useLiveVoice(
         }),
         client.on("ttsDone", () => {
           if (!live()) return;
-          void finishResponseAfterPlayback(session, teardown);
+          void finishResponseAfterPlayback(session);
+        }),
+        client.on("turnBoundary", () => {
+          if (!live()) return;
+          // The server segmented the user's turn; mirror the local auto-release
+          // UI transition. Under PTT this follows our own ptt_release (state
+          // already advanced); in open-mic it is the primary end-of-turn signal.
+          const s = useLiveVoiceStore.getState();
+          if (s.state === "listening") s.setState("transcribing");
+        }),
+        client.on("interrupted", () => {
+          if (!live()) return;
+          // Barge-in accepted (locally initiated or server-VAD). Flush playback
+          // — idempotent when a local barge-in already stopped the player — and
+          // go back to listening unless the drain path already resumed.
+          session.player.stop();
+          if (useLiveVoiceStore.getState().state !== "listening") {
+            resumeListening(session);
+          }
         }),
         client.on("archived", () => {
           if (!live()) return;
@@ -411,15 +424,11 @@ function handleChunk(session: SessionContext, buf: ArrayBuffer): void {
  * Runs whenever the mic is open — including while not forwarding — so a loud
  * amplitude can interrupt the assistant mid-response (barge-in).
  */
-function handleAmplitude(
-  session: SessionContext,
-  amplitude: number,
-  teardown: () => void,
-): void {
+function handleAmplitude(session: SessionContext, amplitude: number): void {
   if (!session.captureRunning) return;
   useLiveVoiceStore.getState().setInputAmplitude(amplitude);
   if (amplitude >= BARGE_IN_AMPLITUDE_THRESHOLD) {
-    interruptIfSpeaking(session, teardown);
+    interruptIfSpeaking(session);
   }
 }
 
@@ -468,24 +477,32 @@ function releasePushToTalk(session: SessionContext): void {
 /**
  * Resume listening for the next utterance: re-open the forwarding gate, clear
  * the per-utterance counters/flags, and move to `listening`. The mic is already
- * running (continuous capture), so there is nothing to restart here.
+ * running (continuous capture) and the socket stays open, so there is nothing
+ * to restart here.
  */
+function resumeListening(session: SessionContext): void {
+  session.forwardingAudio = true;
+  session.interruptSent = false;
+  session.responseAudioStarted = false;
+  session.releaseInFlight = false;
+  session.speechMs = 0;
+  session.silenceMs = 0;
+  const s = useLiveVoiceStore.getState();
+  s.setPartialTranscript("");
+  s.setState("listening");
+}
+
 /**
- * Barge-in: stop playback and interrupt the server once per response, then end
- * the session (→ idle). The interrupted session is terminal on the runtime — it
- * won't accept more audio — so we can't keep forwarding on it; the user starts a
- * fresh session to respond. (Seamless reconnect-on-barge-in is a follow-up.)
+ * Barge-in: stop playback and interrupt the server once per response. The
+ * session stays open — the server confirms with an `interrupted` frame, which
+ * flushes any straggler audio and resumes `listening` for the next utterance.
  */
-function interruptIfSpeaking(
-  session: SessionContext,
-  teardown: () => void,
-): void {
+function interruptIfSpeaking(session: SessionContext): void {
   if (useLiveVoiceStore.getState().state !== "speaking") return;
   if (!session.player.isPlaying || session.interruptSent) return;
   session.interruptSent = true;
   session.player.stop();
   session.client.interrupt();
-  teardown();
 }
 
 /** First TTS frame of a response: reset playback flags for the new utterance. */
@@ -496,20 +513,14 @@ function beginAssistantAudioIfNeeded(session: SessionContext): void {
 }
 
 /**
- * After `tts_done`, await playback drain, then end the session (→ idle).
- *
- * A live-voice session is single-utterance: once `ptt_release` fires the runtime
- * won't accept more audio on it, so we don't resume listening on the same
- * socket — we tear the session down and the user starts a fresh one for the next
- * turn (mirrors the macOS `closeCompletedUtteranceSessionAfterPlayback`).
- * Forwarding is suspended during the drain so playback audio captured by the
- * (still-open) mic isn't streamed back. A barge-in during the drain already
- * tore this session down and reconnected (generation bumped / state no longer
- * `speaking`), so we leave that fresh session alone.
+ * After `tts_done`, await playback drain, then resume listening for the next
+ * turn on the same socket. Forwarding is suspended during the drain so playback
+ * audio captured by the (still-open) mic isn't streamed back. If an
+ * `interrupted` frame resumed listening while we drained, leave the new turn
+ * alone — resuming again would clear its in-flight counters/transcript.
  */
 async function finishResponseAfterPlayback(
   session: SessionContext,
-  teardown: () => void,
 ): Promise<void> {
   const generation = session.generation;
   session.responseAudioStarted = false;
@@ -517,10 +528,8 @@ async function finishResponseAfterPlayback(
 
   await session.player.waitUntilDrained();
   if (session.generation !== generation) return;
-
-  // A barge-in mid-drain already reconnected a fresh session; don't tear it down.
-  if (useLiveVoiceStore.getState().state !== "speaking") return;
-  teardown();
+  if (useLiveVoiceStore.getState().state === "listening") return;
+  resumeListening(session);
 }
 
 /** Fail the session: tear down primitives and surface the message. */
