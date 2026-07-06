@@ -7,7 +7,6 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import { getEffectiveProfiles } from "../../../../config/default-profile-catalog.js";
 import { loadConfig } from "../../../../config/loader.js";
 import type { AssistantConfig } from "../../../../config/types.js";
 import { getDb } from "../../../../persistence/db-connection.js";
@@ -508,7 +507,7 @@ export async function handleSimulateRouter({
   // through (the resolver tolerates missing override-profile references by
   // design, but the playground wants the user to know they typo'd).
   if (profileOverride !== undefined) {
-    const profiles = getEffectiveProfiles(liveConfig.llm?.profiles);
+    const profiles = liveConfig.llm?.profiles ?? {};
     if (!Object.prototype.hasOwnProperty.call(profiles, profileOverride)) {
       const available = Object.keys(profiles).sort();
       const hint =

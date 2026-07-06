@@ -45,10 +45,6 @@ describe("resolveUsageAttribution", () => {
   test("resolves default-only attribution", () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
-      // Disable the catalog default so mainAgent resolves from `llm.default`
-      // (the code catalog otherwise serves `balanced` even with no workspace
-      // profiles).
-      profiles: { balanced: { source: "managed", status: "disabled" } },
     });
 
     const snapshot = resolveUsageAttribution({ callSite: "mainAgent" });

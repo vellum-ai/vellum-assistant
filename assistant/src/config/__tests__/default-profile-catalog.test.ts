@@ -6,7 +6,10 @@ import {
   getEffectiveProfile,
   getEffectiveProfiles,
 } from "../default-profile-catalog.js";
-import { OS_BETA_PROFILE_KEY } from "../default-profile-names.js";
+import {
+  DEFAULT_PROFILE_KEYS,
+  OS_BETA_PROFILE_KEY,
+} from "../default-profile-names.js";
 import {
   resolveCallSiteConfig,
   resolveDefaultProfileKey,
@@ -17,22 +20,33 @@ import {
   type ProfileEntry,
 } from "../schemas/llm.js";
 
+/** Thin managed-source stubs: what a workspace looks like once default
+ * profile CONTENT is code-owned — only ownership/status markers on disk. */
+function managedStubs(): Record<string, ProfileEntry> {
+  return Object.fromEntries(
+    DEFAULT_PROFILE_KEYS.map((key) => [key, { source: "managed" as const }]),
+  );
+}
+
 describe("getEffectiveProfiles", () => {
-  test("serves code defaults when the workspace has no profiles", () => {
-    const effective = getEffectiveProfiles(undefined);
-    expect(Object.keys(effective).sort()).toEqual([
-      "balanced",
-      "cost-optimized",
-      "quality-optimized",
-    ]);
-    expect(effective.balanced.model).toBe(
-      CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
-    );
-    expect(effective.balanced.provider_connection).toBe("vellum");
-    expect(effective[OS_BETA_PROFILE_KEY]).toBeUndefined();
+  test("the code catalog materializes a full body for every default profile", () => {
+    for (const key of [...DEFAULT_PROFILE_KEYS, OS_BETA_PROFILE_KEY]) {
+      const body = CODE_DEFAULT_PROFILE_ENTRIES[key];
+      expect(body).toBeDefined();
+      expect(typeof body.model).toBe("string");
+      expect(body.provider).toBeDefined();
+      expect(body.provider_connection).toBe("vellum");
+      expect(body.source).toBe("managed");
+    }
   });
 
-  test("overlays only workspace-owned fields on a managed-source entry", () => {
+  test("defaults absent from the workspace do not resolve (seeder still owns materialization)", () => {
+    expect(getEffectiveProfiles(undefined)).toEqual({});
+    expect(getEffectiveProfile({}, "balanced")).toBeUndefined();
+    expect(getEffectiveProfile({}, OS_BETA_PROFILE_KEY)).toBeUndefined();
+  });
+
+  test("a managed-source entry resolves to the code body with only label/status/topP from disk", () => {
     const workspace: Record<string, ProfileEntry> = {
       balanced: {
         source: "managed",
@@ -73,26 +87,18 @@ describe("getEffectiveProfiles", () => {
 
   test("custom profiles pass through untouched", () => {
     const workspace: Record<string, ProfileEntry> = {
+      ...managedStubs(),
       "my-custom": { provider: "anthropic", model: "claude-sonnet-4-6" },
     };
     const effective = getEffectiveProfiles(workspace);
     expect(effective["my-custom"]).toBe(workspace["my-custom"]);
-    expect(effective.balanced).toBeDefined();
-  });
-
-  test("os-beta resolves only while the workspace carries the reconciled entry", () => {
-    expect(getEffectiveProfile({}, OS_BETA_PROFILE_KEY)).toBeUndefined();
-    const workspace: Record<string, ProfileEntry> = {
-      [OS_BETA_PROFILE_KEY]: { source: "managed", status: "disabled" },
-    };
-    const entry = getEffectiveProfile(workspace, OS_BETA_PROFILE_KEY);
-    expect(entry?.status).toBe("disabled");
-    expect(entry?.model).toBe(
-      CODE_DEFAULT_PROFILE_ENTRIES[OS_BETA_PROFILE_KEY].model,
+    expect(effective.balanced.model).toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
     );
   });
 
   test("an injected catalog changes the effective view without any workspace change", () => {
+    const workspace = managedStubs();
     const stubCatalog: Record<string, ProfileEntry> = {
       balanced: {
         ...CODE_DEFAULT_PROFILE_ENTRIES.balanced,
@@ -100,19 +106,25 @@ describe("getEffectiveProfiles", () => {
         model: "claude-sonnet-4-6",
       },
     };
-    const before = getEffectiveProfiles({});
-    const after = getEffectiveProfiles({}, stubCatalog);
+    const before = getEffectiveProfiles(workspace);
+    const after = getEffectiveProfiles(workspace, stubCatalog);
     expect(before.balanced.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
     );
     expect(after.balanced.model).toBe("claude-sonnet-4-6");
-    expect(Object.keys(after)).toEqual(["balanced"]);
   });
 });
 
 describe("resolver integration", () => {
-  test("default profiles resolve from the catalog when the workspace carries no bodies", () => {
-    const llm = LLMSchema.parse({ activeProfile: "balanced" });
+  test("resolution serves default-profile content from the code catalog, not the workspace body", () => {
+    // The headline milestone test: with only thin managed stubs on disk (the
+    // PR2 end state), resolution comes entirely from the code catalog — so
+    // shipping a release with a new catalog body changes resolution with no
+    // workspace migration.
+    const llm = LLMSchema.parse({
+      activeProfile: "balanced",
+      profiles: managedStubs(),
+    });
     const resolved = resolveCallSiteConfig("mainAgent", llm);
     expect(resolved.model).toBe(
       CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
@@ -123,7 +135,7 @@ describe("resolver integration", () => {
     expect(resolved.provider_connection).toBe("vellum");
   });
 
-  test("resolution is identical whether or not the seeded bodies are in the workspace", () => {
+  test("thin managed stubs and fully seeded bodies resolve identically at every call site", () => {
     const seededProfiles = Object.fromEntries(
       Object.entries(CODE_DEFAULT_PROFILE_ENTRIES).filter(
         ([name]) => name !== OS_BETA_PROFILE_KEY,
@@ -133,9 +145,12 @@ describe("resolver integration", () => {
       activeProfile: "balanced",
       profiles: seededProfiles,
     });
-    const bare = LLMSchema.parse({ activeProfile: "balanced" });
+    const stubbed = LLMSchema.parse({
+      activeProfile: "balanced",
+      profiles: managedStubs(),
+    });
     for (const callSite of Object.keys(CALL_SITE_DEFAULTS)) {
-      expect(resolveCallSiteConfig(callSite as LLMCallSite, bare)).toEqual(
+      expect(resolveCallSiteConfig(callSite as LLMCallSite, stubbed)).toEqual(
         resolveCallSiteConfig(callSite as LLMCallSite, seeded),
       );
     }

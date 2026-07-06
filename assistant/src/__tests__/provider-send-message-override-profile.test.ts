@@ -213,9 +213,6 @@ describe("SendMessageOptions.config.overrideProfile", () => {
     setLlmConfig({
       default: { provider: "anthropic", model: "claude-opus-4-7" },
       profiles: {
-        // Disable the catalog default so mainAgent's base resolution lands on
-        // `llm.default` rather than the code catalog's `balanced`.
-        balanced: { source: "managed", status: "disabled" },
         fast: { provider: "anthropic", model: "claude-haiku-4-5-20251001" },
       },
     });

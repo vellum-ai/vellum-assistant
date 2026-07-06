@@ -356,8 +356,11 @@ const WORKSPACE_OWNED_DEFAULT_FIELDS = ["label", "status", "topP"] as const;
  * - A managed-source workspace entry contributes only its
  *   `WORKSPACE_OWNED_DEFAULT_FIELDS`; all other content comes from the code
  *   default body.
- * - `os-beta` is flag-gated: it resolves only while the flag reconcile has
- *   materialized a workspace entry for it.
+ * - A default absent from the workspace does not resolve: the seeder
+ *   materializes every default on boot (and the flag reconcile gates
+ *   `os-beta`), so absence means "not available here" — hatch windows,
+ *   flag-off, or pruned states. The ownership-flip follow-up removes the
+ *   seeding and switches absence to resolve from the catalog instead.
  */
 export function getEffectiveProfile(
   workspaceProfiles: Record<string, ProfileEntry> | undefined,
@@ -368,10 +371,7 @@ export function getEffectiveProfile(
 ): ProfileEntry | undefined {
   const workspace = workspaceProfiles?.[name];
   const body = catalogEntries[name];
-  if (body == null) return workspace;
-  if (workspace == null) {
-    return name === OS_BETA_PROFILE_KEY ? undefined : { ...body };
-  }
+  if (body == null || workspace == null) return workspace;
   if (workspace.source !== "managed") return workspace;
   const merged: ProfileEntry = { ...body };
   for (const field of WORKSPACE_OWNED_DEFAULT_FIELDS) {
