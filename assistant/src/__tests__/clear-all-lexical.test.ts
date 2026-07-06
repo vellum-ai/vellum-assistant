@@ -6,7 +6,7 @@
 // decoupled from the plugin); the memory plugin's impl calls
 // `clearMessagesLexicalIndex`. This asserts the full chain fires.
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, describe, expect, mock, spyOn, test } from "bun:test";
 
 import { makeMockLogger } from "./helpers/mock-logger.js";
 
@@ -35,21 +35,13 @@ mock.module("../persistence/job-handlers/message-lexical.js", () => ({
 
 import { clearAll } from "../persistence/conversation-crud.js";
 import { initializeDb } from "../persistence/db-init.js";
-import {
-  getMemoryPersistenceHooks,
-  registerMemoryPersistenceHooks,
-  resetMemoryPersistenceHooksForTests,
-  setMemoryPersistenceHooksForTests,
-} from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
+import { memoryPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks.js";
 
 await initializeDb();
 
 describe("clearAll bulk lexical index cleanup", () => {
   beforeEach(() => {
     clearCalls = 0;
-    // Register the real memory persistence hooks so `onAllConversationsCleared`
-    // routes to the plugin impl (which calls the spied clear helper).
-    registerMemoryPersistenceHooks();
   });
 
   test("clearAll fires onAllConversationsCleared, which clears the lexical index", async () => {
@@ -63,28 +55,19 @@ describe("clearAll bulk lexical index cleanup", () => {
     // Register a hook whose drop yields to the microtask queue before finishing;
     // if clearAll did not await, `dropCompleted` would still be false here.
     let dropCompleted = false;
-    setMemoryPersistenceHooksForTests({
-      ...getMemoryPersistenceHooks(),
-      async onAllConversationsCleared() {
-        await new Promise((r) => setTimeout(r, 10));
-        dropCompleted = true;
-      },
+    const dropSpy = spyOn(
+      memoryPersistenceHooks,
+      "onAllConversationsCleared",
+    ).mockImplementation(async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      dropCompleted = true;
     });
 
-    await clearAll();
-    expect(dropCompleted).toBe(true);
-
-    registerMemoryPersistenceHooks();
-  });
-
-  test("clearAll is a safe no-op when the memory hooks are not registered", async () => {
-    // Persistence must work with no memory present — the seam falls through to
-    // its no-op and clearAll does not touch the lexical index.
-    resetMemoryPersistenceHooksForTests();
-    clearCalls = 0;
-    await clearAll();
-    expect(clearCalls).toBe(0);
-    // Restore for any later test in the same process.
-    registerMemoryPersistenceHooks();
+    try {
+      await clearAll();
+      expect(dropCompleted).toBe(true);
+    } finally {
+      dropSpy.mockRestore();
+    }
   });
 });
