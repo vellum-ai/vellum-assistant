@@ -26,7 +26,7 @@ jobs:
   # still counts as the last release. Manual workflow_dispatch runs always
   # proceed: the operator explicitly asked for a build.
   #
-  # All root jobs (compute-version + the three ci-* jobs) gate on this job's
+  # All root jobs (compute-version + the ci-* jobs) gate on this job's
   # has_new_commits output so they never spin up runners on an idle run. The
   # job also calls `gh run cancel` so the run shows as cancelled rather than a
   # misleadingly-green wall of skipped jobs (and the notify jobs, which guard
@@ -1325,6 +1325,7 @@ jobs:
           # failure downstream of register-release still posts the changelog.
           RELEASE_RESULT: ${{ needs.register-release.result }}
           ELECTRON_RESULT: ${{ needs.build-electron.result }}
+          UPDATES_RESULT: ${{ needs.upload-electron-updates.result }}
           SPA_RESULT: ${{ needs.deploy-web-spa.result }}
         run: |
           set -euo pipefail
@@ -1430,10 +1431,13 @@ jobs:
           # Top-level blocks: header, "N commits since last dev release", buttons.
           # Commit list lives in an attachment so Slack auto-collapses it behind
           # a "show more" toggle (see Slack docs on attachments truncation).
-          # When the release registered but the Electron build or the web SPA
-          # deploy failed, swap the header emoji and append a warning so the
-          # notification surfaces the failure instead of looking fully green.
-          # The warnings are independent — either or both can fire.
+          # When the release registered but the Electron build, the Electron
+          # update feed upload, or the web SPA deploy did not succeed, swap the
+          # header emoji and append a warning so the notification surfaces the
+          # failure instead of looking fully green. The warnings are
+          # independent — any subset can fire (e.g. a build-electron failure
+          # also skips upload-electron-updates, so both of those warnings fire
+          # together, which is accurate).
           HEADER_EMOJI="🚀"
           if [ "${ELECTRON_RESULT}" != "success" ]; then
             HEADER_EMOJI="⚠️"
@@ -1444,9 +1448,16 @@ jobs:
             ELECTRON_WARNING=""
           fi
 
+          if [ "${UPDATES_RESULT}" != "success" ]; then
+            HEADER_EMOJI="⚠️"
+            UPDATES_WARNING=$(jq -n --arg result "$UPDATES_RESULT" '{ type: "section", text: { type: "mrkdwn", text: ("⚠️ *Electron update feed was not published* (result: " + $result + ") — the release registered but desktop clients will not auto-update to it. See the workflow run for details.") } }')
+          else
+            UPDATES_WARNING=""
+          fi
+
           if [ "${SPA_RESULT}" != "success" ]; then
             HEADER_EMOJI="⚠️"
-            SPA_WARNING=$(jq -n '{ type: "section", text: { type: "mrkdwn", text: "⚠️ *Web SPA deploy failed* — the release was published but the dev web UI was not updated. See the workflow run for details." } }')
+            SPA_WARNING=$(jq -n --arg result "$SPA_RESULT" '{ type: "section", text: { type: "mrkdwn", text: ("⚠️ *Web SPA was not deployed* (result: " + $result + ") — the release was published but the dev web UI was not updated. See the workflow run for details.") } }')
           else
             SPA_WARNING=""
           fi
@@ -1468,6 +1479,10 @@ jobs:
 
           if [ -n "$ELECTRON_WARNING" ]; then
             BLOCKS=$(echo "$BLOCKS" | jq --argjson warn "$ELECTRON_WARNING" '. += [$warn]')
+          fi
+
+          if [ -n "$UPDATES_WARNING" ]; then
+            BLOCKS=$(echo "$BLOCKS" | jq --argjson warn "$UPDATES_WARNING" '. += [$warn]')
           fi
 
           if [ -n "$SPA_WARNING" ]; then
