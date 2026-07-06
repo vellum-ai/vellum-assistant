@@ -22,15 +22,23 @@ import { cleanup, fireEvent, render } from "@testing-library/react";
 import type { LiveVoiceSessionState } from "@/domains/chat/voice/live-voice/live-voice-store";
 
 let mockVoiceMode = false;
+let mockHandsFree = false;
 mock.module("@/stores/assistant-feature-flag-store", () => ({
   useAssistantFeatureFlagStore: {
     use: {
       voiceMode: () => mockVoiceMode,
+      voiceModeHandsFree: () => mockHandsFree,
     },
   },
 }));
 
-const startSpy = mock(async (_assistantId: string, _conversationId?: string) => {});
+const startSpy = mock(
+  async (
+    _assistantId: string,
+    _conversationId?: string,
+    _options?: { handsFree?: boolean },
+  ) => {},
+);
 const stopSpy = mock(async () => {});
 let mockState: LiveVoiceSessionState = "idle";
 let mockInputAmplitude = 0;
@@ -54,6 +62,7 @@ const { LiveVoiceButton } = await import(
 
 beforeEach(() => {
   mockVoiceMode = false;
+  mockHandsFree = false;
   mockState = "idle";
   mockInputAmplitude = 0;
   startSpy.mockClear();
@@ -101,10 +110,40 @@ describe("LiveVoiceButton", () => {
     // WHEN the user clicks it
     fireEvent.click(getByLabelText("Start voice mode"));
 
-    // THEN it starts a live-voice session for the assistant + conversation
+    // THEN it starts a live-voice session for the assistant + conversation,
+    // in legacy push-to-talk mode while the hands-free flag is off
     expect(startSpy).toHaveBeenCalledTimes(1);
-    expect(startSpy).toHaveBeenCalledWith("a1", "c1");
+    expect(startSpy).toHaveBeenCalledWith("a1", "c1", { handsFree: false });
     expect(stopSpy).not.toHaveBeenCalled();
+  });
+
+  test("starts a hands-free session when the hands-free flag is on", () => {
+    // GIVEN both voice-mode and voice-mode-hands-free are enabled
+    mockVoiceMode = true;
+    mockHandsFree = true;
+    mockState = "idle";
+    const { getByLabelText } = render(
+      <LiveVoiceButton assistantId="a1" conversationId="c1" />,
+    );
+
+    // WHEN the user clicks it
+    fireEvent.click(getByLabelText("Start voice mode"));
+
+    // THEN the session starts in hands-free mode (same toggle UX otherwise)
+    expect(startSpy).toHaveBeenCalledTimes(1);
+    expect(startSpy).toHaveBeenCalledWith("a1", "c1", { handsFree: true });
+  });
+
+  test("hands-free flag does not change gating: voice-mode off still renders nothing", () => {
+    // GIVEN hands-free is on but the voice-mode gate is off
+    mockVoiceMode = false;
+    mockHandsFree = true;
+
+    // WHEN the button renders
+    const { container } = render(<LiveVoiceButton assistantId="a1" />);
+
+    // THEN nothing is painted — gating stays on voice-mode alone
+    expect(container.firstChild).toBeNull();
   });
 
   test("stops the session on click when active", () => {

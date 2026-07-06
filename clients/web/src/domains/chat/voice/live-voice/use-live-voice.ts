@@ -12,41 +12,58 @@
  * controller instance drives at most one session at a time; `start()` while a
  * session is live is a no-op.
  *
- * ## Single-utterance sessions
- * A live-voice session handles exactly one utterance → one response. The runtime
- * (and the macOS reference) treat `ptt_release` as terminal: once released, the
- * session never re-accepts audio (sending more yields `invalid_audio_payload`).
- * So this controller does NOT keep one socket open across turns — after the
- * assistant finishes speaking it ends the session (→ idle), and the user starts
- * a fresh one for the next turn. Barge-in is the one case that reconnects
- * automatically (see below).
+ * ## Session modes
+ * A session runs in one of two modes, chosen at `start()`:
  *
- * ## State transitions (one session = one turn)
- * `idle → connecting` (start) → `listening` (ready + capture started) →
- * `transcribing` (ptt released) → `thinking` (server response) → `speaking`
- * (tts_audio) → `idle` (tts_done drained → session ended). The mic keeps
- * capturing for the whole session; `stop()`, teardown, an error, a server
- * `archived`/`closed`, or end-of-response returns to `idle`/`failed`.
+ * **Manual (push-to-talk, default)** — exactly one utterance → one response.
+ * The runtime (and the macOS reference) treat `ptt_release` as terminal: once
+ * released, the session never re-accepts audio (sending more yields
+ * `invalid_audio_payload`). So this controller does NOT keep one socket open
+ * across turns — after the assistant finishes speaking it ends the session
+ * (→ idle), and the user starts a fresh one for the next turn. Barge-in is the
+ * one case that reconnects automatically (see below).
+ *
+ * **Hands-free (`handsFree` start option, gated on the `voice-mode-hands-free`
+ * flag)** — the session connects with `turnDetection: "server_vad"` and runs
+ * many turns on one socket. Mic audio is forwarded for the entire session
+ * (full duplex; echo cancellation is requested on capture) and the *server*
+ * owns utterance boundaries and barge-in: `speech_started` flushes local TTS
+ * playback and opens the next utterance, `utterance_end` marks transcription,
+ * and `turn_cancelled` drops a barged-in turn's playback. The client-local
+ * silence auto-release and amplitude barge-in below are disabled in this mode.
+ * The session ends only on user toggle-off, `busy`, `error`, or socket close.
+ *
+ * ## State transitions
+ * Manual (one session = one turn): `idle → connecting` (start) → `listening`
+ * (ready + capture started) → `transcribing` (ptt released) → `thinking`
+ * (server response) → `speaking` (tts_audio) → `idle` (tts_done drained →
+ * session ended). Hands-free cycles instead of ending: `speaking` →
+ * (tts_done drained) → `listening` → `transcribing` (utterance_end) → … .
+ * The mic keeps capturing for the whole session; `stop()`, teardown, an error,
+ * a server `archived`/`closed`, or (manual) end-of-response returns to
+ * `idle`/`failed`.
  *
  * ## Mic forwarding
  * The mic capture graph runs for the entire active session so amplitude keeps
  * flowing for barge-in even while the assistant is thinking/speaking. Audio
- * *forwarding* (`session.forwardingAudio`) is gated to the user's turn: captured
- * PCM is streamed only while forwarding is on. Push-to-talk release flips
- * forwarding off (without stopping the mic); it is not re-opened within a
- * session (the session is single-utterance — see above).
+ * *forwarding* (`session.forwardingAudio`) is gated to the user's turn in
+ * manual mode: captured PCM is streamed only while forwarding is on.
+ * Push-to-talk release flips forwarding off (without stopping the mic); it is
+ * not re-opened within a manual session (single-utterance — see above). In
+ * hands-free mode forwarding stays on for the whole session.
  *
- * ## Barge-in
+ * ## Barge-in (manual mode)
  * While `speaking`, a captured amplitude over {@link BARGE_IN_AMPLITUDE_THRESHOLD}
  * stops playback, sends `interrupt` (once per response), and ends the session
  * (→ idle) — the interrupted session is terminal on the runtime, so the user
  * starts a fresh session to respond. (Seamless reconnect-on-barge-in is a
- * follow-up.)
+ * follow-up.) In hands-free mode the server detects barge-in instead.
  *
- * ## Automatic push-to-talk release
+ * ## Automatic push-to-talk release (manual mode)
  * While `listening`, sustained speech (≥ {@link MINIMUM_SPEECH_DURATION_BEFORE_RELEASE_MS})
  * followed by {@link SILENCE_DURATION_BEFORE_RELEASE_MS} of silence releases
- * push-to-talk and moves to `transcribing` (mic stays open).
+ * push-to-talk and moves to `transcribing` (mic stays open). In hands-free
+ * mode the server VAD owns utterance boundaries.
  */
 
 import { useCallback, useEffect, useRef } from "react";
@@ -102,9 +119,23 @@ export interface UseLiveVoiceResult {
   /** Failure message when `state === "failed"`, else `null`. */
   error: string | null;
   /** Start a session for `assistantId`, optionally attaching a conversation. */
-  start: (assistantId: string, conversationId?: string) => Promise<void>;
+  start: (
+    assistantId: string,
+    conversationId?: string,
+    options?: LiveVoiceStartOptions,
+  ) => Promise<void>;
   /** End the session and release the mic, socket, and audio context. */
   stop: () => Promise<void>;
+}
+
+/** Per-session options for {@link UseLiveVoiceResult.start}. */
+export interface LiveVoiceStartOptions {
+  /**
+   * Hands-free mode: connect with server-side turn detection (`server_vad`),
+   * forward mic audio for the whole session, and run multiple turns on one
+   * socket. Defaults to the legacy per-turn push-to-talk flow.
+   */
+  handsFree?: boolean;
 }
 
 /** Injectable factories so tests can supply mock primitives. */
@@ -128,20 +159,32 @@ interface SessionContext {
   unsubscribes: Array<() => void>;
   /** Monotonic id; a stale callback whose generation differs is ignored. */
   generation: number;
+  /**
+   * Hands-free (server-VAD) session: forwarding stays on for the whole session,
+   * the server owns utterance boundaries/barge-in, and `tts_done` cycles back
+   * to `listening` instead of tearing down.
+   */
+  handsFree: boolean;
   /** Whether the mic capture graph is running (open for the whole session). */
   captureRunning: boolean;
   /**
-   * Whether captured PCM is currently streamed to the server. On while the user
-   * is speaking (`listening`); turned off after an automatic push-to-talk
-   * release. A live-voice session is single-utterance (the runtime treats
-   * `ptt_release` as terminal — it never re-accepts audio), so forwarding is not
-   * re-opened within a session: the session ends after the response, and a fresh
-   * session is started for the next turn. Amplitude keeps flowing regardless so
-   * barge-in works while not forwarding.
+   * Whether captured PCM is currently streamed to the server. In hands-free
+   * mode it stays on for the entire session (full duplex). In manual mode it is
+   * on while the user is speaking (`listening`) and turned off after an
+   * automatic push-to-talk release; a manual session is single-utterance (the
+   * runtime treats `ptt_release` as terminal — it never re-accepts audio), so
+   * forwarding is not re-opened within a session: the session ends after the
+   * response, and a fresh session is started for the next turn. Amplitude keeps
+   * flowing regardless so barge-in works while not forwarding.
    */
   forwardingAudio: boolean;
   /** Whether the assistant has sent any TTS audio for the current response. */
   responseAudioStarted: boolean;
+  /**
+   * Monotonic counter bumped on every transition into `thinking` (server
+   * frame, or hands-free stt-final); identifies which response owns the state.
+   */
+  responseEpoch: number;
   /** Whether an interrupt was already sent for the current response. */
   interruptSent: boolean;
   /** Whether an automatic ptt_release is already in flight for this utterance. */
@@ -227,7 +270,11 @@ export function useLiveVoice(
   }, []);
 
   const start = useCallback(
-    async (assistantId: string, conversationId?: string) => {
+    async (
+      assistantId: string,
+      conversationId?: string,
+      startOptions?: LiveVoiceStartOptions,
+    ) => {
       const current = sessionRef.current;
       // A live session (anything but idle/failed) blocks a new start.
       const phase = useLiveVoiceStore.getState().state;
@@ -248,9 +295,11 @@ export function useLiveVoice(
         player,
         unsubscribes: [],
         generation: 0,
+        handsFree: startOptions?.handsFree === true,
         captureRunning: false,
         forwardingAudio: false,
         responseAudioStarted: false,
+        responseEpoch: 0,
         interruptSent: false,
         releaseInFlight: false,
         speechMs: 0,
@@ -273,26 +322,57 @@ export function useLiveVoice(
           if (!live()) return;
           void startCapture(session, teardown);
         }),
+        client.on("speechStarted", () => {
+          if (!live() || !session.handsFree) return;
+          // Server VAD heard the user: flush tail playback unconditionally
+          // (even mid-`thinking`, when no cancellation follows) and open the
+          // next utterance.
+          useLiveVoiceStore.getState().clearUserTranscripts();
+          flushPlaybackToListening(session);
+        }),
+        client.on("utteranceEnd", () => {
+          if (!live() || !session.handsFree) return;
+          // Server VAD closed the utterance; its transcription is finishing.
+          useLiveVoiceStore.getState().setState("transcribing");
+        }),
         client.on("sttPartial", (frame) => {
           if (!live()) return;
           const s = useLiveVoiceStore.getState();
           s.setPartialTranscript(frame.text);
-          // Only while still forwarding (the user's turn) does a partial keep
-          // us in `listening`; after ptt-release we're transcribing/thinking.
-          if (session.forwardingAudio) s.setState("listening");
+          // Manual mode: only while still forwarding (the user's turn) does a
+          // partial keep us in `listening`; after ptt-release we're
+          // transcribing/thinking. Hands-free transitions are frame-driven
+          // (`speech_started`/`utterance_end`), so partials never move state.
+          if (!session.handsFree && session.forwardingAudio) {
+            s.setState("listening");
+          }
         }),
         client.on("sttFinal", (frame) => {
           if (!live()) return;
           const s = useLiveVoiceStore.getState();
           s.setFinalTranscript(frame.text);
           s.setPartialTranscript("");
-          // Forwarding ⇒ the user is still speaking (stay listening); otherwise
-          // ptt was released and the server is about to think.
-          s.setState(session.forwardingAudio ? "listening" : "thinking");
+          // Hands-free: `utterance_end` already closed the utterance, so a
+          // final means the server is about to think. Manual mode: forwarding ⇒
+          // the user is still speaking (stay listening); otherwise ptt was
+          // released and the server is about to think.
+          if (!session.handsFree && session.forwardingAudio) {
+            s.setState("listening");
+            return;
+          }
+          if (session.handsFree) {
+            // The next turn now owns the state: a prior turn's drain waiter
+            // must not reset it to `listening` if it resolves before the
+            // server's `thinking` frame (which re-bumps; the guard only
+            // checks inequality, so the double bump is harmless).
+            session.responseEpoch += 1;
+          }
+          s.setState("thinking");
         }),
         client.on("thinking", () => {
           if (!live()) return;
           // New response: reset the per-response transcript and barge-in flags.
+          session.responseEpoch += 1;
           session.responseAudioStarted = false;
           session.interruptSent = false;
           const s = useLiveVoiceStore.getState();
@@ -323,6 +403,11 @@ export function useLiveVoice(
           if (!live()) return;
           void finishResponseAfterPlayback(session, teardown);
         }),
+        client.on("turnCancelled", () => {
+          if (!live() || !session.handsFree) return;
+          // Barge-in aborted the turn; no tts_done follows a cancelled turn.
+          flushPlaybackToListening(session);
+        }),
         client.on("archived", () => {
           if (!live()) return;
           // Persisted; nothing user-visible to do here.
@@ -344,7 +429,11 @@ export function useLiveVoice(
         }),
       );
 
-      await client.connect({ assistantId, conversationId });
+      await client.connect({
+        assistantId,
+        conversationId,
+        ...(session.handsFree ? { turnDetection: "server_vad" as const } : {}),
+      });
     },
     [teardown],
   );
@@ -396,20 +485,26 @@ async function startCapture(
  * Forward a captured PCM chunk to the server and drive silence detection.
  *
  * The mic stays open across the whole session, but PCM is only streamed while
- * `forwardingAudio` is on (i.e. during the user's turn). Silence detection runs
- * on the same gate so auto-release only fires while we are actually forwarding.
+ * `forwardingAudio` is on (always, in hands-free mode; during the user's turn
+ * in manual mode). Client-local silence detection is manual-mode only — in
+ * hands-free the server VAD owns utterance boundaries.
  */
 function handleChunk(session: SessionContext, buf: ArrayBuffer): void {
   if (!session.captureRunning || !session.forwardingAudio) return;
   session.client.sendAudio(buf);
-  updateAutomaticRelease(session, buf);
+  if (!session.handsFree) {
+    updateAutomaticRelease(session, buf);
+  }
 }
 
 /**
  * Apply the latest amplitude to the store and run barge-in detection.
  *
  * Runs whenever the mic is open — including while not forwarding — so a loud
- * amplitude can interrupt the assistant mid-response (barge-in).
+ * amplitude can interrupt the assistant mid-response (barge-in). Amplitude
+ * barge-in is manual-mode only: in hands-free the server VAD detects speech
+ * over the forwarded audio and drives barge-in via `speech_started` /
+ * `turn_cancelled`.
  */
 function handleAmplitude(
   session: SessionContext,
@@ -418,7 +513,7 @@ function handleAmplitude(
 ): void {
   if (!session.captureRunning) return;
   useLiveVoiceStore.getState().setInputAmplitude(amplitude);
-  if (amplitude >= BARGE_IN_AMPLITUDE_THRESHOLD) {
+  if (!session.handsFree && amplitude >= BARGE_IN_AMPLITUDE_THRESHOLD) {
     interruptIfSpeaking(session, teardown);
   }
 }
@@ -496,12 +591,31 @@ function beginAssistantAudioIfNeeded(session: SessionContext): void {
 }
 
 /**
- * After `tts_done`, await playback drain, then end the session (→ idle).
+ * Hands-free: flush local TTS playback immediately, drop expectations for the
+ * in-flight response, and keep the session live in `listening`.
+ */
+function flushPlaybackToListening(session: SessionContext): void {
+  session.player.stop();
+  session.responseAudioStarted = false;
+  useLiveVoiceStore.getState().setState("listening");
+}
+
+/**
+ * After `tts_done`, await playback drain, then finish the turn.
  *
- * A live-voice session is single-utterance: once `ptt_release` fires the runtime
- * won't accept more audio on it, so we don't resume listening on the same
- * socket — we tear the session down and the user starts a fresh one for the next
- * turn (mirrors the macOS `closeCompletedUtteranceSessionAfterPlayback`).
+ * Hands-free: the session is multi-turn, so the turn's end is not the
+ * session's — forwarding stays on and the session returns to `listening` on
+ * the same socket. A `speech_started`/`turn_cancelled` during the drain
+ * already flushed playback and moved the state onward, so only a
+ * still-completing turn (`speaking`, or `thinking` when the turn produced no
+ * audio) cycles back to `listening`. A *newer* turn's `thinking` arriving
+ * mid-drain bumps `responseEpoch`; that turn owns the state, so the post-drain
+ * transition is skipped rather than clobbering it back to `listening`.
+ *
+ * Manual mode: the session is single-utterance — once `ptt_release` fires the
+ * runtime won't accept more audio on it, so we don't resume listening on the
+ * same socket — we tear the session down and the user starts a fresh one for
+ * the next turn (mirrors the macOS `closeCompletedUtteranceSessionAfterPlayback`).
  * Forwarding is suspended during the drain so playback audio captured by the
  * (still-open) mic isn't streamed back. A barge-in during the drain already
  * tore this session down and reconnected (generation bumped / state no longer
@@ -512,14 +626,27 @@ async function finishResponseAfterPlayback(
   teardown: () => void,
 ): Promise<void> {
   const generation = session.generation;
+  const responseEpoch = session.responseEpoch;
   session.responseAudioStarted = false;
-  session.forwardingAudio = false;
+  if (!session.handsFree) {
+    session.forwardingAudio = false;
+  }
 
   await session.player.waitUntilDrained();
   if (session.generation !== generation) return;
 
+  const state = useLiveVoiceStore.getState().state;
+  if (session.handsFree) {
+    // A newer turn started while audio drained; leave its state alone.
+    if (session.responseEpoch !== responseEpoch) return;
+    if (state === "speaking" || state === "thinking") {
+      useLiveVoiceStore.getState().setState("listening");
+    }
+    return;
+  }
+
   // A barge-in mid-drain already reconnected a fresh session; don't tear it down.
-  if (useLiveVoiceStore.getState().state !== "speaking") return;
+  if (state !== "speaking") return;
   teardown();
 }
 

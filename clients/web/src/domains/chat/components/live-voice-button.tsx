@@ -5,7 +5,9 @@
  * that one records a single utterance and drops a transcript into the composer,
  * while this one opens a full-duplex live-voice session via {@link useLiveVoice}
  * (mic streaming + TTS playback + barge-in). The button is gated behind the
- * `voice-mode` assistant flag and renders nothing when the flag is off.
+ * `voice-mode` assistant flag and renders nothing when the flag is off. When
+ * the `voice-mode-hands-free` flag is also on, sessions run hands-free
+ * (server-side turn detection, multi-turn); otherwise per-turn push-to-talk.
  *
  * Appearance reflects the {@link useLiveVoice} session phase:
  *   - `idle`/`failed`     → mic icon, click to start
@@ -40,6 +42,9 @@ export function LiveVoiceButton({
   disabled = false,
 }: LiveVoiceButtonProps) {
   const voiceMode = useAssistantFeatureFlagStore.use.voiceMode();
+  // Hands-free (server turn detection) rides on top of voice-mode: it changes
+  // how a session runs, never whether the button shows.
+  const handsFree = useAssistantFeatureFlagStore.use.voiceModeHandsFree();
   const { state, inputAmplitude, start, stop } = useLiveVoice();
 
   const connecting = state === "connecting";
@@ -58,9 +63,9 @@ export function LiveVoiceButton({
     } else {
       // Only the start path honours the external `disabled` prop.
       if (disabled) return;
-      void start(assistantId, conversationId);
+      void start(assistantId, conversationId, { handsFree });
     }
-  }, [active, connecting, disabled, start, stop, assistantId, conversationId]);
+  }, [active, connecting, disabled, start, stop, assistantId, conversationId, handsFree]);
 
   if (!voiceMode) return null;
 

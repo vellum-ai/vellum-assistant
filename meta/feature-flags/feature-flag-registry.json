@@ -171,6 +171,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "voice-mode-hands-free",
+      "scope": "assistant",
+      "key": "voice-mode-hands-free",
+      "label": "Voice Mode: Hands-Free",
+      "description": "Server-side turn detection and barge-in for live voice — continuous conversation without push-to-talk",
+      "defaultEnabled": false
+    },
+    {
       "id": "fast-mode",
       "scope": "assistant",
       "key": "fast-mode",
