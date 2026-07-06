@@ -26,7 +26,7 @@ jobs:
   # still counts as the last release. Manual workflow_dispatch runs always
   # proceed: the operator explicitly asked for a build.
   #
-  # All root jobs (compute-version + the three ci-* jobs) gate on this job's
+  # All root jobs (compute-version + the ci-* jobs) gate on this job's
   # has_new_commits output so they never spin up runners on an idle run. The
   # job also calls `gh run cancel` so the run shows as cancelled rather than a
   # misleadingly-green wall of skipped jobs (and the notify jobs, which guard
@@ -249,6 +249,38 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
         working-directory: cli
+
+  ci-web:
+    needs: [check-for-new-commits]
+    if: ${{ needs.check-for-new-commits.outputs.has_new_commits == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile --filter=@vellumai/web
+        working-directory: clients/web
+
+      - name: Generate API clients
+        run: bun run openapi-ts
+        working-directory: clients/web
+
+      - name: Lint
+        run: bun run lint
+        working-directory: clients/web
+
+      - name: Typecheck
+        run: bun run typecheck
+        working-directory: clients/web
+
+      - name: Test
+        run: bun run test:ci
+        working-directory: clients/web
 
   # ── Docker Images ──────────────────────────────────────────────────────
 
@@ -748,6 +780,23 @@ jobs:
           path: /tmp/manifest-digest/*
           retention-days: 1
 
+  # ── Web SPA (dev bucket) ─────────────────────────────────────────────
+  # The platform SPA ships to the dev GCS bucket with every dev release,
+  # not on merge to main; staging/production deploys live in release.yml.
+  # Gated on register-release so the dev bucket only updates when the dev
+  # backend release actually registered with the platform — if register-release
+  # fails or is skipped, this job is skipped too.
+  deploy-web-spa:
+    name: Deploy Web SPA (dev)
+    needs: [ci-web, register-release]
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/deploy-platform-web-spa.yaml
+    with:
+      environment: dev
+    secrets: inherit
+
   publish-production-preview-image-tags:
     needs: [compute-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest]
     if: ${{ always() && !cancelled() && github.ref_name == 'main' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' }}
@@ -1218,7 +1267,7 @@ jobs:
   # SLACK_RELEASES_WEBHOOK_URL (releases). The job no-ops if the secret is unset.
 
   notify-dev-release:
-    needs: [compute-version, register-release, register-preview-release, build-electron, upload-electron-updates]
+    needs: [compute-version, register-release, register-preview-release, build-electron, upload-electron-updates, deploy-web-spa]
     # Run on success and failure alike, but not when the run was cancelled
     # (e.g. superseded by a newer hourly run via cancel-in-progress) — a
     # cancelled run is not a real failure and should not alert the channel.
@@ -1251,6 +1300,8 @@ jobs:
           # failure downstream of register-release still posts the changelog.
           RELEASE_RESULT: ${{ needs.register-release.result }}
           ELECTRON_RESULT: ${{ needs.build-electron.result }}
+          UPDATES_RESULT: ${{ needs.upload-electron-updates.result }}
+          SPA_RESULT: ${{ needs.deploy-web-spa.result }}
         run: |
           set -euo pipefail
 
@@ -1355,17 +1406,35 @@ jobs:
           # Top-level blocks: header, "N commits since last dev release", buttons.
           # Commit list lives in an attachment so Slack auto-collapses it behind
           # a "show more" toggle (see Slack docs on attachments truncation).
-          # When the release registered but the Electron build failed,
-          # swap the header emoji and append a warning so the notification
-          # surfaces the failure instead of looking fully green.
+          # When the release registered but the Electron build, the Electron
+          # update feed upload, or the web SPA deploy did not succeed, swap the
+          # header emoji and append a warning so the notification surfaces the
+          # failure instead of looking fully green. The warnings are
+          # independent — any subset can fire (e.g. a build-electron failure
+          # also skips upload-electron-updates, so both of those warnings fire
+          # together, which is accurate).
+          HEADER_EMOJI="🚀"
           if [ "${ELECTRON_RESULT}" != "success" ]; then
             HEADER_EMOJI="⚠️"
             # Build with jq so the value is real JSON — --argjson rejects
             # jq-program syntax like unquoted object keys.
             ELECTRON_WARNING=$(jq -n '{ type: "section", text: { type: "mrkdwn", text: "⚠️ *Electron build failed* — the release was published but the desktop app was not built. See the workflow run for details." } }')
           else
-            HEADER_EMOJI="🚀"
             ELECTRON_WARNING=""
+          fi
+
+          if [ "${UPDATES_RESULT}" != "success" ]; then
+            HEADER_EMOJI="⚠️"
+            UPDATES_WARNING=$(jq -n --arg result "$UPDATES_RESULT" '{ type: "section", text: { type: "mrkdwn", text: ("⚠️ *Electron update feed was not published* (result: " + $result + ") — the release registered but desktop clients will not auto-update to it. See the workflow run for details.") } }')
+          else
+            UPDATES_WARNING=""
+          fi
+
+          if [ "${SPA_RESULT}" != "success" ]; then
+            HEADER_EMOJI="⚠️"
+            SPA_WARNING=$(jq -n --arg result "$SPA_RESULT" '{ type: "section", text: { type: "mrkdwn", text: ("⚠️ *Web SPA was not deployed* (result: " + $result + ") — the release was published but the dev web UI was not updated. See the workflow run for details.") } }')
+          else
+            SPA_WARNING=""
           fi
 
           BLOCKS=$(jq -n \
@@ -1385,6 +1454,14 @@ jobs:
 
           if [ -n "$ELECTRON_WARNING" ]; then
             BLOCKS=$(echo "$BLOCKS" | jq --argjson warn "$ELECTRON_WARNING" '. += [$warn]')
+          fi
+
+          if [ -n "$UPDATES_WARNING" ]; then
+            BLOCKS=$(echo "$BLOCKS" | jq --argjson warn "$UPDATES_WARNING" '. += [$warn]')
+          fi
+
+          if [ -n "$SPA_WARNING" ]; then
+            BLOCKS=$(echo "$BLOCKS" | jq --argjson warn "$SPA_WARNING" '. += [$warn]')
           fi
 
           # Attachment blocks: the actual commit list, chunked into sections to
@@ -1957,7 +2034,7 @@ jobs:
           npm publish /tmp/npm-dist/package.tgz --tag dev --access public --no-provenance
 
   build-web-dev:
-    needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, ci-web]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
