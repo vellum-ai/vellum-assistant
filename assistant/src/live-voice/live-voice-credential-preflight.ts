@@ -18,8 +18,8 @@ import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.j
 import {
   resolveBatchTranscriber,
   resolveStreamingTranscriber,
+  sttProviderKeyResolves,
 } from "../providers/speech-to-text/resolve.js";
-import { getProviderKeyAsync } from "../security/secure-keys.js";
 import type { SttProviderId } from "../stt/types.js";
 import type { TtsProviderCatalogEntry } from "../tts/provider-catalog.js";
 import { getCatalogProvider, getTtsProvider } from "../tts/provider-catalog.js";
@@ -117,8 +117,7 @@ async function resolveSttGap(): Promise<GapWithClause | null> {
     };
   }
 
-  const apiKey = await getProviderKeyAsync(entry.credentialProvider);
-  if (!apiKey) {
+  if (!(await sttProviderKeyResolves(entry.credentialProvider))) {
     return {
       gap: {
         kind: "stt",
