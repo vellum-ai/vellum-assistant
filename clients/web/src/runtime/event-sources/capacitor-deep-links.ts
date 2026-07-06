@@ -14,8 +14,9 @@ import {
  * completion event-driven instead of relying only on the
  * `browserFinished` poll fallback in `runtime/browser.ts` (which stays
  * in place as a safety net). Any other URL publishes
- * `deeplink.unknown { url }` on the bus — future URL kinds
- * (conversation universal links, quick actions) branch here.
+ * `deeplink.unknown { url }` on the bus (query/fragment stripped) —
+ * future URL kinds (conversation universal links, quick actions)
+ * branch here.
  *
  * Off Capacitor iOS the function is a no-op — Electron deep links flow
  * through `publishElectronDeepLinksSource` instead.
@@ -37,5 +38,18 @@ function handleUrl(url: string): void {
     );
     return;
   }
-  publish("deeplink.unknown", { url });
+  // A malformed OAuth-complete URL can carry one-time auth codes in its
+  // query/fragment — strip both so they never reach telemetry breadcrumbs.
+  publish("deeplink.unknown", { url: sanitizeUnknownUrl(url) });
+}
+
+function sanitizeUnknownUrl(url: string): string {
+  try {
+    const parsed = new URL(url);
+    parsed.search = "";
+    parsed.hash = "";
+    return parsed.toString();
+  } catch {
+    return url.split(/[?#]/, 1)[0];
+  }
 }

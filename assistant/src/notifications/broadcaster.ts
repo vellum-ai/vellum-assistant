@@ -311,6 +311,15 @@ export class NotificationBroadcaster {
           channel,
         );
         if (existingDelivery) {
+          // On retry paths the vellum row already exists, so the fresh-pairing
+          // carry below never runs — seed the platform deep-link carry from
+          // the duplicate row's conversation instead.
+          if (channel === "vellum" && existingDelivery.conversationId) {
+            vellumPairing = {
+              conversationId: existingDelivery.conversationId,
+              messageId: existingDelivery.messageId,
+            };
+          }
           log.info(
             {
               channel,

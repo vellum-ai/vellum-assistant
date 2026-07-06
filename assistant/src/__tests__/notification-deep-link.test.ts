@@ -37,11 +37,23 @@ mock.module("../notifications/destination-resolver.js", () => ({
   },
 }));
 
-// Mock deliveries-store to avoid DB access
+// Mock deliveries-store to avoid DB access. Existing deliveries are
+// configurable per channel so duplicate-delivery retry paths can be driven;
+// the default (no rows) leaves every channel on the fresh-delivery path.
+let existingDeliveriesByChannel: Record<
+  string,
+  {
+    id: string;
+    conversationId: string | null;
+    messageId: string | null;
+    conversationStrategy: string | null;
+  }
+> = {};
 mock.module("../notifications/deliveries-store.js", () => ({
   createDelivery: () => {},
   updateDeliveryStatus: () => {},
-  findDeliveryByDecisionAndChannel: () => undefined,
+  findDeliveryByDecisionAndChannel: (_decisionId: string, channel: string) =>
+    existingDeliveriesByChannel[channel],
 }));
 
 // Mock conversation-crud so the broadcaster's source-context fallback lookup
@@ -169,6 +181,7 @@ describe("notification deep-link metadata", () => {
     nextPairingResult = null;
     pairingResultsByChannel = {};
     mockExistingConversations = {};
+    existingDeliveriesByChannel = {};
   });
 
   describe("VellumAdapter", () => {
@@ -933,6 +946,65 @@ describe("notification deep-link metadata", () => {
       expect(platformAdapter.sent).toHaveLength(1);
       expect(platformAdapter.sent[0].deepLinkTarget?.conversationId).toBe(
         "conv-approval-thread",
+      );
+    });
+
+    test("platform deep link carries the conversation from a duplicate vellum delivery on retry", async () => {
+      const vellumAdapter = new MockAdapter("vellum");
+      const platformAdapter = new MockAdapter("platform");
+      const broadcaster = new NotificationBroadcaster([
+        vellumAdapter,
+        platformAdapter,
+      ]);
+
+      // Persisted-decision retry: the vellum delivery row already exists
+      // (with the paired conversation), so the vellum channel skips as a
+      // duplicate before any fresh pairing runs.
+      existingDeliveriesByChannel = {
+        vellum: {
+          id: "delivery-vellum-existing",
+          conversationId: "conv-from-existing-row",
+          messageId: "msg-from-existing-row",
+          conversationStrategy: "start_new_conversation",
+        },
+      };
+      pairingResultsByChannel = {
+        platform: {
+          conversationId: null,
+          messageId: null,
+          strategy: "push_only",
+          createdNewConversation: false,
+          conversationFallbackUsed: false,
+        },
+      };
+
+      // Sentinel source context (access-req-*) that resolves to no
+      // conversation, so the duplicate-row carry is the only viable source.
+      const signal = makeSignal({ sourceContextId: "access-req-retry-456" });
+      const decision = makeDecision({
+        persistedDecisionId: "decision-retry-001",
+        selectedChannels: ["platform", "vellum"],
+        renderedCopy: {
+          vellum: { title: "Approval needed", body: "Allow file access?" },
+          platform: { title: "Approval needed", body: "Allow file access?" },
+        },
+      });
+
+      const results = await broadcaster.broadcastDecision(signal, decision);
+
+      // Vellum duplicate is skipped without re-sending.
+      expect(vellumAdapter.sent).toHaveLength(0);
+      const vellumResult = results.find((r) => r.channel === "vellum");
+      expect(vellumResult?.status).toBe("skipped");
+      expect(vellumResult?.conversationId).toBe("conv-from-existing-row");
+
+      // Platform still delivers, carrying the existing row's conversation.
+      expect(platformAdapter.sent).toHaveLength(1);
+      expect(platformAdapter.sent[0].deepLinkTarget?.conversationId).toBe(
+        "conv-from-existing-row",
+      );
+      expect(platformAdapter.sent[0].deepLinkTarget?.messageId).toBe(
+        "msg-from-existing-row",
       );
     });
 

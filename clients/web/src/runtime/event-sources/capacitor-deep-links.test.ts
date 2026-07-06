@@ -101,11 +101,49 @@ describe("publishCapacitorDeepLinksSource", () => {
       publishCapacitorDeepLinksSource();
       await flushMicrotasks();
 
-      urlOpenHandler!({ url: "vellum-assistant://some-future-link?x=1" });
+      urlOpenHandler!({ url: "vellum-assistant://some-future-link" });
 
       expect(received).toEqual([
-        { url: "vellum-assistant://some-future-link?x=1" },
+        { url: "vellum-assistant://some-future-link" },
       ]);
+    } finally {
+      unsubscribeBus();
+    }
+  });
+
+  test("strips the query and fragment from unknown URLs before publishing (auth codes must not reach telemetry)", async () => {
+    const received: { url: string }[] = [];
+    const unsubscribeBus = subscribe("deeplink.unknown", (payload) => {
+      received.push(payload);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushMicrotasks();
+
+      urlOpenHandler!({
+        url: "vellum-assistant://oauth-done/path?oauth_code=secret-code&x=1#frag-token",
+      });
+
+      expect(received).toEqual([{ url: "vellum-assistant://oauth-done/path" }]);
+    } finally {
+      unsubscribeBus();
+    }
+  });
+
+  test("truncates unparseable unknown URLs at the first ? or #", async () => {
+    const received: { url: string }[] = [];
+    const unsubscribeBus = subscribe("deeplink.unknown", (payload) => {
+      received.push(payload);
+    });
+
+    try {
+      publishCapacitorDeepLinksSource();
+      await flushMicrotasks();
+
+      urlOpenHandler!({ url: "::not-a-parseable-url?oauth_code=secret" });
+
+      expect(received).toEqual([{ url: "::not-a-parseable-url" }]);
     } finally {
       unsubscribeBus();
     }
