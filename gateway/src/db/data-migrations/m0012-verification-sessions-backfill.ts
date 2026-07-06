@@ -5,7 +5,13 @@
  * Sessions: the gateway `channel_verification_sessions` table starts
  * genuinely empty (m0011's retired mirror never had inserts), so this is a
  * straight copy — `INSERT OR IGNORE` by id gives idempotency on retry and
- * keeps in-flight sessions alive across an upgrade boot.
+ * keeps in-flight sessions alive across an upgrade boot. One exception: if
+ * the gateway already holds an interceptable non-expired session for a
+ * channel (minted post-upgrade, before this migration ran — its
+ * revoke-prior pass could not see the assistant rows), an interceptable
+ * non-expired assistant row for that channel backfills as `revoked` so the
+ * "only the latest session is valid" invariant holds. Terminal-status and
+ * expired rows copy as-is (pure history).
  *
  * Rate limits: the gateway `channel_guardian_rate_limits` copy is already
  * primary, so assistant rows are inserted only where no gateway row exists —
@@ -27,6 +33,13 @@ import { assistantDbQuery } from "../assistant-db-proxy.js";
 import type { MigrationResult } from "./index.js";
 
 const log = getLogger("m0012-verification-sessions-backfill");
+
+// Mirrors INTERCEPTABLE_STATUSES in session-store.ts (migrations stay self-contained).
+const INTERCEPTABLE_STATUSES = [
+  "pending",
+  "pending_bootstrap",
+  "awaiting_response",
+];
 
 function getRawGatewayDb(): Database {
   return (getGatewayDb() as unknown as { $client: Database }).$client;
@@ -130,16 +143,37 @@ export async function up(): Promise<MigrationResult> {
     );
 
     let sessionsInserted = 0;
+    let sessionsRevoked = 0;
     let rateLimitsInserted = 0;
 
     const txn = gwDb.transaction(() => {
+      // Snapshot channels holding a fresher (post-upgrade) gateway session
+      // before inserting, so backfilled rows never shadow one another.
+      const now = Date.now();
+      const supersededChannels = new Set(
+        (
+          gwDb
+            .prepare(
+              `SELECT DISTINCT channel FROM channel_verification_sessions
+                WHERE status IN ('pending', 'pending_bootstrap', 'awaiting_response')
+                  AND expires_at > ?`,
+            )
+            .all(now) as { channel: string }[]
+        ).map((r) => r.channel),
+      );
+
       for (const row of sessionRows) {
-        sessionsInserted += insertSession.run(
+        const superseded =
+          INTERCEPTABLE_STATUSES.includes(row.status) &&
+          row.expires_at > now &&
+          supersededChannels.has(row.channel);
+
+        const changes = insertSession.run(
           row.id,
           row.channel,
           row.challenge_hash,
           row.expires_at,
-          row.status,
+          superseded ? "revoked" : row.status,
           row.source_conversation_id,
           row.consumed_by_external_user_id,
           row.consumed_by_chat_id,
@@ -158,6 +192,8 @@ export async function up(): Promise<MigrationResult> {
           row.created_at,
           row.updated_at,
         ).changes;
+        sessionsInserted += changes;
+        if (superseded && changes > 0) sessionsRevoked += 1;
       }
 
       for (const row of rateLimitRows) {
@@ -179,6 +215,7 @@ export async function up(): Promise<MigrationResult> {
       {
         sessions: sessionRows.length,
         sessionsInserted,
+        sessionsRevoked,
         rateLimits: rateLimitRows.length,
         rateLimitsInserted,
       },
