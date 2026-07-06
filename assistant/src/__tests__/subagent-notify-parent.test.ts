@@ -49,14 +49,22 @@ mock.module("../daemon/conversation-registry.js", () => ({
   }),
 }));
 
+// notifyParentFromChild resolves the child → parent relation and lifecycle
+// status from the durable subagent record, not the live manager — so tests
+// seed records into this map rather than poking the manager's internals.
+const records = new Map<string, SubagentRecord>();
+mock.module("../persistence/subagent-store.js", () => ({
+  getSubagentRecordByConversationId: (conversationId: string) =>
+    records.get(conversationId),
+}));
+
 mock.module("../runtime/assistant-event-hub.js", () => ({
   broadcastMessage: () => {},
 }));
 
 import { isToolActiveForContext } from "../daemon/conversation-tool-setup.js";
-import { getSubagentManager } from "../subagent/index.js";
-import { SubagentManager } from "../subagent/manager.js";
-import type { SubagentState } from "../subagent/types.js";
+import type { SubagentRecord } from "../persistence/subagent-store.js";
+import { notifyParentFromChild } from "../subagent/notify.js";
 import {
   executeSubagentNotifyParent,
   notifyParentTool,
@@ -65,61 +73,33 @@ import {
 // ── Shared helpers ──────────────────────────────────────────────────
 
 /**
- * Inject a fake subagent into the singleton manager so tool executors
- * can find it. Uses the same private-internals trick as the other tests.
+ * Seed a durable subagent record so `notifyParentFromChild` (and the
+ * `notify_parent` tool) resolve `conversationId` to a subagent. Defaults to a
+ * running general subagent; pass overrides for status, label, fork, etc.
  */
-function injectSubagent(
-  manager: SubagentManager,
-  subagentId: string,
-  parentConversationId: string,
-  status: SubagentState["status"] = "running",
-  overrides: Partial<SubagentState> = {},
-): SubagentState {
-  const internals = manager as unknown as {
-    subagents: Map<
-      string,
-      {
-        conversation: unknown;
-        state: SubagentState;
-        parentSendToClient: () => void;
-      }
-    >;
-    parentToChildren: Map<string, Set<string>>;
-  };
-  const state: SubagentState = {
-    config: {
-      id: subagentId,
-      parentConversationId,
-      label: "Test",
-      objective: "test",
-    },
-    status,
-    conversationId: `conv-${subagentId}`,
+function seedSubagent(
+  conversationId: string,
+  overrides: Partial<SubagentRecord> = {},
+): void {
+  records.set(conversationId, {
+    id: `sub-${conversationId}`,
+    parentConversationId: `parent-${conversationId}`,
+    conversationId,
+    label: "Test",
+    objective: "test",
+    role: "general",
     isFork: false,
-    createdAt: Date.now(),
-    usage: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
+    sendResultToUser: null,
+    status: "running",
+    error: null,
+    createdAt: 0,
+    startedAt: null,
+    completedAt: null,
+    inputTokens: 0,
+    outputTokens: 0,
+    estimatedCost: 0,
     ...overrides,
-  };
-  const fakeConversation = {
-    abort: () => {},
-    dispose: () => {},
-    messages: [],
-    sendToClient: () => {},
-    usageStats: { inputTokens: 0, outputTokens: 0, estimatedCost: 0 },
-    enqueueMessage: () => ({ queued: false }),
-    persistUserMessage: async () => ({ id: "msg-1", deduplicated: false }),
-    runAgentLoop: async () => {},
-  };
-  internals.subagents.set(subagentId, {
-    conversation: fakeConversation,
-    state,
-    parentSendToClient: () => {},
   });
-  if (!internals.parentToChildren.has(parentConversationId)) {
-    internals.parentToChildren.set(parentConversationId, new Set());
-  }
-  internals.parentToChildren.get(parentConversationId)!.add(subagentId);
-  return state;
 }
 
 function makeContext(
@@ -209,14 +189,12 @@ describe("executeSubagentNotifyParent", () => {
 
   test("succeeds when called from a subagent conversation", async () => {
     clearCaptured();
-    const manager = getSubagentManager();
-    const subagentId = "notify-sub-1";
-    const parentConversationId = "notify-parent-1";
-    injectSubagent(manager, subagentId, parentConversationId, "running");
+    const conversationId = "conv-notify-sub-1";
+    seedSubagent(conversationId);
 
     const result = await executeSubagentNotifyParent(
       { message: "Found key results", urgency: "important" },
-      makeContext(`conv-${subagentId}`),
+      makeContext(conversationId),
     );
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content);
@@ -227,21 +205,15 @@ describe("executeSubagentNotifyParent", () => {
 
   test("formats message with label and urgency", async () => {
     clearCaptured();
-    const manager = getSubagentManager();
-    const subagentId = "notify-format-1";
-    const parentConversationId = "notify-format-parent";
-    injectSubagent(manager, subagentId, parentConversationId, "running", {
-      config: {
-        id: subagentId,
-        parentConversationId,
-        label: "Research Task",
-        objective: "research",
-      },
+    const conversationId = "conv-notify-format-1";
+    seedSubagent(conversationId, {
+      label: "Research Task",
+      objective: "research",
     });
 
     await executeSubagentNotifyParent(
       { message: "Preliminary findings ready", urgency: "info" },
-      makeContext(`conv-${subagentId}`),
+      makeContext(conversationId),
     );
     expect(lastCapturedMessage()).toBe(
       '[Subagent "Research Task" — info] Preliminary findings ready',
@@ -267,14 +239,12 @@ describe("executeSubagentNotifyParent", () => {
   });
 
   test("defaults urgency to info when not provided", async () => {
-    const manager = getSubagentManager();
-    const subagentId = "notify-default-urg-1";
-    const parentConversationId = "notify-default-urg-parent";
-    injectSubagent(manager, subagentId, parentConversationId, "running");
+    const conversationId = "conv-notify-default-urg-1";
+    seedSubagent(conversationId);
 
     const result = await executeSubagentNotifyParent(
       { message: "Progress update" },
-      makeContext(`conv-${subagentId}`),
+      makeContext(conversationId),
     );
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content);
@@ -283,14 +253,12 @@ describe("executeSubagentNotifyParent", () => {
 
   test("appends guidance hint for blocked urgency", async () => {
     clearCaptured();
-    const manager = getSubagentManager();
-    const subagentId = "notify-blocked-1";
-    const parentConversationId = "notify-blocked-parent";
-    injectSubagent(manager, subagentId, parentConversationId, "running");
+    const conversationId = "conv-notify-blocked-1";
+    seedSubagent(conversationId);
 
     await executeSubagentNotifyParent(
       { message: "Need API key to proceed", urgency: "blocked" },
-      makeContext(`conv-${subagentId}`),
+      makeContext(conversationId),
     );
     expect(lastCapturedMessage()).toContain("Need API key to proceed");
     expect(lastCapturedMessage()).toContain(
@@ -299,68 +267,42 @@ describe("executeSubagentNotifyParent", () => {
   });
 });
 
-// ── Manager-level tests ────────────────────────────────────────────
+// ── notifyParentFromChild ──────────────────────────────────────────
 
-describe("SubagentManager.notifyParent", () => {
+describe("notifyParentFromChild", () => {
+  test("returns false when the conversation is not a subagent", () => {
+    expect(notifyParentFromChild("unknown-conversation", "hi", "info")).toBe(
+      false,
+    );
+  });
+
   test("returns false for terminal subagents", () => {
-    const manager = getSubagentManager();
-
-    for (const terminalStatus of ["completed", "failed", "aborted"] as const) {
-      const subagentId = `notify-terminal-${terminalStatus}`;
-      const parentConversationId = `notify-terminal-parent-${terminalStatus}`;
-      injectSubagent(manager, subagentId, parentConversationId, terminalStatus);
-
-      const result = manager.notifyParent(
-        `conv-${subagentId}`,
-        "Should not arrive",
-        "info",
-      );
-      expect(result).toBe(false);
+    for (const status of ["completed", "failed", "aborted"] as const) {
+      const conversationId = `conv-terminal-${status}`;
+      seedSubagent(conversationId, { status });
+      expect(
+        notifyParentFromChild(conversationId, "Should not arrive", "info"),
+      ).toBe(false);
     }
   });
 
-  test("returns true for running subagent (injects into parent via findConversation)", () => {
+  test("returns true for a running subagent and injects into the parent", () => {
     clearCaptured();
-    const manager = getSubagentManager();
-    const subagentId = "notify-running-1";
-    const parentConversationId = "notify-running-parent";
-    injectSubagent(manager, subagentId, parentConversationId, "running");
+    const conversationId = "conv-running-1";
+    seedSubagent(conversationId);
 
-    const result = manager.notifyParent(
-      `conv-${subagentId}`,
-      "Test message",
-      "info",
+    expect(notifyParentFromChild(conversationId, "Test message", "info")).toBe(
+      true,
     );
-    expect(result).toBe(true);
     expect(lastCapturedMessage()).toContain("Test message");
   });
-});
 
-describe("SubagentManager.getParentInfo", () => {
-  test("returns undefined for unknown conversationIds", () => {
-    const manager = getSubagentManager();
-    const result = manager.getParentInfo("nonexistent-conversation-id");
-    expect(result).toBeUndefined();
-  });
+  test("labels forks as Fork", () => {
+    clearCaptured();
+    const conversationId = "conv-fork-1";
+    seedSubagent(conversationId, { isFork: true, label: "Explore" });
 
-  test("returns parent info for known subagent conversationId", () => {
-    const manager = getSubagentManager();
-    const subagentId = "parent-info-sub-1";
-    const parentConversationId = "parent-info-parent-1";
-    injectSubagent(manager, subagentId, parentConversationId, "running", {
-      config: {
-        id: subagentId,
-        parentConversationId,
-        label: "Info Lookup",
-        objective: "look things up",
-      },
-    });
-
-    const info = manager.getParentInfo(`conv-${subagentId}`);
-    expect(info).toBeDefined();
-    expect(info!.parentConversationId).toBe(parentConversationId);
-    expect(info!.subagentId).toBe(subagentId);
-    expect(info!.label).toBe("Info Lookup");
-    expect(typeof info!.parentSendToClient).toBe("function");
+    notifyParentFromChild(conversationId, "branch result", "info");
+    expect(lastCapturedMessage()).toBe('[Fork "Explore" — info] branch result');
   });
 });
