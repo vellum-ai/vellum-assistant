@@ -43,10 +43,15 @@ export const LIVE_VOICE_AUDIO_FORMAT: LiveVoiceAudioConfig = {
   channels: 1,
 };
 
+const _LIVE_VOICE_SESSION_MODES = ["ptt", "open-mic"] as const;
+
+export type LiveVoiceSessionMode = (typeof _LIVE_VOICE_SESSION_MODES)[number];
+
 export interface LiveVoiceClientStartFrame {
   readonly type: "start";
   readonly conversationId?: string;
   readonly audio: LiveVoiceAudioConfig;
+  readonly mode?: LiveVoiceSessionMode;
 }
 
 export interface LiveVoiceClientPttReleaseFrame {
@@ -76,6 +81,8 @@ const LIVE_VOICE_SERVER_FRAME_TYPES = [
   "busy",
   "stt_partial",
   "stt_final",
+  "turn_boundary",
+  "interrupted",
   "thinking",
   "assistant_text_delta",
   "tts_audio",
@@ -111,6 +118,24 @@ export interface LiveVoiceSttPartialServerFrame extends LiveVoiceServerFrameBase
 export interface LiveVoiceSttFinalServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "stt_final";
   readonly text: string;
+}
+
+/**
+ * Server-detected end of user speech; the assistant turn is starting.
+ * Emitted in both modes: in PTT it follows `ptt_release`/final transcript,
+ * in open-mic it is the primary turn signal.
+ */
+export interface LiveVoiceTurnBoundaryServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "turn_boundary";
+}
+
+/**
+ * Barge-in (server-VAD or client `interrupt` frame) was accepted for the
+ * given assistant turn; playback must flush and the session keeps listening.
+ */
+export interface LiveVoiceInterruptedServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "interrupted";
+  readonly turnId: string;
 }
 
 export interface LiveVoiceThinkingServerFrame extends LiveVoiceServerFrameBase {
@@ -170,6 +195,8 @@ export type LiveVoiceServerFrame =
   | LiveVoiceBusyServerFrame
   | LiveVoiceSttPartialServerFrame
   | LiveVoiceSttFinalServerFrame
+  | LiveVoiceTurnBoundaryServerFrame
+  | LiveVoiceInterruptedServerFrame
   | LiveVoiceThinkingServerFrame
   | LiveVoiceAssistantTextDeltaServerFrame
   | LiveVoiceTtsAudioServerFrame

@@ -11,6 +11,8 @@ describe("parseServerFrame", () => {
     { type: "busy", seq: 2, activeSessionId: "s9" },
     { type: "stt_partial", seq: 3, text: "hel" },
     { type: "stt_final", seq: 4, text: "hello" },
+    { type: "turn_boundary", seq: 12 },
+    { type: "interrupted", seq: 13, turnId: "t1" },
     { type: "thinking", seq: 5, turnId: "t1" },
     { type: "assistant_text_delta", seq: 6, text: "hi" },
     {
