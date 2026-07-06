@@ -11,7 +11,12 @@
 import { createStreamingEntry } from "../calls/audio-store.js";
 import { loadConfig } from "../config/loader.js";
 import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
-import type { TtsProvider, TtsSynthesisRequest, TtsUseCase } from "./types.js";
+import type {
+  TtsProvider,
+  TtsSynthesisRequest,
+  TtsSynthesisResult,
+  TtsUseCase,
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // synthesizeAndEmit
@@ -113,7 +118,8 @@ export async function synthesizeAndEmit(
     // stream resolves, so no rejection sits unhandled mid-stream.
     let pendingEmits: Promise<void> = Promise.resolve();
     let sinkFailure: { err: unknown } | undefined;
-    const result = await provider.synthesizeStream(request, (chunk) => {
+    let result: TtsSynthesisResult;
+    const streamed = provider.synthesizeStream(request, (chunk) => {
       if (chunk.byteLength === 0) {
         return;
       }
@@ -144,6 +150,16 @@ export async function synthesizeAndEmit(
           stopped = true;
         });
     });
+    try {
+      result = await streamed;
+    } catch (err) {
+      // Provider failure: gate off queued emits and drain the chain (it
+      // never rejects) so no sink call runs after the caller starts error
+      // handling, then surface the provider error.
+      stopped = true;
+      await pendingEmits;
+      throw err;
+    }
     await pendingEmits;
     if (sinkFailure) {
       throw sinkFailure.err;

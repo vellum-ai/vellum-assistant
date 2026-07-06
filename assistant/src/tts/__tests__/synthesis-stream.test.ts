@@ -345,6 +345,63 @@ describe("synthesizeAndEmit (streaming)", () => {
     ).rejects.toThrow("provider exploded");
   });
 
+  test("provider rejection drains in-flight sink work before rethrowing", async () => {
+    const events: string[] = [];
+    let releaseSink: () => void = () => {};
+    const sinkGate = new Promise<void>((resolve) => {
+      releaseSink = resolve;
+    });
+    const provider: TtsProvider = {
+      id: "fake-rejecting-stream",
+      capabilities: CAPABILITIES,
+      synthesize: () => Promise.reject(new Error("unused")),
+      async synthesizeStream(_request, onChunk): Promise<TtsSynthesisResult> {
+        onChunk(bytes("a"));
+        // Yield so the sink starts on "a", then queue "b" behind it and fail.
+        await Promise.resolve();
+        onChunk(bytes("b"));
+        throw new Error("provider exploded");
+      },
+    };
+
+    const settled = synthesizeAndEmit({
+      provider,
+      text: "hello",
+      useCase: "phone-call",
+      onFirstAudio: () => events.push("firstAudio"),
+      async onChunk(chunk) {
+        const label = chunk.audio.toString("utf8");
+        events.push(`chunk:${label}:start`);
+        await sinkGate;
+        events.push(`chunk:${label}:end`);
+      },
+    }).then(
+      () => {
+        events.push("resolved");
+        return undefined;
+      },
+      (err: unknown) => {
+        events.push("rejected");
+        return err;
+      },
+    );
+
+    // The sink is still blocked on "a" when the provider rejects; the
+    // rejection must wait for the drain instead of settling early.
+    setTimeout(releaseSink, 5);
+    const err = await settled;
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toBe("provider exploded");
+    // "b" never reaches the sink, and the rejection settles only after the
+    // in-flight sink call completes — nothing fires after error handling.
+    expect(events).toEqual([
+      "firstAudio",
+      "chunk:a:start",
+      "chunk:a:end",
+      "rejected",
+    ]);
+  });
+
   test("passes text/useCase/voiceId/outputFormat/signal through on the request", async () => {
     const provider = makeStreamingProvider([bytes("a")]);
     const abortController = new AbortController();
