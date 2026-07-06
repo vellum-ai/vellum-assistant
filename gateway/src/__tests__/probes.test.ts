@@ -22,6 +22,7 @@ const { handler: handleTelegramWebhook } = createTelegramWebhookHandler(config);
 
 let draining = false;
 let postAssistantReadyComplete = true;
+let assistantMigrating = false;
 
 async function handleRequest(req: Request): Promise<Response> {
   const url = new URL(req.url);
@@ -35,10 +36,22 @@ async function handleRequest(req: Request): Promise<Response> {
       return Response.json({ status: "draining" }, { status: 503 });
     }
     // Mirrors gateway/src/index.ts: while post-assistant-ready work is
-    // incomplete the status code stays 200 (pod in service) but the body
-    // reports ready:false so body-aware CLI waits keep waiting.
+    // incomplete, a still-migrating assistant keeps the pod in service
+    // (200, truthful ready:false body), but an assistant-ready gateway
+    // that is only waiting on its own backfills reports 503 "starting"
+    // so the orchestrator doesn't route traffic into the closed gate.
     if (!postAssistantReadyComplete) {
-      return Response.json({ status: "starting", ready: false });
+      if (assistantMigrating) {
+        return Response.json({
+          status: "migrating",
+          ready: false,
+          dbMigrations: { ready: false, state: "running" },
+        });
+      }
+      return Response.json(
+        { status: "starting", ready: false },
+        { status: 503 },
+      );
     }
     return Response.json({ status: "ok", ready: true });
   }
@@ -110,15 +123,34 @@ describe("/readyz", () => {
     }
   });
 
-  test("returns 200 with ready:false while post-assistant-ready startup work is incomplete", async () => {
+  test("returns 200 with ready:false while the assistant is still migrating", async () => {
+    postAssistantReadyComplete = false;
+    assistantMigrating = true;
+    try {
+      const res = await handleRequest(
+        new Request("http://gateway.test/readyz"),
+      );
+      // 200 keeps the pod in service during minutes-long migrations; the
+      // truthful body tells body-aware CLI waits the stack can't serve them.
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.status).toBe("migrating");
+      expect(body.ready).toBe(false);
+    } finally {
+      postAssistantReadyComplete = true;
+      assistantMigrating = false;
+    }
+  });
+
+  test("returns 503 when the assistant is ready but gateway startup work is incomplete", async () => {
     postAssistantReadyComplete = false;
     try {
       const res = await handleRequest(
         new Request("http://gateway.test/readyz"),
       );
-      // 200 keeps the pod in service; the body tells body-aware CLI waits
-      // the stack cannot serve them yet.
-      expect(res.status).toBe(200);
+      // Seconds-long window: every route 503s "starting", so the pod must
+      // not advertise ready and CLI waits must keep waiting.
+      expect(res.status).toBe(503);
       const body = await res.json();
       expect(body.status).toBe("starting");
       expect(body.ready).toBe(false);

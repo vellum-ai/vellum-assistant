@@ -1778,16 +1778,20 @@ async function main() {
       // The assistant's readiness body (`ready`, `dbMigrations`) is forwarded
       // so programmatic callers — the upgrade/hatch CLI waits in particular —
       // can distinguish "still migrating" (200, ready:false) from "ready" and
-      // detect terminally failed migrations. The orchestrator contract is the
-      // status code alone: 200 while migrating (keep the pod in service), 503
-      // only on failure.
+      // detect terminally failed migrations.
       //
-      // While the gateway's own post-assistant-ready work is still running
-      // (postAssistantReadyComplete false — every non-probe route 503s
-      // "starting"), the body reports ready:false even when the assistant is
-      // ready: body-aware CLI waits must not declare the stack ready while
-      // the gateway cannot serve them (upgrade would commit early; hatch
-      // would burn its guardian-lease budget against the closed gate).
+      // Status-code contract while the gateway's own post-assistant-ready
+      // work is incomplete (every non-probe route 503s "starting"):
+      // - Assistant still migrating (ready:false body): 200. Migrations can
+      //   take minutes and the orchestrator must keep the pod in service —
+      //   the forwarded ready:false body already keeps body-aware CLI waits
+      //   waiting.
+      // - Assistant ready, gateway backfills still running: 503 "starting".
+      //   This window is seconds long, and reporting ready here would let
+      //   the orchestrator route traffic — and CLI waits declare the stack
+      //   ready — while every route still 503s (upgrade would commit early;
+      //   hatch would burn its guardian-lease budget against the closed
+      //   gate).
       try {
         const upstream = await fetch(
           `${config.assistantRuntimeBaseUrl}/readyz`,
@@ -1807,11 +1811,13 @@ async function main() {
           );
         }
         if (!postAssistantReadyComplete) {
-          return Response.json({
-            ...(upstreamBody ?? {}),
-            status: "starting",
-            ready: false,
-          });
+          if (upstreamBody?.ready === false) {
+            return Response.json(upstreamBody);
+          }
+          return Response.json(
+            { ...(upstreamBody ?? {}), status: "starting", ready: false },
+            { status: 503 },
+          );
         }
         return Response.json(upstreamBody ?? { status: "ok" });
       } catch {

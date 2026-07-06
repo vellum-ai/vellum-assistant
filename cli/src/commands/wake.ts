@@ -12,7 +12,10 @@ import {
   resetGuardianBootstrap,
   seedGuardianTokenFromSiblingEnv,
 } from "../lib/guardian-token.js";
-import { waitForDaemonMigrationsReady } from "../lib/http-client.js";
+import {
+  probeDaemonReadiness,
+  waitForDaemonMigrationsReady,
+} from "../lib/http-client.js";
 import {
   isProcessAlive,
   resolveProcessState,
@@ -208,6 +211,13 @@ export async function wake(): Promise<void> {
       startCes(watch, resources),
       startLocalDaemon(watch, resources, { foreground, signingKey }),
     ]);
+    // startLocalDaemon's post-spawn wait is bounded (60s) — a longer
+    // migration outlives it. Classify the fresh spawn the same way the
+    // attach path does, so the gateway-coordination wait below applies to
+    // both paths and wake's closing summary stays honest.
+    const readiness = await probeDaemonReadiness(resources.daemonPort);
+    daemonUnready = readiness === "migrating";
+    daemonMigrationsFailed = readiness === "failed";
   } else {
     // Self-heal: the daemon is already healthy, but the CES sibling may have
     // died independently (crash, OOM kill). A dead ces.pid under a live daemon
