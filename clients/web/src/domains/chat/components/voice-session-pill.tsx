@@ -1,6 +1,6 @@
 /**
  * Title-bar pill for an active live-voice session (Light 54's right cluster).
- * Presentational — the host (PR 7) owns store wiring and visibility rules.
+ * Presentational — the mounting host owns store wiring and visibility rules.
  *
  * Layout, left → right: two-line context label (primary action text over the
  * owning thread's name), circular stop control (only while the assistant is
