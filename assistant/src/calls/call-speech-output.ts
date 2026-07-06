@@ -17,9 +17,9 @@
 
 import { getCatalogProvider, getTtsProvider } from "../tts/provider-catalog.js";
 import {
+  type AudioStoreSink,
   createAudioStoreSink,
   synthesizeAndEmit,
-  type AudioStoreSink,
 } from "../tts/synthesis-stream.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
