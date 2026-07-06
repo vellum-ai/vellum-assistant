@@ -361,6 +361,9 @@ function ProfileEditorModalInner({
 
   function handleProviderChange(newProvider: ConnectionProvider) {
     if (newProvider === provider) return;
+    // vellum is a connection type, not a selectable profile LLM provider — it's
+    // filtered out of the picker; this narrows ConnectionProvider to LlmProvider.
+    if (newProvider === "vellum") return;
     setProvider(newProvider);
     setModel("");
     // Auto-select connection: if exactly one connection exists for the new
@@ -457,6 +460,9 @@ function ProfileEditorModalInner({
         ? prev
         : [...prev, connection],
     );
+    // The create form can't produce a vellum connection; guard narrows the
+    // ConnectionProvider to the LlmProvider that setProvider accepts.
+    if (connection.provider === "vellum") return;
     setProvider(connection.provider);
     setProviderConnection(connection.name);
     setModel("");

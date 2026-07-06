@@ -8,10 +8,15 @@ import type { ConnectionProvider } from "@/generated/daemon/types.gen";
 
 const LOCAL_ONLY_PROVIDERS = new Set<string>(["ollama"]);
 
+// vellum is a managed connection type, not a profile LLM provider — it has no
+// entry in LlmProvider, so it can't back a profile's `provider` field.
+const CONNECTION_ONLY_PROVIDERS = new Set<string>(["vellum"]);
+
 export function isProviderSelectableForAssistant(
   provider: string,
   activeAssistantIsSelfHosted: boolean,
 ): boolean {
+  if (CONNECTION_ONLY_PROVIDERS.has(provider)) return false;
   return !LOCAL_ONLY_PROVIDERS.has(provider) || activeAssistantIsSelfHosted;
 }
 
