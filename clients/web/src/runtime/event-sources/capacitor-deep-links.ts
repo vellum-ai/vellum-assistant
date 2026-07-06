@@ -1,8 +1,5 @@
-import { captureError } from "@/lib/sentry/capture-error";
-import type { PluginListenerHandle } from "@capacitor/core";
-
 import { publish } from "@/lib/event-bus";
-import { isNativePlatform } from "@/runtime/native-auth";
+import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
 import {
   OAUTH_COMPLETE_DEEP_LINK_EVENT,
   parseOAuthCompleteDeepLink,
@@ -20,40 +17,19 @@ import {
  * `deeplink.unknown { url }` on the bus — future URL kinds
  * (conversation universal links, quick actions) branch here.
  *
- * Off Capacitor iOS the function is a no-op (`isNativePlatform()`
- * returns false) — Electron deep links flow through
- * `publishElectronDeepLinksSource` instead.
+ * Off Capacitor iOS the function is a no-op — Electron deep links flow
+ * through `publishElectronDeepLinksSource` instead.
  *
- * The `@capacitor/app` plugin import is lazy (per CAPACITOR.md's
- * "lazy-import rule"), and the sync return + internal `cancelled` flag
- * covers unsubscribing before the import resolves — both mirror
- * `publishCapacitorAppStateSource`.
+ * `subscribeCapacitorListener` owns the platform guard, the
+ * unsubscribe-before-import-resolves race, and failure reporting; the
+ * `@capacitor/app` import stays lazy and inline here per CAPACITOR.md's
+ * "lazy-import rule".
  */
 export function publishCapacitorDeepLinksSource(): () => void {
-  if (!isNativePlatform()) return () => undefined;
-
-  let handle: PluginListenerHandle | null = null;
-  let cancelled = false;
-
-  import("@capacitor/app")
-    .then(({ App }) =>
-      App.addListener("appUrlOpen", ({ url }) => handleUrl(url)),
-    )
-    .then((registered) => {
-      if (cancelled) {
-        void registered.remove();
-        return;
-      }
-      handle = registered;
-    })
-    .catch((err) => {
-      captureError(err, { context: "capacitor_deep_links", level: "warning" });
-    });
-
-  return () => {
-    cancelled = true;
-    void handle?.remove();
-  };
+  return subscribeCapacitorListener("capacitor_deep_links", async () => {
+    const { App } = await import("@capacitor/app");
+    return App.addListener("appUrlOpen", ({ url }) => handleUrl(url));
+  });
 }
 
 function handleUrl(url: string): void {
