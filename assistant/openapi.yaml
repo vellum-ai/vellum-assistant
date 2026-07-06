@@ -13810,9 +13810,8 @@ paths:
       operationId: inference_providerconnections_by_name_delete
       summary: Delete a provider connection
       description:
-        Delete a provider connection. Fails with 400 for managed connections (anthropic-managed, openai-managed,
-        gemini-managed) which are re-seeded on boot. Fails with 409 if any profile or call-site references the
-        connection.
+        Delete a provider connection. Fails with 400 for the Vellum-managed connection (vellum) which is re-seeded
+        on boot. Fails with 409 if any profile or call-site references the connection.
       tags:
         - inference
       parameters:
@@ -13866,8 +13865,8 @@ paths:
       operationId: inference_providerconnections_by_name_patch
       summary: Update a provider connection
       description:
-        Update an existing connection. Cannot rename or change the provider. For managed connections
-        (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label remains editable.
+        Update an existing connection. Cannot rename or change the provider. For the Vellum-managed connection
+        (vellum) the auth is locked to platform; label remains editable.
       tags:
         - inference
       parameters:

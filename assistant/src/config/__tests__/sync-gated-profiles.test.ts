@@ -110,7 +110,7 @@ describe("reconcileFlagGatedProfiles", () => {
     const raw = readConfig();
     const osBeta = raw.llm.profiles["os-beta"]!;
     expect(osBeta.model).toBe("MiniMaxAI/MiniMax-M3");
-    expect(osBeta.provider_connection).toBe("together-managed");
+    expect(osBeta.provider_connection).toBe("vellum");
     expect(osBeta.provider).toBe("together");
     expect(osBeta.source).toBe("managed");
     expect(osBeta.label).toBe("OS Beta");
@@ -164,7 +164,7 @@ describe("reconcileFlagGatedProfiles", () => {
     expect(after.status).toBe("disabled");
     expect(after.topP).toBe(0.8);
     expect(after.model).toBe("MiniMaxAI/MiniMax-M3");
-    expect(after.provider_connection).toBe("together-managed");
+    expect(after.provider_connection).toBe("vellum");
     expect(after.effort).toBe("low");
   });
 

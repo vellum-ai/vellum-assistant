@@ -117,8 +117,7 @@ export const ProviderConnectionSchema = z
     createdAt: z.number().int(),
     updatedAt: z.number().int(),
     /**
-     * Whether this row is a Vellum-managed connection (`anthropic-managed`,
-     * `openai-managed`, `gemini-managed`). Derived from
+     * Whether this row is the Vellum-managed connection (`vellum`). Derived from
      * `MANAGED_CONNECTION_NAMES` in `connections.ts` at serialize time; the
      * DB column does not exist. Clients use this to render the read-only
      * "Vellum" badge + view-only editor and to disable the delete affordance
