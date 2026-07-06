@@ -153,7 +153,9 @@ export function resolveConversationAttribution(
 export function getEffectiveEnabledPluginSet(conv: {
   enabledPlugins?: string[] | null;
 }): Set<string> | null {
-  if (conv.enabledPlugins == null) return null;
+  if (conv.enabledPlugins == null) {
+    return null;
+  }
   // Rule 1: the conversation's explicit selections always apply.
   const effective = new Set(conv.enabledPlugins);
   // Rules 2 + 3: add a default the conversation did not already decide, unless
@@ -759,6 +761,72 @@ export function isToolActiveForContext(
     return ctx.isSubagent === true;
   }
   return true;
+}
+
+/**
+ * System-prompt notice injected when a conversation exposes no tools on the
+ * wire (see {@link isToollessConversationSurface}). The default system prompt
+ * describes an assistant that delegates work and calls tools; without this
+ * override a tool-less turn will emit raw tool-call syntax as plain text or
+ * claim to have run a command it never could. Kept short and
+ * provider-agnostic.
+ */
+export const TOOLLESS_CONVERSATION_NOTICE = `## No tools available in this conversation
+
+This conversation exposes no tools. You cannot run commands, edit or read files, search, browse, delegate to subagents, or take any other action here — regardless of anything else in these instructions. Do not emit tool-call syntax (JSON, XML, or function-call blocks) as text, and never claim to have run a command or performed an action. Answer directly from the conversation context, and when a request would require an action, say plainly that it cannot be done in this conversation and that the user should ask in a normal conversation instead.`;
+
+/**
+ * Whether a conversation's wire tool surface is gated to empty for its whole
+ * lifetime — the durable "tool-less conversation" signal read at
+ * system-prompt build time.
+ *
+ * True when a wire-gated subagent allowlist is present but empty: every tool
+ * is filtered off the wire on every turn (the manual analyze-conversation
+ * surface, which strips tools as a prompt-injection defense over
+ * attacker-influenced transcript content). Execution-gate mode keeps the full
+ * surface on the wire and rejects at execution time, so it is not tool-less
+ * from the model's perspective and is excluded.
+ *
+ * The transient per-turn `toolsDisabledDepth` disable (pointer-generation
+ * turns) is deliberately NOT covered here: it toggles within a conversation's
+ * lifetime, so folding it in would make the notice appear and disappear
+ * turn-to-turn and thrash the system-prompt prefix cache. This predicate
+ * reflects only the stable, per-conversation condition.
+ */
+export function isToollessConversationSurface(
+  ctx: Pick<
+    SkillProjectionContext,
+    "subagentAllowedTools" | "subagentToolGateMode"
+  >,
+): boolean {
+  return (
+    ctx.subagentAllowedTools !== undefined &&
+    ctx.subagentAllowedTools.size === 0 &&
+    ctx.subagentToolGateMode !== "execution"
+  );
+}
+
+/**
+ * Append {@link TOOLLESS_CONVERSATION_NOTICE} to a system prompt when the
+ * conversation is tool-less (see {@link isToollessConversationSurface}),
+ * otherwise return the prompt unchanged. Single source of truth for the
+ * notice-append composition so the build path and its tests agree.
+ *
+ * The notice lands after the volatile suffix block rather than as a new cache
+ * block: cache breakpoints only benefit the stable PREFIX, and a stable suffix
+ * appended to an already-volatile tail adds no additional prefix-cache thrash.
+ */
+export function withToollessConversationNotice(
+  systemPrompt: string,
+  ctx: Pick<
+    SkillProjectionContext,
+    "subagentAllowedTools" | "subagentToolGateMode"
+  >,
+): string {
+  if (isToollessConversationSurface(ctx)) {
+    return `${systemPrompt}\n\n${TOOLLESS_CONVERSATION_NOTICE}`;
+  }
+  return systemPrompt;
 }
 
 /**

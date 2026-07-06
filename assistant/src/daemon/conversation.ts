@@ -164,6 +164,7 @@ import type {
 import {
   createResolveToolsCallback,
   createToolExecutor,
+  withToollessConversationNotice,
 } from "./conversation-tool-setup.js";
 import { canonicalizeTimeZone } from "./date-context.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
@@ -843,7 +844,7 @@ export class Conversation {
    * the provider's prefix cache).
    */
   buildCurrentSystemPrompt(): string {
-    return this.hasSystemPromptOverride
+    const base = this.hasSystemPromptOverride
       ? this.systemPrompt
       : buildSystemPrompt({
           hasNoClient: this.hasNoClient,
@@ -853,6 +854,13 @@ export class Conversation {
           onboardingContext: this.getOnboardingContext(),
           conversationId: this.conversationId,
         });
+    // A conversation whose wire tool surface is gated to empty (the manual
+    // analyze-conversation surface) keeps the default identity prompt, which
+    // describes an assistant that delegates work and calls tools. Append a
+    // notice so the model does not emit tool-call syntax as text or claim to
+    // run commands it cannot. The condition is stable per conversation, so the
+    // appended text is stable too and does not thrash the prefix cache.
+    return withToollessConversationNotice(base, this);
   }
 
   /**
@@ -1413,7 +1421,9 @@ export class Conversation {
    * edge would put runtime-assembly's importers on that cycle).
    */
   getSubagentChildren(): SubagentState[] | null {
-    if (this.isSubagent) return null;
+    if (this.isSubagent) {
+      return null;
+    }
     return getSubagentManager().getChildrenOf(this.conversationId);
   }
 
