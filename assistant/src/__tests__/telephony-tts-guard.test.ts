@@ -587,4 +587,36 @@ describe("speakSystemPrompt aborted synthesis", () => {
     expect(sentPlayUrls).toEqual([]);
     expect(sentTokens).toEqual([]);
   });
+
+  test("abort at provider resolution (silent, no throw) skips the end-of-turn token", async () => {
+    testConfig.services.tts.provider = "deepgram";
+    storedKeys["deepgram"] = "dg-key";
+    storedKeys["elevenlabs"] = "el-key";
+
+    // synthesizeAndEmit does NOT throw when the signal aborts after the
+    // provider resolves but before queued emits run — it resolves normally
+    // with zero emitted chunks. The success path must still honor the abort.
+    const controller = new AbortController();
+    const deepgramSynthesize = jest.fn(async () => {
+      controller.abort();
+      return { audio: Buffer.from("pcm-bytes"), contentType: "audio/pcm" };
+    });
+    const elevenlabsSynthesize = jest.fn(async () => {
+      return { audio: Buffer.from("pcm-bytes"), contentType: "audio/pcm" };
+    });
+    registerStubProvider("deepgram", deepgramSynthesize);
+    registerStubProvider("elevenlabs", elevenlabsSynthesize);
+
+    const { relay, sentTokens, sentPlayUrls } = createRelay(true);
+    await speakSystemPrompt(
+      relay,
+      "You have a new message.",
+      controller.signal,
+    );
+
+    expect(deepgramSynthesize).toHaveBeenCalledTimes(1);
+    expect(elevenlabsSynthesize).not.toHaveBeenCalled();
+    expect(sentPlayUrls).toEqual([]);
+    expect(sentTokens).toEqual([]);
+  });
 });

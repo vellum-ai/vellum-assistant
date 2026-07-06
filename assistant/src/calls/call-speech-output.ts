@@ -136,6 +136,18 @@ async function synthesizeAndPlay(
       onFirstAudio: sink.onFirstAudio,
     });
 
+    // synthesizeAndEmit resolves silently (without throwing) when the
+    // signal aborts after the provider resolves but before queued emits
+    // run. Same contract as the catch-side abort: the canceller owns turn
+    // state, so skip the end-of-turn token.
+    if (signal?.aborted) {
+      log.debug(
+        { provider: provider.id },
+        "System prompt TTS synthesis aborted after resolve — skipping end-of-turn",
+      );
+      return;
+    }
+
     // Signal end of this turn's speech.  An empty token with `last: true`
     // tells the transport to start listening — it does NOT trigger TTS
     // synthesis.  This is required even when a synthesized provider handled
