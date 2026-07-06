@@ -85,20 +85,32 @@ export const ChannelConversationTypeSchema = z.enum(CHANNEL_CONVERSATION_TYPES);
  * - `channel_type` — adapter + conversation type.
  * - `channel` — adapter + channel external id (a specific channel's row;
  *   the id already implies its type).
+ *
+ * Branches are strict: keys that don't belong to the branch's scope reject
+ * rather than being silently stripped. A payload like
+ * `{ scope: "workspace", channelExternalId: "C9" }` (stale keys from a scope
+ * switch) must fail validation — stripping it would persist a global
+ * permission cell the caller intended to be channel-specific.
  */
 export const ChannelPermissionSelectorSchema = z.discriminatedUnion("scope", [
-  z.object({ scope: z.literal("workspace") }),
-  z.object({ scope: z.literal("adapter"), adapter: z.string().min(1) }),
-  z.object({
-    scope: z.literal("channel_type"),
-    adapter: z.string().min(1),
-    channelType: ChannelConversationTypeSchema,
-  }),
-  z.object({
-    scope: z.literal("channel"),
-    adapter: z.string().min(1),
-    channelExternalId: z.string().min(1),
-  }),
+  z.object({ scope: z.literal("workspace") }).strict(),
+  z
+    .object({ scope: z.literal("adapter"), adapter: z.string().min(1) })
+    .strict(),
+  z
+    .object({
+      scope: z.literal("channel_type"),
+      adapter: z.string().min(1),
+      channelType: ChannelConversationTypeSchema,
+    })
+    .strict(),
+  z
+    .object({
+      scope: z.literal("channel"),
+      adapter: z.string().min(1),
+      channelExternalId: z.string().min(1),
+    })
+    .strict(),
 ]);
 
 export type ChannelPermissionSelector = z.infer<

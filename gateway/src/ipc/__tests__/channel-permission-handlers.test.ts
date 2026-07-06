@@ -53,6 +53,31 @@ describe("schemas", () => {
       }).success,
     ).toBe(false);
 
+    // Extra keys reject rather than being stripped: stale keys from a scope
+    // switch must not silently persist a broader (e.g. workspace) cell.
+    expect(
+      schema.safeParse({
+        selector: {
+          scope: "workspace",
+          adapter: "slack",
+          channelExternalId: "C9",
+        },
+        contactType: "trusted_contact",
+        threshold: "low",
+      }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        selector: {
+          scope: "adapter",
+          adapter: "slack",
+          channelExternalId: "C9",
+        },
+        contactType: "trusted_contact",
+        threshold: "low",
+      }).success,
+    ).toBe(false);
+
     // Vocabulary is enforced.
     expect(
       schema.safeParse({
