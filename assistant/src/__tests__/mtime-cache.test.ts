@@ -33,6 +33,7 @@ import {
   getUserHooksFor,
   populateCacheAtBoot,
   resetPluginCacheForTests,
+  setSourceScanIntervalMs,
 } from "../plugins/mtime-cache.js";
 import {
   getAllToolDefinitions,
@@ -791,6 +792,36 @@ describe("plugin live reload (source fingerprint)", () => {
     // A false-positive fingerprint change would re-run init on every scan —
     // a redeploy storm on the per-turn dispatch path.
     expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(1);
+  });
+
+  test("fingerprint passes are rate-limited by the scan interval", async () => {
+    const dir = freshPluginDir("gated-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "gated-plugin" });
+    const helperPath = writeLibFile(
+      dir,
+      join("lib", "helper.ts"),
+      `export const value = "g1";`,
+    );
+    writeHook(
+      dir,
+      "gated-reload",
+      `import { value } from "../lib/helper.ts";\nexport default () => value;`,
+    );
+
+    await populateCacheAtBoot();
+    expect(await dispatchFirst("gated-reload")).toBe("g1");
+
+    // Inside the interval the scan skips the walk entirely — the dispatch
+    // path pays nothing for the fingerprint and the edit is not seen yet.
+    setSourceScanIntervalMs(60_000);
+    writeFileSync(helperPath, `export const value = "g2";`);
+    touchFile(helperPath, 2);
+    expect(await dispatchFirst("gated-reload")).toBe("g1");
+
+    // Once the interval admits a pass, the same edit lands on the next
+    // dispatch — nothing was lost by skipping, only deferred.
+    setSourceScanIntervalMs(0);
+    expect(await dispatchFirst("gated-reload")).toBe("g2");
   });
 
   test("editing a tool file re-registers the new definition in the tool registry", async () => {

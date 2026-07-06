@@ -14,8 +14,9 @@
  * - Any source change inside a plugin directory (hook, tool, or a helper
  *   module either imports) redeploys the plugin in place: shutdown → module
  *   eviction → re-import → init. Detection is a per-directory source
- *   fingerprint (see `./source-fingerprint.ts`), so edits land on the next
- *   scan without a daemon restart.
+ *   fingerprint (see `./source-fingerprint.ts`), rate-limited to one pass
+ *   per {@link setSourceScanIntervalMs interval}, so edits land within the
+ *   interval of the next scan without a daemon restart.
  * - Plugins are never "registered" as a unit — we register their tools into
  *   the global tool registry and cache-bust them using mtime on reads.
  *
@@ -190,6 +191,33 @@ const disabledPluginDirs = new Set<string>();
  */
 const sourceSnapshots = new Map<string, SourceSnapshot>();
 
+/**
+ * Minimum interval between fingerprint passes, in milliseconds. The
+ * fingerprint walk stats every source file in every plugin directory
+ * (~3.6µs/file measured warm — ~3.6ms for 10 plugins × 100 files), and the
+ * scan runs on every hook dispatch, which is many times per turn. Source
+ * edits happen at human speed, so scans inside the interval skip the walk;
+ * an edit is still picked up within the interval by whichever dispatch runs
+ * next. Per-entry-file mtime checks (hook files themselves) are not gated —
+ * single-file edits stay instant. 0 fingerprints on every scan.
+ */
+let sourceScanIntervalMs = 1_000;
+
+/**
+ * Monotonic time of the last fingerprint pass. Starts at `-Infinity` so the
+ * first scan after boot (or test reset) always takes a baseline snapshot.
+ */
+let lastFingerprintPassAt = -Infinity;
+
+/**
+ * Override the fingerprint-pass interval. Called by `populateCacheAtBoot`
+ * when configured, and by tests (0 makes every scan fingerprint, so
+ * edit → scan → reload is deterministic).
+ */
+export function setSourceScanIntervalMs(ms: number): void {
+  sourceScanIntervalMs = ms;
+}
+
 // ─── Hook reads ──────────────────────────────────────────────────────────────
 
 /**
@@ -324,10 +352,13 @@ export function getCachedUserTools(): Tool[] {
  * Scan the plugins directory, update the discovered set, and reconcile
  * tools for each plugin. Also evicts cache entries for deleted plugins.
  *
- * This is the "pull" — called on every hook read and at boot. The cost
- * is one `readdirSync` + N `statSync` calls where N = total surface files
- * across all plugins. For a typical workspace with 2-3 plugins, that's
- * ~10-15 stats — sub-millisecond.
+ * This is the "pull" — called on every hook read and at boot. The
+ * every-scan cost is one `readdirSync` + a stat per surface file across all
+ * plugins (~10-15 stats for a typical 2-3 plugin workspace —
+ * sub-millisecond). The fingerprint walk over every plugin source file is
+ * the expensive part, so it runs at most once per
+ * {@link setSourceScanIntervalMs interval}; discovery, disable/uninstall
+ * handling, and per-file tool reconciliation stay live on every scan.
  */
 async function scanPlugins(): Promise<void> {
   const pluginsDir = getWorkspacePluginsDir();
@@ -344,6 +375,15 @@ async function scanPlugins(): Promise<void> {
   } catch {
     log.warn({ pluginsDir }, "scanPlugins: failed to read plugins directory");
     return;
+  }
+
+  // Gate the fingerprint walk to one pass per interval. Claimed up front so
+  // concurrent scans (hook dispatches overlap) don't both pay for the walk.
+  const now = performance.now();
+  const fingerprintThisScan =
+    now - lastFingerprintPassAt >= sourceScanIntervalMs;
+  if (fingerprintThisScan) {
+    lastFingerprintPassAt = now;
   }
 
   const currentDirs = new Map<string, string>();
@@ -396,38 +436,40 @@ async function scanPlugins(): Promise<void> {
     }
 
     // Live reload: a fingerprint change means some source file inside the
-    // plugin directory changed since the last scan — including helper
-    // modules that hooks/tools import, which no per-entry-file mtime check
-    // can see. Redeploy the plugin in place: shut the old version down,
-    // sweep every source path (old and new — deleted files may still be
-    // cached) out of the module registry so nothing re-binds to a stale
+    // plugin directory changed since the last fingerprint pass — including
+    // helper modules that hooks/tools import, which no per-entry-file mtime
+    // check can see. Redeploy the plugin in place: shut the old version
+    // down, sweep every source path (old and new — deleted files may still
+    // be cached) out of the module registry so nothing re-binds to a stale
     // module, and drop its cache entries. The activation pass at the end of
     // this scan brings the new version up (pre-import, tool registration,
     // `init`). The whole directory is the reload unit on purpose: partial
     // eviction would let a re-imported hook pair with a stale intermediate
     // helper, silently mixing versions.
-    const snapshot = snapshotPluginSource(pluginDir);
-    const previous = sourceSnapshots.get(pluginDir);
-    sourceSnapshots.set(pluginDir, snapshot);
-    if (
-      previous !== undefined &&
-      previous.fingerprint !== snapshot.fingerprint &&
-      activatedNames.has(pluginName)
-    ) {
-      log.info(
-        { plugin: pluginName, pluginDir },
-        "plugin source changed — reloading",
-      );
-      // Shutdown reads the old version's hook from the cache, so it must run
-      // before the hook cache is cleared.
-      await deactivatePlugin(pluginName, "reload");
-      evictHooksForOwner(pluginName);
-      evictToolCacheEntries(pluginName);
-      for (const path of new Set([
-        ...previous.evictionPaths,
-        ...snapshot.evictionPaths,
-      ])) {
-        evictModule(path);
+    if (fingerprintThisScan) {
+      const snapshot = snapshotPluginSource(pluginDir);
+      const previous = sourceSnapshots.get(pluginDir);
+      sourceSnapshots.set(pluginDir, snapshot);
+      if (
+        previous !== undefined &&
+        previous.fingerprint !== snapshot.fingerprint &&
+        activatedNames.has(pluginName)
+      ) {
+        log.info(
+          { plugin: pluginName, pluginDir },
+          "plugin source changed — reloading",
+        );
+        // Shutdown reads the old version's hook from the cache, so it must
+        // run before the hook cache is cleared.
+        await deactivatePlugin(pluginName, "reload");
+        evictHooksForOwner(pluginName);
+        evictToolCacheEntries(pluginName);
+        for (const path of new Set([
+          ...previous.evictionPaths,
+          ...snapshot.evictionPaths,
+        ])) {
+          evictModule(path);
+        }
       }
     }
 
@@ -665,10 +707,13 @@ async function deactivatePlugin(
  * files appear or disappear at runtime are picked up without a restart.
  */
 export async function populateCacheAtBoot(
-  opts: { importTimeoutMs?: number } = {},
+  opts: { importTimeoutMs?: number; sourceScanIntervalMs?: number } = {},
 ): Promise<void> {
   if (opts.importTimeoutMs !== undefined) {
     setSurfaceImportTimeout(opts.importTimeoutMs);
+  }
+  if (opts.sourceScanIntervalMs !== undefined) {
+    setSourceScanIntervalMs(opts.sourceScanIntervalMs);
   }
 
   // Scans + activates every discovered plugin (tools registered + `init` run).
@@ -709,6 +754,10 @@ export function resetPluginCacheForTests(): void {
   activatedNames.clear();
   disabledPluginDirs.clear();
   sourceSnapshots.clear();
+  // Fingerprint on every scan so edit → scan → reload is deterministic in
+  // tests; a test that exercises the gate itself sets its own interval.
+  sourceScanIntervalMs = 0;
+  lastFingerprintPassAt = -Infinity;
 }
 
 /**
