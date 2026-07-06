@@ -1,7 +1,7 @@
 /**
  * Guard test: memory-worker tool registry bootstrap
  *
- * The standalone memory jobs worker (`src/jobs/worker.ts`) hosts real agent
+ * The standalone memory jobs worker (`src/plugins/defaults/memory/worker.ts`) hosts real agent
  * conversations — retrospective and consolidation passes, plus any subagents
  * they spawn — and those conversations resolve their tool surface from that
  * process's registry. The daemon and the schedule worker populate the
@@ -34,7 +34,7 @@ afterAll(() => {
 describe("memory worker tool registry", () => {
   test("worker entrypoint populates the tool registry at startup", () => {
     const source = readFileSync(
-      join(import.meta.dir, "..", "jobs", "worker.ts"),
+      join(import.meta.dir, "..", "plugins", "defaults", "memory", "worker.ts"),
       "utf8",
     );
     expect(source).toContain("await initializeTools()");

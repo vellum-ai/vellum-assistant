@@ -1,31 +1,32 @@
-import { getConfig } from "../config/loader.js";
-import { isMemoryV3Live } from "../config/memory-v3-gate.js";
-import type { AssistantConfig } from "../config/types.js";
+import { getConfig } from "../../../config/loader.js";
+import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
+import type { AssistantConfig } from "../../../config/types.js";
 import {
   checkDiskPressureBackgroundGate,
   diskPressureBackgroundSkipLogFields,
   shouldLogDiskPressureBackgroundSkip,
-} from "../daemon/disk-pressure-background-gate.js";
-import { getMemoryPersistenceHooks } from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
-import { getLogger } from "../util/logger.js";
-import { getMemoryCheckpoint, setMemoryCheckpoint } from "./checkpoints.js";
+} from "../../../daemon/disk-pressure-background-gate.js";
+import {
+  getMemoryCheckpoint,
+  setMemoryCheckpoint,
+} from "../../../persistence/checkpoints.js";
 import {
   getLastScheduledCleanupEnqueueMs,
   markScheduledCleanupEnqueued,
-} from "./cleanup-schedule-state.js";
-import { maybeRunDbMaintenance } from "./db-maintenance.js";
+} from "../../../persistence/cleanup-schedule-state.js";
+import { maybeRunDbMaintenance } from "../../../persistence/db-maintenance.js";
 import {
   EmbeddingBillingBlockError,
   extractHttpStatus,
   recordBillingBlock,
-} from "./embeddings/embedding-billing-breaker.js";
-import { QdrantCircuitOpenError } from "./embeddings/qdrant-circuit-breaker.js";
+} from "../../../persistence/embeddings/embedding-billing-breaker.js";
+import { QdrantCircuitOpenError } from "../../../persistence/embeddings/qdrant-circuit-breaker.js";
 import {
   BackendUnavailableError,
   classifyError,
   RETRY_MAX_ATTEMPTS,
   retryDelayForAttempt,
-} from "./job-utils.js";
+} from "../../../persistence/job-utils.js";
 import {
   claimMemoryJobs,
   completeMemoryJob,
@@ -45,8 +46,10 @@ import {
   MESSAGE_LEXICAL_JOB_TYPES,
   resetRunningJobsToPending,
   SLOW_LLM_JOB_TYPES,
-} from "./jobs-store.js";
-import { spawnMemoryWorkerProcess } from "./worker-control.js";
+} from "../../../persistence/jobs-store.js";
+import { spawnMemoryWorkerProcess } from "../../../persistence/worker-control.js";
+import { getLogger } from "../../../util/logger.js";
+import { getMemoryPersistenceHooks } from "./persistence-lifecycle-seam.js";
 
 const log = getLogger("memory-jobs-worker");
 

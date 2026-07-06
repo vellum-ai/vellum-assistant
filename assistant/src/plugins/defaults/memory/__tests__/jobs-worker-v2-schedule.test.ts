@@ -69,8 +69,7 @@ const { memoryJobs } = await import("../../../../persistence/schema/index.js");
 const { applyNestedDefaults } = await import("../../../../config/loader.js");
 const { getMemoryCheckpoint, setMemoryCheckpoint, deleteMemoryCheckpoint } =
   await import("../../../../persistence/checkpoints.js");
-const { maybeEnqueueGraphMaintenanceJobs } =
-  await import("../../../../persistence/jobs-worker.js");
+const { maybeEnqueueGraphMaintenanceJobs } = await import("../jobs-worker.js");
 const { registerMemoryPersistenceHooks, resetMemoryPersistenceHooksForTests } =
   await import("../persistence-lifecycle-seam.js");
 const { memoryPersistenceHooks } = await import("../persistence-hooks.js");

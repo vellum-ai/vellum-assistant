@@ -19,13 +19,13 @@ import type {
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import type { JobHandler } from "../persistence/jobs-worker.js";
 import type { HookFunction } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import type { ConversationGraphMemory } from "./defaults/memory/graph/conversation-graph-memory.js";
+import type { JobHandler } from "./defaults/memory/jobs-worker.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
 

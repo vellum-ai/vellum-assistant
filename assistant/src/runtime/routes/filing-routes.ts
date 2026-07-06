@@ -21,7 +21,7 @@ import {
   enqueueMemoryJob,
   hasActiveJobOfType,
 } from "../../persistence/jobs-store.js";
-import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../persistence/jobs-worker.js";
+import { GRAPH_MAINTENANCE_CHECKPOINTS } from "../../plugins/defaults/memory/jobs-worker.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { BadRequestError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";

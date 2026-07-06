@@ -41,7 +41,7 @@ import {
   POLL_INTERVAL_MAX_MS,
   POLL_INTERVAL_MIN_MS,
   startMemoryJobsWorker,
-} from "../persistence/jobs-worker.js";
+} from "../plugins/defaults/memory/jobs-worker.js";
 
 describe("memory jobs worker adaptive poll interval", () => {
   test("exports expected poll interval constants", () => {
