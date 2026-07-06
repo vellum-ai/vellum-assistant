@@ -4,7 +4,6 @@ import { getMemoryConfig } from "./config.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
-import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
 import {
   forkActivationState,
   seedForkActivationState,
@@ -145,14 +144,5 @@ export const memoryPersistenceHooks = {
       forkedMessageIds,
       lastCopiedSourceMessageId: messagesToCopy.at(-1)?.id ?? null,
     });
-  },
-
-  onConversationDeleted(conversationId: string): void {
-    // Fail the conversation's still-pending memory jobs (graph extraction,
-    // summary builds, …) — the rows they reference are gone. The cancellation
-    // sweeps pending `conversationId`-keyed jobs, so the delete primitive
-    // fires this hook BEFORE enqueueing the conversation's lexical purge, or
-    // the purge would be swept too.
-    cancelPendingJobsForConversation(conversationId);
   },
 };

@@ -13,6 +13,7 @@ import type { PluginLogger } from "../hooks/types.js";
 export type {
   AgentLoopExitReason,
   BaseHookContext,
+  ConversationDeletedContext,
   HookBroadcast,
   PluginLogger,
   PostCompactContext,
@@ -56,6 +57,7 @@ export { RiskLevel } from "../tools/types.js";
  *   - `post-tool-use` — {@link PostToolUseContext}
  *   - `stop` — {@link StopContext}
  *   - `post-model-call` — {@link PostModelCallContext}
+ *   - `conversation-deleted` — {@link ConversationDeletedContext}
  */
 export type HookFunction<TCtx = unknown> = (
   ctx: TCtx,

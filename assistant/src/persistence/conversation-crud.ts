@@ -29,7 +29,10 @@ import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
+import type { ConversationDeletedInputContext } from "../hooks/types.js";
+import { HOOKS } from "../plugin-api/constants.js";
 import { memoryPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks.js";
+import { runHook } from "../plugins/pipeline.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { trustClassSchema } from "../runtime/trust-class.js";
@@ -1513,18 +1516,21 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
-  // Let the memory feature fail its still-pending jobs for this conversation.
-  // Routed through the persistence-hook seam so this layer stays decoupled
-  // from the memory plugin; a no-op when memory is not present.
-  memoryPersistenceHooks.onConversationDeleted(id);
+  // Notify `conversation-deleted` hooks (e.g. the memory plugin failing its
+  // still-pending jobs for this conversation). Fire-and-forget from this
+  // synchronous primitive — the pipeline contains per-hook failures, and
+  // hooks carry no ordering guarantee relative to the cleanup below.
+  void runHook(HOOKS.CONVERSATION_DELETED, {
+    conversationId: id,
+  } satisfies ConversationDeletedInputContext);
 
   // Purge the conversation's points from the lexical (Qdrant) index. Fired
   // from the shared primitive so every delete caller — route, retrospective
-  // cleanup/GC — cleans up. Enqueued AFTER the hook above, whose cancellation
-  // pass sweeps pending `conversationId`-keyed jobs — the purge must not be
-  // swept by it. The enqueue helper self-selects: enqueue a job when memory is
-  // enabled, run the delete inline (best-effort, breaker-wrapped) when it is
-  // disabled.
+  // cleanup/GC — cleans up. Safe to enqueue while the hook chain runs: the
+  // memory plugin's job sweep is scoped to its own job types and cannot fail
+  // this host-owned purge job. The enqueue helper self-selects: enqueue a job
+  // when memory is enabled, run the delete inline (best-effort,
+  // breaker-wrapped) when it is disabled.
   enqueuePurgeConversationLexical(id);
 
   return result;
@@ -1633,15 +1639,17 @@ export async function deleteConversationGently(
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
-  // Let the memory feature fail its still-pending jobs for this conversation.
-  // Routed through the persistence-hook seam; a no-op when memory is not
-  // present.
-  memoryPersistenceHooks.onConversationDeleted(id);
+  // Notify `conversation-deleted` hooks — fire-and-forget, same contract as
+  // the synchronous delete primitive.
+  void runHook(HOOKS.CONVERSATION_DELETED, {
+    conversationId: id,
+  } satisfies ConversationDeletedInputContext);
 
   // Purge the conversation's points from the lexical (Qdrant) index — the
   // gentle path is the retrospective-GC caller, which would otherwise leak the
-  // conversation's lexical points. Enqueued AFTER the hook above so the
-  // hook's cancellation pass cannot sweep the purge.
+  // conversation's lexical points. Safe to enqueue while the hook chain runs:
+  // the memory plugin's job sweep is scoped to its own job types and cannot
+  // fail this host-owned purge job.
   enqueuePurgeConversationLexical(id);
 
   return result;

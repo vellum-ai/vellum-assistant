@@ -30,6 +30,8 @@ export const HOOKS = {
   POST_MODEL_CALL: "post-model-call",
   /** Fires after the loop successfully compacts a conversation mid-turn. */
   POST_COMPACT: "post-compact",
+  /** Fires once per deleted conversation, after its rows are removed. Fire-and-forget cleanup signal — hooks run async with no ordering guarantee relative to the caller. */
+  CONVERSATION_DELETED: "conversation-deleted",
 } as const;
 
 /** Union of every hook name declared in {@link HOOKS}. */
