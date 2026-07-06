@@ -11,10 +11,13 @@ name: Deploy Web SPA (reusable)
 # a $GITHUB_ENV/$GITHUB_PATH/BASH_ENV hook (or a fake `gcloud`) that would fire
 # in the post-auth publish step and exfiltrate the short-lived GCP credentials.
 #
-# The caller matrixes over environments (fail-fast: false), so each environment
-# is an independent instance of this workflow — a failure building `dev` never
-# blocks `staging`/`production`. `production` gates at `build-and-package` if it
-# has required reviewers; `deploy` then inherits the gate via `needs`.
+# Three single-environment callers, one per environment: `deploy-web-spa` in
+# dev-release.yaml deploys `dev` on every hourly dev release (gated on ci-web +
+# register-release); release.yml's `deploy-web-spa-staging` deploys `staging`
+# on staging releases and `deploy-web-spa-production` deploys `production` when
+# a release goes live — gated on all other release prerequisites and required
+# by the GitHub Release job. The `environment:` binding only resolves each
+# environment's secrets/vars; no environment gates on required reviewers.
 on:
   workflow_call:
     inputs:
