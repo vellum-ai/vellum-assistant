@@ -61,6 +61,7 @@ import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { ResearchResultsOverlay } from "@/domains/chat/onboarding-research/research-results-overlay";
 import { OnboardingCheckinOverlay } from "@/components/onboarding-checkin-overlay";
 import { OnboardingAvatarApplier } from "@/components/onboarding-avatar-applier";
+import { VoiceSessionPillHost } from "@/domains/chat/components/voice-session-pill-host";
 import { ChatConversationHeader } from "./chat-conversation-header";
 import { ChatLayoutHeader } from "./chat-layout-header";
 import { RenameDialogFromStore } from "./rename-dialog-from-store";
@@ -622,7 +623,18 @@ export function ChatLayout() {
           sidebarWidth={sidebarWidth}
           toggleSidebar={toggleSidebar}
           topBarCenter={topBarCenter}
-          topBarRightSlot={topBarRightSlot}
+          // The voice-session pill is composed here — NOT registered through
+          // useChatLayoutSlotsStore — because slot registration is owned by
+          // per-route hooks that unmount on navigation, exactly when the pill
+          // must persist. The host renders null when no session is active (or
+          // while viewing the owning thread's composer), so the header is
+          // unaffected otherwise.
+          topBarRightSlot={
+            <>
+              {topBarRightSlot}
+              <VoiceSessionPillHost />
+            </>
+          }
           canGoBack={canGoBack}
           canGoForward={canGoForward}
           onGoBack={handleGoBack}
