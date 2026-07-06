@@ -192,7 +192,7 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
   });
 
-  test("rejects turnDetection server_vad until its session lifecycle is implemented", () => {
+  test("parses start frames with turnDetection server_vad", () => {
     const result = parseLiveVoiceClientTextFrame(
       JSON.stringify({
         type: "start",
@@ -205,16 +205,19 @@ describe("parseLiveVoiceClientTextFrame", () => {
       }),
     );
 
-    expect(result.ok).toBe(false);
-    if (result.ok) {
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
       return;
     }
 
-    expect(result.error).toMatchObject({
-      code: "invalid_field",
-      field: "turnDetection",
-      frameType: "start",
-      message: "start frame field turnDetection: server_vad is not yet supported",
+    expect(result.frame).toEqual({
+      type: "start",
+      turnDetection: "server_vad",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        channels: 1,
+      },
     });
   });
 
@@ -410,7 +413,11 @@ describe("LiveVoiceServerFrameSequencer", () => {
       reason: "max-duration",
     });
 
-    expect(silence).toEqual({ type: "utterance_end", reason: "silence", seq: 1 });
+    expect(silence).toEqual({
+      type: "utterance_end",
+      reason: "silence",
+      seq: 1,
+    });
     expect(maxDuration).toEqual({
       type: "utterance_end",
       reason: "max-duration",

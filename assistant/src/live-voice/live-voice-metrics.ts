@@ -6,7 +6,10 @@ export type LiveVoiceMetricsEvent =
   | "turn_started"
   | "first_audio"
   | "first_partial"
+  | "vad_speech_start"
   | "ptt_release"
+  | "utterance_end"
+  | "barge_in"
   | "final_transcript"
   | "first_assistant_delta"
   | "first_tts_audio"
@@ -32,11 +35,31 @@ interface LiveVoiceSessionMetrics {
   startToReadyMs: number | null;
 }
 
+// Marks captured before a turn opened in the collector (server-VAD overlap);
+// passed to startTurn to backfill the new turn's timestamps.
+export interface LiveVoiceTurnSeedMarks {
+  firstAudioAtMs?: number;
+  firstPartialAtMs?: number;
+  speechStartAtMs?: number;
+  utteranceEndAtMs?: number;
+  finalTranscriptAtMs?: number;
+}
+
+const SEEDABLE_MARK_FIELDS = [
+  "firstAudioAtMs",
+  "firstPartialAtMs",
+  "speechStartAtMs",
+  "utteranceEndAtMs",
+  "finalTranscriptAtMs",
+] as const satisfies ReadonlyArray<keyof LiveVoiceTurnSeedMarks>;
+
 interface LiveVoiceTurnTimestamps {
   startedAtMs: number;
   firstAudioAtMs: number | null;
   firstPartialAtMs: number | null;
+  speechStartAtMs: number | null;
   pttReleaseAtMs: number | null;
+  utteranceEndAtMs: number | null;
   finalTranscriptAtMs: number | null;
   firstAssistantDeltaAtMs: number | null;
   firstTtsAudioAtMs: number | null;
@@ -47,6 +70,7 @@ interface LiveVoiceTurnTimestamps {
 interface LiveVoiceTurnDurations {
   firstAudioToFirstPartialMs: number | null;
   pttReleaseToFinalTranscriptMs: number | null;
+  utteranceEndToFinalTranscriptMs: number | null;
   finalTranscriptToFirstAssistantDeltaMs: number | null;
   firstAssistantDeltaToFirstTtsAudioMs: number | null;
   totalTurnDurationMs: number | null;
@@ -73,6 +97,7 @@ interface LiveVoiceMetricsSummary {
   durations: {
     firstAudioToFirstPartialMs: LiveVoiceDurationSummary;
     pttReleaseToFinalTranscriptMs: LiveVoiceDurationSummary;
+    utteranceEndToFinalTranscriptMs: LiveVoiceDurationSummary;
     finalTranscriptToFirstAssistantDeltaMs: LiveVoiceDurationSummary;
     firstAssistantDeltaToFirstTtsAudioMs: LiveVoiceDurationSummary;
     totalTurnDurationMs: LiveVoiceDurationSummary;
@@ -142,7 +167,10 @@ export class LiveVoiceMetricsCollector {
     return this.emit("session_ready");
   }
 
-  startTurn(turnId = this.createTurnId()): LiveVoiceTurnMetrics {
+  startTurn(
+    turnId = this.createTurnId(),
+    seedMarks: LiveVoiceTurnSeedMarks = {},
+  ): LiveVoiceTurnMetrics {
     if (this.activeTurn !== null) {
       this.cancelTurn("superseded");
     }
@@ -155,7 +183,9 @@ export class LiveVoiceMetricsCollector {
         startedAtMs: this.timestamp(),
         firstAudioAtMs: null,
         firstPartialAtMs: null,
+        speechStartAtMs: null,
         pttReleaseAtMs: null,
+        utteranceEndAtMs: null,
         finalTranscriptAtMs: null,
         firstAssistantDeltaAtMs: null,
         firstTtsAudioAtMs: null,
@@ -163,8 +193,30 @@ export class LiveVoiceMetricsCollector {
         cancelledAtMs: null,
       },
     };
+    this.applySeedMarks(this.activeTurn, seedMarks);
     this.emit("turn_started", turnId);
     return snapshotTurn(this.activeTurn);
+  }
+
+  // Backfills marks stashed before this turn opened. Seeds never overwrite
+  // an existing mark (first timestamp wins) and are clamped to the turn's
+  // start timestamp; the earliest seed becomes the turn start so total
+  // durations cover the stashed span.
+  private applySeedMarks(
+    turn: MutableTurn,
+    seeds: LiveVoiceTurnSeedMarks,
+  ): void {
+    const startedAtMs = turn.timestamps.startedAtMs;
+    let earliestMs = startedAtMs;
+    for (const field of SEEDABLE_MARK_FIELDS) {
+      const value = seeds[field];
+      if (value === undefined || !Number.isFinite(value)) continue;
+      if (turn.timestamps[field] !== null) continue;
+      const seededMs = Math.min(value, startedAtMs);
+      turn.timestamps[field] = seededMs;
+      earliestMs = Math.min(earliestMs, seededMs);
+    }
+    turn.timestamps.startedAtMs = earliestMs;
   }
 
   markFirstAudio(turnId?: string): LiveVoiceMetricsFrame {
@@ -183,12 +235,32 @@ export class LiveVoiceMetricsCollector {
     return this.emit("first_partial", turn.turnId);
   }
 
+  markSpeechStart(turnId?: string): LiveVoiceMetricsFrame {
+    const turn = this.ensureActiveTurn(turnId);
+    if (turn.timestamps.speechStartAtMs === null) {
+      turn.timestamps.speechStartAtMs = this.timestamp();
+    }
+    return this.emit("vad_speech_start", turn.turnId);
+  }
+
   markPushToTalkRelease(turnId?: string): LiveVoiceMetricsFrame {
     const turn = this.ensureActiveTurn(turnId);
     if (turn.timestamps.pttReleaseAtMs === null) {
       turn.timestamps.pttReleaseAtMs = this.timestamp();
     }
     return this.emit("ptt_release", turn.turnId);
+  }
+
+  markUtteranceEnd(turnId?: string): LiveVoiceMetricsFrame {
+    const turn = this.ensureActiveTurn(turnId);
+    if (turn.timestamps.utteranceEndAtMs === null) {
+      turn.timestamps.utteranceEndAtMs = this.timestamp();
+    }
+    return this.emit("utterance_end", turn.turnId);
+  }
+
+  markBargeIn(turnId?: string): LiveVoiceMetricsFrame {
+    return this.emit("barge_in", turnId ?? this.activeTurn?.turnId);
   }
 
   markFinalTranscript(turnId?: string): LiveVoiceMetricsFrame {
@@ -340,7 +412,11 @@ export function getLiveVoiceMetricsAggregateFields(
   }
 
   return {
-    sttMs: turn.durations.pttReleaseToFinalTranscriptMs,
+    // Manual mode stamps ptt_release; server-VAD sessions stamp utterance_end
+    // instead, so the VAD boundary plays the sttMs role there.
+    sttMs:
+      turn.durations.pttReleaseToFinalTranscriptMs ??
+      turn.durations.utteranceEndToFinalTranscriptMs,
     llmFirstDeltaMs: turn.durations.finalTranscriptToFirstAssistantDeltaMs,
     ttsFirstAudioMs: turn.durations.firstAssistantDeltaToFirstTtsAudioMs,
     totalMs: turn.durations.totalTurnDurationMs,
@@ -397,6 +473,10 @@ function snapshotTurn(turn: MutableTurn): LiveVoiceTurnMetrics {
         timestamps.pttReleaseAtMs,
         timestamps.finalTranscriptAtMs,
       ),
+      utteranceEndToFinalTranscriptMs: duration(
+        timestamps.utteranceEndAtMs,
+        timestamps.finalTranscriptAtMs,
+      ),
       finalTranscriptToFirstAssistantDeltaMs: duration(
         timestamps.finalTranscriptAtMs,
         timestamps.firstAssistantDeltaAtMs,
@@ -429,6 +509,9 @@ function summarizeTurns(turns: MutableTurn[]): LiveVoiceMetricsSummary {
       ),
       pttReleaseToFinalTranscriptMs: summarizeDuration(
         durations.map((value) => value.pttReleaseToFinalTranscriptMs),
+      ),
+      utteranceEndToFinalTranscriptMs: summarizeDuration(
+        durations.map((value) => value.utteranceEndToFinalTranscriptMs),
       ),
       finalTranscriptToFirstAssistantDeltaMs: summarizeDuration(
         durations.map((value) => value.finalTranscriptToFirstAssistantDeltaMs),

@@ -404,21 +404,13 @@ function validateStartFrame(
     );
   }
 
-  if ("turnDetection" in value && !isLiveVoiceTurnDetectionMode(value.turnDetection)) {
+  if (
+    "turnDetection" in value &&
+    !isLiveVoiceTurnDetectionMode(value.turnDetection)
+  ) {
     return protocolError(
       "invalid_field",
       "start frame field turnDetection must be manual or server_vad",
-      "turnDetection",
-      "start",
-    );
-  }
-
-  // Temporary: server_vad is declared in the contract but not yet accepted;
-  // the session lifecycle for it is not implemented.
-  if (value.turnDetection === "server_vad") {
-    return protocolError(
-      "invalid_field",
-      "start frame field turnDetection: server_vad is not yet supported",
       "turnDetection",
       "start",
     );
