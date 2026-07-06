@@ -361,6 +361,9 @@ function ProfileEditorModalInner({
 
   function handleProviderChange(newProvider: ConnectionProvider) {
     if (newProvider === provider) return;
+    // vellum is a connection type, not a selectable profile LLM provider — it's
+    // filtered out of the picker; this narrows ConnectionProvider to LlmProvider.
+    if (newProvider === "vellum") return;
     setProvider(newProvider);
     setModel("");
     // Auto-select connection: if exactly one connection exists for the new
@@ -450,6 +453,11 @@ function ProfileEditorModalInner({
   // provider + connection, collapse the sub-form, surface the helper note,
   // and invalidate the connections query so the dropdown picks up the row.
   function handleProviderCreated(connection: ProviderConnection) {
+    // The create form can't produce a vellum connection; bail before touching
+    // any state so the sub-form can't get stuck, and narrow the
+    // ConnectionProvider to the LlmProvider that setProvider accepts.
+    const newProvider = connection.provider;
+    if (newProvider === "vellum") return;
     // Optimistically register the new connection locally so the binding is
     // valid immediately (the parent `connections` refetch below is async).
     setLocallyCreatedConnections((prev) =>
@@ -457,7 +465,7 @@ function ProfileEditorModalInner({
         ? prev
         : [...prev, connection],
     );
-    setProvider(connection.provider);
+    setProvider(newProvider);
     setProviderConnection(connection.name);
     setModel("");
     setCreatingProvider(false);
