@@ -90,39 +90,6 @@ export const externalConversationBindings = sqliteTable(
   },
 );
 
-export const channelVerificationSessions = sqliteTable(
-  "channel_verification_sessions",
-  {
-    id: text("id").primaryKey(),
-    channel: text("channel").notNull(),
-    challengeHash: text("challenge_hash").notNull(),
-    expiresAt: integer("expires_at").notNull(),
-    status: text("status").notNull().default("pending"),
-    sourceConversationId: text("source_conversation_id"),
-    consumedByExternalUserId: text("consumed_by_external_user_id"),
-    consumedByChatId: text("consumed_by_chat_id"),
-    // Outbound session: expected-identity binding
-    expectedExternalUserId: text("expected_external_user_id"),
-    expectedChatId: text("expected_chat_id"),
-    expectedPhoneE164: text("expected_phone_e164"),
-    identityBindingStatus: text("identity_binding_status").default("bound"),
-    // Outbound session: delivery tracking
-    destinationAddress: text("destination_address"),
-    lastSentAt: integer("last_sent_at"),
-    sendCount: integer("send_count").default(0),
-    nextResendAt: integer("next_resend_at"),
-    // Session configuration
-    codeDigits: integer("code_digits").default(6),
-    maxAttempts: integer("max_attempts").default(3),
-    // Distinguishes guardian verification from trusted contact verification
-    verificationPurpose: text("verification_purpose").default("guardian"),
-    // Telegram bootstrap deep-link token hash
-    bootstrapTokenHash: text("bootstrap_token_hash"),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-);
-
 export const channelGuardianApprovalRequests = sqliteTable(
   "channel_guardian_approval_requests",
   {
@@ -141,22 +108,6 @@ export const channelGuardianApprovalRequests = sqliteTable(
     status: text("status").notNull().default("pending"),
     decidedByExternalUserId: text("decided_by_external_user_id"),
     expiresAt: integer("expires_at").notNull(),
-    createdAt: integer("created_at").notNull(),
-    updatedAt: integer("updated_at").notNull(),
-  },
-);
-
-export const channelGuardianRateLimits = sqliteTable(
-  "channel_guardian_rate_limits",
-  {
-    id: text("id").primaryKey(),
-    channel: text("channel").notNull(),
-    actorExternalUserId: text("actor_external_user_id").notNull(),
-    actorChatId: text("actor_chat_id").notNull(),
-    attemptTimestampsJson: text("attempt_timestamps_json")
-      .notNull()
-      .default("[]"),
-    lockedUntil: integer("locked_until"),
     createdAt: integer("created_at").notNull(),
     updatedAt: integer("updated_at").notNull(),
   },

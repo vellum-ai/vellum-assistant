@@ -8,9 +8,9 @@
  * the shared contract schemas in `@vellumai/gateway-client` — the same
  * schemas the gateway routes are pinned to.
  *
- * Export names mirror the daemon session service
- * (`assistant/src/runtime/channel-verification-service.ts`) so call-site
- * flips are mechanical: same names, same result shapes, sync → async.
+ * Export names mirror the retired daemon session service so historical
+ * call-site flips were mechanical: same names, same result shapes,
+ * sync → async.
  *
  * Error posture (fail-closed — there is no local fallback):
  * - Lifecycle wrappers THROW on any transport failure or malformed
@@ -40,18 +40,28 @@ import type { ZodType } from "zod";
 
 import { ipcCallPersistent } from "../ipc/gateway-client.js";
 import { composeApprovalMessage } from "../runtime/approval-message-composer.js";
-import type {
-  CreateOutboundSessionResult,
-  CreateVerificationSessionResult,
-  ValidateVerificationResult,
-} from "../runtime/channel-verification-service.js";
 
-export type {
-  CreateOutboundSessionResult,
-  CreateVerificationSessionResult,
-  ValidateVerificationResult,
-} from "../runtime/channel-verification-service.js";
 export type { VerificationSessionWire } from "@vellumai/gateway-client";
+
+export interface CreateVerificationSessionResult {
+  challengeId: string;
+  secret: string;
+  verifyCommand: string;
+  ttlSeconds: number;
+  instruction: string;
+}
+
+export interface CreateOutboundSessionResult {
+  sessionId: string;
+  secret: string;
+  challengeHash: string;
+  expiresAt: number;
+  ttlSeconds: number;
+}
+
+export type ValidateVerificationResult =
+  | { success: true; verificationType: "guardian" | "trusted_contact" }
+  | { success: false; reason: string };
 
 /**
  * Call a gateway session route and validate the response against its
@@ -75,7 +85,11 @@ async function callMutation(
   method: VerificationSessionsIpcMethod,
   params: Record<string, unknown>,
 ): Promise<void> {
-  const ack = await callGateway(method, params, SessionMutationIpcResponseSchema);
+  const ack = await callGateway(
+    method,
+    params,
+    SessionMutationIpcResponseSchema,
+  );
   if (!ack.ok) {
     throw new Error(`Gateway rejected ${method}`);
   }

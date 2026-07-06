@@ -92,6 +92,7 @@ import {
 } from "./helpers/channel-test-adapter.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
+import { resetVerificationSessionsSim } from "./helpers/verification-sessions-ipc-sim.js";
 
 await initializeDb();
 
@@ -103,11 +104,10 @@ const TEST_BEARER_TOKEN = "test-token";
 const GUARDIAN_APPROVAL_TTL_MS = 5 * 60 * 1000;
 
 function resetState(): void {
+  resetVerificationSessionsSim();
   const db = getDb();
   db.run("DELETE FROM canonical_guardian_requests");
   db.run("DELETE FROM canonical_guardian_deliveries");
-  db.run("DELETE FROM channel_verification_sessions");
-  db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM channel_inbound_events");
   db.run("DELETE FROM conversations");
   db.run("DELETE FROM notification_events");
@@ -492,7 +492,7 @@ describe("trusted contact activated notification signal", () => {
   test("guardian verification does NOT emit activated signal", async () => {
     // Create an inbound challenge (guardian flow, not trusted contact)
     const { createInboundVerificationSession } =
-      await import("../runtime/channel-verification-service.js");
+      await import("./helpers/verification-sessions-ipc-sim.js");
     const { secret } = createInboundVerificationSession("telegram");
 
     // "Guardian" enters the verification code

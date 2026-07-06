@@ -179,27 +179,13 @@ mock.module("../ipc/gateway-client.js", () => ({
     params?: Record<string, unknown>,
   ) => {
     // Gateway-native verification sessions: model the gateway engine with the
-    // daemon's local service over the same seeded test DB (identical
-    // semantics — the gateway service is a port of it).
-    if (method === "verification_sessions_get_pending") {
-      const { getPendingSession } = await import(
-        "../runtime/channel-verification-service.js"
-      );
-      return getPendingSession(params?.channel as string);
-    }
-    if (method === "verification_sessions_validate_consume") {
-      const { validateAndConsumeVerification } = await import(
-        "../runtime/channel-verification-service.js"
-      );
-      const result = validateAndConsumeVerification(
-        params?.channel as string,
-        params?.secret as string,
-        params?.actorExternalUserId as string,
-        params?.actorChatId as string,
-      );
-      return result.success
-        ? { success: true, verificationType: result.verificationType }
-        : { success: false, reason: "invalid_or_expired" };
+    // self-contained in-memory sim (same status/consume semantics).
+    {
+      const { handleVerificationSessionsIpc, isVerificationSessionsIpcMethod } =
+        await import("./helpers/verification-sessions-ipc-sim.js");
+      if (isVerificationSessionsIpcMethod(method)) {
+        return handleVerificationSessionsIpc(method, params);
+      }
     }
     // The gateway owns the ACL verdict; activation fails closed when the relay
     // does not land, so model a verified upsert for the redemption paths.
@@ -569,10 +555,6 @@ import {
   RelayConnection,
 } from "../calls/relay-server.js";
 import {
-  createInboundSession,
-  createVerificationSession,
-} from "../channels/channel-verification-sessions.js";
-import {
   listCanonicalGuardianRequests,
   resolveCanonicalGuardianRequest,
 } from "../contacts/canonical-guardian-store.js";
@@ -582,15 +564,17 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { resetTestTables } from "../persistence/raw-query.js";
 import { conversations } from "../persistence/schema/index.js";
-import {
-  createOutboundSession,
-  getGuardianBinding,
-} from "../runtime/channel-verification-service.js";
+import { getGuardianBinding } from "../runtime/channel-verification-service.js";
 import { resetDbForTesting } from "./db-test-helpers.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 import { deriveGuardianDeliveries } from "./helpers/derive-guardian-delivery.js";
 import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
 import { seedContactChannel } from "./helpers/seed-contact-channel.js";
+import {
+  createOutboundSession,
+  resetVerificationSessionsSim,
+  seedVerificationSession,
+} from "./helpers/verification-sessions-ipc-sim.js";
 
 await initializeDb();
 
@@ -689,13 +673,12 @@ function resetTables() {
     "tool_invocations",
     "messages",
     "conversations",
-    "channel_verification_sessions",
-    "channel_guardian_rate_limits",
     "canonical_guardian_requests",
     "canonical_guardian_deliveries",
     "contact_channels",
     "contacts",
   );
+  resetVerificationSessionsSim();
   resetGatewayAclStore();
   gatewayVoiceInvites = [];
   ensuredConvIds = new Set();
@@ -733,11 +716,12 @@ function createVoiceVerificationSession(
 function createPendingVoiceGuardianChallenge(
   secret: string = "123456",
 ): string {
-  createInboundSession({
+  seedVerificationSession({
     id: randomUUID(),
     channel: "phone",
     challengeHash: createHash("sha256").update(secret).digest("hex"),
     expiresAt: Date.now() + 10 * 60 * 1000,
+    status: "pending",
   });
   return secret;
 }
@@ -5031,7 +5015,7 @@ describe("relay-server", () => {
     // verificationPurpose 'trusted_contact' so validateAndConsumeVerification
     // returns the correct verificationType.
     const tcSecret = "654321";
-    createVerificationSession({
+    seedVerificationSession({
       id: randomUUID(),
       channel: "phone",
       challengeHash: createHash("sha256").update(tcSecret).digest("hex"),

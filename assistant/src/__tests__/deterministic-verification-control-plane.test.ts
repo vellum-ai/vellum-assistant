@@ -57,22 +57,23 @@ mock.module("../daemon/process-message.js", () => ({
 import type { TwilioRelaySpeechConfig } from "../calls/twilio-routes.js";
 import { generateTwiML } from "../calls/twilio-routes.js";
 import { initializeDb } from "../persistence/db-init.js";
-import {
-  bindSessionIdentity,
-  createOutboundSession,
-  resolveBootstrapToken,
-  updateSessionDelivery,
-  updateSessionStatus,
-} from "../runtime/channel-verification-service.js";
 import { handleChannelInbound } from "../runtime/routes/inbound-message-handler.js";
 import {
   composeChannelVerifyReply,
   GUARDIAN_VERIFY_TEMPLATE_KEYS,
 } from "../runtime/verification-templates.js";
+import {
+  bindSessionIdentity,
+  createOutboundSession,
+  createOutboundSessionGuarded,
+  resolveBootstrapToken,
+  updateSessionDelivery,
+  updateSessionStatus,
+} from "./helpers/verification-sessions-ipc-sim.js";
 
 // The inbound stages read/write sessions via the gateway-backed IPC client;
-// delegate it to the local service so the bootstrap flow keeps running
-// against the test DB.
+// delegate it to the in-memory sim so the bootstrap flow keeps running
+// without a live gateway.
 mock.module("../channels/gateway-verification-sessions.js", () => ({
   resolveBootstrapToken: async (channel: string, token: string) =>
     resolveBootstrapToken(channel, token),
@@ -87,16 +88,9 @@ mock.module("../channels/gateway-verification-sessions.js", () => ({
   createOutboundSession: async (
     params: Parameters<typeof createOutboundSession>[0],
   ) => createOutboundSession(params),
-  createOutboundSessionConditional: async ({
-    requireSourceSessionPending: _guard,
-    ifNoneActive: _ifNoneActive,
-    ifNoneActiveForExternalUserId: _ifNoneActiveFor,
-    ...params
-  }: Parameters<typeof createOutboundSession>[0] & {
-    requireSourceSessionPending?: string;
-    ifNoneActive?: boolean;
-    ifNoneActiveForExternalUserId?: string;
-  }) => createOutboundSession(params),
+  createOutboundSessionConditional: async (
+    params: Parameters<typeof createOutboundSessionGuarded>[0],
+  ) => createOutboundSessionGuarded(params),
   updateSessionDelivery: async (
     ...args: Parameters<typeof updateSessionDelivery>
   ) => updateSessionDelivery(...args),
@@ -284,7 +278,7 @@ describe("Verification control messages are deterministic (guard)", () => {
     const { createHash, randomBytes } = await import("node:crypto");
 
     const { createOutboundSession } =
-      await import("../runtime/channel-verification-service.js");
+      await import("./helpers/verification-sessions-ipc-sim.js");
 
     // Generate a bootstrap token and create a pending_bootstrap session
     const bootstrapToken = randomBytes(16).toString("hex");
@@ -373,7 +367,7 @@ describe("Verification control messages are deterministic (guard)", () => {
     const { createHash, randomBytes } = await import("node:crypto");
 
     const { createOutboundSession } =
-      await import("../runtime/channel-verification-service.js");
+      await import("./helpers/verification-sessions-ipc-sim.js");
     const { upsertContactChannel } =
       await import("../contacts/contacts-write.js");
 
