@@ -121,11 +121,11 @@ export interface LlmUsageTelemetryEvent extends TelemetryEventBase {
 
 /**
  * Optional client metadata bag carried on `TurnTelemetryEvent.client`.
- * Sourced from `messages.metadata.client`, which is populated by HTTP
- * header middleware reading `x-vellum-browser-family`,
- * `x-vellum-browser-version`, `x-vellum-client-os`,
- * `x-vellum-interface-version`. Extensible without a schema change —
- * lives entirely in the JSON metadata column.
+ * Sourced from `messages.metadata.client`. Today only `os` is populated —
+ * stamped by `persistQueuedMessageBody` from the request body's `clientOs`
+ * field; the remaining fields are declared for clients that send them.
+ * Extensible without a schema change — lives entirely in the JSON metadata
+ * column.
  */
 export interface TurnTelemetryClientInfo {
   /** Browser family for `web`/`chrome-extension` interfaces: `"chrome"|"safari"|"firefox"|"edge"`. */
@@ -133,9 +133,11 @@ export interface TurnTelemetryClientInfo {
   /** Major browser version only (`"124"`, not the full UA string). */
   browser_version?: string;
   /**
-   * User's operating system at message time. For `web`/`chrome-extension`
-   * this comes from `navigator.userAgentData`; for `macos`/`ios` it's
-   * implicit from the interface, but clients may still send it explicitly.
+   * OS surface reported by the client at message time
+   * ("web" | "ios" | "macos" | "android"). The web, iOS, and macOS apps all
+   * run the same web renderer and report `interface_id: "web"` (the
+   * transport surface, which host-proxy capability gating keys off), so
+   * this field is the only per-platform attribution in turn telemetry.
    */
   os?: string;
   /**

@@ -16,7 +16,11 @@ import type {
   TurnChannelContext,
   TurnInterfaceContext,
 } from "../channels/types.js";
-import { parseChannelId, parseInterfaceId } from "../channels/types.js";
+import {
+  parseChannelId,
+  parseClientOs,
+  parseInterfaceId,
+} from "../channels/types.js";
 import {
   buildSlackTimezoneMetadata,
   type SlackMessageMetadata,
@@ -197,6 +201,14 @@ export interface MessagingConversationContext {
   authContext?: AuthContext;
   currentTurnAuthContext?: AuthContext;
   currentTurnSourceActorPrincipalId?: string;
+  /**
+   * OS surface reported by the connected client ("web" | "ios" | "macos" |
+   * "android"), re-applied from transport metadata on every inbound message.
+   * Persisted under `metadata.client.os` so turn telemetry can attribute the
+   * real platform — the transport `interfaceId` is "web" for the web, iOS,
+   * and macOS apps alike (they share the web renderer).
+   */
+  clientOs?: string;
   getTurnChannelContext(): TurnChannelContext | null;
   getTurnInterfaceContext(): TurnInterfaceContext | null;
 }
@@ -519,6 +531,17 @@ export async function persistQueuedMessageBody(
       turnChannel: turnCtx?.userMessageChannel,
     });
 
+    // OS-surface attribution for turn telemetry. The client-reported OS is
+    // validated through `parseClientOs` and stored under the `client`
+    // metadata bag (`$.client.os`), which `turn-events-store` forwards onto
+    // `TurnTelemetryEvent.client`. Caller-supplied `client` metadata wins —
+    // this only fills the key when absent.
+    const clientOs = parseClientOs(ctx.clientOs);
+    const clientBag =
+      metadataWithoutSlackInbound.client == null && clientOs
+        ? { client: { os: clientOs } }
+        : {};
+
     const mergedMetadata = {
       ...metadataWithoutSlackInbound,
       ...provenance,
@@ -534,6 +557,7 @@ export async function persistQueuedMessageBody(
             assistantMessageInterface: turnIfCtx.assistantMessageInterface,
           }
         : {}),
+      ...clientBag,
       ...(imageSourcePaths ? { imageSourcePaths } : {}),
       ...(slackMeta ? { slackMeta } : {}),
     };

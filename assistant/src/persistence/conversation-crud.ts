@@ -163,10 +163,12 @@ export const messageMetadataSchema = z
     userMessageInterface: interfaceIdSchema.optional(),
     assistantMessageInterface: interfaceIdSchema.optional(),
     /**
-     * Optional client-side metadata bag attached to user messages by HTTP
-     * header middleware (reads `x-vellum-browser-family`,
-     * `x-vellum-browser-version`, `x-vellum-client-os`,
-     * `x-vellum-interface-version`). Forwarded verbatim onto
+     * Optional client-side metadata bag attached to user messages at persist
+     * time. `os` carries the client-reported OS surface ("web" | "ios" |
+     * "macos" | "android") from the request body's `clientOs` field, stamped
+     * by `persistQueuedMessageBody` — the transport `userMessageInterface` is
+     * "web" for the web, iOS, and macOS apps alike, so this is the only
+     * per-platform attribution. Forwarded verbatim onto
      * `TurnTelemetryEvent.client` for downstream analytics. Kept as a
      * permissive `record` so adding a new client field doesn't require a
      * migration -- dbt can unpack later via JSON_VALUE.
