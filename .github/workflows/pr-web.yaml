@@ -159,6 +159,9 @@ jobs:
           # Baked into the deployed SPA so the iOS webview (which loads this
           # bundle via `server.url`) reports to the vellum-assistant-ios project.
           VITE_SENTRY_DSN_IOS: ${{ secrets.SENTRY_DSN_IOS }}
+          # Baked into the deployed SPA so the Android webview (which loads this
+          # bundle via `server.url`) reports to the vellum-assistant-android project.
+          VITE_SENTRY_DSN_ANDROID: ${{ secrets.SENTRY_DSN_ANDROID }}
           VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
           VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
           VITE_APP_VERSION: ${{ github.sha }}

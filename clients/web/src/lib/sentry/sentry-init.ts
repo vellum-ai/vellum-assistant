@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import type { BrowserOptions } from "@sentry/react";
 
 import { diagnosticsConsentGranted } from "@/lib/sentry/consent-gate";
@@ -14,14 +15,20 @@ import { detectClientOs } from "@/runtime/platform-detection";
 /**
  * Resolve the Sentry DSN for the current host. The shared bundle reports to a
  * per-host project: Electron renderer → `VITE_SENTRY_DSN_MACOS`
- * (vellum-assistant-macos), iOS WKWebview → `VITE_SENTRY_DSN_IOS`
- * (vellum-assistant-ios), web → `VITE_SENTRY_DSN` (vellum-assistant-web).
+ * (vellum-assistant-macos), iOS webview → `VITE_SENTRY_DSN_IOS`
+ * (vellum-assistant-ios), Android webview → `VITE_SENTRY_DSN_ANDROID`
+ * (vellum-assistant-android), web → `VITE_SENTRY_DSN`
+ * (vellum-assistant-web).
  *
  * The Electron check comes first since the renderer also runs the web bundle.
  */
 function resolveDsn(): string | undefined {
   if (isElectron()) return import.meta.env.VITE_SENTRY_DSN_MACOS;
-  if (isNativePlatform()) return import.meta.env.VITE_SENTRY_DSN_IOS;
+  if (isNativePlatform()) {
+    const platform = Capacitor.getPlatform();
+    if (platform === "android") return import.meta.env.VITE_SENTRY_DSN_ANDROID;
+    return import.meta.env.VITE_SENTRY_DSN_IOS;
+  }
   return import.meta.env.VITE_SENTRY_DSN;
 }
 

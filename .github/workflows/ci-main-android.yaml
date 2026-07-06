@@ -1,0 +1,55 @@
+name: CI/CD Main Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'clients/android/**'
+      - 'clients/web/capacitor.config.ts'
+      - 'clients/web/capacitor-shell/**'
+      - 'clients/web/package.json'
+      - 'clients/web/bun.lock'
+      - '.github/workflows/ci-main-android.yaml'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Dev Debug
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Setup Java
+        uses: actions/setup-java@dded0888837ed1f317902acf8a20df0ad188d165 # v5.0.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.3.11'
+
+      - name: Install web dependencies
+        working-directory: clients/web
+        run: bun install --frozen-lockfile
+
+      - name: Sync Android project
+        working-directory: clients/web
+        env:
+          VELLUM_ENVIRONMENT: dev
+        run: bun run android:sync
+
+      - name: Build Android app
+        working-directory: clients/android
+        run: ./gradlew :app:assembleDevDebug

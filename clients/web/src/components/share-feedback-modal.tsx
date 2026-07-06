@@ -129,11 +129,12 @@ const CLASSIFICATION_MAP: Record<Reason, ClassificationEnum> = {
   other: "other",
 };
 
-function getFeedbackClient(): "electron" | "ios" | "web" {
+function getFeedbackClient(): "electron" | "ios" | "android" | "web" {
   if (isElectron()) {
     return "electron";
   }
-  return Capacitor.getPlatform() === "ios" ? "ios" : "web";
+  const platform = Capacitor.getPlatform();
+  return platform === "ios" || platform === "android" ? platform : "web";
 }
 
 type FeedbackDiagnosticsProvider = () => Record<string, unknown> | null;

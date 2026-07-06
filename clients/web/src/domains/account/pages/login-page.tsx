@@ -14,9 +14,9 @@ const AUTH_ERROR_MESSAGES: Record<string, string> = {
 };
 
 /**
- * Capacitor iOS login: single "Sign in" button inside NativeSplash.
- * Opens a Safari sheet via `/accounts/native/start` with no provider
- * hint — WorkOS AuthKit handles Apple / Google / email selection.
+ * Capacitor native login: single "Sign in" button inside NativeSplash.
+ * Opens the platform browser auth surface with no provider hint; WorkOS
+ * AuthKit handles Apple / Google / email selection.
  */
 function NativeLoginForm({ returnTo }: { returnTo: string | null }) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -142,7 +142,7 @@ function WebLoginForm({ returnTo }: { returnTo: string | null }) {
 /**
  * Branded sign-in screen for `/account/login`.
  *
- * Delegates to `NativeLoginForm` (Capacitor iOS) or `WebLoginForm`
+ * Delegates to `NativeLoginForm` (Capacitor native) or `WebLoginForm`
  * (standard browser / Electron) based on platform detection.
  */
 export function LoginPage() {

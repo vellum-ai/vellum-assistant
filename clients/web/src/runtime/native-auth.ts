@@ -16,23 +16,18 @@ import { isBiometricEnabled, storeBiometricToken } from "@/runtime/native-biomet
 import { routes } from "@/utils/routes";
 
 /**
- * JS ↔ native bridge for the `NativeAuth` Capacitor plugin registered by
- * `clients/ios/App/App/MyViewController.swift` +
- * `clients/ios/App/App/NativeAuthPlugin.swift`.
+ * JS ↔ native bridge for the `NativeAuth` Capacitor plugin registered by the
+ * iOS and Android native shells.
  *
- * The plugin opens an `ASWebAuthenticationSession` pointed at
- * `{baseURL}/accounts/native/start?state={nonce}`, which initiates the
- * OIDC flow server-side and redirects directly to the WorkOS authorize URL.
- * After authentication, the callback chain delivers a short-lived, single-use
- * authorization code via the custom URL scheme.  The Swift plugin exchanges
- * that code for a Django session token via POST to
- * `/accounts/native/exchange` — the raw session key never transits the
- * custom scheme (ATL-454).
+ * The plugins open the platform browser auth surface against WorkOS AuthKit
+ * with PKCE. After authentication, WorkOS delivers a short-lived,
+ * single-use authorization code via the custom URL scheme. The native plugin
+ * exchanges that code for a WorkOS access token, then swaps it for a platform
+ * session token. The raw session key never transits the custom scheme.
  *
  * Why native auth exists at all: Google and other IdPs refuse OAuth in
- * embedded `WKWebView` (`disallowed_useragent`). The system browser sheet
- * opened by `ASWebAuthenticationSession` satisfies their rules and shares
- * Safari's cookie jar so SSO still works.
+ * embedded WebViews (`disallowed_useragent`). The native plugins open the
+ * platform browser auth surface instead and return a platform session token.
  */
 
 interface NativeAuthPlugin {
@@ -59,17 +54,16 @@ export function isOAuthFlowInFlight(): boolean {
 
 /**
  * Origin to present to the native OAuth flow. The Capacitor shell's
- * `server.url` lives at `https://dev-assistant.vellum.ai/assistant`; we
- * derive the bare origin for the login URL the plugin constructs.
+ * `server.url` includes `/assistant`; the plugins need the bare origin for
+ * the login URL they construct.
  */
 export function deriveAuthBaseURL(): string {
   return `${window.location.protocol}//${window.location.host}`;
 }
 
 /**
- * True when we're running inside the Capacitor iOS shell (i.e. the
- * `NativeAuth` plugin is available). Safe to call server-side — falls
- * through to `false` before hydration.
+ * True when we're running inside a Capacitor native shell. Safe to call
+ * server-side — falls through to `false` before hydration.
  */
 export function isNativePlatform(): boolean {
   return typeof window !== "undefined" && Capacitor.isNativePlatform();
@@ -88,7 +82,7 @@ export function useIsNativePlatform(): boolean {
 
 /**
  * Run the native login flow end to end. On success the Django session
- * cookie is installed into the WKWebView's cookie jar and the page is
+ * cookie is installed into the native WebView cookie store and the page is
  * navigated to `returnTo` (sanitized) or `/assistant`, so `AuthProvider`
  * re-fetches `/_allauth/browser/v1/auth/session` and renders the
  * authenticated app at the right destination.
@@ -118,20 +112,18 @@ export async function startNativeLogin(options?: {
   // finds. The `__Secure-` prefix has browser-enforced rules: HTTPS
   // origin + `Secure` attribute, both of which apply here.
   //
-  // Intentionally NOT using `WKHTTPCookieStore.setCookie()` on the
-  // Swift side — that was the spike's dead end. The JS-side cookie is
-  // enough.
+  // The JS-side cookie is the source of truth for the native WebView session.
   installSessionCookies(sessionToken);
 
-  // iOS WKWebView async-flushes `document.cookie` writes to its
-  // `WKHTTPCookieStore`. Without a synchronization step, the subsequent
+  // Native WebViews can async-flush `document.cookie` writes. Without a
+  // synchronization step, the subsequent
   // hard navigation can race the flush and the request to `/assistant`
   // goes out without the session cookie — Django sees an anonymous user,
   // `AuthProvider` redirects back to `/account/login`, and the user is
   // dumped at the login screen even though auth itself succeeded.
   //
   // Probe `/_allauth/browser/v1/auth/session` until the server agrees
-  // we're authenticated. This both (a) forces WKWebView to flush the
+  // we're authenticated. This both (a) forces the WebView to flush the
   // cookie store so subsequent requests carry the cookie and (b) confirms
   // Django actually recognized it before we navigate.
   //
@@ -164,7 +156,7 @@ export async function startNativeLogin(options?: {
  * Block until the just-written session cookie is reachable to Django.
  *
  * Polls `getSession()` with backoff. Each call is a real same-origin
- * fetch with `credentials: "include"`, so iOS WKWebView has to send the
+ * fetch with `credentials: "include"`, so the native WebView has to send the
  * cookie from its store — if `document.cookie` hasn't flushed yet, the
  * server returns anonymous and we retry until it does.
  *
@@ -189,9 +181,9 @@ export async function waitForNativeSessionCookie(): Promise<void> {
 }
 
 /**
- * Install Django session cookies for both dev and prod environments.
- * Sets both `sessionid` (dev) and `__Secure-sessionid` (prod) so the
- * same code works across environments without runtime host sniffing.
+ * Install Django session cookies for both dev and prod environments. Sets both
+ * `sessionid` (dev) and `__Secure-sessionid` (prod) so the same code works
+ * across environments without runtime host sniffing.
  */
 export function installSessionCookies(sessionToken: string): void {
   // `max-age` makes the cookie persistent. If unspecified, the cookie
@@ -221,7 +213,7 @@ export function getSessionTokenFromCookies(): string | null {
 
 /**
  * Unified auth-flow entry point that transparently chooses between the
- * native iOS plugin path and the web form-POST path.
+ * native plugin path and the web form-POST path.
  *
  * Call sites pass the same args they'd pass to `startProviderRedirect()`,
  * plus an optional `returnTo`; on Capacitor we route through
@@ -250,7 +242,7 @@ export async function startAuthFlow(
         intent: options.intent,
       });
     } catch (err) {
-      // Capacitor translates `call.reject(msg, code)` from Swift into a
+      // Capacitor translates native `call.reject(msg, code)` into a
       // JS Error whose `message` is the first arg and whose `code` is
       // the second arg (as an own property, not in `message`). Match the
       // code exactly rather than substring-matching the message.

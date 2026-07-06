@@ -16,7 +16,8 @@ interface ImportMetaEnv {
    * DSN-selection contract: the shared clients/web bundle resolves its Sentry
    * DSN per host — web → `VITE_SENTRY_DSN` (vellum-assistant-web), Electron →
    * `VITE_SENTRY_DSN_MACOS` (vellum-assistant-macos), iOS →
-   * `VITE_SENTRY_DSN_IOS` (vellum-assistant-ios). The runtime selector
+   * `VITE_SENTRY_DSN_IOS` (vellum-assistant-ios), Android →
+   * `VITE_SENTRY_DSN_ANDROID` (vellum-assistant-android). The runtime selector
    * (`resolveDsn` in `sentry-init.ts`) reads these per host.
    */
   readonly VITE_SENTRY_DSN?: string;
@@ -24,6 +25,8 @@ interface ImportMetaEnv {
   readonly VITE_SENTRY_DSN_MACOS?: string;
   /** Sentry DSN for the iOS webview (vellum-assistant-ios). See DSN-selection contract above. */
   readonly VITE_SENTRY_DSN_IOS?: string;
+  /** Sentry DSN for the Android webview (vellum-assistant-android). See DSN-selection contract above. */
+  readonly VITE_SENTRY_DSN_ANDROID?: string;
   /** Sentry environment tag (e.g. "production", "staging"). */
   readonly VITE_SENTRY_ENVIRONMENT?: string;
   /**

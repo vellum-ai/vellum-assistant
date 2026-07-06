@@ -9,6 +9,7 @@ and desktop wrappers that users interact with directly.
 clients/
 ├── web/               # Web app (Vite)
 ├── ios/               # iOS Capacitor shell
+├── android/           # Android Capacitor shell
 ├── macos/             # macOS desktop wrapper (Electron / electron-vite)
 └── chrome-extension/  # MV3 Chrome browser extension
 ```
@@ -16,6 +17,9 @@ clients/
 The iOS app is a Capacitor shell that lives in [`ios/`](./ios/); it loads the
 web app over HTTPS and does not consume any code from the other client
 surfaces.
+
+The Android app is a Capacitor shell that lives in [`android/`](./android/);
+it follows the same remote web app loading model as iOS.
 
 ## What belongs here
 

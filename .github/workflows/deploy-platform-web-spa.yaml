@@ -62,6 +62,8 @@ jobs:
       # config — the Stripe publishable key differs per env (pk_test_ vs pk_live_)
       # and the Sentry environment tag must match. Sources, per the GitHub config:
       #   - VITE_SENTRY_DSN          repo-level variable (same for every env)
+      #   - VITE_SENTRY_DSN_ANDROID  per-environment secret baked into the SPA
+      #                              for Android WebView reporting
       #   - VITE_SENTRY_ENVIRONMENT  per-environment variable (resolves via the
       #                              job's `environment:`)
       #   - VITE_SESSION_REPLAY_APP_ID  repo-level variable; one ID across all
@@ -94,6 +96,9 @@ jobs:
           # Baked into the deployed SPA so the iOS webview (which loads this
           # bundle via `server.url`) reports to the vellum-assistant-ios project.
           VITE_SENTRY_DSN_IOS: ${{ secrets.SENTRY_DSN_IOS }}
+          # Baked into the deployed SPA so the Android webview (which loads this
+          # bundle via `server.url`) reports to the vellum-assistant-android project.
+          VITE_SENTRY_DSN_ANDROID: ${{ secrets.SENTRY_DSN_ANDROID }}
           VITE_SENTRY_ENVIRONMENT: ${{ vars.VITE_SENTRY_ENVIRONMENT }}
           VITE_SESSION_REPLAY_APP_ID: ${{ vars.VITE_SESSION_REPLAY_APP_ID }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_PUBLISHABLE_KEY }}

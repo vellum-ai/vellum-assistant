@@ -20,6 +20,8 @@
     "typecheck": "bunx tsc --noEmit",
     "postinstall": "bun run scripts/postinstall.ts",
     "openapi-ts": "bun run scripts/transform-daemon-spec.ts && bun run scripts/transform-gateway-spec.ts && openapi-ts",
+    "android:sync": "bunx cap sync android",
+    "android:open": "bun run android:sync && bunx cap open android",
     "ios:setup": "bunx cap sync ios && cd ../ios/App && xcodegen generate --spec project.yml",
     "ios:open": "bun run ios:setup && open ../ios/App/App.xcodeproj",
     "storybook": "storybook dev -p 6007",
@@ -28,6 +30,7 @@
     "test:ci": "bun scripts/run-tests.ts"
   },
   "dependencies": {
+    "@capacitor/android": "8.3.4",
     "@capacitor/app": "8.1.0",
     "@capacitor/browser": "8.0.3",
     "@capacitor/core": "8.3.4",
