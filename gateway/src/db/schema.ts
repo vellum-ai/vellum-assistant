@@ -331,21 +331,56 @@ export const trustRules = sqliteTable(
 // Channel admission policy (per channel type)
 // ---------------------------------------------------------------------------
 
-export const channelAdmissionPolicy = sqliteTable(
-  "channel_admission_policy",
+export const channelAdmissionPolicy = sqliteTable("channel_admission_policy", {
+  // Channel TYPE — matches `ChannelId` in gateway/src/channels/types.ts.
+  // Stored as text rather than an enum because SQLite has no enum type;
+  // the app layer validates against CHANNEL_IDS at write time.
+  channelType: text("channel_type").primaryKey(),
+  // One of: 'no_one' | 'guardian_only' | 'trusted_contacts' |
+  //         'any_contact' | 'strangers'. Read-side default lives in the
+  //         store (ADMISSION_POLICY_DEFAULT) — absent rows resolve to it.
+  policy: text("policy").notNull().default("trusted_contacts"),
+  // Optional human note (e.g. "switched to no_one because <reason>").
+  note: text("note"),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+// ---------------------------------------------------------------------------
+// Channel permission overrides (matrix cells: cascade key × contact-type)
+// ---------------------------------------------------------------------------
+
+export const channelPermissionOverrides = sqliteTable(
+  "channel_permission_overrides",
   {
-    // Channel TYPE — matches `ChannelId` in gateway/src/channels/types.ts.
-    // Stored as text rather than an enum because SQLite has no enum type;
-    // the app layer validates against CHANNEL_IDS at write time.
-    channelType: text("channel_type").primaryKey(),
-    // One of: 'no_one' | 'guardian_only' | 'trusted_contacts' |
-    //         'any_contact' | 'strangers'. Read-side default lives in the
-    //         store (ADMISSION_POLICY_DEFAULT) — absent rows resolve to it.
-    policy: text("policy").notNull().default("trusted_contacts"),
-    // Optional human note (e.g. "switched to no_one because <reason>").
+    id: integer("id").primaryKey({ autoIncrement: true }),
+    // Cascade level: 'workspace' | 'adapter' | 'channel_type' | 'channel'.
+    // Stored as text; the app layer validates against the contract enum at
+    // write time (same pattern as channel_admission_policy.policy).
+    scope: text("scope").notNull(),
+    // Cascade keys. Empty string (not NULL) for keys above the row's scope
+    // so the unique index can enforce one row per cell — SQLite treats
+    // NULLs as distinct in unique indexes.
+    adapter: text("adapter").notNull().default(""),
+    channelType: text("channel_type").notNull().default(""),
+    channelExternalId: text("channel_external_id").notNull().default(""),
+    // Contact-type axis — canonical trust class ('guardian' |
+    // 'trusted_contact' | 'unverified_contact' | 'unknown').
+    contactType: text("contact_type").notNull(),
+    // RiskThreshold: 'none' | 'low' | 'medium' | 'high'.
+    threshold: text("threshold").notNull(),
+    // Optional human note (e.g. migration provenance).
     note: text("note"),
     updatedAt: integer("updated_at").notNull(),
   },
+  (table) => [
+    uniqueIndex("idx_channel_permission_cell").on(
+      table.scope,
+      table.adapter,
+      table.channelType,
+      table.channelExternalId,
+      table.contactType,
+    ),
+  ],
 );
 
 // ---------------------------------------------------------------------------

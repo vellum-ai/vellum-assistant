@@ -183,6 +183,7 @@ import { contactRoutes } from "./ipc/contact-handlers.js";
 import { inviteRoutes } from "./ipc/invite-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
+import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
 import { trustVerdictRoutes } from "./ipc/trust-verdict-handlers.js";
 import { guardianDeliveryRoutes } from "./ipc/guardian-delivery-handlers.js";
 import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
@@ -2492,6 +2493,7 @@ async function main() {
     ...slackThreadRoutes,
     ...thresholdRoutes,
     ...admissionPolicyRoutes,
+    ...channelPermissionRoutes,
     ...trustVerdictRoutes,
     ...guardianDeliveryRoutes,
     ...riskClassificationRoutes,

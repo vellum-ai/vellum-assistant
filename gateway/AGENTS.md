@@ -111,6 +111,16 @@ Only the **assistant-scoped** routes (`/v1/assistants/:id/channel-admission-poli
 
 **Hiding a channel from the UI (still enforced)**: add it to `ADMISSION_POLICY_HIDDEN_CHANNELS` in `packages/gateway-client/src/admission-policy-contract.ts` (and the web mirror `HIDDEN_CHANNELS` in `clients/web/src/lib/channel-admission-policy/types.ts`). The GET-list omission, `PUT`/`DELETE` 403, and seed re-pin all read from this set. Use this — **not** the exempt set — for a channel that must keep enforcing a floor but should not be user-configurable, so its admission check is never short-circuited.
 
+### Channel Permission Matrix (cells: cascade key × contact-type → RiskThreshold)
+
+The gateway owns channel-permission matrix storage (`gateway/src/db/channel-permission-store.ts`, table `channel_permission_overrides`, IPC in `gateway/src/ipc/channel-permission-handlers.ts`). Each cell maps a cascade selector × contact-type (trust class) to a `RiskThreshold` (`none | low | medium | high`; the Strict/Conservative/Relaxed/Full-access presets are the web presentation layer over these values).
+
+- **Cascade, least → most specific:** `workspace` → `adapter` → `channel_type` (`dm | private | public`) → `channel` (external channel ID). `ChannelPermissionStore.resolve()` walks most-specific-first and returns the first cell set for the contact-type.
+- **Vocabulary contract:** `packages/gateway-client/src/channel-permission-contract.ts` (selectors, thresholds, scopes, resolve request). The contact-type axis is the canonical `TrustClass` — granularity intentionally stops there; do not add per-individual-contact cells.
+- **IPC surface:** `list_channel_permission_overrides`, `set_channel_permission_override`, `delete_channel_permission_override`, `resolve_channel_permission_threshold`. Writes validate the adapter against the gateway channel registry.
+- **Migration provenance:** `m0012-migrate-slack-channel-permissions` lifts Slack-skill `channelPermissions` profiles with `trustLevel: "restricted"` into channel-scoped Strict cells (non-guardian contact-types). Per-tool fields (`blockedTools` / `allowedToolCategories`) have no matrix representation — they stay in the Slack skill config, enforced by the legacy deterministic channel gate in `assistant/src/tools/tool-approval-handler.ts` until the per-tool-call evaluator consumes these cells.
+- **Nothing evaluates these cells yet.** The per-tool-call evaluator (`ApprovalPolicy.evaluate`) composes cell RiskThreshold × tool RiskLevel × CapabilitySet in the matrix-evaluation step; until that lands, writes here have no runtime effect.
+
 ### Trust Classes → Capabilities (what an actor may do)
 
 Two orthogonal axes, do not conflate them:
