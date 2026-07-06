@@ -1661,7 +1661,7 @@ jobs:
 
   build-web-staging:
     name: build-npm-staging (web)
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, ci-web]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
@@ -1837,9 +1837,12 @@ jobs:
   # The platform SPA (VITE_PLATFORM_MODE=true → GCS) ships with releases:
   # staging bucket on every staging release, production bucket when a
   # release goes live. The dev bucket is deployed by dev-release.yaml.
+  # Gated on register-release (like the dev deploy's register-release gate)
+  # so the staging UI is not updated when the staging backend release
+  # failed to register.
   deploy-web-spa-staging:
     name: Deploy Web SPA (staging)
-    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, ci-web]
+    needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, ci-web, register-release]
     if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
     permissions:
       contents: read
@@ -1857,7 +1860,7 @@ jobs:
   deploy-web-spa-production:
     name: Deploy Web SPA (production)
     needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-electron, upload-electron-updates, ci-web]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.publish-npm-prod.result == 'success' && needs.publish-web-prod.result == 'success' && needs.publish-meta-prod.result == 'success' && needs.publish-plugin-api-prod.result == 'success' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' && needs.build-electron.result == 'success' && needs.upload-electron-updates.result == 'success' && needs.ci-web.result == 'success' }}
+    if: ${{ always() && !cancelled() && needs.extract-version.result == 'success' && needs.extract-version.outputs.is_staging != 'true' && needs.publish-npm-prod.result == 'success' && needs.publish-web-prod.result == 'success' && needs.publish-meta-prod.result == 'success' && needs.publish-plugin-api-prod.result == 'success' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' && needs.build-electron.result == 'success' && needs.upload-electron-updates.result == 'success' && needs.ci-web.result == 'success' }}
     permissions:
       contents: read
       id-token: write
@@ -1869,8 +1872,8 @@ jobs:
   build-web-prod:
     name: build-npm-prod (web)
     # Build has no side effects; release-ordering gates live on publish-web-prod.
-    needs: [extract-version, ci-cli, ci-gateway]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' }}
+    needs: [extract-version, ci-cli, ci-gateway, ci-web]
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && needs.ci-web.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -2814,7 +2817,7 @@ jobs:
   notify-release:
     name: Slack Notification (Release)
     if: ${{ always() && !cancelled() }}
-    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, build-chrome-extension, publish-chrome-extension, deploy-web-spa-staging, deploy-web-spa-production]
+    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, build-electron, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, register-release, release, merge-release-branch, update-platform, pack-cli, trigger-platform-qa, release-ios, ci-assistant, ci-cli, ci-credential-executor, ci-gateway, ci-web, build-chrome-extension, publish-chrome-extension, deploy-web-spa-staging, deploy-web-spa-production]
     runs-on: ubuntu-latest
     timeout-minutes: 5
     continue-on-error: true
@@ -2888,6 +2891,7 @@ jobs:
           C=$(ci_icon "${{ needs.ci-cli.result }}")
           CE=$(ci_icon "${{ needs.ci-credential-executor.result }}")
           G=$(ci_icon "${{ needs.ci-gateway.result }}")
+          W=$(ci_icon "${{ needs.ci-web.result }}")
           DE=$(ci_icon "${{ needs.build-electron.result }}")
           AI=$(ci_icon "${{ needs.push-assistant-manifest.result }}")
           GI=$(ci_icon "${{ needs.push-gateway-manifest.result }}")
@@ -2904,7 +2908,7 @@ jobs:
 
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s desktop-electron\n• %s release-ios\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$DE" "$DI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
+          CI_LINE=$(printf '*CI Checks:*\n• %s assistant\n• %s cli\n• %s credential-executor\n• %s gateway\n• %s web\n• %s desktop-electron\n• %s release-ios\n• %s chrome-extension\n• %s cws-publish\n• %s assistant-docker\n• %s gateway-docker\n• %s credential-executor-docker\n• %s dockerhub\n• %s register-release\n• %s pack-cli\n• %s trigger-platform-qa\n• %s merge-release-branch' "$A" "$C" "$CE" "$G" "$W" "$DE" "$DI" "$CX" "$CXP" "$AI" "$GI" "$CEI" "$DH" "$RR" "$PC" "$TQ" "$MB")
 
           if [ -n "$SLACK_USER_ID" ]; then
             TRIGGERED_BY="<@${SLACK_USER_ID}>"
