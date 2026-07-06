@@ -27,13 +27,11 @@
     "@playwright/browser-chromium"
   ],
   "overrides": {
-    "@radix-ui/react-dismissable-layer": "1.1.13",
     "es-toolkit": "1.46.1",
     "lodash": "4.18.1",
     "path-to-regexp": "8.4.2"
   },
   "patchedDependencies": {
-    "@radix-ui/react-dismissable-layer@1.1.13": "clients/web/patches/@radix-ui%2Freact-dismissable-layer@1.1.13.patch",
     "storybook@10.4.0": "patches/storybook@10.4.0.patch"
   }
 }
