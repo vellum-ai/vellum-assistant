@@ -54,7 +54,7 @@ import {
   loadGraphMemoryState,
   saveGraphMemoryState,
 } from "../plugins/defaults/memory/graph/graph-memory-state-store.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
+import { registerMemoryPersistenceHooks } from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
 
 await initializeDb();
 
@@ -111,7 +111,7 @@ async function seedSource(title: string): Promise<{ id: string }> {
 describe("forkConversationForRetrospective", () => {
   beforeEach(() => {
     resetTables();
-    registerDefaultPluginPersistenceHooks();
+    registerMemoryPersistenceHooks();
   });
 
   test("full fork is row-identical to the synchronous fork", async () => {

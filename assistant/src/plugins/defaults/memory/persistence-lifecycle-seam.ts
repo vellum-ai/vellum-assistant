@@ -1,15 +1,16 @@
 import type { DrizzleDb } from "../../../persistence/db-connection.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
+import { memoryPersistenceHooks } from "./persistence-hooks.js";
 
 /**
  * The memory plugin's persistence-lifecycle seam: the hook contract and the
  * registered-handler slot.
  *
  * Persistence is a layer below the memory plugin, so it cannot import memory
- * internals directly. Instead it calls into this registered-handler seam: the
- * memory plugin installs an implementation at bootstrap (see
- * `persistence-hooks-registration.ts`), and persistence invokes the current
- * implementation (`getMemoryPersistenceHooks`) at the relevant call sites.
+ * internals directly. Instead it calls into this registered-handler seam:
+ * `registerMemoryPersistenceHooks` installs the plugin's implementation at
+ * bootstrap, and persistence invokes the current implementation
+ * (`getMemoryPersistenceHooks`) at the relevant call sites.
  * When no implementation is registered — memory absent, disabled before
  * bootstrap, or a unit test that skips plugin bootstrap — the calls fall
  * through to a no-op, which is the correct "memory is not present" behaviour.
@@ -18,14 +19,15 @@ import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
  * the persistence layer: every event and query on it is memory-domain. The
  * persistence call sites that invoke `getMemoryPersistenceHooks()` are
  * documented back-imports in the persistence-layering guard, to be unwound by
- * moving the memory jobs worker into this plugin and exposing the remaining
- * lifecycle events through the first-class `hooks` system.
+ * exposing the lifecycle events through the first-class `hooks` system.
  *
- * This module is deliberately a LEAF (type-only imports, no runtime
- * dependencies): the persistence layer imports it while the plugin's handler
- * implementation transitively imports persistence, so any runtime dependency
- * here would close an import cycle. The implementation and its registration
- * live in `persistence-hooks-registration.ts` for the same reason.
+ * Importing the implementation here puts this module on an import cycle
+ * (persistence imports the seam; the implementation transitively imports
+ * persistence). The cycle is benign: every binding on it is read at call
+ * time — the persistence call sites invoke `getMemoryPersistenceHooks()`
+ * inside functions, and `registerMemoryPersistenceHooks` reads the
+ * implementation binding when bootstrap calls it — so no module body ever
+ * observes a half-initialized module.
  *
  * The seam is a single registered handler (not a multi-subscriber event bus)
  * because the persistence call sites run synchronously inside their write paths
@@ -149,11 +151,14 @@ const NOOP: MemoryPersistenceHooks = {
 
 let current: MemoryPersistenceHooks = NOOP;
 
-/** Install the memory feature's persistence-lifecycle handlers. Idempotent: replaces any prior registration. */
-export function registerMemoryPersistenceHooks(
-  hooks: MemoryPersistenceHooks,
-): void {
-  current = hooks;
+/**
+ * Install the memory feature's persistence-lifecycle handlers.
+ * `bootstrapPlugins` calls this before the per-plugin init loop so the seam
+ * is wired up front; the standalone memory jobs worker, which has no plugin
+ * bootstrap, calls it directly. Idempotent: replaces any prior registration.
+ */
+export function registerMemoryPersistenceHooks(): void {
+  current = memoryPersistenceHooks;
 }
 
 /** The currently-registered handlers, or a no-op set when memory is not present. */
@@ -164,4 +169,11 @@ export function getMemoryPersistenceHooks(): MemoryPersistenceHooks {
 /** Test-only: restore the no-op default so a test starts from a clean seam. */
 export function resetMemoryPersistenceHooksForTests(): void {
   current = NOOP;
+}
+
+/** Test-only: install a spy/stub handler set in place of the real implementation. */
+export function setMemoryPersistenceHooksForTests(
+  hooks: MemoryPersistenceHooks,
+): void {
+  current = hooks;
 }

@@ -18,7 +18,7 @@ import { getLogger } from "../../../util/logger.js";
 import { getMemoryWorkerPidPath } from "../../../util/platform.js";
 import { registerMemoryPluginJobHandlers } from "./job-handler-registration.js";
 import { startInProcessMemoryJobsWorker } from "./jobs-worker.js";
-import { registerDefaultPluginPersistenceHooks } from "./persistence-hooks-registration.js";
+import { registerMemoryPersistenceHooks } from "./persistence-lifecycle-seam.js";
 
 const log = getLogger("memory-worker-process");
 
@@ -52,7 +52,7 @@ async function main(): Promise<void> {
   // persistence-lifecycle hooks (without which the fork-based retrospectives
   // silently drop carried memory state).
   registerMemoryPluginJobHandlers();
-  registerDefaultPluginPersistenceHooks();
+  registerMemoryPersistenceHooks();
 
   // Populate the tool registry (core built-ins + workspace tools), exactly as
   // the daemon and the schedule worker do at startup. Jobs in this process

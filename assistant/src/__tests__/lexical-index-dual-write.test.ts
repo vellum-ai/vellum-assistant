@@ -63,11 +63,11 @@ import { initializeDb } from "../persistence/db-init.js";
 import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import type { MemoryJobType } from "../persistence/jobs-store.js";
 import { memoryJobs } from "../persistence/schema/index.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
 import {
   getMemoryPersistenceHooks,
   type MemoryPersistenceHooks,
   registerMemoryPersistenceHooks,
+  setMemoryPersistenceHooksForTests,
 } from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
 
 await initializeDb();
@@ -127,7 +127,7 @@ function setMemoryEnabled(enabled: boolean): void {
 describe("messages lexical-index dual-write", () => {
   beforeEach(() => {
     resetMemoryJobs();
-    registerDefaultPluginPersistenceHooks();
+    registerMemoryPersistenceHooks();
   });
 
   afterEach(() => {
@@ -362,12 +362,12 @@ describe("delete paths route through the persistence-hook seam", () => {
     resetMemoryJobs();
     deletedBatches.length = 0;
     deletedConversations.length = 0;
-    registerMemoryPersistenceHooks(spyHooks);
+    setMemoryPersistenceHooksForTests(spyHooks);
   });
 
   afterEach(() => {
     // Restore the real memory hooks so later tests are unaffected.
-    registerDefaultPluginPersistenceHooks();
+    registerMemoryPersistenceHooks();
   });
 
   test("the spy hook is installed", () => {

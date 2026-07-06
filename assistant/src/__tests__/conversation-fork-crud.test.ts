@@ -64,7 +64,7 @@ import {
   getRetrospectiveState,
   upsertRetrospectiveState,
 } from "../plugins/defaults/memory/memory-retrospective-state.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
+import { registerMemoryPersistenceHooks } from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
 import { hydrate as hydrateActivationState } from "../plugins/defaults/memory/v2/activation-store.js";
 import {
   getInjected as getV3Injected,
@@ -101,7 +101,7 @@ function parseMetadata(metadata: string | null): unknown {
 describe("forkConversation", () => {
   beforeEach(() => {
     resetTables();
-    registerDefaultPluginPersistenceHooks();
+    registerMemoryPersistenceHooks();
   });
 
   test("forks a full transcript with copied history and lineage", async () => {
@@ -1460,7 +1460,7 @@ describe("forkConversation", () => {
 describe("forkConversation + memory_retrospective_state", () => {
   beforeEach(() => {
     resetTables();
-    registerDefaultPluginPersistenceHooks();
+    registerMemoryPersistenceHooks();
   });
 
   test("does not seed state when the source has none", async () => {

@@ -35,11 +35,11 @@ mock.module("../persistence/job-handlers/message-lexical.js", () => ({
 
 import { clearAll } from "../persistence/conversation-crud.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
 import {
   getMemoryPersistenceHooks,
   registerMemoryPersistenceHooks,
   resetMemoryPersistenceHooksForTests,
+  setMemoryPersistenceHooksForTests,
 } from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
 
 await initializeDb();
@@ -49,7 +49,7 @@ describe("clearAll bulk lexical index cleanup", () => {
     clearCalls = 0;
     // Register the real memory persistence hooks so `onAllConversationsCleared`
     // routes to the plugin impl (which calls the spied clear helper).
-    registerDefaultPluginPersistenceHooks();
+    registerMemoryPersistenceHooks();
   });
 
   test("clearAll fires onAllConversationsCleared, which clears the lexical index", async () => {
@@ -63,7 +63,7 @@ describe("clearAll bulk lexical index cleanup", () => {
     // Register a hook whose drop yields to the microtask queue before finishing;
     // if clearAll did not await, `dropCompleted` would still be false here.
     let dropCompleted = false;
-    registerMemoryPersistenceHooks({
+    setMemoryPersistenceHooksForTests({
       ...getMemoryPersistenceHooks(),
       async onAllConversationsCleared() {
         await new Promise((r) => setTimeout(r, 10));
@@ -74,7 +74,7 @@ describe("clearAll bulk lexical index cleanup", () => {
     await clearAll();
     expect(dropCompleted).toBe(true);
 
-    registerDefaultPluginPersistenceHooks();
+    registerMemoryPersistenceHooks();
   });
 
   test("clearAll is a safe no-op when the memory hooks are not registered", async () => {
@@ -85,6 +85,6 @@ describe("clearAll bulk lexical index cleanup", () => {
     await clearAll();
     expect(clearCalls).toBe(0);
     // Restore for any later test in the same process.
-    registerDefaultPluginPersistenceHooks();
+    registerMemoryPersistenceHooks();
   });
 });
