@@ -10,6 +10,7 @@
 export interface ComposerKeyDownPolicy {
   input: string;
   canSendAttachments: boolean;
+  hasStagedQuotes?: boolean;
   sendDisabled: boolean;
   attachmentsUploadingCount: number;
   cmdEnterMode: boolean;
@@ -55,9 +56,14 @@ export function shouldSubmitOnEnter(
   // Cmd+Enter mode: only Cmd+Enter (Mac) or Ctrl+Enter (Win/Linux) submits;
   // bare Enter inserts a newline.
   if (policy.cmdEnterMode) {
-    if (!event.metaKey && !event.ctrlKey) return "ignore";
+    if (!event.metaKey && !event.ctrlKey) {
+      return "ignore";
+    }
   }
-  const hasContent = policy.input.trim() || policy.canSendAttachments;
+  const hasContent =
+    Boolean(policy.input.trim()) ||
+    policy.canSendAttachments ||
+    Boolean(policy.hasStagedQuotes);
   if (
     hasContent &&
     !policy.sendDisabled &&

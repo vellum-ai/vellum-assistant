@@ -26,7 +26,6 @@ const {
   downloadAttachment,
   forwardTwilioVoiceWebhook,
   forwardTwilioStatusWebhook,
-  forwardTwilioConnectActionWebhook,
   CircuitBreakerOpenError,
   resetCircuitBreaker,
 } = await import("../runtime/client.js");
@@ -432,45 +431,3 @@ describe("forwardTwilioStatusWebhook", () => {
   });
 });
 
-describe("forwardTwilioConnectActionWebhook", () => {
-  afterEach(() => {
-    fetchMock = mock(async () => new Response());
-    resetCircuitBreaker();
-  });
-
-  test("sends params to runtime internal connect-action endpoint", async () => {
-    const twiml = '<?xml version="1.0" encoding="UTF-8"?><Response/>';
-    fetchMock = mock(
-      async () =>
-        new Response(twiml, {
-          status: 200,
-          headers: { "Content-Type": "text/xml" },
-        }),
-    );
-
-    const config = makeConfig({});
-    const params = { CallSid: "CA123" };
-
-    const result = await forwardTwilioConnectActionWebhook(config, params);
-    expect(result.status).toBe(200);
-    expect(result.body).toBe(twiml);
-
-    const calledUrl = (fetchMock.mock.calls[0] as unknown[])[0] as string;
-    expect(calledUrl).toBe(
-      "http://localhost:7821/v1/internal/twilio/connect-action",
-    );
-  });
-
-  test("returns runtime error status and body", async () => {
-    fetchMock = mock(
-      async () => new Response('{"error":"Not found"}', { status: 404 }),
-    );
-
-    const config = makeConfig();
-    const result = await forwardTwilioConnectActionWebhook(config, {
-      CallSid: "CA999",
-    });
-    expect(result.status).toBe(404);
-    expect(result.body).toContain("Not found");
-  });
-});

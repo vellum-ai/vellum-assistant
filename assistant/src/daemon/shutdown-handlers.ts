@@ -13,7 +13,6 @@ import {
 } from "../persistence/db-async-query.js";
 import { getSqlite, isDbOpen, resetDb } from "../persistence/db-connection.js";
 import { stopQdrantManager } from "../persistence/embeddings/qdrant-manager.js";
-import { stopMemoryJobsWorker } from "../persistence/jobs-worker.js";
 import { stopMemoryWorkerProcess } from "../persistence/worker-control.js";
 import { stopConsentRefresh } from "../platform/consent-cache.js";
 import { HOOKS } from "../plugin-api/constants.js";
@@ -164,10 +163,6 @@ async function shutdown(): Promise<void> {
   await browserManager.closeAllPages();
   cleanupShellOutputTempFiles();
   stopScheduler();
-
-  // Stop the in-process memory worker supervisor if it was started on the
-  // daemon's event loop (memory.worker.enabled = false).
-  stopMemoryJobsWorker();
 
   // Stop the out-of-process memory worker if it's actually running. This is
   // keyed off live state rather than config: the worker may have been

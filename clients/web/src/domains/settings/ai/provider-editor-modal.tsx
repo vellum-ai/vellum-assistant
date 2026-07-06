@@ -311,7 +311,16 @@ export function ProviderEditorContent({
         body: input,
       });
       if (!updateRes?.ok) {
-        setError(connectionSaveErrorMessage(updateRes?.status, name.trim()));
+        let serverMessage: string | undefined;
+        try {
+          const body = await updateRes?.json();
+          if (typeof body?.error?.message === "string") {
+            serverMessage = body.error.message;
+          }
+        } catch {
+          // Response body not JSON-parseable; fall through to generic message.
+        }
+        setError(serverMessage || connectionSaveErrorMessage(updateRes?.status, name.trim()));
         return;
       }
       if (!updated) {

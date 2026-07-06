@@ -303,10 +303,10 @@ describe("ToolExecutor allowedToolNames gating", () => {
       makeContext({ allowedToolNames: allowed }),
     );
     expect(result.isError).toBe(true);
-    expect(result.content).toContain("not currently active");
+    expect(result.content).toContain("not available in this context");
   });
 
-  test("error message includes the blocked tool name", async () => {
+  test("error message includes the blocked tool name and the active set", async () => {
     const executor = new ToolExecutor(makePrompter());
     const allowed = new Set(["bash"]);
     const result = await executor.execute(
@@ -316,7 +316,7 @@ describe("ToolExecutor allowedToolNames gating", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toBe(
-      'Tool "file_edit" is not currently active. Load the skill that provides this tool first.',
+      'Tool "file_edit" is not available in this context. Available tools: bash',
     );
   });
 
@@ -330,7 +330,7 @@ describe("ToolExecutor allowedToolNames gating", () => {
     );
     expect(result.isError).toBe(true);
     expect(result.content).toContain("file_read");
-    expect(result.content).toContain("not currently active");
+    expect(result.content).toContain("No tools are active this turn");
   });
 
   test("unknown tool suggestion list is scoped to allowedToolNames", async () => {

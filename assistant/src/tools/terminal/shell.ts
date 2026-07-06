@@ -27,7 +27,6 @@ import {
   getOrStartSession,
   getSessionEnv,
 } from "../network/script-proxy/index.js";
-import { registerTool } from "../registry.js";
 import {
   formatShellOutput,
   MAX_OUTPUT_LENGTH,
@@ -762,5 +761,3 @@ function buildKillTree(
     }
   };
 }
-
-registerTool(shellTool);

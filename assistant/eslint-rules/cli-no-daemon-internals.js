@@ -78,6 +78,9 @@ const ALLOWED_PREFIXES = {
     // Secure key storage (keys.ts) needs direct security module access —
     // by design, the secure-key helpers run in-process (not over IPC).
     "../../security/",
+    // Canonical API-key provider list (keys.ts help text + validation) —
+    // a static metadata catalog with no daemon state.
+    "../../providers/provider-secret-catalog",
     // CES bridge (credential-execution.ts) speaks to the CES sidecar via
     // service-contracts RPC; daemon is not involved.
     "../../credential-execution/",

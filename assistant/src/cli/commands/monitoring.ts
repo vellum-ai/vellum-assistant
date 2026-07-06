@@ -25,6 +25,21 @@ import { registerCommand } from "../lib/register-command.js";
 import { log } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
 
+interface ReclaimCounters {
+  pgscanDirect: number | null;
+  pgstealDirect: number | null;
+  workingsetRefaultFile: number | null;
+}
+
+interface CpuCounters {
+  usageUsec: number | null;
+  userUsec: number | null;
+  systemUsec: number | null;
+  nrPeriods: number | null;
+  nrThrottled: number | null;
+  throttledUsec: number | null;
+}
+
 interface LatestSample {
   ts: number;
   memory: {
@@ -33,12 +48,41 @@ interface LatestSample {
     peakBytes: number | null;
     ratio: number | null;
   } | null;
+  memoryStat: {
+    anonBytes: number | null;
+    fileBytes: number | null;
+    kernelBytes: number | null;
+    slabReclaimableBytes: number | null;
+    slabUnreclaimableBytes: number | null;
+    unevictableBytes: number | null;
+    reclaimableBytes: number | null;
+  } | null;
+  reclaim: ReclaimCounters | null;
+  cpu: CpuCounters | null;
+  deltas: {
+    events: {
+      low: number | null;
+      high: number | null;
+      max: number | null;
+      oom: number | null;
+      oomKill: number | null;
+    } | null;
+    reclaim: ReclaimCounters | null;
+    cpu: CpuCounters | null;
+  } | null;
   disk: {
     path: string;
     usedMb: number;
     totalMb: number;
     freeMb: number;
   } | null;
+  activeConversations: Array<{
+    conversationId: string;
+    title: string | null;
+    originChannel: string | null;
+    originInterface: string | null;
+    processingStartedAt: number;
+  }> | null;
 }
 
 interface StartResponse {
@@ -99,7 +143,9 @@ Examples:
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .action(async (_opts: { json?: boolean }, cmd: Command) => {
           const r = await cliIpcCall<StartResponse>("monitoring_start");
-          if (!r.ok) return exitFromIpcResult(r);
+          if (!r.ok) {
+            return exitFromIpcResult(r);
+          }
           const res = r.result!;
 
           if (shouldOutputJson(cmd)) {
@@ -124,7 +170,9 @@ Examples:
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .action(async (_opts: { json?: boolean }, cmd: Command) => {
           const r = await cliIpcCall<StopResponse>("monitoring_stop");
-          if (!r.ok) return exitFromIpcResult(r);
+          if (!r.ok) {
+            return exitFromIpcResult(r);
+          }
           const res = r.result!;
 
           if (shouldOutputJson(cmd)) {
@@ -147,7 +195,9 @@ Examples:
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .action(async (_opts: { json?: boolean }, cmd: Command) => {
           const r = await cliIpcCall<StatusResponse>("monitoring_status");
-          if (!r.ok) return exitFromIpcResult(r);
+          if (!r.ok) {
+            return exitFromIpcResult(r);
+          }
           const res = r.result!;
 
           if (shouldOutputJson(cmd)) {
@@ -180,10 +230,53 @@ Examples:
               `  Memory: ${formatMib(currentBytes)} / ${limit}${pct}, peak ${peak}`,
             );
           }
+          if (sample.memoryStat) {
+            const stat = sample.memoryStat;
+            const fmt = (bytes: number | null) =>
+              bytes != null ? formatMib(bytes) : "unknown";
+            log.info(
+              `  Breakdown: anon ${fmt(stat.anonBytes)}, file ${fmt(stat.fileBytes)}, kernel ${fmt(stat.kernelBytes)}, slab ${fmt(stat.slabReclaimableBytes)} reclaimable + ${fmt(stat.slabUnreclaimableBytes)} unreclaimable`,
+            );
+            log.info(
+              `  Split: unevictable ${fmt(stat.unevictableBytes)}, reclaimable ${fmt(stat.reclaimableBytes)}`,
+            );
+          }
+          if (sample.reclaim) {
+            const counter = (total: number | null, delta?: number | null) => {
+              if (total == null) {
+                return "unknown";
+              }
+              return delta != null ? `${total} (+${delta})` : `${total}`;
+            };
+            const d = sample.deltas?.reclaim;
+            log.info(
+              `  Reclaim: pgscan_direct ${counter(sample.reclaim.pgscanDirect, d?.pgscanDirect)}, pgsteal_direct ${counter(sample.reclaim.pgstealDirect, d?.pgstealDirect)}, workingset_refault_file ${counter(sample.reclaim.workingsetRefaultFile, d?.workingsetRefaultFile)}`,
+            );
+          }
+          if (sample.cpu && sample.cpu.throttledUsec != null) {
+            const throttleDelta = sample.deltas?.cpu?.throttledUsec;
+            const throttledMs = Math.round(sample.cpu.throttledUsec / 1000);
+            const deltaSuffix =
+              throttleDelta != null
+                ? ` (+${Math.round(throttleDelta / 1000)}ms)`
+                : "";
+            log.info(
+              `  CPU throttling: ${sample.cpu.nrThrottled ?? "?"} periods, ${throttledMs}ms total${deltaSuffix}`,
+            );
+          }
           if (sample.disk) {
             log.info(
               `  Disk (${sample.disk.path}): ${sample.disk.usedMb} / ${sample.disk.totalMb} MiB used`,
             );
+          }
+          if (sample.activeConversations?.length) {
+            const items = sample.activeConversations
+              .map(
+                (c) =>
+                  `${c.conversationId}${c.title ? ` "${c.title}"` : ""}${c.originChannel ? ` via ${c.originChannel}` : ""}`,
+              )
+              .join(", ");
+            log.info(`  Processing: ${items}`);
           }
         });
     },

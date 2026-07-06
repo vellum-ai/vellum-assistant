@@ -104,12 +104,11 @@ mock.module("../../calls/fish-audio-client.js", () => ({
 // Imports (after mocks)
 // ---------------------------------------------------------------------------
 
-import { listCatalogProviderIds } from "../provider-catalog.js";
 import {
-  _resetTtsProviderRegistry,
+  getProviderDefinition,
   getTtsProvider,
-  listTtsProviders,
-} from "../provider-registry.js";
+  listCatalogProviderIds,
+} from "../provider-catalog.js";
 import {
   createDeepgramProvider,
   DeepgramTtsError,
@@ -121,11 +120,6 @@ import {
 } from "../providers/elevenlabs-provider.js";
 import { createFishAudioProvider } from "../providers/fish-audio-provider.js";
 import { FishAudioTtsError } from "../providers/fish-audio-provider.js";
-import { providerFactories } from "../providers/index.js";
-import {
-  _resetBuiltinRegistration,
-  registerBuiltinTtsProviders,
-} from "../providers/register-builtins.js";
 import { createXaiProvider, XaiTtsError } from "../providers/xai-provider.js";
 import type { TtsSynthesisRequest } from "../types.js";
 
@@ -171,8 +165,6 @@ beforeEach(() => {
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  _resetTtsProviderRegistry();
-  _resetBuiltinRegistration();
 });
 
 // ---------------------------------------------------------------------------
@@ -535,6 +527,43 @@ describe("Fish Audio TTS provider adapter", () => {
     expect((options as { signal?: AbortSignal } | undefined)?.signal).toBe(
       controller.signal,
     );
+  });
+
+  test("pcm output request maps to wav format at 8 kHz", async () => {
+    const provider = createFishAudioProvider();
+    await provider.synthesize(makeRequest({ outputFormat: "pcm" }));
+
+    const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
+    expect((config as { format: string }).format).toBe("wav");
+    expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
+      8000,
+    );
+  });
+
+  test("synthesizeStream pcm output request maps to wav format at 8 kHz", async () => {
+    const provider = createFishAudioProvider();
+    await provider.synthesizeStream!(
+      makeRequest({ outputFormat: "pcm" }),
+      () => {},
+    );
+
+    const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
+    expect((config as { format: string }).format).toBe("wav");
+    expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
+      8000,
+    );
+  });
+
+  test("explicit format request does not set a sample rate", async () => {
+    mockFishAudioConfig.format = "wav";
+    const provider = createFishAudioProvider();
+    await provider.synthesize(makeRequest());
+
+    const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
+    expect((config as { format: string }).format).toBe("wav");
+    expect(
+      (options as { sampleRate?: number } | undefined)?.sampleRate,
+    ).toBeUndefined();
   });
 
   // -- Streaming -----------------------------------------------------------
@@ -1065,71 +1094,42 @@ describe("xAI TTS provider adapter", () => {
 });
 
 // ===========================================================================
-// Built-in registration
+// Static catalog wiring
 // ===========================================================================
+// Catalog completeness (one definition per canonical ID, native-twilio ⟷
+// voice-spec pairing) is enforced at compile time by the `satisfies` check
+// in provider-catalog.ts and the discriminated TtsProviderDefinition union;
+// these are runtime smoke checks over the assembled definitions.
 
-describe("registerBuiltinTtsProviders", () => {
-  test("registers every catalog provider ID", () => {
-    registerBuiltinTtsProviders();
-
-    const providers = listTtsProviders();
-    const ids = providers.map((p) => p.id);
-    for (const id of listCatalogProviderIds()) {
-      expect(ids).toContain(id);
-    }
-  });
-
-  test("providers are discoverable via getTtsProvider after registration", () => {
-    registerBuiltinTtsProviders();
-
+describe("static provider catalog wiring", () => {
+  test("every catalog provider resolves to an adapter with a matching ID", () => {
     for (const id of listCatalogProviderIds()) {
       const provider = getTtsProvider(id);
       expect(provider.id).toBe(id);
+      expect(typeof provider.synthesize).toBe("function");
     }
   });
 
-  test("idempotent — calling twice does not throw", () => {
-    // First call registers; second should be a no-op due to the guard flag.
-    // However, because tests reset the registry via afterEach, the internal
-    // `registered` flag may still be true. We call it once here and verify
-    // it does not throw — that exercises the guard path.
-    registerBuiltinTtsProviders();
-    expect(() => registerBuiltinTtsProviders()).not.toThrow();
-  });
-
-  test("registers every provider declared in the catalog", () => {
-    registerBuiltinTtsProviders();
-
-    const catalogIds = listCatalogProviderIds();
-    const registeredProviders = listTtsProviders();
-    const registeredIds = registeredProviders.map((p) => p.id);
-
-    for (const id of catalogIds) {
-      expect(registeredIds).toContain(id);
-    }
-    // The registered set should match the catalog exactly (no extras).
-    expect(registeredIds.length).toBe(catalogIds.length);
-  });
-
-  test("every catalog provider has a factory in the providerFactories map", () => {
-    const catalogIds = listCatalogProviderIds();
-
-    for (const id of catalogIds) {
-      expect(providerFactories.has(id)).toBe(true);
+  test("every native-twilio provider carries a voice-spec builder", () => {
+    for (const id of listCatalogProviderIds()) {
+      const definition = getProviderDefinition(id);
+      if (definition.callMode === "native-twilio") {
+        expect(
+          definition.nativeTwilioVoiceSpec.twilioProviderName.length,
+        ).toBeGreaterThan(0);
+        expect(typeof definition.nativeTwilioVoiceSpec.buildVoiceSpec).toBe(
+          "function",
+        );
+      }
     }
   });
 
-  test("throws when a catalog provider has no adapter factory", () => {
-    // Verify the error path by checking that the error message format is
-    // correct. We cannot easily add a fake catalog entry without modifying
-    // the catalog module, but we can verify the factory map keys match the
-    // catalog — if they diverge this test will catch it.
-    const catalogIds = listCatalogProviderIds();
-    const factoryIds = [...providerFactories.keys()];
-
-    const missingFactories = catalogIds.filter(
-      (id) => !factoryIds.includes(id),
-    );
-    expect(missingFactories).toEqual([]);
+  test("streaming capability in the catalog matches the adapter", () => {
+    for (const id of listCatalogProviderIds()) {
+      const definition = getProviderDefinition(id);
+      if (definition.capabilities.supportsStreaming) {
+        expect(typeof definition.adapter.synthesizeStream).toBe("function");
+      }
+    }
   });
 });

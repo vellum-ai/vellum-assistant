@@ -54,18 +54,12 @@ import { HOOKS } from "../plugin-api/constants.js";
 import {
   getAllDefaultPlugins,
   registerDefaultPluginInjectors,
-  registerDefaultPluginJobHandlers,
-  registerDefaultPluginPersistenceHooks,
   registerDefaultPlugins,
 } from "../plugins/defaults/index.js";
 import {
   registerPluginInjectors,
   unregisterPluginInjectors,
 } from "../plugins/injector-registry.js";
-import {
-  registerPluginJobHandlers,
-  unregisterPluginJobHandlers,
-} from "../plugins/job-handler-registry.js";
 import { getRegisteredPlugins, unregisterPlugin } from "../plugins/registry.js";
 import {
   type Plugin,
@@ -200,19 +194,6 @@ export async function bootstrapPlugins(): Promise<void> {
   // defaults have no init/hooks, so without this their injectors would never
   // register while disabled.
   registerDefaultPluginInjectors();
-
-  // Register the default plugins' background-job handlers up front, the
-  // job-handler analog of the injector registration above. The general job
-  // worker's `registerMemoryJobHandlers` forwards the registry union into the
-  // worker dispatch table; pre-registering here keeps the daemon path symmetric
-  // with tools/routes/injectors (the standalone worker self-registers instead).
-  registerDefaultPluginJobHandlers();
-
-  // Install the memory feature's persistence-lifecycle handlers into the
-  // persistence seam up front, so the layer below memory can drive memory
-  // side effects (message indexing) without importing memory internals.
-  // Symmetric with the injector/job-handler registration above.
-  registerDefaultPluginPersistenceHooks();
 
   // Combine the canonical default plugins with any plugins registered via
   // `registerPlugin` (test fixtures). In production, `getRegisteredPlugins`
@@ -352,14 +333,6 @@ async function initializePlugin(
       );
     }
 
-    if (plugin.jobHandlers && plugin.jobHandlers.length > 0) {
-      registerPluginJobHandlers(name, plugin.jobHandlers);
-      log.info(
-        { plugin: name, count: plugin.jobHandlers.length },
-        "plugin job handlers registered",
-      );
-    }
-
     if (plugin.hooks?.[HOOKS.INIT]) {
       try {
         await plugin.hooks[HOOKS.INIT](initContext);
@@ -389,7 +362,6 @@ async function initializePlugin(
       }
       unregisterPluginTools(name);
       unregisterPluginInjectors(name);
-      unregisterPluginJobHandlers(name);
     }
     throw err;
   }
@@ -445,7 +417,6 @@ async function teardownPlugin(
   }
 
   unregisterPluginInjectors(name);
-  unregisterPluginJobHandlers(name);
 
   if (plugin.hooks?.[HOOKS.SHUTDOWN]) {
     try {

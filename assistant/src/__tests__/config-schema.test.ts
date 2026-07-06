@@ -24,7 +24,9 @@ function ensureTestDir(): void {
     join(WORKSPACE_DIR, "data", "logs"),
   ];
   for (const dir of dirs) {
-    if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+    }
   }
 }
 
@@ -49,23 +51,19 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeLoggerStub(),
 }));
 
-import {
-  buildElevenLabsVoiceSpec,
-  resolveVoiceQualityProfile,
-} from "../calls/voice-quality.js";
+import { resolveVoiceQualityProfile } from "../calls/voice-quality.js";
 import { invalidateConfigCache, loadConfig } from "../config/loader.js";
 import {
   AssistantConfigSchema,
   DEFAULT_ELEVENLABS_VOICE_ID,
 } from "../config/schema.js";
 import { SttServiceSchema } from "../config/schemas/stt.js";
-import {
-  TtsServiceSchema,
-  VALID_TTS_PROVIDERS as VALID_TTS_SERVICE_PROVIDERS,
-} from "../config/schemas/tts.js";
+import { TtsServiceSchema } from "../config/schemas/tts.js";
 import type { AssistantConfig } from "../config/types.js";
 import { listCatalogProviderIds } from "../tts/provider-catalog.js";
+import { buildElevenLabsVoiceSpec } from "../tts/providers/elevenlabs-provider.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
+import { TTS_PROVIDER_IDS } from "../tts/types.js";
 import { setStorePathForTesting } from "./encrypted-store-test-helpers.js";
 
 // ---------------------------------------------------------------------------
@@ -890,6 +888,7 @@ describe("AssistantConfigSchema", () => {
         language: "en-US",
         hints: [],
         interruptSensitivity: "low",
+        telephonyStreaming: true,
       },
       callerIdentity: {
         allowPerCallOverride: true,
@@ -997,6 +996,7 @@ describe("AssistantConfigSchema", () => {
     expect(result.calls.voice.language).toBe("en-US");
     expect(result.calls.voice.hints).toEqual([]);
     expect(result.calls.voice.interruptSensitivity).toBe("low");
+    expect(result.calls.voice.telephonyStreaming).toBe(true);
   });
 
   test("accepts valid calls.voice overrides", () => {
@@ -1004,10 +1004,25 @@ describe("AssistantConfigSchema", () => {
       calls: {
         voice: {
           language: "es-ES",
+          telephonyStreaming: false,
         },
       },
     });
     expect(result.calls.voice.language).toBe("es-ES");
+    expect(result.calls.voice.telephonyStreaming).toBe(false);
+  });
+
+  test("rejects non-boolean calls.voice.telephonyStreaming", () => {
+    const result = AssistantConfigSchema.safeParse({
+      calls: { voice: { telephonyStreaming: "yes" } },
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const msgs = result.error.issues.map((i) => i.message);
+      expect(
+        msgs.some((m) => m.includes("calls.voice.telephonyStreaming")),
+      ).toBe(true);
+    }
   });
 
   test("transcriptionProvider is no longer part of the voice config schema", () => {
@@ -1809,7 +1824,7 @@ describe("resolveTtsConfig", () => {
     ) as AssistantConfig;
     (config.services.tts as { provider: string }).provider = "aws-polly";
     const resolved = resolveTtsConfig(config);
-    expect(resolved.provider).toBe("aws-polly");
+    expect(resolved.provider as string).toBe("aws-polly");
     expect(resolved.providerConfig).toEqual({});
   });
 
@@ -1830,9 +1845,9 @@ describe("resolveTtsConfig", () => {
 // ---------------------------------------------------------------------------
 
 describe("TTS provider catalog integration", () => {
-  test("VALID_TTS_SERVICE_PROVIDERS matches catalog provider IDs", () => {
+  test("TTS_PROVIDER_IDS matches catalog provider IDs", () => {
     const catalogIds = listCatalogProviderIds();
-    expect([...VALID_TTS_SERVICE_PROVIDERS]).toEqual(catalogIds);
+    expect([...TTS_PROVIDER_IDS]).toEqual(catalogIds);
   });
 
   test("schema accepts all catalog provider IDs as services.tts.provider", () => {

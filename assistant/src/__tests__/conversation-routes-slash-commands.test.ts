@@ -147,6 +147,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
 }));
 
 mock.module("../persistence/conversation-disk-view.js", () => ({

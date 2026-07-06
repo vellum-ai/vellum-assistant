@@ -22,6 +22,7 @@ import {
     selectUploadingCount,
     useComposerStore,
 } from "@/domains/chat/composer-store";
+import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
@@ -317,6 +318,10 @@ export function ChatComposer({
     isVoiceActive && !isLocallyGenerating && !isElectronHost;
   const hideTextareaForVoice =
     isNative && showInlineVoicePreview;
+  const hasStagedQuotes =
+    useQuoteReplyStore.use.stagedQuotes().length > 0;
+  const canSendMessageContent =
+    Boolean(input.trim()) || canSendAttachments || hasStagedQuotes;
 
   const ghostSuffix = useMemo(
     () =>
@@ -521,6 +526,7 @@ export function ChatComposer({
                       sendDisabled,
                       attachmentsUploadingCount,
                       cmdEnterMode,
+                      hasStagedQuotes,
                     },
                   );
                   if (decision === "ignore") {
@@ -597,8 +603,8 @@ export function ChatComposer({
               <div className="flex items-center gap-1">
                 {canStopGenerating ? (
                   <>
-                    {/* Desktop: always show stop. Mobile: show stop only when user has no input. */}
-                    {(!isMobile || (!input.trim() && !canSendAttachments)) && (
+                    {/* Desktop: always show stop. Mobile: show stop only when there is no sendable content. */}
+                    {(!isMobile || !canSendMessageContent) && (
                       <Button
                         variant="primary"
                         iconOnly={
@@ -608,8 +614,8 @@ export function ChatComposer({
                         aria-label="Stop generating"
                       />
                     )}
-                    {/* Mobile: show send instead of stop when user has typed input (for message queueing). */}
-                    {isMobile && (input.trim() || canSendAttachments) && (
+                    {/* Mobile: show send instead of stop when content can be queued. */}
+                    {isMobile && canSendMessageContent && (
                       <Button
                         variant="primary"
                         iconOnly={
@@ -684,10 +690,10 @@ export function ChatComposer({
                         disabled={
                           sendDisabled ||
                           attachmentsUploadingCount > 0 ||
-                          (!input.trim() && !canSendAttachments)
+                          !canSendMessageContent
                         }
                         title={
-                          sendDisabled || (!input.trim() && !canSendAttachments)
+                          sendDisabled || !canSendMessageContent
                             ? "Type a message to send"
                             : attachmentsUploadingCount > 0
                               ? "Uploading attachments…"

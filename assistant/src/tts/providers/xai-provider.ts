@@ -12,6 +12,7 @@ import type { TtsXaiProviderConfig } from "../../config/schemas/tts.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
+import type { TtsProviderDefinition } from "../provider-definition.js";
 import type {
   TtsProvider,
   TtsProviderCapabilities,
@@ -222,3 +223,43 @@ export function createXaiProvider(): TtsProvider {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Provider definition
+// ---------------------------------------------------------------------------
+
+/**
+ * The complete xAI provider definition — catalog metadata plus the runtime
+ * adapter — assembled into the canonical catalog by `provider-catalog.ts`.
+ */
+export const xaiTtsProviderDefinition: TtsProviderDefinition = {
+  id: "xai",
+  displayName: "xAI",
+  subtitle:
+    "Text-to-speech from xAI with expressive voices (eve, ara, rex, sal, leo). Requires an xAI API key.",
+  supportsVoiceSelection: false,
+  apiKeyPlaceholder: "Enter your xAI API key",
+  credentialsGuide: {
+    description:
+      "Sign in to the xAI console, navigate to API Keys, and create a new key.",
+    url: "https://console.x.ai/",
+    linkLabel: "Open xAI Console",
+  },
+  callMode: "synthesized-play",
+  allowNativeFallback: false,
+  capabilities: {
+    supportsStreaming: false,
+    supportedFormats: ["mp3", "wav"],
+  },
+  // The adapter honours the PCM hint via the `pcm` codec.
+  mediaStreamPlayback: { outputFormat: "pcm" },
+  secretRequirements: [
+    {
+      credentialStoreKey: "credential/xai/api_key",
+      displayName: "xAI API Key",
+      setCommand:
+        "assistant credentials set --service xai --field api_key <key>",
+    },
+  ],
+  adapter: createXaiProvider(),
+};

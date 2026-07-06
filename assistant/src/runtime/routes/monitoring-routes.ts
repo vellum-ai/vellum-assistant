@@ -70,11 +70,63 @@ const sampleEventsSchema = z.object({
   oomKill: z.number(),
 });
 
+const sampleMemoryStatSchema = z.object({
+  anonBytes: z.number().nullable(),
+  fileBytes: z.number().nullable(),
+  kernelBytes: z.number().nullable(),
+  slabReclaimableBytes: z.number().nullable(),
+  slabUnreclaimableBytes: z.number().nullable(),
+  unevictableBytes: z.number().nullable(),
+  reclaimableBytes: z.number().nullable(),
+});
+
+const sampleReclaimSchema = z.object({
+  pgscanDirect: z.number().nullable(),
+  pgstealDirect: z.number().nullable(),
+  workingsetRefaultFile: z.number().nullable(),
+});
+
+const sampleCpuSchema = z.object({
+  usageUsec: z.number().nullable(),
+  userUsec: z.number().nullable(),
+  systemUsec: z.number().nullable(),
+  nrPeriods: z.number().nullable(),
+  nrThrottled: z.number().nullable(),
+  throttledUsec: z.number().nullable(),
+});
+
+const sampleEventDeltasSchema = z.object({
+  low: z.number().nullable(),
+  high: z.number().nullable(),
+  max: z.number().nullable(),
+  oom: z.number().nullable(),
+  oomKill: z.number().nullable(),
+});
+
+const sampleDeltasSchema = z.object({
+  events: sampleEventDeltasSchema.nullable(),
+  reclaim: sampleReclaimSchema.nullable(),
+  cpu: sampleCpuSchema.nullable(),
+});
+
+const activeConversationSchema = z.object({
+  conversationId: z.string(),
+  title: z.string().nullable(),
+  originChannel: z.string().nullable(),
+  originInterface: z.string().nullable(),
+  processingStartedAt: z.number(),
+});
+
 const latestSampleSchema = z.object({
   ts: z.number(),
   memory: sampleMemorySchema.nullable(),
+  memoryStat: sampleMemoryStatSchema.nullable(),
+  reclaim: sampleReclaimSchema.nullable(),
+  cpu: sampleCpuSchema.nullable(),
   events: sampleEventsSchema.nullable(),
+  deltas: sampleDeltasSchema.nullable(),
   disk: sampleDiskSchema.nullable(),
+  activeConversations: z.array(activeConversationSchema).nullable(),
 });
 
 const startResponseSchema = z.object({
@@ -163,7 +215,20 @@ function readLatestSample(): ResourceSample | null {
       join(getMonitoringDataDir(), "samples.jsonl"),
       config.monitoring.ringBufferSize,
     );
-    return buffer.readLast();
+    const sample = buffer.readLast();
+    if (sample == null) {
+      return null;
+    }
+    // Samples persisted by an older monitor may predate some fields; fill
+    // them with null so the response always matches the documented shape.
+    return {
+      ...sample,
+      memoryStat: sample.memoryStat ?? null,
+      reclaim: sample.reclaim ?? null,
+      cpu: sample.cpu ?? null,
+      deltas: sample.deltas ?? null,
+      activeConversations: sample.activeConversations ?? null,
+    };
   } catch (err) {
     log.warn({ err }, "Failed to read latest resource sample");
     return null;

@@ -464,6 +464,10 @@ export function useStreamEventHandler(
         // handler ignores them.
         case "trace_event":
           break;
+        // Transient, best-effort progress signals from lifecycle hooks
+        // (e.g. user-prompt-submit). No web UI renders them yet.
+        case "hook_event":
+          break;
         case "unknown":
           break;
         default: {

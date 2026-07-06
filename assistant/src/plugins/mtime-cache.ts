@@ -24,7 +24,7 @@ import { join } from "node:path";
 
 import {
   clearPluginHooks,
-  collectUserHooks,
+  collectUserHookEntries,
   evictHooksForOwner,
   hasWorkspaceHooks,
   preImportHooksDir,
@@ -55,6 +55,7 @@ import {
   importWithTimeout,
   setSurfaceImportTimeout,
 } from "./surface-import.js";
+import type { HookEntry } from "./types.js";
 
 // Re-export for type compat — consumers that import HookFunction from
 // the mtime cache module still resolve.
@@ -182,16 +183,31 @@ const disabledPluginDirs = new Set<string>();
  * user plugins outside the set are skipped (standalone workspace hooks always
  * run). `null`/omitted means no per-chat restriction.
  */
-export async function getUserHooksFor<TCtx = unknown>(
+export async function getUserHookEntriesFor<TCtx = unknown>(
   hookName: string,
   effectiveEnabledPlugins?: Set<string> | null,
-): Promise<HookFunction<TCtx>[]> {
+): Promise<HookEntry<TCtx>[]> {
   await scanPlugins();
-  return collectUserHooks<TCtx>(
+  return collectUserHookEntries<TCtx>(
     hookName,
     discoveredPluginDirs,
     effectiveEnabledPlugins,
   );
+}
+
+/**
+ * {@link getUserHookEntriesFor} without owner attribution — returns just the
+ * hook functions in the same order.
+ */
+export async function getUserHooksFor<TCtx = unknown>(
+  hookName: string,
+  effectiveEnabledPlugins?: Set<string> | null,
+): Promise<HookFunction<TCtx>[]> {
+  const entries = await getUserHookEntriesFor<TCtx>(
+    hookName,
+    effectiveEnabledPlugins,
+  );
+  return entries.map((e) => e.fn);
 }
 
 // ─── Tool cache ──────────────────────────────────────────────────────────────

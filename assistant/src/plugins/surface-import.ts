@@ -51,6 +51,26 @@ export function getMtime(filePath: string): number {
 }
 
 /**
+ * Evict `filePath` from the runtime module registry so the next dynamic
+ * `import()` of that path re-evaluates the file from disk.
+ *
+ * Bun's CJS and ESM loaders share one module registry, so deleting the
+ * `require.cache` entry invalidates `import()` too. This is Node-compat
+ * surface — intended behavior per the Bun maintainers
+ * (github.com/oven-sh/bun/discussions/10162) but not spec-guaranteed, so it
+ * is pinned end-to-end by `../hooks/__tests__/hook-live-reload.test.ts`.
+ *
+ * Callers must evict only when the file's content actually changed on disk
+ * (mtime moved, or the file was deleted and recreated) — evicting on every
+ * read would defeat the module cache entirely. Eviction is per-file: modules
+ * the evicted file imports stay cached, so an edit to a hook's helper module
+ * takes effect only if the helper is evicted as well.
+ */
+export function evictModule(filePath: string): void {
+  delete require.cache[filePath];
+}
+
+/**
  * In-flight import promises, keyed by file path. Prevents duplicate
  * `import()` calls when multiple readers request the same surface
  * concurrently.
@@ -87,7 +107,9 @@ export async function importWithTimeout<T>(
     }
     return result as T;
   } finally {
-    if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
+    if (timeoutHandle !== undefined) {
+      clearTimeout(timeoutHandle);
+    }
   }
 }
 
@@ -96,11 +118,10 @@ export async function importWithTimeout<T>(
  * the same file path. This prevents two readers from triggering duplicate
  * `import()` calls when they request the same surface simultaneously.
  *
- * Note: Bun caches `import()` by resolved path within a process and does not
- * bust on query-string or hash changes, so the dedup is about avoiding
- * redundant async work, not cache-busting. A content edit to an existing
- * file is only picked up after a process restart (added and removed files
- * are picked up live, since discovery is by directory listing).
+ * Note: Bun caches `import()` by resolved path within a process, so the
+ * dedup is about avoiding redundant async work, not cache-busting. A caller
+ * that needs a content edit picked up must call {@link evictModule} before
+ * re-importing; a bare re-import returns the cached module.
  */
 async function importWithDedup<T>(filePath: string): Promise<T> {
   let promise = inflight.get(filePath);

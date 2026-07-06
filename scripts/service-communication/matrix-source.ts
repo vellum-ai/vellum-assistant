@@ -107,7 +107,7 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
     protocol: "http",
     auth: "JWT Bearer (service token)",
     description:
-      "Gateway forwards validated Twilio voice/status/connect-action webhooks to the assistant's internal Twilio endpoints.",
+      "Gateway forwards validated Twilio voice/status webhooks to the assistant's internal Twilio endpoints.",
     callerGlobs: ["gateway/src/runtime/client.ts"],
     calleeGlobs: ["assistant/src/calls/*.ts"],
   },
@@ -313,17 +313,6 @@ export const MATRIX_ENTRIES: MatrixEntry[] = [
   // =========================================================================
   // Gateway -> Assistant (WebSocket)
   // =========================================================================
-  {
-    label: "Twilio ConversationRelay WebSocket proxy",
-    caller: "gateway",
-    callee: "assistant",
-    protocol: "websocket",
-    auth: "JWT Bearer (service token, query param)",
-    description:
-      "Gateway proxies Twilio ConversationRelay WebSocket frames to the assistant's /v1/calls/relay endpoint.",
-    callerGlobs: ["gateway/src/http/routes/twilio-relay-websocket.ts"],
-    calleeGlobs: ["assistant/src/calls/relay-server.ts"],
-  },
   {
     label: "Browser relay WebSocket proxy",
     caller: "gateway",

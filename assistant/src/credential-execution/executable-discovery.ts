@@ -111,6 +111,17 @@ export interface ManagedDiscoverySuccess {
   socketPath: string;
 }
 
+/**
+ * A local CES running as an independent sibling process (not spawned by the
+ * assistant), reached over a Unix socket. Transport-identical to managed; the
+ * distinct mode records that the assistant does not own this process's
+ * lifecycle. Opted into via `CES_STANDALONE`.
+ */
+export interface SiblingDiscoverySuccess {
+  mode: "sibling";
+  socketPath: string;
+}
+
 export interface DiscoveryFailure {
   mode: "unavailable";
   reason: string;
@@ -120,6 +131,7 @@ export type DiscoveryResult =
   | LocalDiscoverySuccess
   | LocalSourceDiscoverySuccess
   | ManagedDiscoverySuccess
+  | SiblingDiscoverySuccess
   | DiscoveryFailure;
 
 // ---------------------------------------------------------------------------
@@ -134,6 +146,10 @@ export type DiscoveryResult =
  * point in the monorepo. Returns a structured result — never throws. If
  * neither the binary nor the source entry point is found, returns
  * `{ mode: "unavailable" }` so the caller can fail closed.
+ *
+ * @deprecated The assistant-spawns-CES stdio path is being retired in favor of
+ * the CLI-launched sibling (`CES_STANDALONE`), which matches how containerized
+ * homes already run CES. Kept only until the sibling topology becomes default.
  */
 export function discoverLocalCes():
   | LocalDiscoverySuccess
@@ -212,6 +228,44 @@ export function discoverManagedCes():
 }
 
 // ---------------------------------------------------------------------------
+// Sibling discovery (temporary — CES_STANDALONE)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether the assistant should connect to a CLI-launched CES sibling process
+ * instead of spawning CES itself. Temporary opt-in while we move local CES to a
+ * proper sibling process; only applies to non-containerized (bare-metal) homes.
+ */
+export function isCesSiblingOptIn(): boolean {
+  return !getIsContainerized() && process.env["CES_STANDALONE"] === "1";
+}
+
+/**
+ * Discover a CLI-launched local CES sibling via its Unix socket. The CLI sets
+ * `CES_LOCAL_SOCKET` on both the sibling and the daemon so they agree on the
+ * path. Does not open a connection — that happens in `CesProcessManager.start()`.
+ */
+export function discoverLocalSiblingCes():
+  | SiblingDiscoverySuccess
+  | DiscoveryFailure {
+  const socketPath = process.env["CES_LOCAL_SOCKET"];
+  if (!socketPath) {
+    const reason =
+      "CES_STANDALONE is set but CES_LOCAL_SOCKET is not — cannot locate the CES sibling socket";
+    log.warn(reason);
+    return { mode: "unavailable", reason };
+  }
+  if (!existsSync(socketPath)) {
+    return {
+      mode: "unavailable",
+      reason: `CES sibling socket not found at ${socketPath}`,
+    };
+  }
+  log.info({ socketPath }, "Local CES sibling socket found");
+  return { mode: "sibling", socketPath };
+}
+
+// ---------------------------------------------------------------------------
 // Auto-discovery
 // ---------------------------------------------------------------------------
 
@@ -220,11 +274,15 @@ export function discoverManagedCes():
  * current deployment topology.
  *
  * - Containerized environments → managed sidecar discovery
- * - Non-containerized environments → local executable discovery
+ * - Non-containerized + `CES_STANDALONE` → CLI-launched sibling socket
+ * - Non-containerized (default) → local executable discovery (assistant spawns)
  */
 export function discoverCes(): DiscoveryResult {
   if (getIsContainerized()) {
     return discoverManagedCes();
+  }
+  if (isCesSiblingOptIn()) {
+    return discoverLocalSiblingCes();
   }
   return discoverLocalCes();
 }
@@ -254,9 +312,10 @@ export async function discoverCesWithRetry({
   timeoutMs = MANAGED_DISCOVERY_TIMEOUT_MS,
   intervalMs = MANAGED_DISCOVERY_INTERVAL_MS,
 }: { timeoutMs?: number; intervalMs?: number } = {}): Promise<DiscoveryResult> {
-  // Only the managed bootstrap socket is worth polling for; a missing local
-  // binary will not appear by waiting.
-  if (!getIsContainerized()) {
+  // Only a socket that CES binds asynchronously is worth polling for — the
+  // managed bootstrap socket, or a CLI-launched sibling that may still be
+  // coming up. A missing local binary will not appear by waiting.
+  if (!getIsContainerized() && !isCesSiblingOptIn()) {
     return discoverCes();
   }
 

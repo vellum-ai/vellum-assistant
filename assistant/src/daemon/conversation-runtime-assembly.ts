@@ -66,12 +66,10 @@ import type {
 import type { ContentBlock, Message } from "../providers/types.js";
 import type { TrustClass } from "../runtime/actor-trust-resolver.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
-import { getSubagentManager } from "../subagent/index.js";
 import type { SubagentState } from "../subagent/types.js";
 import { TERMINAL_STATUSES } from "../subagent/types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 import { findConversationOrSubagent } from "./conversation-registry.js";
-import { getEffectiveEnabledPluginSet } from "./conversation-tool-setup.js";
 import { canonicalizeTimeZone, formatTurnTimestamp } from "./date-context.js";
 import type {
   DynamicPageSurfaceData,
@@ -166,9 +164,10 @@ export function inboundActorContextFromTrustContext(
  *
  * Returns `null` when there is no trust context and on guardian (owner) turns —
  * the actor section is suppressed for the owner. ACL fields (trust class,
- * member status/policy, guardian binding) come from the verdict-derived trust
- * context; INFO fields (contact notes, interaction count) are joined locally by
- * contact ID. Derives purely from the passed trust context, so callers
+ * member status/policy, guardian binding) and the gateway-owned interaction
+ * count come from the verdict-derived trust context; the INFO `notes` field is
+ * joined locally by contact ID. Derives purely from the passed trust context,
+ * so callers
  * self-resolve it from the live conversation rather than threading it.
  */
 export function resolveTurnInboundActorContext(
@@ -181,11 +180,13 @@ export function resolveTurnInboundActorContext(
   if (resolved.trustClass === "guardian") {
     return null;
   }
+  // Interaction count is gateway-owned telemetry, carried on the verdict-derived
+  // trust context; notes remain an INFO field joined locally by contact ID.
+  resolved.contactInteractionCount = trustContext.requesterInteractionCount;
   if (trustContext.requesterContactId) {
     const info = findContactInfoById(trustContext.requesterContactId);
     if (info) {
       resolved.contactNotes = info.notes ?? undefined;
-      resolved.contactInteractionCount = info.interactionCount;
     }
   }
   return resolved;
@@ -593,12 +594,14 @@ function escapeXml(str: string): string {
 
 /**
  * Build the `<active_subagents>` injection block from the current child states.
- * Returns null if there are no children (zero overhead for non-subagent parents).
+ * Returns null if there are no children (zero overhead for non-subagent
+ * parents) — `null`/`undefined` children (no live conversation, or a subagent
+ * conversation, per `Conversation.getSubagentChildren`) count as none.
  */
 export function buildSubagentStatusBlock(
-  children: SubagentState[],
+  children: SubagentState[] | null | undefined,
 ): string | null {
-  if (children.length === 0) return null;
+  if (!children || children.length === 0) return null;
 
   const now = Date.now();
   const lines: string[] = ["<active_subagents>"];
@@ -628,7 +631,7 @@ export function buildSubagentStatusBlock(
 // The `<active_subagents>` block is emitted by the `subagent-status` default
 // injector (`plugins/defaults/memory/injectors.ts`) as an `append-user-tail`
 // placement. `applyRuntimeInjections` resolves the block from the live
-// subagent manager keyed by the conversation, so callers do not pass it in.
+// conversation's subagent children, so callers do not pass it in.
 
 /**
  * Append voice call-control protocol instructions to the last user
@@ -1593,19 +1596,13 @@ export interface RuntimeInjectionResult {
  * preserves ascending-`order` sort so downstream callers (notably
  * {@link applyRuntimeInjections}) can group blocks by `placement` and apply
  * them declaratively without losing per-injector ordering within each slot.
- *
- * `effectiveEnabledPlugins` carries the conversation's per-chat plugin scope:
- * when non-null, injectors contributed by a plugin outside the set are excluded
- * for this turn (see {@link getRegisteredInjectors}). `null`/omitted means no
- * per-chat restriction.
  */
 async function collectInjectorBlocks(
   ctx: TurnContext,
   runMessages?: Message[],
-  effectiveEnabledPlugins?: Set<string> | null,
 ): Promise<InjectionBlock[]> {
   const out: InjectionBlock[] = [];
-  for (const injector of getRegisteredInjectors(effectiveEnabledPlugins)) {
+  for (const injector of getRegisteredInjectors()) {
     const block = await injector.produce(ctx, runMessages);
     if (block) out.push(block);
   }
@@ -1795,8 +1792,8 @@ function stripTailV2DynamicMemoryPrefix(
  * (falling back to its recorded `originInterface`, then `web`), its turn
  * channel context's `userMessageChannel` (falling back to its recorded
  * `originChannel`, then `vellum`), its `conversationType`, its
- * `currentTurnTemporalSnapshot`, the subagent manager's children of
- * `conversationId`, and — for the focus block — its persisted Slack
+ * `currentTurnTemporalSnapshot`, its subagent children
+ * (`getSubagentChildren`), and — for the focus block — its persisted Slack
  * compaction boundary (`contextCompactedMessageCount` /
  * `slackContextCompactionWatermarkTs`) and trust class) or from config (the
  * configured user timezone and the detected-timezone fallback), so the
@@ -1944,14 +1941,6 @@ export async function applyRuntimeInjections(
   // field below from it rather than from orchestrator-computed options.
   const liveConversation = findConversationOrSubagent(conversationId);
 
-  // Per-chat plugin scope for this turn: when the conversation restricts its
-  // plugins (`enabledPlugins` non-null), injectors contributed by a plugin
-  // outside the set are excluded below. `null` (no live conversation, or no
-  // restriction) leaves the injector chain unchanged.
-  const effectiveEnabledPlugins = liveConversation
-    ? getEffectiveEnabledPluginSet(liveConversation)
-    : null;
-
   const channelCapabilities = liveConversation?.channelCapabilities ?? null;
   const slackConversation = channelCapabilities?.channel === "slack";
 
@@ -2019,14 +2008,14 @@ export async function applyRuntimeInjections(
     : undefined;
   const timeSinceLastMessage = temporalSnapshot?.timeSinceLastMessage ?? null;
 
-  // The `<active_subagents>` status block is sourced from the live subagent
-  // manager's children of this conversation. Skipped when this conversation is
-  // itself a subagent (no nesting) or has no children.
-  const subagentStatusBlock = liveConversation?.isSubagent
-    ? null
-    : buildSubagentStatusBlock(
-        getSubagentManager().getChildrenOf(conversationId),
-      );
+  // The `<active_subagents>` status block is sourced from the live
+  // conversation's subagent children (`getSubagentChildren` returns `null` for
+  // a subagent conversation — no nesting — and the builder returns `null` for
+  // no children). Optional call: tests register partial Conversation fakes via
+  // `setConversation(..., {...} as never)` that omit the method.
+  const subagentStatusBlock = buildSubagentStatusBlock(
+    liveConversation?.getSubagentChildren?.(),
+  );
 
   // The `<active_thread>` focus block lists the messages of the thread the
   // current inbound user message belongs to. The loader short-circuits to
@@ -2103,11 +2092,7 @@ export async function applyRuntimeInjections(
     ...injectionInputs,
   };
 
-  const chainBlocks = await collectInjectorBlocks(
-    turnCtx,
-    runMessages,
-    effectiveEnabledPlugins,
-  );
+  const chainBlocks = await collectInjectorBlocks(turnCtx, runMessages);
 
   // Split the chain output by placement so the downstream assembly can
   // process each slot with the correct ordering rule.

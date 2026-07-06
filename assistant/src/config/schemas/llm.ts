@@ -414,14 +414,14 @@ export const ProfileEntry = LLMConfigFragment.extend({
   source: ProfileSource.optional(),
   /**
    * `.nullable()` is intentional: the PUT `/v1/config/llm/profiles/:name`
-   * route uses `null` as the "clear this override" sentinel for managed
-   * profiles (see `patchManagedProfileFields` in
+   * route uses `null` as the "clear this field" sentinel (edit mode sends
+   * `label: null` for a cleared display name — see
+   * `handleReplaceInferenceProfile` in
    * `runtime/routes/conversation-query-routes.ts`). Without `.nullable()`,
    * Zod rejects `{ label: null }` at parse time before the route handler
-   * ever sees it, and the clear-back-to-seed path is unreachable from any
-   * client. `.min(1)` still applies to string values so empty strings
-   * remain rejected — `null` is the only non-string-non-undefined input
-   * accepted.
+   * ever sees it, and the clear path is unreachable from any client.
+   * `.min(1)` still applies to string values so empty strings remain
+   * rejected — `null` is the only non-string-non-undefined input accepted.
    */
   label: z.string().min(1).nullable().optional(),
   description: z.string().optional(),
@@ -434,9 +434,9 @@ export const ProfileEntry = LLMConfigFragment.extend({
   provider_connection: z.string().min(1).optional(),
   /**
    * Absent means active. `.nullable()` matches `label` so the PUT route's
-   * "send `null` to clear" sentinel works for status edits too — see
-   * `patchManagedProfileFields`, which has handled `status === null` since
-   * #30362 even though the schema didn't accept it until now.
+   * "send `null` to clear" sentinel works for status too — a managed
+   * re-enable body of `{status: null}` clears back to active-by-absence
+   * (see `applyManagedProfileReenable`).
    */
   status: ProfileStatusSchema.nullable().optional(),
   /**

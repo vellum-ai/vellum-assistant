@@ -243,7 +243,16 @@ export function ProviderCreateForm({
         body: input,
       });
       if (!createRes?.ok) {
-        setError(connectionSaveErrorMessage(createRes?.status, name.trim()));
+        let serverMessage: string | undefined;
+        try {
+          const body = await createRes?.json();
+          if (typeof body?.error?.message === "string") {
+            serverMessage = body.error.message;
+          }
+        } catch {
+          // Response body not JSON-parseable; fall through to generic message.
+        }
+        setError(serverMessage || connectionSaveErrorMessage(createRes?.status, name.trim()));
         return;
       }
       if (!created) {

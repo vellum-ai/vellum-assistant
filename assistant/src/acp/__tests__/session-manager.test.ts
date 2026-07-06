@@ -37,6 +37,12 @@ mock.module("../agent-process.js", () => ({
     async cancel(sessionId: string): Promise<void> {
       cancelCalls.push(sessionId);
     }
+    markStderr(): number {
+      return 0;
+    }
+    stderrSince(): string {
+      return "";
+    }
     kill(): void {}
   },
 }));

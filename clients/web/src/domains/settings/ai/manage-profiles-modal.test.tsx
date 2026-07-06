@@ -29,7 +29,7 @@ import * as daemonQueryGen from "@/generated/daemon/@tanstack/react-query.gen";
 // ---------------------------------------------------------------------------
 
 let toastSuccessCalls: string[] = [];
-let configPatchCalled = false;
+let configPatchBodies: unknown[] = [];
 let profilesState: Record<string, ProfileEntry> = {};
 
 mock.module("@vellumai/design-library/components/toast", () => ({
@@ -54,8 +54,8 @@ mock.module("@/generated/daemon/sdk.gen", () => ({
       },
     },
   })),
-  configPatch: async () => {
-    configPatchCalled = true;
+  configPatch: async (options?: { body?: unknown }) => {
+    configPatchBodies.push(options?.body);
     return {
       data: {
         llm: {
@@ -187,7 +187,7 @@ function selectModel(label: string): void {
 
 beforeEach(() => {
   toastSuccessCalls = [];
-  configPatchCalled = false;
+  configPatchBodies = [];
   profilesState = {};
 });
 
@@ -229,10 +229,143 @@ describe("ManageProfilesModal — profile-create success toast (Settings surface
     // The config mutation ran and the Settings surface fired one toast using
     // the entered label.
     await waitFor(() => {
-      expect(configPatchCalled).toBe(true);
+      expect(configPatchBodies.length).toBeGreaterThan(0);
     });
     await waitFor(() => {
       expect(toastSuccessCalls).toEqual(['Profile "My Profile" created']);
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Invariant (managed) profiles — server-stamped `invariant: true`
+// ---------------------------------------------------------------------------
+
+describe("ManageProfilesModal — invariant managed profiles in the list", () => {
+  // The list-item status toggle carries an "Enable <label>"/"Disable <label>"
+  // aria-label — the accessible handle these tests query by.
+  function findStatusToggle(action: "Enable" | "Disable", label: string) {
+    return document.querySelector<HTMLButtonElement>(
+      `[role="switch"][aria-label="${action} ${label}"]`,
+    );
+  }
+
+  function seedInvariantProfiles() {
+    profilesState = {
+      "default-a": {
+        label: "Default A",
+        source: "managed",
+        invariant: true,
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+      },
+      // A user-owned profile sharing a managed name. The daemon stamps
+      // `invariant` only on managed-source entries, so this one carries no
+      // flag and must render as a normal, fully editable custom profile.
+      "os-beta": {
+        label: "My OS Beta",
+        source: "user",
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+      },
+      "default-b": {
+        label: "Default B",
+        source: "managed",
+        invariant: true,
+        status: "disabled",
+        provider: "anthropic",
+        model: "claude-opus-4-8",
+      },
+    };
+  }
+
+  test("an active invariant profile has no status toggle; a disabled one and non-invariant profiles keep theirs", () => {
+    seedInvariantProfiles();
+    render(
+      <Wrapper>
+        <ManageProfilesModal isOpen assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+
+    // Active invariant profile: no disable affordance at all.
+    expect(findStatusToggle("Disable", "Default A")).toBeNull();
+    expect(findStatusToggle("Enable", "Default A")).toBeNull();
+
+    // Disabled invariant profile: the enable affordance remains.
+    expect(findStatusToggle("Enable", "Default B")).not.toBeNull();
+
+    // User-owned profile without the flag: two-way toggle as usual.
+    expect(findStatusToggle("Disable", "My OS Beta")).not.toBeNull();
+  });
+
+  test("re-enabling a disabled invariant profile PATCHes status:'active' and nothing else", async () => {
+    seedInvariantProfiles();
+    render(
+      <Wrapper>
+        <ManageProfilesModal isOpen assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+
+    fireEvent.click(findStatusToggle("Enable", "Default B")!);
+
+    await waitFor(() => {
+      expect(configPatchBodies.length).toBeGreaterThan(0);
+    });
+    expect(configPatchBodies).toEqual([
+      { llm: { profiles: { "default-b": { status: "active" } } } },
+    ]);
+  });
+
+  test("a user-owned profile sharing a managed name gets an Edit action and an enabled delete button", () => {
+    seedInvariantProfiles();
+    render(
+      <Wrapper>
+        <ManageProfilesModal isOpen assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+
+    // Delete stays available — the daemon gates invariance on managed
+    // ownership, so a user-owned entry named like a managed profile is
+    // fully deletable.
+    const deleteBtn = document.querySelector<HTMLButtonElement>(
+      '[aria-label="Delete My OS Beta"]',
+    );
+    expect(deleteBtn).not.toBeNull();
+    expect(deleteBtn!.disabled).toBe(false);
+
+    // The row action reads "Edit", not "View" — the editor opens editable.
+    const row = deleteBtn!.closest("div.relative")!;
+    const actionBtn = Array.from(
+      row.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((b) => b.textContent?.trim() === "View" || b.textContent?.trim() === "Edit");
+    expect(actionBtn?.textContent?.trim()).toBe("Edit");
+  });
+
+  test("opening a user-owned profile sharing a managed name lands in edit mode with editable controls", async () => {
+    seedInvariantProfiles();
+    render(
+      <Wrapper>
+        <ManageProfilesModal isOpen assistantId="asst-1" onClose={() => {}} />
+      </Wrapper>,
+    );
+
+    const deleteBtn = document.querySelector<HTMLButtonElement>(
+      '[aria-label="Delete My OS Beta"]',
+    )!;
+    const row = deleteBtn.closest("div.relative")!;
+    const editBtn = Array.from(
+      row.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((b) => b.textContent?.trim() === "Edit")!;
+    fireEvent.click(editBtn);
+
+    // The editor opened in edit mode: the Display Name field is editable and
+    // the read-only footer's Save As New affordance is absent.
+    await waitFor(() => {
+      expect(getInputByPlaceholder("e.g. Fast & Cheap").disabled).toBe(false);
+    });
+    const saveAsNew = Array.from(
+      document.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((b) => b.textContent?.trim() === "Save As New");
+    expect(saveAsNew).toBeUndefined();
   });
 });

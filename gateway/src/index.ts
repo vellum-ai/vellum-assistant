@@ -3,9 +3,7 @@ process.title = "vellum-gateway";
 import { randomBytes } from "node:crypto";
 
 import {
-  TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
   TWILIO_MEDIA_STREAM_WEBHOOK_PATH,
-  TWILIO_RELAY_WEBHOOK_PATH,
   TWILIO_STATUS_WEBHOOK_PATH,
   TWILIO_VOICE_WEBHOOK_PATH,
 } from "@vellumai/service-contracts/twilio-ingress";
@@ -40,12 +38,7 @@ import { createTelegramWebhookHandler } from "./http/routes/telegram-webhook.js"
 import { createAudioProxyHandler } from "./http/routes/audio-proxy.js";
 import { createTwilioVoiceWebhookHandler } from "./http/routes/twilio-voice-webhook.js";
 import { createTwilioStatusWebhookHandler } from "./http/routes/twilio-status-webhook.js";
-import { createTwilioConnectActionWebhookHandler } from "./http/routes/twilio-connect-action-webhook.js";
 import { createTwilioVoiceVerifyCallbackHandler } from "./http/routes/twilio-voice-verify-callback.js";
-import {
-  createTwilioRelayWebsocketHandler,
-  getRelayWebsocketHandlers,
-} from "./http/routes/twilio-relay-websocket.js";
 import {
   createTwilioMediaWebsocketHandler,
   getMediaStreamWebsocketHandlers,
@@ -116,7 +109,6 @@ import {
   createBackupSnapshotHandler,
 } from "./backup/backup-routes.js";
 import { startBackupWorker } from "./backup/backup-worker.js";
-import { stopVoiceApprovalSync } from "./verification/voice-approval-sync.js";
 import { stopOutboundVoiceVerificationSync } from "./verification/outbound-voice-verification-sync.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
@@ -279,6 +271,24 @@ function isLiveVoiceSocketData(data: unknown): data is LiveVoiceSocketData {
   );
 }
 
+/** Log-safe socket-type discriminant for unknown-socket diagnostics. */
+function extractWsType(data: unknown): unknown {
+  return data && typeof data === "object"
+    ? (data as { wsType?: unknown }).wsType
+    : undefined;
+}
+
+function closeUnknownSocket(
+  ws: { data: unknown; close(code?: number, reason?: string): void },
+  event: "open" | "message",
+): void {
+  log.error(
+    { event, wsType: extractWsType(ws.data) },
+    "WebSocket event for unknown socket type — closing",
+  );
+  ws.close(1011, "Unknown socket type");
+}
+
 function getClientIp(
   req: Request,
   server: ReturnType<typeof Bun.serve>,
@@ -435,19 +445,13 @@ async function main() {
     config,
     twilioValidationCaches,
   );
-  const handleTwilioConnectActionWebhook =
-    createTwilioConnectActionWebhookHandler(config, twilioValidationCaches);
   const handleTwilioVoiceVerifyCallback =
     createTwilioVoiceVerifyCallbackHandler(config, twilioValidationCaches);
-  const handleTwilioRelayWs = createTwilioRelayWebsocketHandler(config, {
-    configFile: configFileCache,
-  });
   const handleTwilioMediaWs = createTwilioMediaWebsocketHandler(config, {
     configFile: configFileCache,
   });
   const handleSttStreamWs = createSttStreamWebsocketHandler(config);
   const handleLiveVoiceWs = createLiveVoiceWebsocketHandler(config);
-  const twilioRelayWebsocketHandlers = getRelayWebsocketHandlers();
   const twilioMediaStreamWebsocketHandlers = getMediaStreamWebsocketHandlers();
   const sttStreamWebsocketHandlers = getSttStreamWebsocketHandlers();
   const liveVoiceWebsocketHandlers = getLiveVoiceWebsocketHandlers();
@@ -596,10 +600,6 @@ async function main() {
     {
       path: TWILIO_STATUS_WEBHOOK_PATH,
       handler: (req) => handleTwilioStatusWebhook(req),
-    },
-    {
-      path: TWILIO_CONNECT_ACTION_WEBHOOK_PATH,
-      handler: (req) => handleTwilioConnectActionWebhook(req),
     },
     {
       path: "/webhooks/twilio/voice-verify",
@@ -1660,7 +1660,7 @@ async function main() {
           liveVoiceWebsocketHandlers.open(ws as never);
           return;
         }
-        twilioRelayWebsocketHandlers.open(ws as never);
+        closeUnknownSocket(ws, "open");
       },
       message(ws, message) {
         if (isMediaStreamSocketData(ws.data)) {
@@ -1675,7 +1675,7 @@ async function main() {
           liveVoiceWebsocketHandlers.message(ws as never, message);
           return;
         }
-        twilioRelayWebsocketHandlers.message(ws as never, message);
+        closeUnknownSocket(ws, "message");
       },
       close(ws, code, reason) {
         if (isMediaStreamSocketData(ws.data)) {
@@ -1690,7 +1690,10 @@ async function main() {
           liveVoiceWebsocketHandlers.close(ws as never, code, reason);
           return;
         }
-        twilioRelayWebsocketHandlers.close(ws as never, code, reason);
+        log.error(
+          { wsType: extractWsType(ws.data), code, reason },
+          "WebSocket closed with unknown socket type",
+        );
       },
     },
     error(err) {
@@ -1835,12 +1838,6 @@ async function main() {
     // ── Pre-router: WebSocket upgrades ──
     // Bun's WS upgrade needs `server.upgrade()` which doesn't return
     // a Response, so these can't go through the route table.
-    if (url.pathname === TWILIO_RELAY_WEBHOOK_PATH) {
-      const upgradeResult = handleTwilioRelayWs(req, server);
-      if (upgradeResult !== undefined) return upgradeResult;
-      return undefined as unknown as Response;
-    }
-
     if (
       url.pathname === TWILIO_MEDIA_STREAM_WEBHOOK_PATH ||
       url.pathname.startsWith(`${TWILIO_MEDIA_STREAM_WEBHOOK_PATH}/`)
@@ -2580,7 +2577,6 @@ async function main() {
     const shutdownTasks: Promise<void>[] = [];
     sleepWakeDetector.stop();
     backupWorkerHandle.stop();
-    stopVoiceApprovalSync();
     stopOutboundVoiceVerificationSync();
     credentialWatcher.stop();
     configFileWatcher.stop();

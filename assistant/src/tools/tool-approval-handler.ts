@@ -1,6 +1,7 @@
 import { consumeGrantForInvocation } from "../approvals/approval-primitive.js";
 import { isToolAllowedInChannel } from "../channels/permission-profiles.js";
 import type { ChannelId } from "../channels/types.js";
+import { getConfig } from "../config/loader.js";
 import {
   getCanonicalGuardianRequest,
   updateCanonicalGuardianRequest,
@@ -21,9 +22,11 @@ import { getLogger } from "../util/logger.js";
 import { getAllTools, getTool, getToolOwner } from "./registry.js";
 import { isSideEffectTool } from "./side-effects.js";
 import { summarizeToolInput } from "./tool-input-summary.js";
+import { suggestToolName } from "./tool-name-aliases.js";
 import {
   type ExecutionTarget,
   isDiskPressureCleanupToolName,
+  type OwnerInfo,
   type Tool,
   type ToolContext,
   type ToolExecutionResult,
@@ -54,6 +57,50 @@ function buildToolGrantQuestionText(
   const inputSummary = redactSecrets(summarizeToolInput(toolName, input));
   const summaryPart = inputSummary ? ` — ${inputSummary}` : "";
   return `Approve tool: ${toolName}${summaryPart}${requesterNote}`;
+}
+
+/**
+ * Compose the error message for a registered tool that is not part of the
+ * current turn's active tool set, naming the gate that actually excluded it.
+ * Ordered most-specific first:
+ *
+ * 1. Subagent allowlist — loading a skill cannot widen a subagent's
+ *    allowlist, so this outranks the skill hint.
+ * 2. Skill-owned tool whose skill is not loaded — the one case where
+ *    "load the skill" is the correct instruction.
+ * 3. Plugin-owned tool filtered by plugin enablement.
+ * 4. `remember` while memory is disabled.
+ * 5. Context gating (no connected client, channel capabilities, …) — no
+ *    load hint; list the active tools so the model can re-plan with what
+ *    actually exists this turn.
+ */
+export function buildInactiveToolMessage(args: {
+  name: string;
+  owner: OwnerInfo | undefined;
+  subagentAllowedTools: ReadonlySet<string> | undefined;
+  memoryEnabled: boolean;
+  activeToolNames: ReadonlySet<string>;
+}): string {
+  const { name, owner, subagentAllowedTools, memoryEnabled, activeToolNames } =
+    args;
+  if (subagentAllowedTools && !subagentAllowedTools.has(name)) {
+    const allowed = [...subagentAllowedTools].sort().join(", ");
+    return `Tool "${name}" is not available to this subagent. This subagent may only use: ${allowed}.`;
+  }
+  if (owner?.kind === "skill") {
+    return `Tool "${name}" is not currently active. Load the "${owner.id}" skill that provides this tool first.`;
+  }
+  if (owner?.kind === "plugin") {
+    return `Tool "${name}" belongs to the "${owner.id}" plugin, which is not enabled for this conversation.`;
+  }
+  if (name === "remember" && !memoryEnabled) {
+    return `Tool "remember" is unavailable because memory is disabled for this assistant.`;
+  }
+  if (activeToolNames.size === 0) {
+    return `Tool "${name}" is not available in this context. No tools are active this turn.`;
+  }
+  const available = [...activeToolNames].sort().join(", ");
+  return `Tool "${name}" is not available in this context. Available tools: ${available}`;
 }
 
 /** Default polling interval for inline grant wait (ms). */
@@ -456,12 +503,13 @@ export class ToolApprovalHandler {
       // from their `execute()` when no resolver is connected, rather than
       // being filtered out here — listing them surfaces a clearer path
       // than hiding their names entirely.
-      const available = getAllTools()
+      const availableNames = getAllTools()
         .map((t) => t.name)
         .filter((n) => !allowedToolNames || allowedToolNames.has(n))
-        .sort()
-        .join(", ");
-      const msg = `Unknown tool: ${name}. Available tools: ${available}`;
+        .sort();
+      const suggestion = suggestToolName(name, availableNames);
+      const didYouMean = suggestion ? ` Did you mean "${suggestion}"?` : "";
+      const msg = `Unknown tool: ${name}.${didYouMean} Available tools: ${availableNames.join(", ")}`;
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent({
         type: "error",
@@ -483,12 +531,19 @@ export class ToolApprovalHandler {
 
     // Gate tools not active for the current turn
     if (context.allowedToolNames && !context.allowedToolNames.has(name)) {
-      const owner = getToolOwner(name);
-      const ownerSkillId = owner?.kind === "skill" ? owner.id : undefined;
-      const loadHint = ownerSkillId
-        ? `Load the "${ownerSkillId}" skill that provides this tool first.`
-        : `Load the skill that provides this tool first.`;
-      const msg = `Tool "${name}" is not currently active. ${loadHint}`;
+      let memoryEnabled = true;
+      try {
+        memoryEnabled = getConfig().memory?.enabled !== false;
+      } catch {
+        // Config unavailable — leave the memory hint out rather than guess.
+      }
+      const msg = buildInactiveToolMessage({
+        name,
+        owner: getToolOwner(name),
+        subagentAllowedTools: context.subagentAllowedTools,
+        memoryEnabled,
+        activeToolNames: context.allowedToolNames,
+      });
       const durationMs = Date.now() - startTime;
       emitLifecycleEvent({
         type: "error",

@@ -18,6 +18,8 @@ import { HOBBY_SUGGESTIONS } from "@/domains/onboarding/onboarding-suggestions";
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 
+import { MOBILE_INPUT_NO_ZOOM } from "@/domains/onboarding/onboarding-step-layout";
+
 export interface ResearchOnboardingValues {
   firstName: string;
   lastName: string;
@@ -109,6 +111,7 @@ export function ResearchOnboardingScreen({
               placeholder="Your name"
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
+              className={MOBILE_INPUT_NO_ZOOM}
               autoFocus
               required
               fullWidth
@@ -121,6 +124,7 @@ export function ResearchOnboardingScreen({
               placeholder="Your last name (optional)"
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
+              className={MOBILE_INPUT_NO_ZOOM}
               fullWidth
             />
           </div>
@@ -131,6 +135,7 @@ export function ResearchOnboardingScreen({
               placeholder="What do you do for work?"
               value={role}
               onChange={(e) => setRole(e.target.value)}
+              className={MOBILE_INPUT_NO_ZOOM}
               required
               fullWidth
             />

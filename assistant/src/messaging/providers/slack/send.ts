@@ -151,13 +151,15 @@ export interface SlackSendResult {
  * Those errors fault the Block Kit payload, not the target — the retry repeats
  * the *same* operation (same `chat.update` ts, same `chat.postMessage` thread)
  * without blocks, so it edits/posts in place rather than spawning a second
- * message. Any other error propagates to the caller.
+ * message. `fallbackText` replaces the message text on that retry (used to
+ * re-attach reply instructions whose Block Kit equivalent was dropped). Any
+ * other error propagates to the caller.
  */
 async function sendWithBlockFallback(
   method: string,
   baseBody: Record<string, unknown>,
   blocks: KnownBlock[],
-  options: { fallbackWithoutBlocks: boolean },
+  options: { fallbackWithoutBlocks: boolean; fallbackText?: string },
 ): Promise<SlackSendResult> {
   try {
     const result = await callSlackApi(
@@ -177,11 +179,34 @@ async function sendWithBlockFallback(
         { method, slackError: err.slackError },
         "Slack rejected blocks; retrying without blocks",
       );
-      const result = await callSlackApi(method, baseBody);
+      const retryBody =
+        options.fallbackText !== undefined
+          ? { ...baseBody, text: options.fallbackText }
+          : baseBody;
+      const result = await callSlackApi(method, retryBody);
       return { ok: true, ts: result.ts };
     }
     throw err;
   }
+}
+
+/**
+ * Text for the block-free retry of an approval prompt. Dropping an approval's
+ * blocks removes its Approve/Reject buttons, so the retry re-attaches the
+ * plain-text reply instructions to keep the message actionable. Returns
+ * `undefined` when the approval has no usable instructions — such a prompt
+ * must not be retried bare, since a message with no way to respond is worse
+ * than a failed delivery the delivery layer can surface.
+ */
+function buildApprovalFallbackText(
+  text: string,
+  approval: ApprovalUIMetadata,
+): string | undefined {
+  const instructions = approval.plainTextFallback.trim();
+  if (instructions.length === 0) {
+    return undefined;
+  }
+  return text.includes(instructions) ? text : `${text}\n\n${instructions}`;
 }
 
 /**
@@ -219,29 +244,40 @@ export async function sendSlackReply(
   }
 
   const postBase: Record<string, unknown> = { channel: chatId, text };
-  if (options?.threadTs) postBase.thread_ts = options.threadTs;
+  if (options?.threadTs) {
+    postBase.thread_ts = options.threadTs;
+  }
+
+  // Approval prompts carry their action buttons in `blocks`. When Slack
+  // rejects the payload, the block-free retry re-attaches the plain-text
+  // reply instructions so the recipient can still act by text reply; an
+  // approval without usable instructions is never retried bare.
+  const approvalFallbackText = options?.approval
+    ? buildApprovalFallbackText(text, options.approval)
+    : undefined;
+  const fallbackOptions = {
+    fallbackWithoutBlocks:
+      !options?.approval || approvalFallbackText !== undefined,
+    fallbackText: approvalFallbackText,
+  };
 
   if (options?.ephemeral) {
-    if (!options.user)
+    if (!options.user) {
       throw new Error("user is required for ephemeral messages");
+    }
     return sendWithBlockFallback(
       "chat.postEphemeral",
       { ...postBase, user: options.user },
       blocks,
-      { fallbackWithoutBlocks: !options.approval },
+      fallbackOptions,
     );
   }
 
-  // Approval prompts carry their action buttons in `blocks`; dropping them when
-  // Slack rejects the payload would post a card with no way to respond, so only
-  // non-approval posts fall back to a block-free retry.
   const result = await sendWithBlockFallback(
     "chat.postMessage",
     postBase,
     blocks,
-    {
-      fallbackWithoutBlocks: !options?.approval,
-    },
+    fallbackOptions,
   );
   log.info({ chatId, hasThreadTs: !!options?.threadTs }, "Slack message sent");
   return result;

@@ -71,6 +71,33 @@ describe("AcpChatTerminalBlock", () => {
     expect(screen.getByText("Run failed")).toBeDefined();
   });
 
+  test("failed single-line → icon centered on the first line, no mt-0.5", () => {
+    render(<AcpChatTerminalBlock status="failed" error="Run failed" />);
+    const iconBox = screen.getByTestId("acp-chat-terminal-failed-icon");
+    // Fixed line-height flex box (12px) centers the triangle on the text line.
+    expect(iconBox.className).toContain("items-center");
+    expect(iconBox.className).toContain("h-[12px]");
+    // The legacy top-align hack must be gone from both the box and the icon.
+    expect(iconBox.className).not.toContain("mt-0.5");
+    const icon = iconBox.querySelector("svg");
+    expect(icon?.getAttribute("class") ?? "").not.toContain("mt-0.5");
+  });
+
+  test("failed multi-line → keeps the triangle on the first line", () => {
+    render(
+      <AcpChatTerminalBlock
+        status="failed"
+        error={"Run failed on a very long line that wraps across\nmultiple lines"}
+      />,
+    );
+    const root = screen.getByTestId("acp-chat-terminal-block");
+    // Row stays top-aligned so the fixed icon box pins to the first line.
+    expect(root.className).toContain("items-start");
+    expect(
+      screen.getByTestId("acp-chat-terminal-failed-icon").className,
+    ).toContain("items-center");
+  });
+
   test("cancelled status → Cancelled", () => {
     render(<AcpChatTerminalBlock status="cancelled" />);
     const root = screen.getByTestId("acp-chat-terminal-block");

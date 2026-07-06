@@ -109,6 +109,7 @@ import {
   isHiddenMessageMetadata,
   type MessageRow,
   provenanceFromTrustContext,
+  recordConversationPersistedSeq,
   setConversationInferenceProfile,
 } from "../../persistence/conversation-crud.js";
 import {
@@ -134,6 +135,7 @@ import {
 } from "../../util/platform.js";
 import { silentlyWithLog } from "../../util/silently.js";
 import { assistantEventHub, broadcastMessage } from "../assistant-event-hub.js";
+import { getCurrentSeq } from "../assistant-stream-state.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import {
   type GuardianPendingScope,
@@ -602,6 +604,11 @@ async function tryConsumeCanonicalGuardianReply(params: {
         conversationId: conversationId,
       });
       emitCannedMessageComplete(onEvent, conversationId, persistedAssistant.id);
+      // Both rows persisted above and no run is active (no unflushed stream
+      // content), so advance the snapshot↔stream anchor past the events just
+      // emitted. Otherwise `/messages` returns these rows while advertising
+      // the previous anchor, under-claiming what the snapshot reflects.
+      recordConversationPersistedSeq(conversationId, getCurrentSeq());
     }
     publishConversationMessagesChanged(conversationId, originClientId);
   } catch (err) {
@@ -1883,6 +1890,10 @@ export async function handleSendMessage(
           conversationId,
           persistedAssistant.id,
         );
+        // Rows persisted before this deferred burst; advance the
+        // snapshot↔stream anchor past the events just emitted so `/messages`
+        // never returns these rows behind a stale anchor.
+        recordConversationPersistedSeq(conversationId, getCurrentSeq());
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.setProcessing(false);
         silentlyWithLog(
@@ -2199,6 +2210,8 @@ export async function handleSendMessage(
           conversationId,
           persistedAssistant.id,
         );
+        // Same anchor advance as the canned-greeting path above.
+        recordConversationPersistedSeq(conversationId, getCurrentSeq());
         publishConversationMessagesChanged(conversationId, originClientId);
         conversation.setProcessing(false);
         silentlyWithLog(conversation.drainQueue(), "slash-command queue drain");
@@ -2294,6 +2307,8 @@ export async function handleSendMessage(
           conversationId,
           persistedAssistant.id,
         );
+        // Same anchor advance as the canned-greeting path above.
+        recordConversationPersistedSeq(conversationId, getCurrentSeq());
         publishConversationMessagesChanged(conversationId, originClientId);
       } catch (err) {
         if (assistantMessagePersisted) {
@@ -2389,6 +2404,8 @@ export async function handleSendMessage(
           conversationId,
           persistedAssistant.id,
         );
+        // Same anchor advance as the canned-greeting path above.
+        recordConversationPersistedSeq(conversationId, getCurrentSeq());
         publishConversationMessagesChanged(conversationId, originClientId);
       } catch (err) {
         if (assistantMessagePersisted) {
@@ -2455,6 +2472,15 @@ export async function handleSendMessage(
       requestId,
       clientMessageId,
     });
+    // The row this echo announces was durably persisted above, so advance
+    // the snapshot↔stream anchor to the echo's seq (stamped inline by
+    // `broadcastMessage`). Without this, `/messages` returns the row while
+    // still advertising the previous flush's anchor — under-claiming, which
+    // breaks the contract that the snapshot reflects all of this
+    // conversation's events through the advertised seq. Safe to claim here:
+    // the agent loop for this turn hasn't started, so no streamed-but-
+    // unflushed content exists for this conversation.
+    recordConversationPersistedSeq(mapping.conversationId, getCurrentSeq());
   }
   publishConversationMessagesChanged(mapping.conversationId, originClientId);
 

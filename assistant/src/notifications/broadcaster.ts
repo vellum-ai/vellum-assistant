@@ -29,10 +29,7 @@ import {
   updateDeliveryStatus,
 } from "./deliveries-store.js";
 import { resolveDestinations } from "./destination-resolver.js";
-import {
-  parseGuardianQuestionPayload,
-  resolveGuardianInstructionModeFromPayload,
-} from "./guardian-question-mode.js";
+import { parseInteractiveApprovalPayload } from "./guardian-question-mode.js";
 import { nonEmpty } from "./notification-utils.js";
 import type { NotificationSignal } from "./signal.js";
 import type {
@@ -71,10 +68,6 @@ function resolveApprovalContext(
     if (!requestId) {
       return undefined;
     }
-    // Introduction card: the action set is signal-driven (workspace member /
-    // bot / external), never the generic Approve/Reject pair. The first
-    // action is the emphasized default; no code option is ever offered for a
-    // bot.
     return {
       requestId,
       actions: buildIntroductionActionsForPayload(
@@ -85,18 +78,11 @@ function resolveApprovalContext(
   }
 
   if (signal.sourceEventName === "guardian.question") {
-    const parsed = parseGuardianQuestionPayload(payload);
+    const parsed = parseInteractiveApprovalPayload(payload);
     if (!parsed) {
       return undefined;
     }
-    const { mode } = resolveGuardianInstructionModeFromPayload(parsed);
-    if (mode !== "approval") {
-      return undefined;
-    }
-    const requestId = nonEmpty(parsed.requestId);
-    if (!requestId) {
-      return undefined;
-    }
+    const requestId = parsed.requestId;
 
     // Extract tool context so channel adapters can render structured
     // approval cards without re-parsing contextPayload.

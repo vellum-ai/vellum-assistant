@@ -82,8 +82,17 @@ later can't be ring-replayed. The recovery path is a refetch:
 - Every committed `/messages` fetch **reseeds** the snapshot (`seedSnapshot`):
   it replays the buffered event tail with `seq > snapshot.seq` onto the fresh
   server snapshot (`resolveSnapshot`), so events that raced the fetch aren't
-  lost. A buffer gap (eviction, or no anchor) falls back to the fetched snapshot
-  alone.
+  lost. A buffer gap (eviction) falls back to the fetched snapshot alone.
+  An **anchor-less** fetch (`seq: null` — the daemon has persisted no stream
+  content yet, e.g. a fresh conversation's first turn racing the 1s
+  partial-persist debounce) is **dropped** when the live view has already
+  folded seq-stamped events: with no cursor to replay from, taking it
+  wholesale would wipe the streamed turn (the mid-turn "vanishing prefix"
+  flicker) until the turn-end reseed restored it. A **stale-anchored** fetch
+  (`seq` strictly below the live view's) whose gap the ring can't bridge is
+  dropped for the same reason: it was in flight before newer events folded
+  in, and taking it wholesale would regress the view — e.g. erase a just-sent
+  user row whose echo already retired the optimistic copy (the send flicker).
 - The reseed also **prunes** any optimistic send the snapshot now represents
   (`pruneConfirmedOptimisticSends`), keyed by the same identity
   `selectTranscriptMessages` overlays on. Without this, a send whose echo/dequeue

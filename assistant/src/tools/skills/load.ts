@@ -29,7 +29,6 @@ import { parseToolManifestFile } from "../../skills/tool-manifest.js";
 import { computeSkillVersionHash } from "../../skills/version-hash.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDirDisplay } from "../../util/platform.js";
-import { registerTool } from "../registry.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -693,4 +692,3 @@ export const skillLoadTool = {
     };
   },
 } satisfies ToolDefinition;
-registerTool(skillLoadTool);

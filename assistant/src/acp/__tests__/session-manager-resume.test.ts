@@ -129,6 +129,14 @@ class FakeAcpAgentProcess {
 
   async cancel(): Promise<void> {}
 
+  markStderr(): number {
+    return 0;
+  }
+
+  stderrSince(): string {
+    return "";
+  }
+
   kill(): void {
     this.killed = true;
   }

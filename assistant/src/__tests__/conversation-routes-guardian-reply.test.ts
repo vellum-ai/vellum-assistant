@@ -86,6 +86,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
     options?: { metadata?: Record<string, unknown> },
   ) => addMessageMock(conversationId, role, content, options),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
 }));
 
 mock.module("../runtime/local-actor-identity.js", () => ({

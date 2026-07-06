@@ -12,6 +12,7 @@ import {
   RedeemInviteByTokenRequestSchema,
   RedeemVoiceInviteRequestSchema,
 } from "@vellumai/gateway-client";
+import type { ContactRead } from "@vellumai/gateway-client/gateway-ipc-contracts";
 import {
   GetContactIpcResponseSchema,
   ListContactsIpcResponseSchema,
@@ -26,7 +27,12 @@ import {
   searchContacts,
 } from "../../contacts/contact-store.js";
 import { getGuardianContactIds } from "../../contacts/guardian-contact-reader.js";
-import type { ContactRole, ContactType } from "../../contacts/types.js";
+import type {
+  ContactChannel,
+  ContactRole,
+  ContactType,
+  ContactWithChannels,
+} from "../../contacts/types.js";
 import { ipcCallPersistent } from "../../ipc/gateway-client.js";
 import { resolveGuardianName } from "../../prompts/user-reference.js";
 import { getLogger } from "../../util/logger.js";
@@ -151,9 +157,14 @@ function isContactType(value: string): value is ContactType {
 // (search / contactType) omit them, so they are `.optional()`. Contact-level
 // `role` is gateway-sourced: relayed reads trust the role on the `ContactRead`,
 // while daemon-native reads derive it from the gateway guardian id set at the
-// serve layer (see prepareContactResponse). INFO telemetry
-// (lastSeenAt/interactionCount/lastInteraction) is locally hydrated on every
-// read path and stays required.
+// serve layer (see prepareContactResponse). Interaction telemetry
+// (lastSeenAt/interactionCount/lastInteraction) is gateway-owned: relayed reads
+// carry it directly, and daemon-native reads batch-hydrate it from the gateway
+// (see hydrateTelemetryFromGateway). On a gateway fail-soft the count
+// `interactionCount` defaults to 0 (never served as null, so callers render a
+// real number); the `lastSeenAt`/`lastInteraction` timestamps degrade to null.
+// The timestamp fields stay `.nullable()`; `interactionCount` is kept nullable
+// defensively for the relay path, but is never emitted null.
 const contactChannelSchema = z.object({
   id: z.string(),
   contactId: z.string(),
@@ -167,7 +178,7 @@ const contactChannelSchema = z.object({
   verifiedAt: z.number().nullable().optional(),
   verifiedVia: z.string().nullable().optional(),
   lastSeenAt: z.number().nullable(),
-  interactionCount: z.number(),
+  interactionCount: z.number().nullable(),
   lastInteraction: z.number().nullable(),
   revokedReason: z.string().nullable().optional(),
   blockedReason: z.string().nullable().optional(),
@@ -180,7 +191,7 @@ const contactSchema = z.object({
   notes: z.string().nullable().optional(),
   contactType: z.enum(["human", "assistant"]),
   lastInteraction: z.number().nullable().optional(),
-  interactionCount: z.number(),
+  interactionCount: z.number().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
   channels: z.array(contactChannelSchema),
@@ -215,6 +226,97 @@ async function relayListContacts(limit: number, role: ContactRole | undefined) {
   }
 }
 
+/**
+ * A daemon-native contact read whose gateway-owned interaction telemetry has
+ * been overlaid. `interactionCount` is a count, so it defaults to 0 on the
+ * gateway fail-soft/id-miss path (matching the gateway's NOT NULL DEFAULT 0
+ * column) — consumers never see `null` and render a real number. The
+ * `lastSeenAt`/`lastInteraction` timestamps stay nullable: a "never" timestamp
+ * is legitimately absent.
+ */
+type ContactWithGatewayTelemetry = Omit<ContactWithChannels, "channels"> & {
+  interactionCount: number;
+  lastInteraction: number | null;
+  channels: Array<
+    ContactChannel & {
+      lastSeenAt: number | null;
+      interactionCount: number;
+      lastInteraction: number | null;
+    }
+  >;
+};
+
+/**
+ * Key channels by (type, lower(address)) for the id-miss telemetry fallback.
+ * Matches the gateway's UNIQUE(type, address) NOCASE collation; the NUL
+ * delimiter cannot appear in either field, so keys never collide.
+ */
+function channelKey(type: string, address: string): string {
+  return `${type}\u0000${address.toLowerCase()}`;
+}
+
+/**
+ * Overlay gateway-owned interaction telemetry onto daemon-native contact reads
+ * (search / contactType-filtered), which bypass the gateway list relay. The
+ * daemon still owns the FILTERING (gateway-native search/contactType is
+ * design-blocked), but telemetry (contact + channel
+ * interactionCount/lastInteraction, channel lastSeenAt) is gateway-owned — so
+ * batch-fetch it via `contacts_list_rich` keyed by the filtered id set and
+ * overlay it, keeping the local assistant-DB aggregation out of the served
+ * payload. Fail-soft: if the gateway read fails or omits a contact, its
+ * interaction counts degrade to 0 and its timestamps to null rather than
+ * falling back to the local assistant-DB aggregation.
+ */
+async function hydrateTelemetryFromGateway(
+  contacts: ContactWithChannels[],
+): Promise<ContactWithGatewayTelemetry[]> {
+  if (contacts.length === 0) return [];
+
+  const gatewayById = new Map<string, ContactRead>();
+  try {
+    const result = await ipcCallPersistent("contacts_list_rich", {
+      ids: contacts.map((c) => c.id),
+    });
+    const { contacts: rich } = ListContactsIpcResponseSchema.parse(result);
+    for (const c of rich) gatewayById.set(c.id, c);
+  } catch (err) {
+    log.warn(
+      { err },
+      "hydrateTelemetryFromGateway: gateway telemetry read failed; serving 0 counts / null timestamps",
+    );
+  }
+
+  return contacts.map((c) => {
+    const gw = gatewayById.get(c.id);
+    const gwChannelById = new Map(
+      (gw?.channels ?? []).map((ch) => [ch.id, ch]),
+    );
+    // Local channel UUIDs can diverge from the gateway's for the same
+    // (type, address) (legacy pre-alignment channels), so an id-miss falls back
+    // to a (type, lower(address)) match — mirroring the gateway's
+    // overlayAclOntoContacts. UNIQUE(type, address) collates NOCASE gateway-side.
+    const gwChannelByTypeAddress = new Map(
+      (gw?.channels ?? []).map((ch) => [channelKey(ch.type, ch.address), ch]),
+    );
+    return {
+      ...c,
+      interactionCount: gw?.interactionCount ?? 0,
+      lastInteraction: gw?.lastInteraction ?? null,
+      channels: c.channels.map((ch) => {
+        const gwCh =
+          gwChannelById.get(ch.id) ??
+          gwChannelByTypeAddress.get(channelKey(ch.type, ch.address));
+        return {
+          ...ch,
+          lastSeenAt: gwCh?.lastSeenAt ?? null,
+          interactionCount: gwCh?.interactionCount ?? 0,
+          lastInteraction: gwCh?.lastInteraction ?? null,
+        };
+      }),
+    };
+  });
+}
+
 export async function handleListContacts(queryParams: Record<string, string>) {
   const limit = Number(queryParams.limit ?? 50);
   const role = (queryParams.role as ContactRole) || undefined;
@@ -238,15 +340,20 @@ export async function handleListContacts(queryParams: Record<string, string>) {
     log.debug(
       "handleListContacts: search served daemon-native (gateway-native search is design-blocked)",
     );
-    const contacts = searchContacts({
-      query,
-      channelAddress,
-      channelType,
-      contactType,
-      limit,
-    });
-    // Daemon-native read: role is the neutral default, so derive it.
-    const guardianIds = await getGuardianContactIds();
+    // Telemetry hydration and the guardian-id read (for role derivation) both
+    // hit the gateway and are independent — run them concurrently.
+    const [contacts, guardianIds] = await Promise.all([
+      hydrateTelemetryFromGateway(
+        searchContacts({
+          query,
+          channelAddress,
+          channelType,
+          contactType,
+          limit,
+        }),
+      ),
+      getGuardianContactIds(),
+    ]);
     return {
       ok: true,
       contacts: contacts.map((c) => prepareContactResponse(c, guardianIds)),
@@ -261,9 +368,12 @@ export async function handleListContacts(queryParams: Record<string, string>) {
     log.debug(
       "handleListContacts: contactType-filtered read served daemon-native (gateway-native contactType filtering is design-blocked, pending ACL classification)",
     );
-    const contacts = listContacts(limit, contactType);
-    // Daemon-native read: role is the neutral default, so derive it.
-    const guardianIds = await getGuardianContactIds();
+    // Telemetry hydration and the guardian-id read (for role derivation) both
+    // hit the gateway and are independent — run them concurrently.
+    const [contacts, guardianIds] = await Promise.all([
+      hydrateTelemetryFromGateway(listContacts(limit, contactType)),
+      getGuardianContactIds(),
+    ]);
     return {
       ok: true,
       contacts: contacts.map((c) => prepareContactResponse(c, guardianIds)),
@@ -770,11 +880,13 @@ export const ROUTES: RouteDefinition[] = [
       log.debug(
         "search_contacts: search served daemon-native (gateway-native search is design-blocked)",
       );
-      // Daemon-native read: role is the neutral default, so derive it.
-      const guardianIds = await getGuardianContactIds();
-      return searchContacts(parsed).map((c) =>
-        prepareContactResponse(c, guardianIds),
-      );
+      // Telemetry hydration and the guardian-id read (for role derivation) both
+      // hit the gateway and are independent — run them concurrently.
+      const [contacts, guardianIds] = await Promise.all([
+        hydrateTelemetryFromGateway(searchContacts(parsed)),
+        getGuardianContactIds(),
+      ]);
+      return contacts.map((c) => prepareContactResponse(c, guardianIds));
     },
   },
 
@@ -870,11 +982,16 @@ async function handleMergeContactsRoute(args: RouteHandlerArgs) {
 
   try {
     const contact = mergeContacts(keepId, mergeId);
-    // Daemon-native read (assistant DB): role is the neutral default, derive it.
-    const guardianIds = await getGuardianContactIds();
+    // Daemon-native read (assistant DB): telemetry is gateway-owned, so overlay
+    // it (fail-soft to null) and derive role from the guardian-id set. Both hit
+    // the gateway and are independent — run them concurrently.
+    const [[hydrated], guardianIds] = await Promise.all([
+      hydrateTelemetryFromGateway([contact]),
+      getGuardianContactIds(),
+    ]);
     return {
       ok: true,
-      contact: prepareContactResponse(contact, guardianIds),
+      contact: prepareContactResponse(hydrated, guardianIds),
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -1,9 +1,8 @@
 /**
- * Extracted helper functions for the guardian access-request wait flow.
+ * Helper functions for the guardian access-request wait flow.
  *
- * These were previously private methods on RelayConnection. Pulling them
- * into a standalone module keeps the class focused on WebSocket lifecycle
- * and makes the wait-state logic independently testable.
+ * Standalone module so the wait-state logic is independently testable and
+ * decoupled from any transport's WebSocket lifecycle.
  */
 
 import { getCanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";

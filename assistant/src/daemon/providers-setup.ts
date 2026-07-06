@@ -112,8 +112,8 @@ export async function initializeProvidersAndTools(
   await initializeTools();
 
   // Validate subagent role tool-allowlists against the now-registered core
-  // tool set (every allowlisted name is an eager core tool, so they are all
-  // present at this point). A renamed tool would otherwise silently strip a
+  // tool set (every allowlisted name is a core manifest tool, so they are
+  // all present at this point). A renamed tool would otherwise silently strip a
   // role's access — the stale name just never matches. Warn-and-continue per
   // the daemon startup philosophy: a stale allowlist is a logic bug, not a
   // reason to refuse boot.

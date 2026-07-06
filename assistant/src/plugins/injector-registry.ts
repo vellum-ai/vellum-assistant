@@ -97,15 +97,12 @@ export function unregisterPluginInjectors(pluginName: string): void {
  * filter (rebuilt only on a registration change); only the small per-plugin
  * disabled check re-runs each call.
  *
- * `effectiveEnabledPlugins` layers the per-chat plugin scope on top of the
- * global disabled check: when non-null, an injector's contributing plugin must
- * also be a member of the set or the injector is excluded for this turn. `null`
- * (or omitted) means no per-chat restriction — every globally-enabled plugin's
- * injectors run, unchanged.
+ * The per-chat plugin scope (`getEffectiveEnabledPluginSet`) is intentionally
+ * NOT applied here: injectors run inside already-scoped plugin hooks, and every
+ * injector-contributing plugin today is a first-party default, which the
+ * per-chat scope never excludes.
  */
-export function getRegisteredInjectors(
-  effectiveEnabledPlugins?: Set<string> | null,
-): Injector[] {
+export function getRegisteredInjectors(): Injector[] {
   if (cachedChain === null) {
     const pairs: Array<{ plugin: string; injector: Injector }> = [];
     for (const [plugin, injectors] of injectorsByPlugin) {
@@ -118,10 +115,7 @@ export function getRegisteredInjectors(
   const isEnabled = (plugin: string): boolean => {
     let enabled = enabledByPlugin.get(plugin);
     if (enabled === undefined) {
-      enabled =
-        !isPluginDisabled(plugin) &&
-        (effectiveEnabledPlugins == null ||
-          effectiveEnabledPlugins.has(plugin));
+      enabled = !isPluginDisabled(plugin);
       enabledByPlugin.set(plugin, enabled);
     }
     return enabled;

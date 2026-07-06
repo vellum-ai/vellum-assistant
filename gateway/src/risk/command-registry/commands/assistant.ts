@@ -158,6 +158,12 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "mcp auth",
   "mcp remove",
   "memory",
+  "memory items",
+  "memory items list",
+  "memory items get",
+  "memory items create",
+  "memory items update",
+  "memory items delete",
   "memory v2",
   "memory v2 reembed",
   "memory v2 reembed-skills",
@@ -498,6 +504,24 @@ const riskOverrides: AssistantRiskOverride[] = [
   { path: "mcp add", risk: "high" },
   { path: "mcp auth", risk: "medium" },
   { path: "mcp remove", risk: "low" },
+  {
+    path: "memory items create",
+    risk: "medium",
+    reason:
+      "Creates a memory item that persists into assistant memory and is embedded for recall",
+  },
+  {
+    path: "memory items update",
+    risk: "medium",
+    reason:
+      "Rewrites a memory item's content/metadata and re-embeds it for recall",
+  },
+  {
+    path: "memory items delete",
+    risk: "medium",
+    reason:
+      "Soft-deletes a memory item and removes its embeddings from the recall index (restorable via 'memory items update --status active')",
+  },
   {
     path: "memory v2 reembed",
     risk: "medium",

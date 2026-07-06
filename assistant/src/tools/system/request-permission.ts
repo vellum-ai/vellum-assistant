@@ -1,5 +1,4 @@
 import { RiskLevel } from "../../permissions/types.js";
-import { registerTool } from "../registry.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -108,5 +107,3 @@ export const requestSystemPermissionTool = {
     };
   },
 } satisfies ToolDefinition;
-
-registerTool(requestSystemPermissionTool);

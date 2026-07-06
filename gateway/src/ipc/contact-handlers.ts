@@ -14,8 +14,6 @@ import {
   ListContactsIpcParamsSchema,
   MarkChannelRevokedIpcParamsSchema,
   MarkChannelRevokedIpcResponseSchema,
-  MarkChannelVerifiedIpcParamsSchema,
-  MarkChannelVerifiedIpcResponseSchema,
   UpdateContactChannelIpcParamsSchema,
   UpsertVerifiedChannelIpcParamsSchema,
   UpsertVerifiedChannelIpcResponseSchema,
@@ -206,35 +204,6 @@ export const contactRoutes: IpcRoute[] = [
       // server's buildErrorResponse mirrors into the wire envelope; unexpected
       // errors propagate as a generic IPC error (no fallback).
       return updateContactChannelCore(parsed);
-    },
-  },
-  {
-    method: "mark_channel_verified",
-    schema: MarkChannelVerifiedIpcParamsSchema,
-    handler: async (params?: Record<string, unknown>) => {
-      const { contactChannelId, verifiedVia } =
-        MarkChannelVerifiedIpcParamsSchema.parse(params);
-      const result = await getStore().markChannelVerified(
-        contactChannelId,
-        verifiedVia,
-      );
-      if (!result) {
-        throw new Error(`Channel "${contactChannelId}" not found`);
-      }
-      const { channel, didWrite } = result;
-      return MarkChannelVerifiedIpcResponseSchema.parse({
-        ok: true,
-        didWrite,
-        channel: {
-          id: channel.id,
-          contactId: channel.contactId,
-          type: channel.type,
-          address: channel.address,
-          status: channel.status,
-          verifiedAt: channel.verifiedAt,
-          verifiedVia: channel.verifiedVia,
-        },
-      });
     },
   },
   {

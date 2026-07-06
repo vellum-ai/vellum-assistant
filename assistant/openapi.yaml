@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.4
+  version: 0.10.5
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -3400,6 +3400,9 @@ paths:
                 content:
                   type: string
                   description: User prompt content
+                clientTimezone:
+                  description: IANA timezone reported by the active client
+                  type: string
               required:
                 - conversationKey
                 - content
@@ -4130,6 +4133,12 @@ paths:
                             - type: "null"
                         memberDisplayName:
                           type: string
+                        interactionCount:
+                          type: number
+                        lastInteraction:
+                          anyOf:
+                            - type: number
+                            - type: "null"
                       required:
                         - trustClass
                         - canonicalSenderId
@@ -5159,7 +5168,9 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
-                        type: number
+                        anyOf:
+                          - type: number
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5200,7 +5211,9 @@ paths:
                                 - type: number
                                 - type: "null"
                             interactionCount:
-                              type: number
+                              anyOf:
+                                - type: number
+                                - type: "null"
                             lastInteraction:
                               anyOf:
                                 - type: number
@@ -5319,7 +5332,9 @@ paths:
                             - type: number
                             - type: "null"
                         interactionCount:
-                          type: number
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         createdAt:
                           type: number
                         updatedAt:
@@ -5360,7 +5375,9 @@ paths:
                                   - type: number
                                   - type: "null"
                               interactionCount:
-                                type: number
+                                anyOf:
+                                  - type: number
+                                  - type: "null"
                               lastInteraction:
                                 anyOf:
                                   - type: number
@@ -5448,7 +5465,9 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
-                        type: number
+                        anyOf:
+                          - type: number
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5489,7 +5508,9 @@ paths:
                                 - type: number
                                 - type: "null"
                             interactionCount:
-                              type: number
+                              anyOf:
+                                - type: number
+                                - type: "null"
                             lastInteraction:
                               anyOf:
                                 - type: number
@@ -5847,7 +5868,9 @@ paths:
                           - type: number
                           - type: "null"
                       interactionCount:
-                        type: number
+                        anyOf:
+                          - type: number
+                          - type: "null"
                       createdAt:
                         type: number
                       updatedAt:
@@ -5888,7 +5911,9 @@ paths:
                                 - type: number
                                 - type: "null"
                             interactionCount:
-                              type: number
+                              anyOf:
+                                - type: number
+                                - type: "null"
                             lastInteraction:
                               anyOf:
                                 - type: number
@@ -6041,7 +6066,9 @@ paths:
                         - type: number
                         - type: "null"
                     interactionCount:
-                      type: number
+                      anyOf:
+                        - type: number
+                        - type: "null"
                     createdAt:
                       type: number
                     updatedAt:
@@ -6082,7 +6109,9 @@ paths:
                               - type: number
                               - type: "null"
                           interactionCount:
-                            type: number
+                            anyOf:
+                              - type: number
+                              - type: "null"
                           lastInteraction:
                             anyOf:
                               - type: number
@@ -11555,7 +11584,9 @@ paths:
     post:
       operationId: filing_runnow_post
       summary: Run filing now
-      description: Trigger an immediate filing run.
+      description:
+        Enqueue an immediate PKB filing job. Returns once the job is queued; the job itself runs through the memory
+        jobs worker.
       tags:
         - filing
       responses:
@@ -11570,7 +11601,7 @@ paths:
                     type: boolean
                   ran:
                     type: boolean
-                    description: Whether the filing actually ran
+                    description: Whether a job was enqueued
                 required:
                   - success
                   - ran
@@ -15661,16 +15692,6 @@ paths:
                     required:
                       - skipped
                     additionalProperties: false
-  /v1/internal/twilio/connect-action:
-    post:
-      operationId: internal_twilio_connectaction_post
-      summary: Internal Twilio connect-action
-      description: Gateway-to-runtime forwarding for ConversationRelay connect-action callback.
-      tags:
-        - internal
-      responses:
-        "200":
-          description: Successful response
   /v1/internal/twilio/status:
     post:
       operationId: internal_twilio_status_post
@@ -19566,6 +19587,107 @@ paths:
                                   - ratio
                                 additionalProperties: false
                               - type: "null"
+                          memoryStat:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  anonBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  fileBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  kernelBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  slabReclaimableBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  slabUnreclaimableBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  unevictableBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  reclaimableBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                required:
+                                  - anonBytes
+                                  - fileBytes
+                                  - kernelBytes
+                                  - slabReclaimableBytes
+                                  - slabUnreclaimableBytes
+                                  - unevictableBytes
+                                  - reclaimableBytes
+                                additionalProperties: false
+                              - type: "null"
+                          reclaim:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  pgscanDirect:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  pgstealDirect:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  workingsetRefaultFile:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                required:
+                                  - pgscanDirect
+                                  - pgstealDirect
+                                  - workingsetRefaultFile
+                                additionalProperties: false
+                              - type: "null"
+                          cpu:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  usageUsec:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  userUsec:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  systemUsec:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  nrPeriods:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  nrThrottled:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  throttledUsec:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                required:
+                                  - usageUsec
+                                  - userUsec
+                                  - systemUsec
+                                  - nrPeriods
+                                  - nrThrottled
+                                  - throttledUsec
+                                additionalProperties: false
+                              - type: "null"
                           events:
                             anyOf:
                               - type: object
@@ -19588,6 +19710,107 @@ paths:
                                   - oomKill
                                 additionalProperties: false
                               - type: "null"
+                          deltas:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  events:
+                                    anyOf:
+                                      - type: object
+                                        properties:
+                                          low:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          high:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          max:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          oom:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          oomKill:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                        required:
+                                          - low
+                                          - high
+                                          - max
+                                          - oom
+                                          - oomKill
+                                        additionalProperties: false
+                                      - type: "null"
+                                  reclaim:
+                                    anyOf:
+                                      - type: object
+                                        properties:
+                                          pgscanDirect:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          pgstealDirect:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          workingsetRefaultFile:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                        required:
+                                          - pgscanDirect
+                                          - pgstealDirect
+                                          - workingsetRefaultFile
+                                        additionalProperties: false
+                                      - type: "null"
+                                  cpu:
+                                    anyOf:
+                                      - type: object
+                                        properties:
+                                          usageUsec:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          userUsec:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          systemUsec:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          nrPeriods:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          nrThrottled:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          throttledUsec:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                        required:
+                                          - usageUsec
+                                          - userUsec
+                                          - systemUsec
+                                          - nrPeriods
+                                          - nrThrottled
+                                          - throttledUsec
+                                        additionalProperties: false
+                                      - type: "null"
+                                required:
+                                  - events
+                                  - reclaim
+                                  - cpu
+                                additionalProperties: false
+                              - type: "null"
                           disk:
                             anyOf:
                               - type: object
@@ -19607,11 +19830,46 @@ paths:
                                   - freeMb
                                 additionalProperties: false
                               - type: "null"
+                          activeConversations:
+                            anyOf:
+                              - type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    conversationId:
+                                      type: string
+                                    title:
+                                      anyOf:
+                                        - type: string
+                                        - type: "null"
+                                    originChannel:
+                                      anyOf:
+                                        - type: string
+                                        - type: "null"
+                                    originInterface:
+                                      anyOf:
+                                        - type: string
+                                        - type: "null"
+                                    processingStartedAt:
+                                      type: number
+                                  required:
+                                    - conversationId
+                                    - title
+                                    - originChannel
+                                    - originInterface
+                                    - processingStartedAt
+                                  additionalProperties: false
+                              - type: "null"
                         required:
                           - ts
                           - memory
+                          - memoryStat
+                          - reclaim
+                          - cpu
                           - events
+                          - deltas
                           - disk
+                          - activeConversations
                         additionalProperties: false
                       - type: "null"
                 required:
@@ -31950,6 +32208,8 @@ components:
               - weight
             additionalProperties: false
         supportsVision:
+          type: boolean
+        invariant:
           type: boolean
       additionalProperties: {}
     ProviderConnection:

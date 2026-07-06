@@ -22,7 +22,7 @@ const log = getLogger("messages-lexical-enqueue");
  * Resolve the messages lexical index singleton, lazily initializing it from
  * `config` when it has not been set up in this process. The eager init in
  * `runMemoryStartup` (startup.ts) only runs in the daemon process; the memory
- * job worker can run as a separate OS process (`jobs/worker.ts`) that never
+ * job worker can run as a separate OS process (`plugins/defaults/memory/worker.ts`) that never
  * calls `runMemoryStartup`, so without this fallback every lexical job claimed
  * there would throw. `initMessagesLexicalIndex` is idempotent — it just
  * (re)points the singleton at an equivalent client — so re-initializing from
