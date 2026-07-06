@@ -163,6 +163,104 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
   });
 
+  test("parses start frames with turnDetection manual", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({
+        type: "start",
+        turnDetection: "manual",
+        audio: {
+          mimeType: "audio/pcm",
+          sampleRate: 24000,
+          channels: 1,
+        },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect(result.frame).toEqual({
+      type: "start",
+      turnDetection: "manual",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        channels: 1,
+      },
+    });
+  });
+
+  test("rejects turnDetection server_vad until its session lifecycle is implemented", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({
+        type: "start",
+        turnDetection: "server_vad",
+        audio: {
+          mimeType: "audio/pcm",
+          sampleRate: 24000,
+          channels: 1,
+        },
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "turnDetection",
+      frameType: "start",
+      message: "start frame field turnDetection: server_vad is not yet supported",
+    });
+  });
+
+  test("omits turnDetection when absent from the start frame", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({
+        type: "start",
+        audio: {
+          mimeType: "audio/pcm",
+          sampleRate: 24000,
+          channels: 1,
+        },
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
+    }
+
+    expect("turnDetection" in result.frame).toBe(false);
+  });
+
+  test("returns typed protocol errors for invalid turnDetection values", () => {
+    const result = validateLiveVoiceClientFrame({
+      type: "start",
+      turnDetection: "client_vad",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        channels: 1,
+      },
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "turnDetection",
+      frameType: "start",
+    });
+  });
+
   test("returns typed protocol errors for missing audio configuration fields", () => {
     const result = validateLiveVoiceClientFrame({
       type: "start",
@@ -269,6 +367,55 @@ describe("LiveVoiceServerFrameSequencer", () => {
         turnId: "turn-2",
       }).seq,
     ).toBe(1);
+  });
+
+  test("stamps monotonic sequence numbers on server VAD frames", () => {
+    const sequencer = createLiveVoiceServerFrameSequencer();
+
+    const speechStarted: LiveVoiceServerFrame = sequencer.next({
+      type: "speech_started",
+    });
+    const utteranceEnd: LiveVoiceServerFrame = sequencer.next({
+      type: "utterance_end",
+      reason: "silence",
+    });
+    const turnCancelled: LiveVoiceServerFrame = sequencer.next({
+      type: "turn_cancelled",
+      turnId: "turn-123",
+    });
+
+    expect(speechStarted).toEqual({ type: "speech_started", seq: 1 });
+    expect(utteranceEnd).toEqual({
+      type: "utterance_end",
+      reason: "silence",
+      seq: 2,
+    });
+    expect(turnCancelled).toEqual({
+      type: "turn_cancelled",
+      turnId: "turn-123",
+      seq: 3,
+    });
+    expect(sequencer.lastSeq).toBe(3);
+  });
+
+  test("sequences both utterance_end reasons", () => {
+    const sequencer = createLiveVoiceServerFrameSequencer();
+
+    const silence = sequencer.next({
+      type: "utterance_end",
+      reason: "silence",
+    });
+    const maxDuration = sequencer.next({
+      type: "utterance_end",
+      reason: "max-duration",
+    });
+
+    expect(silence).toEqual({ type: "utterance_end", reason: "silence", seq: 1 });
+    expect(maxDuration).toEqual({
+      type: "utterance_end",
+      reason: "max-duration",
+      seq: 2,
+    });
   });
 
   test("preserves the server frame discriminated union after sequencing", () => {
