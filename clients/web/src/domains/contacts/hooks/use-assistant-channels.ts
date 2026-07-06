@@ -10,13 +10,13 @@ import {
   type ChannelReadinessSnapshot,
   type SetupChannelId,
 } from "@/domains/contacts/types";
+import { memberSlackChannelsOptions, memberSlackChannelsQueryKey } from "@/domains/contacts/slack-channels-query";
 import {
   channelsReadinessGetOptions,
   channelsReadinessGetQueryKey,
   integrationsSlackChannelConfigGetOptions,
   integrationsSlackChannelConfigGetQueryKey,
   integrationsSlackChannelConfigPatchMutation,
-  slackChannelsGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   integrationsSlackChannelConfigDelete,
@@ -95,16 +95,12 @@ export function useAssistantChannels({
     select: (data: IntegrationsSlackChannelConfigGetResponse) => data.threadMode,
   });
 
-  // Presence-only channel list for the Slack sub-tab. Member-only is the
-  // product contract (no toggle), so the filter is baked into the query.
+  // Presence-only channel list for the Slack sub-tab.
   // Version-gated: older assistants don't serve GET /v1/slack/channels,
   // so the query stays off and the list stays hidden against them.
   const supportsSlackChannelList = useSupportsSlackChannelList();
   const slackChannelsQuery = useQuery({
-    ...slackChannelsGetOptions({
-      path: { assistant_id: assistantId },
-      query: { memberOnly: "true" },
-    }),
+    ...memberSlackChannelsOptions(assistantId),
     enabled: slackConnected && supportsSlackChannelList,
     select: (data) => data.channels,
   });
@@ -129,7 +125,17 @@ export function useAssistantChannels({
         await integrationsTwilioCredentialsDelete(opts);
       }
     },
-    onSettled: () => invalidateReadiness(),
+    onSettled: (_data, _error, channelKey) => {
+      invalidateReadiness();
+      if (channelKey === "slack") {
+        // Drop the channel-list cache with the credentials: a later
+        // reconnect may target a different workspace, and serving the old
+        // workspace's channels from cache would misreport presence.
+        queryClient.removeQueries({
+          queryKey: memberSlackChannelsQueryKey(assistantId),
+        });
+      }
+    },
   });
 
   // Credential saves reuse the app-wide hooks (also used by the chat-side
