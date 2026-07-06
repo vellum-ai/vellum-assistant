@@ -9,10 +9,7 @@ import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
  * `publishVisibilitySource` / `publishWindowOnlineSource`
  * / `publishElectronPowerSource` instead.
  *
- * `subscribeCapacitorListener` owns the platform guard, the
- * unsubscribe-before-import-resolves race, and failure reporting; the
- * `@capacitor/app` import stays lazy and inline here per CAPACITOR.md's
- * "lazy-import rule".
+ * Lazy inline `@capacitor/app` import per CAPACITOR.md's "lazy-import rule".
  */
 export function publishCapacitorAppStateSource(): () => void {
   return subscribeCapacitorListener("event_bus_capacitor_init", async () => {

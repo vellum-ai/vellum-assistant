@@ -20,10 +20,7 @@ import {
  * Off Capacitor iOS the function is a no-op — Electron deep links flow
  * through `publishElectronDeepLinksSource` instead.
  *
- * `subscribeCapacitorListener` owns the platform guard, the
- * unsubscribe-before-import-resolves race, and failure reporting; the
- * `@capacitor/app` import stays lazy and inline here per CAPACITOR.md's
- * "lazy-import rule".
+ * Lazy inline `@capacitor/app` import per CAPACITOR.md's "lazy-import rule".
  */
 export function publishCapacitorDeepLinksSource(): () => void {
   return subscribeCapacitorListener("capacitor_deep_links", async () => {
