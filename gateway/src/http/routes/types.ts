@@ -17,6 +17,8 @@ export interface GatewayRouteDefinition {
   responseBody?: z.ZodTypeAny;
   requestBody?: z.ZodTypeAny;
   pathParameters?: Array<{ name: string; description?: string }>;
+  /** Optional string query parameters (all documented as non-required). */
+  queryParameters?: Array<{ name: string; description?: string }>;
   /**
    * Success status code documented in the spec. Defaults to "200".
    * Use "204" for empty-body responses (responseBody must be omitted).
