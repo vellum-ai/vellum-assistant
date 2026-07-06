@@ -160,6 +160,18 @@ export default defineConfig(({ mode }) => {
       dedupe: ["react", "react-dom"],
       preserveSymlinks: true,
     },
+    optimizeDeps: {
+      // Deep `@vellumai/design-library/components/*` imports resolve to .tsx
+      // source, which the dep optimizer won't auto-prebundle — those modules
+      // are served raw. A bare import in a raw-served module is rewritten to
+      // a prebundled chunk only when the specifier is already in the
+      // optimized set; otherwise it resolves into design-library's nested
+      // node_modules and is served untransformed, and any CommonJS module in
+      // that chain (e.g. micromark's `debug`) is a browser SyntaxError →
+      // white screen in dev. List every bare specifier that design-library
+      // source imports but clients/web source does not import itself.
+      include: ["rehype-katex", "remark-math", "remark-parse", "unified"],
+    },
     server: {
       port: parseInt(env.PORT || "3000"),
       strictPort: true,

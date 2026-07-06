@@ -2,13 +2,12 @@
  * Shared control surface for the resource monitor *process* — the background OS
  * process whose entry point is `worker.ts`.
  *
- * Both the `assistant monitoring` CLI and the daemon lifecycle (when
- * `monitoring.enabled` is set) need to probe, spawn, and stop this process.
+ * Both the `assistant monitoring` CLI and the daemon lifecycle (which spawns
+ * the monitor at every boot) need to probe, spawn, and stop this process.
  * The generic PID-file mechanics live in `util/worker-process.ts`; this module
  * binds them to the monitor's PID path and entry point.
  */
 
-import { getConfig } from "../config/loader.js";
 import { getLogger } from "../util/logger.js";
 import { getMonitoringPidPath } from "../util/platform.js";
 import {
@@ -69,13 +68,11 @@ export function stopMonitoringWorkerProcess(): WorkerProcessStatus {
 /**
  * Daemon-lifecycle entry point: spawn the monitor as a child of the daemon
  * (`detached: false`, so it appears in `assistant ps` and is torn down on
- * shutdown) when `monitoring.enabled` is set. Fire-and-forget — a monitor
- * failure must never block boot.
+ * shutdown). Runs on every boot — the monitor is platform infrastructure,
+ * not an opt-in feature. Fire-and-forget — a monitor failure must never
+ * block boot.
  */
 export function startMonitoring(): void {
-  if (!getConfig().monitoring.enabled) {
-    return;
-  }
   void spawnMonitoringWorkerProcess({ detached: false })
     .then((r) =>
       log.info(

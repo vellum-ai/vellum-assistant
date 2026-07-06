@@ -1,27 +1,28 @@
 #!/usr/bin/env bun
 /**
- * Local CES entrypoint.
+ * Local CES entrypoint. Two run modes:
  *
- * In local mode the assistant spawns CES as a child process and communicates
- * over stdin/stdout using newline-delimited JSON. This entrypoint:
+ * - **stdio child (default):** the assistant spawns CES as a child process and
+ *   communicates over stdin/stdout. CES shuts down when stdin closes (parent
+ *   exit) or on SIGTERM. This is today's behavior.
  *
- * 1. Ensures the CES-private data directories exist.
- * 2. Starts the RPC server on process.stdin / process.stdout.
- * 3. Shuts down cleanly when stdin closes (parent exit) or SIGTERM arrives.
+ * - **standalone sibling (`CES_STANDALONE=1`):** CES is launched independently
+ *   by the CLI (the opt-in), serves RPC over a
+ *   Unix socket (`getLocalSocketPath()`), and runs until SIGTERM — no stdio.
+ *   This is the direction local CES is converging on; the socket-serving here
+ *   is temporary scaffolding to be folded into a single unified CES entrypoint.
  *
- * Local mode never opens a TCP listener or Unix socket. All communication
- * flows through the inherited stdio file descriptors, which are automatically
- * closed when the parent process exits.
- *
- * The stdio transport ensures that shell subprocesses spawned by CES
- * (e.g. for `run_authenticated_command`) do not accidentally inherit the
- * command channel — Bun's `Bun.spawn` defaults to "pipe" for stdio on
- * child processes, so CES's own stdin/stdout are not leaked to subprocesses.
+ * Local mode never opens a TCP listener. Neither the stdio transport nor the
+ * Unix socket's listening fd is inherited by shell subprocesses spawned by CES
+ * (e.g. for `run_authenticated_command`): Bun's `Bun.spawn` defaults to "pipe"
+ * for stdio, and the listening socket is not passed to those subprocesses.
  */
 
-import { mkdirSync } from "node:fs";
+import { mkdirSync, unlinkSync } from "node:fs";
+import { createServer as createNetServer, type Socket } from "node:net";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import { Readable, Writable } from "node:stream";
 
 import {
   CES_PROTOCOL_VERSION,
@@ -52,6 +53,7 @@ import {
   getCesGrantsDir,
   getCesLogDir,
   getCesToolStoreDir,
+  getLocalSocketPath,
 } from "./paths.js";
 import {
   buildHandlersWithHttp,
@@ -122,9 +124,7 @@ function getSecurityDir(): string {
 // Build RPC handler registry
 // ---------------------------------------------------------------------------
 
-function buildHandlers(
-  secureKeyBackend: SecureKeyBackend,
-): RpcHandlerRegistry {
+function buildHandlers(secureKeyBackend: SecureKeyBackend): RpcHandlerRegistry {
   // -- Grant stores ----------------------------------------------------------
   const persistentGrantStore = new PersistentGrantStore(
     getCesGrantsDir("local"),
@@ -350,14 +350,103 @@ function buildHandlers(
 // Main
 // ---------------------------------------------------------------------------
 
+/**
+ * Serve RPC over a Unix socket for standalone-sibling mode.
+ *
+ * Binds the socket, accepts connections concurrently (each served by its own
+ * CesRpcServer over the shared handler registry), and unlinks the socket when
+ * the signal aborts. Temporary scaffolding — this serving path will be folded
+ * into a single unified CES entrypoint shared with the managed sidecar.
+ */
+function serveStandaloneSocket(opts: {
+  socketPath: string;
+  handlers: RpcHandlerRegistry;
+  signal: AbortSignal;
+  logger: Pick<Console, "log" | "warn" | "error">;
+  log: ReturnType<typeof getLogger>;
+}): void {
+  const { socketPath, handlers, signal, logger, log } = opts;
+
+  mkdirSync(dirname(socketPath), { recursive: true });
+  try {
+    unlinkSync(socketPath);
+  } catch {
+    // stale or absent — fine
+  }
+
+  const netServer = createNetServer();
+
+  netServer.on("error", (err) => {
+    log.warn({ err }, "CES standalone socket server error");
+  });
+
+  netServer.on("connection", (socket: Socket) => {
+    const readable = new Readable({ read() {} });
+    const writable = new Writable({
+      write(chunk, _encoding, callback) {
+        if (socket.writable) {
+          socket.write(chunk, callback);
+        } else {
+          callback(new Error("Socket no longer writable"));
+        }
+      },
+    });
+    socket.on("data", (chunk) => readable.push(chunk));
+    socket.on("end", () => readable.push(null));
+    socket.on("error", (err) => {
+      readable.destroy(err);
+      writable.destroy(err);
+    });
+
+    const server = new CesRpcServer({
+      input: readable,
+      output: writable,
+      handlers,
+      logger,
+      signal,
+      onApiKeyUpdate: () => {},
+    });
+    void server.serve().catch((err) => {
+      server.close();
+      log.warn(
+        { err },
+        "CES standalone connection ended with a transport error",
+      );
+    });
+  });
+
+  netServer.listen(socketPath, () => {
+    log.info(`CES standalone socket listening at ${socketPath}`);
+  });
+
+  signal.addEventListener(
+    "abort",
+    () => {
+      netServer.close();
+      try {
+        unlinkSync(socketPath);
+      } catch {
+        // already removed
+      }
+    },
+    { once: true },
+  );
+}
+
 async function main(): Promise<void> {
   ensureDataDirs();
 
   initLogger({ dir: getCesLogDir(), retentionDays: 30 });
   const log = getLogger("main");
 
+  // `CES_STANDALONE=1` runs CES as an independent, CLI-launched sibling over a
+  // Unix socket; otherwise CES is the assistant's stdio child, as today.
+  const standalone = process.env["CES_STANDALONE"] === "1";
+
   log.info(
-    `Starting CES v${CES_PROTOCOL_VERSION} (local mode, stdio transport)`,
+    `Starting CES v${CES_PROTOCOL_VERSION} (local mode, ${
+      standalone ? "standalone socket" : "stdio"
+    } transport)`,
   );
 
   const controller = new AbortController();
@@ -390,15 +479,42 @@ async function main(): Promise<void> {
   const handlers = buildHandlers(secureKeyBackend);
 
   const rpcLog = getLogger("rpc");
+  const rpcLogger = {
+    log: (msg: string, ...args: unknown[]) => rpcLog.info({ args }, msg),
+    warn: (msg: string, ...args: unknown[]) => rpcLog.warn({ args }, msg),
+    error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
+  };
+
+  if (standalone) {
+    // Serve over a Unix socket and run until a shutdown signal — no stdio
+    // parent to anchor the lifecycle.
+    serveStandaloneSocket({
+      socketPath: getLocalSocketPath(),
+      handlers,
+      signal: controller.signal,
+      logger: rpcLogger,
+      log,
+    });
+    await new Promise<void>((resolve) => {
+      if (controller.signal.aborted) {
+        resolve();
+        return;
+      }
+      controller.signal.addEventListener("abort", () => resolve(), {
+        once: true,
+      });
+    });
+    log.info("Server stopped.");
+    return;
+  }
+
+  // Default: serve the spawning assistant over stdio. stdin closing (parent
+  // exit) or SIGTERM shuts CES down.
   const server = new CesRpcServer({
     input: process.stdin,
     output: process.stdout,
     handlers,
-    logger: {
-      log: (msg: string, ...args: unknown[]) => rpcLog.info({ args }, msg),
-      warn: (msg: string, ...args: unknown[]) => rpcLog.warn({ args }, msg),
-      error: (msg: string, ...args: unknown[]) => rpcLog.error({ args }, msg),
-    },
+    logger: rpcLogger,
     signal: controller.signal,
     // Local mode reads API keys from env/store directly — no-op handler so
     // update_managed_credential is still registered and returns success.

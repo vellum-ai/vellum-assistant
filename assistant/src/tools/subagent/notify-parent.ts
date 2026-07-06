@@ -1,6 +1,5 @@
 import { RiskLevel } from "../../permissions/types.js";
 import { getSubagentManager } from "../../subagent/index.js";
-import { registerTool } from "../registry.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -72,5 +71,3 @@ export const notifyParentTool = {
     return executeSubagentNotifyParent(input, context);
   },
 } satisfies ToolDefinition;
-
-registerTool(notifyParentTool);

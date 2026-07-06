@@ -261,6 +261,14 @@ describe("QuoteReplyBubble", () => {
     });
     expect(document.body.querySelector('[data-slot="card"]')).toBeTruthy();
     expect(document.body.querySelector('[data-slot="textarea"]')).toBeTruthy();
+    const quoteBlock = screen.getByText(
+      "here's the anthropic competitive research brief from last night",
+    );
+    expect(quoteBlock.className).toContain("flex-1");
+    expect(quoteBlock.parentElement?.className).toContain("mx-0");
+    expect(quoteBlock.parentElement?.className).toContain("gap-3");
+    expect(quoteBlock.previousElementSibling?.className).toContain("h-5");
+    expect(quoteBlock.previousElementSibling?.className).toContain("w-0.5");
     expect(
       screen.getByRole("button", { name: "Close reply" }).getAttribute("data-slot"),
     ).toBe("button");
@@ -321,6 +329,10 @@ describe("StagedQuotesStrip", () => {
     render(<StagedQuotesStrip />);
 
     expect(document.body.querySelector('[data-slot="card"]')).toBeTruthy();
+    const quoteText = screen.getByText("competitive research");
+    expect(quoteText.className).toContain("flex-1");
+    expect(quoteText.parentElement?.className).toContain("gap-3");
+    expect(quoteText.previousElementSibling?.className).toContain("h-5");
     expect(
       screen.getByRole("button", { name: "Remove quote" }).getAttribute("data-slot"),
     ).toBe("button");

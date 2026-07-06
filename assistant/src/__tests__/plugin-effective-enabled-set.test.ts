@@ -1,14 +1,12 @@
 /**
- * Tests for per-chat plugin scope (`enabledPlugins`) filtering at the runtime
- * injector and lifecycle-hook gather sites.
+ * Tests for per-chat plugin scope (`enabledPlugins`) filtering at the
+ * lifecycle-hook gather sites.
  *
  * A conversation may restrict which plugins' capabilities it uses. That scope
  * is expressed as an effective-enabled-plugin Set (see
  * `getEffectiveEnabledPluginSet` in `daemon/conversation-tool-setup.ts`): a
  * non-null Set is an allowlist, `null` means no restriction. This suite locks
- * the contract that both gather sites honor it:
- *  - `getRegisteredInjectors(set)` excludes injectors from plugins outside the
- *    set, and is unchanged for `null`/omitted.
+ * the contract that the hook gather sites honor it:
  *  - `getHooksFor(name, { conversationId })` resolves the conversation's scope
  *    and excludes in-process default-plugin hooks outside it; omitting the
  *    conversationId imposes no restriction.
@@ -17,6 +15,9 @@
  *
  * The per-chat scope layers on top of (does not replace) the global
  * `.disabled` sentinel check — a plugin excluded by either is excluded.
+ * Injectors are intentionally NOT per-chat scoped (see
+ * `getRegisteredInjectors`): they run inside already-scoped plugin hooks, and
+ * every injector-contributing plugin is a first-party default.
  */
 
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -36,15 +37,10 @@ mock.module("../daemon/conversation-plugin-scope.js", () => ({
 import { collectUserHooks } from "../hooks/hook-loader.js";
 import { getHooksFor } from "../hooks/registry.js";
 import {
-  clearInjectorRegistry,
-  getRegisteredInjectors,
-  registerPluginInjectors,
-} from "../plugins/injector-registry.js";
-import {
   registerPlugin,
   resetPluginRegistryForTests,
 } from "../plugins/registry.js";
-import type { HookFunction, Injector, Plugin } from "../plugins/types.js";
+import type { HookFunction, Plugin } from "../plugins/types.js";
 
 // Point the workspace at an empty temp dir so `getHooksFor` -> `getUserHooksFor`
 // finds no user-land plugins; the in-process hook tests then observe only the
@@ -55,50 +51,12 @@ const TEST_WORKSPACE_DIR = join(
 );
 process.env.VELLUM_WORKSPACE_DIR = TEST_WORKSPACE_DIR;
 
-function injector(name: string, order: number): Injector {
-  return { name, order, produce: () => Promise.resolve(null) };
-}
-
 function buildPlugin(
   name: string,
   hooks: Record<string, HookFunction>,
 ): Plugin {
   return { manifest: { name, version: "1.0.0" }, hooks };
 }
-
-describe("getRegisteredInjectors per-chat plugin scope", () => {
-  beforeEach(() => clearInjectorRegistry());
-  afterEach(() => clearInjectorRegistry());
-
-  test("null set runs every globally-enabled plugin's injectors (unchanged)", () => {
-    registerPluginInjectors("plugin-a", [injector("inj-a", 1)]);
-    registerPluginInjectors("plugin-b", [injector("inj-b", 2)]);
-
-    const namesNull = getRegisteredInjectors(null).map((i) => i.name);
-    const namesOmitted = getRegisteredInjectors().map((i) => i.name);
-
-    expect(namesNull).toEqual(["inj-a", "inj-b"]);
-    expect(namesOmitted).toEqual(["inj-a", "inj-b"]);
-  });
-
-  test("a set excluding plugin b drops b's injectors and keeps a's", () => {
-    registerPluginInjectors("plugin-a", [injector("inj-a", 1)]);
-    registerPluginInjectors("plugin-b", [injector("inj-b", 2)]);
-
-    const names = getRegisteredInjectors(new Set(["plugin-a"])).map(
-      (i) => i.name,
-    );
-
-    expect(names).toEqual(["inj-a"]);
-  });
-
-  test("an empty set excludes every plugin's injectors", () => {
-    registerPluginInjectors("plugin-a", [injector("inj-a", 1)]);
-    registerPluginInjectors("plugin-b", [injector("inj-b", 2)]);
-
-    expect(getRegisteredInjectors(new Set<string>())).toEqual([]);
-  });
-});
 
 describe("getHooksFor per-chat plugin scope (in-process default hooks)", () => {
   beforeEach(() => {

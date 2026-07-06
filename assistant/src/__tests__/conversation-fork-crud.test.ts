@@ -55,7 +55,6 @@ import {
   memoryRetrospectiveState,
   toolInvocations,
 } from "../persistence/schema/index.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
 import {
   loadGraphMemoryState,
   saveGraphMemoryState,
@@ -101,7 +100,6 @@ function parseMetadata(metadata: string | null): unknown {
 describe("forkConversation", () => {
   beforeEach(() => {
     resetTables();
-    registerDefaultPluginPersistenceHooks();
   });
 
   test("forks a full transcript with copied history and lineage", async () => {
@@ -1460,7 +1458,6 @@ describe("forkConversation", () => {
 describe("forkConversation + memory_retrospective_state", () => {
   beforeEach(() => {
     resetTables();
-    registerDefaultPluginPersistenceHooks();
   });
 
   test("does not seed state when the source has none", async () => {

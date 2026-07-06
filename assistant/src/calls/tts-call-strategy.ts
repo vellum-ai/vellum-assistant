@@ -12,7 +12,8 @@
  *   `sendTextToken()`, which the media-stream transport re-synthesizes
  *   through daemon TTS. The profile carries a real `ttsProvider` name
  *   (e.g. `"ElevenLabs"`) and a provider-specific voice spec string built
- *   by a registered {@link NativeTwilioVoiceSpecBuilder}.
+ *   by the {@link NativeTwilioVoiceSpecBuilder} the provider declares in
+ *   its catalog definition.
  *
  * - **synthesized-play** -- The assistant synthesises audio via the
  *   provider API and streams it through the audio store / `sendPlayUrl()`
@@ -24,85 +25,41 @@
  */
 
 import type { AssistantConfig } from "../config/types.js";
-import { getCatalogProvider } from "../tts/provider-catalog.js";
+import {
+  getCatalogProvider,
+  getProviderDefinition,
+} from "../tts/provider-catalog.js";
+import type { NativeTwilioVoiceSpec } from "../tts/provider-definition.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import type { TtsCallMode, TtsProviderId } from "../tts/types.js";
 
+export type {
+  NativeTwilioVoiceSpec,
+  NativeTwilioVoiceSpecBuilder,
+} from "../tts/provider-definition.js";
+
 // ---------------------------------------------------------------------------
-// Native Twilio voice-spec builder registry
+// Native Twilio voice-spec lookup
 // ---------------------------------------------------------------------------
 
 /**
- * Builds the provider-specific voice spec string for a native Twilio
- * provider.
+ * Look up the native Twilio voice-spec builder a provider declares in its
+ * catalog definition.
  *
- * The returned string is used as Twilio's TTS `voice` attribute. Its
- * format is provider-specific -- e.g. ElevenLabs uses
- * `voiceId-modelId-speed_stability_similarity`.
- *
- * @param providerConfig - Provider-specific config block from
- *   `services.tts.providers.<id>`.
- * @returns The voice spec string for Twilio's TTS `voice` attribute, or
- *   an empty string if the provider has no voice to specify.
- */
-export type NativeTwilioVoiceSpecBuilder = (
-  providerConfig: Record<string, unknown>,
-) => string;
-
-/**
- * Metadata returned by a native Twilio voice-spec builder registration.
- */
-export interface NativeTwilioVoiceSpec {
-  /** The Twilio `ttsProvider` attribute value (e.g. `"ElevenLabs"`). */
-  readonly twilioProviderName: string;
-
-  /** Builds the `voice` attribute string from provider config. */
-  readonly buildVoiceSpec: NativeTwilioVoiceSpecBuilder;
-}
-
-/** Internal registry keyed by provider ID. */
-const nativeVoiceSpecRegistry = new Map<TtsProviderId, NativeTwilioVoiceSpec>();
-
-/**
- * Register a native Twilio voice-spec builder for a provider.
- *
- * Called at startup alongside provider adapter registration. This is
- * the extension point that allows new native Twilio providers to be
- * added without modifying core call routing logic.
- *
- * @throws if a builder for the same provider ID is already registered.
- */
-export function registerNativeTwilioVoiceSpec(
-  providerId: TtsProviderId,
-  spec: NativeTwilioVoiceSpec,
-): void {
-  if (nativeVoiceSpecRegistry.has(providerId)) {
-    throw new Error(
-      `Native Twilio voice spec for "${providerId}" is already registered. ` +
-        "Duplicate registrations are not allowed.",
-    );
-  }
-  nativeVoiceSpecRegistry.set(providerId, spec);
-}
-
-/**
- * Look up a registered native Twilio voice-spec builder.
- *
- * @throws if no builder has been registered for the given provider.
+ * @throws if the provider is not in the catalog, or is not a
+ *   `native-twilio` provider (synthesized-play providers have no spec).
  */
 export function getNativeTwilioVoiceSpec(
-  providerId: TtsProviderId,
+  providerId: string,
 ): NativeTwilioVoiceSpec {
-  const spec = nativeVoiceSpecRegistry.get(providerId);
-  if (!spec) {
-    const known = [...nativeVoiceSpecRegistry.keys()];
-    const knownList =
-      known.length > 0 ? ` Registered: ${known.join(", ")}` : "";
+  const definition = getProviderDefinition(providerId);
+  if (definition.callMode !== "native-twilio") {
     throw new Error(
-      `No native Twilio voice spec registered for "${providerId}".${knownList}`,
+      `No native Twilio voice spec for "${providerId}" — its call mode is ` +
+        `"${definition.callMode}", not "native-twilio".`,
     );
   }
-  return spec;
+  return definition.nativeTwilioVoiceSpec;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,17 +101,4 @@ export function resolveCallStrategy(config: AssistantConfig): TtsCallStrategy {
       callMode: "native-twilio",
     };
   }
-}
-
-// ---------------------------------------------------------------------------
-// Test helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Clear all registered native Twilio voice spec builders.
- *
- * **Test-only** -- must not be called in production code.
- */
-export function _resetNativeTwilioVoiceSpecRegistry(): void {
-  nativeVoiceSpecRegistry.clear();
 }

@@ -54,8 +54,7 @@ mock.module("../config/loader.js", () => ({
   ],
 }));
 
-await import("../tools/skills/load.js");
-const { getTool } = await import("../tools/registry.js");
+const { skillLoadTool } = await import("../tools/skills/load.js");
 
 function writeSkill(
   skillId: string,
@@ -74,8 +73,7 @@ function writeSkill(
 async function executeSkillLoad(
   input: Record<string, unknown>,
 ): Promise<{ content: string; isError: boolean }> {
-  const tool = getTool("skill_load");
-  if (!tool) throw new Error("skill_load tool was not registered");
+  const tool = skillLoadTool;
 
   const result = await tool.execute(input, {
     workingDir: "/tmp",

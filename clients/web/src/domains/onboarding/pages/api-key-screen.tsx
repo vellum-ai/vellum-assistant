@@ -19,6 +19,8 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 
+import { MOBILE_INPUT_NO_ZOOM } from "@/domains/onboarding/onboarding-step-layout";
+
 export function ApiKeyScreen() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -188,6 +190,7 @@ export function ApiKeyScreen() {
                 placeholder={entry.apiKeyPlaceholder ?? "Enter your API key"}
                 value={apiKey}
                 onChange={(e) => setApiKey(e.target.value)}
+                className={MOBILE_INPUT_NO_ZOOM}
                 fullWidth
               />
               {entry.docsUrl && (

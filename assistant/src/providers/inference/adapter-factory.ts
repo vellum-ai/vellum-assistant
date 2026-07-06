@@ -181,9 +181,16 @@ export function createAdapterFromConnection(
     model: string;
     streamTimeoutMs?: number;
     useNativeWebSearch?: boolean;
+    /**
+     * Effective upstream provider to build the adapter for. Defaults to
+     * `connection.provider`. The provider-agnostic Vellum-managed connection
+     * passes the resolved profile's provider here, since its own row carries
+     * only the `vellum` sentinel.
+     */
+    provider?: string;
   },
 ): Provider | null {
-  const { provider } = connection;
+  const provider = opts.provider ?? connection.provider;
   const entry = PROVIDER_CATALOG.find((e) => e.id === provider);
   if (!entry) return null;
   const isKeyless = entry.setupMode === "keyless";

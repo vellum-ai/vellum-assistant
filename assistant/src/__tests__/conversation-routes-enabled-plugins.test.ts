@@ -125,6 +125,7 @@ mock.module("../persistence/conversation-crud.js", () => ({
     plugins: string[] | null,
   ) => setConversationEnabledPluginsMock(conversationId, plugins),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  recordConversationPersistedSeq: () => {},
 }));
 
 mock.module("../persistence/conversation-disk-view.js", () => ({

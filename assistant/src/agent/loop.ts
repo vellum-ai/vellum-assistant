@@ -15,20 +15,20 @@ import { spoolAndStubOversizedToolResults } from "../context/tool-result-spool.j
 import type { ToolActivityMetadata } from "../daemon/message-types/web-activity.js";
 import { parseActualTokensFromError } from "../daemon/parse-actual-tokens-from-error.js";
 import type { TrustContext } from "../daemon/trust-context.js";
+import type {
+  AgentLoopExitReason,
+  PostCompactInputContext,
+  PostModelCallDecision,
+  PostModelCallInputContext,
+  PostToolUseInputContext,
+  PreModelCallInputContext,
+  StopInputContext,
+} from "../hooks/types.js";
 import {
   timeSyncSection,
   traceAsyncSection,
 } from "../persistence/slow-sync-log.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import type {
-  AgentLoopExitReason,
-  PostCompactContext,
-  PostModelCallContext,
-  PostModelCallDecision,
-  PostToolUseContext,
-  PreModelCallContext,
-  StopContext,
-} from "../plugin-api/types.js";
 import { defaultCompact } from "../plugins/defaults/compaction/compact.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
 import { runHook } from "../plugins/pipeline.js";
@@ -157,7 +157,9 @@ function buildNativeWebSearchProbeOptions(
   forceOverrideProfile: boolean,
   conversationId: string | undefined,
 ): SendMessageOptions | undefined {
-  if (!callSite) return undefined;
+  if (!callSite) {
+    return undefined;
+  }
   return {
     config: {
       callSite,
@@ -505,7 +507,9 @@ const MAX_POST_MODEL_CALL_CONTINUES = 5;
 function assistantTextOf(content: ReadonlyArray<ContentBlock>): string {
   let text = "";
   for (const block of content) {
-    if (block.type === "text") text += block.text;
+    if (block.type === "text") {
+      text += block.text;
+    }
   }
   return text;
 }
@@ -1000,7 +1004,7 @@ export class AgentLoop {
       overflowSignal != null || compactResult.compacted
         ? compactResult.messages
         : history;
-    const postCompactCtx: PostCompactContext = {
+    const postCompactCtx: PostCompactInputContext = {
       history: base,
       requestId,
       conversationId: this.conversationId,
@@ -1157,14 +1161,15 @@ export class AgentLoop {
       reason: AgentLoopExitReason,
       { emitExit, error }: { emitExit: boolean; error?: Error },
     ): Promise<void> => {
-      if (turnStopped) return;
+      if (turnStopped) {
+        return;
+      }
       turnStopped = true;
-      const stopCtx: StopContext = {
+      const stopCtx: StopInputContext = {
         conversationId: this.conversationId,
         messages: [...history],
         error,
         exitReason: reason,
-        logger: rlog,
       };
       try {
         await runHook(HOOKS.STOP, stopCtx);
@@ -1576,7 +1581,9 @@ export class AgentLoop {
             if (event.type === "text_delta") {
               // Held when the turn's output is deferred — the final text is
               // emitted once, after the `post-model-call` hook runs.
-              if (deferAssistantOutput) return;
+              if (deferAssistantOutput) {
+                return;
+              }
               // Apply sensitive-output placeholder substitution (chunk-safe)
               if (substitutionMap.size > 0) {
                 const combined = streamingPending + event.text;
@@ -1590,7 +1597,9 @@ export class AgentLoop {
                   onEvent({ type: "text_delta", text: emit });
                 }
               } else {
-                if (event.text.length > 0) streamedVisibleText = true;
+                if (event.text.length > 0) {
+                  streamedVisibleText = true;
+                }
                 onEvent({ type: "text_delta", text: event.text });
               }
             } else if (event.type === "thinking_delta") {
@@ -1639,13 +1648,12 @@ export class AgentLoop {
         // call site / conversation. Fail-open: a throwing hook leaves the
         // request unchanged and streaming live.
         try {
-          const preModelCtx: PreModelCallContext = {
+          const preModelCtx: PreModelCallInputContext = {
             conversationId: this.conversationId,
             callSite: callSite ?? null,
             systemPrompt: providerOptions.systemPrompt ?? null,
             modelProfile: effectiveOverrideProfile ?? null,
             deferAssistantOutput: false,
-            logger: rlog,
           };
           const finalPreModelCtx = await traceAsyncSection(
             "agent-loop:pre-model-call-hook",
@@ -1806,14 +1814,13 @@ export class AgentLoop {
           messages: Message[];
         }> => {
           try {
-            const ctx: PostModelCallContext = {
+            const ctx: PostModelCallInputContext = {
               conversationId: this.conversationId,
               callSite: callSite ?? null,
               content: structuredClone(message.content),
               messages: [...history],
               stopReason: response.stopReason,
               decision: "stop",
-              logger: rlog,
             };
             const result = await traceAsyncSection(
               "agent-loop:post-model-call-hook",
@@ -1841,7 +1848,9 @@ export class AgentLoop {
         // would have shown. A no-op when text already streamed live — that
         // stream stands. Call only for a turn being kept.
         const emitFinalAssistantText = (content: ContentBlock[]): void => {
-          if (streamedVisibleText) return;
+          if (streamedVisibleText) {
+            return;
+          }
           const finalText = applySubstitutions(
             assistantTextOf(content),
             substitutionMap,
@@ -2245,7 +2254,7 @@ export class AgentLoop {
             resultBlocks.push(block);
             continue;
           }
-          const postToolUseCtx: PostToolUseContext = {
+          const postToolUseCtx: PostToolUseInputContext = {
             conversationId: this.conversationId,
             toolResponse: block as ToolResultContent,
             messages: history,
@@ -2254,7 +2263,6 @@ export class AgentLoop {
             maxInputTokens: contextWindowTokens,
             callSite: callSite ?? null,
             supportsDynamicUi,
-            logger: rlog,
           };
           const finalCtx = await runHook(HOOKS.POST_TOOL_USE, postToolUseCtx);
           resultBlocks.push(finalCtx.toolResponse);
@@ -2451,7 +2459,7 @@ export class AgentLoop {
         // hooks) is not a provider stop, so it falls straight through to the
         // error path below.
         if (error === providerCallError) {
-          const errorOutcomeCtx: PostModelCallContext = {
+          const errorOutcomeCtx: PostModelCallInputContext = {
             conversationId: this.conversationId,
             callSite: callSite ?? null,
             content: [],
@@ -2459,9 +2467,8 @@ export class AgentLoop {
             stopReason: null,
             error: err,
             decision: "stop",
-            logger: rlog,
           };
-          let errorOutcome: PostModelCallContext = errorOutcomeCtx;
+          let errorOutcome: PostModelCallInputContext = errorOutcomeCtx;
           try {
             errorOutcome = await runHook(
               HOOKS.POST_MODEL_CALL,

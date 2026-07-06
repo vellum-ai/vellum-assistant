@@ -781,93 +781,6 @@ paths:
                 required:
                   - success
                 additionalProperties: false
-  /v1/apps/{id}/diff:
-    get:
-      operationId: apps_by_id_diff_get
-      summary: Get app diff
-      description: Return a git diff between two commits for an app.
-      tags:
-        - apps
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: fromCommit
-          in: query
-          required: true
-          schema:
-            type: string
-        - name: toCommit
-          in: query
-          required: false
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  appId:
-                    type: string
-                  diff:
-                    type: string
-                required:
-                  - appId
-                  - diff
-                additionalProperties: false
-  /v1/apps/{id}/history:
-    get:
-      operationId: apps_by_id_history_get
-      summary: Get app version history
-      description: Return the git commit history of an app.
-      tags:
-        - apps
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: number
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  appId:
-                    type: string
-                  versions:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        commitHash:
-                          type: string
-                        message:
-                          type: string
-                        timestamp:
-                          type: number
-                      required:
-                        - commitHash
-                        - message
-                        - timestamp
-                      additionalProperties: false
-                required:
-                  - appId
-                  - versions
-                additionalProperties: false
   /v1/apps/{id}/open:
     post:
       operationId: apps_by_id_open_post
@@ -1039,43 +952,6 @@ paths:
                     type: number
                 required:
                   - published
-                additionalProperties: false
-  /v1/apps/{id}/restore:
-    post:
-      operationId: apps_by_id_restore_post
-      summary: Restore app version
-      description: Restore an app to a previous git commit.
-      tags:
-        - apps
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                commitHash:
-                  type: string
-              required:
-                - commitHash
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                required:
-                  - success
                 additionalProperties: false
   /v1/apps/{id}/share-cloud:
     post:
@@ -7744,47 +7620,6 @@ paths:
                   - removedCount
                   - conversationId
                 additionalProperties: false
-  /v1/conversations/{id}/wipe:
-    post:
-      operationId: conversations_by_id_wipe_post
-      summary: Wipe a conversation
-      description: Delete all messages in a conversation and revert associated memory changes.
-      tags:
-        - conversations
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  wiped:
-                    type: boolean
-                  unsupersededItems:
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                  deletedSummaries:
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                  cancelledJobs:
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                required:
-                  - wiped
-                  - unsupersededItems
-                  - deletedSummaries
-                  - cancelledJobs
-                additionalProperties: false
   /v1/conversations/archive/bulk:
     post:
       operationId: conversations_archive_bulk_post
@@ -9511,47 +9346,6 @@ paths:
                 required:
                   - invoked
                   - producedToolCalls
-                additionalProperties: false
-  /v1/conversations/wipe:
-    post:
-      operationId: conversations_wipe_post
-      summary: Wipe a conversation
-      description: Permanently delete a conversation and its associated data including memory vectors.
-      tags:
-        - conversations
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationId:
-                  type: string
-                  minLength: 1
-              required:
-                - conversationId
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  wiped:
-                    type: boolean
-                  unsupersededItems:
-                    type: number
-                  deletedSummaries:
-                    type: number
-                  cancelledJobs:
-                    type: number
-                required:
-                  - wiped
-                  - unsupersededItems
-                  - deletedSummaries
-                  - cancelledJobs
                 additionalProperties: false
   /v1/credentials/delete:
     post:
@@ -11618,7 +11412,9 @@ paths:
     post:
       operationId: filing_runnow_post
       summary: Run filing now
-      description: Trigger an immediate filing run.
+      description:
+        Enqueue an immediate PKB filing job. Returns once the job is queued; the job itself runs through the memory
+        jobs worker.
       tags:
         - filing
       responses:
@@ -11633,7 +11429,7 @@ paths:
                     type: boolean
                   ran:
                     type: boolean
-                    description: Whether the filing actually ran
+                    description: Whether a job was enqueued
                 required:
                   - success
                   - ran
@@ -14022,7 +13818,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            openai-compatible, minimax, atlascloud"
+            openai-compatible, minimax, atlascloud, vellum"
       responses:
         "200":
           description: Successful response
@@ -19578,7 +19374,9 @@ paths:
     post:
       operationId: monitoring_start_post
       summary: Start the resource monitor
-      description: Spawns (or reuses) the resource monitor process as a child of the daemon and enables monitoring.enabled.
+      description:
+        Spawns (or reuses) the resource monitor process as a child of the daemon. The daemon also spawns it at
+        every boot.
       tags:
         - system
       responses:
@@ -19593,15 +19391,11 @@ paths:
                     type: number
                   alreadyRunning:
                     type: boolean
-                  monitoringEnabled:
-                    type: boolean
-                    const: true
                   pidPath:
                     type: string
                 required:
                   - pid
                   - alreadyRunning
-                  - monitoringEnabled
                   - pidPath
                 additionalProperties: false
   /v1/monitoring/status:
@@ -19609,8 +19403,8 @@ paths:
       operationId: monitoring_status_get
       summary: Resource monitor status
       description:
-        Reports the resource monitor process state, monitoring.enabled, the forensics data directory, and the most
-        recent persisted memory/disk sample.
+        Reports the resource monitor process state, the forensics data directory, and the most recent persisted
+        memory/disk sample.
       tags:
         - system
       responses:
@@ -19628,8 +19422,6 @@ paths:
                       - not_running
                   pid:
                     type: number
-                  monitoringEnabled:
-                    type: boolean
                   dataDir:
                     type: string
                   latestSample:
@@ -19663,6 +19455,107 @@ paths:
                                   - ratio
                                 additionalProperties: false
                               - type: "null"
+                          memoryStat:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  anonBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  fileBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  kernelBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  slabReclaimableBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  slabUnreclaimableBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  unevictableBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  reclaimableBytes:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                required:
+                                  - anonBytes
+                                  - fileBytes
+                                  - kernelBytes
+                                  - slabReclaimableBytes
+                                  - slabUnreclaimableBytes
+                                  - unevictableBytes
+                                  - reclaimableBytes
+                                additionalProperties: false
+                              - type: "null"
+                          reclaim:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  pgscanDirect:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  pgstealDirect:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  workingsetRefaultFile:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                required:
+                                  - pgscanDirect
+                                  - pgstealDirect
+                                  - workingsetRefaultFile
+                                additionalProperties: false
+                              - type: "null"
+                          cpu:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  usageUsec:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  userUsec:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  systemUsec:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  nrPeriods:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  nrThrottled:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                  throttledUsec:
+                                    anyOf:
+                                      - type: number
+                                      - type: "null"
+                                required:
+                                  - usageUsec
+                                  - userUsec
+                                  - systemUsec
+                                  - nrPeriods
+                                  - nrThrottled
+                                  - throttledUsec
+                                additionalProperties: false
+                              - type: "null"
                           events:
                             anyOf:
                               - type: object
@@ -19685,6 +19578,107 @@ paths:
                                   - oomKill
                                 additionalProperties: false
                               - type: "null"
+                          deltas:
+                            anyOf:
+                              - type: object
+                                properties:
+                                  events:
+                                    anyOf:
+                                      - type: object
+                                        properties:
+                                          low:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          high:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          max:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          oom:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          oomKill:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                        required:
+                                          - low
+                                          - high
+                                          - max
+                                          - oom
+                                          - oomKill
+                                        additionalProperties: false
+                                      - type: "null"
+                                  reclaim:
+                                    anyOf:
+                                      - type: object
+                                        properties:
+                                          pgscanDirect:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          pgstealDirect:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          workingsetRefaultFile:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                        required:
+                                          - pgscanDirect
+                                          - pgstealDirect
+                                          - workingsetRefaultFile
+                                        additionalProperties: false
+                                      - type: "null"
+                                  cpu:
+                                    anyOf:
+                                      - type: object
+                                        properties:
+                                          usageUsec:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          userUsec:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          systemUsec:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          nrPeriods:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          nrThrottled:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                          throttledUsec:
+                                            anyOf:
+                                              - type: number
+                                              - type: "null"
+                                        required:
+                                          - usageUsec
+                                          - userUsec
+                                          - systemUsec
+                                          - nrPeriods
+                                          - nrThrottled
+                                          - throttledUsec
+                                        additionalProperties: false
+                                      - type: "null"
+                                required:
+                                  - events
+                                  - reclaim
+                                  - cpu
+                                additionalProperties: false
+                              - type: "null"
                           disk:
                             anyOf:
                               - type: object
@@ -19704,16 +19698,50 @@ paths:
                                   - freeMb
                                 additionalProperties: false
                               - type: "null"
+                          activeConversations:
+                            anyOf:
+                              - type: array
+                                items:
+                                  type: object
+                                  properties:
+                                    conversationId:
+                                      type: string
+                                    title:
+                                      anyOf:
+                                        - type: string
+                                        - type: "null"
+                                    originChannel:
+                                      anyOf:
+                                        - type: string
+                                        - type: "null"
+                                    originInterface:
+                                      anyOf:
+                                        - type: string
+                                        - type: "null"
+                                    processingStartedAt:
+                                      type: number
+                                  required:
+                                    - conversationId
+                                    - title
+                                    - originChannel
+                                    - originInterface
+                                    - processingStartedAt
+                                  additionalProperties: false
+                              - type: "null"
                         required:
                           - ts
                           - memory
+                          - memoryStat
+                          - reclaim
+                          - cpu
                           - events
+                          - deltas
                           - disk
+                          - activeConversations
                         additionalProperties: false
                       - type: "null"
                 required:
                   - status
-                  - monitoringEnabled
                   - dataDir
                   - latestSample
                 additionalProperties: false
@@ -19721,7 +19749,7 @@ paths:
     post:
       operationId: monitoring_stop_post
       summary: Stop the resource monitor
-      description: Disables monitoring.enabled and SIGTERMs the resource monitor process if it is running.
+      description: SIGTERMs the resource monitor process if it is running. The monitor respawns on the next daemon boot.
       tags:
         - system
       responses:
@@ -19736,12 +19764,8 @@ paths:
                     type: boolean
                   pid:
                     type: number
-                  monitoringEnabled:
-                    type: boolean
-                    const: false
                 required:
                   - monitoringWasRunning
-                  - monitoringEnabled
                 additionalProperties: false
   /v1/notification-intent-result:
     post:
@@ -31505,6 +31529,7 @@ components:
         - openai-compatible
         - minimax
         - atlascloud
+        - vellum
     Auth:
       oneOf:
         - type: object
@@ -32047,6 +32072,8 @@ components:
               - weight
             additionalProperties: false
         supportsVision:
+          type: boolean
+        invariant:
           type: boolean
       additionalProperties: {}
     ProviderConnection:

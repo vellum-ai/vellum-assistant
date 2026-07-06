@@ -68,21 +68,27 @@ mock.module("@anthropic-ai/sdk", () => ({
           if (scriptedStream) {
             for (const event of scriptedStream) {
               if (event.kind === "text") {
-                for (const cb of handlers["text"] ?? []) cb(event.text);
+                for (const cb of handlers["text"] ?? []) {
+                  cb(event.text);
+                }
               } else if (event.kind === "blockStart") {
-                for (const cb of handlers["streamEvent"] ?? [])
+                for (const cb of handlers["streamEvent"] ?? []) {
                   cb({
                     type: "content_block_start",
                     content_block: { type: event.blockType ?? "text" },
                   });
+                }
               } else if (event.kind === "blockStop") {
-                for (const cb of handlers["streamEvent"] ?? [])
+                for (const cb of handlers["streamEvent"] ?? []) {
                   cb({ type: "content_block_stop" });
+                }
               }
             }
           } else {
             // Default: a single "Hello" text event (preserves existing tests).
-            for (const cb of handlers["text"] ?? []) cb("Hello");
+            for (const cb of handlers["text"] ?? []) {
+              cb("Hello");
+            }
           }
           return fakeResponse;
         },
@@ -541,16 +547,29 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const system = lastStreamParams!.system as
       | Array<{ cache_control?: unknown }>
       | undefined;
-    for (const b of system ?? []) if (b.cache_control) breakpoints++;
+    for (const b of system ?? []) {
+      if (b.cache_control) {
+        breakpoints++;
+      }
+    }
     const tools = lastStreamParams!.tools as
       | Array<{ cache_control?: unknown }>
       | undefined;
-    for (const t of tools ?? []) if (t.cache_control) breakpoints++;
+    for (const t of tools ?? []) {
+      if (t.cache_control) {
+        breakpoints++;
+      }
+    }
     const messages = lastStreamParams!.messages as Array<{
       content: Array<{ cache_control?: { type: string; ttl?: string } }>;
     }>;
-    for (const m of messages)
-      for (const b of m.content) if (b.cache_control) breakpoints++;
+    for (const m of messages) {
+      for (const b of m.content) {
+        if (b.cache_control) {
+          breakpoints++;
+        }
+      }
+    }
 
     expect(breakpoints).toBe(4);
     // The stable pages block specifically must hold the preserved breakpoint.
@@ -2032,7 +2051,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual(["Hello world"]);
@@ -2049,7 +2070,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual([]);
@@ -2064,7 +2087,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual([]);
@@ -2081,7 +2106,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual([]);
@@ -2098,7 +2125,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual([]);
@@ -2114,7 +2143,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual([]);
@@ -2129,7 +2160,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted.join("")).toBe(" hello there");
@@ -2148,7 +2181,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted.join("")).toBe("__PLACEHOLDER__ is bold in markdown");
@@ -2165,7 +2200,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual(["__PLACEHOLDER__"]);
@@ -2183,7 +2220,9 @@ describe("AnthropicProvider — Cache-Control Characterization", () => {
     const emitted: string[] = [];
     await provider.sendMessage([userMsg("Hi")], {
       onEvent: (event) => {
-        if (event.type === "text_delta") emitted.push(event.text);
+        if (event.type === "text_delta") {
+          emitted.push(event.text);
+        }
       },
     });
     expect(emitted).toEqual(["Fresh block content"]);
@@ -3221,7 +3260,9 @@ describe("AnthropicProvider — thinking block send-time filtering", () => {
     // Collect all thinking blocks across all assistant messages
     const allThinking: Anthropic.ContentBlockParam[] = [];
     for (const m of sent) {
-      if (m.role !== "assistant") continue;
+      if (m.role !== "assistant") {
+        continue;
+      }
       const blocks = m.content as Anthropic.ContentBlockParam[];
       for (const b of blocks) {
         if (typeof b !== "string" && b.type === "thinking") {

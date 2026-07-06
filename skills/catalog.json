@@ -175,7 +175,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T18:44:31.000Z"
+      "updatedAt": "2026-07-02T21:39:37.000Z"
     },
     {
       "id": "email-setup",
@@ -643,7 +643,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-30T00:15:51.000Z"
+      "updatedAt": "2026-07-03T20:12:42.000Z"
     },
     {
       "id": "public-ingress",
@@ -781,7 +781,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T15:22:49.000Z"
+      "updatedAt": "2026-07-02T15:56:47.000Z"
     },
     {
       "id": "start-the-day",
@@ -941,7 +941,7 @@
     {
       "id": "vellum-conversation-management",
       "name": "vellum-conversation-management",
-      "description": "Manage conversation threads (rename, list, export, wipe)",
+      "description": "Manage conversation threads (rename, list, export)",
       "metadata": {
         "emoji": "💬",
         "vellum": {
@@ -950,7 +950,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-06T14:33:32.000Z"
     },
     {
       "id": "vellum-github-app-setup",

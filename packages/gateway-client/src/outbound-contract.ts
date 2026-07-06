@@ -107,6 +107,8 @@ export const SlackStreamOpSchema = z
       threadTs: z.string(),
       markdownText: z.string().optional(),
       taskDisplayMode: z.literal("plan").optional(),
+      /** Title of the plan block, serialized as a `plan_update` chunk. */
+      planTitle: z.string().optional(),
       tasks: z.array(SlackStreamTaskSchema).optional(),
       /**
        * Slack user ID of the reader the stream targets. Required by
@@ -123,6 +125,8 @@ export const SlackStreamOpSchema = z
       action: z.literal("append"),
       streamTs: z.string(),
       markdownText: z.string().optional(),
+      /** Title of the plan block, serialized as a `plan_update` chunk. */
+      planTitle: z.string().optional(),
       tasks: z.array(SlackStreamTaskSchema).optional(),
     }),
     z.object({
@@ -130,6 +134,8 @@ export const SlackStreamOpSchema = z
       streamTs: z.string(),
       markdownText: z.string().optional(),
       blocks: z.array(z.custom<KnownBlock>()).optional(),
+      /** Title of the plan block, serialized as a `plan_update` chunk. */
+      planTitle: z.string().optional(),
       tasks: z.array(SlackStreamTaskSchema).optional(),
     }),
   ])

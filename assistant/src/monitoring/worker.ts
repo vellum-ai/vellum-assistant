@@ -1,9 +1,9 @@
 /**
  * Standalone entry point for the resource monitor as its own OS process.
  *
- * Spawned by `assistant monitoring start` (and at daemon startup when
- * `monitoring.enabled` is set). Loads config, starts the sampling loop,
- * writes a PID file, and stays alive until SIGTERM/SIGINT.
+ * Spawned at every daemon startup (and on demand by `assistant monitoring
+ * start`). Loads config, starts the sampling loop, writes a PID file, and
+ * stays alive until SIGTERM/SIGINT.
  *
  * Running as a separate process — off the assistant's main event loop — is the
  * whole point: the sampler keeps recording during a main-thread freeze, and its
@@ -19,6 +19,10 @@ import {
   getMonitoringPidPath,
 } from "../util/platform.js";
 import {
+  type PluginSourceWatchHandle,
+  startPluginSourceWatch,
+} from "./plugin-source-watch.js";
+import {
   type ResourceSamplerHandle,
   startResourceSampler,
 } from "./resource-sampler.js";
@@ -28,7 +32,9 @@ const log = getLogger("monitoring-worker");
 function cleanupPidFile(): void {
   const pidPath = getMonitoringPidPath();
   try {
-    if (existsSync(pidPath)) unlinkSync(pidPath);
+    if (existsSync(pidPath)) {
+      unlinkSync(pidPath);
+    }
   } catch {
     // best-effort
   }
@@ -56,9 +62,13 @@ async function main(): Promise<void> {
   const sampler: ResourceSamplerHandle = startResourceSampler(
     config.monitoring,
   );
+  const sourceWatch: PluginSourceWatchHandle = startPluginSourceWatch(
+    config.monitoring.pluginSourceScanIntervalMs,
+  );
 
   const shutdown = (signal: string) => {
     log.info({ signal }, "Resource monitor process shutting down");
+    sourceWatch.stop();
     sampler.stop();
     cleanupPidFile();
     process.exit(0);
@@ -69,6 +79,7 @@ async function main(): Promise<void> {
 
   process.on("uncaughtException", (err) => {
     log.error({ err }, "Uncaught exception in resource monitor process");
+    sourceWatch.stop();
     sampler.stop();
     cleanupPidFile();
     process.exit(1);
@@ -76,12 +87,14 @@ async function main(): Promise<void> {
 
   process.on("unhandledRejection", (reason) => {
     log.error({ reason }, "Unhandled rejection in resource monitor process");
+    sourceWatch.stop();
     sampler.stop();
     cleanupPidFile();
     process.exit(1);
   });
 
   process.on("exit", () => {
+    sourceWatch.stop();
     sampler.stop();
     cleanupPidFile();
   });

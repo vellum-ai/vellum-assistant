@@ -115,6 +115,7 @@ function makeCtx(
     originalMessages: messages,
     latestMessages: messages,
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }
@@ -156,6 +157,7 @@ function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
     messages: historyWithUserTurns(3),
     exitReason: "no_tool_calls",
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }

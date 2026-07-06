@@ -10,18 +10,34 @@
 // ---------------------------------------------------------------------------
 
 /**
- * Unique identifier for a registered TTS provider.
+ * The canonical, closed list of built-in TTS provider IDs.
  *
- * Values correspond to the provider names already used in config schemas
- * (e.g. `"elevenlabs"`, `"fish-audio"`). New providers simply add a new
- * string to this union — the registry enforces uniqueness at runtime.
+ * This is the single source of truth for provider identity. The provider
+ * catalog (`provider-catalog.ts`) is statically checked to define exactly one
+ * {@link TtsProviderDefinition} per ID here, and the config schema
+ * (`config/schemas/tts.ts`) derives its valid-provider validation from this
+ * list. This module is a dependency-free leaf so the config schema can read
+ * the IDs without pulling in the provider adapters (whose modules import the
+ * config loader).
+ *
+ * Adding a new TTS provider starts here — the compiler then walks you through
+ * the catalog and config-schema wiring.
  */
-export type TtsProviderId =
-  | "elevenlabs"
-  | "fish-audio"
-  | "deepgram"
-  | "xai"
-  | (string & {});
+export const TTS_PROVIDER_IDS = [
+  "elevenlabs",
+  "fish-audio",
+  "deepgram",
+  "xai",
+] as const;
+
+/**
+ * Unique identifier for a TTS provider — the closed union derived from
+ * {@link TTS_PROVIDER_IDS}. Values correspond to the provider names used in
+ * config schemas (e.g. `"elevenlabs"`, `"fish-audio"`). Lookup functions that
+ * accept runtime-sourced IDs (config values, test stubs) take `string` and
+ * validate at runtime instead of widening this union.
+ */
+export type TtsProviderId = (typeof TTS_PROVIDER_IDS)[number];
 
 // ---------------------------------------------------------------------------
 // Call-mode discriminator
@@ -163,8 +179,12 @@ export interface TtsProviderCapabilities {
  * `synthesizeStream`.
  */
 export interface TtsProvider {
-  /** Unique provider identifier used for registry lookup. */
-  readonly id: TtsProviderId;
+  /**
+   * Unique provider identifier used for adapter lookup. Plain `string`
+   * rather than {@link TtsProviderId} so tests can install stub adapters
+   * under arbitrary IDs; catalog adapters carry their catalog ID.
+   */
+  readonly id: string;
 
   /** Static capability advertisement. */
   readonly capabilities: TtsProviderCapabilities;

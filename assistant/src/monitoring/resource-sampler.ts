@@ -5,36 +5,52 @@
  * accounting and workspace-disk usage and appends a compact sample to an
  * on-disk ring buffer. When memory crosses a configurable fraction of the
  * container limit it also captures a one-off "high-memory" snapshot — cgroup
- * stats plus the live process tree with per-process RSS — so a spike leaves
- * behind a record of *what was running* when it happened.
+ * stats plus the live process tree with per-process memory accounting — so a
+ * spike leaves behind a record of *what was running* when it happened.
  *
  * Everything here runs in the resource monitor's own OS process, off the
  * assistant's main event loop, so it keeps sampling even while that loop is
- * frozen mid-allocation and the samples survive an OOM SIGKILL.
+ * frozen mid-allocation and the samples survive an OOM SIGKILL. That
+ * independence is also what lets each tick check the daemon's event-loop
+ * heartbeat and capture the daemon's kernel-side state *during* a stall
+ * (`stall-capture.ts`).
  */
 
-import {
-  mkdirSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import type { MonitoringConfig } from "../config/schemas/monitoring.js";
 import {
+  type ContainerCpuStat,
+  getContainerCpuStat,
+} from "../util/cgroup-cpu.js";
+import {
   type ContainerMemoryEvents,
+  type ContainerMemoryStat,
+  type ContainerReclaimCounters,
   getContainerMemoryEvents,
   getContainerMemoryLimitBytes,
   getContainerMemoryPeakBytes,
   getContainerMemoryUsageBytes,
+  parseMemoryStat,
+  parseReclaimCounters,
+  readMemoryStatRaw,
 } from "../util/cgroup-memory.js";
+import { diffCounters } from "../util/counter-diff.js";
 import { getDiskUsageInfo } from "../util/disk-usage.js";
 import { getLogger } from "../util/logger.js";
 import { getMonitoringDataDir } from "../util/platform.js";
 import { buildProcessTree, listProcesses } from "../util/process-tree.js";
+import {
+  type ActiveConversation,
+  readActiveConversations,
+} from "./active-conversations.js";
+import { getTrackedDataFiles, readFileResidency } from "./page-cache.js";
+import { topProcessesByMemory } from "./process-memory.js";
+import { prunePrefixedJsonFiles } from "./prune-snapshots.js";
 import { SampleRingBuffer } from "./sample-ring-buffer.js";
+import { topSlabCaches } from "./slabinfo.js";
+import { createStallCaptureMonitor } from "./stall-capture.js";
 
 const log = getLogger("resource-sampler");
 
@@ -42,8 +58,17 @@ const SAMPLES_FILE = "samples.jsonl";
 const SNAPSHOTS_DIR = "snapshots";
 /** Cap on retained high-memory snapshots so forensics can't fill the volume. */
 const MAX_SNAPSHOTS = 20;
-/** Linux page size assumed when converting `/proc/<pid>/statm` pages to bytes. */
-const PAGE_SIZE_BYTES = 4096;
+/** Cap on retained baseline snapshots (4h of history at the 10min default). */
+const MAX_BASELINE_SNAPSHOTS = 24;
+
+/** Snapshot kinds: filename prefix + retention are per-kind so periodic
+ * baselines can never evict high-memory forensics. */
+const SNAPSHOT_KINDS = {
+  "high-mem": { prefix: "snapshot-", max: MAX_SNAPSHOTS },
+  baseline: { prefix: "baseline-", max: MAX_BASELINE_SNAPSHOTS },
+} as const;
+
+type SnapshotKind = keyof typeof SNAPSHOT_KINDS;
 
 export interface ResourceSampleMemory {
   currentBytes: number;
@@ -60,15 +85,69 @@ export interface ResourceSampleDisk {
   freeMb: number;
 }
 
+/**
+ * Counter increases since the previous sample. The cumulative since-boot
+ * counters answer "has this ever happened"; the deltas are what turn a stall
+ * into a timeline — a burst of `reclaim.pgscanDirect` across a few samples *is*
+ * the synchronous-reclaim stall, invisible in the cumulative totals.
+ */
+export interface ResourceSampleDeltas {
+  events: ContainerMemoryEvents | null;
+  reclaim: ContainerReclaimCounters | null;
+  cpu: ContainerCpuStat | null;
+}
+
 export interface ResourceSample {
   ts: number;
   memory: ResourceSampleMemory | null;
+  /**
+   * memory.stat breakdown (anon / file / kernel / slab, plus the derived
+   * unevictable vs reclaimable split). `memory.currentBytes` alone cannot say
+   * whether the cgroup is filling with process heap or with droppable cache.
+   */
+  memoryStat: ContainerMemoryStat | null;
+  /** Cumulative reclaim/thrash counters from memory.stat (since boot). */
+  reclaim: ContainerReclaimCounters | null;
+  /**
+   * Cumulative cpu.stat counters (since boot). A rising `throttledUsec` delta
+   * means the container hit its CPU quota and the kernel paused its threads —
+   * indistinguishable from a busy event loop without this.
+   */
+  cpu: ContainerCpuStat | null;
   events: ContainerMemoryEvents | null;
+  /** Since the previous sample; null on the monitor's first sample. */
+  deltas: ResourceSampleDeltas | null;
   disk: ResourceSampleDisk | null;
+  /**
+   * Conversations mid-turn per the daemon's persisted
+   * `conversations.processing_started_at` flag, so a spike in the timeline
+   * names what was running. The live flag is nulled when a turn ends, so only
+   * this sampling-time capture preserves the correlation for post-mortems.
+   * Null when nothing is processing or the database is unavailable.
+   */
+  activeConversations: ActiveConversation[] | null;
 }
 
-/** Take a single point-in-time sample of memory + disk. */
-export function takeSample(now: number): ResourceSample {
+/** Per-counter increases from `prev` to `current`. */
+export function computeSampleDeltas(
+  prev: ResourceSample,
+  current: ResourceSample,
+): ResourceSampleDeltas {
+  return {
+    events: diffCounters(prev.events, current.events),
+    reclaim: diffCounters(prev.reclaim, current.reclaim),
+    cpu: diffCounters(prev.cpu, current.cpu),
+  };
+}
+
+/**
+ * Take a single point-in-time sample of memory + disk. When `prev` is given,
+ * the sample carries counter deltas relative to it.
+ */
+export function takeSample(
+  now: number,
+  prev: ResourceSample | null = null,
+): ResourceSample {
   const currentBytes = getContainerMemoryUsageBytes();
   const limitBytes = getContainerMemoryLimitBytes();
   const memory: ResourceSampleMemory | null =
@@ -83,10 +162,17 @@ export function takeSample(now: number): ResourceSample {
 
   const disk = getDiskUsageInfo();
 
-  return {
+  // One read feeds both parsers so the breakdown and counters are coherent.
+  const statRaw = readMemoryStatRaw();
+
+  const sample: ResourceSample = {
     ts: now,
     memory,
+    memoryStat: statRaw != null ? parseMemoryStat(statRaw) : null,
+    reclaim: statRaw != null ? parseReclaimCounters(statRaw) : null,
+    cpu: getContainerCpuStat(),
     events: getContainerMemoryEvents(),
+    deltas: null,
     disk: disk
       ? {
           path: disk.path,
@@ -95,56 +181,28 @@ export function takeSample(now: number): ResourceSample {
           freeMb: disk.freeMb,
         }
       : null,
+    activeConversations: readActiveConversations(),
   };
-}
-
-interface ProcessRss {
-  pid: number;
-  command: string;
-  rssBytes: number;
+  if (prev != null) {
+    sample.deltas = computeSampleDeltas(prev, sample);
+  }
+  return sample;
 }
 
 /**
- * Best-effort per-process RSS read from `/proc/<pid>/statm` (resident pages,
- * field 2). Returns the top `limit` processes by RSS, largest first. Empty when
- * `/proc` is unavailable (e.g. macOS) — the snapshot's process *tree* still
- * captures what was running in that case.
+ * Capture a full snapshot to the snapshots directory: the triggering sample,
+ * page-cache residency of the large data files, the top processes by PSS, the
+ * top kernel slab caches, and the full process tree of the container.
+ *
+ * `high-mem` snapshots fire when memory crosses the configured threshold;
+ * `baseline` snapshots fire on a slow periodic timer so there is always a
+ * healthy capture to diff a spike against — threshold-only snapshots record
+ * the system once already over the cliff. Each kind prunes independently.
  */
-function topProcessesByRss(limit: number): ProcessRss[] {
-  let pids: string[];
-  try {
-    pids = readdirSync("/proc").filter((e) => /^\d+$/.test(e));
-  } catch {
-    return [];
-  }
-
-  const rows: ProcessRss[] = [];
-  for (const entry of pids) {
-    const pid = Number(entry);
-    try {
-      const statm = readFileSync(`/proc/${pid}/statm`, "utf-8").trim();
-      const residentPages = parseInt(statm.split(/\s+/)[1], 10);
-      if (!Number.isFinite(residentPages)) continue;
-      const raw = readFileSync(`/proc/${pid}/cmdline`, "utf-8");
-      const command = raw.split("\0").filter(Boolean).join(" ") || `pid ${pid}`;
-      rows.push({ pid, command, rssBytes: residentPages * PAGE_SIZE_BYTES });
-    } catch {
-      // Process exited between readdir and read — skip.
-    }
-  }
-
-  rows.sort((a, b) => b.rssBytes - a.rssBytes);
-  return rows.slice(0, limit);
-}
-
-/**
- * Capture a high-memory snapshot to the snapshots directory: the triggering
- * sample, the cgroup memory.events counters, the top processes by RSS, and the
- * full process tree of the container. Prunes to {@link MAX_SNAPSHOTS} newest.
- */
-export async function writeHighMemSnapshot(
+export async function writeSnapshot(
   dataDir: string,
   sample: ResourceSample,
+  kind: SnapshotKind,
 ): Promise<void> {
   const snapshotsDir = join(dataDir, SNAPSHOTS_DIR);
   // The ring buffer only creates the data dir for samples.jsonl; the nested
@@ -160,48 +218,50 @@ export async function writeHighMemSnapshot(
     log.warn({ err }, "Failed to enumerate process tree for snapshot");
   }
 
+  // Attributes the memory.stat `file` charge to specific files (SQLite DB +
+  // WAL, largest qdrant segments); null when fincore is unavailable.
+  let fileResidency: Awaited<ReturnType<typeof readFileResidency>> = null;
+  try {
+    fileResidency = await readFileResidency(getTrackedDataFiles());
+  } catch (err) {
+    log.warn({ err }, "Failed to read page-cache residency for snapshot");
+  }
+
   const snapshot = {
     ts: sample.ts,
+    kind,
     sample,
-    topProcessesByRss: topProcessesByRss(15),
+    fileResidency,
+    // PSS-ranked with per-process anon/file split; PSS sums reconcile against
+    // the cgroup total where an RSS sum double-counts shared pages.
+    topProcesses: topProcessesByMemory(15),
+    // Slab memory belongs to no process; without this, cgroup usage that
+    // exceeds the per-process sum has no visible owner.
+    topSlabCaches: topSlabCaches(10),
     processTree: tree,
   };
 
-  const filename = `snapshot-${sample.ts}.json`;
+  const { prefix, max } = SNAPSHOT_KINDS[kind];
+  const filename = `${prefix}${sample.ts}.json`;
   writeFileSync(
     join(snapshotsDir, filename),
     JSON.stringify(snapshot, null, 2),
   );
-  pruneSnapshots(snapshotsDir);
-  log.warn(
-    {
-      currentBytes: sample.memory?.currentBytes,
-      limitBytes: sample.memory?.limitBytes,
-      ratio: sample.memory?.ratio,
-      file: filename,
-    },
-    "Captured high-memory snapshot",
-  );
-}
-
-function pruneSnapshots(snapshotsDir: string): void {
-  let files: string[];
-  try {
-    files = readdirSync(snapshotsDir).filter(
-      (f) => f.startsWith("snapshot-") && f.endsWith(".json"),
-    );
-  } catch {
-    return;
-  }
-  if (files.length <= MAX_SNAPSHOTS) return;
-  // Filenames embed the millisecond timestamp, so lexical sort is chronological.
-  files.sort();
-  for (const stale of files.slice(0, files.length - MAX_SNAPSHOTS)) {
-    try {
-      rmSync(join(snapshotsDir, stale));
-    } catch {
-      // best-effort
-    }
+  prunePrefixedJsonFiles(snapshotsDir, prefix, max);
+  const fields = {
+    currentBytes: sample.memory?.currentBytes,
+    limitBytes: sample.memory?.limitBytes,
+    ratio: sample.memory?.ratio,
+    unevictableBytes: sample.memoryStat?.unevictableBytes,
+    reclaimableBytes: sample.memoryStat?.reclaimableBytes,
+    pgscanDirectDelta: sample.deltas?.reclaim?.pgscanDirect,
+    workingsetRefaultFileDelta: sample.deltas?.reclaim?.workingsetRefaultFile,
+    file: filename,
+  };
+  if (kind === "high-mem") {
+    log.warn(fields, "Captured high-memory snapshot");
+  } else {
+    log.debug(fields, "Captured baseline snapshot");
   }
 }
 
@@ -225,16 +285,30 @@ export function startResourceSampler(
   );
 
   let lastSnapshotAt = 0;
+  // 0 so the first tick writes a boot baseline — a reference point exists even
+  // if the container spikes before the first interval elapses.
+  let lastBaselineAt = 0;
+  let prevSample: ResourceSample | null = null;
+  // Watches the daemon's event-loop heartbeat; captures the daemon main
+  // thread's kernel state mid-stall when the heartbeat goes stale.
+  const stallCapture = createStallCaptureMonitor(dataDir);
 
   const tick = () => {
     const now = clock();
     let sample: ResourceSample;
     try {
-      sample = takeSample(now);
+      sample = takeSample(now, prevSample);
+      prevSample = sample;
       buffer.append(sample);
     } catch (err) {
       log.warn({ err }, "Resource sample failed");
       return;
+    }
+
+    try {
+      stallCapture.check(sample, now);
+    } catch (err) {
+      log.warn({ err }, "Daemon stall check failed");
     }
 
     const ratio = sample.memory?.ratio;
@@ -244,8 +318,13 @@ export function startResourceSampler(
       now - lastSnapshotAt >= config.snapshotCooldownMs
     ) {
       lastSnapshotAt = now;
-      void writeHighMemSnapshot(dataDir, sample).catch((err) =>
+      void writeSnapshot(dataDir, sample, "high-mem").catch((err) =>
         log.warn({ err }, "Failed to write high-memory snapshot"),
+      );
+    } else if (now - lastBaselineAt >= config.baselineSnapshotIntervalMs) {
+      lastBaselineAt = now;
+      void writeSnapshot(dataDir, sample, "baseline").catch((err) =>
+        log.warn({ err }, "Failed to write baseline snapshot"),
       );
     }
   };

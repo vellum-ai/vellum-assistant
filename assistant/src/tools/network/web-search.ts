@@ -15,7 +15,6 @@ import {
   getHttpRetryDelay,
   sleep,
 } from "../../util/retry.js";
-import { registerTool } from "../registry.js";
 import type {
   ToolContext,
   ToolDefinition,
@@ -1270,5 +1269,3 @@ export const webSearchTool = {
     }
   },
 } satisfies ToolDefinition;
-
-registerTool(webSearchTool);

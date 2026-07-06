@@ -1,12 +1,7 @@
-import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 
-import * as jobsWorker from "../persistence/jobs-worker.js";
-import {
-  getMemoryPersistenceHooks,
-  resetMemoryPersistenceHooksForTests,
-} from "../persistence/memory-lifecycle-hooks.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
 import { registerMemoryPluginJobHandlers } from "../plugins/defaults/memory/job-handler-registration.js";
+import * as jobsWorker from "../plugins/defaults/memory/jobs-worker.js";
 
 /**
  * The exact memory-plugin job types. Locks the contribution against an
@@ -37,6 +32,8 @@ const MEMORY_JOB_TYPES = [
   "memory_v2_activation_recompute",
   "memory_v3_maintain",
   "memory_retrospective",
+  "pkb_filing",
+  "pkb_compaction",
 ].sort();
 
 /**
@@ -76,10 +73,6 @@ function captureRegisteredTypes(register: () => void): string[] {
 }
 
 describe("job-handler registration", () => {
-  afterEach(() => {
-    resetMemoryPersistenceHooksForTests();
-  });
-
   it("registers exactly the memory job types plus the non-plugin domain types", () => {
     const captured = captureRegisteredTypes(registerMemoryPluginJobHandlers);
     const expected = [...MEMORY_JOB_TYPES, ...NON_PLUGIN_JOB_TYPES].sort();
@@ -91,14 +84,5 @@ describe("job-handler registration", () => {
   it("the memory and domain type sets do not overlap", () => {
     const memory = new Set(MEMORY_JOB_TYPES);
     expect(NON_PLUGIN_JOB_TYPES.filter((t) => memory.has(t))).toEqual([]);
-  });
-
-  it("registerDefaultPluginPersistenceHooks wires the persistence-lifecycle seam (the standalone worker has no bootstrap)", () => {
-    resetMemoryPersistenceHooksForTests();
-    const before = getMemoryPersistenceHooks();
-    registerDefaultPluginPersistenceHooks();
-    // The seam must move off the no-op default — otherwise the standalone
-    // worker's fork-based retrospectives silently drop carried memory state.
-    expect(getMemoryPersistenceHooks()).not.toBe(before);
   });
 });
