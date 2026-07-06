@@ -1,9 +1,8 @@
 import { DetailCard } from "@/components/detail-card";
+import { assistantDisplayName } from "@/domains/contacts/assistant-display-name";
 import { AssistantChannelsList, type AssistantChannelsListProps } from "@/domains/contacts/components/assistant-channels-list";
 import { ContactTypeBadge } from "@/domains/contacts/components/contact-type-badge";
 import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
-
-export type { SlackThreadMode } from "@/components/slack-setup-wizard";
 
 interface AssistantChannelsDetailProps extends AssistantChannelsListProps {
   onGenerateInviteLink?: () => void;
@@ -19,7 +18,7 @@ export function AssistantChannelsDetail({
   onGenerateInviteLink,
   ...listProps
 }: AssistantChannelsDetailProps) {
-  const displayName = listProps.assistantName.trim() || "your assistant";
+  const displayName = assistantDisplayName(listProps.assistantName);
 
   return (
     <div className="flex flex-col gap-6">

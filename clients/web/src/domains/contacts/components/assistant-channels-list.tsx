@@ -1,4 +1,4 @@
-import { CheckCircle, ChevronDown, ChevronRight, Hash, Phone, Send } from "lucide-react";
+import { CheckCircle, ChevronDown, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
@@ -9,7 +9,7 @@ import { Typography } from "@vellumai/design-library/components/typography";
 
 import { SlackChannelCard } from "@/domains/contacts/components/slack-channel-card";
 import { SlackSetupWizard, type SlackThreadMode, type MutationStatus } from "@/components/slack-setup-wizard";
-import type { AssistantChannelState } from "@/domains/contacts/types";
+import type { AssistantChannelState, SetupChannelId } from "@/domains/contacts/types";
 import {
   ADMISSION_POLICY_DEFAULT,
   ADMISSION_POLICY_VALUES,
@@ -18,7 +18,7 @@ import {
   type AdmissionPolicy,
 } from "@/lib/channel-admission-policy/types";
 
-type ChannelKey = AssistantChannelState["key"];
+type ChannelKey = SetupChannelId;
 
 const TRUST_FLOOR_OPTIONS = ADMISSION_POLICY_VALUES.map((value) => ({
   value,
@@ -90,23 +90,20 @@ export interface AssistantChannelsListProps {
 
 const CHANNEL_META: Record<
   ChannelKey,
-  { label: string; Icon: typeof Hash; disconnectMessage: string }
+  { label: string; disconnectMessage: string }
 > = {
   slack: {
     label: "Slack",
-    Icon: Hash,
     disconnectMessage:
       "This clears the stored Slack bot and app tokens for this assistant. You can reconnect later.",
   },
   telegram: {
     label: "Telegram",
-    Icon: Send,
     disconnectMessage:
       "This clears the stored Telegram bot token for this assistant. You can reconnect later.",
   },
   phone: {
     label: "Phone Calling",
-    Icon: Phone,
     disconnectMessage:
       "This clears the stored Twilio credentials for this assistant. You can reconnect later.",
   },
@@ -316,30 +313,22 @@ function ChannelRow({
 }: ChannelRowProps) {
   const meta = CHANNEL_META[channel.key];
   const connected = channel.status === "ready";
-  const isExpandable = true;
 
   return (
     <div className="flex flex-col gap-2 py-4">
       <div className="flex items-center gap-3">
-        {isExpandable ? (
-          <button
-            type="button"
-            className="flex shrink-0 items-center justify-center"
-            onClick={onToggleExpand}
-            style={{ color: "var(--content-secondary)" }}
-          >
-            {expanded ? (
-              <ChevronDown className="h-4 w-4" />
-            ) : (
-              <ChevronRight className="h-4 w-4" />
-            )}
-          </button>
-        ) : (
-          <meta.Icon
-            className="h-4 w-4 shrink-0"
-            style={{ color: "var(--content-secondary)" }}
-          />
-        )}
+        <button
+          type="button"
+          className="flex shrink-0 items-center justify-center"
+          onClick={onToggleExpand}
+          style={{ color: "var(--content-secondary)" }}
+        >
+          {expanded ? (
+            <ChevronDown className="h-4 w-4" />
+          ) : (
+            <ChevronRight className="h-4 w-4" />
+          )}
+        </button>
         <span
           className="text-body-medium-default"
           style={{ color: "var(--content-default)" }}

@@ -1,13 +1,11 @@
-import { useQueryClient } from "@tanstack/react-query";
-import { useCallback, useState } from "react";
-
 import { DetailCard } from "@/components/detail-card";
+import { assistantDisplayName } from "@/domains/contacts/assistant-display-name";
 import { AssistantChannelsList } from "@/domains/contacts/components/assistant-channels-list";
 import { GenerateInviteLinkDialog } from "@/domains/contacts/components/generate-invite-link-dialog";
 import { ShareConnectionLinkButton } from "@/domains/contacts/components/share-connection-link-button";
 import { useAssistantChannels } from "@/domains/contacts/hooks/use-assistant-channels";
+import { useInviteLinkDialog } from "@/domains/contacts/hooks/use-invite-link-dialog";
 import { useSetupChannelParam } from "@/domains/contacts/hooks/use-setup-channel-param";
-import { contactsGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
@@ -30,30 +28,15 @@ export function ChannelsPage({
 }: ChannelsPageProps) {
   const a2aChannel = useAssistantFeatureFlagStore.use.a2aChannel();
   const identityName = useAssistantIdentityStore.use.name();
-  const queryClient = useQueryClient();
   const setupChannel = useSetupChannelParam();
+  const inviteDialog = useInviteLinkDialog(assistantId);
 
-  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
-
-  const displayName = identityName?.trim() || "your assistant";
+  const displayName = assistantDisplayName(identityName);
 
   const channelsController = useAssistantChannels({
     assistantId,
     onStartSetupConversation,
   });
-
-  const handleOpenInviteLink = useCallback(() => {
-    setInviteDialogOpen(true);
-  }, []);
-
-  // An invite generated here may already have been redeemed by the time the
-  // dialog closes — refresh the Contacts page's cache so the new contact shows.
-  const handleInviteClose = useCallback(() => {
-    setInviteDialogOpen(false);
-    void queryClient.invalidateQueries({
-      queryKey: contactsGetQueryKey({ path: { assistant_id: assistantId } }),
-    });
-  }, [queryClient, assistantId]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -71,12 +54,12 @@ export function ChannelsPage({
         />
       </DetailCard>
 
-      {a2aChannel ? <ShareConnectionLinkButton onClick={handleOpenInviteLink} /> : null}
+      {a2aChannel ? <ShareConnectionLinkButton onClick={inviteDialog.open} /> : null}
 
       <GenerateInviteLinkDialog
-        open={inviteDialogOpen}
+        open={inviteDialog.isOpen}
         assistantId={assistantId}
-        onClose={handleInviteClose}
+        onClose={inviteDialog.close}
       />
     </div>
   );

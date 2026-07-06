@@ -34,7 +34,9 @@ import {
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { channelsAvailableGet } from "@/generated/daemon/sdk.gen";
 import type { ChannelsAvailableGetResponse } from "@/generated/daemon/types.gen";
+import { assistantDisplayName } from "@/domains/contacts/assistant-display-name";
 import { useAssistantChannels } from "@/domains/contacts/hooks/use-assistant-channels";
+import { useInviteLinkDialog } from "@/domains/contacts/hooks/use-invite-link-dialog";
 import { useSetupChannelParam } from "@/domains/contacts/hooks/use-setup-channel-param";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
@@ -107,11 +109,11 @@ export function ContactsPage({
     kind: "assistant",
   });
 
-  const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
+  const inviteDialog = useInviteLinkDialog(assistantId);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [mergeDialogOpen, setMergeDialogOpen] = useState(false);
 
-  const assistantName = identityName ?? "your assistant";
+  const assistantName = assistantDisplayName(identityName);
 
   // ---------------------------------------------------------------------------
   // Queries
@@ -330,15 +332,6 @@ export function ContactsPage({
     createMutation.mutate();
   }, [createMutation]);
 
-  const handleOpenInviteLink = useCallback(() => {
-    setInviteDialogOpen(true);
-  }, []);
-
-  const handleInviteClose = useCallback(() => {
-    setInviteDialogOpen(false);
-    invalidateContacts();
-  }, [invalidateContacts]);
-
   const handleContactSetupChannel = useCallback(
     (type: string) => {
       if (!onStartSetupConversation) {
@@ -466,7 +459,7 @@ export function ContactsPage({
           selection.contactId === deletingContactId) ? (
           <AssistantChannelsDetail
             assistantName={assistantName}
-            onGenerateInviteLink={a2aChannel ? handleOpenInviteLink : undefined}
+            onGenerateInviteLink={a2aChannel ? inviteDialog.open : undefined}
             initialExpandedChannel={setupChannel}
             {...channelsController}
           />
@@ -492,7 +485,7 @@ export function ContactsPage({
               }
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
-              onGenerateInviteLink={a2aChannel ? handleOpenInviteLink : undefined}
+              onGenerateInviteLink={a2aChannel ? inviteDialog.open : undefined}
             />
           ) : (
             <ContactDetailView
@@ -553,9 +546,9 @@ export function ContactsPage({
       ) : null}
 
       <GenerateInviteLinkDialog
-        open={inviteDialogOpen}
+        open={inviteDialog.isOpen}
         assistantId={assistantId}
-        onClose={handleInviteClose}
+        onClose={inviteDialog.close}
       />
     </div>
   );

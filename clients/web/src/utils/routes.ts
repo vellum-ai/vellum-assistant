@@ -191,6 +191,27 @@ export const routes = {
   },
 } as const;
 
+/**
+ * Path prefixes of the "About Assistant" section — the routes mounted under
+ * `IntelligenceLayout`'s tab bar. Sub-paths (e.g. `/assistant/plugins/:name`)
+ * count as inside the section.
+ */
+const ABOUT_ASSISTANT_PATHS: readonly string[] = [
+  routes.identity,
+  routes.plugins,
+  routes.skills,
+  routes.workspace,
+  routes.contacts.root,
+  routes.channels,
+];
+
+/** Whether `pathname` falls inside the About Assistant section. */
+export function isAboutAssistantPath(pathname: string): boolean {
+  return ABOUT_ASSISTANT_PATHS.some(
+    (path) => pathname === path || pathname.startsWith(`${path}/`),
+  );
+}
+
 const WWW_DOMAIN = "vellum.ai";
 
 /** Full external URL for a legal/docs page hosted on the marketing site. */

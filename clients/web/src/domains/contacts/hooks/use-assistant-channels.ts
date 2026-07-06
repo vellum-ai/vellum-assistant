@@ -1,11 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
-import type { MutationStatus, SlackThreadMode } from "@/components/slack-setup-wizard";
-import {
-  useChannelTrustFloors,
-  type ChannelTrustFloors,
-} from "@/domains/contacts/hooks/use-channel-trust-floors";
+import type { SlackThreadMode } from "@/components/slack-setup-wizard";
+import type { AssistantChannelsListProps } from "@/domains/contacts/components/assistant-channels-list";
+import { useChannelTrustFloors } from "@/domains/contacts/hooks/use-channel-trust-floors";
 import {
   SETUP_CHANNEL_IDS,
   type AssistantChannelState,
@@ -22,12 +20,12 @@ import {
 import {
   integrationsSlackChannelConfigDelete,
   integrationsTelegramConfigDelete,
-  integrationsTelegramConfigPost,
   integrationsTwilioCredentialsDelete,
-  integrationsTwilioCredentialsPost,
 } from "@/generated/daemon/sdk.gen";
 import type { IntegrationsSlackChannelConfigGetResponse } from "@/generated/daemon/types.gen";
 import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
+import { useSaveTelegramConfig } from "@/hooks/use-save-telegram-config";
+import { useSaveTwilioCredentials } from "@/hooks/use-save-twilio-credentials";
 
 const ASSISTANT_SETUP_PROMPTS: Record<SetupChannelId, string> = {
   slack: "I want to reach you on Slack. Let's set it up.",
@@ -44,30 +42,14 @@ export interface UseAssistantChannelsOptions {
 }
 
 /**
- * Everything `AssistantChannelsDetail` needs, shaped to spread into its
- * props. Assembled here so the Channels page and the Contacts assistant
- * detail render the same surface off one set of queries and mutations.
+ * Everything `AssistantChannelsList` needs except the page-specific bits —
+ * spread the controller straight into the component. Derived from the list's
+ * own props so the two can't drift.
  */
-export interface AssistantChannelsController {
-  channels: AssistantChannelState[];
-  pendingChannelKey: SetupChannelId | null;
-  slackThreadMode: SlackThreadMode | undefined;
-  slackThreadModePending: boolean;
-  channelPolicies: ChannelTrustFloors["policies"];
-  policySavingKey: SetupChannelId | null;
-  policiesLoading: boolean;
-  policiesError: boolean;
-  onChannelPolicyChange: ChannelTrustFloors["onChange"];
-  /** Undefined when the caller can't open a setup conversation. */
-  onSetup: ((channelKey: SetupChannelId) => void) | undefined;
-  onDisconnect: (channelKey: SetupChannelId) => void;
-  onSaveTelegramToken: (botToken: string) => Promise<void>;
-  onSaveSlackConfig: (botToken: string, appToken: string) => void;
-  slackSaveStatus: MutationStatus;
-  slackSaveError: string | null;
-  onSlackThreadModeChange: (mode: SlackThreadMode) => void;
-  onSaveTwilioCredentials: (accountSid: string, authToken: string) => Promise<void>;
-}
+export type AssistantChannelsController = Omit<
+  AssistantChannelsListProps,
+  "assistantName" | "initialExpandedChannel"
+>;
 
 /**
  * Queries, mutations, and handlers for the assistant's own channel
@@ -80,14 +62,17 @@ export function useAssistantChannels({
 }: UseAssistantChannelsOptions): AssistantChannelsController {
   const queryClient = useQueryClient();
 
-  const readinessPathOpts = useMemo(
+  const pathOpts = useMemo(
     () => ({ path: { assistant_id: assistantId } }),
     [assistantId],
   );
-  const readinessQueryKey = channelsReadinessGetQueryKey(readinessPathOpts);
+  const readinessQueryKey = useMemo(
+    () => channelsReadinessGetQueryKey(pathOpts),
+    [pathOpts],
+  );
 
   const readinessQuery = useQuery({
-    ...channelsReadinessGetOptions(readinessPathOpts),
+    ...channelsReadinessGetOptions(pathOpts),
     enabled: Boolean(assistantId),
     refetchInterval: READINESS_REFETCH_MS,
     select: (data) => data.snapshots,
@@ -102,13 +87,8 @@ export function useAssistantChannels({
     (ch) => ch.key === "slack" && ch.status === "ready",
   );
 
-  const slackConfigPathOpts = useMemo(
-    () => ({ path: { assistant_id: assistantId } }),
-    [assistantId],
-  );
-
   const slackConfigQuery = useQuery({
-    ...integrationsSlackChannelConfigGetOptions(slackConfigPathOpts),
+    ...integrationsSlackChannelConfigGetOptions(pathOpts),
     enabled: slackConnected,
     select: (data: IntegrationsSlackChannelConfigGetResponse) => data.threadMode,
   });
@@ -136,66 +116,54 @@ export function useAssistantChannels({
     onSettled: () => invalidateReadiness(),
   });
 
-  const saveTelegramMutation = useMutation({
-    mutationFn: (botToken: string) =>
-      integrationsTelegramConfigPost({
-        path: { assistant_id: assistantId },
-        body: { botToken },
-        throwOnError: true,
-      }),
-    onSettled: () => invalidateReadiness(),
-  });
-
+  // Credential saves reuse the app-wide hooks (also used by the chat-side
+  // channel-setup panel); they validate, trim, and invalidate readiness.
+  const saveTelegramMutation = useSaveTelegramConfig({ assistantId });
   const saveSlackMutation = useSaveSlackConfig({ assistantId });
+  const saveTwilioMutation = useSaveTwilioCredentials({ assistantId });
 
   const slackThreadModeMutation = useMutation({
     ...integrationsSlackChannelConfigPatchMutation(),
     onSuccess: () => {
       queryClient.invalidateQueries({
-        queryKey: integrationsSlackChannelConfigGetQueryKey(slackConfigPathOpts),
+        queryKey: integrationsSlackChannelConfigGetQueryKey(pathOpts),
       });
     },
   });
 
-  const saveTwilioMutation = useMutation({
-    mutationFn: ({ accountSid, authToken }: { accountSid: string; authToken: string }) =>
-      integrationsTwilioCredentialsPost({
-        path: { assistant_id: assistantId },
-        body: { accountSid, authToken },
-        throwOnError: true,
-      }),
-    onSettled: () => invalidateReadiness(),
-  });
-
+  const saveTelegramMutateAsync = saveTelegramMutation.mutateAsync;
   const onSaveTelegramToken = useCallback(
     async (botToken: string): Promise<void> => {
-      await saveTelegramMutation.mutateAsync(botToken);
+      await saveTelegramMutateAsync(botToken);
     },
-    [saveTelegramMutation],
+    [saveTelegramMutateAsync],
   );
 
+  const saveSlackMutate = saveSlackMutation.mutate;
   const onSaveSlackConfig = useCallback(
     (botToken: string, appToken: string) => {
-      saveSlackMutation.mutate({ botToken, appToken });
+      saveSlackMutate({ botToken, appToken });
     },
-    [saveSlackMutation],
+    [saveSlackMutate],
   );
 
+  const slackThreadModeMutate = slackThreadModeMutation.mutate;
   const onSlackThreadModeChange = useCallback(
     (mode: SlackThreadMode) => {
-      slackThreadModeMutation.mutate({
+      slackThreadModeMutate({
         path: { assistant_id: assistantId },
         body: { threadMode: mode },
       });
     },
-    [slackThreadModeMutation, assistantId],
+    [slackThreadModeMutate, assistantId],
   );
 
+  const saveTwilioMutateAsync = saveTwilioMutation.mutateAsync;
   const onSaveTwilioCredentials = useCallback(
     async (accountSid: string, authToken: string): Promise<void> => {
-      await saveTwilioMutation.mutateAsync({ accountSid, authToken });
+      await saveTwilioMutateAsync({ accountSid, authToken });
     },
-    [saveTwilioMutation],
+    [saveTwilioMutateAsync],
   );
 
   const handleSetup = useCallback(
@@ -208,11 +176,12 @@ export function useAssistantChannels({
     [onStartSetupConversation],
   );
 
+  const disconnectMutate = disconnectMutation.mutate;
   const onDisconnect = useCallback(
     (channelKey: SetupChannelId) => {
-      disconnectMutation.mutate(channelKey);
+      disconnectMutate(channelKey);
     },
-    [disconnectMutation],
+    [disconnectMutate],
   );
 
   return {
