@@ -369,8 +369,12 @@ export function getEffectiveProfile(
 ): ProfileEntry | undefined {
   const workspace = workspaceProfiles?.[name];
   const body = catalogEntries[name];
-  if (body == null || workspace == null) return workspace;
-  if (workspace.source !== "managed") return workspace;
+  if (body == null || workspace == null) {
+    return workspace;
+  }
+  if (workspace.source !== "managed") {
+    return workspace;
+  }
   const merged: ProfileEntry = { ...body };
   for (const field of WORKSPACE_OWNED_DEFAULT_FIELDS) {
     if (field in workspace) {
@@ -397,7 +401,9 @@ export function getEffectiveProfiles(
   };
   for (const name of Object.keys(catalogEntries)) {
     const entry = getEffectiveProfile(workspaceProfiles, name, catalogEntries);
-    if (entry != null) effective[name] = entry;
+    if (entry != null) {
+      effective[name] = entry;
+    }
   }
   return effective;
 }
