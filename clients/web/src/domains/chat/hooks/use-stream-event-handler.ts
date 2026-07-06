@@ -10,7 +10,10 @@ import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useStreamStore } from "@/domains/chat/stream-store";
 
 import { recordDiagnostic, summarizeAssistantEvent } from "@/lib/diagnostics";
-import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
+import {
+  isConversationExemptStreamEvent,
+  isConversationScopedStreamEvent,
+} from "@/domains/chat/utils/chat";
 import {
   handleOpenUrl,
   handleNavigateSettings,
@@ -172,8 +175,12 @@ export function useStreamEventHandler(
       // handleStreamEvent cannot route a conversation-scoped event with
       // a missing or mismatched id into the active conversation.
       // Global events (`sync_changed`, `home_feed_updated`, etc.) pass
-      // through unconditionally.
-      if (isConversationScopedStreamEvent(event)) {
+      // through unconditionally, as do conversationless directives
+      // (CLI-emitted `open_url`).
+      if (
+        isConversationScopedStreamEvent(event) &&
+        !isConversationExemptStreamEvent(event)
+      ) {
         if (!event.conversationId || !streamConversationId) {
           recordDiagnostic("sse_event_wrong_conversation", {
             epoch,

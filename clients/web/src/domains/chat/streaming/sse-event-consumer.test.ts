@@ -156,6 +156,30 @@ describe("sse-event-consumer — cross-conversation filter", () => {
     );
   });
 
+  test("open_url bound to another conversation keeps active-conversation filtering", () => {
+    const { deps, handleStreamEvent } = makeDeps();
+    const consumer = createSseEventConsumer(deps);
+
+    // A background turn's browser hand-off must not open a window over an
+    // unrelated conversation — only conversationless emits are exempt.
+    consumer.handleSseEvent(
+      makeEnvelope({
+        conversationId: "conv-OTHER",
+        message: {
+          type: "open_url",
+          url: "https://example.com/authorize",
+          conversationId: "conv-OTHER",
+        },
+      }),
+    );
+
+    expect(handleStreamEvent).not.toHaveBeenCalled();
+    expect(recordDiagnosticMock).toHaveBeenCalledWith(
+      "sse_event_wrong_conversation_filtered",
+      expect.objectContaining({ reason: "mismatch" }),
+    );
+  });
+
   test("conversation event with missing conversationId is dropped + diagnosed", () => {
     const { deps, handleStreamEvent } = makeDeps();
     const consumer = createSseEventConsumer(deps);

@@ -29,12 +29,6 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // (daemon emits `{ type, tab }`), so the conversation-id gate would
   // otherwise drop it before it reached `handleNavigateSettings`.
   "navigate_settings",
-  // Client directive to open a URL (OAuth authorization pages, browser
-  // hand-offs). CLI commands emit it via the workspace `signals/emit-event`
-  // bridge (e.g. `assistant mcp auth`), which has no conversation binding,
-  // so the wire payload has no `conversationId` and the conversation gate
-  // would drop it before it reached `handleOpenUrl`.
-  "open_url",
   "identity_changed",
   "avatar_updated",
   "sync_changed",
@@ -93,6 +87,22 @@ export function isConversationScopedStreamEvent(
   event: AssistantEvent,
 ): event is ConversationScopedAssistantEvent {
   return !GLOBAL_STREAM_EVENT_TYPES.has(event.type);
+}
+
+/**
+ * `open_url` doubles as a workspace-level directive: CLI commands
+ * (`assistant mcp auth`, `assistant oauth connect`) emit it via the
+ * `signals/emit-event` bridge with no conversation binding, so the wire
+ * payload has no `conversationId`. Those events are exempt from the
+ * conversation gate, which would otherwise drop them before they reached
+ * `handleOpenUrl`. Conversation-bound `open_url` events (daemon tool
+ * emits) keep active-conversation filtering so a background turn cannot
+ * open a window over an unrelated conversation.
+ */
+export function isConversationExemptStreamEvent(
+  event: AssistantEvent,
+): boolean {
+  return event.type === "open_url" && !event.conversationId;
 }
 
 export function hasPendingAssistantResponse(

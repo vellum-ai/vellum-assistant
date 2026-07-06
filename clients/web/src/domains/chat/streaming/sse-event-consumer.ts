@@ -93,7 +93,10 @@ import {
 } from "@vellumai/assistant-api";
 
 import { useStreamStore } from "@/domains/chat/stream-store";
-import { isConversationScopedStreamEvent } from "@/domains/chat/utils/chat";
+import {
+  isConversationExemptStreamEvent,
+  isConversationScopedStreamEvent,
+} from "@/domains/chat/utils/chat";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { getLocalSeq, recordLocalSeq } from "@/lib/streaming/local-seq";
 import {
@@ -284,8 +287,14 @@ export function createSseEventConsumer(
 
       // Stage 2: dispatch filter. Global events pass through
       // unconditionally; conversation-scoped events need an exact match
-      // against the active conversation.
-      if (!isConversationScopedStreamEvent(event)) {
+      // against the active conversation. Conversationless directives
+      // (CLI-emitted `open_url`) are exempt — they have no conversation
+      // to match and no seq bookkeeping to advance.
+      if (
+        !isConversationScopedStreamEvent(event) ||
+        (eventConversationId === undefined &&
+          isConversationExemptStreamEvent(event))
+      ) {
         deps.handleStreamEvent(event, useStreamStore.getState().streamEpoch);
       } else if (
         eventConversationId !== undefined &&
