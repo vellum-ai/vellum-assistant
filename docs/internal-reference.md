@@ -584,7 +584,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 | Command | Purpose |
 |---------|---------|
 | `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists). |
-| `/release` | Cut a release: pull main, then dispatch the unified Release workflow, which computes the next patch version from the latest tag and handles version bumps, tagging, npm, DMG, and GitHub Release publishing. |
+| `/release [bump]` | Cut a release in two steps: dispatch `create-release-branch.yml` (cuts `release/vX.Y.Z` from main → staging bake), then after the bake is green dispatch `release.yml` on the release branch for the full production release. |
 | `/triage [user\|assistant\|device]` | Search Sentry for recent errors and log reports by user, assistant, or device in the `vellum-assistant-brain` project, then cross-reference with Linear issues to produce a triage summary. |
 | `/update` | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own assistant and gateway lifecycle (hatching on first launch). Prints a startup summary. |
 
@@ -611,17 +611,18 @@ All workflows use squash-merge (no merge commits), worktree isolation for parall
 
 ### Release Management
 
-Releases are cut using the `/release` Claude Code command and follow a fully automated pipeline from workflow dispatch to client update.
+Releases are cut using the `/release` Claude Code command and follow a two-step pipeline: a branch cut with a staging bake, then a production dispatch on the release branch.
 
 #### Cutting a release
 
-Run `/release` in Claude Code. The command:
+Run `/release [patch|minor|major|hotfix]` in Claude Code. The command:
 
 1. Pulls the latest `main` branch and shows the commits the release will carry
-2. Dispatches the `release.yml` workflow on `main` (`gh workflow run release.yml`); the only input is an optional `slack_user_id` for attribution
-3. Confirms the workflow started and reads the computed version from the `extract-version` job (`BASE_VERSION`)
+2. Dispatches `create-release-branch.yml` with the bump type. The workflow computes the version from the latest tag, deletes any stale `release/vX.Y.Z` branch, cuts a fresh one from `main` HEAD with the version-bump commit ("Release vX.Y.Z"), and pushes it — which triggers a **staging** `Release` run on the branch (push-triggered and main-dispatched `Release` runs are always staging; the scheduled Tue/Fri 9am ET cut is this same step)
+3. Waits for the staging bake to succeed — it is the CI bake for the exact release payload; a failure means fixing `main` and re-cutting
+4. Dispatches `release.yml` on `release/vX.Y.Z` — "manual dispatch on a release branch" is the **full production release**: tags `vX.Y.Z`, publishes npm packages, builds/signs/notarizes and publishes the macOS DMG, pushes Docker Hub images, uploads iOS to TestFlight, creates the GitHub Release, updates the `vellum-assistant-platform` dependency, and merges the release branch back to `main`
 
-The workflow computes the next patch version from the latest `v<major>.<minor>.<patch>` tag — there is no bump-type input — then bumps versions across packages, creates and merges a release branch PR, tags the release, publishes npm packages, builds/signs/notarizes the macOS DMG, creates the GitHub Release, and updates the `vellum-assistant-platform` dependency.
+A lingering `release/vX.Y.Z` branch with no matching GitHub Release means a scheduled cut was never promoted to production; re-running step 2 refreshes it from current `main`.
 
 #### What happens after a release is created
 
