@@ -105,6 +105,43 @@ export function invalidateAssistantInferredItemsForConversation(
 }
 
 /**
+ * Fail every pending/running memory job keyed to the given conversation
+ * (`json_extract(payload, '$.conversationId')` — e.g. `graph_extract`,
+ * `build_conversation_summary`, `conversation_analyze`). Fired from the
+ * shared delete primitive via `onConversationDeleted`, so the worker does
+ * not burn cycles (and error noise) on jobs whose conversation no longer
+ * exists. Deliberately conversationId-keyed only: it runs after the
+ * conversation's rows are deleted, and jobs for surviving multi-sourced
+ * graph nodes must stay runnable.
+ */
+export function cancelPendingJobsForConversation(
+  conversationId: string,
+  reason: string = "conversation_deleted",
+): number {
+  const cancelled = rawMemoryRun(
+    "taskMemory:cancelJobs:byConversation",
+    `UPDATE memory_jobs
+        SET status = 'failed',
+            last_error = ?,
+            updated_at = ?
+      WHERE status IN ('pending', 'running')
+        AND json_extract(payload, '$.conversationId') = ?`,
+    reason,
+    Date.now(),
+    conversationId,
+  );
+
+  if (cancelled > 0) {
+    log.info(
+      { conversationId, cancelled },
+      "Cancelled pending memory jobs for deleted conversation",
+    );
+  }
+
+  return cancelled;
+}
+
+/**
  * Cancel only pending/running `graph_extract` jobs for the given
  * conversation. Used by the task-failure path where we want to
  * stop new extractions but must NOT cancel `embed_graph_node` jobs —

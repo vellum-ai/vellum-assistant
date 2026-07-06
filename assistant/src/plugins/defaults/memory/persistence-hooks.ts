@@ -10,6 +10,7 @@ import { getMemoryConfig } from "./config.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
+import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
 import {
   forkActivationState,
   seedForkActivationState,
@@ -153,6 +154,12 @@ export const memoryPersistenceHooks = {
   },
 
   onConversationDeleted(conversationId: string): void {
+    // Fail the conversation's still-pending memory jobs first (graph
+    // extraction, summary builds, …) — the rows they reference are gone. The
+    // cancellation sweeps pending `conversationId`-keyed jobs, so it must run
+    // BEFORE the purge below is enqueued or it would sweep the purge too.
+    cancelPendingJobsForConversation(conversationId);
+
     // Purge the conversation's points from the lexical (Qdrant) index. Fired
     // from the shared delete primitive, so every delete caller — route,
     // retrospective cleanup, GC — cleans up. The enqueue helper self-selects:
