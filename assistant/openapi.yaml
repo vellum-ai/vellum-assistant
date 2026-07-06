@@ -19378,7 +19378,9 @@ paths:
     post:
       operationId: monitoring_start_post
       summary: Start the resource monitor
-      description: Spawns (or reuses) the resource monitor process as a child of the daemon and enables monitoring.enabled.
+      description:
+        Spawns (or reuses) the resource monitor process as a child of the daemon. The daemon also spawns it at
+        every boot.
       tags:
         - system
       responses:
@@ -19393,15 +19395,11 @@ paths:
                     type: number
                   alreadyRunning:
                     type: boolean
-                  monitoringEnabled:
-                    type: boolean
-                    const: true
                   pidPath:
                     type: string
                 required:
                   - pid
                   - alreadyRunning
-                  - monitoringEnabled
                   - pidPath
                 additionalProperties: false
   /v1/monitoring/status:
@@ -19409,8 +19407,8 @@ paths:
       operationId: monitoring_status_get
       summary: Resource monitor status
       description:
-        Reports the resource monitor process state, monitoring.enabled, the forensics data directory, and the most
-        recent persisted memory/disk sample.
+        Reports the resource monitor process state, the forensics data directory, and the most recent persisted
+        memory/disk sample.
       tags:
         - system
       responses:
@@ -19428,8 +19426,6 @@ paths:
                       - not_running
                   pid:
                     type: number
-                  monitoringEnabled:
-                    type: boolean
                   dataDir:
                     type: string
                   latestSample:
@@ -19750,7 +19746,6 @@ paths:
                       - type: "null"
                 required:
                   - status
-                  - monitoringEnabled
                   - dataDir
                   - latestSample
                 additionalProperties: false
@@ -19758,7 +19753,7 @@ paths:
     post:
       operationId: monitoring_stop_post
       summary: Stop the resource monitor
-      description: Disables monitoring.enabled and SIGTERMs the resource monitor process if it is running.
+      description: SIGTERMs the resource monitor process if it is running. The monitor respawns on the next daemon boot.
       tags:
         - system
       responses:
@@ -19773,12 +19768,8 @@ paths:
                     type: boolean
                   pid:
                     type: number
-                  monitoringEnabled:
-                    type: boolean
-                    const: false
                 required:
                   - monitoringWasRunning
-                  - monitoringEnabled
                 additionalProperties: false
   /v1/notification-intent-result:
     post:
