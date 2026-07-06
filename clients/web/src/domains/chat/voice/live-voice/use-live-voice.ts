@@ -180,7 +180,10 @@ interface SessionContext {
   forwardingAudio: boolean;
   /** Whether the assistant has sent any TTS audio for the current response. */
   responseAudioStarted: boolean;
-  /** Monotonic count of `thinking` frames; identifies which response owns the state. */
+  /**
+   * Monotonic counter bumped on every transition into `thinking` (server
+   * frame, or hands-free stt-final); identifies which response owns the state.
+   */
   responseEpoch: number;
   /** Whether an interrupt was already sent for the current response. */
   interruptSent: boolean;
@@ -353,11 +356,18 @@ export function useLiveVoice(
           // final means the server is about to think. Manual mode: forwarding ⇒
           // the user is still speaking (stay listening); otherwise ptt was
           // released and the server is about to think.
-          s.setState(
-            !session.handsFree && session.forwardingAudio
-              ? "listening"
-              : "thinking",
-          );
+          if (!session.handsFree && session.forwardingAudio) {
+            s.setState("listening");
+            return;
+          }
+          if (session.handsFree) {
+            // The next turn now owns the state: a prior turn's drain waiter
+            // must not reset it to `listening` if it resolves before the
+            // server's `thinking` frame (which re-bumps; the guard only
+            // checks inequality, so the double bump is harmless).
+            session.responseEpoch += 1;
+          }
+          s.setState("thinking");
         }),
         client.on("thinking", () => {
           if (!live()) return;

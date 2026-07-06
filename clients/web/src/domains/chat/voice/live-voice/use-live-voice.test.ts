@@ -689,6 +689,61 @@ describe("hands-free mode", () => {
     expect(h.client.closed).toBe(false);
   });
 
+  test("the next utterance's stt_final during the playback drain is not clobbered to listening", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // Turn t1 responds with audio; tts_done arrives while playback is still
+    // draining (the fake player holds the drain open until finishPlayback).
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 3,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+
+    await act(async () => {
+      h.client.emit("ttsDone", { type: "tts_done", seq: 4, turnId: "t1" });
+      await Promise.resolve();
+    });
+    expect(h.player.isPlaying).toBe(true); // drain still pending
+
+    // The next utterance finishes transcribing before t1's tail audio drains
+    // and before the server's `thinking` frame for t2 arrives. (No
+    // speech_started here: it would flush playback and resolve the drain
+    // early; batched frames collapse to this same ordering.)
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 5,
+        reason: "silence",
+      });
+      h.client.emit("sttFinal", { type: "stt_final", seq: 6, text: "again" });
+    });
+    expect(h.view.result.current.state).toBe("thinking");
+    expect(h.player.isPlaying).toBe(true); // t1's drain still pending
+
+    await act(async () => {
+      h.player.finishPlayback();
+      await Promise.resolve();
+    });
+
+    // t1's post-drain transition must not hide the in-flight next turn.
+    expect(h.view.result.current.state).toBe("thinking");
+
+    // The server's thinking frame for t2 then lands normally.
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 7, turnId: "t2" });
+    });
+    expect(h.view.result.current.state).toBe("thinking");
+    expect(h.client.closed).toBe(false);
+  });
+
   test("a turn with no audio still cycles back to listening after tts_done", async () => {
     const h = renderController();
     await startListening(h, { handsFree: true });
