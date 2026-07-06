@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -21,6 +21,7 @@ mock.module("../config/loader.js", () => ({
 }));
 
 import {
+  attachInlineAttachmentToMessage,
   AttachmentUploadError,
   deleteAttachment,
   deleteOrphanAttachments,
@@ -386,6 +387,41 @@ describe("getAttachmentById", () => {
   test("returns null for nonexistent ID", () => {
     const result = getAttachmentById("no-such-id");
     expect(result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// attachInlineAttachmentToMessage — filename collisions
+// ---------------------------------------------------------------------------
+
+describe("attachInlineAttachmentToMessage filename collisions", () => {
+  beforeEach(resetTables);
+
+  test("returns the resolved -N path when a same-named file already exists", async () => {
+    const conv = createConversation();
+    const msg1 = await addMessage(conv.id, "user", "first upload");
+    const msg2 = await addMessage(conv.id, "user", "re-upload after editing");
+
+    // "aGVsbG8=" = "hello", "d29ybGQ=" = "world"
+    const first = attachInlineAttachmentToMessage(
+      msg1.id,
+      0,
+      "report.csv",
+      "text/csv",
+      "aGVsbG8=",
+    );
+    const second = attachInlineAttachmentToMessage(
+      msg2.id,
+      0,
+      "report.csv",
+      "text/csv",
+      "d29ybGQ=",
+    );
+
+    expect(first.filePath.endsWith("report.csv")).toBe(true);
+    expect(second.filePath.endsWith("report-2.csv")).toBe(true);
+    expect(readFileSync(first.filePath).toString()).toBe("hello");
+    expect(readFileSync(second.filePath).toString()).toBe("world");
   });
 });
 

@@ -29,7 +29,10 @@ import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
+import type { ConversationDeletedInputContext } from "../hooks/types.js";
+import { HOOKS } from "../plugin-api/constants.js";
 import { memoryPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks.js";
+import { runHook } from "../plugins/pipeline.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { trustClassSchema } from "../runtime/trust-class.js";
@@ -160,10 +163,12 @@ export const messageMetadataSchema = z
     userMessageInterface: interfaceIdSchema.optional(),
     assistantMessageInterface: interfaceIdSchema.optional(),
     /**
-     * Optional client-side metadata bag attached to user messages by HTTP
-     * header middleware (reads `x-vellum-browser-family`,
-     * `x-vellum-browser-version`, `x-vellum-client-os`,
-     * `x-vellum-interface-version`). Forwarded verbatim onto
+     * Optional client-side metadata bag attached to user messages at persist
+     * time. `os` carries the client-reported OS surface ("web" | "ios" |
+     * "macos" | "android") from the request body's `clientOs` field, stamped
+     * by `persistQueuedMessageBody` — the transport `userMessageInterface` is
+     * "web" for the web, iOS, and macOS apps alike, so this is the only
+     * per-platform attribution. Forwarded verbatim onto
      * `TurnTelemetryEvent.client` for downstream analytics. Kept as a
      * permissive `record` so adding a new client field doesn't require a
      * migration -- dbt can unpack later via JSON_VALUE.
@@ -201,6 +206,13 @@ export const messageMetadataSchema = z
     forkSourceMessageId: z.string().optional(),
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
+    /**
+     * Resolved paths of the canonical attachment copies in the conversation's
+     * attachments/ directory (name collisions get a -2/-3 suffix), keyed by
+     * `${position}:${filename}`. Written after the attachments are linked;
+     * reinjected into LLM-facing content on history reload.
+     */
+    attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
     /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
      *  of `memoryInjectedBlock`. A row carries at most one of the two. The key
@@ -323,6 +335,23 @@ export function extractImageSourcePaths(
     const a = attachments[i];
     if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
       paths[`${i}:${a.filename}`] = a.filePath;
+    }
+  }
+  return Object.keys(paths).length > 0 ? paths : undefined;
+}
+
+/** Extract resolved stored paths from linked attachments for message metadata. */
+export function extractAttachmentStoredPaths(
+  attachments: ReadonlyArray<{
+    filename: string;
+    storedPath?: string;
+  }>,
+): Record<string, string> | undefined {
+  const paths: Record<string, string> = {};
+  for (let i = 0; i < attachments.length; i++) {
+    const a = attachments[i];
+    if (a.storedPath) {
+      paths[`${i}:${a.filename}`] = a.storedPath;
     }
   }
   return Object.keys(paths).length > 0 ? paths : undefined;
@@ -1513,18 +1542,21 @@ export function deleteConversation(id: string): DeletedMemoryIds {
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
-  // Let the memory feature fail its still-pending jobs for this conversation.
-  // Routed through the persistence-hook seam so this layer stays decoupled
-  // from the memory plugin; a no-op when memory is not present.
-  memoryPersistenceHooks.onConversationDeleted(id);
+  // Notify `conversation-deleted` hooks (e.g. the memory plugin failing its
+  // still-pending jobs for this conversation). Fire-and-forget from this
+  // synchronous primitive — the pipeline contains per-hook failures, and
+  // hooks carry no ordering guarantee relative to the cleanup below.
+  void runHook(HOOKS.CONVERSATION_DELETED, {
+    conversationId: id,
+  } satisfies ConversationDeletedInputContext);
 
   // Purge the conversation's points from the lexical (Qdrant) index. Fired
   // from the shared primitive so every delete caller — route, retrospective
-  // cleanup/GC — cleans up. Enqueued AFTER the hook above, whose cancellation
-  // pass sweeps pending `conversationId`-keyed jobs — the purge must not be
-  // swept by it. The enqueue helper self-selects: enqueue a job when memory is
-  // enabled, run the delete inline (best-effort, breaker-wrapped) when it is
-  // disabled.
+  // cleanup/GC — cleans up. Safe to enqueue while the hook chain runs: the
+  // memory plugin's job sweep is scoped to its own job types and cannot fail
+  // this host-owned purge job. The enqueue helper self-selects: enqueue a job
+  // when memory is enabled, run the delete inline (best-effort,
+  // breaker-wrapped) when it is disabled.
   enqueuePurgeConversationLexical(id);
 
   return result;
@@ -1633,15 +1665,17 @@ export async function deleteConversationGently(
     removeConversationDir(id, createdAtForDiskCleanup);
   }
 
-  // Let the memory feature fail its still-pending jobs for this conversation.
-  // Routed through the persistence-hook seam; a no-op when memory is not
-  // present.
-  memoryPersistenceHooks.onConversationDeleted(id);
+  // Notify `conversation-deleted` hooks — fire-and-forget, same contract as
+  // the synchronous delete primitive.
+  void runHook(HOOKS.CONVERSATION_DELETED, {
+    conversationId: id,
+  } satisfies ConversationDeletedInputContext);
 
   // Purge the conversation's points from the lexical (Qdrant) index — the
   // gentle path is the retrospective-GC caller, which would otherwise leak the
-  // conversation's lexical points. Enqueued AFTER the hook above so the
-  // hook's cancellation pass cannot sweep the purge.
+  // conversation's lexical points. Safe to enqueue while the hook chain runs:
+  // the memory plugin's job sweep is scoped to its own job types and cannot
+  // fail this host-owned purge job.
   enqueuePurgeConversationLexical(id);
 
   return result;

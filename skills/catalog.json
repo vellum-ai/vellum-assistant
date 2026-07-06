@@ -643,7 +643,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-03T20:12:42.000Z"
+      "updatedAt": "2026-07-06T18:12:30.000Z"
     },
     {
       "id": "public-ingress",
@@ -950,7 +950,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-06T14:33:32.000Z"
+      "updatedAt": "2026-07-06T16:01:24.000Z"
     },
     {
       "id": "vellum-github-app-setup",

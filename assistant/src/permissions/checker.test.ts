@@ -102,9 +102,10 @@ mock.module("./trust-store.js", () => ({
 }));
 
 // Mock workspace policy.
+let mockIsPathWithinWorkspaceRoot = true;
 mock.module("./workspace-policy.js", () => ({
   isWorkspaceScopedInvocation: () => false,
-  isPathWithinWorkspaceRoot: () => false,
+  isPathWithinWorkspaceRoot: () => mockIsPathWithinWorkspaceRoot,
 }));
 
 // Mock tool registry — no tools by default. `getToolOwner` backs
@@ -324,6 +325,102 @@ describe("Permission Checker (gateway IPC)", () => {
       // Use unique command to avoid cache hits
       const result = await classifyRisk("bash", { command: "pwd" });
       expect((result as any).sandboxAutoApprove).toBe(true);
+    });
+
+    test("overrides sandboxAutoApprove when symlink escape detected", async () => {
+      mockIsPathWithinWorkspaceRoot = false;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "cat (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        sandboxPathArgs: ["/workspace/escape/passwd"],
+      };
+      const result = await classifyRisk("bash", {
+        command: "cat /workspace/escape/passwd",
+      });
+      expect((result as any).sandboxAutoApprove).toBe(false);
+      mockIsPathWithinWorkspaceRoot = true;
+    });
+
+    test("preserves sandboxAutoApprove when path args resolve within workspace", async () => {
+      mockIsPathWithinWorkspaceRoot = true;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "cat (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        sandboxPathArgs: ["/workspace/file.txt"],
+      };
+      const result = await classifyRisk("bash", {
+        command: "cat /workspace/file.txt",
+      });
+      expect((result as any).sandboxAutoApprove).toBe(true);
+    });
+
+    test("overrides sandboxAutoApprove when any path arg escapes", async () => {
+      mockIsPathWithinWorkspaceRoot = false;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "cat (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        sandboxPathArgs: [
+          "/workspace/safe.txt",
+          "/workspace/escape/passwd",
+        ],
+      };
+      const result = await classifyRisk("bash", {
+        command:
+          "cat /workspace/safe.txt && cat /workspace/escape/passwd",
+      });
+      expect((result as any).sandboxAutoApprove).toBe(false);
+      mockIsPathWithinWorkspaceRoot = true;
+    });
+
+    test("no sandboxPathArgs means no symlink check (backward compat)", async () => {
+      mockIsPathWithinWorkspaceRoot = false;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "ls (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        // No sandboxPathArgs — e.g. older gateway that doesn't send them
+      };
+      const result = await classifyRisk("bash", { command: "ls" });
+      expect((result as any).sandboxAutoApprove).toBe(true);
+      mockIsPathWithinWorkspaceRoot = true;
+    });
+
+    test("cache hit re-runs symlink escape check after symlink retargeted", async () => {
+      // First call: path args within workspace → sandboxAutoApprove true.
+      mockIsPathWithinWorkspaceRoot = true;
+      mockIpcClassifyRiskResult = {
+        risk: "low",
+        reason: "cat (default)",
+        matchType: "registry",
+        scopeOptions: [],
+        sandboxAutoApprove: true,
+        sandboxPathArgs: ["/workspace/escape/secret42.bin"],
+      };
+      const first = await classifyRisk("bash", {
+        command: "cat /workspace/escape/secret42.bin",
+      });
+      expect((first as any).sandboxAutoApprove).toBe(true);
+
+      // Second call with the same command: cache hit, but symlink now
+      // resolves outside workspace. The cache hit must re-run the check
+      // and override sandboxAutoApprove to false.
+      mockIsPathWithinWorkspaceRoot = false;
+      const second = await classifyRisk("bash", {
+        command: "cat /workspace/escape/secret42.bin",
+      });
+      expect((second as any).sandboxAutoApprove).toBe(false);
+      mockIsPathWithinWorkspaceRoot = true;
     });
 
     test("preserves allowlistOptions from gateway response", async () => {
