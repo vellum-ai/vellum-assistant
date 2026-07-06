@@ -93,13 +93,15 @@ describe("assistant channels surfaces", () => {
 
   test("disconnected tab swaps the empty state for the manual form on request", () => {
     setTabbedLayout(true);
-    render(
-      <AssistantChannelsList
-        assistantName="Vex"
-        channels={CHANNELS}
-        initialChannel="telegram"
-      />,
-    );
+    render(<AssistantChannelsList assistantName="Vex" channels={CHANNELS} />);
+
+    const telegramTab = Array.from(
+      document.querySelectorAll('[data-slot="tabs-trigger"]'),
+    ).find((t) => t.textContent === "Telegram");
+    expect(telegramTab).toBeDefined();
+    // Radix tab triggers select on mousedown (automatic activation), not click.
+    fireEvent.mouseDown(telegramTab!, { button: 0 });
+
     expect(document.body.textContent).toContain("Telegram isn't connected");
     expect(document.body.textContent).not.toContain("Bot Token");
 
@@ -109,6 +111,22 @@ describe("assistant channels surfaces", () => {
     expect(manualButton).toBeDefined();
     fireEvent.click(manualButton!);
 
+    expect(document.body.textContent).toContain("Bot Token");
+    expect(document.body.textContent).not.toContain("Telegram isn't connected");
+  });
+
+  test("a setup deep link opens the manual form directly", () => {
+    // The mobile chat-drawer handoff navigates to `?setup=<channel>` to
+    // continue credential entry here — it must land on the form, not the
+    // empty state whose Set up button would start another conversation.
+    setTabbedLayout(true);
+    render(
+      <AssistantChannelsList
+        assistantName="Vex"
+        channels={CHANNELS}
+        initialChannel="telegram"
+      />,
+    );
     expect(document.body.textContent).toContain("Bot Token");
     expect(document.body.textContent).not.toContain("Telegram isn't connected");
   });

@@ -237,6 +237,7 @@ export function AssistantChannelsList({
                 assistantName={assistantName}
                 assistantDisplayName={displayName}
                 pending={pendingChannelKey === channel.key}
+                initialManualEntry={initialChannel === channel.key}
                 onSetup={onSetup ? () => onSetup(channel.key) : undefined}
                 onDisconnect={
                   onDisconnect ? () => setPendingDisconnect(channel.key) : undefined
@@ -360,6 +361,12 @@ interface ChannelPanelProps {
   /** Trimmed assistant name with a "your assistant" fallback, for copy. */
   assistantDisplayName: string;
   pending: boolean;
+  /**
+   * Open the manual credential form immediately instead of the empty state —
+   * set for `?setup=<channel>` deep links (e.g. the mobile chat-drawer
+   * handoff continues credential entry here).
+   */
+  initialManualEntry?: boolean;
   onSetup?: () => void;
   onDisconnect?: () => void;
   onSaveTelegramToken?: (botToken: string) => Promise<void>;
@@ -382,6 +389,7 @@ function ChannelPanel({
   assistantName,
   assistantDisplayName,
   pending,
+  initialManualEntry = false,
   onSetup,
   onDisconnect,
   onSaveTelegramToken,
@@ -401,8 +409,9 @@ function ChannelPanel({
   const meta = CHANNEL_META[channel.key];
   const connected = channel.status === "ready";
   // Disconnected Telegram/Phone default to the pitch + guided setup; the
-  // manual credential form swaps in when the user opts into it.
-  const [manualEntry, setManualEntry] = useState(false);
+  // manual credential form swaps in when the user opts into it (or arrived
+  // via a setup deep link).
+  const [manualEntry, setManualEntry] = useState(initialManualEntry);
   const showCredentialForm = connected || manualEntry;
 
   return (

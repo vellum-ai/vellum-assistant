@@ -81,17 +81,36 @@ export const ChannelsTabSlackConnected: Story = {
   },
 };
 
-/** Disconnected Telegram tab: empty state with guided setup + manual escape hatch. */
+/**
+ * Disconnected Telegram tab: empty state with guided setup + manual escape
+ * hatch. Telegram is listed first so it's the default tab — `initialChannel`
+ * is reserved for setup deep links, which skip straight to the manual form.
+ */
 export const ChannelsTabTelegramDisconnected: Story = {
   args: {
-    initialChannel: "telegram",
+    channels: [
+      { key: "telegram", status: "not_configured" },
+      { key: "slack", status: "ready", address: "@example-assistant" },
+      { key: "phone", status: "not_configured" },
+    ],
   },
 };
 
 /** Disconnected Phone tab: empty state with guided setup + manual escape hatch. */
 export const ChannelsTabPhoneDisconnected: Story = {
   args: {
-    initialChannel: "phone",
+    channels: [
+      { key: "phone", status: "not_configured" },
+      { key: "slack", status: "ready", address: "@example-assistant" },
+      { key: "telegram", status: "not_configured" },
+    ],
+  },
+};
+
+/** A `?setup=telegram` deep link (mobile chat handoff) lands on the manual form. */
+export const ChannelsTabTelegramSetupHandoff: Story = {
+  args: {
+    initialChannel: "telegram",
   },
 };
 
