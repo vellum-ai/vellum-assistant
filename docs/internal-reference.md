@@ -584,7 +584,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 | Command | Purpose |
 |---------|---------|
 | `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists). |
-| `/release [version]` | Cut a release: pull main, determine/create version tag, generate release notes, publish GitHub Release, and verify CI trigger. |
+| `/release` | Cut a release: pull main, then dispatch the unified Release workflow, which computes the next patch version from the latest tag and handles version bumps, tagging, npm, DMG, and GitHub Release publishing. |
 | `/triage [user\|assistant\|device]` | Search Sentry for recent errors and log reports by user, assistant, or device in the `vellum-assistant-brain` project, then cross-reference with Linear issues to produce a triage summary. |
 | `/update` | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own assistant and gateway lifecycle (hatching on first launch). Prints a startup summary. |
 
@@ -611,16 +611,17 @@ All workflows use squash-merge (no merge commits), worktree isolation for parall
 
 ### Release Management
 
-Releases are cut using the `/release` Claude Code command and follow a fully automated pipeline from tag to client update.
+Releases are cut using the `/release` Claude Code command and follow a fully automated pipeline from workflow dispatch to client update.
 
 #### Cutting a release
 
-Run `/release [version]` in Claude Code. If no version is provided, the patch version is auto-incremented from the latest git tag (e.g. `v0.1.5` becomes `v0.1.6`). The command:
+Run `/release` in Claude Code. The command:
 
-1. Pulls the latest `main` branch
-2. Generates release notes from commits since the last tag, grouped into Features, Fixes, and Infrastructure
-3. Creates a GitHub Release with the corresponding git tag
-4. Confirms the CI build was triggered
+1. Pulls the latest `main` branch and shows the commits the release will carry
+2. Dispatches the `release.yml` workflow on `main` (`gh workflow run release.yml`); the only input is an optional `slack_user_id` for attribution
+3. Confirms the workflow started and reads the computed version from the `extract-version` job (`BASE_VERSION`)
+
+The workflow computes the next patch version from the latest `v<major>.<minor>.<patch>` tag — there is no bump-type input — then bumps versions across packages, creates and merges a release branch PR, tags the release, publishes npm packages, builds/signs/notarizes the macOS DMG, creates the GitHub Release, and updates the `vellum-assistant-platform` dependency.
 
 #### What happens after a release is created
 
