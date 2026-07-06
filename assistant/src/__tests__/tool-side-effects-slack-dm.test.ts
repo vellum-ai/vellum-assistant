@@ -62,9 +62,11 @@ mock.module("../services/published-app-updater.js", () => ({
 mock.module("../daemon/conversation-surfaces.js", () => ({
   refreshSurfacesForApp: mock(() => {}),
 }));
+const mockIsDoordashCommand = mock(() => false);
+const mockUpdateDoordashProgress = mock(() => {});
 mock.module("../daemon/doordash-steps.js", () => ({
-  isDoordashCommand: mock(() => false),
-  updateDoordashProgress: mock(() => {}),
+  isDoordashCommand: mockIsDoordashCommand,
+  updateDoordashProgress: mockUpdateDoordashProgress,
 }));
 
 const mockLogWarn = mock((_obj: unknown, _msg: string) => {});
@@ -320,6 +322,36 @@ describe("bash hook — Slack DM dispatch with session validation", () => {
       "U200",
       "valid-code",
       "aid2",
+    );
+  });
+});
+
+describe("doordash progress side effect", () => {
+  beforeEach(() => {
+    mockIsDoordashCommand.mockReset();
+    mockUpdateDoordashProgress.mockReset();
+    mockLogError.mockReset();
+  });
+
+  test("throwing updateDoordashProgress is swallowed and logged", async () => {
+    mockIsDoordashCommand.mockReturnValue(true);
+    mockUpdateDoordashProgress.mockImplementation(() => {
+      throw new Error("doordash boom");
+    });
+
+    await expect(
+      runPostExecutionSideEffects(
+        "bash",
+        { command: "order food" },
+        { content: "{}", isError: false },
+        dummySideEffectCtx,
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(mockUpdateDoordashProgress).toHaveBeenCalledTimes(1);
+    expect(mockLogError).toHaveBeenCalledWith(
+      expect.objectContaining({ toolName: "bash" }),
+      expect.stringContaining("DoorDash progress update failed"),
     );
   });
 });

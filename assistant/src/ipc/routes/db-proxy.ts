@@ -13,9 +13,10 @@
  *
  * The gateway callers are pinned by an allowlist guard
  * (gateway `__tests__/db-proxy-allowlist.test.ts`): the contact-merge
- * identity-mirror cluster (pending a merge-shaped op) and one-time data
- * migrations. Slated for removal once the contact-merge cluster gets typed
- * mirror ops.
+ * identity-mirror cluster (pending a merge-shaped op), residual raw-SQL
+ * contact reads in `verification/contact-helpers.ts` (deferred cleanup),
+ * and one-time data migrations. Slated for removal once the contact-merge
+ * cluster gets typed mirror ops.
  *
  * Tracking: ATL-XXX (gateway security migration)
  */

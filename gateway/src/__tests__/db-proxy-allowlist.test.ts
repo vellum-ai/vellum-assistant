@@ -10,11 +10,13 @@ import { join, sep } from "node:path";
  * either raw-SQL bridge method (`db_proxy` / `db_proxy_transaction`), so the
  * surface can only shrink, never grow.
  *
- * The proxy currently serves two groups (the allowlist below):
+ * The proxy currently serves three groups (the allowlist below):
  *   1. The contact-merge identity-mirror cluster (`contact-store.ts`) — a
  *      notes-only survivor UPDATE and a resolved-slug dual-write INSERT that no
  *      existing typed mirror op expresses; pending a merge-shaped op.
- *   2. Data migrations — one-time backfills that legitimately touch the
+ *   2. Residual raw-SQL contact reads in `verification/contact-helpers.ts` —
+ *      deferred cleanup.
+ *   3. Data migrations — one-time backfills that legitimately touch the
  *      assistant DB broadly.
  */
 

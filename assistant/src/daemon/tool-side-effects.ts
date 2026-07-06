@@ -340,7 +340,11 @@ export async function runPostExecutionSideEffects(
   }
 
   // DoorDash progress tracking fires on both success and failure
-  if (isDoordashCommand(name, input)) {
-    updateDoordashProgress(sideEffectCtx.ctx, input, result.isError);
+  try {
+    if (isDoordashCommand(name, input)) {
+      updateDoordashProgress(sideEffectCtx.ctx, input, result.isError);
+    }
+  } catch (err) {
+    log.error({ err, toolName: name }, "DoorDash progress update failed");
   }
 }
