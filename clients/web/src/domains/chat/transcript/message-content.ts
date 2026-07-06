@@ -180,16 +180,19 @@ export function groupContentBlocks(
 }
 
 /**
- * UI surface tools are rendered by the inline surface widget, not as tool-call
- * chips — unless they carry a pending confirmation, in which case the chip must
- * render so the inline confirmation card is visible.
+ * Tool calls that never render as transcript chips because another element
+ * carries their outcome: UI surface tools render as the inline surface
+ * widget, and `send_reaction` renders as the reaction chip on the target
+ * message. A pending confirmation always forces the chip so the inline
+ * confirmation card stays visible.
  */
-export function isSuppressedUiTool(tc: ChatMessageToolCall): boolean {
+export function isSuppressedToolChip(tc: ChatMessageToolCall): boolean {
   return (
     !tc.pendingConfirmation &&
     (tc.name === "ui_show" ||
       tc.name === "ui_update" ||
-      tc.name === "ui_dismiss")
+      tc.name === "ui_dismiss" ||
+      tc.name === "send_reaction")
   );
 }
 

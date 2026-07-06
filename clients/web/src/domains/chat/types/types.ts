@@ -5,6 +5,7 @@
 import type {
   ConversationContentBlock,
   ConversationMessage,
+  ConversationMessageReaction,
   ConversationMessageSurface,
 } from "@vellumai/assistant-api";
 import type { ChatMessageToolCall } from "@/domains/chat/api/event-types";
@@ -152,6 +153,11 @@ export interface DisplayMessage {
    *  defer/schedule/webhook/background-tool); suppressed from the transcript
    *  like {@link isSubagentNotification} — the wake card shows it instead. */
   isBackgroundEventNotification?: boolean;
+  /** Emoji reactions attached to this message (e.g. the assistant reacting
+   *  to a user message via `send_reaction`), carried straight through from
+   *  the wire `ConversationMessage["reactions"]`. Rendered as a chip on the
+   *  message bubble; live updates arrive via `message_reaction_updated`. */
+  reactions?: ConversationMessageReaction[];
 }
 
 /**

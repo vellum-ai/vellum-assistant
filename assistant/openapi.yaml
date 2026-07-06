@@ -17120,6 +17120,67 @@ paths:
                   - workerWasRunning
                   - workerEnabled
                 additionalProperties: false
+  /v1/message-reactions:
+    post:
+      operationId: messagereactions_post
+      summary: Add or remove a user reaction on a message
+      description:
+        Add (default) or remove the user's emoji reaction on an assistant message. Idempotent per (emoji, op) —
+        repeating an operation returns the current reaction set unchanged.
+      tags:
+        - messages
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                conversationId:
+                  type: string
+                messageId:
+                  type: string
+                emoji:
+                  type: string
+                op:
+                  type: string
+                  enum:
+                    - add
+                    - remove
+              required:
+                - conversationId
+                - messageId
+                - emoji
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messageId:
+                    type: string
+                  reactions:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        emoji:
+                          type: string
+                        actor:
+                          type: string
+                        createdAt:
+                          type: number
+                      required:
+                        - emoji
+                        - actor
+                        - createdAt
+                      additionalProperties: false
+                required:
+                  - messageId
+                  - reactions
+                additionalProperties: false
   /v1/messages:
     get:
       operationId: messages_get
@@ -18205,6 +18266,22 @@ paths:
                             - channelId
                             - channelTs
                           additionalProperties: false
+                        reactions:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              emoji:
+                                type: string
+                              actor:
+                                type: string
+                              createdAt:
+                                type: number
+                            required:
+                              - emoji
+                              - actor
+                              - createdAt
+                            additionalProperties: false
                         queueStatus:
                           type: string
                           enum:

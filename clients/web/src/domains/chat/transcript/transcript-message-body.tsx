@@ -31,8 +31,10 @@ import {
   type ContentBlockActivityItem,
   groupContentBlocks,
   isSubagentSpawnCall,
-  isSuppressedUiTool,
+  isSuppressedToolChip,
 } from "@/domains/chat/transcript/message-content";
+import { MessageReactions } from "@/domains/chat/transcript/message-reactions";
+import { useUserReactionToggle } from "@/domains/chat/hooks/use-message-reactions";
 import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces";
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
@@ -145,6 +147,7 @@ export function TranscriptMessageBody({
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [revealed, setRevealed] = useState(false);
   const slackMessageUrl = getSlackLinkUrl(message.slackMessage?.messageLink);
+  const toggleUserReaction = useUserReactionToggle(conversationId);
 
   useEffect(() => {
     if (!revealed) return;
@@ -498,7 +501,7 @@ export function TranscriptMessageBody({
         }
       } else {
         const tc = item.toolCall;
-        if (isSuppressedUiTool(tc)) {
+        if (isSuppressedToolChip(tc)) {
           continue;
         }
         groupToolCalls.push(tc);
@@ -613,6 +616,18 @@ export function TranscriptMessageBody({
     );
   };
 
+  // Reaction chips for this message. On the bubble they anchor absolutely to
+  // its top-left corner (tapback-style); bubble-less content flows them as a
+  // normal row instead.
+  const renderReactionChips = (placement: "corner" | "flow"): ReactNode =>
+    message.reactions?.length ? (
+      <MessageReactions
+        reactions={message.reactions}
+        assistantDisplayName={assistantDisplayName}
+        className={placement === "corner" ? "absolute -left-2.5 -top-2.5" : ""}
+      />
+    ) : null;
+
   const renderUserContent = (
     items: Array<{ kind: "text" | "nonText"; node: ReactNode }>,
   ): ReactNode => {
@@ -656,15 +671,34 @@ export function TranscriptMessageBody({
     }
 
     let bubbleIndex = 0;
-    return slots.map((slot, i) =>
-      slot.kind === "raw" ? (
-        <Fragment key={`user-slot-${i}`}>{slot.node}</Fragment>
-      ) : (
-        <div key={`user-bubble-${bubbleIndex++}`} className={userBubbleClass}>
+    const rendered = slots.map((slot, i) => {
+      if (slot.kind === "raw") {
+        return <Fragment key={`user-slot-${i}`}>{slot.node}</Fragment>;
+      }
+      const isFirstBubble = bubbleIndex === 0;
+      return (
+        <div
+          key={`user-bubble-${bubbleIndex++}`}
+          className={`relative ${userBubbleClass}`}
+        >
           {slot.nodes}
+          {isFirstBubble && renderReactionChips("corner")}
         </div>
-      ),
-    );
+      );
+    });
+    if (!slots.some((slot) => slot.kind === "bubble")) {
+      // Bubble-less content (rare: raw slots only) has no corner to anchor
+      // to; flow the reactions as their own row instead of dropping them.
+      const flowed = renderReactionChips("flow");
+      if (flowed) {
+        rendered.push(
+          <div key="user-reactions" className="pr-1">
+            {flowed}
+          </div>,
+        );
+      }
+    }
+    return rendered;
   };
 
   const lastGroupIndex = groups.length - 1;
@@ -718,6 +752,10 @@ export function TranscriptMessageBody({
       kind: group.type === "text" ? ("text" as const) : ("nonText" as const),
       node: renderGroupNode(group, gi),
     }));
+    // Transcript rows paint-contain their contents (`contain-content` on the
+    // row wrapper), so the corner-anchored reaction chip cannot overhang the
+    // row box — reserve its overhang inside the row instead.
+    const reactionOverhangPad = message.reactions?.length ? " pt-2.5" : "";
     return (
       <div
         ref={wrapperRef}
@@ -725,7 +763,7 @@ export function TranscriptMessageBody({
         data-message-role={message.role}
         onClick={handleBubbleClick}
         data-revealed={revealed}
-        className={wrapperClass}
+        className={`${wrapperClass}${reactionOverhangPad}`}
       >
         <div className={columnClass}>
           {renderUserContent(userItems)}
@@ -753,6 +791,16 @@ export function TranscriptMessageBody({
             assistantId={assistantId}
           />
         )}
+        {message.reactions?.length ? (
+          <MessageReactions
+            reactions={message.reactions}
+            assistantDisplayName={assistantDisplayName}
+            onUserReactionClick={(reaction) => {
+              void toggleUserReaction(message, reaction.emoji);
+            }}
+            className="-mt-1 pl-1"
+          />
+        ) : null}
         {trailer}
       </div>
     </div>

@@ -21,8 +21,10 @@ mock.module("../util/logger.js", () => ({
 // `./tool-manifest.js` and reads only this helper, so mocking it lets a test
 // simulate "flag enabled" (non-empty) vs "flag off / not yet loaded" ([]).
 let cesEnabled: Array<{ name: string }> = [];
+let reactionEnabled: Array<{ name: string }> = [];
 mock.module("./tool-manifest.js", () => ({
   getCesToolsIfEnabled: () => cesEnabled,
+  getMessageReactionToolsIfEnabled: () => reactionEnabled,
 }));
 
 import {
@@ -47,6 +49,7 @@ describe("syncFlagGatedTools", () => {
   beforeEach(() => {
     __clearRegistryForTesting();
     cesEnabled = [];
+    reactionEnabled = [];
   });
 
   test("registers a CES tool that startup registration missed (the race)", async () => {
@@ -71,6 +74,17 @@ describe("syncFlagGatedTools", () => {
   test("registers nothing when no gated flag is enabled", async () => {
     await syncFlagGatedTools();
 
+    expect(getTool("make_authenticated_request")).toBeUndefined();
+    expect(getTool("send_reaction")).toBeUndefined();
+  });
+
+  test("registers the message-reaction tool when its flag is enabled", async () => {
+    reactionEnabled = [fakeTool("send_reaction")];
+    expect(getTool("send_reaction")).toBeUndefined();
+
+    await syncFlagGatedTools();
+
+    expect(getTool("send_reaction")).toBeDefined();
     expect(getTool("make_authenticated_request")).toBeUndefined();
   });
 });

@@ -940,6 +940,8 @@ export async function initializeTools(): Promise<void> {
     explicitTools,
     getCesToolsIfEnabled,
     cesTools,
+    getMessageReactionToolsIfEnabled,
+    messageReactionTools,
   } = await import("./tool-manifest.js");
 
   // Capture tool names already in the registry before any manifest
@@ -986,6 +988,12 @@ export async function initializeTools(): Promise<void> {
     registerTool(tool);
   }
 
+  // Message-reaction tools - registered only when the `message-reactions`
+  // feature flag is enabled.
+  for (const tool of getMessageReactionToolsIfEnabled()) {
+    registerTool(tool);
+  }
+
   registerUiSurfaceTools();
   registerAppTools();
   registerSystemTools();
@@ -1008,6 +1016,7 @@ export async function initializeTools(): Promise<void> {
       ...extEntries.map(({ tool }) => tool.name),
       ...hostTools.map((t) => t.name!),
       ...cesTools.map((t) => t.name!),
+      ...messageReactionTools.map((t) => t.name!),
       ...allUiSurfaceTools.map((t) => t.name!),
       ...coreAppProxyTools.map((t) => t.name!),
     ]);
@@ -1063,8 +1072,13 @@ export async function initializeTools(): Promise<void> {
  */
 export async function syncFlagGatedTools(): Promise<void> {
   try {
-    const { getCesToolsIfEnabled } = await import("./tool-manifest.js");
-    const enabled = [...getCesToolsIfEnabled()];
+    const manifest = await import("./tool-manifest.js");
+    // Optional access: tests mock the manifest module with only the getters
+    // they exercise, so a missing getter must read as "flag off".
+    const enabled = [
+      ...(manifest.getCesToolsIfEnabled?.() ?? []),
+      ...(manifest.getMessageReactionToolsIfEnabled?.() ?? []),
+    ];
     const added: string[] = [];
     for (const tool of enabled) {
       if (tool.name && !tools.has(tool.name)) {

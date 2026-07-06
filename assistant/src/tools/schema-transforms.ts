@@ -2,9 +2,13 @@ import type { ToolDefinition } from "../providers/types.js";
 
 /**
  * Tools that should never have an `activity` field injected into their schema.
- * Now empty — all tools define their own `activity` property or get it injected.
+ *
+ * `send_reaction`'s tool call is suppressed from the transcript (its outcome
+ * is the reaction chip on the message), so a live-status `activity` string
+ * would never be displayed — injecting it only wastes output tokens on every
+ * reaction.
  */
-export const ACTIVITY_SKIP_SET = new Set<string>();
+export const ACTIVITY_SKIP_SET = new Set<string>(["send_reaction"]);
 
 /**
  * Injects an `activity` string property into each tool definition's input

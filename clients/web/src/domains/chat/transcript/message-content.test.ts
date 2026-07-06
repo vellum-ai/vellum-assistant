@@ -8,7 +8,7 @@ import {
   isBackgroundBashCall,
   isRunWorkflowCall,
   isSubagentSpawnCall,
-  isSuppressedUiTool,
+  isSuppressedToolChip,
   isTaskProgressSurface,
 } from "@/domains/chat/transcript/message-content";
 import { extractBgIdFromResult } from "@/domains/chat/transcript/transcript-message-body-shared";
@@ -303,16 +303,19 @@ describe("extractBgIdFromResult", () => {
   });
 });
 
-describe("isSuppressedUiTool", () => {
-  test("suppresses ui_* tools without pending confirmation", () => {
-    expect(isSuppressedUiTool(toolCall({ id: "x", name: "ui_show" }))).toBe(true);
-    expect(isSuppressedUiTool(toolCall({ id: "x", name: "ui_update" }))).toBe(true);
-    expect(isSuppressedUiTool(toolCall({ id: "x", name: "ui_dismiss" }))).toBe(true);
+describe("isSuppressedToolChip", () => {
+  test("suppresses ui_* and send_reaction tools without pending confirmation", () => {
+    expect(isSuppressedToolChip(toolCall({ id: "x", name: "ui_show" }))).toBe(true);
+    expect(isSuppressedToolChip(toolCall({ id: "x", name: "ui_update" }))).toBe(true);
+    expect(isSuppressedToolChip(toolCall({ id: "x", name: "ui_dismiss" }))).toBe(true);
+    expect(isSuppressedToolChip(toolCall({ id: "x", name: "send_reaction" }))).toBe(
+      true,
+    );
   });
 
-  test("does not suppress ui_* with a pending confirmation, or non-ui tools", () => {
+  test("does not suppress with a pending confirmation, or other tools", () => {
     expect(
-      isSuppressedUiTool(
+      isSuppressedToolChip(
         toolCall({
           id: "x",
           name: "ui_show",
@@ -320,7 +323,7 @@ describe("isSuppressedUiTool", () => {
         }),
       ),
     ).toBe(false);
-    expect(isSuppressedUiTool(toolCall({ id: "x", name: "bash" }))).toBe(false);
+    expect(isSuppressedToolChip(toolCall({ id: "x", name: "bash" }))).toBe(false);
   });
 });
 

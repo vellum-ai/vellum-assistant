@@ -37,6 +37,7 @@ import { MessageCompleteEventSchema } from "./events/message-complete.js";
 import { MessageDequeuedEventSchema } from "./events/message-dequeued.js";
 import { MessageQueuedEventSchema } from "./events/message-queued.js";
 import { MessageQueuedDeletedEventSchema } from "./events/message-queued-deleted.js";
+import { MessageReactionUpdatedEventSchema } from "./events/message-reaction-updated.js";
 import { MessageRequestCompleteEventSchema } from "./events/message-request-complete.js";
 import { NavigateSettingsEventSchema } from "./events/navigate-settings.js";
 import { NotificationIntentEventSchema } from "./events/notification-intent.js";
@@ -265,6 +266,10 @@ export {
   MessageQueuedDeletedEventSchema,
 } from "./events/message-queued-deleted.js";
 export {
+  type MessageReactionUpdatedEvent,
+  MessageReactionUpdatedEventSchema,
+} from "./events/message-reaction-updated.js";
+export {
   type MessageRequestCompleteEvent,
   MessageRequestCompleteEventSchema,
 } from "./events/message-request-complete.js";
@@ -424,6 +429,8 @@ export {
   type ConversationMessage,
   type ConversationMessageAttachment,
   ConversationMessageAttachmentSchema,
+  type ConversationMessageReaction,
+  ConversationMessageReactionSchema,
   ConversationMessageSchema,
   type ConversationMessageSurface,
   ConversationMessageSurfaceSchema,
@@ -597,6 +604,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   MessageDequeuedEventSchema,
   MessageQueuedEventSchema,
   MessageQueuedDeletedEventSchema,
+  MessageReactionUpdatedEventSchema,
   MessageRequestCompleteEventSchema,
   NavigateSettingsEventSchema,
   NotificationIntentEventSchema,

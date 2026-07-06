@@ -203,6 +203,14 @@
       "defaultEnabled": false
     },
     {
+      "id": "message-reactions",
+      "scope": "both",
+      "key": "message-reactions",
+      "label": "Message Reactions",
+      "description": "Emoji reactions on messages: the assistant's send_reaction tool, the user reaction picker on assistant messages, and the message-reactions endpoint",
+      "defaultEnabled": false
+    },
+    {
       "id": "fork-from-message",
       "scope": "client",
       "key": "fork-from-message",

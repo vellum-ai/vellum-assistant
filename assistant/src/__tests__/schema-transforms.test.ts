@@ -15,8 +15,8 @@ function makeDef(
 }
 
 describe("ACTIVITY_SKIP_SET", () => {
-  test("is empty (all tools now define their own activity property)", () => {
-    expect(ACTIVITY_SKIP_SET.size).toBe(0);
+  test("skips send_reaction (its tool call is not displayed)", () => {
+    expect(ACTIVITY_SKIP_SET.has("send_reaction")).toBe(true);
   });
 });
 

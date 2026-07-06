@@ -148,6 +148,22 @@ const backgroundToolCompletionMetadataSchema = z.object({
   completedAt: z.number(),
 });
 
+/**
+ * An emoji reaction attached to a message, stored in the row's metadata.
+ * Actor-general by design: `assistant` (the `send_reaction` tool) is the
+ * only producer today, but user- and channel-sourced reactions reuse the
+ * same shape. Mirrors `ConversationMessageReactionSchema` on the wire.
+ */
+export const messageReactionSchema = z.object({
+  /** The reaction as a literal Unicode emoji (e.g. "👍"). */
+  emoji: z.string(),
+  /** Who placed the reaction (e.g. "assistant"). */
+  actor: z.string(),
+  /** Epoch-millisecond timestamp of when the reaction was placed. */
+  createdAt: z.number(),
+});
+export type MessageReaction = z.infer<typeof messageReactionSchema>;
+
 export const messageMetadataSchema = z
   .object({
     userMessageChannel: channelIdSchema.optional(),
@@ -216,6 +232,8 @@ export const messageMetadataSchema = z
     channelCapabilitiesBlock: z.string().optional(),
     /** `<non_interactive_context>` block, rehydrated for the same reason. */
     nonInteractiveContextBlock: z.string().optional(),
+    /** Emoji reactions attached to this message, newest last. */
+    reactions: z.array(messageReactionSchema).optional(),
   })
   .passthrough();
 
@@ -2956,6 +2974,111 @@ export function updateMessageMetadata(
     .set({ metadata: JSON.stringify({ ...existing, ...updates }) })
     .where(eq(messages.id, messageId))
     .run();
+}
+
+/**
+ * Append an emoji reaction to a message's metadata, deduplicating on
+ * `(emoji, actor)`. The read-merge-write runs in a transaction so a
+ * concurrent metadata writer cannot interleave between the read and the
+ * write. Returns the full reaction set after the append (unchanged when the
+ * reaction was already present), or `null` when the message does not exist.
+ */
+export function appendMessageReaction(
+  messageId: string,
+  reaction: MessageReaction,
+): MessageReaction[] | null {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const row = tx
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .get();
+    if (!row) {
+      return null;
+    }
+    const existing = row.metadata ? safeParseRecord(row.metadata) : {};
+    const parsed = z.array(messageReactionSchema).safeParse(existing.reactions);
+    const reactions = parsed.success ? parsed.data : [];
+    if (
+      reactions.some(
+        (r) => r.emoji === reaction.emoji && r.actor === reaction.actor,
+      )
+    ) {
+      return reactions;
+    }
+    const updated = [...reactions, reaction];
+    tx.update(messages)
+      .set({ metadata: JSON.stringify({ ...existing, reactions: updated }) })
+      .where(eq(messages.id, messageId))
+      .run();
+    return updated;
+  });
+}
+
+/**
+ * Remove the `(emoji, actor)` reaction from a message's metadata. Runs the
+ * read-merge-write in a transaction like {@link appendMessageReaction}.
+ * Returns the full reaction set after the removal (unchanged when no
+ * matching reaction existed), or `null` when the message does not exist.
+ */
+export function removeMessageReaction(
+  messageId: string,
+  reaction: Pick<MessageReaction, "emoji" | "actor">,
+): MessageReaction[] | null {
+  const db = getDb();
+  return db.transaction((tx) => {
+    const row = tx
+      .select({ metadata: messages.metadata })
+      .from(messages)
+      .where(eq(messages.id, messageId))
+      .get();
+    if (!row) {
+      return null;
+    }
+    const existing = row.metadata ? safeParseRecord(row.metadata) : {};
+    const parsed = z.array(messageReactionSchema).safeParse(existing.reactions);
+    const reactions = parsed.success ? parsed.data : [];
+    const updated = reactions.filter(
+      (r) => !(r.emoji === reaction.emoji && r.actor === reaction.actor),
+    );
+    if (updated.length === reactions.length) {
+      return reactions;
+    }
+    tx.update(messages)
+      .set({ metadata: JSON.stringify({ ...existing, reactions: updated }) })
+      .where(eq(messages.id, messageId))
+      .run();
+    return updated;
+  });
+}
+
+/**
+ * Newest-first `user`-role rows for a conversation, capped at `limit`.
+ * An indexed seek plus small scan, so callers that only need the recent
+ * user turns (e.g. resolving a reaction target) avoid loading the full
+ * conversation the way `getMessages` does. Secondary `desc(messages.id)`
+ * mirrors the `(createdAt, id)` cursor ordering used elsewhere so rows
+ * sharing a millisecond timestamp order deterministically.
+ */
+export function getRecentUserMessages(
+  conversationId: string,
+  limit: number,
+): MessageRow[] {
+  const db = getDb();
+  return db
+    .select()
+    .from(messages)
+    .where(
+      and(
+        eq(messages.conversationId, conversationId),
+        eq(messages.role, "user"),
+      ),
+    )
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(limit)
+    .all()
+    .map(parseMessage);
 }
 
 /**
