@@ -4,7 +4,9 @@
  * Validates that the VellumAdapter broadcasts notification_intent with
  * deepLinkMetadata, and that the broadcaster correctly passes deepLinkTarget
  * from the decision through to the adapter payload — regardless of whether
- * the conversation was newly created or reused.
+ * the conversation was newly created or reused. Also covers the platform
+ * (APNs) channel, whose deepLinkTarget must be enriched with the
+ * conversationId so remote-push taps can navigate.
  */
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
@@ -667,6 +669,171 @@ describe("notification deep-link metadata", () => {
       // Decision did not carry a deepLinkTarget either — the resulting
       // deep link should be undefined or have no conversationId.
       expect(deepLink?.conversationId).toBeUndefined();
+    });
+
+    // ── Platform (APNs) channel deep-link enrichment ──────────────────
+    //
+    // The platform adapter forwards deepLinkTarget verbatim as
+    // deep_link_metadata, so the broadcaster must enrich it with the
+    // conversationId the same way it does for vellum — otherwise remote-push
+    // taps have no routing key and cannot navigate.
+
+    test("broadcaster merges pairing conversationId and messageId into deepLinkTarget for platform", async () => {
+      const platformAdapter = new MockAdapter("platform");
+      const broadcaster = new NotificationBroadcaster([platformAdapter]);
+
+      nextPairingResult = {
+        conversationId: "conv-paired-platform",
+        messageId: "msg-paired-platform",
+        strategy: "start_new_conversation" as const,
+        createdNewConversation: true,
+        conversationFallbackUsed: false,
+      };
+
+      const signal = makeSignal();
+      const decision = makeDecision({
+        selectedChannels: ["platform"],
+        renderedCopy: {
+          platform: { title: "Test Alert", body: "Something happened" },
+        },
+      });
+
+      await broadcaster.broadcastDecision(signal, decision);
+
+      expect(platformAdapter.sent).toHaveLength(1);
+      const deepLink = platformAdapter.sent[0].deepLinkTarget;
+      expect(deepLink).toBeDefined();
+      expect(deepLink!.conversationId).toBe("conv-paired-platform");
+      expect(deepLink!.messageId).toBe("msg-paired-platform");
+    });
+
+    test("platform deep link falls back to signal.sourceContextId when pairing returns no conversation", async () => {
+      const platformAdapter = new MockAdapter("platform");
+      const broadcaster = new NotificationBroadcaster([platformAdapter]);
+
+      // Production platform pairing: push_only strategy pairs no conversation.
+      nextPairingResult = {
+        conversationId: null,
+        messageId: null,
+        strategy: "push_only" as const,
+        createdNewConversation: false,
+        conversationFallbackUsed: false,
+      };
+
+      const originConvId = "conv-origin-of-push";
+      mockExistingConversations[originConvId] = { id: originConvId };
+
+      const signal = makeSignal({ sourceContextId: originConvId });
+      const decision = makeDecision({
+        selectedChannels: ["platform"],
+        renderedCopy: {
+          platform: { title: "Turn done", body: "Your task finished" },
+        },
+      });
+
+      await broadcaster.broadcastDecision(signal, decision);
+
+      expect(platformAdapter.sent).toHaveLength(1);
+      const deepLink = platformAdapter.sent[0].deepLinkTarget;
+      expect(deepLink).toBeDefined();
+      expect(deepLink!.conversationId).toBe(originConvId);
+    });
+
+    test("platform deep link omits conversationId when sourceContextId is a sentinel", async () => {
+      const platformAdapter = new MockAdapter("platform");
+      const broadcaster = new NotificationBroadcaster([platformAdapter]);
+
+      nextPairingResult = {
+        conversationId: null,
+        messageId: null,
+        strategy: "push_only" as const,
+        createdNewConversation: false,
+        conversationFallbackUsed: false,
+      };
+
+      const signal = makeSignal({ sourceContextId: "job-sentinel-123" });
+      const decision = makeDecision({
+        selectedChannels: ["platform"],
+        renderedCopy: {
+          platform: { title: "Alert", body: "Body" },
+        },
+      });
+
+      await broadcaster.broadcastDecision(signal, decision);
+
+      expect(platformAdapter.sent).toHaveLength(1);
+      expect(
+        platformAdapter.sent[0].deepLinkTarget?.conversationId,
+      ).toBeUndefined();
+    });
+
+    test("vellum and platform each receive deep-link enrichment in the same broadcast", async () => {
+      const vellumAdapter = new MockAdapter("vellum");
+      const platformAdapter = new MockAdapter("platform");
+      const broadcaster = new NotificationBroadcaster([
+        vellumAdapter,
+        platformAdapter,
+      ]);
+
+      // Vellum is ordered first and consumes the queued pairing result;
+      // the platform pairing call then receives the mock's auto-generated
+      // conversation, so each channel is enriched from its own pairing.
+      nextPairingResult = {
+        conversationId: "conv-vellum-paired",
+        messageId: "msg-vellum-paired",
+        strategy: "start_new_conversation" as const,
+        createdNewConversation: true,
+        conversationFallbackUsed: false,
+      };
+
+      const signal = makeSignal();
+      const decision = makeDecision({
+        selectedChannels: ["platform", "vellum"],
+        renderedCopy: {
+          vellum: { title: "Test Alert", body: "Something happened" },
+          platform: { title: "Test Alert", body: "Something happened" },
+        },
+      });
+
+      await broadcaster.broadcastDecision(signal, decision);
+
+      // Vellum behavior unchanged: paired conversation wins.
+      expect(vellumAdapter.sent).toHaveLength(1);
+      expect(vellumAdapter.sent[0].deepLinkTarget?.conversationId).toBe(
+        "conv-vellum-paired",
+      );
+
+      // Platform enriched independently from its own pairing call.
+      expect(platformAdapter.sent).toHaveLength(1);
+      const platformConvId =
+        platformAdapter.sent[0].deepLinkTarget?.conversationId;
+      expect(String(platformConvId)).toStartWith("mock-conv-");
+    });
+
+    test("channels other than vellum and platform do not receive deterministic enrichment", async () => {
+      const telegramAdapter = new MockAdapter("telegram");
+      const broadcaster = new NotificationBroadcaster([telegramAdapter]);
+
+      nextPairingResult = {
+        conversationId: "conv-telegram-paired",
+        messageId: "msg-telegram-paired",
+        strategy: "continue_existing_conversation" as const,
+        createdNewConversation: true,
+        conversationFallbackUsed: false,
+      };
+
+      const signal = makeSignal();
+      const decision = makeDecision({
+        selectedChannels: ["telegram"],
+        renderedCopy: {
+          telegram: { title: "Alert", body: "Body" },
+        },
+      });
+
+      await broadcaster.broadcastDecision(signal, decision);
+
+      expect(telegramAdapter.sent).toHaveLength(1);
+      expect(telegramAdapter.sent[0].deepLinkTarget).toBeUndefined();
     });
   });
 });
