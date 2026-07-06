@@ -18,14 +18,29 @@
  * naming the specific query behind a freeze regardless of whether it came from
  * Drizzle or {@link ./raw-query}.
  *
+ * Attribution: raw-query callers attach a curated `.label()` (e.g.
+ * `"schedule:claimDue"`). Drizzle's fluent API has no chokepoint to label, so
+ * for any query without an explicit label the reporter derives a `caller` from
+ * the stack — `path:function:line` of the application frame that issued it —
+ * captured only on the slow path. Between the two, every slow query is
+ * attributable to its call site with no per-query annotation of Drizzle code.
+ *
+ * The same per-statement chokepoint also surfaces *failed* executions: when a
+ * statement throws, the error is handed to {@link observeSqliteStatementError}
+ * before it propagates unchanged. This is how the SQLite corruption watchdog
+ * notices `SQLITE_CORRUPT` / `SQLITE_NOTADB` on any query or write — read or
+ * write, Drizzle or raw — the moment the workload hits the damaged page.
+ *
  * This is pure instrumentation: return values, parameter binding, transactions,
  * savepoints, and error propagation are all preserved exactly. The fast path
- * adds only a `performance.now()` pair and a numeric compare — no allocation or
- * SQL slicing happens unless the threshold is exceeded.
+ * adds only a `performance.now()` pair and a numeric compare — no allocation,
+ * SQL slicing, or observer call happens unless the statement is slow or throws.
  */
 
+import { basename } from "node:path";
 import type { Database, Statement } from "bun:sqlite";
 
+import { observeSqliteStatementError } from "../daemon/sqlite-corruption-watchdog.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("slow-query");
@@ -62,11 +77,108 @@ export interface SlowQueryEvent {
   rowCount?: number;
   /** Caller-supplied attribution tag, when the query was issued via `.label()`. */
   label?: string;
+  /**
+   * Auto-derived call site (`path:function:line`) for queries with no explicit
+   * `.label()` — notably every Drizzle query, which has no chokepoint to attach
+   * a label to. Captured from the stack only on the slow path.
+   */
+  caller?: string;
+}
+
+/** This instrumentation module — never the query's call site. */
+const SELF_MODULE = "slow-query-log.ts";
+
+/**
+ * Marks the assistant package's own source. In local-runtime installs the CLI
+ * runs the daemon from `<installDir>/node_modules/@vellumai/assistant/src/…`, so
+ * the assistant's own frames also contain `node_modules` — they must NOT be
+ * treated as third-party dependency frames when deriving the caller.
+ */
+const ASSISTANT_SRC_MARKER = "@vellumai/assistant/src/";
+
+/**
+ * True for stack frames that are runtime/ORM/instrumentation plumbing rather
+ * than the application code that issued the query. Third-party dependency frames
+ * (Drizzle et al.) live under `node_modules/` or Bun's global install cache
+ * (`.bun/install/cache/drizzle-orm@x.y.z/…`) and are skipped — but the
+ * assistant's own packaged `src/` frames, which also live under `node_modules`,
+ * are preserved.
+ */
+function isPlumbingFrame(line: string): boolean {
+  // Runtime internals: `node:*` / `bun:*` modules and Bun's `native:` frames
+  // (moduleEvaluation, processTicksAndRejections, …).
+  if (
+    line.includes("node:") ||
+    line.includes("bun:") ||
+    line.includes("native:")
+  ) {
+    return true;
+  }
+  if (line.includes(SELF_MODULE)) return true;
+  const isDependency =
+    line.includes("node_modules/") || line.includes(".bun/install/cache/");
+  return isDependency && !line.includes(ASSISTANT_SRC_MARKER);
+}
+
+/** `src/`-relative path, or bare basename when the frame is outside `src/`. */
+function shortenStackFile(file: string): string {
+  const idx = file.lastIndexOf("/src/");
+  if (idx >= 0) return file.slice(idx + "/src/".length);
+  return file.split("/").pop() ?? file;
+}
+
+/**
+ * Best-effort attribution for a query with no explicit label: the first stack
+ * frame outside this module, dependencies, and the runtime — i.e. the
+ * application code that issued the query. Returns e.g.
+ * `persistence/conversation-crud.ts:insertMessageCore:474`. Only called on the
+ * slow path (a query already past the threshold), so the `Error().stack` cost is
+ * incurred rarely. Accepts an explicit `stack` for testing.
+ *
+ * @internal exported only for unit tests.
+ */
+export function callerFromStack(
+  stack: string | undefined = new Error().stack,
+): string | undefined {
+  if (!stack) return undefined;
+  const lines = stack.split("\n");
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (!line.includes("at ")) continue;
+    if (isPlumbingFrame(line)) continue;
+    // Bun renders frames as `at fn (file:line:col)`, `at file:line:col`, or
+    // (for some optimized frames) `at file:line` with no function or column.
+    const withFn = line.match(
+      /at (?:async )?([^\s(]+) \((.+?):(\d+)(?::\d+)?\)/,
+    );
+    if (withFn) {
+      return `${shortenStackFile(withFn[2])}:${withFn[1]}:${withFn[3]}`;
+    }
+    const noFn = line.match(/at (?:async )?(.+?):(\d+)(?::\d+)?$/);
+    if (noFn) {
+      return `${shortenStackFile(noFn[1])}:${noFn[2]}`;
+    }
+  }
+  return undefined;
 }
 
 /** Log a slow statement execution at WARN with its SQL and duration. */
 export function reportSlowQuery(event: SlowQueryEvent): void {
   log.warn(event, "Slow SQLite query blocked the event loop");
+}
+
+/** Context handed to {@link observeSqliteStatementError} for a failed execution. */
+export interface StatementErrorContext {
+  /** SQL preview (first {@link SQL_PREVIEW_MAX} chars) of the failing statement. */
+  sql: string;
+  /**
+   * The database file's basename (e.g. `"assistant.db"` / `"assistant-logs.db"`),
+   * derived from the `Database`'s own `filename`. Always set by the wrapper;
+   * optional only for direct callers (tests) that construct a context by hand.
+   */
+  database?: string;
+  /** Caller-supplied `.label()` attribution tag, when present. */
+  label?: string;
 }
 
 /** Injectable seams so the wrapper is unit-testable with a fake clock/sink. */
@@ -116,6 +228,27 @@ export function wrapSqliteForSlowQueryLogging(
   const thresholdMs = options.thresholdMs ?? SLOW_QUERY_THRESHOLD_MS;
   const now = options.now ?? (() => performance.now());
   const onSlowQuery = options.onSlowQuery ?? reportSlowQuery;
+  // Reuse the path this connection was opened with (`new Database(path)`) rather
+  // than a hand-passed key — its basename names the damaged file.
+  const database = basename(sqlite.filename);
+
+  // Slow path only (a statement threw). Surface it to the corruption watchdog;
+  // its failure must never escape into the query path.
+  const notifyError = (
+    err: unknown,
+    sql: string,
+    label: string | undefined,
+  ): void => {
+    try {
+      observeSqliteStatementError(err, {
+        sql: sql.slice(0, SQL_PREVIEW_MAX),
+        database,
+        ...(label === undefined ? {} : { label }),
+      });
+    } catch {
+      // The observer must never break the query path.
+    }
+  };
 
   // Re-entrancy guard. `bun:sqlite` implements `db.query(sql).run()` by
   // delegating through the (also-wrapped) `db.prepare(sql)`, so the outer
@@ -132,30 +265,40 @@ export function wrapSqliteForSlowQueryLogging(
     durationMs: number,
     result: unknown,
   ): void => {
-    // Only ever called on the slow path, so building the payload here is fine.
+    // Only ever called on the slow path, so building the payload — including the
+    // stack walk for unlabeled (Drizzle) queries — is fine.
+    const caller = label === undefined ? callerFromStack() : undefined;
     onSlowQuery({
       durationMs,
       sql: sql.slice(0, SQL_PREVIEW_MAX),
       ...(Array.isArray(result) ? { rowCount: result.length } : {}),
       ...(label === undefined ? {} : { label }),
+      ...(caller === undefined ? {} : { caller }),
     });
   };
 
-  // Unlabeled statement proxies are cached against their native statement so
-  // repeated executions of a `.query()`-cached prepared statement reuse one
-  // proxy and its timed closures — nothing allocates on the hot path. Labeled
-  // statements are opt-in attribution created fresh (a native statement shared
-  // across labels must not leak the first label), so they skip this cache.
-  const unlabeledProxies = new WeakMap<Statement, Statement>();
+  // Statement proxies are cached against their native statement so repeated
+  // executions of a `.query()`-cached prepared statement reuse one proxy and its
+  // timed closures — nothing allocates on the hot path. The cache is keyed by
+  // label as well as statement so a native statement reused under different
+  // labels gets one proxy per label (no label leaks across callers), and the
+  // labeled hot path (e.g. the raw-query helpers) stays allocation-free too.
+  const UNLABELED = "";
+  const proxiesByStmt = new WeakMap<Statement, Map<string, Statement>>();
 
   const wrapStatement = (
     stmt: Statement,
     sql: string,
     label: string | undefined,
   ): Statement => {
-    if (label === undefined) {
-      const cached = unlabeledProxies.get(stmt);
+    const cacheKey = label ?? UNLABELED;
+    let byLabel = proxiesByStmt.get(stmt);
+    if (byLabel) {
+      const cached = byLabel.get(cacheKey);
       if (cached) return cached;
+    } else {
+      byLabel = new Map();
+      proxiesByStmt.set(stmt, byLabel);
     }
 
     const timed = new Map<string, (...args: unknown[]) => unknown>();
@@ -175,12 +318,17 @@ export function wrapSqliteForSlowQueryLogging(
               try {
                 result = call(...args);
                 return result;
+              } catch (err) {
+                // The failed op still blocked and still needs timing (below);
+                // surface it to the error observer before it propagates
+                // unchanged. Re-entrant inner calls short-circuit above
+                // (`if (timing)`), so a nested throw is observed once, here.
+                notifyError(err, sql, label);
+                throw err;
               } finally {
                 timing = false;
                 // Fast path: one subtraction + one compare. Nothing is
-                // allocated or sliced unless we cross the threshold. A thrown
-                // error still lands here (the failed op still blocked) and is
-                // reported before `finally` lets it propagate unchanged.
+                // allocated or sliced unless we cross the threshold.
                 const durationMs = now() - start;
                 if (durationMs >= thresholdMs) {
                   emit(sql, label, durationMs, result);
@@ -201,7 +349,7 @@ export function wrapSqliteForSlowQueryLogging(
       },
     });
 
-    if (label === undefined) unlabeledProxies.set(stmt, proxy);
+    byLabel.set(cacheKey, proxy);
     return proxy;
   };
 
@@ -209,22 +357,47 @@ export function wrapSqliteForSlowQueryLogging(
   const originalPrepare = sqlite.prepare.bind(sqlite);
   const originalRun = sqlite.run.bind(sqlite);
 
+  // `.query()` / `.prepare()` compile the SQL, which reads the schema — on a
+  // file with a corrupt header ("file is not a database") that read throws
+  // *here*, before any execution method runs, so the error is surfaced to the
+  // observer at creation time too. (Malformed-*page* corruption instead
+  // surfaces at step time and is caught in the execution closures above.) A
+  // `query()` that delegates through the wrapped `prepare()` may notify twice;
+  // the observer's per-database debounce collapses that to one report.
+  const createStatement = (
+    create: (...a: unknown[]) => Statement,
+    sql: string,
+    label: string | undefined,
+    rest: unknown[],
+  ): Statement => {
+    let stmt: Statement;
+    try {
+      stmt = create(sql, ...rest);
+    } catch (err) {
+      notifyError(err, sql, label);
+      throw err;
+    }
+    return wrapStatement(stmt, sql, label);
+  };
+
   const makeQuery =
     (label: string | undefined) =>
     (sql: string, ...rest: unknown[]): Statement =>
-      wrapStatement(
-        (originalQuery as (...a: unknown[]) => Statement)(sql, ...rest),
+      createStatement(
+        originalQuery as (...a: unknown[]) => Statement,
         sql,
         label,
+        rest,
       );
 
   const makePrepare =
     (label: string | undefined) =>
     (sql: string, ...rest: unknown[]): Statement =>
-      wrapStatement(
-        (originalPrepare as (...a: unknown[]) => Statement)(sql, ...rest),
+      createStatement(
+        originalPrepare as (...a: unknown[]) => Statement,
         sql,
         label,
+        rest,
       );
 
   // `Database.run(sql, ...params)` is a native shortcut that does not route
@@ -241,6 +414,9 @@ export function wrapSqliteForSlowQueryLogging(
       try {
         result = call(sql, ...params);
         return result;
+      } catch (err) {
+        notifyError(err, sql, label);
+        throw err;
       } finally {
         timing = false;
         const durationMs = now() - start;

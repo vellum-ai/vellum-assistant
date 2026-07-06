@@ -62,6 +62,8 @@ export type MemoryJobType =
   | "memory_v2_reembed"
   | "memory_v2_activation_recompute"
   | "memory_v3_maintain"
+  | "pkb_filing"
+  | "pkb_compaction"
   | "index_message_lexical"
   | "purge_conversation_lexical"
   | "delete_message_lexical"
@@ -98,6 +100,8 @@ export const MESSAGE_LEXICAL_JOB_TYPES: MemoryJobType[] = [
 
 export const SLOW_LLM_JOB_TYPES: MemoryJobType[] = [
   "graph_consolidate",
+  "pkb_filing",
+  "pkb_compaction",
   "graph_pattern_scan",
   "graph_narrative_refine",
   "graph_extract",
@@ -829,6 +833,7 @@ export function failStalledJobs(timeoutMs: number): number {
   const now = Date.now();
   const cutoff = now - timeoutMs;
   const stalled = rawMemoryAll<{ id: string; type: string }>(
+    "jobs:failStalledJobs:select",
     `
     SELECT id, type
     FROM memory_jobs
@@ -863,11 +868,14 @@ export function failStalledJobs(timeoutMs: number): number {
 }
 
 export function getMemoryJobCounts(): Record<string, number> {
-  const rows = rawMemoryAll<{ status: string; c: number }>(`
+  const rows = rawMemoryAll<{ status: string; c: number }>(
+    "jobs:getMemoryJobCounts",
+    `
     SELECT status, COUNT(*) AS c
     FROM memory_jobs
     GROUP BY status
-  `);
+  `,
+  );
   const counts: Record<string, number> = {
     pending: 0,
     running: 0,

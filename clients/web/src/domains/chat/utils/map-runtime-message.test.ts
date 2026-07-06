@@ -130,18 +130,18 @@ describe("mapRuntimeToDisplayMessage", () => {
     expect(mapRuntimeToDisplayMessage(m).isAcpNotification).toBe(true);
   });
 
-  test("flags a backgroundToolNotification message as isBackgroundToolNotification", () => {
+  test("flags a backgroundEventNotification message as isBackgroundEventNotification", () => {
     const plain = makeMessage({ id: "m-plain", role: "user" });
     expect(
-      mapRuntimeToDisplayMessage(plain).isBackgroundToolNotification,
+      mapRuntimeToDisplayMessage(plain).isBackgroundEventNotification,
     ).toBeUndefined();
 
     const m = makeMessage({
       id: "m-bg",
       role: "user",
-      backgroundToolNotification: true,
+      backgroundEventNotification: true,
     });
-    expect(mapRuntimeToDisplayMessage(m).isBackgroundToolNotification).toBe(
+    expect(mapRuntimeToDisplayMessage(m).isBackgroundEventNotification).toBe(
       true,
     );
   });

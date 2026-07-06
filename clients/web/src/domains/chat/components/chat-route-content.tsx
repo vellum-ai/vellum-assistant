@@ -69,6 +69,10 @@ import { usePullRefresh } from "@/domains/chat/hooks/use-pull-refresh";
 import type { TranscriptHandle, TranscriptProps } from "@/domains/chat/transcript/transcript";
 import { useTranscriptScroll } from "@/domains/chat/transcript/use-transcript-scroll";
 import { useIsNativePlatform } from "@/runtime/native-auth";
+import {
+  resolveDroppedDirectories,
+  WEB_FOLDER_DROP_ERROR,
+} from "@/domains/chat/components/chat-attachments/handle-folder-drop";
 import { Button } from "@vellumai/design-library";
 import { Link, useLocation, useNavigate } from "react-router";
 import {
@@ -529,19 +533,11 @@ export function ChatMainPanel({
 
   const sendDisabled = isSendDisabledFromTurn || typingDisabled;
 
-  const handleQuoteReplyNow = useCallback(
-    (quotedText: string, replyText: string) => {
-      if (sendDisabled) {
-        return;
-      }
-      const blockquote = quotedText
-        .split("\n")
-        .map((line) => `> ${line}`)
-        .join("\n");
-      void sendMessage(`${blockquote}\n\n${replyText}`);
-    },
-    [sendMessage, sendDisabled],
-  );
+  const handleQuoteAddedToChat = useCallback(() => {
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
+  }, [inputRef]);
 
   const isEmptyConversation =
     !!activeConversationId &&
@@ -663,11 +659,24 @@ export function ChatMainPanel({
     },
     [addChatAttachmentFiles, activeModelSupportsVision, visionGateActive],
   );
+  const handleDroppedDirectories = useCallback((directories: File[]) => {
+    const { resolvedPaths, unresolvedCount } =
+      resolveDroppedDirectories(directories);
+    if (resolvedPaths.length > 0) {
+      useComposerStore.getState().addPathReferences(resolvedPaths);
+    }
+    if (unresolvedCount > 0) {
+      useComposerStore.setState({
+        attachmentLastError: WEB_FOLDER_DROP_ERROR,
+      });
+    }
+  }, []);
   const {
     isDragOver: isAttachmentDragOver,
     dropHandlers: attachmentDropHandlers,
   } = useChatAttachmentDropZone({
     onFiles: handleDroppedFiles,
+    onDirectories: handleDroppedDirectories,
     disabled: typingDisabled || !assistantId,
   });
 
@@ -1081,7 +1090,7 @@ export function ChatMainPanel({
       {sendErrorModalNode}
       {ruleEditorModalNode}
       <TextSelectionPopover containerRef={transcriptContainerRef} />
-      <QuoteReplyBubble onSendNow={handleQuoteReplyNow} />
+      <QuoteReplyBubble onAddToChat={handleQuoteAddedToChat} />
     </>
   );
 }

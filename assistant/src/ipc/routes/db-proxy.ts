@@ -11,8 +11,11 @@
  * private implementation detail between the gateway and assistant IPC
  * servers and must not be discoverable by clients or the OpenAPI spec.
  *
- * Remove this once all contacts/guardian-binding logic is migrated off
- * the assistant daemon and into the gateway's own database.
+ * The gateway callers are pinned by an allowlist guard
+ * (gateway `__tests__/db-proxy-allowlist.test.ts`): verification-session +
+ * rate-limit state, the contact-merge identity-mirror cluster (pending a
+ * merge-shaped op), and one-time data migrations. Slated for removal with the
+ * verification-session source-of-truth move.
  *
  * Tracking: ATL-XXX (gateway security migration)
  */

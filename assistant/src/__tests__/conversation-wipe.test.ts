@@ -17,7 +17,6 @@ import {
 import { getDb, getLogsDb, getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { enqueueMemoryJob } from "../persistence/jobs-store.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
 
 // Initialize db once before all tests
 await initializeDb();
@@ -35,7 +34,6 @@ describe("wipeConversation", () => {
     getLogsDb()!.run(`DELETE FROM llm_request_logs`);
     db.run(`DELETE FROM messages`);
     db.run(`DELETE FROM conversations`);
-    registerDefaultPluginPersistenceHooks();
   });
 
   test("wipes conversation and all messages", async () => {

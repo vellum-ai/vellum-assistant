@@ -34,7 +34,6 @@
 !skills/meet-join/scripts/**
 
 # Exclude local dependencies and build outputs from included directories.
-assistant/node_modules/
 assistant/dist/
 assistant/out/
 assistant/build/
@@ -42,16 +41,13 @@ assistant/.env
 assistant/.env.*
 # Authoring-reference example plugins are not shipped with the production image.
 assistant/examples/
-credential-executor/node_modules/
 credential-executor/.env
 credential-executor/.env.*
-gateway/node_modules/
 gateway/.env
 gateway/.env.*
-packages/*/node_modules/
 packages/*/.env
 packages/*/.env.*
-skills/meet-join/node_modules/
-skills/meet-join/contracts/node_modules/
 skills/meet-join/**/__tests__/
 skills/meet-join/**/*.test.ts
+
+**/node_modules/

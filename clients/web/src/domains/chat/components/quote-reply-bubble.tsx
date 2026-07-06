@@ -1,14 +1,13 @@
 /**
  * Overlay bubble that appears after the user starts a reply from a text
  * selection. Displays the quoted passage and a text input for the user's
- * reply, with two actions:
+ * reply, with one action:
  *
  * - **Add to Chat** — stages the quote+reply for inclusion in the next
  *   message the user sends from the composer.
- * - **Send Now** — immediately sends only the quote+reply as a new message.
  */
 
-import { MessageSquareQuote, Send, X } from "lucide-react";
+import { MessageSquareQuote, X } from "lucide-react";
 import {
   type KeyboardEvent as ReactKeyboardEvent,
   useCallback,
@@ -16,8 +15,6 @@ import {
   useRef,
   useState,
 } from "react";
-
-import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import {
   Button,
   Card,
@@ -25,12 +22,19 @@ import {
   Textarea,
   Typography,
 } from "@vellumai/design-library";
+import {
+  quoteBlockquoteAccentClassName,
+  quoteBlockquoteClassName,
+  quoteBlockquoteContentClassName,
+} from "@vellumai/design-library/components/markdown-message";
+
+import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 
 interface QuoteReplyBubbleProps {
-  onSendNow: (quotedText: string, replyText: string) => void;
+  onAddToChat?: () => void;
 }
 
-export function QuoteReplyBubble({ onSendNow }: QuoteReplyBubbleProps) {
+export function QuoteReplyBubble({ onAddToChat }: QuoteReplyBubbleProps) {
   const replyBubble = useQuoteReplyStore.use.replyBubble();
   const closeReplyBubble = useQuoteReplyStore.use.closeReplyBubble();
   const addStagedQuote = useQuoteReplyStore.use.addStagedQuote();
@@ -57,15 +61,9 @@ export function QuoteReplyBubble({ onSendNow }: QuoteReplyBubbleProps) {
       replyText: replyText.trim(),
       sourceMessageId: replyBubble.sourceMessageId,
     });
-  }, [replyBubble, replyText, addStagedQuote]);
-
-  const handleSendNow = useCallback(() => {
-    if (!replyBubble || !replyText.trim()) {
-      return;
-    }
-    onSendNow(replyBubble.quotedText, replyText.trim());
+    onAddToChat?.();
     closeReplyBubble();
-  }, [replyBubble, replyText, onSendNow, closeReplyBubble]);
+  }, [replyBubble, replyText, addStagedQuote, onAddToChat, closeReplyBubble]);
 
   const handleKeyDown = useCallback(
     (e: ReactKeyboardEvent<HTMLTextAreaElement>) => {
@@ -73,12 +71,8 @@ export function QuoteReplyBubble({ onSendNow }: QuoteReplyBubbleProps) {
         e.preventDefault();
         handleAddToChat();
       }
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        handleSendNow();
-      }
     },
-    [handleAddToChat, handleSendNow],
+    [handleAddToChat],
   );
 
   if (!replyBubble) {
@@ -147,9 +141,15 @@ export function QuoteReplyBubble({ onSendNow }: QuoteReplyBubbleProps) {
             <Typography
               as="div"
               variant="body-small-default"
-              className="rounded-lg border-l-2 border-[var(--border-active)] bg-[var(--surface-lift)] px-3 py-2 text-[var(--content-secondary)]"
+              className={`${quoteBlockquoteClassName} mb-0`}
             >
-              {truncatedQuote}
+              <span
+                aria-hidden="true"
+                className={quoteBlockquoteAccentClassName}
+              />
+              <span className={quoteBlockquoteContentClassName}>
+                {truncatedQuote}
+              </span>
             </Typography>
 
             <Textarea
@@ -171,15 +171,6 @@ export function QuoteReplyBubble({ onSendNow }: QuoteReplyBubbleProps) {
                 disabled={!replyText.trim()}
               >
                 Add to Chat
-              </Button>
-              <Button
-                variant="primary"
-                size="compact"
-                onClick={handleSendNow}
-                disabled={!replyText.trim()}
-                rightIcon={<Send />}
-              >
-                Send Now
               </Button>
             </div>
           </Card.Body>

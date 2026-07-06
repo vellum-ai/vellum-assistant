@@ -438,10 +438,9 @@ describe("workspace hooks (<workspace>/hooks/)", () => {
   });
 
   // NB: each test below uses a distinct hook event name so the workspace
-  // hook file path is unique. Bun caches dynamic import() by URL and does not
-  // bust on content change, so reusing `<workspace>/hooks/<name>.ts` across
-  // tests would return a stale module (the existing plugin tests dodge this
-  // by using a fresh plugin directory per test).
+  // hook file path is unique and each test stays independent of the cache
+  // state its siblings leave behind (the plugin tests get the same isolation
+  // from a fresh plugin directory per test).
   test("plugin hooks run before the workspace hook for the same event", async () => {
     const dir = freshPluginDir("ordering-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "ordering-plugin" });

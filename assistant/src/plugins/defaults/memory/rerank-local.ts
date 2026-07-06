@@ -6,6 +6,7 @@ import { EmbeddingRuntimeManager } from "../../../persistence/embeddings/embeddi
 import { getLogger } from "../../../util/logger.js";
 import { getEmbeddingModelsDir } from "../../../util/platform.js";
 import { PromiseGuard } from "../../../util/promise-guard.js";
+import { workerMemoryEnv } from "../../../util/worker-memory.js";
 
 const log = getLogger("memory-rerank-local");
 
@@ -156,6 +157,7 @@ export class LocalRerankBackend {
         modelCacheDir,
         this.dtype,
       ],
+      env: workerMemoryEnv(),
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe",

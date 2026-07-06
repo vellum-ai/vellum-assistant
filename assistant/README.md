@@ -174,7 +174,7 @@ Guardian actor-role _classification_ (determining whether a sender is guardian, 
 
 ### Ingress Boundary Guarantees (Gateway-Only Mode)
 
-The runtime operates in **gateway-only mode**: all public-facing webhook paths are blocked at the runtime level. Direct access to Twilio webhook routes (`/webhooks/twilio/voice`, `/webhooks/twilio/status`, `/webhooks/twilio/connect-action`) and their legacy equivalents (`/v1/calls/twilio/*`) returns `410 GATEWAY_ONLY`. This ensures external webhook traffic can only reach the runtime through the gateway, which performs signature validation before forwarding.
+The runtime operates in **gateway-only mode**: all public-facing webhook paths are blocked at the runtime level. Direct access to Twilio webhook routes (`/webhooks/twilio/voice`, `/webhooks/twilio/status`) and their legacy equivalents (`/v1/calls/twilio/*`) returns `410 GATEWAY_ONLY`. This ensures external webhook traffic can only reach the runtime through the gateway, which performs signature validation before forwarding.
 
 Internal forwarding routes (`/v1/internal/twilio/*`) are unaffected — these accept pre-validated payloads from the gateway over the private network.
 

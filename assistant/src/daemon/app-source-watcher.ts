@@ -57,6 +57,14 @@ function resolveAppIdFromRelPath(relPath: string): string | null {
   const dirName = relPath.slice(0, slashIdx);
   const innerPath = relPath.slice(slashIdx + 1);
 
+  // Skip a git repo at the root of the apps directory. Older installs may
+  // still carry a legacy .git there; its objects/index/refs churn constantly,
+  // and each event would otherwise hit resolveAppIdByDirName -> existsSync,
+  // which is needless work on a path that can never be an app.
+  if (dirName === ".git") {
+    return null;
+  }
+
   // Skip non-source directories (include bare directory names for fs.watch events)
   if (
     innerPath === "records" ||

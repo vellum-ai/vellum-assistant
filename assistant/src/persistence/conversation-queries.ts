@@ -377,6 +377,7 @@ export function listConversationsByTitlePrefix(
     created_at: number;
   }
   const rows = rawAll<Row>(
+    "conversation:listByTitlePrefix",
     `SELECT c.id, c.title,
             (SELECT COUNT(*) FROM messages WHERE conversation_id = c.id) AS message_count,
             c.created_at
@@ -595,6 +596,7 @@ export async function searchConversations(
       }
       const placeholders = candidateIds.map(() => "?").join(",");
       const visibleRows = rawAll<CandidateRow>(
+        "conversation:searchConversations:visibleCandidates",
         `
         SELECT m.id, m.conversation_id
         FROM messages m
@@ -682,6 +684,7 @@ export async function searchConversations(
     updated_at: number;
   }
   const matchingConversations = rawAll<ConvRow>(
+    "conversation:searchConversations:matchingConversations",
     `SELECT id, title, updated_at FROM conversations
      WHERE id IN (${placeholders})
      ORDER BY updated_at DESC
@@ -710,6 +713,7 @@ export async function searchConversations(
       if (candidateIds.length > 0) {
         const msgPlaceholders = candidateIds.map(() => "?").join(",");
         matchingMsgs = rawAll<ConversationSearchMsgRow>(
+          "conversation:searchConversations:matchingMessages",
           `
           SELECT id, role, content, created_at
           FROM messages

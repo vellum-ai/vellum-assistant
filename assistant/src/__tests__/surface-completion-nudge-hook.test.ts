@@ -140,6 +140,7 @@ function makeCtx(
     stopReason: null,
     decision: "stop",
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }
@@ -355,6 +356,7 @@ describe("surface-completion-nudge — cycle scoping and one-shot bound", () => 
       messages: [],
       exitReason: "no_tool_calls",
       logger: noopLogger,
+      broadcast: () => {},
     });
     expect(isSurfaceCompletionNudged("conv-scn")).toBe(false);
 

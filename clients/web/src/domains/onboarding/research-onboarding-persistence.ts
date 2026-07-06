@@ -46,7 +46,8 @@ export type ResearchStep =
   | "meeting"
   | "looking"
   | "results"
-  | "suggestions";
+  | "suggestions"
+  | "finishing";
 
 /** Completed research output — only snapshotted once the turn settles "done". */
 export interface PersistedResearchResults {

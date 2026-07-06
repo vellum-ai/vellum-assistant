@@ -12,6 +12,7 @@
  * verification intercept is mocked per-test so the default path forwards.
  */
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { eq } from "drizzle-orm";
 import type { GatewayConfig } from "../config.js";
 import type {
   RuntimeInboundPayload,
@@ -423,5 +424,68 @@ describe("handle-inbound sender-authentication downgrade", () => {
     expect(verdict.trustClass).toBe("unknown");
     expect(verdict.contactId).toBeUndefined();
     expect(verdict.status).toBeUndefined();
+  });
+});
+
+describe("handle-inbound contact channel stats", () => {
+  function readChannel(id: string) {
+    return getGatewayDb()
+      .select()
+      .from(gwContactChannels)
+      .where(eq(gwContactChannels.id, id))
+      .get()!;
+  }
+
+  test("non-duplicate inbound bumps lastSeen + interaction on the gateway row", async () => {
+    insertContact({ id: "c-member", displayName: "Trusted Member" });
+    insertChannel({
+      id: "ch-member",
+      contactId: "c-member",
+      address: "U_USER_1",
+      externalChatId: "chat-member",
+    });
+
+    await handleInbound(makeConfig(), makeEvent(), ROUTING);
+
+    const channel = readChannel("ch-member");
+    expect(channel.interactionCount).toBe(1);
+    expect(channel.lastInteraction).not.toBeNull();
+    expect(channel.lastSeenAt).not.toBeNull();
+  });
+
+  test("duplicate inbound bumps lastSeen only, leaving interactionCount at 0", async () => {
+    insertContact({ id: "c-member", displayName: "Trusted Member" });
+    insertChannel({
+      id: "ch-member",
+      contactId: "c-member",
+      address: "U_USER_1",
+    });
+    forwardToRuntimeMock.mockImplementationOnce(async (_config, payload) => {
+      runtimePayloads.push(payload);
+      return { accepted: true, duplicate: true, eventId: "runtime-dup-1" };
+    });
+
+    await handleInbound(makeConfig(), makeEvent(), ROUTING);
+
+    const channel = readChannel("ch-member");
+    expect(channel.interactionCount).toBe(0);
+    expect(channel.lastInteraction).toBeNull();
+    expect(channel.lastSeenAt).not.toBeNull();
+  });
+
+  test("resolves via externalChatId fallback when the address does not match", async () => {
+    insertContact({ id: "c-legacy", displayName: "Legacy Import" });
+    insertChannel({
+      id: "ch-legacy",
+      contactId: "c-legacy",
+      address: "SOME_OTHER_ADDRESS",
+      externalChatId: "C_CHAT_1",
+    });
+
+    await handleInbound(makeConfig(), makeEvent(), ROUTING);
+
+    const channel = readChannel("ch-legacy");
+    expect(channel.interactionCount).toBe(1);
+    expect(channel.lastSeenAt).not.toBeNull();
   });
 });

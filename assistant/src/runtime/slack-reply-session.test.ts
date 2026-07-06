@@ -92,6 +92,11 @@ const slackStreamOps = (): Array<Record<string, unknown>> =>
     .map((call) => call.payload.slackStream as Record<string, unknown>)
     .filter(Boolean);
 
+const streamedMarkdown = (): string =>
+  slackStreamOps()
+    .map((op) => (op.markdownText as string | undefined) ?? "")
+    .join("");
+
 beforeEach(() => {
   deliverCalls.length = 0;
   deliverImpl = async () => ({ ok: true, ts: "stream-ts-1" });
@@ -500,6 +505,82 @@ describe("createSlackReplySession", () => {
       messageTs: "stream-ts-1",
       deliveredSegmentCount: 2,
     });
+  });
+
+  test("inserts a space between segments fused across a tool boundary", async () => {
+    // The model ends one segment with a period and opens the next with a
+    // capital letter, supplying no separating whitespace on either side.
+    // Concatenating them raw would fuse "Sentence one.Sentence two.".
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+    })!;
+
+    session.observeEvent(textDelta("Sentence one."));
+    session.observeEvent(toolUseStart("toolu_1"));
+    session.observeEvent(textDelta("Sentence two."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    expect(streamedMarkdown()).toBe("Sentence one. Sentence two.");
+  });
+
+  test("inserts a space between separate model responses", async () => {
+    // Multiple `message_complete` events fire within one streamed turn (one
+    // per model response). Text from the second response must not fuse onto
+    // the first.
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+    })!;
+
+    session.observeEvent(textDelta("First response."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    session.observeEvent(textDelta("Second response."));
+    session.observeEvent(messageComplete("assistant-msg-2"));
+    await session.finish();
+
+    expect(streamedMarkdown()).toBe("First response. Second response.");
+  });
+
+  test("does not double-space a boundary the model already spaced", async () => {
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+    })!;
+
+    session.observeEvent(textDelta("Before the tool."));
+    session.observeEvent(toolUseStart("toolu_1"));
+    session.observeEvent(textDelta(" After the tool."));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    expect(streamedMarkdown()).toBe("Before the tool. After the tool.");
+  });
+
+  test("does not fuse mid-word deltas within a single segment", async () => {
+    // Intra-segment token deltas carry the model's own spacing and must never
+    // be altered — only tool/message boundaries introduce a separating space.
+    const session = createSlackReplySession({
+      sourceChannel: "slack",
+      chatType: "im",
+      replyCallbackUrl: CALLBACK_URL,
+      chatId: CHANNEL,
+    })!;
+
+    session.observeEvent(textDelta("super"));
+    session.observeEvent(textDelta("cali"));
+    session.observeEvent(textDelta("fragilistic"));
+    session.observeEvent(messageComplete("assistant-msg-1"));
+    await session.finish();
+
+    expect(streamedMarkdown()).toBe("supercalifragilistic");
   });
 
   test("opens the stream in plan mode and advances task cards", async () => {

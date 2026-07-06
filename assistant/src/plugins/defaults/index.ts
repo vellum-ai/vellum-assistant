@@ -25,18 +25,9 @@
  */
 
 import {
-  type MemoryPersistenceHooks,
-  registerMemoryPersistenceHooks,
-} from "../../persistence/memory-lifecycle-hooks.js";
-import { isPluginDisabled } from "../disabled-state.js";
-import {
   clearInjectorRegistry,
   registerPluginInjectors,
 } from "../injector-registry.js";
-import {
-  clearJobHandlerRegistry,
-  registerPluginJobHandlers,
-} from "../job-handler-registry.js";
 import { registerPlugin, resetPluginRegistryForTests } from "../registry.js";
 import { type Plugin, PluginExecutionError } from "../types.js";
 import { channelInjectors } from "./channel/injectors.js";
@@ -74,9 +65,7 @@ import memoryPostCompact from "./memory/hooks/post-compact.js";
 import memoryShutdown from "./memory/hooks/shutdown.js";
 import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
 import { memoryInjectors } from "./memory/injectors.js";
-import { memoryJobHandlers } from "./memory/job-handlers.js";
 import memoryPkg from "./memory/package.json" with { type: "json" };
-import { memoryPersistenceHooks } from "./memory/persistence-hooks.js";
 import {
   memoryV3Injector,
   memoryV3SpotlightInjector,
@@ -183,7 +172,6 @@ export const defaultMemoryPlugin: Plugin = {
     "post-compact": memoryPostCompact,
   },
   injectors: [...memoryInjectors, memoryV3Injector, memoryV3SpotlightInjector],
-  jobHandlers: memoryJobHandlers,
 };
 
 /**
@@ -486,97 +474,6 @@ export function registerDefaultPluginInjectors(): void {
 }
 
 /**
- * Register every default plugin's background-job handlers into the global
- * job-handler registry — the job-handler analog of
- * {@link registerDefaultPluginInjectors}. `bootstrapPlugins` calls this before
- * the per-plugin init loop so a default plugin's handlers are present
- * regardless of its disabled-state. The standalone memory-worker process does
- * not run plugin bootstrap, so `registerMemoryJobHandlers`
- * (`jobs/register-job-handlers.ts`) calls this directly before forwarding the
- * registry union into the worker dispatch table. Idempotent:
- * `registerPluginJobHandlers` replaces a plugin's prior set, so the per-plugin
- * re-registration in `initializePlugin` is a harmless no-op replace.
- */
-export function registerDefaultPluginJobHandlers(): void {
-  for (const plugin of getAllDefaultPlugins()) {
-    if (plugin.jobHandlers && plugin.jobHandlers.length > 0) {
-      registerPluginJobHandlers(plugin.manifest.name, plugin.jobHandlers);
-    }
-  }
-}
-
-/**
- * Wrap a plugin's persistence hooks so its ACTIVE side-effect hooks no-op while
- * that plugin is disabled (`assistant plugins disable <name>`), mirroring the
- * read-time disabled-state filtering the injector/hook/job-handler/tool surfaces
- * apply. The sentinel is checked per call, so enable/disable takes effect on the
- * next write without a daemon restart. CLEANUP hooks (`onConversationWiped`,
- * `onConversationDeleted`, `onMessagesDeleted`, `onAllConversationsCleared`,
- * `onWorkerStartup`) are intentionally NOT gated — they must run even when the
- * plugin is disabled so state created while it was enabled is not orphaned.
- */
-export function guardPersistenceHooksByDisabledState(
-  pluginName: string,
-  hooks: MemoryPersistenceHooks,
-): MemoryPersistenceHooks {
-  return {
-    onMessagePersisted(event) {
-      if (isPluginDisabled(pluginName)) return;
-      return hooks.onMessagePersisted(event);
-    },
-    onConversationForked(event) {
-      if (isPluginDisabled(pluginName)) return;
-      return hooks.onConversationForked(event);
-    },
-    // Gated like the active side effects above: a disabled plugin reports an
-    // empty buffer, so the maintenance scheduler treats it as "no buffered
-    // work" and skips consolidation — matching how disabled injectors/hooks go
-    // inert.
-    countMemoryBufferLines() {
-      if (isPluginDisabled(pluginName)) return 0;
-      return hooks.countMemoryBufferLines();
-    },
-    // Cleanup hooks are NOT gated on disabled-state: they must run even while
-    // the plugin is disabled, or jobs/conversations created while it was
-    // enabled would be orphaned.
-    onConversationWiped(conversationId) {
-      return hooks.onConversationWiped(conversationId);
-    },
-    onConversationDeleted(conversationId) {
-      return hooks.onConversationDeleted(conversationId);
-    },
-    onMessagesDeleted(messageIds) {
-      return hooks.onMessagesDeleted(messageIds);
-    },
-    onAllConversationsCleared() {
-      return hooks.onAllConversationsCleared();
-    },
-    onWorkerStartup() {
-      return hooks.onWorkerStartup();
-    },
-  };
-}
-
-/**
- * Install the memory feature's persistence-lifecycle handlers into the
- * persistence seam — the persistence-hooks analog of
- * {@link registerDefaultPluginJobHandlers}. `bootstrapPlugins` calls this
- * before the per-plugin init loop so the seam is wired up front; the handlers
- * are guarded by {@link guardPersistenceHooksByDisabledState} so a disabled
- * memory plugin drives no persistence side effects and re-enabling it takes
- * effect on the next write. The seam holds a single handler set, so this
- * replaces any prior registration.
- */
-export function registerDefaultPluginPersistenceHooks(): void {
-  registerMemoryPersistenceHooks(
-    guardPersistenceHooksByDisabledState(
-      memoryPkg.name,
-      memoryPersistenceHooks,
-    ),
-  );
-}
-
-/**
  * Test-only helper: clear the hook registry and re-register every default
  * so integration tests that exercise the full agent loop have a
  * production-parity plugin stack. Use this in `beforeEach` of tests that
@@ -599,7 +496,4 @@ export function resetPluginRegistryAndRegisterDefaults(): void {
   registerDefaultPlugins();
   clearInjectorRegistry();
   registerDefaultPluginInjectors();
-  clearJobHandlerRegistry();
-  registerDefaultPluginJobHandlers();
-  registerDefaultPluginPersistenceHooks();
 }

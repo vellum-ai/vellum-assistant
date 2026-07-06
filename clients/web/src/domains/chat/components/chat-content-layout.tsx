@@ -29,6 +29,7 @@ import { useWorkflowStore } from "@/domains/chat/workflow-store";
 import { useAcpRunStore } from "@/domains/chat/acp-run-store";
 import { useBackgroundTaskStore } from "@/domains/chat/background-task-store";
 import { ChannelSetupPanel } from "@/domains/chat/components/channel-setup-panel";
+import { notifyChannelSetupHandedOff } from "@/domains/chat/channel-setup-close-notify";
 import { useEditApp } from "@/hooks/use-edit-app";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { routes } from "@/utils/routes";
@@ -199,6 +200,14 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     if (!isMobile) return;
     if (mainView !== "channel-setup" || !activeChannelSetup) return;
     const channel = activeChannelSetup.channel;
+    // This close is a hand-off, not a dismissal: setup continues on the
+    // Contacts page, which runs standalone and cannot auto-notify on
+    // completion. Signal the hand-off so the assistant switches to the
+    // "tell me when you're done" flow instead of waiting for a
+    // wizard-closed notification that will never come. Fired before the
+    // store close so the close-notify watcher (which skips narrow
+    // viewports) can never race it.
+    void notifyChannelSetupHandedOff(activeChannelSetup);
     useViewerStore.getState().closeChannelSetup();
     navigate(`${routes.contacts.root}?setup=${channel}`);
   }, [isMobile, mainView, activeChannelSetup, navigate]);

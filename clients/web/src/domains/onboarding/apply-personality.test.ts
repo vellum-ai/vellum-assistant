@@ -21,10 +21,10 @@ describe("buildPersonalityMessage", () => {
         "playful-serious": 0,
         "polite-unfiltered": 60,
       },
-      "Akash",
+      "Alice",
     );
 
-    expect(msg).toContain("Akash wants to customize your personality.");
+    expect(msg).toContain("Alice wants to customize your personality.");
     expect(msg).toContain("Companion (0-100): 30");
     expect(msg).toContain("Coworker (0-100): 70");
     expect(msg).toContain("Voice Style (0 = Gen Z, 100 = Boomer): 80");

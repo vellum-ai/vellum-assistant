@@ -208,7 +208,10 @@ export function useStreamEventHandler(
       const isStreamingDelta =
         event.type === "assistant_text_delta" ||
         event.type === "assistant_thinking_delta";
-      if (!isStreamingDelta || !tailIsAssistant(store.snapshot?.messages ?? [])) {
+      if (
+        !isStreamingDelta ||
+        !tailIsAssistant(store.snapshot?.messages ?? [])
+      ) {
         recordDiagnostic(
           event.type === "assistant_text_delta"
             ? "sse_assistant_text_delta_start"
@@ -232,7 +235,6 @@ export function useStreamEventHandler(
         streamContext: streamState.streamContext,
         assistantId: useResolvedAssistantsStore.getState().activeAssistantId,
         setOptimisticSends: store.setOptimisticSends,
-        clearOptimisticSend: store.clearOptimisticSend,
         turnActions: useTurnStore.getState(),
         getTurnState: () => useTurnStore.getState(),
         endTurn,
@@ -265,7 +267,7 @@ export function useStreamEventHandler(
           handleNavigateSettings(event, ctx);
           break;
         case "open_panel":
-          handleOpenPanel(event);
+          handleOpenPanel(event, ctx);
           break;
         case "assistant_turn_start":
           handleAssistantTurnStart(event, ctx);
@@ -461,6 +463,10 @@ export function useStreamEventHandler(
         // the daemon's trace-events endpoint on demand; the chat stream
         // handler ignores them.
         case "trace_event":
+          break;
+        // Transient, best-effort progress signals from lifecycle hooks
+        // (e.g. user-prompt-submit). No web UI renders them yet.
+        case "hook_event":
           break;
         case "unknown":
           break;

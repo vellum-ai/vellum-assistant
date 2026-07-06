@@ -187,6 +187,12 @@ export function useConversationHistory({
       hasMore: pagination.hasMore,
       oldestTimestamp: pagination.oldestLoadedTimestamp,
       oldestMessageId: pagination.latestPage?.oldestMessageId ?? null,
+      // The daemon's authoritative per-conversation `processing` flag must
+      // ride every (re)seed: the stream reducer can only advance a defined
+      // flag (`nextProcessingState` pins `undefined` forever), and the
+      // `snapshotProcessing === false` close-gate in
+      // `shouldShowThinkingIndicator` / `canStopGeneration` starves without it.
+      processing: pagination.latestPage?.processing,
     });
 
     setIsLoadingHistory(false);

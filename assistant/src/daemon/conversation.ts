@@ -52,6 +52,7 @@ import {
   getConversation,
   getMessages,
   resolveOverrideProfile,
+  setConversationEnabledPlugins,
   setConversationHistoryStrippedAt,
   setConversationProcessingStartedAt,
 } from "../persistence/conversation-crud.js";
@@ -91,6 +92,8 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import { getSubagentManager } from "../subagent/index.js";
+import type { SubagentState } from "../subagent/types.js";
 import {
   type ActivationMomentParam,
   isActivationMomentParam,
@@ -161,7 +164,6 @@ import type {
 import {
   createResolveToolsCallback,
   createToolExecutor,
-  getEffectiveEnabledPluginSet,
 } from "./conversation-tool-setup.js";
 import { canonicalizeTimeZone } from "./date-context.js";
 import { HostAppControlProxy } from "./host-app-control-proxy.js";
@@ -191,7 +193,9 @@ const log = getLogger("conversation");
  * per-turn `turnCount++`, so counting these reconstructs `turnCount` on load.
  */
 function startsNewTurn(role: string, content: string): boolean {
-  if (role !== "user") return false;
+  if (role !== "user") {
+    return false;
+  }
   try {
     const parsed = JSON.parse(content);
     if (
@@ -334,9 +338,10 @@ export class Conversation {
   /**
    * Per-conversation plugin scope mirrored from the DB row. `null` means no
    * per-chat restriction (all globally-enabled plugins apply). Hydrated on load
-   * and kept in sync by {@link setEnabledPlugins} so the live instance is the
-   * source of truth; later tool/skill/hook filters intersect their candidate
-   * set against this via `getEffectiveEnabledPluginSet`.
+   * and kept in sync by {@link setEnabledPlugins}, which also persists the value
+   * back to the row, so the live instance is the source of truth; later
+   * tool/skill/hook filters intersect their candidate set against this via
+   * `getEffectiveEnabledPluginSet`.
    * @internal
    */
   enabledPlugins: string[] | null = null;
@@ -756,15 +761,14 @@ export class Conversation {
       isExclusiveTool: (name) => getTool(name)?.exclusive === true,
       resolveConversationDir: () => {
         const conv = getConversation(this.conversationId);
-        if (!conv) return null;
+        if (!conv) {
+          return null;
+        }
         return getResolvedConversationDirPath(
           this.conversationId,
           conv.createdAt,
         );
       },
-      // Read the live per-chat plugin scope each gather so a mid-conversation
-      // selection change applies on the next turn's lifecycle hooks.
-      resolveEffectiveEnabledPlugins: () => getEffectiveEnabledPluginSet(this),
     });
     createContextWindowManager({
       provider,
@@ -872,7 +876,9 @@ export class Conversation {
    */
   syncLoopSystemPrompt(): void {
     const next = this.buildCurrentSystemPrompt();
-    if (next === this.systemPrompt) return;
+    if (next === this.systemPrompt) {
+      return;
+    }
     this.systemPrompt = next;
     this.agentLoop.setSystemPrompt(next);
   }
@@ -1296,7 +1302,9 @@ export class Conversation {
   private restoreSurfaceStateFromHistory(): void {
     this.surfaceState.clear();
     for (const msg of this.messages) {
-      if (!Array.isArray(msg.content)) continue;
+      if (!Array.isArray(msg.content)) {
+        continue;
+      }
       for (const block of msg.content) {
         const b = block as unknown as Record<string, unknown>;
         if (b.type === "ui_surface" && typeof b.surfaceId === "string") {
@@ -1378,12 +1386,35 @@ export class Conversation {
     this.subagentAllowedTools = tools;
   }
 
+  /**
+   * Set the conversation's per-chat plugin scope, updating both the persisted
+   * `enabled_plugins` row and the live instance (source of truth for the
+   * current turn). `null` clears the per-chat restriction. Callers do not
+   * persist separately.
+   *
+   * Persist first, then mutate the live instance: if the write throws, the
+   * live scope is left untouched rather than diverging from the row.
+   */
   setEnabledPlugins(plugins: string[] | null): void {
+    setConversationEnabledPlugins(this.conversationId, plugins);
     this.enabledPlugins = plugins;
   }
 
   setIsSubagent(value: boolean): void {
     this.isSubagent = value;
+  }
+
+  /**
+   * The live subagent-manager children of this conversation, for the
+   * `<active_subagents>` status block. Returns `null` when this conversation
+   * is itself a subagent (no nesting) — callers treat `null` as "no block".
+   * Housing the subagent-manager access here keeps runtime-assembly free of a
+   * subagent import (`subagent/manager` imports this module, so the reverse
+   * edge would put runtime-assembly's importers on that cycle).
+   */
+  getSubagentChildren(): SubagentState[] | null {
+    if (this.isSubagent) return null;
+    return getSubagentManager().getChildrenOf(this.conversationId);
   }
 
   /**
@@ -2105,6 +2136,8 @@ export class Conversation {
       isInteractive?: boolean;
       isUserMessage?: boolean;
       titleText?: string;
+      /** See {@link runAgentLoopImpl} — hidden machine-signal turn marker. */
+      isHiddenPrompt?: boolean;
       callSite?: LLMCallSite;
       /**
        * Optional ad-hoc inference-profile override applied to every LLM call

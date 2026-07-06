@@ -10,6 +10,7 @@
 
 import { z } from "zod";
 
+import { getIsPlatform } from "../../config/env-registry.js";
 import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../persistence/db-connection.js";
 import {
@@ -103,24 +104,29 @@ async function parseCustomProviderFields(
         );
       }
 
-      // SSRF protection: reject private IPs, localhost, cloud metadata endpoints.
-      const hostname = parsed.hostname;
-      if (isPrivateOrLocalHost(hostname)) {
-        throw new BadRequestError(
-          `Invalid base_url: must not point to a private or local network address.`,
-        );
-      }
+      // SSRF protection: reject private IPs, localhost, cloud metadata
+      // endpoints — but only for platform-hosted daemons where the container
+      // runs on Vellum infrastructure. Self-hosted daemons run on the user's
+      // own machine, so localhost/private addresses are the expected target
+      // (e.g. LM Studio, vLLM, text-generation-webui).
+      if (getIsPlatform()) {
+        const hostname = parsed.hostname;
+        if (isPrivateOrLocalHost(hostname)) {
+          throw new BadRequestError(
+            `Invalid base_url: must not point to a private or local network address.`,
+          );
+        }
 
-      // DNS resolution check: hostname may resolve to a private IP.
-      const resolved = await resolveRequestAddress(
-        hostname,
-        resolveHostAddresses,
-        /* allowPrivateNetwork */ false,
-      );
-      if (resolved.blockedAddress) {
-        throw new BadRequestError(
-          `Invalid base_url: hostname resolves to a private network address.`,
+        const resolved = await resolveRequestAddress(
+          hostname,
+          resolveHostAddresses,
+          /* allowPrivateNetwork */ false,
         );
+        if (resolved.blockedAddress) {
+          throw new BadRequestError(
+            `Invalid base_url: hostname resolves to a private network address.`,
+          );
+        }
       }
 
       out.baseUrl = raw;

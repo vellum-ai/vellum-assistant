@@ -425,6 +425,7 @@ import { migrateAddConversationEnabledPlugins } from "./migrations/314-add-conve
 import { migrateCreateA2aInvitesTable } from "./migrations/315-create-a2a-invites.js";
 import { migrateDropContactChannelInviteId } from "./migrations/316-drop-contact-channels-invite-id.js";
 import { migrateCanonicalGuardianRequesterSignals } from "./migrations/317-canonical-guardian-requester-signals.js";
+import { migrateDropContactChannelTelemetry } from "./migrations/318-drop-contact-channel-telemetry.js";
 import type { MigrationStep } from "./migrations/run-migrations.js";
 
 export const migrationSteps: MigrationStep[] = [
@@ -1321,4 +1322,5 @@ export const migrationSteps: MigrationStep[] = [
   migrateCreateA2aInvitesTable,
   migrateDropContactChannelInviteId,
   migrateCanonicalGuardianRequesterSignals,
+  migrateDropContactChannelTelemetry,
 ];

@@ -32,20 +32,19 @@ This document enumerates every observed communication permutation between the th
 | 20 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel integration control-plane proxies |
 | 21 | Gateway -> Assistant | `http` | JWT Bearer (service token) | OAuth control-plane proxies |
 | 22 | Gateway -> Assistant | `http` | JWT Bearer (service token) | Channel verification session proxy |
-| 23 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio ConversationRelay WebSocket proxy |
-| 24 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Browser relay WebSocket proxy |
-| 25 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio MediaStream WebSocket proxy |
-| 26 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | STT stream WebSocket proxy |
-| 27 | Assistant -> Gateway | `http` | JWT Bearer (edge relay token) | Trust rules CRUD |
-| 28 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
-| 29 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
-| 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
-| 31 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
-| 32 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
-| 33 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
-| 34 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
-| 35 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
-| 36 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
+| 23 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Browser relay WebSocket proxy |
+| 24 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | Twilio MediaStream WebSocket proxy |
+| 25 | Gateway -> Assistant | `websocket` | JWT Bearer (service token, query param) | STT stream WebSocket proxy |
+| 26 | Assistant -> Gateway | `http` | JWT Bearer (edge relay token) | Trust rules CRUD |
+| 27 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Feature flags IPC |
+| 28 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Contact data IPC |
+| 29 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Risk classification IPC |
+| 30 | Assistant -> Gateway | `ipc-unix-ndjson` | none (local socket) | Threshold IPC |
+| 31 | Assistant -> CES | `stdio-ndjson` | none (child process) | CES RPC (local mode) |
+| 32 | Assistant -> CES | `unix-socket-ndjson` | none (bootstrap socket) | CES RPC (managed mode) |
+| 33 | Assistant -> CES | `http` | CES_SERVICE_TOKEN Bearer | CES credential CRUD (HTTP) |
+| 34 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway credential reads (HTTP) |
+| 35 | Gateway -> CES | `http` | CES_SERVICE_TOKEN Bearer | Gateway CES log export (HTTP) |
 
 ## Gateway -> Assistant
 
@@ -101,7 +100,7 @@ This document enumerates every observed communication permutation between the th
 
 - **Protocol:** `http`
 - **Auth:** JWT Bearer (service token)
-- **Description:** Gateway forwards validated Twilio voice/status/connect-action webhooks to the assistant's internal Twilio endpoints.
+- **Description:** Gateway forwards validated Twilio voice/status webhooks to the assistant's internal Twilio endpoints.
 
 **Caller files:**
 - `gateway/src/runtime/client.ts`
@@ -316,18 +315,6 @@ This document enumerates every observed communication permutation between the th
 
 **Callee files:**
 - `assistant/src/runtime/http-server.ts`
-
-### Twilio ConversationRelay WebSocket proxy
-
-- **Protocol:** `websocket`
-- **Auth:** JWT Bearer (service token, query param)
-- **Description:** Gateway proxies Twilio ConversationRelay WebSocket frames to the assistant's /v1/calls/relay endpoint.
-
-**Caller files:**
-- `gateway/src/http/routes/twilio-relay-websocket.ts`
-
-**Callee files:**
-- `assistant/src/calls/relay-server.ts`
 
 ### Browser relay WebSocket proxy
 

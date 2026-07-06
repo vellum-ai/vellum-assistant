@@ -1,7 +1,7 @@
 /**
  * Shared down/up tracker for the gateway → assistant IPC channel.
  *
- * The gateway runs several independent 5s polling loops (voice-approval-sync,
+ * The gateway runs independent 5s polling loops (e.g.
  * outbound-voice-verification-sync) that each call the assistant over the
  * reverse IPC socket. When the assistant daemon is unreachable — typically a
  * 30s call timeout while it is hung or restarting — every loop logs a fresh

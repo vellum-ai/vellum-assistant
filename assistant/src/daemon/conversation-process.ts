@@ -23,11 +23,14 @@ import { extractPreferences } from "../notifications/preference-extractor.js";
 import { createPreference } from "../notifications/preferences-store.js";
 import {
   addMessage,
+  isHiddenMessageMetadata,
   provenanceFromTrustContext,
+  recordConversationPersistedSeq,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
 } from "../persistence/conversation-crud.js";
 import type { ContextWindowResult } from "../plugins/defaults/compaction/window-manager.js";
+import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import {
   type GuardianPendingScope,
   routeGuardianReply,
@@ -62,21 +65,29 @@ const log = getLogger("conversation-process");
 
 /**
  * Daemon-injected run lifecycle notifications — subagent (`subagentNotification`),
- * ACP run (`acpNotification`), and backgrounded bash/host_bash completion (the
- * `<background_event source="background-tool">` wake) — are persisted into the
- * parent conversation so the orchestrator wakes and reads the run's result, but
- * they are internal scaffolding: the user sees the run through its inline
- * progress card, not a chat turn. Skip the `user_message_echo` broadcast for
- * these so they never render as a live user bubble; the persisted row is
- * filtered from the rendered transcript on the client.
+ * ACP run (`acpNotification`), and any wake trigger (the persisted
+ * `<background_event source="...">` row every wake reads) — are persisted into
+ * the parent conversation so the orchestrator wakes and reads the trigger, but
+ * they are internal scaffolding: the user sees the wake through its inline card
+ * ("Conversation Woke", or a terminal card for a backgrounded bash run), not a
+ * chat turn. Skip the `user_message_echo` broadcast for these so they never
+ * render as a live user bubble; the persisted row is filtered from the rendered
+ * transcript on the client.
+ *
+ * Messages explicitly flagged `hidden` (a hidden `POST /messages` send that
+ * queued behind an in-flight turn, e.g. the channel-setup wizard-close
+ * marker) are suppressed the same way — the immediate route path already
+ * skips their echo, and the persisted `hidden` metadata keeps them out of
+ * the fetched transcript.
  */
-function isHiddenRunNotificationMessage(
+function isEchoSuppressedUserMessage(
   metadata: Record<string, unknown> | undefined,
 ): boolean {
   return (
+    isHiddenMessageMetadata(metadata) ||
     metadata?.subagentNotification != null ||
     metadata?.acpNotification != null ||
-    metadata?.backgroundEventSource === "background-tool"
+    typeof metadata?.backgroundEventSource === "string"
   );
 }
 
@@ -138,7 +149,9 @@ function resolveQueuedTurnContext(
   },
   fallback: TurnChannelContext | null,
 ): TurnChannelContext | null {
-  if (queued.turnChannelContext) return queued.turnChannelContext;
+  if (queued.turnChannelContext) {
+    return queued.turnChannelContext;
+  }
   const metadata = queued.metadata;
   if (metadata) {
     const userMessageChannel = parseChannelId(metadata.userMessageChannel);
@@ -159,7 +172,9 @@ function resolveQueuedTurnInterfaceContext(
   },
   fallback: TurnInterfaceContext | null,
 ): TurnInterfaceContext | null {
-  if (queued.turnInterfaceContext) return queued.turnInterfaceContext;
+  if (queued.turnInterfaceContext) {
+    return queued.turnInterfaceContext;
+  }
   const metadata = queued.metadata;
   if (metadata) {
     const userMessageInterface = parseInterfaceId(
@@ -206,7 +221,9 @@ async function buildPassthroughBatch(
   conversation: Conversation,
 ): Promise<QueuedMessage[]> {
   const head = conversation.queue.peek(0);
-  if (head === undefined) return [];
+  if (head === undefined) {
+    return [];
+  }
 
   const headInterface = resolveQueuedTurnInterfaceContext(
     head,
@@ -215,7 +232,9 @@ async function buildPassthroughBatch(
   // Pure classifier — no side effects. `resolveSlash` may run side effects
   // (e.g. /compact); if we called it here the real drain would invoke those
   // again.
-  if (classifySlash(head.content) !== "passthrough") return [];
+  if (classifySlash(head.content) !== "passthrough") {
+    return [];
+  }
   if (resolveVerificationSessionIntent(head.content).kind === "direct_setup") {
     // Verification intents stay on the single-message path so their per-turn
     // skill preactivation isn't leaked into batched tail messages.
@@ -235,7 +254,9 @@ async function buildPassthroughBatch(
   let i = 1;
   for (;;) {
     const candidate = conversation.queue.peek(i);
-    if (candidate === undefined) break;
+    if (candidate === undefined) {
+      break;
+    }
     const candIf = resolveQueuedTurnInterfaceContext(
       candidate,
       conversation.getTurnInterfaceContext(),
@@ -243,20 +264,28 @@ async function buildPassthroughBatch(
     // Treat an undefined interface as distinct from a defined one so we don't
     // silently batch cross-interface messages whose env/transport would
     // otherwise diverge.
-    if (candIf?.userMessageInterface !== headInterface?.userMessageInterface)
+    if (candIf?.userMessageInterface !== headInterface?.userMessageInterface) {
       break;
+    }
     // The batched turn applies only the head's `clientOs`, so messages from a
     // different OS surface must not coalesce. The web, iOS, and macOS apps all
     // report `interfaceId: "web"`, so the interface check above no longer
     // separates them — split on the reported OS explicitly.
-    if (candidate.transport?.clientOs !== head.transport?.clientOs) break;
-    if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId) break;
-    if (classifySlash(candidate.content) !== "passthrough") break;
+    if (candidate.transport?.clientOs !== head.transport?.clientOs) {
+      break;
+    }
+    if (candidate.sourceActorPrincipalId !== head.sourceActorPrincipalId) {
+      break;
+    }
+    if (classifySlash(candidate.content) !== "passthrough") {
+      break;
+    }
     if (
       resolveVerificationSessionIntent(candidate.content).kind ===
       "direct_setup"
-    )
+    ) {
       break;
+    }
     // Stop at the first surface-action tail; it will drain via the single-
     // message path so its per-message surface context is preserved.
     if (
@@ -283,11 +312,15 @@ async function buildPassthroughBatch(
  * unmatched `tool_use` blocks.
  */
 function repairPendingToolUseBlocks(conversation: Conversation): void {
-  if (!conversation.pendingSteerRepair) return;
+  if (!conversation.pendingSteerRepair) {
+    return;
+  }
   conversation.pendingSteerRepair = false;
 
   const messages = conversation.messages;
-  if (messages.length === 0) return;
+  if (messages.length === 0) {
+    return;
+  }
 
   // Walk backwards from the tail to find the last assistant message with
   // tool_use blocks. Collect resolved IDs from any user messages between
@@ -317,7 +350,9 @@ function repairPendingToolUseBlocks(conversation: Conversation): void {
     }
   }
 
-  if (pendingToolUseIds.length === 0) return;
+  if (pendingToolUseIds.length === 0) {
+    return;
+  }
 
   log.info(
     {
@@ -366,7 +401,9 @@ export async function drainQueue(
 
   if (steered) {
     const next = conversation.queue.shift();
-    if (!next) return;
+    if (!next) {
+      return;
+    }
     return drainSingleMessage(conversation, next, reason);
   }
 
@@ -376,7 +413,9 @@ export async function drainQueue(
     // an item the builder rejected, pop it and hand it to the single-message
     // path — which owns slash / compact / verification-intent behavior.
     const next = conversation.queue.shift();
-    if (!next) return;
+    if (!next) {
+      return;
+    }
     return drainSingleMessage(conversation, next, reason);
   }
   if (batch.length === 1) {
@@ -521,6 +560,7 @@ async function drainSingleMessage(
             }
           : {}),
         ...(next.metadata?.automated ? { automated: true } : {}),
+        ...(next.metadata?.hidden === true ? { hidden: true } : {}),
         ...(Object.keys(drainImageSourcePaths).length > 0
           ? { imageSourcePaths: drainImageSourcePaths }
           : {}),
@@ -879,7 +919,7 @@ async function drainSingleMessage(
 
   // Broadcast the user message to all hub subscribers so passive devices
   // see the user turn before the assistant reply starts streaming.
-  if (!isHiddenRunNotificationMessage(next.metadata)) {
+  if (!isEchoSuppressedUserMessage(next.metadata)) {
     next.onEvent({
       type: "user_message_echo",
       text: resolvedContent,
@@ -888,6 +928,18 @@ async function drainSingleMessage(
       requestId: next.requestId,
       clientMessageId: next.clientMessageId,
     });
+    // The row this echo announces is already durably persisted, so advance
+    // the snapshot↔stream anchor to the echo's seq (stamped inline by the
+    // publish path). Without this, `/messages` returns the row while still
+    // advertising the previous flush's anchor — under-claiming, which breaks
+    // the contract that the rows reflect all of this conversation's events
+    // through the advertised seq. Safe to claim here: the previous turn's
+    // content flushed at turn end and this turn's loop hasn't started, so no
+    // streamed-but-unflushed content exists for this conversation.
+    recordConversationPersistedSeq(
+      conversation.conversationId,
+      getCurrentSeq(),
+    );
   }
   publishConversationMessagesChanged(conversation.conversationId);
 
@@ -897,10 +949,15 @@ async function drainSingleMessage(
 
   // Fire-and-forget: detect notification preferences in the queued message
   // and persist any that are found, mirroring the logic in processMessage.
-  if (conversation.assistantId) {
+  // Hidden rows are machine signals, not user speech — running the detector
+  // on them burns an LLM call per signal and risks persisting a bogus
+  // preference from text the user never typed.
+  if (conversation.assistantId && !isHiddenMessageMetadata(next.metadata)) {
     extractPreferences(resolvedContent)
       .then((result) => {
-        if (!result.detected) return;
+        if (!result.detected) {
+          return;
+        }
         for (const pref of result.preferences) {
           createPreference({
             preferenceText: pref.preferenceText,
@@ -932,11 +989,17 @@ async function drainSingleMessage(
     isInteractive?: boolean;
     isUserMessage?: boolean;
     titleText?: string;
+    isHiddenPrompt?: boolean;
   } = { isUserMessage: true };
-  if (next.isInteractive !== undefined)
+  if (next.isInteractive !== undefined) {
     drainLoopOptions.isInteractive = next.isInteractive;
-  if (agentLoopContent !== resolvedContent)
+  }
+  if (agentLoopContent !== resolvedContent) {
     drainLoopOptions.titleText = resolvedContent;
+  }
+  if (isHiddenMessageMetadata(next.metadata)) {
+    drainLoopOptions.isHiddenPrompt = true;
+  }
 
   conversation
     .runAgentLoop(agentLoopContent, userMessageId, {
@@ -1233,7 +1296,7 @@ async function drainBatch(
 
     // Broadcast the user message to all hub subscribers so passive devices
     // see each batched user turn before the assistant reply starts streaming.
-    if (!isHiddenRunNotificationMessage(qm.metadata)) {
+    if (!isEchoSuppressedUserMessage(qm.metadata)) {
       qm.onEvent({
         type: "user_message_echo",
         text: qmContent,
@@ -1242,6 +1305,13 @@ async function drainBatch(
         requestId: qm.requestId,
         clientMessageId: qm.clientMessageId,
       });
+      // Advance the snapshot↔stream anchor to this echo's seq — the batched
+      // row persisted just above and the agent loop for the batch has not
+      // started. See the identical advance in `drainSingleMessage`.
+      recordConversationPersistedSeq(
+        conversation.conversationId,
+        getCurrentSeq(),
+      );
     }
     publishConversationMessagesChanged(conversation.conversationId);
 
@@ -1254,11 +1324,14 @@ async function drainBatch(
     successfulBatch.push(qm);
 
     // Fire-and-forget: detect notification preferences in each batched user
-    // message and persist any that are found, mirroring drainSingleMessage.
-    if (conversation.assistantId) {
+    // message and persist any that are found, mirroring drainSingleMessage
+    // (including its hidden-row exclusion).
+    if (conversation.assistantId && !isHiddenMessageMetadata(qm.metadata)) {
       extractPreferences(qmContent)
         .then((result) => {
-          if (!result.detected) return;
+          if (!result.detected) {
+            return;
+          }
           for (const pref of result.preferences) {
             createPreference({
               preferenceText: pref.preferenceText,
@@ -1335,13 +1408,16 @@ async function drainBatch(
     new Set(successfulBatch.map((qm) => qm.onEvent)),
   );
   const fanOutOnEvent = (msg: ServerMessage) => {
-    for (const onEvent of successfulEventSinks) onEvent(msg);
+    for (const onEvent of successfulEventSinks) {
+      onEvent(msg);
+    }
   };
 
   const drainLoopOptions: {
     isInteractive?: boolean;
     isUserMessage?: boolean;
     titleText?: string;
+    isHiddenPrompt?: boolean;
   } = { isUserMessage: true };
   // Source interactive flag from the last successfully-persisted sibling so
   // a trailing failed tail doesn't flip the agent loop's interactivity.
@@ -1349,8 +1425,18 @@ async function drainBatch(
     successfulBatch.length > 0
       ? successfulBatch[successfulBatch.length - 1]
       : undefined;
-  if (lastSuccessfulBatchEntry?.isInteractive !== undefined)
+  if (lastSuccessfulBatchEntry?.isInteractive !== undefined) {
     drainLoopOptions.isInteractive = lastSuccessfulBatchEntry.isInteractive;
+  }
+  // A batch counts as a hidden turn only when every message in it is a
+  // hidden machine signal — one genuine user prompt justifies the
+  // prompt-as-user-speech consumers (title generation).
+  if (
+    successfulBatch.length > 0 &&
+    successfulBatch.every((qm) => isHiddenMessageMetadata(qm.metadata))
+  ) {
+    drainLoopOptions.isHiddenPrompt = true;
+  }
 
   // Fire-and-forget: runAgentLoop's finally block recursively calls drainQueue
   // when this run completes. Mirrors drainSingleMessage.
@@ -1870,7 +1956,9 @@ export async function processMessage(
   if (conversation.assistantId) {
     extractPreferences(resolvedContent)
       .then((result) => {
-        if (!result.detected) return;
+        if (!result.detected) {
+          return;
+        }
         for (const pref of result.preferences) {
           createPreference({
             preferenceText: pref.preferenceText,
@@ -1902,12 +1990,18 @@ export async function processMessage(
     callSite?: LLMCallSite;
     overrideProfile?: string;
   } = { isUserMessage: true };
-  if (isInteractive !== undefined) loopOptions.isInteractive = isInteractive;
-  if (agentLoopContent !== resolvedContent)
+  if (isInteractive !== undefined) {
+    loopOptions.isInteractive = isInteractive;
+  }
+  if (agentLoopContent !== resolvedContent) {
     loopOptions.titleText = resolvedContent;
-  if (callSite !== undefined) loopOptions.callSite = callSite;
-  if (overrideProfile !== undefined)
+  }
+  if (callSite !== undefined) {
+    loopOptions.callSite = callSite;
+  }
+  if (overrideProfile !== undefined) {
     loopOptions.overrideProfile = overrideProfile;
+  }
 
   await conversation.runAgentLoop(agentLoopContent, userMessageId, {
     ...loopOptions,

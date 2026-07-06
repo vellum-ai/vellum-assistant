@@ -145,7 +145,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-01T18:11:39.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "doordash",
@@ -175,7 +175,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-15T21:08:24.000Z"
+      "updatedAt": "2026-07-02T21:39:37.000Z"
     },
     {
       "id": "email-setup",
@@ -269,20 +269,6 @@
       },
       "compatibility": "Designed for Vellum personal assistants",
       "updatedAt": "2026-06-03T03:10:07.000Z"
-    },
-    {
-      "id": "github-watcher",
-      "name": "github-watcher",
-      "description": "Install a recurring GitHub watcher — a scheduled poll of GitHub notifications (review requests, mentions, assignments) that only spends an LLM call when there's something new. Use for ongoing, hands-off GitHub monitoring (e.g. \"keep an eye on my repos\", \"ping me about review requests\", \"watch my GitHub notifications\").",
-      "metadata": {
-        "emoji": "👀",
-        "vellum": {
-          "category": "development",
-          "display-name": "GitHub Watcher"
-        }
-      },
-      "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T00:38:07.000Z"
     },
     {
       "id": "gmail",
@@ -489,7 +475,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-01T18:11:39.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "mcp-setup",
@@ -657,7 +643,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-30T00:15:51.000Z"
+      "updatedAt": "2026-07-03T20:12:42.000Z"
     },
     {
       "id": "public-ingress",
@@ -693,7 +679,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-01T18:11:39.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "restaurant-reservation",
@@ -754,7 +740,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-01T18:11:39.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "slack",
@@ -795,7 +781,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-02T00:54:25.000Z"
+      "updatedAt": "2026-07-02T15:56:47.000Z"
     },
     {
       "id": "start-the-day",
@@ -836,7 +822,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-01T18:11:39.000Z"
+      "updatedAt": "2026-07-02T13:30:40.000Z"
     },
     {
       "id": "stripe-link-wallet",

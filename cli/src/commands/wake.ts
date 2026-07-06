@@ -12,11 +12,12 @@ import {
   resetGuardianBootstrap,
   seedGuardianTokenFromSiblingEnv,
 } from "../lib/guardian-token.js";
-import { resolveProcessState, stopProcessByPidFile } from "../lib/process";
+import { resolveProcessState, stopProcessByPidFile, isProcessAlive } from "../lib/process";
 import {
   generateLocalSigningKey,
   isAssistantWatchModeAvailable,
   isGatewayWatchModeAvailable,
+  startCes,
   startLocalDaemon,
   startGateway,
 } from "../lib/local";
@@ -176,7 +177,31 @@ export async function wake(): Promise<void> {
   }
 
   if (!daemonRunning) {
-    await startLocalDaemon(watch, resources, { foreground, signingKey });
+    // Spin up CES and the daemon in parallel, the way the Docker topology
+    // brings its sibling containers up together — the assistant polls for the
+    // CES socket during startup (discoverCesWithRetry), so it tolerates CES
+    // still binding. CES's lifecycle tracks the daemon (its only consumer):
+    // restarting it under a live daemon would sever the daemon's open
+    // connection, so it is only (re)started alongside the daemon. startCes is a
+    // no-op unless CES_STANDALONE is set, in which case the assistant spawns
+    // CES itself as today.
+    await Promise.all([
+      startCes(watch, resources),
+      startLocalDaemon(watch, resources, { foreground, signingKey }),
+    ]);
+  } else {
+    // Self-heal: the daemon is already healthy, but the CES sibling may have
+    // died independently (crash, OOM kill). A dead ces.pid under a live daemon
+    // means credential operations will fail until the next wake. Relaunch the
+    // sibling so the daemon's lazy reconnect (secure-keys.ts) picks it up on
+    // the next credential read. startCes is a no-op unless CES_STANDALONE.
+    const vellumDir = join(resources.instanceDir, ".vellum");
+    const cesPidFile = join(vellumDir, "ces.pid");
+    const cesAlive = isProcessAlive(cesPidFile).alive;
+    if (!cesAlive) {
+      console.log("CES sibling not running — relaunching...");
+      await startCes(watch, resources);
+    }
   }
 
   // Start gateway
@@ -256,7 +281,11 @@ export async function wake(): Promise<void> {
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         await resetGuardianBootstrap(loopbackUrl, bootstrapSecret);
-        await leaseGuardianToken(loopbackUrl, entry.assistantId, bootstrapSecret);
+        await leaseGuardianToken(
+          loopbackUrl,
+          entry.assistantId,
+          bootstrapSecret,
+        );
         console.log("   Re-provisioned guardian token.");
         break;
       } catch (err) {

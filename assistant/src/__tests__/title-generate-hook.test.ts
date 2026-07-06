@@ -115,6 +115,7 @@ function makeCtx(
     originalMessages: messages,
     latestMessages: messages,
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }
@@ -156,6 +157,7 @@ function makeStopCtx(overrides: Partial<StopContext> = {}): StopContext {
     messages: historyWithUserTurns(3),
     exitReason: "no_tool_calls",
     logger: noopLogger,
+    broadcast: () => {},
     ...overrides,
   };
 }
@@ -183,6 +185,22 @@ describe("title-generate user-prompt-submit hook", () => {
     expect(call?.userMessage).toBe("first message");
     expect(call).not.toHaveProperty("provider");
     expect(call).not.toHaveProperty("onTitleUpdated");
+  });
+
+  test("skips title generation for hidden machine-signal prompts", async () => {
+    // A hidden send (e.g. the channel-setup wizard-close marker) is not user
+    // speech — minting a title from it would surface invisible scaffolding
+    // text in the sidebar.
+    const ctx = makeCtx({
+      prompt:
+        "[User action on channel_setup surface: closed the slack setup wizard]",
+      isHiddenPrompt: true,
+    });
+
+    await userPromptSubmit(ctx);
+    await flushMacrotasks();
+
+    expect(queueGenerateConversationTitleMock).toHaveBeenCalledTimes(0);
   });
 
   test("does not block: returns before the title job is scheduled", async () => {

@@ -2,9 +2,9 @@ import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  _resetTtsProviderRegistry,
-  registerTtsProvider,
-} from "../../tts/provider-registry.js";
+  _resetTtsProviderOverridesForTests,
+  _setTtsProviderForTests,
+} from "../../tts/provider-catalog.js";
 import type {
   TtsProvider,
   TtsSynthesisRequest,
@@ -22,7 +22,7 @@ const { LiveVoiceTtsError, streamLiveVoiceTtsAudio } =
 
 beforeEach(() => {
   config = makeConfig();
-  _resetTtsProviderRegistry();
+  _resetTtsProviderOverridesForTests();
 });
 
 describe("streamLiveVoiceTtsAudio", () => {
@@ -50,7 +50,7 @@ describe("streamLiveVoiceTtsAudio", () => {
         };
       },
     };
-    registerTtsProvider(provider);
+    _setTtsProviderForTests(provider);
 
     const frames: LiveVoiceTtsAudioChunk[] = [];
     const result = await streamLiveVoiceTtsAudio({
@@ -88,7 +88,7 @@ describe("streamLiveVoiceTtsAudio", () => {
 
   test("emits split Fish Audio WAV chunks as one complete WAV frame", async () => {
     const requests: TtsSynthesisRequest[] = [];
-    registerTtsProvider({
+    _setTtsProviderForTests({
       id: "fish-audio",
       capabilities: {
         supportsStreaming: true,
@@ -138,7 +138,7 @@ describe("streamLiveVoiceTtsAudio", () => {
   test("streams raw PCM provider chunks incrementally", async () => {
     config = makeConfig({ provider: "elevenlabs" });
     const requests: TtsSynthesisRequest[] = [];
-    registerTtsProvider({
+    _setTtsProviderForTests({
       id: "elevenlabs",
       capabilities: {
         supportsStreaming: true,
@@ -195,7 +195,7 @@ describe("streamLiveVoiceTtsAudio", () => {
 
   test("returns a typed configuration error for a non-streaming provider", async () => {
     config = makeConfig({ provider: "elevenlabs" });
-    registerTtsProvider({
+    _setTtsProviderForTests({
       id: "elevenlabs",
       capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
       async synthesize(): Promise<TtsSynthesisResult> {
@@ -217,7 +217,7 @@ describe("streamLiveVoiceTtsAudio", () => {
   });
 
   test("returns a typed configuration error when provider credentials are missing", async () => {
-    registerTtsProvider({
+    _setTtsProviderForTests({
       id: "fish-audio",
       capabilities: {
         supportsStreaming: true,
@@ -247,7 +247,7 @@ describe("streamLiveVoiceTtsAudio", () => {
   });
 
   test("wraps provider streaming failures as synthesis errors", async () => {
-    registerTtsProvider({
+    _setTtsProviderForTests({
       id: "fish-audio",
       capabilities: {
         supportsStreaming: true,

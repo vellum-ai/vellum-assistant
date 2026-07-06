@@ -11,6 +11,7 @@ import type {
 } from "../agent/loop.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { Message, ProviderResponse } from "../providers/types.js";
+import { stampAndBuffer } from "../runtime/assistant-stream-state.js";
 
 // ---------------------------------------------------------------------------
 // Mocks — must precede the Conversation import so Bun applies them at load time.
@@ -116,6 +117,9 @@ const capturedAddMessages: Array<{
   metadata?: Record<string, unknown>;
 }> = [];
 
+/** Snapshot↔stream anchor advances recorded via `recordConversationPersistedSeq`. */
+const capturedPersistedSeqs: Array<{ id: string; seq: number }> = [];
+
 /**
  * Content substrings that should cause `addMessage` to throw — used to
  * simulate a mid-batch persist failure (e.g. a DB error on a specific
@@ -200,6 +204,9 @@ mock.module("../persistence/conversation-crud.js", () => ({
   getLastUserTimestampBefore: () => 0,
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
   updateMessageContent: mock(() => {}),
+  recordConversationPersistedSeq: (id: string, seq: number) => {
+    capturedPersistedSeqs.push({ id, seq });
+  },
 }));
 
 mock.module("../persistence/conversation-queries.js", () => ({
@@ -2974,6 +2981,107 @@ describe("MessageQueue byte budget", () => {
   });
 });
 
+describe("persisted-seq anchor advance on user_message_echo", () => {
+  beforeEach(() => {
+    pendingRuns = [];
+    capturedAddMessages.length = 0;
+    capturedPersistedSeqs.length = 0;
+  });
+
+  test("drained message advances the anchor to its echo's stamped seq", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const eventsQueued: ServerMessage[] = [];
+    // Mirror `broadcastMessage`'s inline stamp so `getCurrentSeq()` read
+    // right after the emit is this echo's seq, as in production.
+    const stampingOnEvent = (sink: ServerMessage[]) => (e: ServerMessage) => {
+      stampAndBuffer(e as unknown as Parameters<typeof stampAndBuffer>[0]);
+      sink.push(e);
+    };
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: stampingOnEvent(events1),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    conversation.enqueueMessage({
+      content: "ordinary message",
+      onEvent: stampingOnEvent(eventsQueued),
+      requestId: "req-queued",
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    const echo = eventsQueued.find((e) => e.type === "user_message_echo") as
+      | (ServerMessage & { seq?: number })
+      | undefined;
+    const echoSeq = echo?.seq;
+    if (typeof echoSeq !== "number") {
+      throw new Error("user_message_echo was not stamped with a seq");
+    }
+    // The snapshot↔stream anchor now covers the echo: a `/messages` fetch
+    // served after this point carries the row AND an anchor at (not below)
+    // the echo's seq, so clients comparing the anchor against their fold
+    // watermark no longer classify the fetch as stale.
+    expect(capturedPersistedSeqs).toContainEqual({
+      id: "conv-1",
+      seq: echoSeq,
+    });
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("echo-suppressed drained rows do not advance the anchor", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const eventsNotif: ServerMessage[] = [];
+
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+    const advancesAfterFirstDrain = capturedPersistedSeqs.length;
+
+    conversation.enqueueMessage({
+      content: '[Subagent "research" completed]',
+      onEvent: (e) => eventsNotif.push(e),
+      requestId: "req-notif",
+      metadata: {
+        subagentNotification: {
+          subagentId: "sub-1",
+          label: "research",
+          status: "completed",
+        },
+      },
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // No echo event exists for the suppressed row, so there is no seq the
+    // anchor could truthfully advance to — it must stay where it was.
+    expect(eventsNotif.some((e) => e.type === "user_message_echo")).toBe(false);
+    expect(capturedPersistedSeqs.length).toBe(advancesAfterFirstDrain);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+});
+
 describe("subagent notification user_message_echo suppression", () => {
   beforeEach(() => {
     pendingRuns = [];
@@ -3057,6 +3165,54 @@ describe("subagent notification user_message_echo suppression", () => {
     await waitForPendingRun(2);
 
     expect(eventsNormal.some((e) => e.type === "user_message_echo")).toBe(true);
+
+    await resolveRun(1);
+    await new Promise((r) => setTimeout(r, 10));
+  });
+
+  test("drained hidden message persists with hidden metadata and emits no user_message_echo", async () => {
+    const conversation = makeConversation();
+    await conversation.loadFromDb();
+
+    const events1: ServerMessage[] = [];
+    const eventsHidden: ServerMessage[] = [];
+
+    // Occupy the conversation so the hidden send queues — e.g. the user
+    // closes the channel-setup wizard while the assistant is mid-turn.
+    const p1 = conversation.processMessage({
+      content: "msg-1",
+      attachments: [],
+      onEvent: (e) => events1.push(e),
+      requestId: "req-1",
+    });
+    await waitForPendingRun(1);
+
+    // A hidden `POST /messages` send carries `hidden: true` metadata through
+    // the queue branch (see conversation-routes.ts).
+    conversation.enqueueMessage({
+      content:
+        "[User action on channel_setup surface: closed the slack setup wizard]",
+      onEvent: (e) => eventsHidden.push(e),
+      requestId: "req-hidden",
+      metadata: { hidden: true },
+    });
+
+    await resolveRun(0);
+    await p1;
+    await waitForPendingRun(2);
+
+    // Persisted with the hidden flag so the transcript filter keeps it out
+    // of the rendered history...
+    const persisted = capturedAddMessages.find((m) =>
+      m.content.includes("channel_setup"),
+    );
+    expect(persisted?.metadata?.hidden).toBe(true);
+    // ...the agent still wakes on it...
+    expect(pendingRuns.length).toBe(2);
+    // ...and no user_message_echo is broadcast, so no visible user bubble.
+    expect(eventsHidden.some((e) => e.type === "user_message_echo")).toBe(
+      false,
+    );
 
     await resolveRun(1);
     await new Promise((r) => setTimeout(r, 10));

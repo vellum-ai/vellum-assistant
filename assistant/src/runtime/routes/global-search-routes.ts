@@ -112,6 +112,7 @@ function searchMemoryItems(query: string, limit: number): GlobalSearchMemory[] {
   }
 
   const rows = rawAll<MemoryRow>(
+    "globalSearch:searchMemoryItems",
     `SELECT id, type, content, confidence, last_accessed
      FROM memory_graph_nodes
      WHERE content LIKE ? AND fidelity != 'gone'

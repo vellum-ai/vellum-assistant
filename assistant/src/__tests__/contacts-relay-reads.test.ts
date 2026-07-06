@@ -65,6 +65,8 @@ mock.module("../ipc/gateway-client.js", () => ({
 // Assistant-DB fallback stubs — assert these are NOT hit on the happy path,
 // and that they ARE hit on the IPC-failure fallback path.
 const localCalls: string[] = [];
+// Per-test override for the daemon-native searchContacts result. Null → default.
+let searchContactsResult: unknown[] | null = null;
 const realContactStore = await import("../contacts/contact-store.js");
 // Capture the args passed to the daemon-native listContacts so tests can assert
 // contactType is filtered in SQL (before the limit) rather than relayed.
@@ -106,16 +108,18 @@ mock.module("../contacts/contact-store.js", () => ({
   },
   searchContacts: () => {
     localCalls.push("searchContacts");
-    return [
-      {
-        id: "search-1",
-        displayName: "Search Contact",
-        role: "contact",
-        contactType: "human",
-        interactionCount: 0,
-        channels: [],
-      },
-    ];
+    return (
+      searchContactsResult ?? [
+        {
+          id: "search-1",
+          displayName: "Search Contact",
+          role: "contact",
+          contactType: "human",
+          interactionCount: 0,
+          channels: [],
+        },
+      ]
+    );
   },
 }));
 
@@ -187,7 +191,32 @@ beforeEach(() => {
   debugLogs.length = 0;
   listContactsArgs.length = 0;
   guardianIds = new Set();
+  searchContactsResult = null;
 });
+
+/**
+ * Pin the daemon-native gateway boundary: the query/filter is resolved LOCALLY,
+ * so the gateway is NEVER asked to RESOLVE it. The only permitted gateway IPC on
+ * these paths is the telemetry overlay (`hydrateTelemetryFromGateway`), and it
+ * must carry ONLY the already-resolved result-set `ids` — never the
+ * query/contactType/channelType/channelAddress/role/limit filter params. The
+ * exact `toEqual({ ids })` match guarantees no filter key leaked into the relay.
+ */
+function expectOnlyIdsScopedTelemetryHydration(expectedIds: string[]) {
+  expect(ipcCalls.map((c) => c.method)).toEqual(["contacts_list_rich"]);
+  expect(ipcCalls[0]?.params).toEqual({ ids: expectedIds });
+}
+
+/** Telemetry-overlay stub: gateway returns rich telemetry for the ids-scoped
+ * hydration read, keyed to the locally-resolved contact. */
+function telemetryHydrationStub(id: string, interactionCount: number): IpcStub {
+  return (method) => {
+    if (method === "contacts_list_rich") {
+      return { ok: true, contacts: [gatewayContact({ id, interactionCount })] };
+    }
+    return undefined;
+  };
+}
 
 describe("handleListContacts relay", () => {
   test("non-search read serves gateway contacts and does NOT read assistant DB", async () => {
@@ -239,68 +268,204 @@ describe("handleListContacts relay", () => {
     expect(localCalls).toEqual([]);
   });
 
-  test("search params stay daemon-native and log the boundary note", async () => {
+  test("search params stay daemon-native; query stays local while ids-scoped gateway telemetry is overlaid", async () => {
+    // The query is resolved LOCALLY (searchContacts) and the boundary note is
+    // logged. The gateway is NOT asked to resolve the query — its only call is
+    // the ids-scoped telemetry overlay, which then hydrates interactionCount.
+    ipcStub = telemetryHydrationStub("search-1", 7);
+
     const result = await handleListContacts({ query: "alice" });
 
-    expect(ipcCalls).toEqual([]);
     expect(localCalls).toContain("searchContacts");
+    expectOnlyIdsScopedTelemetryHydration(["search-1"]);
     expect(result.contacts[0].id).toBe("search-1");
+    expect(result.contacts[0].interactionCount).toBe(7);
     expect(debugLogs.some((m) => m.includes("daemon-native"))).toBe(true);
   });
 
-  test("contactType filter stays daemon-native and does NOT relay to the gateway", async () => {
+  test("contactType filter stays daemon-native; filter never relayed, only ids-scoped telemetry overlaid", async () => {
     // If contactType were relayed, the gateway would apply it AFTER its limit
-    // and could under-return. We serve it daemon-native instead (SQL filter
-    // before the limit). Assert no relay, local read, and the boundary note.
+    // and could under-return. We resolve it daemon-native instead (SQL filter
+    // BEFORE the limit). The gateway is consulted ONLY for the ids-scoped
+    // telemetry overlay — never to resolve the contactType filter.
+    ipcStub = telemetryHydrationStub("local-1", 3);
+
     const result = await handleListContacts({
       contactType: "assistant",
       limit: "50",
     });
 
-    expect(ipcCalls).toEqual([]);
     expect(localCalls).toEqual(["listContacts"]);
     // contactType + limit are pushed into the SQL-filtered daemon read (the
     // daemon-native listContacts filters contactType BEFORE applying limit).
     expect(listContactsArgs).toEqual([
       { limit: 50, contactType: "assistant" },
     ]);
+    expectOnlyIdsScopedTelemetryHydration(["local-1"]);
     expect(result.contacts[0].id).toBe("local-1");
     expect(result.contacts[0].contactType).toBe("assistant");
+    expect(result.contacts[0].interactionCount).toBe(3);
     expect(debugLogs.some((m) => m.includes("daemon-native"))).toBe(true);
   });
 
   test("contactType filters daemon-native; role is gateway-owned and no longer a local predicate", async () => {
     await handleListContacts({ contactType: "human", role: "guardian" });
 
-    expect(ipcCalls).toEqual([]);
     expect(listContactsArgs).toEqual([{ limit: 50, contactType: "human" }]);
+    // `role` is neither pushed to the local SQL read NOR relayed to the gateway
+    // as a filter — the sole gateway call is the ids-scoped telemetry overlay.
+    expectOnlyIdsScopedTelemetryHydration(["local-1"]);
   });
 });
 
 describe("search_contacts route relay boundary", () => {
-  test("real query stays daemon-native and logs the boundary note", async () => {
+  test("real query stays daemon-native; query stays local while ids-scoped telemetry is overlaid", async () => {
+    // Query resolved locally; boundary note logged. The gateway is only asked
+    // for the ids-scoped telemetry overlay, never to resolve the query.
+    ipcStub = telemetryHydrationStub("search-1", 5);
+
     const contacts = await searchContactsRoute({ query: "alice" });
 
-    expect(ipcCalls).toEqual([]);
     expect(localCalls).toContain("searchContacts");
+    expectOnlyIdsScopedTelemetryHydration(["search-1"]);
     expect(contacts[0].id).toBe("search-1");
+    expect(
+      (contacts[0] as { interactionCount?: number | null }).interactionCount,
+    ).toBe(5);
     expect(debugLogs.some((m) => m.includes("daemon-native"))).toBe(true);
   });
 
-  test("real channelAddress stays daemon-native", async () => {
+  test("real channelAddress stays daemon-native; filter stays local, only ids-scoped telemetry overlaid", async () => {
+    ipcStub = telemetryHydrationStub("search-1", 5);
+
     const contacts = await searchContactsRoute({ channelAddress: "tg-001" });
 
-    expect(ipcCalls).toEqual([]);
     expect(localCalls).toContain("searchContacts");
+    // channelAddress never reaches the gateway — the sole call carries only ids.
+    expectOnlyIdsScopedTelemetryHydration(["search-1"]);
     expect(contacts[0].id).toBe("search-1");
   });
 
-  test("real channelType stays daemon-native", async () => {
+  test("real channelType stays daemon-native; filter stays local, only ids-scoped telemetry overlaid", async () => {
+    ipcStub = telemetryHydrationStub("search-1", 5);
+
     const contacts = await searchContactsRoute({ channelType: "telegram" });
 
-    expect(ipcCalls).toEqual([]);
     expect(localCalls).toContain("searchContacts");
+    // channelType never reaches the gateway — the sole call carries only ids.
+    expectOnlyIdsScopedTelemetryHydration(["search-1"]);
     expect(contacts[0].id).toBe("search-1");
+  });
+
+  test("telemetry hydration is FAIL-SOFT: a throwing gateway read still returns locally-resolved contacts with default telemetry (0 counts, null timestamps)", async () => {
+    ipcStub = (method) => {
+      if (method === "contacts_list_rich") {
+        throw new Error("gateway telemetry down");
+      }
+      return undefined;
+    };
+
+    const contacts = await searchContactsRoute({ query: "alice" });
+
+    // The query is resolved locally; the throwing telemetry overlay degrades the
+    // interaction count to 0 (never null, so callers render a real number) and
+    // the timestamps to null, so the search STILL returns its local result.
+    expect(localCalls).toContain("searchContacts");
+    expectOnlyIdsScopedTelemetryHydration(["search-1"]);
+    expect(contacts[0].id).toBe("search-1");
+    expect(
+      (contacts[0] as { interactionCount?: number | null }).interactionCount,
+    ).toBe(0);
+    expect(
+      (contacts[0] as { lastInteraction?: number | null }).lastInteraction,
+    ).toBeNull();
+  });
+
+  test("channel telemetry overlays via (type,address) fallback when the local channel id differs from the gateway id", async () => {
+    // Legacy/unaligned channel: the daemon-native read resolves a channel whose
+    // LOCAL uuid differs from the GATEWAY uuid for the same (type, address). The
+    // id lookup misses, so telemetry must land via the (type, lower(address))
+    // fallback rather than fail-softing to null.
+    searchContactsResult = [
+      {
+        id: "search-1",
+        displayName: "Search Contact",
+        role: "contact",
+        contactType: "human",
+        interactionCount: 0,
+        channels: [
+          {
+            id: "local-ch-uuid",
+            contactId: "search-1",
+            type: "telegram",
+            // Mixed-case to also pin the NOCASE (lowercase) address match.
+            address: "TG-001",
+            isPrimary: true,
+            externalUserId: null,
+            status: "active",
+            policy: "allow",
+            verifiedAt: null,
+            verifiedVia: null,
+            lastSeenAt: null,
+            interactionCount: 0,
+            lastInteraction: null,
+            revokedReason: null,
+            blockedReason: null,
+          },
+        ],
+      },
+    ];
+    ipcStub = (method) => {
+      if (method === "contacts_list_rich") {
+        return {
+          ok: true,
+          contacts: [
+            gatewayContact({
+              id: "search-1",
+              interactionCount: 9,
+              channels: [
+                {
+                  // DIFFERENT uuid than the local channel; same (type, address).
+                  id: "gateway-ch-uuid",
+                  contactId: "search-1",
+                  type: "telegram",
+                  address: "tg-001",
+                  isPrimary: true,
+                  externalUserId: null,
+                  status: "active",
+                  policy: "allow",
+                  verifiedAt: null,
+                  verifiedVia: null,
+                  lastSeenAt: 555,
+                  interactionCount: 9,
+                  lastInteraction: 777,
+                  revokedReason: null,
+                  blockedReason: null,
+                },
+              ],
+            }),
+          ],
+        };
+      }
+      return undefined;
+    };
+
+    const contacts = await searchContactsRoute({ query: "alice" });
+
+    expect(localCalls).toContain("searchContacts");
+    expectOnlyIdsScopedTelemetryHydration(["search-1"]);
+    const ch = (
+      contacts[0] as unknown as {
+        channels: {
+          lastSeenAt: number | null;
+          interactionCount: number | null;
+          lastInteraction: number | null;
+        }[];
+      }
+    ).channels[0];
+    expect(ch.interactionCount).toBe(9);
+    expect(ch.lastSeenAt).toBe(555);
+    expect(ch.lastInteraction).toBe(777);
   });
 
   test("empty/whitespace query with no filters relays through the gateway", async () => {

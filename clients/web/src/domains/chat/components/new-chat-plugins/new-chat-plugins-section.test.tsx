@@ -65,25 +65,25 @@ describe("NewChatPluginsSection", () => {
     expect(renderToStaticMarkup(ui(makeClient([])))).toBe("");
   });
 
-  test("collapsed by default: shows the Add Plugins to Chat button, not the picker", () => {
+  test("collapsed by default: shows the Manage Plugins button, not the picker", () => {
     const html = renderToStaticMarkup(
       ui(makeClient([installed("simple-memory")])),
     );
 
-    expect(html).toContain("Add Plugins to Chat");
+    expect(html).toContain("Manage Plugins");
     // The picker header and pills stay hidden until revealed.
     expect(html).not.toContain("Add plugins for new chat");
     expect(html).not.toContain("simple-memory");
   });
 
-  test("clicking Add Plugins to Chat reveals the picker", () => {
+  test("clicking Manage Plugins reveals the picker", () => {
     render(ui(makeClient([installed("simple-memory"), installed("weather")])));
 
     // Collapsed: the picker is absent.
     expect(screen.queryByText("Add plugins for new chat")).toBeNull();
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Add Plugins to Chat" }),
+      screen.getByRole("button", { name: "Manage Plugins" }),
     );
 
     // Revealed: the picker header and one pill per plugin now render.

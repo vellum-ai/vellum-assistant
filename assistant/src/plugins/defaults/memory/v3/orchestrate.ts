@@ -55,6 +55,7 @@
  */
 
 import type { AssistantConfig } from "../../../../config/schema.js";
+import { recordWatchdogEvent } from "../../../../telemetry/watchdog-events-store.js";
 import { getLogger } from "../../../../util/logger.js";
 import { denseLaneScored } from "./dense.js";
 import type { EdgeGraph } from "./edge.js";
@@ -81,6 +82,28 @@ import type {
 // Named to disambiguate from the unrelated `src/config/memory-v3-gate.ts`: this
 // logger names the per-turn INJECTION gate wired in below.
 const log = getLogger("memory-v3-injection-gate");
+
+/** `check_name` of the `watchdog` telemetry event recorded once per
+ *  injection-gate run. The platform's memory admin analytics count and filter
+ *  on this exact string — keep it stable. */
+export const MEMORY_V3_INJECTION_GATE_CHECK_NAME = "memory_v3_injection_gate";
+
+/** Record one injection-gate run to usage telemetry. `detail` keys are the
+ *  platform-side contract (snake_case, scores and reason codes only — never
+ *  conversation content). Never throws: the gate is pass-open by design, and a
+ *  telemetry failure must not cost the turn its memory either. */
+function recordGateRun(detail: Record<string, unknown>): void {
+  try {
+    recordWatchdogEvent({
+      checkName: MEMORY_V3_INJECTION_GATE_CHECK_NAME,
+      value: 1,
+      detail,
+    });
+  } catch {
+    // recordWatchdogEvent already no-ops on opt-out and a missing telemetry
+    // DB; anything past that is not worth failing the turn over.
+  }
+}
 
 /** Default number of BM25 needle articles to fold into the pool. */
 export const DEFAULT_NEEDLE_K = 12;
@@ -429,6 +452,7 @@ export async function orchestrate(
         },
         "memory-v3 injection gate: dense lane unavailable, passing open",
       );
+      recordGateRun({ pass: true, reason: "dense_unavailable" });
     } else {
       let gate: V3GateResult | null = null;
       try {
@@ -445,6 +469,7 @@ export async function orchestrate(
           },
           "memory-v3 injection gate threw; passing open (proceeding with selection)",
         );
+        recordGateRun({ pass: true, reason: "gate_error" });
       }
       if (gate) {
         log.info(
@@ -455,6 +480,13 @@ export async function orchestrate(
           },
           "memory-v3 injection gate decision",
         );
+        recordGateRun({
+          pass: gate.pass,
+          reason: gate.reason,
+          top_dense_score: gate.topDenseScore,
+          top_norm_sparse_score: gate.topNormSparseScore,
+          checked_articles: gate.checkedArticles,
+        });
         if (!gate.pass) {
           // A closed gate produces no finder lane and no matched sections; only
           // the `selections` differ between bypass (stable prefix) and hard-skip.

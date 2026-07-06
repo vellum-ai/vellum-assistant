@@ -1,13 +1,4 @@
-import { findContactByAddress, listContacts } from "../contacts/contact-store.js";
-import {
-  getGuardianDelivery,
-  voiceGuardianDisplayName,
-} from "../contacts/guardian-delivery-reader.js";
-import { getAssistantName } from "../daemon/identity-helpers.js";
-import { DEFAULT_USER_REFERENCE, resolveGuardianName } from "../prompts/user-reference.js";
-import { getLogger } from "../util/logger.js";
-
-const logger = getLogger("stt-hints");
+import { DEFAULT_USER_REFERENCE } from "../prompts/user-reference.js";
 
 export interface SttHintsInput {
   staticHints: string[];
@@ -28,6 +19,9 @@ const MAX_HINTS_LENGTH = 500;
  * comma-separated string suitable for speech-to-text provider hint APIs.
  *
  * Pure function — no DB or filesystem dependencies.
+ *
+ * Dormant: the `calls.voice.hints` config key supplies static hints, but
+ * no daemon transcriber consumes the assembled string yet.
  */
 export function buildSttHints(input: SttHintsInput): string {
   const hints: string[] = [...input.staticHints];
@@ -44,26 +38,41 @@ export function buildSttHints(input: SttHintsInput): string {
     hints.push(input.guardianName.trim());
   }
 
-  if (input.inviteFriendName != null && input.inviteFriendName.trim().length > 0) {
+  if (
+    input.inviteFriendName != null &&
+    input.inviteFriendName.trim().length > 0
+  ) {
     hints.push(input.inviteFriendName.trim());
   }
 
-  if (input.inviteGuardianName != null && input.inviteGuardianName.trim().length > 0) {
+  if (
+    input.inviteGuardianName != null &&
+    input.inviteGuardianName.trim().length > 0
+  ) {
     hints.push(input.inviteGuardianName.trim());
   }
 
-  if (input.targetContactName != null && input.targetContactName.trim().length > 0) {
+  if (
+    input.targetContactName != null &&
+    input.targetContactName.trim().length > 0
+  ) {
     hints.push(input.targetContactName.trim());
   }
 
-  if (input.callerContactName != null && input.callerContactName.trim().length > 0) {
+  if (
+    input.callerContactName != null &&
+    input.callerContactName.trim().length > 0
+  ) {
     hints.push(input.callerContactName.trim());
   }
 
   // Extract potential proper nouns from task description.
   // Split on sentence boundaries, then for each sentence take words
   // after the first that start with an uppercase letter.
-  if (input.taskDescription != null && input.taskDescription.trim().length > 0) {
+  if (
+    input.taskDescription != null &&
+    input.taskDescription.trim().length > 0
+  ) {
     // Split on sentence-ending punctuation followed by whitespace, but avoid
     // splitting on periods after common abbreviations (Dr., Mr., etc.) so that
     // names like "Dr. Smith" aren't fragmented and dropped by the first-word skip.
@@ -111,76 +120,4 @@ export function buildSttHints(input: SttHintsInput): string {
     return truncated;
   }
   return truncated.slice(0, lastComma);
-}
-
-/**
- * Wire real data sources (contacts DB, identity helpers, config) into
- * {@link buildSttHints}. All DB lookups are best-effort — errors are
- * logged but never propagate so hints can never fail a call.
- */
-export async function resolveCallHints(
-  session: {
-    task: string | null;
-    toNumber: string;
-    fromNumber: string;
-    direction: "inbound" | "outbound";
-    inviteFriendName: string | null;
-    inviteGuardianName: string | null;
-  } | null,
-  staticHints: string[],
-): Promise<string> {
-  const assistantName = getAssistantName();
-
-  // Resolve the guardian displayName from the gateway binding for STT vocabulary.
-  let guardianDisplayName: string | undefined;
-  try {
-    const list = await getGuardianDelivery();
-    guardianDisplayName = voiceGuardianDisplayName(list);
-  } catch (err) {
-    logger.warn({ err }, "Failed to look up guardian contact for STT hints");
-  }
-  const guardianName = resolveGuardianName(guardianDisplayName);
-
-  let targetContactName: string | null = null;
-  let callerContactName: string | null = null;
-  let recentContactNames: string[] = [];
-
-  // For inbound calls, fromNumber is the caller (the interesting party);
-  // toNumber is the assistant's own Twilio number (not useful for contact lookup).
-  // For outbound calls, toNumber is who we're calling.
-  try {
-    if (session) {
-      const otherPartyNumber =
-        session.direction === "inbound" ? session.fromNumber : session.toNumber;
-      const otherPartyContact = findContactByAddress("phone", otherPartyNumber);
-      if (otherPartyContact) {
-        if (session.direction === "inbound") {
-          callerContactName = otherPartyContact.displayName;
-        } else {
-          targetContactName = otherPartyContact.displayName;
-        }
-      }
-    }
-  } catch (err) {
-    logger.warn({ err }, "Failed to look up contact for STT hints");
-  }
-
-  try {
-    const recentContacts = listContacts(15);
-    recentContactNames = recentContacts.map((c) => c.displayName);
-  } catch (err) {
-    logger.warn({ err }, "Failed to list recent contacts for STT hints");
-  }
-
-  return buildSttHints({
-    staticHints,
-    assistantName,
-    guardianName,
-    taskDescription: session?.task ?? null,
-    targetContactName,
-    callerContactName,
-    inviteFriendName: session?.inviteFriendName ?? null,
-    inviteGuardianName: session?.inviteGuardianName ?? null,
-    recentContactNames,
-  });
 }

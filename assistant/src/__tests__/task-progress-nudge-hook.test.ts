@@ -95,6 +95,7 @@ function makeCtx(
     callSite: opts.callSite ?? "mainAgent",
     supportsDynamicUi: opts.supportsDynamicUi ?? true,
     logger: noopLogger,
+    broadcast: () => {},
   };
 }
 

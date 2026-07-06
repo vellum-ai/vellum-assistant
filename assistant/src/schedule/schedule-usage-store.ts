@@ -29,6 +29,7 @@ export function getScheduleUsageSummaries({
     selectExpression: "schedule_attr_runs.job_id",
   });
   const rows = rawAll<ScheduleUsageSummaryRow>(
+    "scheduleUsage:getSummaries",
     /*sql*/ `
     WITH run_counts AS (
       SELECT

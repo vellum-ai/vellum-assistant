@@ -140,3 +140,6 @@ clients/web/public/skills/
 # Generated at release time by the publish-meta jobs (release.yml)
 meta/package-lock.json
 meta/npm-shrinkwrap.json
+
+# Eval run artifacts — local only, never committed
+evals/

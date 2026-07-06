@@ -1,4 +1,4 @@
-import { getTtsProvider } from "../tts/provider-registry.js";
+import { getTtsProvider } from "../tts/provider-catalog.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import type {
   TtsProvider,

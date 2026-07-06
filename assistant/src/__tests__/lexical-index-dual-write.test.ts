@@ -12,7 +12,15 @@
 // machinery. Memory config is real (default-enabled), flipped on disk for the
 // disabled case.
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 import { eq } from "drizzle-orm";
 
@@ -62,13 +70,8 @@ import { getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import type { MemoryJobType } from "../persistence/jobs-store.js";
-import {
-  getMemoryPersistenceHooks,
-  type MemoryPersistenceHooks,
-  registerMemoryPersistenceHooks,
-} from "../persistence/memory-lifecycle-hooks.js";
 import { memoryJobs } from "../persistence/schema/index.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
+import { memoryPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks.js";
 
 await initializeDb();
 
@@ -127,7 +130,6 @@ function setMemoryEnabled(enabled: boolean): void {
 describe("messages lexical-index dual-write", () => {
   beforeEach(() => {
     resetMemoryJobs();
-    registerDefaultPluginPersistenceHooks();
   });
 
   afterEach(() => {
@@ -340,42 +342,34 @@ describe("messages lexical-index dual-write", () => {
 // and whole-conversation deletes fire `onConversationDeleted` from the shared
 // `deleteConversation`/`deleteConversationGently` primitive (covering every
 // caller, not just the HTTP route).
-describe("delete paths route through the persistence-hook seam", () => {
+describe("delete paths route through the memory persistence hooks", () => {
   const deletedBatches: string[][] = [];
   const deletedConversations: string[] = [];
-  const spyHooks: MemoryPersistenceHooks = {
-    onMessagePersisted() {},
-    onConversationForked() {},
-    onConversationWiped() {
-      return 0;
-    },
-    onConversationDeleted(id) {
-      deletedConversations.push(id);
-    },
-    onMessagesDeleted(ids) {
-      deletedBatches.push(ids);
-    },
-    async onAllConversationsCleared() {},
-    onWorkerStartup() {},
-    countMemoryBufferLines() {
-      return 0;
-    },
-  };
+  let conversationDeletedSpy: ReturnType<typeof spyOn>;
+  let messagesDeletedSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     resetMemoryJobs();
     deletedBatches.length = 0;
     deletedConversations.length = 0;
-    registerMemoryPersistenceHooks(spyHooks);
+    conversationDeletedSpy = spyOn(
+      memoryPersistenceHooks,
+      "onConversationDeleted",
+    ).mockImplementation((id: string) => {
+      deletedConversations.push(id);
+    });
+    messagesDeletedSpy = spyOn(
+      memoryPersistenceHooks,
+      "onMessagesDeleted",
+    ).mockImplementation((ids: string[]) => {
+      deletedBatches.push(ids);
+    });
   });
 
   afterEach(() => {
-    // Restore the real memory hooks so later tests are unaffected.
-    registerDefaultPluginPersistenceHooks();
-  });
-
-  test("the spy hook is installed", () => {
-    expect(getMemoryPersistenceHooks()).toBe(spyHooks);
+    // Restore the real handlers so later tests are unaffected.
+    conversationDeletedSpy.mockRestore();
+    messagesDeletedSpy.mockRestore();
   });
 
   test("deleteConversation fires onConversationDeleted (covers all callers, not just the route)", async () => {

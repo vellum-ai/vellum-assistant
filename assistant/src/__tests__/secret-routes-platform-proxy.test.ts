@@ -78,6 +78,11 @@ mock.module("../config/env.js", () => ({
 }));
 
 mock.module("../config/loader.js", () => ({
+  getConfig: () => mockConfig,
+  invalidateConfigCache: () => {},
+}));
+
+mock.module("../providers/provider-secret-catalog.js", () => ({
   API_KEY_PROVIDERS: [
     "anthropic",
     "openai",
@@ -85,8 +90,6 @@ mock.module("../config/loader.js", () => ({
     "fireworks",
     "openrouter",
   ],
-  getConfig: () => mockConfig,
-  invalidateConfigCache: () => {},
 }));
 
 mock.module("../security/secure-keys.js", () => ({

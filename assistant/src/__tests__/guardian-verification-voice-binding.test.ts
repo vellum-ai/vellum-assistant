@@ -20,7 +20,7 @@ mock.module("../calls/twilio-config.js", () => ({
 }));
 
 mock.module("../calls/twilio-provider.js", () => ({
-  TwilioConversationRelayProvider: class {
+  TwilioVoiceProvider: class {
     async checkCallerIdEligibility() {
       return { eligible: true };
     }

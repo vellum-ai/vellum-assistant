@@ -7,7 +7,7 @@
     },
     "app-builder": {
       "docsSlug": "app-builder",
-      "sha256": "d45f4859d285aa671734e07ae5b7d1363526500b9cf4bbfe91b1d73869cb7b1a"
+      "sha256": "788fdcd4aa29830604d25d9b9f3577bcc5a023a60e9ffad1d2e109a9f326ff8f"
     },
     "computer-use": {
       "docsSlug": "computer-use",
@@ -39,7 +39,7 @@
     },
     "phone-calls": {
       "docsSlug": "phone-calls",
-      "sha256": "9342a16afba60f162b9f9b31333fa50dd808b5445ab6ea1991ed9a46615f1a7e"
+      "sha256": "99a65fbcc7b683812aba75beb5865526d70476a0ef826a2f5002e5582b7803b1"
     },
     "playbooks": {
       "docsSlug": "playbooks",

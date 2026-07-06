@@ -233,7 +233,7 @@ export const ContactReadChannelSchema = z.object({
   verifiedAt: z.number().nullable(),
   verifiedVia: z.string().nullable(),
   lastSeenAt: z.number().nullable(),
-  interactionCount: z.number(),
+  interactionCount: z.number().nullable(),
   lastInteraction: z.number().nullable(),
   revokedReason: z.string().nullable(),
   blockedReason: z.string().nullable(),
@@ -248,7 +248,7 @@ export const ContactReadSchema = z.object({
   notes: z.string().nullable().optional(),
   contactType: z.string().nullable().optional(),
   lastInteraction: z.number().nullable().optional(),
-  interactionCount: z.number(),
+  interactionCount: z.number().nullable(),
   createdAt: z.number(),
   updatedAt: z.number(),
   channels: z.array(ContactReadChannelSchema),
@@ -270,6 +270,11 @@ export const ListContactsIpcParamsSchema = z
   .object({
     limit: z.number().optional(),
     role: z.string().optional(),
+    // Restrict the read to these contact ids (any order). Used by the daemon to
+    // batch-hydrate gateway-owned telemetry onto daemon-native filtered/search
+    // results without re-implementing search in the gateway. When present,
+    // `role`/`limit` filtering is bypassed — the id set is the filter.
+    ids: z.array(z.string()).optional(),
   })
   .strict()
   .default({});

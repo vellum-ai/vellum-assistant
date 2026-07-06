@@ -132,6 +132,7 @@ mock.module("../persistence/embeddings/embedding-backend.js", () => ({
     model: null,
   }),
   resetLocalEmbeddingFailureState: () => {},
+  resolveBackendDimension: async () => null,
   selectEmbeddingBackend: async () => null,
   selectedBackendSupportsMultimodal: async () => false,
 }));

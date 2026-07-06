@@ -271,6 +271,7 @@ export class VellumQdrantClient {
             migrated = true;
             // Fall through to collection creation below
           } else {
+            await this.reconcileSparseIndexOnDisk(info);
             if (await this.ensurePayloadIndexesSafe()) {
               this.collectionReady = true;
             }
@@ -313,7 +314,10 @@ export class VellumQdrantClient {
           },
         },
         sparse_vectors: {
-          sparse: {}, // Qdrant auto-infers sparse vector params
+          // The sparse inverted index lives in RAM unless placed on disk
+          // explicitly; it grows with every indexed point, so it follows the
+          // same on-disk setting as the dense vectors and payloads.
+          sparse: { index: { on_disk: this.onDisk } },
         },
         hnsw_config: {
           on_disk: this.onDisk,
@@ -376,6 +380,53 @@ export class VellumQdrantClient {
   private async deleteCollectionForRebuild(): Promise<void> {
     await writeRebuildSentinel();
     await this.client.deleteCollection(this.collection);
+  }
+
+  /**
+   * Align an existing collection's sparse-index placement with the configured
+   * `onDisk` flag. Qdrant keeps the sparse inverted index in RAM unless the
+   * collection explicitly opts into on-disk, and collections keep whatever
+   * they were created with — so long-lived installs hold the whole index in
+   * RAM even when `onDisk` is set. `updateCollection` moves it in place (the
+   * optimizer rewrites segments in the background) without a reembed.
+   *
+   * Best-effort: a failed update logs and leaves the collection serving from
+   * its current index — search keeps working either way.
+   */
+  private async reconcileSparseIndexOnDisk(
+    info: Awaited<ReturnType<QdrantRestClient["getCollection"]>>,
+  ): Promise<void> {
+    const sparseParams = (
+      info.config?.params as
+        | {
+            sparse_vectors?: Record<
+              string,
+              { index?: { on_disk?: boolean | null } | null } | undefined
+            >;
+          }
+        | undefined
+    )?.sparse_vectors;
+    // No sparse config in the probe — nothing to move. (A collection without
+    // the `sparse` named vector cannot accept an index update for it.)
+    if (!sparseParams || !("sparse" in sparseParams)) return;
+
+    const current = sparseParams.sparse?.index?.on_disk ?? false;
+    if (current === this.onDisk) return;
+
+    try {
+      await this.client.updateCollection(this.collection, {
+        sparse_vectors: { sparse: { index: { on_disk: this.onDisk } } },
+      });
+      log.info(
+        { collection: this.collection, onDisk: this.onDisk },
+        "Moved sparse index placement on existing Qdrant collection",
+      );
+    } catch (err) {
+      log.warn(
+        { err, collection: this.collection, onDisk: this.onDisk },
+        "Failed to update sparse index placement — continuing with current index",
+      );
+    }
   }
 
   async upsert(
