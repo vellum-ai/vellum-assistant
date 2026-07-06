@@ -2058,7 +2058,7 @@ jobs:
           npm publish /tmp/npm-dist/package.tgz --tag dev --access public --no-provenance
 
   build-web-dev:
-    needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor]
+    needs: [compute-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, ci-web]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
