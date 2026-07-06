@@ -21445,7 +21445,8 @@ paths:
         Remove the directory at `<workspaceDir>/plugins/<name>/`. Mirrors the CLI's `assistant plugins uninstall
         <name>` (without the interactive confirmation — the API caller is responsible for any prompt). The plugin name
         is sanitized by the same regex the CLI uses; `../escape`-style values, hidden names, and absolute paths return
-        400. Missing plugins return 404. The assistant must be restarted to drop the plugin from the running runtime.
+        400. Missing plugins return 404. The plugin is dropped from the running runtime live on the next read (no
+        restart required).
       tags:
         - plugins
       parameters:
@@ -22043,14 +22044,14 @@ paths:
         `<workspaceDir>/plugins/<name>/`. Always resolves against the curated marketplace pin (no caller-supplied ref),
         mirroring `plugins install`''s curation boundary. A no-op (`outcome: "already-up-to-date"`) when the installed
         commit already equals the pin; pass `dryRun` to preview the move (`outcome: "would-upgrade"`) without touching
-        the install. Installs lacking provenance are re-pinned to the current SHA. The assistant must be restarted to
-        load the upgraded code. `strategy` controls how local edits are reconciled: `overwrite` (default) discards them
-        and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge against the
-        re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving conflicting
-        hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the file and
-        reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge strategy
-        whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins upgrade
-        <name> [--strategy <s>]`.'
+        the install. Installs lacking provenance are re-pinned to the current SHA. The upgraded code is picked up live
+        on the next read (no restart required). `strategy` controls how local edits are reconciled: `overwrite`
+        (default) discards them and re-installs the pin wholesale; `ours`/`theirs`/`assistant` perform a three-way merge
+        against the re-materialized install commit, carrying non-conflicting edits from both sides forward and resolving
+        conflicting hunks toward the local edit (`ours`) or the pin (`theirs`), or writing git conflict markers into the
+        file and reporting them in `conflicts`/`binaryConflicts` for the assistant to resolve (`assistant`). A merge
+        strategy whose install-time baseline cannot be reconstructed returns 409. Mirrors the CLI''s `assistant plugins
+        upgrade <name> [--strategy <s>]`.'
       tags:
         - plugins
       parameters:
@@ -22252,9 +22253,9 @@ paths:
         "Install a plugin by name from the canonical source — a whitelisted `plugins/marketplace.json` entry.
         Always resolves against the curated default git ref (no caller-supplied ref): installing from an unreviewed
         revision would bypass the marketplace curation boundary and let attacker-controlled code be loaded. Materializes
-        the plugin under `<workspaceDir>/plugins/<name>/`; the assistant must be restarted to load it. Mirrors the CLI's
-        `assistant plugins install <name>`. An already-installed name without `force` returns 409; a name that resolves
-        to nothing returns 404. Sibling to `POST /v1/skills/install`."
+        the plugin under `<workspaceDir>/plugins/<name>/`; the plugin is picked up live on the next read (no restart
+        required). Mirrors the CLI's `assistant plugins install <name>`. An already-installed name without `force`
+        returns 409; a name that resolves to nothing returns 404. Sibling to `POST /v1/skills/install`."
       tags:
         - plugins
       requestBody:
