@@ -259,9 +259,65 @@ describe("LiveVoiceCallTransport", () => {
 
     expect(frames.find((frame) => frame.type === "error")).toMatchObject({
       type: "error",
+      code: "tts_failed",
       message: expect.stringContaining("provider unavailable"),
     });
     expect(frames.at(-1)).toEqual({ type: "tts_done", turnId: "turn-1" });
+  });
+
+  test("discardPendingText suppresses tts_audio sends that were already chained", async () => {
+    // Block the frame sink so a second chunk gets *chained* behind an
+    // in-flight send before the barge-in lands.
+    let releaseFirstSend!: () => void;
+    const firstSendGate = new Promise<void>((resolve) => {
+      releaseFirstSend = resolve;
+    });
+    const frames: LiveVoiceServerFramePayload[] = [];
+    let sends = 0;
+    const sendFrame = mock(async (payload: LiveVoiceServerFramePayload) => {
+      sends += 1;
+      if (sends === 1) {
+        await firstSendGate;
+      }
+      frames.push(payload);
+    });
+
+    let activeOptions: LiveVoiceTtsOptions | undefined;
+    let resolveActive: ((result: LiveVoiceTtsResult) => void) | undefined;
+    const streamTtsAudio = mock(
+      (options: LiveVoiceTtsOptions) =>
+        new Promise<LiveVoiceTtsResult>((resolve) => {
+          activeOptions = options;
+          resolveActive = resolve;
+        }),
+    );
+    const transport = new LiveVoiceCallTransport({
+      sendFrame,
+      streamTtsAudio,
+      sampleRate: 24_000,
+      turnId: () => "turn-1",
+      onSessionEnd: () => {},
+    });
+
+    transport.sendTextToken("First one.", true);
+    await waitFor(() => activeOptions !== undefined);
+    // Two chunks: the first send blocks; the second is chained behind it.
+    activeOptions?.onAudioChunk(makeTtsChunk("chunk-1"));
+    activeOptions?.onAudioChunk(makeTtsChunk("chunk-2"));
+    await waitFor(() => sends === 1);
+
+    transport.discardPendingText();
+    releaseFirstSend();
+    resolveActive?.(makeTtsResult("First one."));
+    await flushAsyncCallbacks();
+
+    // The in-flight first chunk completes, but the chained second chunk
+    // rechecks the abort and never reaches the sink — and neither does
+    // the aborted turn's tts_done.
+    expect(frames.filter((frame) => frame.type === "tts_audio")).toHaveLength(
+      1,
+    );
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
   });
 
   test("collectAssistantAudio returns emitted chunks once and resets", async () => {

@@ -24,6 +24,13 @@ export enum ErrorCode {
   INTERNAL_ERROR = "INTERNAL_ERROR",
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Best-effort human-readable message for an unknown thrown value. */
+export function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 // ── Root ──────────────────────────────────────────────────────────────────────
 
 /** Root base class for all named Vellum errors. */

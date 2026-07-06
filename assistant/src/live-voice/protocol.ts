@@ -19,8 +19,10 @@ const _LIVE_VOICE_SERVER_FRAME_TYPES = [
   "assistant_text_delta",
   "tts_audio",
   "tts_done",
+  "turn_cancelled",
   "metrics",
   "archived",
+  "session_ended",
   "error",
 ] as const;
 
@@ -34,6 +36,9 @@ export const LiveVoiceProtocolErrorCode = {
   InvalidField: "invalid_field",
   InvalidAudioPayload: "invalid_audio_payload",
   CredentialsMissing: "credentials_missing",
+  TtsFailed: "tts_failed",
+  SttFailed: "stt_failed",
+  TurnFailed: "turn_failed",
 } as const;
 
 export type LiveVoiceProtocolErrorCode =
@@ -162,6 +167,26 @@ export interface LiveVoiceTtsDoneServerFrame extends LiveVoiceServerFrameBase {
   readonly turnId: string;
 }
 
+/**
+ * The in-flight user turn was retired without an assistant response (e.g.
+ * empty transcript, failed assistant turn). The client should resume
+ * listening rather than keep waiting for `thinking`/`tts_done`.
+ */
+export interface LiveVoiceTurnCancelledServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "turn_cancelled";
+  readonly reason?: string;
+}
+
+/**
+ * The server ended the session ([END_CALL] goodbye, max session duration).
+ * Sent after any pending TTS has been flushed and before the session closes;
+ * the client should tear down cleanly back to idle.
+ */
+export interface LiveVoiceSessionEndedServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "session_ended";
+  readonly reason: string;
+}
+
 export interface LiveVoiceMetricsServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "metrics";
   readonly event?: string;
@@ -206,8 +231,10 @@ export type LiveVoiceServerFrame =
   | LiveVoiceAssistantTextDeltaServerFrame
   | LiveVoiceTtsAudioServerFrame
   | LiveVoiceTtsDoneServerFrame
+  | LiveVoiceTurnCancelledServerFrame
   | LiveVoiceMetricsServerFrame
   | LiveVoiceArchivedServerFrame
+  | LiveVoiceSessionEndedServerFrame
   | LiveVoiceErrorServerFrame;
 
 type WithoutSeq<T extends LiveVoiceServerFrameBase> = Omit<T, "seq">;
@@ -223,8 +250,10 @@ export type LiveVoiceServerFramePayload =
   | WithoutSeq<LiveVoiceAssistantTextDeltaServerFrame>
   | WithoutSeq<LiveVoiceTtsAudioServerFrame>
   | WithoutSeq<LiveVoiceTtsDoneServerFrame>
+  | WithoutSeq<LiveVoiceTurnCancelledServerFrame>
   | WithoutSeq<LiveVoiceMetricsServerFrame>
   | WithoutSeq<LiveVoiceArchivedServerFrame>
+  | WithoutSeq<LiveVoiceSessionEndedServerFrame>
   | WithoutSeq<LiveVoiceErrorServerFrame>;
 
 class LiveVoiceServerFrameSequencer {

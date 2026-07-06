@@ -291,8 +291,10 @@ describe("server frame dispatch", () => {
     client.on("assistantTextDelta", record("assistantTextDelta"));
     client.on("ttsAudio", record("ttsAudio"));
     client.on("ttsDone", record("ttsDone"));
+    client.on("turnCancelled", record("turnCancelled"));
     client.on("metrics", record("metrics"));
     client.on("archived", record("archived"));
+    client.on("sessionEnded", record("sessionEnded"));
 
     ws.receive({ type: "stt_partial", seq: 2, text: "hel" });
     ws.receive({ type: "stt_final", seq: 3, text: "hello" });
@@ -308,6 +310,8 @@ describe("server frame dispatch", () => {
       dataBase64: "AAAA",
     });
     ws.receive({ type: "tts_done", seq: 7, turnId: "t1" });
+    ws.receive({ type: "turn_cancelled", seq: 12, reason: "empty_transcript" });
+    ws.receive({ type: "session_ended", seq: 13, reason: "Call completed" });
     ws.receive({
       type: "metrics",
       seq: 8,
@@ -336,6 +340,12 @@ describe("server frame dispatch", () => {
     ]);
     expect(got.ttsAudio).toHaveLength(1);
     expect(got.ttsDone).toEqual([{ type: "tts_done", seq: 7, turnId: "t1" }]);
+    expect(got.turnCancelled).toEqual([
+      { type: "turn_cancelled", seq: 12, reason: "empty_transcript" },
+    ]);
+    expect(got.sessionEnded).toEqual([
+      { type: "session_ended", seq: 13, reason: "Call completed" },
+    ]);
     expect(got.metrics).toHaveLength(1);
     expect(got.archived).toHaveLength(1);
   });

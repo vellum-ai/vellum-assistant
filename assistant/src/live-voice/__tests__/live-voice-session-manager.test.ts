@@ -193,6 +193,43 @@ describe("LiveVoiceSessionManager", () => {
     expect(sessions).toHaveLength(2);
   });
 
+  test("a session-initiated end releases the lock and notifies the sink", async () => {
+    const sessions: TestSession[] = [];
+    const contexts: LiveVoiceSessionFactoryContext[] = [];
+    const manager = new LiveVoiceSessionManager({
+      createSessionId: mock(() => `session-${sessions.length + 1}`),
+      createSession: (context) => {
+        contexts.push(context);
+        const session = createTestSession();
+        sessions.push(session);
+        return session;
+      },
+    });
+    const first = createSink();
+    const endedNotices: Array<{ sessionId: string; reason: string }> = [];
+
+    await manager.startSession(START_FRAME, {
+      ...first.sink,
+      onSessionEnded: (sessionId, reason) => {
+        endedNotices.push({ sessionId, reason });
+      },
+    });
+    expect(manager.activeSessionId).toBe("session-1");
+
+    // The session closed itself (e.g. [END_CALL] / max duration) — no
+    // socket event or manager release call is coming.
+    contexts[0]?.onSessionEnded?.("client_end");
+
+    expect(manager.activeSessionId).toBeNull();
+    expect(endedNotices).toEqual([
+      { sessionId: "session-1", reason: "client_end" },
+    ]);
+
+    // The slot is genuinely free: a new session is accepted.
+    const next = await manager.startSession(START_FRAME, createSink().sink);
+    expect(next).toEqual({ status: "accepted", sessionId: "session-2" });
+  });
+
   test("releases the lock when session start throws", async () => {
     const sessions: TestSession[] = [];
     const manager = new LiveVoiceSessionManager({

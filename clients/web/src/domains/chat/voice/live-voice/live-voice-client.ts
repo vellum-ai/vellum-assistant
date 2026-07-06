@@ -30,11 +30,13 @@ import {
   type LiveVoiceInterruptedServerFrame,
   type LiveVoiceMetricsServerFrame,
   type LiveVoiceReadyServerFrame,
+  type LiveVoiceSessionEndedServerFrame,
   type LiveVoiceSessionMode,
   type LiveVoiceSttFinalServerFrame,
   type LiveVoiceSttPartialServerFrame,
   type LiveVoiceThinkingServerFrame,
   type LiveVoiceTurnBoundaryServerFrame,
+  type LiveVoiceTurnCancelledServerFrame,
   type LiveVoiceTtsAudioServerFrame,
   type LiveVoiceTtsDoneServerFrame,
   parseServerFrame,
@@ -71,8 +73,10 @@ export interface LiveVoiceClientEventMap {
   assistantTextDelta: LiveVoiceAssistantTextDeltaServerFrame;
   ttsAudio: LiveVoiceTtsAudioServerFrame;
   ttsDone: LiveVoiceTtsDoneServerFrame;
+  turnCancelled: LiveVoiceTurnCancelledServerFrame;
   metrics: LiveVoiceMetricsServerFrame;
   archived: LiveVoiceArchivedServerFrame;
+  sessionEnded: LiveVoiceSessionEndedServerFrame;
   busy: LiveVoiceBusyServerFrame;
   error: LiveVoiceClientError;
   /** Fired exactly once when the transport closes (clean or otherwise). */
@@ -89,10 +93,7 @@ export interface LiveVoiceConnectArgs {
   assistantId: string;
   /** Optional conversation to attach the session to. */
   conversationId?: string;
-  /**
-   * Optional session mode sent in the `start` frame. Omitted for servers that
-   * predate mode negotiation (they default to PTT).
-   */
+  /** Optional session mode sent in the `start` frame; the server defaults to PTT. */
   mode?: LiveVoiceSessionMode;
 }
 
@@ -134,8 +135,10 @@ export class LiveVoiceChannelClient {
     assistantTextDelta: new Set(),
     ttsAudio: new Set(),
     ttsDone: new Set(),
+    turnCancelled: new Set(),
     metrics: new Set(),
     archived: new Set(),
+    sessionEnded: new Set(),
     busy: new Set(),
     error: new Set(),
     closed: new Set(),
@@ -312,11 +315,17 @@ export class LiveVoiceChannelClient {
       case "tts_done":
         this.emit("ttsDone", frame);
         return;
+      case "turn_cancelled":
+        this.emit("turnCancelled", frame);
+        return;
       case "metrics":
         this.emit("metrics", frame);
         return;
       case "archived":
         this.emit("archived", frame);
+        return;
+      case "session_ended":
+        this.emit("sessionEnded", frame);
         return;
       case "error":
         this.fail("protocol-error", frame.message, frame.code);

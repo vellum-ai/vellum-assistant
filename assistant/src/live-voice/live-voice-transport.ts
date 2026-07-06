@@ -1,6 +1,7 @@
 import { Buffer } from "node:buffer";
 
 import type { CallTransport } from "../calls/call-transport.js";
+import { errorMessage } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import { extractSpeakableSegments } from "./live-voice-segments.js";
 import type { LiveVoiceTtsStreamer } from "./live-voice-session.js";
@@ -125,6 +126,15 @@ export class LiveVoiceCallTransport implements CallTransport {
     return chunks;
   }
 
+  /**
+   * Resolves when every TTS job enqueued so far has finished (audio and
+   * `tts_done` frames handed to the sink). The session awaits this before
+   * a server-initiated close so a queued goodbye is not cut off.
+   */
+  waitForTtsDrain(): Promise<void> {
+    return this.ttsQueue;
+  }
+
   // ── TTS queue ───────────────────────────────────────────────────────
 
   private enqueueTtsSegment(segment: string): void {
@@ -135,9 +145,12 @@ export class LiveVoiceCallTransport implements CallTransport {
       }
 
       try {
-        // sendFrame calls are chained so the job only completes after
-        // every chunk frame for this segment has been handed to the
-        // socket, keeping tts_done ordered behind the audio.
+        // The job awaits the chain before completing so every chunk frame
+        // has been handed to the sink before the next queued job (and
+        // ultimately tts_done) starts — backpressure, not frame ordering,
+        // which the session's own outbound chain already guarantees. Each
+        // chained send rechecks the abort so a barge-in also suppresses
+        // chunks that were queued before discardPendingText ran.
         let frameChain: Promise<unknown> = Promise.resolve();
         await this.deps.streamTtsAudio({
           text: segment,
@@ -152,14 +165,17 @@ export class LiveVoiceCallTransport implements CallTransport {
               Buffer.from(chunk.dataBase64, "base64"),
             );
             this.fireAudioStartCallback();
-            frameChain = frameChain.then(() =>
-              this.deps.sendFrame({
+            frameChain = frameChain.then(() => {
+              if (abort.signal.aborted) {
+                return;
+              }
+              return this.deps.sendFrame({
                 type: "tts_audio",
                 mimeType: chunk.contentType,
                 sampleRate: chunk.sampleRate,
                 dataBase64: chunk.dataBase64,
-              }),
-            );
+              });
+            });
           },
         });
         await frameChain;
@@ -169,7 +185,7 @@ export class LiveVoiceCallTransport implements CallTransport {
         }
         await this.deps.sendFrame({
           type: "error",
-          code: LiveVoiceProtocolErrorCode.InvalidField,
+          code: LiveVoiceProtocolErrorCode.TtsFailed,
           message: `Live voice TTS failed: ${errorMessage(err)}`,
         });
       } finally {
@@ -213,8 +229,4 @@ export class LiveVoiceCallTransport implements CallTransport {
     this.audioStartCallback = null;
     callback();
   }
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }

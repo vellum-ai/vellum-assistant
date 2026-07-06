@@ -6,6 +6,8 @@ import {
   attachmentExists,
   getAttachmentById,
   linkAttachmentToMessage,
+  uploadAttachment,
+  uploadFileBackedAttachment,
 } from "../persistence/attachments-store.js";
 import { rawAll, rawGet, rawRun } from "../persistence/raw-query.js";
 import { getLogger } from "../util/logger.js";
@@ -365,7 +367,7 @@ function sanitizeOptionalPositiveNumber(
   return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
-function validateInput(input: ArchiveLiveVoiceAudioInput):
+function validateInput(input: Omit<ArchiveLiveVoiceAudioInput, "messageId">):
   | {
       archiveKey: string;
       filename: string;
@@ -624,19 +626,97 @@ function linkLiveVoiceAudioToMessage(
   },
 ): LiveVoiceAudioArchiveResult {
   const messageId = normalizeMessageId(input.messageId);
+  const { messageId: _messageId, ...archiveInput } = input;
   if (!messageId) {
-    return resultUnlinked(
-      "message_id_unavailable",
-      "Live voice audio archive could not be linked because no message id was available.",
-      input,
-    );
+    // No message to link against (e.g. the turn was cancelled before the
+    // pipeline persisted a message). Store the audio as an unlinked
+    // attachment instead of dropping it; the returned artifact can be
+    // linked later via linkLiveVoiceAudioArtifactToMessage.
+    return storeLiveVoiceAudioArtifactUnlinked(archiveInput);
   }
 
-  const { messageId: _messageId, ...archiveInput } = input;
   return archiveLiveVoiceAudioArtifact({
     ...archiveInput,
     messageId,
   });
+}
+
+/**
+ * Store live-voice audio as an attachment without a message link. Returns
+ * an `unlinked` result carrying the stored artifact metadata so a caller
+ * that later learns the message id can link it retroactively.
+ */
+function storeLiveVoiceAudioArtifactUnlinked(
+  input: Omit<ArchiveLiveVoiceAudioInput, "messageId">,
+): LiveVoiceAudioArchiveResult {
+  const validated = validateInput(input);
+  if ("type" in validated) return validated;
+
+  try {
+    const stored =
+      input.audio.type === "base64"
+        ? uploadAttachment(
+            validated.filename,
+            validated.mimeType,
+            input.audio.dataBase64,
+          )
+        : (() => {
+            if (!existsSync(input.audio.filePath)) {
+              return null;
+            }
+            const sizeBytes =
+              input.audio.sizeBytes ?? statSync(input.audio.filePath).size;
+            return uploadFileBackedAttachment(
+              validated.filename,
+              validated.mimeType,
+              input.audio.filePath,
+              sizeBytes,
+            );
+          })();
+
+    if (!stored) {
+      return resultWarning(
+        "invalid_audio_source",
+        "Live voice audio file is not readable.",
+      );
+    }
+
+    const artifact = artifactFromAttachment({
+      attachmentId: stored.id,
+      archiveKey: validated.archiveKey,
+      sessionId: input.sessionId,
+      turnId: input.turnId,
+      role: input.role,
+      mimeType: validated.mimeType,
+      sampleRate: validated.sampleRate,
+      durationMs: validated.durationMs,
+      sizeBytes: stored.sizeBytes,
+      filename: stored.originalFilename,
+      archivedAt: stored.createdAt,
+    });
+    return resultUnlinked(
+      "message_id_unavailable",
+      "Live voice audio was stored but could not be linked because no message id was available.",
+      {
+        sessionId: input.sessionId,
+        turnId: input.turnId,
+        role: input.role,
+        artifact,
+      },
+    );
+  } catch (err) {
+    log.warn(
+      {
+        archiveKey: validated.archiveKey,
+        errorName: err instanceof Error ? err.name : typeof err,
+      },
+      "Failed to store unlinked live voice audio artifact",
+    );
+    return resultWarning(
+      "archive_failed",
+      "Live voice audio archive failed without blocking the turn.",
+    );
+  }
 }
 
 export function linkLiveVoiceUserUtteranceAudioToMessage(

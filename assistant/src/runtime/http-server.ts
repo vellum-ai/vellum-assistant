@@ -899,6 +899,20 @@ export class RuntimeHttpServer {
         sendFrame: async (serverFrame) => {
           this.sendLiveVoiceFrame(ws, serverFrame);
         },
+        onSessionEnded: (sessionId) => {
+          // Fires for every session close — including server-initiated ends
+          // ([END_CALL], max duration) where no socket event exists to
+          // trigger cleanup. Detach and close; both are no-ops when the
+          // close originated from the socket side.
+          if (ws.data.sessionId === sessionId) {
+            ws.data.sessionId = undefined;
+          }
+          try {
+            ws.close(1000, "live voice session ended");
+          } catch {
+            // The socket may already be closed/closing.
+          }
+        },
       });
       if (result.status === "accepted") {
         ws.data.sessionId = result.sessionId;

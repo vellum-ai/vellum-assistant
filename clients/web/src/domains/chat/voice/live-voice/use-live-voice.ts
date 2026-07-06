@@ -16,8 +16,9 @@
  * One session spans many turns over a single socket and a single mic
  * acquisition: after the assistant's response finishes playing (or is
  * interrupted), the controller re-opens audio forwarding and returns to
- * `listening` for the next utterance. The session ends only via `stop()`
- * (user), a server/socket `closed`, `busy`, or an error.
+ * `listening` for the next utterance. The session ends via `stop()` (user), a
+ * server `session_ended` (goodbye plays out, then teardown), a server/socket
+ * `closed`, `busy`, or an error.
  *
  * ## State transitions
  * `idle → connecting` (start) → `listening` (ready + capture started) →
@@ -64,6 +65,7 @@ import {
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
+import type { LiveVoiceSessionMode } from "@/domains/chat/voice/live-voice/protocol";
 
 // ---------------------------------------------------------------------------
 // Client-side amplitude/timing thresholds
@@ -80,6 +82,13 @@ const SILENCE_DURATION_BEFORE_RELEASE_MS = 1000;
 
 /** Minimum speech (ms) required before a silence window can trigger release. */
 const MINIMUM_SPEECH_DURATION_BEFORE_RELEASE_MS = 120;
+
+/**
+ * Backstop for a wedged turn: if the session sits in `transcribing`/`thinking`
+ * this long with no server progress (no partial/final/delta/audio), resume
+ * listening so a turn the server silently dropped can't strand the client.
+ */
+const STUCK_TURN_TIMEOUT_MS = 15_000;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -98,8 +107,15 @@ export interface UseLiveVoiceResult {
   inputAmplitude: number;
   /** Failure message when `state === "failed"`, else `null`. */
   error: string | null;
-  /** Start a session for `assistantId`, optionally attaching a conversation. */
-  start: (assistantId: string, conversationId?: string) => Promise<void>;
+  /**
+   * Start a session for `assistantId`, optionally attaching a conversation
+   * and requesting a session mode (default: server-side PTT).
+   */
+  start: (
+    assistantId: string,
+    conversationId?: string,
+    mode?: LiveVoiceSessionMode,
+  ) => Promise<void>;
   /** End the session and release the mic, socket, and audio context. */
   stop: () => Promise<void>;
 }
@@ -111,6 +127,8 @@ export interface UseLiveVoiceOptions {
     options: ConstructorParameters<typeof LiveVoiceAudioCapture>[0],
   ) => LiveVoiceAudioCapture;
   createPlayer?: () => LiveVoiceAudioPlayer;
+  /** Override the stuck-turn backstop timeout (tests). */
+  stuckTurnTimeoutMs?: number;
 }
 
 /**
@@ -145,6 +163,16 @@ interface SessionContext {
   speechMs: number;
   /** Accumulated trailing silence (ms) after speech in the current utterance. */
   silenceMs: number;
+  /**
+   * Set when the server announced `session_ended`; the drain-then-teardown
+   * path owns cleanup, so the socket `closed` that follows must not tear
+   * down mid-goodbye.
+   */
+  serverEnded: boolean;
+  /** Stuck-turn backstop timer (armed while transcribing/thinking). */
+  turnBackstopTimer: ReturnType<typeof setTimeout> | null;
+  /** Backstop timeout (injectable for tests). */
+  stuckTurnTimeoutMs: number;
 }
 
 /** Number of bytes per Int16 PCM sample. */
@@ -193,6 +221,7 @@ export function useLiveVoice(
     sessionRef.current = null;
     // Bump the generation so any in-flight async callbacks become stale no-ops.
     session.generation += 1;
+    clearTurnBackstop(session);
     for (const unsubscribe of session.unsubscribes) unsubscribe();
     session.unsubscribes = [];
     session.client.close();
@@ -211,6 +240,7 @@ export function useLiveVoice(
     }
     sessionRef.current = null;
     session.generation += 1;
+    clearTurnBackstop(session);
     useLiveVoiceStore.getState().setState("ending");
     for (const unsubscribe of session.unsubscribes) unsubscribe();
     session.unsubscribes = [];
@@ -222,7 +252,11 @@ export function useLiveVoice(
   }, []);
 
   const start = useCallback(
-    async (assistantId: string, conversationId?: string) => {
+    async (
+      assistantId: string,
+      conversationId?: string,
+      mode?: LiveVoiceSessionMode,
+    ) => {
       const current = sessionRef.current;
       // A live session (anything but idle/failed) blocks a new start.
       const phase = useLiveVoiceStore.getState().state;
@@ -250,6 +284,9 @@ export function useLiveVoice(
         releaseInFlight: false,
         speechMs: 0,
         silenceMs: 0,
+        serverEnded: false,
+        turnBackstopTimer: null,
+        stuckTurnTimeoutMs: opts.stuckTurnTimeoutMs ?? STUCK_TURN_TIMEOUT_MS,
       };
 
       const capture = (opts.createCapture ?? ((o) => new LiveVoiceAudioCapture(o)))({
@@ -275,15 +312,23 @@ export function useLiveVoice(
           // Only while still forwarding (the user's turn) does a partial keep
           // us in `listening`; after ptt-release we're transcribing/thinking.
           if (session.forwardingAudio) s.setState("listening");
+          syncTurnBackstop(session);
         }),
         client.on("sttFinal", (frame) => {
           if (!live()) return;
           const s = useLiveVoiceStore.getState();
           s.setFinalTranscript(frame.text);
           s.setPartialTranscript("");
-          // Forwarding ⇒ the user is still speaking (stay listening); otherwise
-          // ptt was released and the server is about to think.
-          s.setState(session.forwardingAudio ? "listening" : "thinking");
+          // Forwarding ⇒ the user is still speaking (stay listening). After
+          // release, a non-empty final means the server is about to think; an
+          // empty final produces no assistant turn — hold the current state
+          // and wait for `turn_cancelled` (or the stuck-turn backstop).
+          if (session.forwardingAudio) {
+            s.setState("listening");
+          } else if (frame.text.trim().length > 0) {
+            s.setState("thinking");
+          }
+          syncTurnBackstop(session);
         }),
         client.on("thinking", () => {
           if (!live()) return;
@@ -293,6 +338,7 @@ export function useLiveVoice(
           const s = useLiveVoiceStore.getState();
           s.clearAssistantTranscript();
           s.setState("thinking");
+          syncTurnBackstop(session);
         }),
         client.on("assistantTextDelta", (frame) => {
           if (!live() || frame.text.length === 0) return;
@@ -302,6 +348,7 @@ export function useLiveVoice(
           if (phase === "listening" || phase === "transcribing") {
             s.setState("thinking");
           }
+          syncTurnBackstop(session);
         }),
         client.on("ttsAudio", (frame) => {
           if (!live()) return;
@@ -313,10 +360,20 @@ export function useLiveVoice(
           };
           session.player.enqueue(chunk);
           useLiveVoiceStore.getState().setState("speaking");
+          syncTurnBackstop(session);
         }),
         client.on("ttsDone", () => {
           if (!live()) return;
           void finishResponseAfterPlayback(session);
+        }),
+        client.on("turnCancelled", () => {
+          if (!live()) return;
+          // The server retired the turn without a response (empty transcript,
+          // failed turn). Resume listening instead of waiting forever.
+          const phase = useLiveVoiceStore.getState().state;
+          if (phase === "transcribing" || phase === "thinking") {
+            resumeListening(session);
+          }
         }),
         client.on("turnBoundary", () => {
           if (!live()) return;
@@ -325,6 +382,7 @@ export function useLiveVoice(
           // already advanced); in open-mic it is the primary end-of-turn signal.
           const s = useLiveVoiceStore.getState();
           if (s.state === "listening") s.setState("transcribing");
+          syncTurnBackstop(session);
         }),
         client.on("interrupted", () => {
           if (!live()) return;
@@ -340,6 +398,13 @@ export function useLiveVoice(
           if (!live()) return;
           // Persisted; nothing user-visible to do here.
         }),
+        client.on("sessionEnded", () => {
+          if (!live()) return;
+          // Server-initiated end ([END_CALL] goodbye, max duration): let any
+          // buffered goodbye audio finish playing, then tear down to idle.
+          session.serverEnded = true;
+          void finishSessionAfterServerEnd(session, teardown);
+        }),
         client.on("busy", () => {
           if (!live()) return;
           finishWithError(session, teardown, "Another live-voice session is active.");
@@ -351,13 +416,20 @@ export function useLiveVoice(
         client.on("closed", () => {
           // A transport close after a clean end()/teardown is expected; only an
           // unexpected close while still attached needs cleanup. teardown()
-          // resets the store to idle.
+          // resets the store to idle. After a server `session_ended` the
+          // drain path owns teardown — the close that follows must not cut
+          // the goodbye off.
           if (!live()) return;
+          if (session.serverEnded) return;
           teardown();
         }),
       );
 
-      await client.connect({ assistantId, conversationId });
+      await client.connect({
+        assistantId,
+        conversationId,
+        ...(mode ? { mode } : {}),
+      });
     },
     [teardown],
   );
@@ -472,6 +544,35 @@ function releasePushToTalk(session: SessionContext): void {
   const s = useLiveVoiceStore.getState();
   if (s.state === "listening") s.setState("transcribing");
   s.setInputAmplitude(0);
+  syncTurnBackstop(session);
+}
+
+/**
+ * Arm the stuck-turn backstop while awaiting the server (`transcribing` /
+ * `thinking`), clear it otherwise. Every server signal re-syncs, so the
+ * timeout measures *silence from the server*, not total turn duration. On
+ * expiry the session resumes listening (generation-guarded).
+ */
+function syncTurnBackstop(session: SessionContext): void {
+  clearTurnBackstop(session);
+  const phase = useLiveVoiceStore.getState().state;
+  if (phase !== "transcribing" && phase !== "thinking") return;
+
+  const generation = session.generation;
+  session.turnBackstopTimer = setTimeout(() => {
+    session.turnBackstopTimer = null;
+    if (session.generation !== generation) return;
+    const now = useLiveVoiceStore.getState().state;
+    if (now === "transcribing" || now === "thinking") {
+      resumeListening(session);
+    }
+  }, session.stuckTurnTimeoutMs);
+}
+
+function clearTurnBackstop(session: SessionContext): void {
+  if (session.turnBackstopTimer === null) return;
+  clearTimeout(session.turnBackstopTimer);
+  session.turnBackstopTimer = null;
 }
 
 /**
@@ -481,6 +582,7 @@ function releasePushToTalk(session: SessionContext): void {
  * to restart here.
  */
 function resumeListening(session: SessionContext): void {
+  clearTurnBackstop(session);
   session.forwardingAudio = true;
   session.interruptSent = false;
   session.responseAudioStarted = false;
@@ -530,6 +632,26 @@ async function finishResponseAfterPlayback(
   if (session.generation !== generation) return;
   if (useLiveVoiceStore.getState().state === "listening") return;
   resumeListening(session);
+}
+
+/**
+ * Server-initiated session end: suspend forwarding, let buffered goodbye
+ * audio finish playing, then tear down to idle. The `closed` handler defers
+ * to this path (via `session.serverEnded`) so the socket close that follows
+ * `session_ended` cannot cut the goodbye off.
+ */
+async function finishSessionAfterServerEnd(
+  session: SessionContext,
+  teardown: () => void,
+): Promise<void> {
+  const generation = session.generation;
+  session.forwardingAudio = false;
+  clearTurnBackstop(session);
+  useLiveVoiceStore.getState().setState("ending");
+
+  await session.player.waitUntilDrained();
+  if (session.generation !== generation) return;
+  teardown();
 }
 
 /** Fail the session: tear down primitives and surface the message. */

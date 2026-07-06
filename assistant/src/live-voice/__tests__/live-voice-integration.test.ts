@@ -94,6 +94,7 @@ import type {
 import { LiveVoiceIngest } from "../live-voice-ingest.js";
 import {
   createLiveVoiceSession,
+  type LiveVoiceControllerFactory,
   type LiveVoiceSession,
   type LiveVoiceSessionArchiveAudioInput,
   type LiveVoiceTtsStreamer,
@@ -197,6 +198,8 @@ function createWiredHarness(
     /** Streaming resolver returns null so the ingest settles on batch. */
     batchTranscript?: string;
     silenceThresholdMs?: number;
+    /** Override the controller factory (default: real CallController). */
+    createController?: LiveVoiceControllerFactory;
   } = {},
 ): WiredHarness {
   const sequencer = createLiveVoiceServerFrameSequencer();
@@ -252,6 +255,9 @@ function createWiredHarness(
           ...deps,
           streamTtsAudio: fakeStreamTtsAudio,
         }),
+      ...(options.createController
+        ? { createController: options.createController }
+        : {}),
       credentialPreflight: async () => ({ status: "ready" }),
       archiveAudio,
       emitMetrics: true,
@@ -489,9 +495,74 @@ describe("LiveVoiceSession wired duplex integration", () => {
     expect(deltas.join("")).not.toContain("[END_CALL]");
     expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
 
+    // The goodbye's synthesized audio was flushed (tts_audio + tts_done)
+    // before the session announced its end and closed.
+    const sessionEndedSeq = typedFrames(frames, "session_ended")[0]?.seq;
+    expect(sessionEndedSeq).toBeDefined();
+    const goodbyeDoneSeq = typedFrames(frames, "tts_done").at(-1)?.seq;
+    expect(goodbyeDoneSeq).toBeDefined();
+    expect(goodbyeDoneSeq!).toBeLessThan(sessionEndedSeq!);
+    expect(typedFrames(frames, "tts_audio").length).toBeGreaterThan(0);
+
     // The session is closed: further audio is ignored.
     const pushedBefore = transcriber.audioChunks.length;
     await session.handleBinaryAudio(loudChunk());
     expect(transcriber.audioChunks).toHaveLength(pushedBefore);
   });
+
+  test(
+    "max session duration ends the session gracefully with session_ended and final metrics",
+    async () => {
+      const { session, frames } = createWiredHarness({
+        createController: async (options) => {
+          const [{ CallController }, { createInAppVoiceControllerProfile }] =
+            await Promise.all([
+              import("../../calls/call-controller.js"),
+              import("../../calls/voice-session-source.js"),
+            ]);
+          const profile = createInAppVoiceControllerProfile({
+            onPersistedUserMessageId: options.onPersistedUserMessageId,
+            onPersistedAssistantMessageId:
+              options.onPersistedAssistantMessageId,
+          });
+          // Shrink the in-app max session duration so the composed timer
+          // path (goodbye → 3s grace → endSession) runs inside the test.
+          profile.timers = { ...profile.timers, maxDurationMs: () => 150 };
+          return new CallController(
+            options.callSessionId,
+            options.transport,
+            null,
+            { sessionSource: options.sessionSource, profile },
+          );
+        },
+      });
+
+      await session.start();
+
+      // Duration elapses → goodbye speech → grace period → session end.
+      const deadline = Date.now() + 8_000;
+      while (
+        !frames.some((frame) => frame.type === "session_ended") &&
+        Date.now() < deadline
+      ) {
+        await new Promise((resolve) => setTimeout(resolve, 25));
+      }
+
+      expect(typedFrames(frames, "session_ended")[0]).toMatchObject({
+        type: "session_ended",
+        reason: "Maximum call duration reached",
+      });
+      // The goodbye was synthesized and flushed before the end.
+      expect(typedFrames(frames, "tts_audio").length).toBeGreaterThan(0);
+
+      await waitFor(() =>
+        frames.some(
+          (frame) =>
+            frame.type === "metrics" && frame.event === "session_ended",
+        ),
+      );
+      expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+    },
+    { timeout: 15_000 },
+  );
 });

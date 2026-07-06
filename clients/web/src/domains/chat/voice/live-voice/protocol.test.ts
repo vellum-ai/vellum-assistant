@@ -23,6 +23,8 @@ describe("parseServerFrame", () => {
       dataBase64: "AAAA",
     },
     { type: "tts_done", seq: 8, turnId: "t1" },
+    { type: "turn_cancelled", seq: 14, reason: "empty_transcript" },
+    { type: "session_ended", seq: 15, reason: "Call completed" },
     {
       type: "metrics",
       seq: 9,

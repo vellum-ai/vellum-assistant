@@ -175,7 +175,7 @@ describe("LiveVoiceSession duplex orchestration", () => {
     });
   });
 
-  test("empty final transcripts are not dispatched and cancel the listening turn", async () => {
+  test("empty final transcripts cancel the listening turn with a turn_cancelled notice", async () => {
     const harness = createSessionHarness({ emitMetrics: true });
     const { session, frames, ingest, controller } = harness;
 
@@ -190,6 +190,53 @@ describe("LiveVoiceSession duplex orchestration", () => {
 
     expect(controller.utterances).toEqual([]);
     expect(frames.some((frame) => frame.type === "thinking")).toBe(false);
+    // The client is told the turn died so it resumes listening.
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ type: "turn_cancelled", reason: "empty_transcript" });
+  });
+
+  test("a failed assistant turn emits turn_failed and cancels the turn", async () => {
+    const harness = createSessionHarness({ emitMetrics: true });
+    const { session, frames, ingest, controller } = harness;
+
+    controller.handleCallerUtterance = async () => {
+      throw new Error("pipeline exploded");
+    };
+
+    await session.start();
+    await session.handleClientFrame(audioFrame("user audio"));
+    ingest.callbacks.onTranscriptFinal?.("hello there");
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+
+    expect(frames.find((frame) => frame.type === "error")).toMatchObject({
+      type: "error",
+      code: "turn_failed",
+      message: expect.stringContaining("pipeline exploded"),
+    });
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ reason: "turn_failed" });
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_cancelled",
+      ),
+    );
+  });
+
+  test("transcription errors carry the stt_failed code", async () => {
+    const { session, frames, ingest } = createSessionHarness();
+
+    await session.start();
+    ingest.callbacks.onError?.("stream", "provider connection dropped");
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
+
+    expect(frames.find((frame) => frame.type === "error")).toMatchObject({
+      code: "stt_failed",
+      message: expect.stringContaining("provider connection dropped"),
+    });
   });
 
   test("forwards partials and turn boundaries", async () => {
@@ -371,7 +418,7 @@ describe("LiveVoiceSession duplex orchestration", () => {
     ).toBe(true);
   });
 
-  test("controller endSession closes the session and stops accepting input", async () => {
+  test("controller endSession emits session_ended, closes the session, and stops accepting input", async () => {
     const harness = createSessionHarness({ emitMetrics: true });
     const { session, frames, ingest, transport, controller } = harness;
 
@@ -387,10 +434,98 @@ describe("LiveVoiceSession duplex orchestration", () => {
     expect(ingest.disposed).toBe(true);
     expect(controller.destroyed).toBe(true);
 
+    // The client is told the session ended (with the controller's reason)
+    // before the final metrics frame.
+    const sessionEndedIndex = frames.findIndex(
+      (frame) => frame.type === "session_ended",
+    );
+    expect(frames[sessionEndedIndex]).toMatchObject({
+      type: "session_ended",
+      reason: "Call completed",
+    });
+    expect(sessionEndedIndex).toBeLessThan(
+      frames.findIndex(
+        (frame) => frame.type === "metrics" && frame.event === "session_ended",
+      ),
+    );
+
     const pushedBefore = ingest.pushed.length;
     await session.handleClientFrame(audioFrame("late audio"));
     expect(ingest.pushed).toHaveLength(pushedBefore);
     expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+  });
+
+  test("server-initiated end drains the TTS queue (goodbye) before session_ended and close", async () => {
+    const harness = createSessionHarness({ emitMetrics: true });
+    const { session, frames, ingest, transport } = harness;
+
+    await session.start();
+    let releaseDrain!: () => void;
+    transport.ttsDrainGate = new Promise<void>((resolve) => {
+      releaseDrain = resolve;
+    });
+
+    transport.endSession("Call completed");
+    // Give the async end flow time to (incorrectly) race ahead.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // The goodbye is still synthesizing: nothing torn down, nothing sent.
+    expect(transport.ttsDrainWaits).toBe(1);
+    expect(frames.some((frame) => frame.type === "session_ended")).toBe(false);
+    expect(ingest.disposed).toBe(false);
+
+    releaseDrain();
+    await waitFor(() => frames.some((frame) => frame.type === "session_ended"));
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "session_ended",
+      ),
+    );
+    expect(ingest.disposed).toBe(true);
+  });
+
+  test("interrupt during the synthesis tail (controller already idle) cancels the turn at the session layer", async () => {
+    const harness = createSessionHarness({ emitMetrics: true });
+    const { session, frames, transport, controller } = harness;
+
+    await startRespondingTurn(harness);
+    // Generation finished: the controller went idle, but the transport's
+    // synthesis tail is still playing (no tts_done processed yet).
+    controller.state = "idle";
+
+    await session.handleClientFrame({ type: "interrupt" });
+    await waitFor(() => frames.some((frame) => frame.type === "interrupted"));
+
+    // The controller rejected the barge-in (not speaking); the session
+    // flushed the tail itself.
+    expect(controller.bargeInCount).toBe(0);
+    expect(transport.discardCount).toBe(1);
+    expect(frames.find((frame) => frame.type === "interrupted")).toMatchObject({
+      turnId: "live-turn-1",
+    });
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "metrics" && frame.event === "turn_cancelled",
+      ),
+    );
+
+    // A straggler tts_done from the aborted tail is dropped.
+    await transport.emitTtsDone("live-turn-1");
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+  });
+
+  test("speech onset during the synthesis tail triggers the session-level interrupt", async () => {
+    const harness = createSessionHarness();
+    const { frames, ingest, transport, controller } = harness;
+
+    await startRespondingTurn(harness);
+    controller.state = "idle";
+
+    ingest.callbacks.onSpeechStart?.();
+    await waitFor(() => frames.some((frame) => frame.type === "interrupted"));
+
+    expect(controller.bargeInCount).toBe(0);
+    expect(transport.discardCount).toBe(1);
   });
 
   test("close tears down collaborators, cancels the open turn, and emits session_ended", async () => {
