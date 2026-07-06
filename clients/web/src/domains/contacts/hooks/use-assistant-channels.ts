@@ -48,7 +48,7 @@ export interface UseAssistantChannelsOptions {
  */
 export type AssistantChannelsController = Omit<
   AssistantChannelsListProps,
-  "assistantName" | "initialExpandedChannel"
+  "assistantName" | "initialChannel"
 >;
 
 /**

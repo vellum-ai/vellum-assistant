@@ -460,7 +460,7 @@ export function ContactsPage({
           <AssistantChannelsDetail
             assistantName={assistantName}
             onGenerateInviteLink={a2aChannel ? inviteDialog.open : undefined}
-            initialExpandedChannel={setupChannel}
+            initialChannel={setupChannel}
             {...channelsController}
           />
         ) : optimisticContact ? (

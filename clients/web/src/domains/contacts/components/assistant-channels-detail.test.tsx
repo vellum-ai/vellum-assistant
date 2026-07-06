@@ -26,11 +26,11 @@ describe("assistant channels surfaces", () => {
     expect(document.body.textContent).toContain("Slack");
   });
 
-  test("the bare channel list (standalone Channels tab) has no identity card", () => {
+  test("the bare channel tabs (standalone Channels tab) have no identity card", () => {
     render(<AssistantChannelsList assistantName="Vex" channels={CHANNELS} />);
     expect(document.body.textContent).not.toContain("Vex (Your Assistant)");
     expect(document.body.textContent).toContain("Slack");
     expect(document.body.textContent).toContain("Telegram");
-    expect(document.body.textContent).toContain("Phone Calling");
+    expect(document.body.textContent).toContain("Phone");
   });
 });

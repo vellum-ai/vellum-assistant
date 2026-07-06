@@ -4,8 +4,8 @@ import { useSearchParams } from "react-router";
 import { isSetupChannelId, type SetupChannelId } from "@/domains/contacts/types";
 
 /**
- * Reads the `?setup=<channel>` deep-link param (used to pre-expand a channel
- * accordion on arrival) and consumes it once on mount so it doesn't persist
+ * Reads the `?setup=<channel>` deep-link param (used to pre-select a channel
+ * tab on arrival) and consumes it once on mount so it doesn't persist
  * across navigations. Returns the channel on the first render and `null`
  * after the param is cleared or when it names no known channel.
  */

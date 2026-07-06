@@ -15,12 +15,13 @@ export interface ChannelsPageProps {
 }
 
 /**
- * Channels settings — the Slack/Telegram/Phone accordion where the guardian
+ * Channels settings — the Slack/Telegram/Phone sub-tabs where the guardian
  * manages how and where the assistant can be reached. Rendered as its own tab
- * in the About Assistant nav (`/assistant/channels`): a page-level heading
- * above the channel list, like the sibling tabs. The Contacts page's
- * assistant detail renders the same list boxed as a card
- * (`AssistantChannelsDetail`); both compose `useAssistantChannels`.
+ * in the About Assistant nav (`/assistant/channels`): a page-level subtitle
+ * above the tabbed content (the nav's tab already reads "Channels", so the
+ * page repeats no heading). The Contacts page's assistant detail renders the
+ * same tabs boxed as a card (`AssistantChannelsDetail`); both compose
+ * `useAssistantChannels`.
  */
 export function ChannelsPage({
   assistantId,
@@ -42,14 +43,13 @@ export function ChannelsPage({
     <div className="flex flex-col gap-6">
       <DetailCard
         showBorder={false}
-        title="Channels"
         subtitle={`Manage where ${displayName} can be reached.`}
       />
 
       <DetailCard>
         <AssistantChannelsList
           assistantName={displayName}
-          initialExpandedChannel={setupChannel}
+          initialChannel={setupChannel}
           {...channelsController}
         />
       </DetailCard>
