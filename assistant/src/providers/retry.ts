@@ -84,9 +84,9 @@ const VERBOSITY_SUPPORTED_PROVIDERS = new Set(["openai"]);
 /**
  * Default `budget_tokens` used when an enabled/adaptive thinking config is
  * rewritten to Anthropic's classic budgeted shape for a model that doesn't
- * support adaptive thinking. Clamped below `max_tokens` per call so the request
- * satisfies Anthropic's `1024 <= budget_tokens < max_tokens` constraint while
- * leaving room for the visible response.
+ * support adaptive thinking. Clamped per call so the request satisfies
+ * Anthropic's `1024 <= budget_tokens < max_tokens` constraint while leaving
+ * room for the visible response (see {@link budgetedThinkingConfig}).
  */
 const NON_ADAPTIVE_THINKING_BUDGET_TOKENS = 16000;
 
@@ -126,20 +126,31 @@ function isAdaptiveWireThinking(thinking: unknown): boolean {
 
 /**
  * Build the classic budgeted Anthropic thinking shape (`{ type: "enabled",
- * budget_tokens }`) for a model that rejects the adaptive shape. The budget is
- * clamped to stay strictly below `max_tokens` (Anthropic requires
- * `budget_tokens < max_tokens`); when `max_tokens` is unset the Anthropic
- * client's own default is large enough for the standard budget.
+ * budget_tokens }`) for a model that rejects the adaptive shape.
+ *
+ * Anthropic counts the thinking budget against `max_tokens` and requires
+ * `1024 <= budget_tokens < max_tokens`, so the budget is capped at half of
+ * `max_tokens` — reserving at least half of the output cap for the visible
+ * response — and at the standard {@link NON_ADAPTIVE_THINKING_BUDGET_TOKENS}.
+ * When `max_tokens` is unset, the Anthropic client's own default (8192–64000)
+ * comfortably fits the standard budget.
+ *
+ * Returns `undefined` when the halved cap falls below Anthropic's 1024
+ * minimum (`max_tokens < 2048`): there is no budget that is both valid and
+ * leaves room for a response, so the caller drops thinking for the request —
+ * a working non-thinking response beats a guaranteed 400.
  */
 function budgetedThinkingConfig(
   maxTokens: number | undefined,
-): Record<string, unknown> {
+): Record<string, unknown> | undefined {
   const ceiling =
-    typeof maxTokens === "number" ? maxTokens - 1 : Number.POSITIVE_INFINITY;
-  const budget = Math.max(
-    MIN_THINKING_BUDGET_TOKENS,
-    Math.min(NON_ADAPTIVE_THINKING_BUDGET_TOKENS, ceiling),
-  );
+    typeof maxTokens === "number"
+      ? Math.floor(maxTokens / 2)
+      : Number.POSITIVE_INFINITY;
+  const budget = Math.min(NON_ADAPTIVE_THINKING_BUDGET_TOKENS, ceiling);
+  if (budget < MIN_THINKING_BUDGET_TOKENS) {
+    return undefined;
+  }
   return { type: "enabled", budget_tokens: budget };
 }
 
@@ -450,18 +461,38 @@ function normalizeSendMessageOptions(
   // for known non-adaptive models so their turns don't hard-fail. Runs before
   // the temperature/top_p guards below because budgeted thinking is still
   // "enabled" on the wire and carries the same temperature/top_p constraints.
-  // Unknown models keep the adaptive shape (existing behavior).
+  // Unknown models keep the adaptive shape (existing behavior). When
+  // `max_tokens` is too small to fit a valid budget plus response headroom
+  // (`budgetedThinkingConfig` returns undefined), thinking is dropped for the
+  // request instead — for these models an absent config means thinking off.
   if (
     typeof nextConfig.model === "string" &&
     isAnthropicWireRequest(providerName, nextConfig.model) &&
     requiresBudgetedThinking(nextConfig.model) &&
     isAdaptiveWireThinking(nextConfig.thinking)
   ) {
-    nextConfig.thinking = budgetedThinkingConfig(
+    const budgeted = budgetedThinkingConfig(
       typeof nextConfig.max_tokens === "number"
         ? nextConfig.max_tokens
         : undefined,
     );
+    if (budgeted === undefined) {
+      log.warn(
+        {
+          providerName,
+          callSite: config.callSite,
+          model: nextConfig.model,
+          maxTokens: nextConfig.max_tokens,
+        },
+        "Dropping enabled thinking — max_tokens is too small to fit the " +
+          "minimum thinking budget (1024) plus response headroom on a model " +
+          "without adaptive thinking. Raise max_tokens to at least 2048 to " +
+          "keep thinking enabled.",
+      );
+      delete nextConfig.thinking;
+    } else {
+      nextConfig.thinking = budgeted;
+    }
   }
 
   // thinking is Anthropic-specific on the wire; OpenRouter reads it as a

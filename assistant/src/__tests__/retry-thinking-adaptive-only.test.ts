@@ -267,8 +267,31 @@ describe("retry normalization: non-adaptive thinking models", () => {
     });
   });
 
+  test("caps the budget at half of max_tokens to preserve response headroom", async () => {
+    // GIVEN a max_tokens equal to the standard 16000 budget: Anthropic counts
+    // the thinking budget against max_tokens, so taking (nearly) all of it
+    // would leave no room for the visible response
+    const { provider, lastConfig } = makePipeline("anthropic");
+
+    // WHEN thinking is enabled on a non-adaptive model
+    await provider.sendMessage([userMessage], {
+      config: {
+        model: "claude-sonnet-4-5-20250929",
+        thinking: { enabled: true },
+        max_tokens: 16000,
+      },
+    });
+
+    // THEN the budget is capped at half of max_tokens, reserving the other
+    // half for the response
+    expect(lastConfig()?.thinking).toEqual({
+      type: "enabled",
+      budget_tokens: 8000,
+    });
+  });
+
   test("clamps budget below a small max_tokens", async () => {
-    // GIVEN a caller with a max_tokens below the default thinking budget
+    // GIVEN a caller with a max_tokens below twice the default thinking budget
     const { provider, lastConfig } = makePipeline("anthropic");
 
     // WHEN thinking is enabled on a non-adaptive model
@@ -280,11 +303,69 @@ describe("retry normalization: non-adaptive thinking models", () => {
       },
     });
 
-    // THEN the budget is clamped to stay strictly below max_tokens
+    // THEN the budget is half of max_tokens — valid (>= 1024, < max_tokens)
+    // and with headroom for the response
     expect(lastConfig()?.thinking).toEqual({
       type: "enabled",
-      budget_tokens: 3999,
+      budget_tokens: 2000,
     });
+  });
+
+  test("emits the minimum budget at the exact-fit boundary (max_tokens 2048)", async () => {
+    // GIVEN the smallest max_tokens whose half still meets Anthropic's 1024
+    // minimum budget
+    const { provider, lastConfig } = makePipeline("anthropic");
+
+    // WHEN thinking is enabled on a non-adaptive model
+    await provider.sendMessage([userMessage], {
+      config: {
+        model: "claude-sonnet-4-5-20250929",
+        thinking: { enabled: true },
+        max_tokens: 2048,
+      },
+    });
+
+    // THEN the budget is exactly the 1024 minimum, strictly below max_tokens
+    expect(lastConfig()?.thinking).toEqual({
+      type: "enabled",
+      budget_tokens: 1024,
+    });
+  });
+
+  test("drops thinking when max_tokens cannot fit the minimum budget (1024)", async () => {
+    // GIVEN max_tokens: 1024 — the old clamp produced budget_tokens: 1024 ==
+    // max_tokens, which Anthropic 400s (budget must be strictly < max_tokens)
+    const { provider, lastConfig } = makePipeline("anthropic");
+
+    // WHEN thinking is enabled on a non-adaptive model
+    await provider.sendMessage([userMessage], {
+      config: {
+        model: "claude-sonnet-4-5-20250929",
+        thinking: { enabled: true },
+        max_tokens: 1024,
+      },
+    });
+
+    // THEN thinking is dropped: a working non-thinking response beats a
+    // guaranteed 400 from an invalid budget
+    expect(lastConfig()?.thinking).toBeUndefined();
+  });
+
+  test("drops thinking when max_tokens is below the minimum budget", async () => {
+    // GIVEN max_tokens: 500 — no valid budget exists at all (min is 1024)
+    const { provider, lastConfig } = makePipeline("anthropic");
+
+    // WHEN thinking is enabled on a non-adaptive model
+    await provider.sendMessage([userMessage], {
+      config: {
+        model: "claude-sonnet-4-5-20250929",
+        thinking: { enabled: true },
+        max_tokens: 500,
+      },
+    });
+
+    // THEN thinking is dropped instead of sending an invalid shape
+    expect(lastConfig()?.thinking).toBeUndefined();
   });
 
   test("rewrites enabled thinking to budgeted shape for OpenRouter-proxied Sonnet 4.5", async () => {
