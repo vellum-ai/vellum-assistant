@@ -160,6 +160,18 @@
       "category": "creative",
       "homepage": "https://github.com/vellum-ai/motion-design",
       "license": "MIT"
+    },
+    {
+      "name": "astrology-horoscope",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/astrology-horoscope",
+        "ref": "2ea2839ccad14ec502f7754331051cace09a5a08"
+      },
+      "description": "Western tropical natal chart and transit computation. Local ephemeris (astronomy-engine, no API keys) for planet positions, ascendant/midheaven, whole-sign houses, and aspects, plus a natal-reading skill that interprets the raw chart into a readable report.",
+      "category": "hobby",
+      "homepage": "https://github.com/vellum-ai/astrology-horoscope",
+      "license": "MIT"
     }
   ]
 }
