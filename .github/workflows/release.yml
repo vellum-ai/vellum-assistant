@@ -1815,9 +1815,11 @@ jobs:
   # The platform SPA (VITE_PLATFORM_MODE=true → GCS) ships with releases:
   # staging bucket on every staging release, production bucket when a
   # release goes live. The dev bucket is deployed by dev-release.yaml.
-  # Gated on register-release (like the dev deploy's register-release gate)
-  # so the staging UI is not updated when the staging backend release
-  # failed to register.
+  # Both jobs gate on register-release (like the dev deploy's
+  # register-release gate) so the UI is never updated when the backend
+  # release failed to register; on production runs the SPA ships LAST,
+  # after the GitHub Release is published and the release is registered
+  # with the platform.
   deploy-web-spa-staging:
     name: Deploy Web SPA (staging)
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, ci-web, register-release]
@@ -1830,15 +1832,21 @@ jobs:
       environment: staging
     secrets: inherit
 
-  # The production SPA deploy is the LAST side effect before the GitHub
-  # Release: it waits on every other release prerequisite (publishes, image
-  # manifests, Electron build + updates), so a release that fails partway
-  # never leaves the prod UI updated, and a failed SPA deploy blocks the
-  # GitHub Release/tag (the `release` job requires this job's success).
+  # The production SPA deploy is the LAST step of a production release,
+  # matching the dev/staging convention (registration first, SPA last): it
+  # runs only after the GitHub Release is published and the release is
+  # registered with the platform, so a failed go-live never leaves the prod
+  # UI ahead of the backend. Gating on register-release transitively
+  # guarantees everything else: its production `if` requires the three
+  # image manifests, the DockerHub push, AND the `release` job — which
+  # itself requires the npm/web/meta/plugin-api publishes and the Electron
+  # build + update upload. Only ci-web is not covered transitively, so it
+  # stays explicit. A failed SPA upload after registration is retryable
+  # (re-run this job) and is surfaced as a failed release by notify-release.
   deploy-web-spa-production:
     name: Deploy Web SPA (production)
-    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-electron, upload-electron-updates, ci-web]
-    if: ${{ always() && !cancelled() && needs.extract-version.result == 'success' && needs.extract-version.outputs.is_staging != 'true' && needs.publish-npm-prod.result == 'success' && needs.publish-web-prod.result == 'success' && needs.publish-meta-prod.result == 'success' && needs.publish-plugin-api-prod.result == 'success' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' && needs.build-electron.result == 'success' && needs.upload-electron-updates.result == 'success' && needs.ci-web.result == 'success' }}
+    needs: [extract-version, ci-web, register-release]
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.ci-web.result == 'success' && needs.register-release.result == 'success' }}
     permissions:
       contents: read
       id-token: write
@@ -2327,8 +2335,8 @@ jobs:
           done
 
   release:
-    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, build-electron, upload-electron-updates, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-chrome-extension, deploy-web-spa-production]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm-prod.result == 'success' && needs.publish-web-prod.result == 'success' && needs.publish-meta-prod.result == 'success' && needs.publish-plugin-api-prod.result == 'success' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' && needs.build-electron.result == 'success' && needs.upload-electron-updates.result == 'success' && needs.deploy-web-spa-production.result == 'success' }}
+    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, build-electron, upload-electron-updates, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-chrome-extension]
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.extract-version.result == 'success' && needs.publish-npm-prod.result == 'success' && needs.publish-web-prod.result == 'success' && needs.publish-meta-prod.result == 'success' && needs.publish-plugin-api-prod.result == 'success' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' && needs.build-electron.result == 'success' && needs.upload-electron-updates.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -2780,9 +2788,12 @@ jobs:
           VERSION_TAG="v${VERSION}"
           IS_STAGING="${{ needs.extract-version.outputs.is_staging }}"
 
-          # Determine release status
+          # Determine release status. The production SPA deploy runs AFTER
+          # the release job (registration-first ordering), so its failure
+          # must mark the release failed here — release.result no longer
+          # covers it.
           RELEASE_FAILED="false"
-          if [ "$IS_STAGING" != "true" ] && [ "${{ needs.release.result }}" != "success" ]; then
+          if [ "$IS_STAGING" != "true" ] && { [ "${{ needs.release.result }}" != "success" ] || [ "${{ needs.deploy-web-spa-production.result }}" != "success" ]; }; then
             RELEASE_FAILED="true"
           fi
 

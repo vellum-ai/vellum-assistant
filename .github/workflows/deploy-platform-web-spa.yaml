@@ -15,8 +15,9 @@ name: Deploy Web SPA (reusable)
 # dev-release.yaml deploys `dev` on every hourly dev release (gated on ci-web +
 # register-release); release.yml's `deploy-web-spa-staging` deploys `staging`
 # on staging releases and `deploy-web-spa-production` deploys `production` when
-# a release goes live — gated on all other release prerequisites and required
-# by the GitHub Release job. The `environment:` binding only resolves each
+# a release goes live — last, after the GitHub Release is published and the
+# release is registered with the platform, so a failed go-live never leaves
+# the prod UI ahead of the backend. The `environment:` binding only resolves each
 # environment's secrets/vars; no environment gates on required reviewers.
 on:
   workflow_call:
