@@ -41,11 +41,14 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "plugins", "defaults", "memory");
  * a NEW back-import is introduced. Do not add an entry without a decoupling
  * plan.
  *
- * Current entry: the conversation write paths invoke the memory plugin's
- * persistence-lifecycle handlers (`memory/persistence-hooks.ts`) at each
- * lifecycle point — every event on that surface is memory-domain.
- * Decoupling plan: the per-event lifecycle notifications migrate to the
- * first-class `hooks` system, retiring the entry.
+ * Current entries, both on the conversation write paths:
+ * - `persistence-hooks` — the memory plugin's fork-time state carry, invoked
+ *   synchronously inside the fork transaction (see the module docstring for
+ *   why it resists the `hooks`-system migration the other lifecycle events
+ *   took).
+ * - `indexer` — the plain `addMessage` path invokes `indexMessageNow` to feed
+ *   the persisted message into memory segment indexing, matching the other
+ *   (non-persistence) write seams that already call it directly.
  *
  * Keyed by the importing persistence file (relative to repo root); the value
  * is the set of allowed `memory/<specifier>` module paths it may import.
@@ -53,6 +56,7 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "plugins", "defaults", "memory");
 const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   "assistant/src/persistence/conversation-crud.ts": new Set([
     "persistence-hooks",
+    "indexer",
   ]),
 };
 

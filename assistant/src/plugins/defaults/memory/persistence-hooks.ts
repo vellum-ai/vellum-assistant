@@ -1,8 +1,5 @@
 import type { DrizzleDb } from "../../../persistence/db-connection.js";
-import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
-import { getMemoryConfig } from "./config.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
-import { indexMessageNow } from "./indexer.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import {
   forkActivationState,
@@ -17,20 +14,6 @@ import {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   seedEverInjectedFromSlugs,
 } from "./v3/ever-injected-store.js";
-
-/** A message that was just persisted to a conversation. */
-export interface MessagePersistedEvent {
-  messageId: string;
-  conversationId: string;
-  role: string;
-  /** Stored message content (JSON content-block array, serialized). */
-  content: string;
-  createdAt: number;
-  /** Trust class of the actor who produced the message, captured at persist time. */
-  provenanceTrustClass?: TrustClass;
-  /** True when the message was auto-sent by the client (e.g. a wake-up greeting). */
-  automated?: boolean;
-}
 
 /** A conversation was forked; the memory feature carries per-conversation state into the child. */
 export interface ConversationForkedEvent {
@@ -52,25 +35,21 @@ export interface ConversationForkedEvent {
 }
 
 /**
- * The memory plugin's persistence-lifecycle handlers. The persistence layer's
- * conversation write paths (`conversation-crud.ts`) import this object
- * directly and invoke the relevant handler at each lifecycle point — the one
- * documented persistence → memory back-import in the persistence-layering
- * guard, to be unwound by exposing these events through the first-class
- * `hooks` system.
+ * The memory plugin's fork-time state carry. The persistence layer's fork path
+ * (`conversation-crud.ts`) imports this object directly and invokes it inside
+ * the fork transaction — a persistence → memory back-import documented in the
+ * persistence-layering guard. It resists the `hooks`-system migration the other
+ * lifecycle events took: it runs synchronously inside the fork's DB
+ * transaction, threading the live transaction handle so the child's memory
+ * state commits atomically with the fork.
  *
  * The direct import puts this module on an import cycle (persistence imports
- * it; it transitively imports persistence). The cycle is benign: every
- * binding on it is read at call time — the persistence call sites invoke the
- * handlers inside functions, and this object references its imports only
- * inside method bodies — so no module body ever observes a half-initialized
- * module.
+ * it; it transitively imports persistence). The cycle is benign: the binding
+ * is read at call time — the persistence call site invokes the handler inside
+ * a function, and this object references its imports only inside the method
+ * body — so no module body ever observes a half-initialized module.
  */
 export const memoryPersistenceHooks = {
-  async onMessagePersisted(event: MessagePersistedEvent): Promise<void> {
-    await indexMessageNow({ ...event, scopeId: "default" }, getMemoryConfig());
-  },
-
   onConversationForked(event: ConversationForkedEvent): void {
     const {
       db,

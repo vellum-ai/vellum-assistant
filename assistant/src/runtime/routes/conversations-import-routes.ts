@@ -194,8 +194,8 @@ async function handleConversationsImport({ body }: RouteHandlerArgs) {
           );
         }
         // Dual-write the imported message into the lexical index. Import inserts
-        // rows directly, bypassing `onMessagePersisted`, so enqueue here to keep
-        // the lexical index in lockstep with the segment index.
+        // rows directly, bypassing the `addMessage` persist path, so enqueue
+        // here to keep the lexical index in lockstep with the segment index.
         enqueueLexicalIndexForMessage(dbMessages[i].id);
       }
 

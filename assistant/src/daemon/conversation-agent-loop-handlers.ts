@@ -1370,8 +1370,8 @@ export async function finalizePendingToolResultRow(
       );
     }
     // Dual-write the finalized tool-result content into the lexical index. The
-    // reserve+finalize path bypasses `onMessagePersisted`, so enqueue here to
-    // keep the lexical index in lockstep with the segment index.
+    // reserve+finalize path bypasses the `addMessage` persist path, so enqueue
+    // here to keep the lexical index in lockstep with the segment index.
     enqueueLexicalIndexForMessage(rowId);
   }
   for (const id of state.pendingToolResults.keys()) {

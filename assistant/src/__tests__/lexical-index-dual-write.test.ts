@@ -31,11 +31,11 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-// Stub the segment indexer so `onMessagePersisted` runs cheaply. The lexical
-// enqueue in the hook is a separate call and still fires. Other exports are
-// provided so any transitive importer of this module resolves. `throwFromIndex`
-// lets a test simulate a transient segment-indexing failure to prove the
-// lexical enqueue survives it.
+// Stub the segment indexer so the persist path's memory indexing runs cheaply.
+// The lexical enqueue is a separate call on the persist path and still fires.
+// Other exports are provided so any transitive importer of this module
+// resolves. `throwFromIndex` lets a test simulate a transient segment-indexing
+// failure to prove the lexical enqueue survives it.
 let throwFromIndex = false;
 mock.module("../plugins/defaults/memory/indexer.js", () => ({
   MIN_SEGMENT_CHARS: 50,
@@ -176,7 +176,8 @@ describe("messages lexical-index dual-write", () => {
   test("lexical job is still enqueued when segment indexing (indexMessageNow) throws", async () => {
     // The sparse lexical job is independent of the dense embedding path, so a
     // transient segment-indexing failure must not leave the message missing
-    // from the lexical index. `addMessage` catches the hook throw as non-fatal.
+    // from the lexical index. `addMessage` catches the indexing throw as
+    // non-fatal.
     throwFromIndex = true;
     const conv = createConversation("Segment failure thread");
     const message = await addMessage(
@@ -216,7 +217,8 @@ describe("messages lexical-index dual-write", () => {
     const beforeFork = countJobs("index_message_lexical");
     expect(beforeFork).toBe(3);
 
-    // The fork copies every source row directly, bypassing onMessagePersisted.
+    // The fork copies every source row directly, bypassing the addMessage
+    // persist path (and its lexical enqueue).
     const fork = forkConversation({ conversationId: source.id });
     expect(fork.id).not.toBe(source.id);
 
