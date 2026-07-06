@@ -122,3 +122,45 @@ export function openUrlInPopupOrTab(url: string): boolean {
   popup.focus();
   return true;
 }
+
+export type OpenUrlDispatchOutcome =
+  | { kind: "routed" }
+  | { kind: "opened" }
+  | { kind: "invalid" }
+  | { kind: "blocked"; url: string };
+
+/**
+ * Route an `open_url` directive to the right surface: same-origin URLs go
+ * through the client router, native platforms hand off to the runtime
+ * opener, and everything else opens via `openUrlInPopupOrTab`. Shared by
+ * the chat stream handler and the root-level directive subscriber so the
+ * two paths cannot drift.
+ */
+export function dispatchOpenUrl(
+  href: string,
+  opts: { isNative: boolean; push: (path: string) => void },
+): OpenUrlDispatchOutcome {
+  const sameOriginRoutePath = getSameOriginRoutePath(href);
+  if (sameOriginRoutePath) {
+    opts.push(sameOriginRoutePath);
+    return { kind: "routed" };
+  }
+
+  const url = getHttpUrl(href);
+  if (!url) {
+    return { kind: "invalid" };
+  }
+
+  if (opts.isNative) {
+    void openUrl(url);
+    return { kind: "opened" };
+  }
+
+  if (!openUrlInPopupOrTab(url)) {
+    // No user activation behind an SSE-driven open, so browsers commonly
+    // block it. Callers surface the URL for a click-driven retry.
+    return { kind: "blocked", url };
+  }
+
+  return { kind: "opened" };
+}

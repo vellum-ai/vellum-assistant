@@ -4,7 +4,6 @@ import {
   extractWirePendingConfirmation,
   extractWirePendingQuestion,
   hasAssistantMessage,
-  isConversationExemptStreamEvent,
   isConversationScopedStreamEvent,
   shouldClearFirstMessageGateOnConversationChange,
 } from "@/domains/chat/utils/chat";
@@ -47,38 +46,12 @@ describe("chat utilities", () => {
       expect(scoped("tool_output_chunk")).toBe(true);
     });
 
-  });
-
-  describe("isConversationExemptStreamEvent", () => {
-    test("conversationless open_url is exempt from the conversation gate", () => {
-      // `assistant mcp auth` / `assistant oauth connect` emit `open_url` via
-      // the workspace signals bridge, which has no conversation binding — the
-      // conversation gate would otherwise silently drop the browser hand-off.
-      expect(
-        isConversationExemptStreamEvent({
-          type: "open_url",
-          url: "https://example.com/authorize",
-        } as AssistantEvent),
-      ).toBe(true);
-    });
-
-    test("conversation-bound open_url keeps active-conversation filtering", () => {
-      expect(
-        isConversationExemptStreamEvent({
-          type: "open_url",
-          url: "https://example.com/authorize",
-          conversationId: "conv-1",
-        } as AssistantEvent),
-      ).toBe(false);
-    });
-
-    test("other conversationless events are not exempt", () => {
-      expect(
-        isConversationExemptStreamEvent({
-          type: "assistant_text_delta",
-          text: "hi",
-        } as AssistantEvent),
-      ).toBe(false);
+    test("open_url stays conversation-scoped (conversationless CLI emits are owned by useOpenUrlDirectives)", () => {
+      // Making open_url global would let a background turn's browser
+      // hand-off fire over an unrelated conversation. The conversationless
+      // CLI variant is handled by the always-mounted root subscriber, not
+      // by exempting the type here.
+      expect(scoped("open_url")).toBe(true);
     });
   });
 

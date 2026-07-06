@@ -89,22 +89,6 @@ export function isConversationScopedStreamEvent(
   return !GLOBAL_STREAM_EVENT_TYPES.has(event.type);
 }
 
-/**
- * `open_url` doubles as a workspace-level directive: CLI commands
- * (`assistant mcp auth`, `assistant oauth connect`) emit it via the
- * `signals/emit-event` bridge with no conversation binding, so the wire
- * payload has no `conversationId`. Those events are exempt from the
- * conversation gate, which would otherwise drop them before they reached
- * `handleOpenUrl`. Conversation-bound `open_url` events (daemon tool
- * emits) keep active-conversation filtering so a background turn cannot
- * open a window over an unrelated conversation.
- */
-export function isConversationExemptStreamEvent(
-  event: AssistantEvent,
-): boolean {
-  return event.type === "open_url" && !event.conversationId;
-}
-
 export function hasPendingAssistantResponse(
   messages: DisplayMessage[],
 ): boolean {
