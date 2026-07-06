@@ -52,7 +52,7 @@ bun scripts/gcal.ts rsvp --event-id "abc123" --response accepted
 bun scripts/gcal.ts list --time-min "2024-01-15T00:00:00Z" --time-max "2024-01-22T00:00:00Z" --account "work@example.com"
 ```
 
-Every subcommand accepts `--account <email>` to select which connected Google account the request runs against. When omitted, the request runs against a single account chosen by the daemon — safe only when exactly one Google account is connected. Each JSON envelope echoes the queried account in an `account` field when the daemon reports one, so an empty result is self-describing (e.g. `No events found in the specified time range for work@example.com.`).
+Every subcommand accepts `--account <email>` to select which connected Google account the request runs against. When omitted, the request runs against a single account chosen automatically — safe only when exactly one Google account is connected. Each JSON envelope echoes the queried account in an `account` field when it is reported by the OAuth layer, so an empty result is self-describing (e.g. `No events found in the specified time range for work@example.com.`).
 
 ## Connection Setup
 
