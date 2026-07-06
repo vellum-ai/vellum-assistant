@@ -15,12 +15,14 @@
  *   via `sendPlayUrl()`.
  */
 
-import { loadConfig } from "../config/loader.js";
-import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
 import { getCatalogProvider, getTtsProvider } from "../tts/provider-catalog.js";
+import {
+  createAudioStoreSink,
+  synthesizeAndEmit,
+  type AudioStoreSink,
+} from "../tts/synthesis-stream.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
-import { createStreamingEntry } from "./audio-store.js";
 import type { CallTransport } from "./call-transport.js";
 import {
   findPlayableTelephonyTtsFallback,
@@ -45,10 +47,14 @@ const log = getLogger("call-speech-output");
  * before starting teardown timers so that the play URL is delivered to
  * Twilio before the session ends. Interactive mid-call callers can
  * fire-and-forget with `void speakSystemPrompt(...)`.
+ *
+ * The optional `signal` aborts in-flight synthesis on the synthesized path;
+ * the native path sends synchronously and ignores it.
  */
 export async function speakSystemPrompt(
   relay: CallTransport,
   text: string,
+  signal?: AbortSignal,
 ): Promise<void> {
   // When the transport requires WAV (media-stream), request WAV so
   // the audio store entry contains PCM that audioBufferToFrames can
@@ -66,7 +72,7 @@ export async function speakSystemPrompt(
   }
 
   // Synthesized path — synthesize audio and send play URL.
-  return synthesizeAndPlay(relay, provider, text, audioFormat);
+  return synthesizeAndPlay(relay, provider, text, audioFormat, signal);
 }
 
 // ---------------------------------------------------------------------------
@@ -94,10 +100,10 @@ async function synthesizeAndPlay(
   provider: TtsProvider,
   text: string,
   format: "mp3" | "wav" | "opus",
+  signal?: AbortSignal,
   isFallbackRetry = false,
 ): Promise<void> {
-  let handle: ReturnType<typeof createStreamingEntry> | null = null;
-  let playUrlSent = false;
+  let sink: AudioStoreSink | null = null;
   try {
     // When format is WAV (media-stream transport), request raw PCM from
     // the provider so the audio bytes match the store's content-type.
@@ -111,44 +117,20 @@ async function synthesizeAndPlay(
     // but the bytes have no RIFF header, causing audioBufferToFrames to
     // fall through to the wrong decode path.
     const storeFormat = outputFormat ? "pcm" : format;
-    handle = createStreamingEntry(storeFormat);
-    const config = loadConfig();
-    const baseUrl = getPublicBaseUrl(config);
-    const url = `${baseUrl}/v1/audio/${handle.audioId}`;
-    const sendPlayUrlOnce = (): void => {
-      if (playUrlSent) return;
-      relay.sendPlayUrl(url);
-      playUrlSent = true;
-    };
+    sink = createAudioStoreSink({
+      format: storeFormat,
+      onPlayUrl: (url) => relay.sendPlayUrl(url),
+    });
 
-    if (provider.synthesizeStream) {
-      let streamedChunk = false;
-      await provider.synthesizeStream(
-        { text, useCase: "phone-call", outputFormat },
-        (chunk) => {
-          if (chunk.byteLength === 0) return;
-          if (!streamedChunk) {
-            sendPlayUrlOnce();
-            streamedChunk = true;
-          }
-          handle!.push(chunk);
-        },
-      );
-      if (!streamedChunk) {
-        throw new Error("Streaming TTS returned no audio chunks");
-      }
-    } else {
-      const result = await provider.synthesize({
-        text,
-        useCase: "phone-call",
-        outputFormat,
-      });
-      if (result.audio.byteLength === 0) {
-        throw new Error("Buffer TTS returned an empty audio payload");
-      }
-      sendPlayUrlOnce();
-      handle.push(result.audio);
-    }
+    await synthesizeAndEmit({
+      provider,
+      text,
+      useCase: "phone-call",
+      outputFormat,
+      signal,
+      onChunk: sink.onChunk,
+      onFirstAudio: sink.onFirstAudio,
+    });
 
     // Signal end of this turn's speech.  An empty token with `last: true`
     // tells the transport to start listening — it does NOT trigger TTS
@@ -187,13 +169,14 @@ async function synthesizeAndPlay(
             },
             "System prompt TTS synthesis failed — retrying with fallback provider",
           );
-          handle?.finalize();
-          handle = null;
+          sink?.finalize();
+          sink = null;
           return await synthesizeAndPlay(
             relay,
             fallbackProvider,
             text,
             format,
+            signal,
             true,
           );
         }
@@ -239,7 +222,7 @@ async function synthesizeAndPlay(
     // native fallback.
     relay.sendTextToken(text, true);
   } finally {
-    handle?.finalize();
+    sink?.finalize();
   }
 }
 

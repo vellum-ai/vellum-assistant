@@ -178,7 +178,7 @@ mock.module("../security/secure-keys.js", () => ({
       : realSecureKeysModule.getSecureKeyAsync(key),
 }));
 
-// -- Audio store + ingress URL (used by call-speech-output) ---------------------
+// -- Audio store + ingress URL (used by the tts/synthesis-stream sink) ----------
 
 const finalizeCalls: string[] = [];
 let audioEntryCounter = 0;
