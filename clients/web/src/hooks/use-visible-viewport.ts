@@ -1,5 +1,12 @@
 import { useEffect, useState } from "react";
 
+/**
+ * Threshold (in px) below which an `innerHeight − visualViewport.height` delta
+ * is treated as the soft keyboard opening. Below this we assume incidental
+ * drift from browser chrome / pinch-zoom and leave the layout alone.
+ */
+export const KEYBOARD_OPEN_THRESHOLD_PX = 100;
+
 export interface VisibleViewport {
   /** Height of the visual viewport in pixels — the area actually visible to the user. */
   height: number;

@@ -6,7 +6,10 @@ import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
 import { useGlobalDeepLinkConsumer } from "@/hooks/use-global-deep-link-consumer";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useVisibleViewport } from "@/hooks/use-visible-viewport";
+import {
+  useVisibleViewport,
+  KEYBOARD_OPEN_THRESHOLD_PX,
+} from "@/hooks/use-visible-viewport";
 import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useChannelSetupCloseNotify } from "@/domains/chat/hooks/use-channel-setup-close-notify";
@@ -62,13 +65,6 @@ const ShareFeedbackModal = lazy(() =>
     default: m.ShareFeedbackModal,
   })),
 );
-
-/**
- * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
- * is treated as the soft keyboard opening. Below this we assume incidental
- * drift from browser chrome / pinch-zoom and leave the layout alone.
- */
-const KEYBOARD_OPEN_THRESHOLD_PX = 100;
 
 /**
  * App-level layout route. Owns three cross-route concerns:
