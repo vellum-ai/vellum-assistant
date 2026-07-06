@@ -120,10 +120,6 @@ export async function synthesizeAndEmit(
       if (shouldStop()) {
         return;
       }
-      if (emittedChunks === 0) {
-        onFirstAudio?.();
-      }
-      emittedChunks += 1;
       const audio = Buffer.from(
         chunk.buffer,
         chunk.byteOffset,
@@ -131,9 +127,16 @@ export async function synthesizeAndEmit(
       );
       pendingEmits = pendingEmits
         .then(() => {
-          if (sinkFailure) {
+          // Re-checked at emit time: an abort/staleness flip (or sink
+          // failure) while an earlier sink call was in flight must
+          // suppress chunks that were queued before it.
+          if (shouldStop()) {
             return;
           }
+          if (emittedChunks === 0) {
+            onFirstAudio?.();
+          }
+          emittedChunks += 1;
           return onChunk({ audio, contentType: "" });
         })
         .catch((err: unknown) => {

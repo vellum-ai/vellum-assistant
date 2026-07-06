@@ -157,6 +157,8 @@ describe("synthesizeAndEmit (streaming)", () => {
   });
 
   test("abort mid-stream stops emission silently", async () => {
+    // Delivery is synchronous, so chunk "a" is still queued (its sink call
+    // has not started) when the abort fires — it must be suppressed too.
     const abortController = new AbortController();
     const provider = makeStreamingProvider(
       [bytes("a"), bytes("b"), bytes("c")],
@@ -179,8 +181,8 @@ describe("synthesizeAndEmit (streaming)", () => {
       onFirstAudio: sink.onFirstAudio,
     });
 
-    expect(sink.events).toEqual(["firstAudio", "chunk:a"]);
-    expect(result.emittedChunks).toBe(1);
+    expect(sink.events).toEqual([]);
+    expect(result.emittedChunks).toBe(0);
   });
 
   test("isCurrent() returning false mid-stream stops emission silently", async () => {
@@ -206,7 +208,67 @@ describe("synthesizeAndEmit (streaming)", () => {
       onFirstAudio: sink.onFirstAudio,
     });
 
-    expect(sink.events).toEqual(["firstAudio", "chunk:a"]);
+    expect(sink.events).toEqual([]);
+    expect(result.emittedChunks).toBe(0);
+  });
+
+  test("abort while an async sink call is in flight suppresses queued chunks", async () => {
+    const abortController = new AbortController();
+    const provider = makeStreamingProvider([
+      bytes("a"),
+      bytes("b"),
+      bytes("c"),
+    ]);
+    const events: string[] = [];
+    const reached: string[] = [];
+
+    const result = await synthesizeAndEmit({
+      provider,
+      text: "hello",
+      useCase: "phone-call",
+      signal: abortController.signal,
+      onFirstAudio: () => events.push("firstAudio"),
+      async onChunk(chunk) {
+        reached.push(chunk.audio.toString("utf8"));
+        events.push(`chunk:${chunk.audio.toString("utf8")}`);
+        if (reached.length === 1) {
+          // Barge-in mid-write: chunks "b" and "c" are already queued on the
+          // emit chain and must not reach the sink.
+          abortController.abort();
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      },
+    });
+
+    expect(reached).toEqual(["a"]);
+    expect(events).toEqual(["firstAudio", "chunk:a"]);
+    expect(result.emittedChunks).toBe(1);
+  });
+
+  test("isCurrent() flipping false while an async sink call is in flight suppresses queued chunks", async () => {
+    let current = true;
+    const provider = makeStreamingProvider([
+      bytes("a"),
+      bytes("b"),
+      bytes("c"),
+    ]);
+    const reached: string[] = [];
+
+    const result = await synthesizeAndEmit({
+      provider,
+      text: "hello",
+      useCase: "phone-call",
+      isCurrent: () => current,
+      async onChunk(chunk) {
+        reached.push(chunk.audio.toString("utf8"));
+        if (reached.length === 1) {
+          current = false;
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      },
+    });
+
+    expect(reached).toEqual(["a"]);
     expect(result.emittedChunks).toBe(1);
   });
 
