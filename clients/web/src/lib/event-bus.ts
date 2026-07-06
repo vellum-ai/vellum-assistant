@@ -16,6 +16,9 @@
  *   - `assistant/sse-service.ts` for SSE-derived signals
  *   - `domains/chat/hooks/use-event-stream.ts` for
  *     `reachability.retry-requested`
+ *   - `hooks/use-notification-tap-navigation.ts` and
+ *     `runtime/push-registration.ts` for notification-tap
+ *     `deeplink.openThread`
  *
  * Consumers: `useBusSubscription` (React) or `subscribe` directly
  * (non-React).
@@ -125,18 +128,30 @@ export interface BusEventMap {
   "power.unlock": Record<string, never>;
   "power.active": Record<string, never>;
   /**
-   * Inbound deep links from the Electron host — `vellum://` and
-   * `vellum-assistant://` URL schemes the OS routed to us. Parsed
-   * into discriminated payloads in `clients/macos/src/main/deep-links.ts`.
-   * Domain consumers (chat composer, conversation router) subscribe
-   * here to take action.
+   * Inbound deep links — `vellum://` / `vellum-assistant://` URLs
+   * the OS routed to us, plus notification taps that resolve to a
+   * conversation. Domain consumers (chat composer, conversation
+   * router) subscribe here to take action.
    *
-   * `deeplink.unknown` covers parser fallbacks — foreign schemes,
-   * malformed URLs, unrecognized hosts. Consumers typically log
-   * and drop these; useful as a no-action signal so the bridge
-   * surface is exhaustive.
-   *
-   * Off Electron these never fire.
+   * Publishers per event:
+   *   - `deeplink.send`: Electron host only —
+   *     `vellum://send?message=…` URLs parsed into discriminated
+   *     payloads in `clients/macos/src/main/deep-links.ts` and
+   *     re-published by
+   *     `runtime/event-sources/electron-deep-links.ts`.
+   *   - `deeplink.openThread`: Electron `vellum://thread/<id>` URLs
+   *     (same path as above); notification taps carrying a
+   *     conversation id on every platform via
+   *     `hooks/use-notification-tap-navigation.ts` (Capacitor local
+   *     notifications, Electron notification actions, browser
+   *     `Notification.onclick`); and APNs remote-push taps on
+   *     Capacitor iOS via `runtime/push-registration.ts`.
+   *   - `deeplink.unknown`: parser fallbacks — foreign schemes,
+   *     malformed URLs, unrecognized hosts — from the Electron path
+   *     and from Capacitor iOS `App.appUrlOpen` URLs no handler
+   *     claims (`runtime/event-sources/capacitor-deep-links.ts`).
+   *     Consumers typically log and drop these; useful as a
+   *     no-action signal so the bridge surface is exhaustive.
    */
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };
