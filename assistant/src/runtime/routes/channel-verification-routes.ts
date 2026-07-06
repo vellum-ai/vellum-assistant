@@ -7,8 +7,12 @@
  * POST   /v1/channel-verification-sessions/revoke  — cancel all sessions and revoke binding
  * GET    /v1/channel-verification-sessions/status   — check guardian binding status
  *
- * Source-of-truth split:
- * - Verification SESSION state (pending sessions, codes, resend, rate-limit) is assistant-owned.
+ * Source of truth:
+ * - Verification SESSION state (pending sessions, codes, resend counters) is
+ *   gateway-owned; the daemon relays lifecycle ops over the
+ *   `verification_sessions_*` IPC client and fails loudly when the gateway is
+ *   unreachable. The in-memory initiation throttle (`verificationRateLimiter`)
+ *   stays daemon-side.
  * - The channel-verified OUTCOME (status / verifiedAt / verifiedVia) is gateway-owned, written
  *   in-process by the HTTP guardian-attest handler (`ContactStore.markChannelVerified`) and by the
  *   inbound code-match path (`gateway/src/verification/text-verification.ts`).
@@ -18,6 +22,7 @@
 
 import { z } from "zod";
 
+import { revokePendingSessions } from "../../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../../channels/types.js";
 import {
   createInboundChallenge,
@@ -28,7 +33,6 @@ import {
 import { normalizePhoneNumber } from "../../util/phone.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
-import { revokePendingSessions } from "../channel-verification-service.js";
 import {
   cancelOutbound,
   deliverVerificationEmail,
@@ -215,7 +219,7 @@ export async function handleResendVerificationSession({
     throw new BadRequestError('The "channel" field is required.');
   }
 
-  const result = resendOutbound({ channel, originConversationId });
+  const result = await resendOutbound({ channel, originConversationId });
 
   // Dispatch delivery from the daemon process (not sandboxed).
   if (result._pendingSlackDm) {
@@ -257,8 +261,8 @@ export async function handleCancelVerificationSession({
     throw new BadRequestError('The "channel" field is required.');
   }
 
-  cancelOutbound({ channel });
-  revokePendingSessions(channel);
+  await cancelOutbound({ channel });
+  await revokePendingSessions(channel);
 
   return { success: true, channel };
 }

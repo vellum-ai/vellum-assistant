@@ -762,15 +762,16 @@ export async function handleChannelInbound({
   // inside `enforceAdmissionPolicy` — defense in depth alongside the
   // gateway's exempt-channel skip and the PUT-handler's 403.
   //
-  // Bootstrap deep-link: when ACL flagged a validated pending_bootstrap
+  // Bootstrap deep-link: when ACL resolved a validated pending_bootstrap
   // session, skip the floor entirely. The bootstrap intercept stage below
-  // handles identity binding and emits its own reply; the sender has not
-  // yet acquired a trust class and should not be denied here.
+  // reuses that session (no second gateway lookup), handles identity
+  // binding, and emits its own reply; the sender has not yet acquired a
+  // trust class and should not be denied here.
   // Gated by `channel-trust-floors`: when off, skip the floor entirely (admit)
   // so inbound falls back to ACL-only behavior. The gateway also omits the
   // floor when off, so the ACL above already saw the default permissive policy.
   const admissionResult =
-    !channelTrustFloorsEnabled || aclResult.isValidatedBootstrap
+    !channelTrustFloorsEnabled || aclResult.validatedBootstrapSession != null
       ? ({ admitted: true } as const)
       : enforceAdmissionPolicy({
           sourceChannel,
@@ -1057,6 +1058,7 @@ export async function handleChannelInbound({
     sourceChannel,
     conversationExternalId,
     eventId: result.eventId,
+    validatedBootstrapSession: aclResult.validatedBootstrapSession,
   });
   if (bootstrapResponse) return bootstrapResponse;
 

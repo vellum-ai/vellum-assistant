@@ -8,13 +8,13 @@
 
 import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 
+import { getPendingSession } from "../channels/gateway-verification-sessions.js";
 import { getConfig } from "../config/loader.js";
 import {
   type ActorTrustContext,
   resolveActorTrust,
 } from "../runtime/actor-trust-resolver.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
-import { getPendingSession } from "../runtime/channel-verification-service.js";
 import {
   type AdmissionPolicyResult,
   enforceAdmissionPolicy,
@@ -231,7 +231,9 @@ export async function routeSetup(ctx: SetupContext): Promise<{
   }
 
   // ── Inbound call ACL evaluation ─────────────────────────────────
-  const pendingChallenge = getPendingSession("phone");
+  // Gateway read; throws on transport failure (control-plane posture —
+  // setup fails loudly rather than mis-routing past a pending challenge).
+  const pendingChallenge = await getPendingSession("phone");
 
   // An admission floor is "active" only when a policy applies and no pending
   // verification challenge is in flight. While active, the floor IS the access

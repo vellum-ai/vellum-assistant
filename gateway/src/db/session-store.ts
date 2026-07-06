@@ -1,92 +1,51 @@
 /**
- * Channel verification session management.
+ * Gateway-owned channel verification session store.
  *
- * Verification sessions track the cryptographic handshake used to prove
- * identity. Inbound sessions handle challenge-response verification;
- * outbound sessions extend with identity-bound delivery tracking.
+ * Drizzle-backed port of the assistant's channel-verification-sessions
+ * store (Combo 13: verification sessions become gateway-native). Same
+ * semantics and status vocabulary; `consumeSession` is status-guarded so
+ * only the first concurrent consumer wins.
  */
 
-import { and, count, desc, eq, gt, gte, inArray, or } from "drizzle-orm";
+import type { Database } from "bun:sqlite";
+import { and, count, desc, eq, gt, gte, inArray } from "drizzle-orm";
 
-import { getDb } from "../persistence/db-connection.js";
-import { channelVerificationSessions } from "../persistence/schema/index.js";
+import type {
+  IdentityBindingStatus,
+  SessionStatus,
+  VerificationPurpose,
+  VerificationSessionWire,
+} from "@vellumai/gateway-client";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export type InboundSessionStatus =
-  | "pending"
-  | "consumed"
-  | "expired"
-  | "revoked";
-export type SessionStatus =
-  | "pending"
-  | "consumed"
-  | "pending_bootstrap"
-  | "awaiting_response"
-  | "verified"
-  | "expired"
-  | "revoked"
-  | "locked";
-export type IdentityBindingStatus = "pending_bootstrap" | "bound";
-export type VerificationPurpose = "guardian" | "trusted_contact";
+import { getGatewayDb } from "./connection.js";
+import { channelVerificationSessions } from "./schema.js";
 
 // ---------------------------------------------------------------------------
-// Guardian binding types
+// Types (single-sourced from the shared contract)
 // ---------------------------------------------------------------------------
 
-export type BindingStatus = "active" | "revoked";
+export type {
+  IdentityBindingStatus,
+  SessionStatus,
+  VerificationPurpose,
+} from "@vellumai/gateway-client";
 
-export interface GuardianBinding {
-  id: string;
-  assistantId: string;
-  channel: string;
-  guardianExternalUserId: string;
-  guardianDeliveryChatId: string;
-  /**
-   * Canonical principal from the gateway guardian contact. `null` when the
-   * gateway row carries no principal — callers must treat that as UNRESOLVED
-   * (repair via the vellum anchor / adopt path), never as an empty principal.
-   */
-  guardianPrincipalId: string | null;
-  status: BindingStatus;
-  verifiedAt: number;
-  verifiedVia: string;
-  metadataJson: string | null;
-  createdAt: number;
-  updatedAt: number;
-}
+/** Session row as the store returns it — identical to the wire DTO. */
+export type VerificationSession = VerificationSessionWire;
 
-export interface VerificationSession {
-  id: string;
-  channel: string;
-  challengeHash: string;
-  expiresAt: number;
-  status: SessionStatus;
-  sourceConversationId: string | null;
-  consumedByExternalUserId: string | null;
-  consumedByChatId: string | null;
-  // Outbound session: expected-identity binding
-  expectedExternalUserId: string | null;
-  expectedChatId: string | null;
-  expectedPhoneE164: string | null;
-  identityBindingStatus: IdentityBindingStatus | null;
-  // Outbound session: delivery tracking
-  destinationAddress: string | null;
-  lastSentAt: number | null;
-  sendCount: number;
-  nextResendAt: number | null;
-  // Session configuration
-  codeDigits: number;
-  maxAttempts: number;
-  // Distinguishes guardian verification from trusted contact verification
-  verificationPurpose: VerificationPurpose;
-  // Telegram bootstrap deep-link token hash
-  bootstrapTokenHash: string | null;
-  createdAt: number;
-  updatedAt: number;
-}
+/**
+ * Statuses that represent an interceptable (consumable) session:
+ * 'pending' (inbound), 'pending_bootstrap' / 'awaiting_response' (outbound).
+ */
+const INTERCEPTABLE_STATUSES: SessionStatus[] = [
+  "pending",
+  "pending_bootstrap",
+  "awaiting_response",
+];
+
+const INTERCEPTABLE_STATUSES_SQL = INTERCEPTABLE_STATUSES.map(
+  (s) => `'${s}'`,
+).join(", ");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -124,7 +83,7 @@ function rowToSession(
 }
 
 // ---------------------------------------------------------------------------
-// Inbound Verification Sessions
+// Inbound verification sessions
 // ---------------------------------------------------------------------------
 
 export function createInboundSession(params: {
@@ -134,7 +93,7 @@ export function createInboundSession(params: {
   expiresAt: number;
   sourceConversationId?: string;
 }): VerificationSession {
-  const db = getDb();
+  const db = getGatewayDb();
   const now = Date.now();
 
   // Revoke any prior pending sessions for the same channel
@@ -180,7 +139,7 @@ export function createInboundSession(params: {
 }
 
 export function revokePendingSessions(channel: string): void {
-  const db = getDb();
+  const db = getGatewayDb();
   db.update(channelVerificationSessions)
     .set({ status: "revoked", updatedAt: Date.now() })
     .where(
@@ -196,10 +155,9 @@ export function findPendingSessionByHash(
   channel: string,
   challengeHash: string,
 ): VerificationSession | null {
-  const db = getDb();
+  const db = getGatewayDb();
   const now = Date.now();
 
-  // Match any consumable status: 'pending' (inbound), 'pending_bootstrap', 'awaiting_response' (outbound)
   const row = db
     .select()
     .from(channelVerificationSessions)
@@ -207,11 +165,7 @@ export function findPendingSessionByHash(
       and(
         eq(channelVerificationSessions.channel, channel),
         eq(channelVerificationSessions.challengeHash, challengeHash),
-        inArray(channelVerificationSessions.status, [
-          "pending",
-          "pending_bootstrap",
-          "awaiting_response",
-        ]),
+        inArray(channelVerificationSessions.status, INTERCEPTABLE_STATUSES),
         gt(channelVerificationSessions.expiresAt, now),
       ),
     )
@@ -231,7 +185,7 @@ export function findPendingSessionByHash(
 export function findPendingSessionForChannel(
   channel: string,
 ): VerificationSession | null {
-  const db = getDb();
+  const db = getGatewayDb();
   const now = Date.now();
 
   const row = db
@@ -249,35 +203,99 @@ export function findPendingSessionForChannel(
   return row ? rowToSession(row) : null;
 }
 
+/**
+ * Latest non-expired session for a channel in one of the given statuses.
+ */
+export function findLatestSessionByStatuses(
+  channel: string,
+  statuses: SessionStatus[],
+): VerificationSession | null {
+  const db = getGatewayDb();
+
+  const row = db
+    .select()
+    .from(channelVerificationSessions)
+    .where(
+      and(
+        eq(channelVerificationSessions.channel, channel),
+        inArray(channelVerificationSessions.status, statuses),
+        gt(channelVerificationSessions.expiresAt, Date.now()),
+      ),
+    )
+    .orderBy(desc(channelVerificationSessions.createdAt))
+    .get();
+
+  return row ? rowToSession(row) : null;
+}
+
+/**
+ * True if the channel has any non-expired interceptable session
+ * (pending, pending_bootstrap, or awaiting_response).
+ */
+export function hasInterceptableSession(channel: string): boolean {
+  const db = getGatewayDb();
+  const row = db
+    .select({ id: channelVerificationSessions.id })
+    .from(channelVerificationSessions)
+    .where(
+      and(
+        eq(channelVerificationSessions.channel, channel),
+        inArray(channelVerificationSessions.status, INTERCEPTABLE_STATUSES),
+        gt(channelVerificationSessions.expiresAt, Date.now()),
+      ),
+    )
+    .get();
+
+  return row !== undefined;
+}
+
+export type ConsumeSessionResult =
+  | { consumed: true; consumedAt: number }
+  | { consumed: false };
+
+/**
+ * Mark a session consumed. The status guard ensures atomicity under
+ * concurrent consumers — only the first wins; later attempts (or attempts
+ * on already-consumed/revoked/expired-status rows) see zero changes and
+ * return `{consumed: false}`, preserving one-time-code semantics.
+ *
+ * On success, `consumedAt` is the exact `updated_at` written by the UPDATE,
+ * so callers anchoring recency checks (ATL-514) never re-sample the clock.
+ */
 export function consumeSession(
   id: string,
-  consumedByExternalUserId: string,
-  consumedByChatId: string,
-): void {
-  const db = getDb();
-  const now = Date.now();
+  actorExternalUserId: string,
+  actorChatId: string,
+): ConsumeSessionResult {
+  // Raw client because drizzle's bun-sqlite run() does not surface the
+  // changes count needed for the single-consumer guarantee.
+  const raw = (getGatewayDb() as unknown as { $client: Database }).$client;
+  const consumedAt = Date.now();
+  const changes = raw
+    .prepare(
+      `UPDATE channel_verification_sessions
+       SET status = 'consumed',
+           consumed_by_external_user_id = ?,
+           consumed_by_chat_id = ?,
+           updated_at = ?
+       WHERE id = ?
+         AND status IN (${INTERCEPTABLE_STATUSES_SQL})`,
+    )
+    .run(actorExternalUserId, actorChatId, consumedAt, id).changes;
 
-  db.update(channelVerificationSessions)
-    .set({
-      status: "consumed",
-      consumedByExternalUserId,
-      consumedByChatId,
-      updatedAt: now,
-    })
-    .where(eq(channelVerificationSessions.id, id))
-    .run();
+  return changes > 0 ? { consumed: true, consumedAt } : { consumed: false };
 }
 
 // ---------------------------------------------------------------------------
-// Verification Sessions (outbound identity-bound)
+// Outbound verification sessions (identity-bound)
 // ---------------------------------------------------------------------------
 
 /**
  * Create an outbound verification session with expected-identity binding.
- * Auto-revokes prior pending/awaiting_response sessions for the same
- * channel to close the replay window.
+ * Auto-revokes prior pending/pending_bootstrap/awaiting_response sessions
+ * for the same channel to close the replay window.
  */
-export function createVerificationSession(params: {
+export function createOutboundSession(params: {
   id: string;
   channel: string;
   challengeHash: string;
@@ -294,20 +312,15 @@ export function createVerificationSession(params: {
   verificationPurpose?: VerificationPurpose;
   bootstrapTokenHash?: string | null;
 }): VerificationSession {
-  const db = getDb();
+  const db = getGatewayDb();
   const now = Date.now();
 
-  // Revoke any prior pending/awaiting_response sessions for the same channel
   db.update(channelVerificationSessions)
     .set({ status: "revoked", updatedAt: now })
     .where(
       and(
         eq(channelVerificationSessions.channel, params.channel),
-        inArray(channelVerificationSessions.status, [
-          "pending",
-          "pending_bootstrap",
-          "awaiting_response",
-        ]),
+        inArray(channelVerificationSessions.status, INTERCEPTABLE_STATUSES),
       ),
     )
     .run();
@@ -342,31 +355,27 @@ export function createVerificationSession(params: {
   return rowToSession(row);
 }
 
+/** Look up a session by id regardless of status. */
+export function getSessionById(id: string): VerificationSession | null {
+  const db = getGatewayDb();
+  const row = db
+    .select()
+    .from(channelVerificationSessions)
+    .where(eq(channelVerificationSessions.id, id))
+    .get();
+
+  return row ? rowToSession(row) : null;
+}
+
 /**
  * Find the most recent pending_bootstrap or awaiting_response session
  * for a given channel.
  */
 export function findActiveSession(channel: string): VerificationSession | null {
-  const db = getDb();
-  const now = Date.now();
-
-  const row = db
-    .select()
-    .from(channelVerificationSessions)
-    .where(
-      and(
-        eq(channelVerificationSessions.channel, channel),
-        inArray(channelVerificationSessions.status, [
-          "pending_bootstrap",
-          "awaiting_response",
-        ]),
-        gt(channelVerificationSessions.expiresAt, now),
-      ),
-    )
-    .orderBy(desc(channelVerificationSessions.createdAt))
-    .get();
-
-  return row ? rowToSession(row) : null;
+  return findLatestSessionByStatuses(channel, [
+    "pending_bootstrap",
+    "awaiting_response",
+  ]);
 }
 
 /**
@@ -377,7 +386,7 @@ export function findSessionByBootstrapTokenHash(
   channel: string,
   tokenHash: string,
 ): VerificationSession | null {
-  const db = getDb();
+  const db = getGatewayDb();
   const now = Date.now();
 
   const row = db
@@ -397,66 +406,6 @@ export function findSessionByBootstrapTokenHash(
 }
 
 /**
- * Identity-bound lookup for the consume path. Finds a session matching the
- * given identity fields with an active status.
- */
-export function findSessionByIdentity(
-  channel: string,
-  externalUserId?: string,
-  chatId?: string,
-  phoneE164?: string,
-): VerificationSession | null {
-  // Require at least one identity parameter to avoid accidentally matching
-  // an unrelated session when the caller has no parsed identity fields.
-  if (!externalUserId && !chatId && !phoneE164) {
-    return null;
-  }
-
-  const db = getDb();
-  const now = Date.now();
-
-  const conditions = [
-    eq(channelVerificationSessions.channel, channel),
-    inArray(channelVerificationSessions.status, [
-      "pending_bootstrap",
-      "awaiting_response",
-    ]),
-    gt(channelVerificationSessions.expiresAt, now),
-  ];
-
-  // Build identity match conditions
-  const identityConditions = [];
-  if (externalUserId) {
-    identityConditions.push(
-      eq(channelVerificationSessions.expectedExternalUserId, externalUserId),
-    );
-  }
-  if (chatId) {
-    identityConditions.push(
-      eq(channelVerificationSessions.expectedChatId, chatId),
-    );
-  }
-  if (phoneE164) {
-    identityConditions.push(
-      eq(channelVerificationSessions.expectedPhoneE164, phoneE164),
-    );
-  }
-
-  if (identityConditions.length > 0) {
-    conditions.push(or(...identityConditions)!);
-  }
-
-  const row = db
-    .select()
-    .from(channelVerificationSessions)
-    .where(and(...conditions))
-    .orderBy(desc(channelVerificationSessions.createdAt))
-    .get();
-
-  return row ? rowToSession(row) : null;
-}
-
-/**
  * Transition a session's status with optional extra field updates.
  */
 export function updateSessionStatus(
@@ -467,7 +416,7 @@ export function updateSessionStatus(
     consumedByChatId: string;
   }>,
 ): void {
-  const db = getDb();
+  const db = getGatewayDb();
   const now = Date.now();
 
   db.update(channelVerificationSessions)
@@ -494,7 +443,7 @@ export function updateSessionDelivery(
   sendCount: number,
   nextResendAt: number | null,
 ): void {
-  const db = getDb();
+  const db = getGatewayDb();
   const now = Date.now();
 
   db.update(channelVerificationSessions)
@@ -520,7 +469,7 @@ export function countRecentSendsToDestination(
   destinationAddress: string,
   windowMs: number,
 ): number {
-  const db = getDb();
+  const db = getGatewayDb();
   const cutoff = Date.now() - windowMs;
 
   const result = db
@@ -547,7 +496,7 @@ export function bindSessionIdentity(
   externalUserId: string,
   chatId: string,
 ): void {
-  const db = getDb();
+  const db = getGatewayDb();
   const now = Date.now();
 
   db.update(channelVerificationSessions)

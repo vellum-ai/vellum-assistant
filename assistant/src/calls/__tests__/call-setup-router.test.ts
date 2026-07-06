@@ -13,7 +13,15 @@
  * here — a test-local copy of production logic would silently drift from it.
  */
 
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  test,
+} from "bun:test";
 
 import type { AdmissionPolicy, TrustVerdict } from "@vellumai/gateway-client";
 
@@ -54,10 +62,21 @@ mock.module("../../runtime/actor-trust-resolver.js", () => ({
   resolveActorTrust: resolveActorTrustMock,
 }));
 
-// Controllable pending verification challenge.
+// Controllable pending verification challenge (gateway-backed read). The
+// registered mock is process-global and leaks into sibling test files, so it
+// spreads the real module and delegates to the real wrapper unless this
+// file's tests are active (toggled in beforeAll/afterAll).
 let pendingChallenge: unknown = null;
-mock.module("../../runtime/channel-verification-service.js", () => ({
-  getPendingSession: () => pendingChallenge,
+let pendingSessionMockActive = false;
+const realGatewaySessionsModule = {
+  ...(await import("../../channels/gateway-verification-sessions.js")),
+};
+mock.module("../../channels/gateway-verification-sessions.js", () => ({
+  ...realGatewaySessionsModule,
+  getPendingSession: async (channel: string) =>
+    pendingSessionMockActive
+      ? pendingChallenge
+      : realGatewaySessionsModule.getPendingSession(channel),
 }));
 
 // Controllable gateway active-voice-invite view. The real reader fails soft
@@ -157,6 +176,14 @@ function route(
     verdict,
   });
 }
+
+beforeAll(() => {
+  pendingSessionMockActive = true;
+});
+
+afterAll(() => {
+  pendingSessionMockActive = false;
+});
 
 beforeEach(() => {
   pendingChallenge = null;

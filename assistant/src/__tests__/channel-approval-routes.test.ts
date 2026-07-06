@@ -123,7 +123,6 @@ function resetTables(): void {
     "scoped_approval_grants",
     "canonical_guardian_deliveries",
     "canonical_guardian_requests",
-    "channel_verification_sessions",
     "conversation_keys",
     "message_runs",
     "channel_inbound_events",
