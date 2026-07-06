@@ -42,10 +42,10 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "plugins", "defaults", "memory");
  * plan.
  *
  * Current entries, both on the conversation write paths:
- * - `persistence-hooks` — the memory plugin's fork-time state carry, invoked
- *   synchronously inside the fork transaction (see the module docstring for
- *   why it resists the `hooks`-system migration the other lifecycle events
- *   took).
+ * - `fork-conversation-memory` — the memory plugin's fork-time state carry,
+ *   invoked synchronously inside the fork transaction (see the module
+ *   docstring for why it is a direct call rather than a first-class `hooks`
+ *   dispatch like the other lifecycle events).
  * - `indexer` — the plain `addMessage` path invokes `indexMessageNow` to feed
  *   the persisted message into memory segment indexing, matching the other
  *   (non-persistence) write seams that already call it directly.
@@ -55,7 +55,7 @@ const MEMORY_DIR = join(ASSISTANT_SRC, "plugins", "defaults", "memory");
  */
 const PERSISTENCE_TO_MEMORY_ALLOWLIST: Record<string, ReadonlySet<string>> = {
   "assistant/src/persistence/conversation-crud.ts": new Set([
-    "persistence-hooks",
+    "fork-conversation-memory",
     "indexer",
   ]),
 };
