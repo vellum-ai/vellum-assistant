@@ -117,7 +117,7 @@ import { isToolResultBlock, undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
   disposeConversation,
-  reinjectImageSourcePaths,
+  reinjectAttachmentPathAnnotations,
 } from "./conversation-lifecycle.js";
 import type {
   EnqueueMessageOptions,
@@ -1044,7 +1044,7 @@ export class Conversation {
         content = [{ type: "text", text: m.content }];
       }
 
-      content = reinjectImageSourcePaths(content, role, m.metadata);
+      content = reinjectAttachmentPathAnnotations(content, role, m.metadata);
 
       // Re-inject persisted injection blocks from metadata so it survives
       // conversation reloads (eviction, restart, fork).
