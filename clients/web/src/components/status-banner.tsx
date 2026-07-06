@@ -305,6 +305,9 @@ function operationalStatusBannerConfig(
   onDismissFailedOperation?: () => void,
 ): BannerConfig | null {
   if (!status || isHealthyOperationalStatus(status)) return null;
+  if (status.state === "sleeping" && status.runtime?.healthz_ok === true) {
+    return null;
+  }
 
   // A transient operation (upgrade, resize, restart, …) can fail while the
   // reported `state` is still the in-progress operation. The platform signals
@@ -507,6 +510,8 @@ function useAssistantBannerConfig(): BannerConfig | null {
     isError: operationalStatusIsError,
     refetch: refetchOperationalStatus,
   } = statusQuery;
+  const hasConfirmedRuntimeHealthz =
+    operationalStatus?.runtime?.healthz_ok === true;
 
   // Track whether the assistant was recently sleeping so we can suppress
   // the brief "unreachable" flash that occurs during the tail end of a
@@ -514,7 +519,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
   const [wasRecentlySleeping, setWasRecentlySleeping] = useState(false);
   useEffect(() => {
     if (operationalStatus?.state === "sleeping") {
-      setWasRecentlySleeping(true);
+      setWasRecentlySleeping(!hasConfirmedRuntimeHealthz);
     } else if (
       operationalStatus?.state === "active" ||
       operationalStatus?.state === "crash_loop" ||
@@ -522,7 +527,7 @@ function useAssistantBannerConfig(): BannerConfig | null {
     ) {
       setWasRecentlySleeping(false);
     }
-  }, [operationalStatus?.state]);
+  }, [hasConfirmedRuntimeHealthz, operationalStatus?.state]);
 
   // Auto-clear the override after 60s so a genuinely failed wake surfaces
   // the real "unreachable" error with the Doctor action.
@@ -537,31 +542,39 @@ function useAssistantBannerConfig(): BannerConfig | null {
   }, [wasRecentlySleeping, operationalStatus?.state]);
 
   // Suppress the brief "unreachable" flash during the active → sleeping
-  // transition. When the pod is shutting down, healthz fails before the
-  // backend registers the sleep, causing a transient unreachable state.
-  const [wasRecentlyActive, setWasRecentlyActive] = useState(false);
+  // transition, but only when the prior active status did not include a
+  // confirmed runtime healthz result. A confirmed healthz-ok poll means the
+  // assistant was recently serving traffic, so showing "sleeping" for a later
+  // status blip is misleading.
+  const [
+    wasRecentlyActiveWithoutConfirmedHealthz,
+    setWasRecentlyActiveWithoutConfirmedHealthz,
+  ] = useState(false);
   useEffect(() => {
     if (operationalStatus?.state === "active") {
-      setWasRecentlyActive(true);
+      setWasRecentlyActiveWithoutConfirmedHealthz(!hasConfirmedRuntimeHealthz);
     } else if (
       operationalStatus?.state === "sleeping" ||
       operationalStatus?.state === "crash_loop" ||
       operationalStatus?.state === "not_found"
     ) {
-      setWasRecentlyActive(false);
+      setWasRecentlyActiveWithoutConfirmedHealthz(false);
     }
-  }, [operationalStatus?.state]);
+  }, [hasConfirmedRuntimeHealthz, operationalStatus?.state]);
 
   // Auto-clear after 15s so a genuinely unreachable assistant surfaces.
   useEffect(() => {
-    if (!wasRecentlyActive || operationalStatus?.state !== "unreachable") {
+    if (
+      !wasRecentlyActiveWithoutConfirmedHealthz ||
+      operationalStatus?.state !== "unreachable"
+    ) {
       return;
     }
     const timeout = setTimeout(() => {
-      setWasRecentlyActive(false);
+      setWasRecentlyActiveWithoutConfirmedHealthz(false);
     }, 15_000);
     return () => clearTimeout(timeout);
-  }, [wasRecentlyActive, operationalStatus?.state]);
+  }, [wasRecentlyActiveWithoutConfirmedHealthz, operationalStatus?.state]);
   // Track dismissed failed-operation banners so the user can clear
   // terminal error messages (e.g. "Assistant upgrade failed"). The
   // dismissal is keyed on the operation state so it auto-resets when
@@ -795,7 +808,8 @@ function useAssistantBannerConfig(): BannerConfig | null {
   const effectiveStatus =
     operationalStatus?.state === "unreachable" && wasRecentlySleeping
       ? { ...operationalStatus, state: "waking" as AssistantOperationalState }
-      : operationalStatus?.state === "unreachable" && wasRecentlyActive
+      : operationalStatus?.state === "unreachable" &&
+          wasRecentlyActiveWithoutConfirmedHealthz
         ? { ...operationalStatus, state: "sleeping" as AssistantOperationalState }
         : operationalStatus;
 
