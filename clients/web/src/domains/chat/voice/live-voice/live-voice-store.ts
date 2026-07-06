@@ -52,9 +52,39 @@ export type LiveVoiceSessionState =
   | "ending"
   | "failed";
 
+/**
+ * Imperative controls for the active session, registered by the
+ * {@link useLiveVoice} controller instance that owns it. Lets a globally
+ * mounted component (e.g. the title-bar session pill) drive a session owned by
+ * the composer's hook instance.
+ */
+export interface LiveVoiceSessionControls {
+  /** End the voice session (release mic, socket, and audio). */
+  stop: () => void;
+  /**
+   * Force-end the current user turn — a manual push-to-talk release, identical
+   * to the automatic silence release (the green ↑ "send now" button). No-op
+   * unless the session is `listening`.
+   */
+  release: () => void;
+  /**
+   * Stop in-flight assistant playback without the user having to speak. V1
+   * behavior: same path as barge-in interrupt, which ends the session (a later
+   * engine revision makes it turn-scoped). No-op unless the session is
+   * `speaking`.
+   */
+  interrupt: () => void;
+}
+
 export interface LiveVoiceState {
   /** Current phase of the session lifecycle. */
   state: LiveVoiceSessionState;
+  /** Assistant the active session was started for, `null` when idle. */
+  assistantId: string | null;
+  /** Conversation the active session is attached to, if any. */
+  conversationId: string | null;
+  /** Controls registered by the owning controller, `null` when no session. */
+  controls: LiveVoiceSessionControls | null;
   /** In-flight partial transcript of the user's current utterance. */
   partialTranscript: string;
   /** Last finalized user transcript. */
@@ -70,6 +100,13 @@ export interface LiveVoiceState {
 export interface LiveVoiceActions {
   /** Replace the session phase. */
   setState: (state: LiveVoiceSessionState) => void;
+  /** Record which assistant/conversation the active session belongs to. */
+  setSessionContext: (
+    assistantId: string,
+    conversationId: string | null,
+  ) => void;
+  /** Register (or clear) the owning controller's session controls. */
+  setControls: (controls: LiveVoiceSessionControls | null) => void;
   setPartialTranscript: (text: string) => void;
   setFinalTranscript: (text: string) => void;
   /** Append a delta to the accumulated assistant transcript. */
@@ -91,6 +128,9 @@ export type LiveVoiceStore = LiveVoiceState & LiveVoiceActions;
 
 const INITIAL_STATE: LiveVoiceState = {
   state: "idle",
+  assistantId: null,
+  conversationId: null,
+  controls: null,
   partialTranscript: "",
   finalTranscript: "",
   assistantTranscript: "",
@@ -102,6 +142,9 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   ...INITIAL_STATE,
 
   setState: (state) => set({ state }),
+  setSessionContext: (assistantId, conversationId) =>
+    set({ assistantId, conversationId }),
+  setControls: (controls) => set({ controls }),
   setPartialTranscript: (partialTranscript) => set({ partialTranscript }),
   setFinalTranscript: (finalTranscript) => set({ finalTranscript }),
   appendAssistantTranscript: (delta) =>
