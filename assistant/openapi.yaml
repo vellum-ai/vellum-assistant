@@ -27345,17 +27345,26 @@ paths:
                         isMember:
                           type: boolean
                         memberCount:
-                          type: number
+                          anyOf:
+                            - type: number
+                            - type: "null"
                         topic:
-                          type: string
+                          anyOf:
+                            - type: string
+                            - type: "null"
                         imageUrl:
-                          type: string
+                          anyOf:
+                            - type: string
+                            - type: "null"
                       required:
                         - id
                         - name
                         - type
                         - isPrivate
                         - isMember
+                        - memberCount
+                        - topic
+                        - imageUrl
                       additionalProperties: false
                 required:
                   - channels
