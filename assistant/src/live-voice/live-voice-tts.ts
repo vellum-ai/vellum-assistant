@@ -1,4 +1,5 @@
 import { getTtsProvider } from "../tts/provider-catalog.js";
+import { synthesizeAndEmit } from "../tts/synthesis-stream.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
 import type {
   TtsProvider,
@@ -82,8 +83,10 @@ export async function streamLiveVoiceTtsAudio(
   let chunks = 0;
   let bytes = 0;
 
-  const emitAudioFrame = (contentType: string, audio: Uint8Array): void => {
-    if (audio.byteLength === 0) return;
+  const emitAudioFrame = (contentType: string, audio: Buffer): void => {
+    if (audio.byteLength === 0) {
+      return;
+    }
 
     chunks += 1;
     bytes += audio.byteLength;
@@ -91,29 +94,35 @@ export async function streamLiveVoiceTtsAudio(
       type: "tts_audio",
       contentType,
       sampleRate,
-      dataBase64: Buffer.from(audio).toString("base64"),
+      dataBase64: audio.toString("base64"),
     });
   };
 
+  // Non-PCM streams accumulate here and emit one complete frame at the end —
+  // compressed formats (mp3/wav/opus) are only playable as a whole payload.
+  const bufferedAudio: Buffer[] = [];
+
   try {
-    const result = await provider.synthesizeStream!(
-      {
-        text: options.text,
-        useCase: options.useCase ?? "phone-call",
-        voiceId: options.voiceId,
-        signal: options.signal,
-        outputFormat: options.outputFormat,
-      },
-      (audioChunk) => {
+    const result = await synthesizeAndEmit({
+      provider,
+      text: options.text,
+      useCase: options.useCase ?? "phone-call",
+      voiceId: options.voiceId,
+      outputFormat: options.outputFormat,
+      sampleRate,
+      signal: options.signal,
+      onChunk: (chunk) => {
         if (canStreamChunks) {
-          emitAudioFrame(chunkContentType, audioChunk);
+          emitAudioFrame(chunk.contentType || chunkContentType, chunk.audio);
+        } else {
+          bufferedAudio.push(chunk.audio);
         }
       },
-    );
+    });
     const contentType = result.contentType || chunkContentType;
 
     if (!canStreamChunks) {
-      emitAudioFrame(contentType, result.audio);
+      emitAudioFrame(contentType, Buffer.concat(bufferedAudio));
     }
 
     return {
