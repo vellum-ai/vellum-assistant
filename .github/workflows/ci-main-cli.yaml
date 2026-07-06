@@ -76,9 +76,11 @@ jobs:
           echo "Stamping dev version: $DEV_VERSION"
           jq --arg v "$DEV_VERSION" '.version = $v' package.json > package.json.tmp && mv package.json.tmp package.json
 
+      - name: Strip bundled deps from the manifest
+        run: bun ../scripts/strip-bundled-deps.mjs .
       - name: Pack CLI tarball
         run: |
-          npm pack
+          bun pm pack
           TARBALL=$(ls vellumai-cli-*.tgz)
           echo "tarball=$TARBALL" >> "$GITHUB_OUTPUT"
           echo "Packed: $TARBALL"
