@@ -121,7 +121,9 @@ export async function streamLiveVoiceTtsAudio(
     });
     const contentType = result.contentType || chunkContentType;
 
-    if (!canStreamChunks) {
+    // An abort mid-stream resolves without throwing; skip the buffered emit
+    // so a truncated payload is never delivered after cancellation.
+    if (!canStreamChunks && !options.signal?.aborted) {
       emitAudioFrame(contentType, Buffer.concat(bufferedAudio));
     }
 
