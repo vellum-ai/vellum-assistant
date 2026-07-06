@@ -14,6 +14,18 @@ import {
 
 import { createCesProcessManager, logCesLine } from "./process-manager.js";
 
+// Poll until `predicate` holds or the deadline passes. Fixed sleeps flake on
+// loaded CI runners where socket-close events take >50ms to propagate.
+async function waitFor(
+  predicate: () => boolean,
+  timeoutMs = 2000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+}
+
 function makeLogger() {
   return {
     debug: mock((_obj: object, _msg: string) => {}),
@@ -156,7 +168,9 @@ describe("CesProcessManager.onTransportClose", () => {
       connections.push(socket);
       socket.on("error", () => {});
     });
-    await new Promise<void>((resolve) => server.listen(mockSocketPath, resolve));
+    await new Promise<void>((resolve) =>
+      server.listen(mockSocketPath, resolve),
+    );
   });
 
   afterEach(async () => {
@@ -188,8 +202,8 @@ describe("CesProcessManager.onTransportClose", () => {
       sock.destroy();
     }
 
-    // Give the close event a tick to propagate.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Wait for the close event to propagate (poll — timing varies on CI).
+    await waitFor(() => closeFired);
 
     expect(closeFired).toBe(true);
     expect(transport.isAlive()).toBe(false);
@@ -221,7 +235,7 @@ describe("CesProcessManager.onTransportClose", () => {
     for (const sock of connections) {
       sock.destroy();
     }
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    await waitFor(() => !transport.isAlive());
     expect(transport.isAlive()).toBe(false);
 
     // Register handler AFTER transport is already dead.
