@@ -336,10 +336,11 @@ export function useLiveVoice(
           // When started from a new/empty conversation, `conversationId` was
           // undefined at start() and the store published `null`. The server
           // assigns (or confirms) the attached conversation on `ready`, so
-          // republish the context with the authoritative id.
-          useLiveVoiceStore
-            .getState()
-            .setSessionContext(assistantId, frame.conversationId);
+          // republish the authoritative id. `setConversationId` (not
+          // `setSessionContext`) so `startedConversationId` keeps its
+          // start-time value — session ownership for a draft-started session
+          // hinges on it (see `isLiveVoiceSessionOwnedBy`).
+          useLiveVoiceStore.getState().setConversationId(frame.conversationId);
           void startCapture(session, teardown);
         }),
         client.on("sttPartial", (frame) => {
