@@ -8,10 +8,6 @@
  * the shared contract schemas in `@vellumai/gateway-client` — the same
  * schemas the gateway routes are pinned to.
  *
- * Export names mirror the retired daemon session service so historical
- * call-site flips were mechanical: same names, same result shapes,
- * sync → async.
- *
  * Error posture (fail-closed — there is no local fallback):
  * - Lifecycle wrappers THROW on any transport failure or malformed
  *   response. Control-plane callers surface the error to the user;
@@ -53,8 +49,8 @@ export interface CreateVerificationSessionResult {
   instruction: string;
 }
 
-// Result shapes are the shared contract's IPC response types; the historical
-// export names are kept for consumers.
+// Aliases of the shared contract's IPC response types under the names
+// consumers import.
 export type CreateOutboundSessionResult = CreateOutboundSessionIpcResponse;
 
 export type ValidateVerificationResult = ValidateConsumeSessionIpcResponse;
