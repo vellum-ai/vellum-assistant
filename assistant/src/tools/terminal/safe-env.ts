@@ -48,8 +48,10 @@ export const SAFE_ENV_VARS = [
   "VELLUM_MIGRATION_IMPORT_ALLOWED_HOSTS",
   "CES_CREDENTIAL_URL",
   "CES_MANAGED_MODE",
-  "CES_STANDALONE",
-  "CES_LOCAL_SOCKET",
+  // CES_LOCAL_SOCKET and CES_STANDALONE are intentionally NOT allowlisted.
+  // The sibling socket accepts any connection with only a protocol-version
+  // handshake and exposes plaintext credential read/write RPCs. Tools must
+  // not be able to discover and connect to it. (ATL-973)
   "IS_CONTAINERIZED",
   "IS_PLATFORM",
   "VELLUM_CLOUD",
