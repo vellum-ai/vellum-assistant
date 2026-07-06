@@ -1849,10 +1849,15 @@ jobs:
       environment: staging
     secrets: inherit
 
+  # The production SPA deploy is the LAST side effect before the GitHub
+  # Release: it waits on every other release prerequisite (publishes, image
+  # manifests, Electron build + updates), so a release that fails partway
+  # never leaves the prod UI updated, and a failed SPA deploy blocks the
+  # GitHub Release/tag (the `release` job requires this job's success).
   deploy-web-spa-production:
     name: Deploy Web SPA (production)
-    needs: [extract-version, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image]
-    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' }}
+    needs: [extract-version, publish-npm-prod, publish-web-prod, publish-meta-prod, publish-plugin-api-prod, push-assistant-manifest, push-gateway-manifest, push-credential-executor-manifest, push-dockerhub-image, build-electron, upload-electron-updates]
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging != 'true' && needs.publish-npm-prod.result == 'success' && needs.publish-web-prod.result == 'success' && needs.publish-meta-prod.result == 'success' && needs.publish-plugin-api-prod.result == 'success' && needs.push-assistant-manifest.result == 'success' && needs.push-gateway-manifest.result == 'success' && needs.push-credential-executor-manifest.result == 'success' && needs.push-dockerhub-image.result == 'success' && needs.build-electron.result == 'success' && needs.upload-electron-updates.result == 'success' }}
     permissions:
       contents: read
       id-token: write
