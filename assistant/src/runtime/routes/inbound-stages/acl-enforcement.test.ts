@@ -13,6 +13,8 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SourceMetadata, TrustVerdict } from "@vellumai/gateway-client";
 
+import { createGatewayVerificationSessionsStub } from "../../../__tests__/helpers/gateway-verification-sessions-stub.js";
+
 mock.module("../../../util/logger.js", () => ({
   getLogger: () =>
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
@@ -67,58 +69,22 @@ mock.module("../../access-request-helper.js", () => ({
 // Gateway-backed verification-session client: track challenge minting so the
 // callback exemption (LUM-2673) can assert no session is created for button
 // presses; the throw toggle simulates an unreachable gateway (transport
-// errors surface as thrown errors from the client).
-const createOutboundSessionCalls: unknown[] = [];
-// Verification-read IPC calls (getPendingSession/findActiveSession) — the
+// errors surface as thrown errors from the client). Verification-read IPC
+// calls (getPendingSession/findActiveSession) are recorded because the
 // verdict's session-presence stamp must skip these when present-and-false.
-const sessionReadCalls: string[] = [];
-let gatewaySessionsUnreachable = false;
-let pendingSessionForTest: Record<string, unknown> | null = null;
-let activeSessionForTest: Record<string, unknown> | null = null;
-let bootstrapSessionForTest: Record<string, unknown> | null = null;
-function throwIfUnreachable(): void {
-  if (gatewaySessionsUnreachable) {
-    throw new Error("gateway unreachable");
-  }
-}
-mock.module("../../../channels/gateway-verification-sessions.js", () => ({
-  createOutboundSession: async (params: unknown) => {
-    throwIfUnreachable();
-    createOutboundSessionCalls.push(params);
-    return {
-      sessionId: "session-1",
-      secret: "123456",
-      challengeHash: "hash",
-      expiresAt: Date.now() + 600_000,
-      ttlSeconds: 600,
-    };
-  },
-  createOutboundSessionConditional: async (params: unknown) => {
-    throwIfUnreachable();
-    createOutboundSessionCalls.push(params);
-    return {
-      sessionId: "session-1",
-      secret: "123456",
-      challengeHash: "hash",
-      expiresAt: Date.now() + 600_000,
-      ttlSeconds: 600,
-    };
-  },
-  findActiveSession: async () => {
-    sessionReadCalls.push("findActiveSession");
-    throwIfUnreachable();
-    return activeSessionForTest;
-  },
-  getPendingSession: async () => {
-    sessionReadCalls.push("getPendingSession");
-    throwIfUnreachable();
-    return pendingSessionForTest;
-  },
-  resolveBootstrapToken: async () => {
-    throwIfUnreachable();
-    return bootstrapSessionForTest;
-  },
-}));
+const gatewaySessions = createGatewayVerificationSessionsStub({
+  mintResult: () => ({
+    sessionId: "session-1",
+    secret: "123456",
+    challengeHash: "hash",
+    expiresAt: Date.now() + 600_000,
+    ttlSeconds: 600,
+  }),
+});
+mock.module(
+  "../../../channels/gateway-verification-sessions.js",
+  () => gatewaySessions.module,
+);
 
 import type { AclEnforcementParams } from "./acl-enforcement.js";
 import { enforceIngressAcl } from "./acl-enforcement.js";
@@ -164,18 +130,13 @@ function withVerdict(verdict: TrustVerdict): SourceMetadata {
 }
 
 beforeEach(() => {
+  gatewaySessions.reset();
   findContactChannelCalls.length = 0;
   deliverReplyCalls.length = 0;
   accessRequestCalls.length = 0;
-  createOutboundSessionCalls.length = 0;
-  sessionReadCalls.length = 0;
   accessRequestDeniedForTest = false;
   approvalHandshakeForTest = false;
   guardianDeliveryList = [];
-  gatewaySessionsUnreachable = false;
-  pendingSessionForTest = null;
-  activeSessionForTest = null;
-  bootstrapSessionForTest = null;
 });
 
 describe("enforceIngressAcl — verdict-sourced member resolution", () => {
@@ -232,7 +193,7 @@ describe("enforceIngressAcl — verdict-sourced member resolution", () => {
     expect(result.resolvedMember).toBeNull();
     expect(accessRequestCalls.length).toBe(0);
     expect(deliverReplyCalls.length).toBe(0);
-    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(gatewaySessions.calls.create.length).toBe(0);
   });
 
   test("guardian verdict with an inactive (pending) member row is still admitted", async () => {
@@ -648,7 +609,7 @@ describe("enforceIngressAcl — callback interactions never spawn stranger-lane 
     expect(result.earlyResponse).toBeDefined();
     expect(result.earlyResponse!.reason).toBe("not_a_member");
     expect(accessRequestCalls.length).toBe(0);
-    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(gatewaySessions.calls.create.length).toBe(0);
     // The deny reply still goes out so the click isn't a silent no-op.
     expect(deliverReplyCalls.length).toBe(1);
   });
@@ -670,7 +631,7 @@ describe("enforceIngressAcl — callback interactions never spawn stranger-lane 
 
     expect(result.earlyResponse).toBeDefined();
     expect(result.earlyResponse!.reason).toBe("not_a_member");
-    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(gatewaySessions.calls.create.length).toBe(0);
     expect(accessRequestCalls.length).toBe(0);
   });
 
@@ -695,7 +656,7 @@ describe("enforceIngressAcl — callback interactions never spawn stranger-lane 
 
     expect(result.earlyResponse).toBeDefined();
     expect(result.earlyResponse!.reason).toBe("member_pending");
-    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(gatewaySessions.calls.create.length).toBe(0);
     expect(accessRequestCalls.length).toBe(0);
   });
 
@@ -739,7 +700,7 @@ describe("enforceIngressAcl — callback interactions never spawn stranger-lane 
 
     expect(result.earlyResponse).toBeDefined();
     expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
-    expect(createOutboundSessionCalls.length).toBe(1);
+    expect(gatewaySessions.calls.create.length).toBe(1);
     expect(accessRequestCalls.length).toBe(1);
   });
 
@@ -761,12 +722,12 @@ describe("enforceIngressAcl — callback interactions never spawn stranger-lane 
 
     expect(result.earlyResponse).toBeDefined();
     // No verification session is minted — a bot cannot return a code.
-    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(gatewaySessions.calls.create.length).toBe(0);
     expect(accessRequestCalls.length).toBe(1);
   });
 
   test("an active session for the same sender suppresses a duplicate challenge", async () => {
-    activeSessionForTest = {
+    gatewaySessions.state.activeSession = {
       id: "existing-session",
       channel: "slack",
       status: "awaiting_response",
@@ -787,11 +748,11 @@ describe("enforceIngressAcl — callback interactions never spawn stranger-lane 
 
     // Dedup: no new session, fall through to the standard deny.
     expect(result.earlyResponse!.reason).toBe("not_a_member");
-    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(gatewaySessions.calls.create.length).toBe(0);
   });
 
   test("an active session for a DIFFERENT sender does not suppress the challenge", async () => {
-    activeSessionForTest = {
+    gatewaySessions.state.activeSession = {
       id: "existing-session",
       channel: "slack",
       status: "awaiting_response",
@@ -811,7 +772,7 @@ describe("enforceIngressAcl — callback interactions never spawn stranger-lane 
     );
 
     expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
-    expect(createOutboundSessionCalls.length).toBe(1);
+    expect(gatewaySessions.calls.create.length).toBe(1);
   });
 
   test("identity signals from sourceMetadata are forwarded to the access request", async () => {
@@ -864,7 +825,7 @@ describe("enforceIngressAcl — bootstrap deep-link bypass reads via the gateway
   }
 
   test("a valid pending_bootstrap session bypasses the non-member deny", async () => {
-    bootstrapSessionForTest = {
+    gatewaySessions.state.bootstrapSession = {
       id: "bootstrap-session",
       channel: "telegram",
       status: "pending_bootstrap",
@@ -880,7 +841,7 @@ describe("enforceIngressAcl — bootstrap deep-link bypass reads via the gateway
   });
 
   test("an unresolvable token keeps the deny", async () => {
-    bootstrapSessionForTest = null;
+    gatewaySessions.state.bootstrapSession = null;
 
     const result = await enforceIngressAcl(bootstrapParams());
 
@@ -889,19 +850,19 @@ describe("enforceIngressAcl — bootstrap deep-link bypass reads via the gateway
   });
 
   test("gateway unreachable degrades to the plain deny — no throw, no bypass", async () => {
-    gatewaySessionsUnreachable = true;
+    gatewaySessions.unreachable.all = true;
 
     const result = await enforceIngressAcl(bootstrapParams());
 
     expect(result.earlyResponse!.reason).toBe("not_a_member");
     expect(result.validatedBootstrapSession).toBeUndefined();
-    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(gatewaySessions.calls.create.length).toBe(0);
   });
 });
 
 describe("enforceIngressAcl — gateway-unreachable deny branches degrade to a plain deny", () => {
   test("Slack stranger message: session reads throwing skips the challenge, normal deny fires", async () => {
-    gatewaySessionsUnreachable = true;
+    gatewaySessions.unreachable.all = true;
 
     const result = await enforceIngressAcl(
       makeParams({
@@ -918,13 +879,13 @@ describe("enforceIngressAcl — gateway-unreachable deny branches degrade to a p
     // No challenge minted, no throw: the standard deny lane still runs
     // (guardian notified, canned reply delivered).
     expect(result.earlyResponse!.reason).toBe("not_a_member");
-    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(gatewaySessions.calls.create.length).toBe(0);
     expect(accessRequestCalls.length).toBe(1);
     expect(deliverReplyCalls.length).toBe(1);
   });
 
   test("Slack inactive member: session reads throwing skips the re-verify challenge", async () => {
-    gatewaySessionsUnreachable = true;
+    gatewaySessions.unreachable.all = true;
 
     const result = await enforceIngressAcl(
       makeParams({
@@ -943,12 +904,12 @@ describe("enforceIngressAcl — gateway-unreachable deny branches degrade to a p
     );
 
     expect(result.earlyResponse!.reason).toBe("member_pending");
-    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(gatewaySessions.calls.create.length).toBe(0);
     expect(accessRequestCalls.length).toBe(1);
   });
 
   test("email stranger message: session reads throwing skips the challenge", async () => {
-    gatewaySessionsUnreachable = true;
+    gatewaySessions.unreachable.all = true;
 
     const result = await enforceIngressAcl(
       makeParams({
@@ -963,7 +924,7 @@ describe("enforceIngressAcl — gateway-unreachable deny branches degrade to a p
     );
 
     expect(result.earlyResponse!.reason).toBe("not_a_member");
-    expect(createOutboundSessionCalls.length).toBe(0);
+    expect(gatewaySessions.calls.create.length).toBe(0);
   });
 });
 
@@ -992,8 +953,8 @@ describe("enforceIngressAcl — verdict session-presence stamp elides the verifi
     );
 
     expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
-    expect(createOutboundSessionCalls.length).toBe(1);
-    expect(sessionReadCalls.length).toBe(0);
+    expect(gatewaySessions.calls.create.length).toBe(1);
+    expect(gatewaySessions.calls.sessionReads.length).toBe(0);
   });
 
   test("stamp false (email stranger): challenge minted with ZERO verification-read IPC calls", async () => {
@@ -1009,8 +970,8 @@ describe("enforceIngressAcl — verdict session-presence stamp elides the verifi
     );
 
     expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
-    expect(createOutboundSessionCalls.length).toBe(1);
-    expect(sessionReadCalls.length).toBe(0);
+    expect(gatewaySessions.calls.create.length).toBe(1);
+    expect(gatewaySessions.calls.sessionReads.length).toBe(0);
   });
 
   test("stamp false (Slack inactive member): re-verify challenge minted with ZERO verification-read IPC calls", async () => {
@@ -1032,14 +993,14 @@ describe("enforceIngressAcl — verdict session-presence stamp elides the verifi
     );
 
     expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
-    expect(createOutboundSessionCalls.length).toBe(1);
-    expect(sessionReadCalls.length).toBe(0);
+    expect(gatewaySessions.calls.create.length).toBe(1);
+    expect(gatewaySessions.calls.sessionReads.length).toBe(0);
   });
 
   test("stamp true: falls back to the IPC reads — same-sender session still dedups", async () => {
     // The stamp is channel-scoped; only `false` is authoritative. A `true`
     // stamp must preserve the sender-scoped dedup via the reads.
-    activeSessionForTest = {
+    gatewaySessions.state.activeSession = {
       id: "existing-session",
       channel: "slack",
       status: "awaiting_response",
@@ -1056,12 +1017,12 @@ describe("enforceIngressAcl — verdict session-presence stamp elides the verifi
     );
 
     expect(result.earlyResponse!.reason).toBe("not_a_member");
-    expect(createOutboundSessionCalls.length).toBe(0);
-    expect(sessionReadCalls.length).toBe(2);
+    expect(gatewaySessions.calls.create.length).toBe(0);
+    expect(gatewaySessions.calls.sessionReads.length).toBe(2);
   });
 
   test("stamp true: a DIFFERENT sender's session does not suppress the challenge", async () => {
-    activeSessionForTest = {
+    gatewaySessions.state.activeSession = {
       id: "existing-session",
       channel: "slack",
       status: "awaiting_response",
@@ -1078,8 +1039,8 @@ describe("enforceIngressAcl — verdict session-presence stamp elides the verifi
     );
 
     expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
-    expect(createOutboundSessionCalls.length).toBe(1);
-    expect(sessionReadCalls.length).toBe(2);
+    expect(gatewaySessions.calls.create.length).toBe(1);
+    expect(gatewaySessions.calls.sessionReads.length).toBe(2);
   });
 
   test("absent stamp (legacy/voice-relay verdict): falls back to the IPC reads", async () => {
@@ -1093,12 +1054,12 @@ describe("enforceIngressAcl — verdict session-presence stamp elides the verifi
     );
 
     expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
-    expect(createOutboundSessionCalls.length).toBe(1);
-    expect(sessionReadCalls.length).toBe(2);
+    expect(gatewaySessions.calls.create.length).toBe(1);
+    expect(gatewaySessions.calls.sessionReads.length).toBe(2);
   });
 
   test("stamp false with the gateway unreachable at mint time degrades to a plain deny", async () => {
-    gatewaySessionsUnreachable = true;
+    gatewaySessions.unreachable.all = true;
 
     const result = await enforceIngressAcl(
       makeParams({
@@ -1110,6 +1071,6 @@ describe("enforceIngressAcl — verdict session-presence stamp elides the verifi
     );
 
     expect(result.earlyResponse!.reason).toBe("not_a_member");
-    expect(sessionReadCalls.length).toBe(0);
+    expect(gatewaySessions.calls.sessionReads.length).toBe(0);
   });
 });
