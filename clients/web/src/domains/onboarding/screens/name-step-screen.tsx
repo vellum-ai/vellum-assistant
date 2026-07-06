@@ -5,6 +5,8 @@ import { StepIndicatorDots } from "@/domains/onboarding/components/step-indicato
 import { Button } from "@vellumai/design-library/components/button";
 import { Input } from "@vellumai/design-library/components/input";
 
+import { MOBILE_INPUT_NO_ZOOM } from "@/domains/onboarding/onboarding-step-layout";
+
 interface NameStepScreenProps {
   userName: string;
   assistantName: string;
@@ -85,6 +87,7 @@ export function NameStepScreen({
               placeholder="Your name"
               value={userName}
               onChange={(e) => onUserNameChange(e.target.value)}
+              className={MOBILE_INPUT_NO_ZOOM}
               fullWidth
             />
 
@@ -94,6 +97,7 @@ export function NameStepScreen({
                 placeholder="Assistant name"
                 value={assistantName}
                 onChange={(e) => onAssistantNameChange(e.target.value)}
+                className={MOBILE_INPUT_NO_ZOOM}
                 fullWidth
               />
 
