@@ -302,8 +302,15 @@ export function useLiveVoice(
         sessionRef.current === session && session.generation === generation;
 
       session.unsubscribes.push(
-        client.on("ready", () => {
+        client.on("ready", (frame) => {
           if (!live()) return;
+          // When started from a new/empty conversation, `conversationId` was
+          // undefined at start() and the store published `null`. The server
+          // assigns (or confirms) the attached conversation on `ready`, so
+          // republish the context with the authoritative id.
+          useLiveVoiceStore
+            .getState()
+            .setSessionContext(assistantId, frame.conversationId);
           void startCapture(session, teardown);
         }),
         client.on("sttPartial", (frame) => {

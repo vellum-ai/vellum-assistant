@@ -568,6 +568,28 @@ describe("session context and controls", () => {
     expect(useLiveVoiceStore.getState().conversationId).toBeNull();
   });
 
+  test("ready frame updates a null conversationId with the server-assigned id", async () => {
+    const h = renderController();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1");
+    });
+    expect(useLiveVoiceStore.getState().conversationId).toBeNull();
+
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId: "conv-server-assigned",
+      });
+      await Promise.resolve();
+    });
+
+    const store = useLiveVoiceStore.getState();
+    expect(store.assistantId).toBe("assistant-1");
+    expect(store.conversationId).toBe("conv-server-assigned");
+  });
+
   test("release() while listening sends ptt_release and moves to transcribing", async () => {
     const h = renderController();
     await startListening(h);
