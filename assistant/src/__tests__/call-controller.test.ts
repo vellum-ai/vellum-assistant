@@ -265,6 +265,7 @@ import {
 } from "../calls/call-store.js";
 import type { CallTransport } from "../calls/call-transport.js";
 import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
+import type { VoiceSessionSource } from "../calls/voice-session-source.js";
 import { loadConfig } from "../config/loader.js";
 import {
   getCanonicalGuardianRequest,
@@ -3495,5 +3496,42 @@ describe("call-controller", () => {
       controller.destroy();
       await turnPromise.catch(() => {});
     });
+  });
+
+  // ── Injected VoiceSessionSource ─────────────────────────────────────
+
+  test("injected session source: constructor resolves conversationId without a call_sessions row", async () => {
+    ensureConversation("conv-injected-source");
+    const sessionSource: VoiceSessionSource = {
+      conversationId: "conv-injected-source",
+      skipDisclosure: true,
+      getSnapshot: () => ({
+        status: "in_progress",
+        conversationId: "conv-injected-source",
+        initiatedFromConversationId: null,
+        startedAt: Date.now(),
+        toNumber: "+15555550100",
+      }),
+    };
+    const transport = createMockTransport();
+    const controller = new CallController(
+      "call-session-without-row",
+      transport,
+      null,
+      { sessionSource },
+    );
+
+    mockStartVoiceTurn.mockClear();
+    await controller.handleCallerUtterance("Hello");
+
+    expect(mockStartVoiceTurn).toHaveBeenCalledTimes(1);
+    const turnOpts = mockStartVoiceTurn.mock.calls[0][0] as {
+      conversationId: string;
+      skipDisclosure: boolean;
+    };
+    expect(turnOpts.conversationId).toBe("conv-injected-source");
+    expect(turnOpts.skipDisclosure).toBe(true);
+
+    controller.destroy();
   });
 });
