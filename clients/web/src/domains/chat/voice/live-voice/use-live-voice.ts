@@ -91,13 +91,13 @@ const MINIMUM_SPEECH_DURATION_BEFORE_RELEASE_MS = 120;
 export interface UseLiveVoiceResult {
   /** Current session phase. */
   state: LiveVoiceSessionState;
-  /** In-flight partial user transcript. */
+  /** In-flight partial user transcript. Pinned at `""` when the consumer opted out via {@link UseLiveVoiceOptions.observeAudioState}. */
   partialTranscript: string;
-  /** Last finalized user transcript. */
+  /** Last finalized user transcript. Pinned at `""` when `observeAudioState` is false. */
   finalTranscript: string;
-  /** Accumulated assistant response text for the current turn. */
+  /** Accumulated assistant response text for the current turn. Pinned at `""` when `observeAudioState` is false. */
   assistantTranscript: string;
-  /** Smoothed mic amplitude in [0, 1]. */
+  /** Smoothed mic amplitude in [0, 1]. Pinned at `0` when `observeAudioState` is false. */
   inputAmplitude: number;
   /** Failure message when `state === "failed"`, else `null`. */
   error: string | null;
@@ -120,6 +120,22 @@ export interface UseLiveVoiceOptions {
     options: ConstructorParameters<typeof LiveVoiceAudioCapture>[0],
   ) => LiveVoiceAudioCapture;
   createPlayer?: () => LiveVoiceAudioPlayer;
+  /**
+   * When `false`, this hook instance does not subscribe to the high-frequency
+   * audio/transcript store fields — `inputAmplitude` (updated on every mic
+   * amplitude sample), `partialTranscript`, `finalTranscript`, and
+   * `assistantTranscript` — so those updates never re-render the consumer. The
+   * corresponding returned fields are pinned at their idle defaults (`0` /
+   * `""`); read them via `useLiveVoiceStore` (selectors or `getState()`)
+   * instead. The low-frequency `state`/`error` fields and the actions are
+   * unaffected.
+   *
+   * For consumers that only need the session phase + actions — e.g. the
+   * composer, whose voice bar polls amplitude with `getState()` inside its
+   * canvas draw loop. Must be stable for the lifetime of the hook instance.
+   * Defaults to `true` (subscribe to everything, the original behavior).
+   */
+  observeAudioState?: boolean;
 }
 
 /**
@@ -170,11 +186,24 @@ function chunkDurationMs(buf: ArrayBuffer): number {
 export function useLiveVoice(
   options: UseLiveVoiceOptions = {},
 ): UseLiveVoiceResult {
+  const observeAudioState = options.observeAudioState ?? true;
   const state = useLiveVoiceStore.use.state();
-  const partialTranscript = useLiveVoiceStore.use.partialTranscript();
-  const finalTranscript = useLiveVoiceStore.use.finalTranscript();
-  const assistantTranscript = useLiveVoiceStore.use.assistantTranscript();
-  const inputAmplitude = useLiveVoiceStore.use.inputAmplitude();
+  // High-frequency / transcript fields are read through conditional selectors:
+  // when the consumer opted out, the selector returns the idle default, so the
+  // subscription exists but never produces a changed value — i.e. amplitude
+  // ticks and transcript deltas cannot re-render the consumer.
+  const partialTranscript = useLiveVoiceStore((s) =>
+    observeAudioState ? s.partialTranscript : "",
+  );
+  const finalTranscript = useLiveVoiceStore((s) =>
+    observeAudioState ? s.finalTranscript : "",
+  );
+  const assistantTranscript = useLiveVoiceStore((s) =>
+    observeAudioState ? s.assistantTranscript : "",
+  );
+  const inputAmplitude = useLiveVoiceStore((s) =>
+    observeAudioState ? s.inputAmplitude : 0,
+  );
   const error = useLiveVoiceStore.use.error();
 
   const sessionRef = useRef<SessionContext | null>(null);
