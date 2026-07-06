@@ -143,9 +143,11 @@ function makeClient(connectTimeoutMs = 10_000) {
 /** Connect and return the underlying fake socket once constructed. */
 async function connectAndGetSocket(
   client: LiveVoiceChannelClientType,
-  args: { assistantId: string; conversationId?: string } = {
-    assistantId: "assistant-1",
-  },
+  args: {
+    assistantId: string;
+    conversationId?: string;
+    turnDetection?: "manual" | "server_vad";
+  } = { assistantId: "assistant-1" },
 ): Promise<FakeWebSocket> {
   await client.connect(args);
   const ws = FakeWebSocket.instances.at(-1);
@@ -205,13 +207,28 @@ describe("connect", () => {
     expect(ws.sentBinary).toHaveLength(0);
   });
 
-  test("omits conversationId from the start frame when not provided", async () => {
+  test("omits conversationId and turnDetection from the start frame when not provided", async () => {
     const ws = await connectAndGetSocket(makeClient());
     ws.open();
     expect(ws.sentJson[0]).toEqual({
       type: "start",
       audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
     });
+  });
+
+  test("includes turnDetection in the start frame when provided", async () => {
+    const ws = await connectAndGetSocket(makeClient(), {
+      assistantId: "assistant-1",
+      turnDetection: "server_vad",
+    });
+    ws.open();
+    expect(ws.sentJson).toEqual([
+      {
+        type: "start",
+        audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
+        turnDetection: "server_vad",
+      },
+    ]);
   });
 
   test("emits error when token minting fails", async () => {
@@ -263,13 +280,19 @@ describe("server frame dispatch", () => {
     ]);
   });
 
-  test("dispatches each transcript/text/tts/metrics/archived frame to its event", async () => {
-    const { client, ws } = await ready();
-
+  /** Per-test event recorder: `record(name)` handlers append into `got[name]`. */
+  function makeRecorder() {
     const got: Record<string, unknown[]> = {};
     const record = (name: string) => (f: unknown) => {
       (got[name] ??= []).push(f);
     };
+    return { got, record };
+  }
+
+  test("dispatches each transcript/text/tts/metrics/archived frame to its event", async () => {
+    const { client, ws } = await ready();
+
+    const { got, record } = makeRecorder();
     client.on("sttPartial", record("sttPartial"));
     client.on("sttFinal", record("sttFinal"));
     client.on("thinking", record("thinking"));
@@ -317,6 +340,49 @@ describe("server frame dispatch", () => {
     expect(got.ttsDone).toEqual([{ type: "tts_done", seq: 7, turnId: "t1" }]);
     expect(got.metrics).toHaveLength(1);
     expect(got.archived).toHaveLength(1);
+  });
+
+  test("dispatches speech_started / utterance_end / turn_cancelled to their events", async () => {
+    const { client, ws } = await ready();
+
+    const { got, record } = makeRecorder();
+    client.on("speechStarted", record("speechStarted"));
+    client.on("utteranceEnd", record("utteranceEnd"));
+    client.on("turnCancelled", record("turnCancelled"));
+
+    ws.receive({ type: "speech_started", seq: 2 });
+    ws.receive({ type: "utterance_end", seq: 3, reason: "silence" });
+    ws.receive({ type: "utterance_end", seq: 4, reason: "max-duration" });
+    ws.receive({ type: "turn_cancelled", seq: 5, turnId: "t1" });
+
+    expect(got.speechStarted).toEqual([{ type: "speech_started", seq: 2 }]);
+    expect(got.utteranceEnd).toEqual([
+      { type: "utterance_end", seq: 3, reason: "silence" },
+      { type: "utterance_end", seq: 4, reason: "max-duration" },
+    ]);
+    expect(got.turnCancelled).toEqual([
+      { type: "turn_cancelled", seq: 5, turnId: "t1" },
+    ]);
+  });
+
+  test("ignores unknown server frame types without failing the session", async () => {
+    const { client, ws } = await ready();
+    const errors: unknown[] = [];
+    let closedCount = 0;
+    client.on("error", (e) => errors.push(e));
+    client.on("closed", () => closedCount++);
+
+    ws.receive({ type: "frame_from_the_future", seq: 2 });
+
+    expect(errors).toHaveLength(0);
+    expect(closedCount).toBe(0);
+    expect(ws.closed).toBe(false);
+
+    // The session stays live: later known frames still dispatch.
+    const seen: unknown[] = [];
+    client.on("sttPartial", (f) => seen.push(f));
+    ws.receive({ type: "stt_partial", seq: 3, text: "still here" });
+    expect(seen).toEqual([{ type: "stt_partial", seq: 3, text: "still here" }]);
   });
 
   test("server error frame emits a protocol-error and closes", async () => {
