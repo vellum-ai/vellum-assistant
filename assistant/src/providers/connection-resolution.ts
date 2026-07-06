@@ -38,7 +38,10 @@ import { getConnection, listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
 import { resolveProviderFromConnection } from "./registry.js";
 import type { Provider } from "./types.js";
-import { isVellumManagedConnection } from "./vellum-model-routing.js";
+import {
+  isVellumManagedConnection,
+  MANAGED_ROUTABLE_PROVIDERS,
+} from "./vellum-model-routing.js";
 
 const log = getLogger("providers/connection-resolution");
 
@@ -117,7 +120,13 @@ export async function tryResolveProviderForConnectionName(
   // The provider-agnostic Vellum-managed connection carries only the `vellum`
   // sentinel, so the usual `connection.provider === expectedProvider` equality
   // never holds. It routes by the resolving profile's declared provider
-  // instead (threaded as `providerOverride` below), which must be present.
+  // instead (threaded as `providerOverride` below), which must be present AND
+  // one of the managed-routable upstreams — the platform proxy can only serve
+  // those. A `vellum` connection paired with a non-managed provider
+  // (openrouter/ollama/openai-compatible/…) is a genuine misconfiguration: it
+  // falls through to the mismatch recovery/error path below rather than routing
+  // as platform auth, which would otherwise fail as a soft miss and silently
+  // fall back to the default provider.
   const isVellum = isVellumManagedConnection(connection);
   if (isVellum && !expectedProvider) {
     throw new ConnectionResolutionError(
@@ -126,8 +135,12 @@ export async function tryResolveProviderForConnectionName(
       `provider_connection "${connectionName}" is the provider-agnostic Vellum-managed connection but the resolving profile declared no provider — set the profile's provider so the upstream can be selected`,
     );
   }
+  const isVellumRoute =
+    isVellum &&
+    !!expectedProvider &&
+    MANAGED_ROUTABLE_PROVIDERS.has(expectedProvider);
   if (
-    !isVellum &&
+    !isVellumRoute &&
     expectedProvider &&
     connection.provider !== expectedProvider
   ) {
@@ -188,7 +201,7 @@ export async function tryResolveProviderForConnectionName(
   try {
     return await resolveProviderFromConnection(connection, config, {
       model,
-      providerOverride: isVellum ? expectedProvider : undefined,
+      providerOverride: isVellumRoute ? expectedProvider : undefined,
     });
   } catch (err) {
     log.warn(
