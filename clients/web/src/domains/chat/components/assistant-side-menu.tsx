@@ -4,7 +4,6 @@ import {
     Clock,
     LayoutGrid,
     Pin,
-    Rocket,
     Search,
     SquarePen,
     X,
@@ -25,6 +24,7 @@ import {
 } from "@/domains/chat/components/conversation-nav-section";
 import { CollapsedGroupFlyout } from "@/domains/chat/components/conversation-rail-flyout";
 import { GroupActionsMenu, renderGroupMenuItems } from "@/domains/chat/components/group-actions-menu";
+import { PinnedAppNavItem } from "@/domains/chat/components/pinned-app-nav-item";
 import { useDragReorder } from "@/domains/chat/hooks/use-drag-reorder";
 import { SIDEBAR_CONVERSATION_LIMIT, useSidebarState, type UseSidebarStateParams } from "@/domains/chat/use-sidebar-state";
 import { channelSectionKey } from "@/domains/chat/utils/sidebar-group-collapse-storage";
@@ -323,16 +323,12 @@ export function AssistantSideMenu({
               />
             ) : null}
             {pinnedApps.map((app) => (
-              <SideMenu.Item
+              <PinnedAppNavItem
                 key={app.appId}
-                // Apps source their icon as an emoji string on the manifest
-                // (`app.icon`). Fall back to the Rocket lucide glyph so unmojified
-                // apps still get a leading icon in the rail.
-                icon={app.icon ?? Rocket}
-                label={app.name}
-                showCollapsedTooltip
+                app={app}
+                collapsed={collapsed}
                 active={activeAppId === app.appId}
-                onSelect={onOpenApp ? () => { onOpenApp(app.appId); onClose?.(); } : undefined}
+                onOpen={onOpenApp ? (appId) => { onOpenApp(appId); onClose?.(); } : undefined}
               />
             ))}
           </div>
