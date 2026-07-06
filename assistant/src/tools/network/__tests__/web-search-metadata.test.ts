@@ -8,15 +8,6 @@ let mockBraveSecureKey: string | undefined;
 let mockPerplexitySecureKey: string | undefined;
 let mockTavilySecureKey: string | undefined;
 
-// Capture the registered tool
-let capturedTool: any = null;
-
-mock.module("../../registry.js", () => ({
-  registerTool: (tool: any) => {
-    capturedTool = tool;
-  },
-}));
-
 mock.module("../../../config/loader.js", () => ({
   getConfig: () => ({
     services: {
@@ -47,8 +38,8 @@ mock.module("../../../permissions/types.js", () => ({
   RiskLevel: { Low: "low", Medium: "medium", High: "high" },
 }));
 
-// Force the module to load (triggers registerTool)
-await import("../web-search.js");
+// Import after the mocks above so the module under test sees them.
+const { webSearchTool } = await import("../web-search.js");
 
 describe("web_search activity metadata", () => {
   let originalFetch: typeof globalThis.fetch;
@@ -65,8 +56,10 @@ describe("web_search activity metadata", () => {
     globalThis.fetch = originalFetch;
   });
 
-  function execute(input: Record<string, unknown>) {
-    return capturedTool.execute(input, {} as any);
+  // Return type is `any` so assertions can poke at provider-specific
+  // metadata shapes without narrowing at every site.
+  function execute(input: Record<string, unknown>): any {
+    return webSearchTool.execute(input, {} as any);
   }
 
   // ---- Brave --------------------------------------------------------------
@@ -221,9 +214,7 @@ describe("web_search activity metadata", () => {
     expect(meta.results[0].score).toBe(0.87);
     // PR 5 backfills a synthesized favicon URL via Google s2 when the
     // provider doesn't supply one, so this result now has a faviconUrl too.
-    expect(meta.results[1].faviconUrl).toContain(
-      "google.com/s2/favicons",
-    );
+    expect(meta.results[1].faviconUrl).toContain("google.com/s2/favicons");
     expect(meta.results[1].score).toBe(0.42);
   });
 
@@ -293,9 +284,7 @@ describe("web_search activity metadata", () => {
     const result = await execute({ query: "whitespace title" });
     const meta = result.activityMetadata?.webSearch;
     expect(meta).toBeDefined();
-    expect(meta.results[0].title).toBe(
-      "https://example.net/whitespace-title",
-    );
+    expect(meta.results[0].title).toBe("https://example.net/whitespace-title");
   });
 
   test("Tavily populates errorMessage on auth failure", async () => {
