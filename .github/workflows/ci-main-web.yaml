@@ -1,4 +1,4 @@
-name: CI/CD Main Web
+name: CI Main Web
 
 on:
   workflow_dispatch:
@@ -14,13 +14,9 @@ on:
       - 'meta/llm-provider-catalog.json'
       - '.github/workflows/ci-main-web.yaml'
       - '.github/actions/install-shared-packages/**'
-      # The deploy/publish logic lives in this reusable workflow, so a change to
-      # it alone must still exercise the full web CI/CD pipeline.
-      - '.github/workflows/deploy-platform-web-spa.yaml'
 
-# Serialize runs per branch and cancel any superseded in-flight run, so an
-# older commit's deploy can never finish after — and overwrite the bucket's
-# index.html behind — a newer one. Only the newest main run publishes.
+# Serialize runs per branch and cancel superseded in-flight runs — only the
+# newest main run's CI matters.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -143,39 +139,9 @@ jobs:
             fi
           done
 
-  # ── CD: build + publish the SPA to each environment's GCS bucket ──────────
-  # Each environment is an independent instance of the `deploy-platform-web-spa` reusable
-  # workflow (fail-fast: false), which internally splits an unprivileged build
-  # from the privileged GCP publish. Matrixing the *caller* — rather than the
-  # build/deploy jobs directly — keeps each environment independent: a failure
-  # building `dev` no longer skips `staging`/`production`, the way a matrixed
-  # `deploy: needs: [build-and-package]` would (GitHub treats a `needs` on a
-  # matrixed job as the aggregate of all its legs). The reusable workflow is
-  # where the build/publish trust boundary lives; see its header for details.
-  deploy:
-    name: Deploy SPA
-    needs: [checks]
-    # workflow_dispatch has no branch filter, so guard the CD chain explicitly to
-    # prevent accidental dispatch from a feature branch.
-    if: github.ref == 'refs/heads/main'
-    strategy:
-      fail-fast: false
-      matrix:
-        environment: [dev, staging, production]
-    # The caller's permissions are the ceiling for the reusable workflow; its
-    # build job narrows itself to `contents: read` while its deploy job uses
-    # `id-token: write`.
-    permissions:
-      contents: read
-      id-token: write
-    uses: ./.github/workflows/deploy-platform-web-spa.yaml
-    with:
-      environment: ${{ matrix.environment }}
-    secrets: inherit
-
   notify-web:
     name: Slack Notification (Web)
-    needs: [checks, deploy]
+    needs: [checks]
     if: always()
     continue-on-error: true
     runs-on: ubuntu-latest
@@ -188,15 +154,7 @@ jobs:
         run: |
           GITHUB_USER="${{ github.actor }}"
 
-          if [[ "${{ needs.checks.result }}" == "failure" || "${{ needs.deploy.result }}" == "failure" ]]; then
-            STATUS="failure"
-          elif [[ "${{ needs.checks.result }}" == "cancelled" || "${{ needs.deploy.result }}" == "cancelled" ]]; then
-            STATUS="cancelled"
-          elif [[ "${{ needs.checks.result }}" == "skipped" ]]; then
-            STATUS="skipped"
-          else
-            STATUS="success"
-          fi
+          STATUS="${{ needs.checks.result }}"
 
           SLACK_ID=$(yq ".github_to_slack_all_notifications.[\"$GITHUB_USER\"]" .github/config/github_slack_mapping.yaml)
 
