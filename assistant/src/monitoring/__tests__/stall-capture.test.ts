@@ -28,6 +28,7 @@ function makeSample(ts: number): ResourceSample {
     events: null,
     deltas: null,
     disk: null,
+    activeConversations: null,
   };
 }
 

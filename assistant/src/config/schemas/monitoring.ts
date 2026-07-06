@@ -55,6 +55,16 @@ export const MonitoringConfigSchema = z
       .describe(
         "Minimum interval between high-memory snapshots, in milliseconds, so a sustained spike does not write a snapshot on every sample.",
       ),
+    baselineSnapshotIntervalMs: z
+      .number({
+        error: "monitoring.baselineSnapshotIntervalMs must be a number",
+      })
+      .int("monitoring.baselineSnapshotIntervalMs must be an integer")
+      .min(60_000, "monitoring.baselineSnapshotIntervalMs must be >= 60000ms")
+      .default(600_000)
+      .describe(
+        "Interval between periodic baseline snapshots, in milliseconds (default 10 minutes). Baselines capture the same forensics as high-memory snapshots but on a steady cadence, so a spike can be diffed against a healthy reference instead of only against other over-threshold captures. Retained separately from high-memory snapshots.",
+      ),
   })
   .describe("Resource monitor process configuration");
 

@@ -41,6 +41,10 @@ import { getDiskUsageInfo } from "../util/disk-usage.js";
 import { getLogger } from "../util/logger.js";
 import { getMonitoringDataDir } from "../util/platform.js";
 import { buildProcessTree, listProcesses } from "../util/process-tree.js";
+import {
+  type ActiveConversation,
+  readActiveConversations,
+} from "./active-conversations.js";
 import { getTrackedDataFiles, readFileResidency } from "./page-cache.js";
 import { topProcessesByMemory } from "./process-memory.js";
 import { prunePrefixedJsonFiles } from "./prune-snapshots.js";
@@ -54,6 +58,17 @@ const SAMPLES_FILE = "samples.jsonl";
 const SNAPSHOTS_DIR = "snapshots";
 /** Cap on retained high-memory snapshots so forensics can't fill the volume. */
 const MAX_SNAPSHOTS = 20;
+/** Cap on retained baseline snapshots (4h of history at the 10min default). */
+const MAX_BASELINE_SNAPSHOTS = 24;
+
+/** Snapshot kinds: filename prefix + retention are per-kind so periodic
+ * baselines can never evict high-memory forensics. */
+const SNAPSHOT_KINDS = {
+  "high-mem": { prefix: "snapshot-", max: MAX_SNAPSHOTS },
+  baseline: { prefix: "baseline-", max: MAX_BASELINE_SNAPSHOTS },
+} as const;
+
+type SnapshotKind = keyof typeof SNAPSHOT_KINDS;
 
 export interface ResourceSampleMemory {
   currentBytes: number;
@@ -103,6 +118,14 @@ export interface ResourceSample {
   /** Since the previous sample; null on the monitor's first sample. */
   deltas: ResourceSampleDeltas | null;
   disk: ResourceSampleDisk | null;
+  /**
+   * Conversations mid-turn per the daemon's persisted
+   * `conversations.processing_started_at` flag, so a spike in the timeline
+   * names what was running. The live flag is nulled when a turn ends, so only
+   * this sampling-time capture preserves the correlation for post-mortems.
+   * Null when nothing is processing or the database is unavailable.
+   */
+  activeConversations: ActiveConversation[] | null;
 }
 
 /** Per-counter increases from `prev` to `current`. */
@@ -158,6 +181,7 @@ export function takeSample(
           freeMb: disk.freeMb,
         }
       : null,
+    activeConversations: readActiveConversations(),
   };
   if (prev != null) {
     sample.deltas = computeSampleDeltas(prev, sample);
@@ -166,14 +190,19 @@ export function takeSample(
 }
 
 /**
- * Capture a high-memory snapshot to the snapshots directory: the triggering
- * sample, page-cache residency of the large data files, the top processes by
- * PSS, the top kernel slab caches, and the full process tree of the container.
- * Prunes to {@link MAX_SNAPSHOTS} newest.
+ * Capture a full snapshot to the snapshots directory: the triggering sample,
+ * page-cache residency of the large data files, the top processes by PSS, the
+ * top kernel slab caches, and the full process tree of the container.
+ *
+ * `high-mem` snapshots fire when memory crosses the configured threshold;
+ * `baseline` snapshots fire on a slow periodic timer so there is always a
+ * healthy capture to diff a spike against — threshold-only snapshots record
+ * the system once already over the cliff. Each kind prunes independently.
  */
-export async function writeHighMemSnapshot(
+export async function writeSnapshot(
   dataDir: string,
   sample: ResourceSample,
+  kind: SnapshotKind,
 ): Promise<void> {
   const snapshotsDir = join(dataDir, SNAPSHOTS_DIR);
   // The ring buffer only creates the data dir for samples.jsonl; the nested
@@ -200,6 +229,7 @@ export async function writeHighMemSnapshot(
 
   const snapshot = {
     ts: sample.ts,
+    kind,
     sample,
     fileResidency,
     // PSS-ranked with per-process anon/file split; PSS sums reconcile against
@@ -211,25 +241,28 @@ export async function writeHighMemSnapshot(
     processTree: tree,
   };
 
-  const filename = `snapshot-${sample.ts}.json`;
+  const { prefix, max } = SNAPSHOT_KINDS[kind];
+  const filename = `${prefix}${sample.ts}.json`;
   writeFileSync(
     join(snapshotsDir, filename),
     JSON.stringify(snapshot, null, 2),
   );
-  prunePrefixedJsonFiles(snapshotsDir, "snapshot-", MAX_SNAPSHOTS);
-  log.warn(
-    {
-      currentBytes: sample.memory?.currentBytes,
-      limitBytes: sample.memory?.limitBytes,
-      ratio: sample.memory?.ratio,
-      unevictableBytes: sample.memoryStat?.unevictableBytes,
-      reclaimableBytes: sample.memoryStat?.reclaimableBytes,
-      pgscanDirectDelta: sample.deltas?.reclaim?.pgscanDirect,
-      workingsetRefaultFileDelta: sample.deltas?.reclaim?.workingsetRefaultFile,
-      file: filename,
-    },
-    "Captured high-memory snapshot",
-  );
+  prunePrefixedJsonFiles(snapshotsDir, prefix, max);
+  const fields = {
+    currentBytes: sample.memory?.currentBytes,
+    limitBytes: sample.memory?.limitBytes,
+    ratio: sample.memory?.ratio,
+    unevictableBytes: sample.memoryStat?.unevictableBytes,
+    reclaimableBytes: sample.memoryStat?.reclaimableBytes,
+    pgscanDirectDelta: sample.deltas?.reclaim?.pgscanDirect,
+    workingsetRefaultFileDelta: sample.deltas?.reclaim?.workingsetRefaultFile,
+    file: filename,
+  };
+  if (kind === "high-mem") {
+    log.warn(fields, "Captured high-memory snapshot");
+  } else {
+    log.debug(fields, "Captured baseline snapshot");
+  }
 }
 
 export interface ResourceSamplerHandle {
@@ -252,6 +285,9 @@ export function startResourceSampler(
   );
 
   let lastSnapshotAt = 0;
+  // 0 so the first tick writes a boot baseline — a reference point exists even
+  // if the container spikes before the first interval elapses.
+  let lastBaselineAt = 0;
   let prevSample: ResourceSample | null = null;
   // Watches the daemon's event-loop heartbeat; captures the daemon main
   // thread's kernel state mid-stall when the heartbeat goes stale.
@@ -282,8 +318,13 @@ export function startResourceSampler(
       now - lastSnapshotAt >= config.snapshotCooldownMs
     ) {
       lastSnapshotAt = now;
-      void writeHighMemSnapshot(dataDir, sample).catch((err) =>
+      void writeSnapshot(dataDir, sample, "high-mem").catch((err) =>
         log.warn({ err }, "Failed to write high-memory snapshot"),
+      );
+    } else if (now - lastBaselineAt >= config.baselineSnapshotIntervalMs) {
+      lastBaselineAt = now;
+      void writeSnapshot(dataDir, sample, "baseline").catch((err) =>
+        log.warn({ err }, "Failed to write baseline snapshot"),
       );
     }
   };
