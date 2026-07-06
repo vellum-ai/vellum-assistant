@@ -18,6 +18,19 @@ The daemon must **never** block startup due to **subsystem** failures (DB, Qdran
 
 **Exception — duplicate daemon detection:** If the daemon cannot establish **any** client-facing transport because another daemon already holds both the IPC socket and HTTP port, it must exit immediately. A daemon with no transport is unmanageable (invisible to health checks, unreachable by stop commands) yet still runs background jobs (scheduler, memory worker, background wake) against the shared database, causing duplicate side effects.
 
+## DB migration readiness gating
+
+DB migrations run asynchronously during startup: the HTTP server binds (so `/healthz` answers) **before** `initializeDb()` finishes, and readiness is tracked in `src/daemon/daemon-readiness.ts` (`setDbMigrating` → `setDbReady`/`setDbMigrationFailed`). **No code may touch the database — `getDb()`, `getSqlite()`, drizzle queries, raw SQL — unless `getDbMigrationReadiness().ready` is true or its execution provably starts after `initializeDb()` settles in `daemon/lifecycle.ts`.** Querying earlier hits a partially-migrated schema ("no such table"/"no such column").
+
+Existing enforcement, which new code must not bypass:
+
+- **HTTP** requests are gated per-route in `runtime/http-server.ts`; **IPC** methods in `ipc/assistant-server.ts`; both derive their exempt set from `DB_MIGRATION_READINESS_EXEMPT_OPERATIONS` in `daemon-readiness.ts` (health/liveness probes only — anything exempted must never touch the DB).
+- **Message sinks** (`processMessage`, `processMessageInBackground`) guard via `assertDbMigrationsReadyForTurn()`.
+- **Background sweeps** are started by lifecycle only after migrations settle (`startRuntimeHttpServerBackgroundSweeps`).
+- The **migration-repair surface** (`admin/rollback-migrations`, `migrations/import`) is additionally allowed in the terminal `failed` state only — see `DB_MIGRATION_FAILED_STATE_EXEMPT_OPERATIONS`. Never widen this to the `running` state: a rollback or import would race the in-flight migration runner.
+
+When adding a new background job, timer, signal handler, or transport entry point that reaches the DB, either start it after `initializeDb()` settles in lifecycle, or check `getDbMigrationReadiness().ready` (and skip/queue when unready) inside it. Do not add readiness waits to probe endpoints — `/healthz` must stay static and instant.
+
 ## Post-execution hooks
 
 Tool post-execution hooks (`src/daemon/tool-side-effects.ts`) run after a tool executor returns. They are an **observation-and-notification layer** only: refresh client-side state, broadcast events, kick off orthogonal background work (e.g. icon generation). Hooks must not re-do work the executor already performed, and must not attempt recovery when the executor failed — failures surface in the tool result for the LLM to act on.

@@ -679,12 +679,13 @@ class AssistantLifecycleService {
         return;
       }
       if (this.state.kind !== "active") return;
-      // A migrating daemon is reachable — its HTTP server answers health
-      // checks; only DB-backed routes are gated until migrations settle.
-      const reachable =
-        health === "healthy" ||
-        health === "unhealthy" ||
-        health === "migrating";
+      // A migrating daemon answers health checks but refuses every DB-backed
+      // route with 503 — statuses the unreachable interceptor treats as
+      // unreachable. Counting migrating as reachable would therefore
+      // oscillate (each gated request flips reachable off, each probe flips
+      // it back on); keeping it unreachable gives a steady connecting
+      // overlay while the migrating status banner explains why.
+      const reachable = health === "healthy" || health === "unhealthy";
       // Heartbeat ticks re-confirm the same answer most of the time —
       // don't wake every store subscriber for a no-op.
       if (this.state.reachable === reachable && this.state.health === health) {
