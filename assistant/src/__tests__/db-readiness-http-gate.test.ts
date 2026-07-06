@@ -128,6 +128,12 @@ describe("DB migration readiness HTTP gate", () => {
     body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
     expect(body.reason).not.toBe("db_migrations_failed");
 
+    // The parameterized job-status route (GCS import polling) passes the
+    // gate by prefix in the failed state.
+    response = await fetch(url("/migrations/jobs/some-job-id"));
+    body = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    expect(body.reason).not.toBe("db_migrations_failed");
+
     // Non-repair routes stay gated in the failed state.
     response = await fetch(url("/conversations"));
     expect(response.status).toBe(503);

@@ -93,6 +93,12 @@ describe("AssistantIpcServer DB migration readiness gate", () => {
     setDbMigrationFailed(new Error("boom"));
     expect(gate("admin_rollbackmigrations_post")).toBeNull();
     expect(gate("migrations_import_post")).toBeNull();
+    // All restore transports are repair-capable: preflights, the managed
+    // platform's GCS path, and its job-status polling.
+    expect(gate("migrations_importpreflight_post")).toBeNull();
+    expect(gate("migrations_importfromgcs_post")).toBeNull();
+    expect(gate("migrations_preflightfromgcs_post")).toBeNull();
+    expect(gate("migrations_jobs_by_job_id_get")).toBeNull();
     // Everything else stays gated in the failed state.
     expect(gate("db_proxy")?.statusCode).toBe(503);
   });

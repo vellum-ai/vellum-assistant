@@ -504,17 +504,36 @@ export async function rollbackMigrations(
       body.targetWorkspaceMigrationId = targetWorkspaceMigrationId;
     if (rollbackToRegistryCeiling) body.rollbackToRegistryCeiling = true;
 
-    const resp = await loopbackSafeFetch(
-      `${gatewayUrl}/v1/admin/rollback-migrations`,
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(120_000),
-      },
-    );
-    if (!resp.ok) {
+    // The CLI can learn of a migration failure (via the forwarded /readyz
+    // body) up to a couple of seconds before the gateway's own assistant
+    // health poll opens its traffic gate — a POST landing in that window
+    // gets 503 {status:"starting"}. Retry through it rather than silently
+    // skipping the rollback.
+    const startingGateDeadline = Date.now() + 15_000;
+    let resp: Response;
+    for (;;) {
+      resp = await loopbackSafeFetch(
+        `${gatewayUrl}/v1/admin/rollback-migrations`,
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(120_000),
+        },
+      );
+      if (resp.ok) break;
       const text = await resp.text();
+      let gatewayStarting = false;
+      try {
+        gatewayStarting =
+          (JSON.parse(text) as { status?: string }).status === "starting";
+      } catch {
+        // Non-JSON error body — not the starting gate.
+      }
+      if (gatewayStarting && Date.now() < startingGateDeadline) {
+        await new Promise((r) => setTimeout(r, 1_000));
+        continue;
+      }
       console.warn(`⚠️  Migration rollback failed (${resp.status}): ${text}`);
       return false;
     }
@@ -895,10 +914,53 @@ export async function performDockerRollback(
           (msg) => console.log(msg),
         );
 
-        const revertReady = await waitForReady(entry.runtimeUrl);
+        let revertReady = await waitForReady(entry.runtimeUrl);
+        let restoredViaFailedState = false;
+        if (!revertReady && preRollbackBackupPath) {
+          // The reverted stack can itself report terminally failed
+          // migrations — the state the failed-state migrations/import
+          // exemption exists to repair. The import replaces the DB
+          // wholesale, but the failed readiness latch only clears on
+          // restart, so restart the containers and re-check.
+          console.log(
+            `📦 Reverted stack not ready — attempting pre-rollback backup restore...`,
+          );
+          console.log(`   Source: ${preRollbackBackupPath}`);
+          restoredViaFailedState = await restoreBackup(
+            entry.runtimeUrl,
+            entry.assistantId,
+            preRollbackBackupPath,
+          );
+          if (restoredViaFailedState) {
+            console.log(
+              "   Backup imported — restarting containers to complete recovery...",
+            );
+            await stopContainers(res);
+            await startContainers(
+              {
+                signingKey,
+                bootstrapSecret,
+                cesServiceToken,
+                extraAssistantEnv,
+                extraGatewayEnv,
+                gatewayPort,
+                assistantPort,
+                imageTags: currentImageRefs,
+                instanceName,
+                res,
+              },
+              (msg) => console.log(msg),
+            );
+            revertReady = await waitForReady(entry.runtimeUrl);
+          }
+        }
         if (revertReady) {
           // Restore from pre-rollback backup on failure
-          if (preRollbackBackupPath) {
+          if (restoredViaFailedState) {
+            console.log(
+              "   ✅ Data restored during failed-state recovery above\n",
+            );
+          } else if (preRollbackBackupPath) {
             await broadcastUpgradeEvent(
               entry.runtimeUrl,
               entry.assistantId,

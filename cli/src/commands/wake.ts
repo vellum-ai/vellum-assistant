@@ -117,6 +117,12 @@ export async function wake(): Promise<void> {
 
   const pidFile = getDaemonPidPath(resources);
 
+  // Budget anchor for the migration-coordination wait below: the host
+  // wrapper (packages/local-mode/src/wake.ts WAKE_TIMEOUT_MS) SIGTERMs wake
+  // after 180s, and the hung-daemon health wait + post-spawn wait + gateway
+  // start can already consume most of that.
+  const wakeStartedAt = Date.now();
+
   let daemonRunning = false;
   let daemonUnready = false;
   let daemonMigrationsFailed = false;
@@ -214,8 +220,12 @@ export async function wake(): Promise<void> {
     // startLocalDaemon's post-spawn wait is bounded (60s) — a longer
     // migration outlives it. Classify the fresh spawn the same way the
     // attach path does, so the gateway-coordination wait below applies to
-    // both paths and wake's closing summary stays honest.
-    const readiness = await probeDaemonReadiness(resources.daemonPort);
+    // both paths and wake's closing summary stays honest. A single probe
+    // can time out transiently under migration CPU load — retry once.
+    let readiness = await probeDaemonReadiness(resources.daemonPort);
+    if (readiness === "unreachable") {
+      readiness = await probeDaemonReadiness(resources.daemonPort);
+    }
     daemonUnready = readiness === "migrating";
     daemonMigrationsFailed = readiness === "failed";
   } else {
@@ -288,22 +298,26 @@ export async function wake(): Promise<void> {
   // A freshly-(re)started gateway refuses all non-probe traffic until the
   // daemon reports migration readiness, so consumers that act right after
   // wake (the web connect-repair retry, the guardian re-provision below)
-  // would hit its closed gate. When we attached to a migrating daemon AND
-  // the gateway was just started (or a guardian repair was requested), wait
-  // out the migration up to the same 60s budget the attach classification
-  // used — the bound must stay well under the 180s host-wrapper timeout.
-  // Fast path (gateway already serving, no repair) stays ~1s.
+  // would hit its closed gate. When the daemon is migrating AND the gateway
+  // was just started (or a guardian repair was requested), wait out the
+  // migration — capped at 60s and at whatever budget remains before the
+  // 180s host-wrapper SIGTERM (30s headroom kept), since earlier bounded
+  // waits may already have consumed most of it. Fast path (gateway already
+  // serving, no repair) stays ~1s.
   if (
     daemonUnready &&
     !daemonMigrationsFailed &&
     (gatewayStarted || repairGuardian)
   ) {
-    const readiness = await waitForDaemonMigrationsReady(
-      resources.daemonPort,
-      Date.now() + 60_000,
-    );
-    daemonUnready = readiness !== "ready";
-    daemonMigrationsFailed = readiness === "failed";
+    const waitBudgetMs = Math.min(60_000, wakeStartedAt + 150_000 - Date.now());
+    if (waitBudgetMs > 0) {
+      const readiness = await waitForDaemonMigrationsReady(
+        resources.daemonPort,
+        Date.now() + waitBudgetMs,
+      );
+      daemonUnready = readiness !== "ready";
+      daemonMigrationsFailed = readiness === "failed";
+    }
   }
 
   // Self-heal the guardian token when the current environment's config dir

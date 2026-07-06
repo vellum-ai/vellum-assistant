@@ -605,13 +605,57 @@ async function upgradeDocker(
           (msg) => console.log(msg),
         );
 
-        const rollbackReady = await waitForReady(entry.runtimeUrl);
+        let rollbackReady = await waitForReady(entry.runtimeUrl);
+        let restoredViaFailedState = false;
+        if (!rollbackReady && backupPath) {
+          // The reverted stack can itself land in the terminal
+          // failed-migrations state (e.g. schema residue from the failed
+          // upgrade's partial migration) — the exact state the failed-state
+          // migrations/import exemption exists to repair. The import
+          // replaces the DB wholesale, but the failed readiness latch only
+          // clears on restart, so restart the containers and re-check.
+          console.log(
+            `📦 Reverted stack not ready — attempting pre-upgrade backup restore...`,
+          );
+          console.log(`   Source: ${backupPath}`);
+          restoredViaFailedState = await restoreBackup(
+            entry.runtimeUrl,
+            entry.assistantId,
+            backupPath,
+          );
+          if (restoredViaFailedState) {
+            console.log(
+              "   Backup imported — restarting containers to complete recovery...",
+            );
+            await stopContainers(res);
+            await startContainers(
+              {
+                signingKey,
+                bootstrapSecret,
+                cesServiceToken,
+                extraAssistantEnv,
+                extraGatewayEnv,
+                gatewayPort,
+                assistantPort,
+                imageTags: previousImageRefs,
+                instanceName,
+                res,
+              },
+              (msg) => console.log(msg),
+            );
+            rollbackReady = await waitForReady(entry.runtimeUrl);
+          }
+        }
         if (rollbackReady) {
           // Restore data from the backup created for THIS upgrade attempt.
           // Only use the specific backupPath — never scan for the latest
           // backup on disk, which could be from a previous upgrade cycle
           // and contain stale data.
-          if (backupPath) {
+          if (restoredViaFailedState) {
+            console.log(
+              "   ✅ Data restored during failed-state recovery above\n",
+            );
+          } else if (backupPath) {
             await broadcastUpgradeEvent(
               entry.runtimeUrl,
               entry.assistantId,

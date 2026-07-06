@@ -55,6 +55,18 @@ export const DB_MIGRATION_FAILED_STATE_EXEMPT_OPERATIONS: ReadonlySet<string> =
     "admin_rollbackmigrations_post",
     "migrations/import",
     "migrations_import_post",
+    // Restore has three transports; all must stay repair-capable. The
+    // preflights are read-only analysis; the GCS import is the managed
+    // platform's restore path and is job-based, so its job-status GET (a
+    // parameterized route, matched by prefix in isDbMigrationGateBypassed)
+    // must answer too.
+    "migrations/import-preflight",
+    "migrations_importpreflight_post",
+    "migrations/import-from-gcs",
+    "migrations_importfromgcs_post",
+    "migrations/preflight-from-gcs",
+    "migrations_preflightfromgcs_post",
+    "migrations_jobs_by_job_id_get",
   ]);
 
 /**
@@ -66,9 +78,15 @@ export function isDbMigrationGateBypassed(operation: string): boolean {
   if (DB_MIGRATION_READINESS_EXEMPT_OPERATIONS.has(operation)) {
     return true;
   }
+  if (dbMigrationReadiness.state !== "failed") {
+    return false;
+  }
+  // The HTTP gate passes the raw path after /v1/, so the parameterized
+  // job-status route (migrations/jobs/:job_id) is matched by prefix; the
+  // IPC form is the exact operationId in the set above.
   return (
-    dbMigrationReadiness.state === "failed" &&
-    DB_MIGRATION_FAILED_STATE_EXEMPT_OPERATIONS.has(operation)
+    DB_MIGRATION_FAILED_STATE_EXEMPT_OPERATIONS.has(operation) ||
+    operation.startsWith("migrations/jobs/")
   );
 }
 
