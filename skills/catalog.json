@@ -296,7 +296,12 @@
         "vellum": {
           "category": "calendar",
           "display-name": "Google Calendar",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "activation-hints": [
+            "check my availability this week",
+            "find open time slots / when am I free",
+            "cross-calendar free/busy across my connected accounts"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
@@ -612,7 +617,12 @@
         "vellum": {
           "category": "calendar",
           "display-name": "Outlook Calendar",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "activation-hints": [
+            "check my availability this week",
+            "find open time slots / when am I free",
+            "cross-calendar free/busy across my connected accounts"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",

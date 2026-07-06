@@ -89,18 +89,27 @@ async function list(argv: string[]): Promise<void> {
     account,
   });
 
+  const resolvedAccount = account ?? response.account;
+
   if (!response.ok) {
-    printError(`Failed to list events: status ${response.status}`);
+    printError(
+      `Failed to list events: status ${response.status}`,
+      resolvedAccount,
+    );
     return;
   }
 
   const result = response.data;
   if (!result.items?.length) {
-    ok("No events found in the specified time range.");
+    const suffix = resolvedAccount ? ` for ${resolvedAccount}` : "";
+    ok(
+      `No events found in the specified time range${suffix}.`,
+      resolvedAccount,
+    );
     return;
   }
 
-  ok(result);
+  ok(result, resolvedAccount);
 }
 
 // ---------------------------------------------------------------------------
@@ -114,13 +123,17 @@ async function get(argv: string[]): Promise<void> {
   const account = optionalArg(args, "account");
 
   const response = await getEvent(eventId, calendarId, account);
+  const resolvedAccount = account ?? response.account;
 
   if (!response.ok) {
-    printError(`Failed to get event: status ${response.status}`);
+    printError(
+      `Failed to get event: status ${response.status}`,
+      resolvedAccount,
+    );
     return;
   }
 
-  ok(response.data);
+  ok(response.data, resolvedAccount);
 }
 
 // ---------------------------------------------------------------------------
@@ -157,7 +170,7 @@ async function create(argv: string[]): Promise<void> {
     });
 
     if (!confirmed) {
-      ok({ created: false, reason: "User did not confirm" });
+      ok({ created: false, reason: "User did not confirm" }, account);
       return;
     }
   }
@@ -185,15 +198,19 @@ async function create(argv: string[]): Promise<void> {
   }
 
   const response = await createEvent(eventBody, calendarId, "all", account);
+  const resolvedAccount = account ?? response.account;
 
   if (!response.ok) {
-    printError(`Failed to create event: status ${response.status}`);
+    printError(
+      `Failed to create event: status ${response.status}`,
+      resolvedAccount,
+    );
     return;
   }
 
   const event = response.data;
   const link = event.htmlLink ? ` View it here: ${event.htmlLink}` : "";
-  ok(`Event created (ID: ${event.id}).${link}`);
+  ok(`Event created (ID: ${event.id}).${link}`, resolvedAccount);
 }
 
 // ---------------------------------------------------------------------------
@@ -220,12 +237,17 @@ async function availability(argv: string[]): Promise<void> {
     account,
   );
 
+  const resolvedAccount = account ?? response.account;
+
   if (!response.ok) {
-    printError(`Failed to check availability: status ${response.status}`);
+    printError(
+      `Failed to check availability: status ${response.status}`,
+      resolvedAccount,
+    );
     return;
   }
 
-  ok(response.data);
+  ok(response.data, resolvedAccount);
 }
 
 // ---------------------------------------------------------------------------
@@ -254,9 +276,13 @@ async function rsvp(argv: string[]): Promise<void> {
 
   // First GET the event to find the user's attendee entry
   const eventResponse = await getEvent(eventId, calendarId, account);
+  const resolvedAccount = account ?? eventResponse.account;
 
   if (!eventResponse.ok) {
-    printError(`Failed to get event: status ${eventResponse.status}`);
+    printError(
+      `Failed to get event: status ${eventResponse.status}`,
+      resolvedAccount,
+    );
     return;
   }
 
@@ -267,11 +293,15 @@ async function rsvp(argv: string[]): Promise<void> {
     // If the user is the organizer and not in the attendees list,
     // they don't need to RSVP
     if (event.organizer?.self) {
-      ok("You are the organizer of this event. No RSVP needed.");
+      ok(
+        "You are the organizer of this event. No RSVP needed.",
+        resolvedAccount,
+      );
       return;
     }
     ok(
       "Could not find your attendee entry for this event. You may not be invited.",
+      resolvedAccount,
     );
     return;
   }
@@ -292,7 +322,7 @@ async function rsvp(argv: string[]): Promise<void> {
     });
 
     if (!confirmed) {
-      ok({ rsvp: false, reason: "User did not confirm" });
+      ok({ rsvp: false, reason: "User did not confirm" }, resolvedAccount);
       return;
     }
   }
@@ -310,8 +340,10 @@ async function rsvp(argv: string[]): Promise<void> {
     account,
   );
 
+  const patchAccount = account ?? patchResponse.account ?? resolvedAccount;
+
   if (!patchResponse.ok) {
-    printError(`Failed to RSVP: status ${patchResponse.status}`);
+    printError(`Failed to RSVP: status ${patchResponse.status}`, patchAccount);
     return;
   }
 
@@ -321,7 +353,7 @@ async function rsvp(argv: string[]): Promise<void> {
       : responseStatus === "declined"
         ? "Declined"
         : "Tentatively accepted";
-  ok(`${responseLabel} the event "${event.summary ?? eventId}".`);
+  ok(`${responseLabel} the event "${event.summary ?? eventId}".`, patchAccount);
 }
 
 // ---------------------------------------------------------------------------

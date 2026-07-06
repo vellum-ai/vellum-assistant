@@ -18,6 +18,11 @@ export interface GcalResponse<T = unknown> {
   ok: boolean;
   status: number;
   data: T;
+  /**
+   * The connected account the daemon used to satisfy the request, when it
+   * reports one. Absent when the daemon does not surface an `account` field.
+   */
+  account?: string;
 }
 
 /** Event time - either a dateTime with timezone or a date for all-day events. */
@@ -192,6 +197,7 @@ export async function gcalRequest<T = unknown>(
       status: number;
       headers: Record<string, string>;
       body: unknown;
+      account?: string;
     };
     try {
       result = JSON.parse(stdout);
@@ -222,6 +228,7 @@ export async function gcalRequest<T = unknown>(
       ok: result.ok,
       status: result.status,
       data: result.body as T,
+      account: result.account,
     };
   }
 
