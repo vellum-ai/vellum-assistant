@@ -15,7 +15,6 @@ import type {
   CheckpointDecision,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
-import { commitAppTurnChanges } from "../apps/app-git-service.js";
 import type {
   ChannelId,
   InterfaceId,
@@ -1559,6 +1558,7 @@ export async function runAgentLoopImpl(
       const config = getConfig();
       const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
       const deadlineMs = Date.now() + maxWait;
+
       const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
       const commitPromise = commitTurnChangesFn(
         ctx.workingDir,
@@ -1578,9 +1578,6 @@ export async function runAgentLoopImpl(
           "Turn-boundary commit timed out — continuing without waiting (commit still runs in background)",
         );
       }
-
-      // Commit app changes (fire-and-forget — apps repo is separate from workspace)
-      void commitAppTurnChanges(ctx.conversationId, ctx.turnCount);
 
       // Recompute relationship-state.json at turn boundary (fire-and-forget).
       // The writer swallows its own errors, but we still guard with catch()

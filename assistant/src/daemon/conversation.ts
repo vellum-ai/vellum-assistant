@@ -193,7 +193,9 @@ const log = getLogger("conversation");
  * per-turn `turnCount++`, so counting these reconstructs `turnCount` on load.
  */
 function startsNewTurn(role: string, content: string): boolean {
-  if (role !== "user") return false;
+  if (role !== "user") {
+    return false;
+  }
   try {
     const parsed = JSON.parse(content);
     if (
@@ -759,7 +761,9 @@ export class Conversation {
       isExclusiveTool: (name) => getTool(name)?.exclusive === true,
       resolveConversationDir: () => {
         const conv = getConversation(this.conversationId);
-        if (!conv) return null;
+        if (!conv) {
+          return null;
+        }
         return getResolvedConversationDirPath(
           this.conversationId,
           conv.createdAt,
@@ -872,7 +876,9 @@ export class Conversation {
    */
   syncLoopSystemPrompt(): void {
     const next = this.buildCurrentSystemPrompt();
-    if (next === this.systemPrompt) return;
+    if (next === this.systemPrompt) {
+      return;
+    }
     this.systemPrompt = next;
     this.agentLoop.setSystemPrompt(next);
   }
@@ -1296,7 +1302,9 @@ export class Conversation {
   private restoreSurfaceStateFromHistory(): void {
     this.surfaceState.clear();
     for (const msg of this.messages) {
-      if (!Array.isArray(msg.content)) continue;
+      if (!Array.isArray(msg.content)) {
+        continue;
+      }
       for (const block of msg.content) {
         const b = block as unknown as Record<string, unknown>;
         if (b.type === "ui_surface" && typeof b.surfaceId === "string") {

@@ -327,10 +327,6 @@ mock.module("../apps/app-store.js", () => ({
   getAppsDir: () => "/tmp/apps",
 }));
 
-mock.module("../apps/app-git-service.js", () => ({
-  commitAppTurnChanges: () => Promise.resolve(),
-}));
-
 mock.module("../daemon/conversation-memory.js", () => ({
   prepareMemoryContext: async (
     _ctx: unknown,
