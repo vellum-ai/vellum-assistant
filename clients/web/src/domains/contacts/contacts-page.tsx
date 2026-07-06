@@ -1,6 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -20,7 +19,6 @@ import {
     verifyContactChannel,
 } from "@/domains/contacts/contacts-gateway";
 import {
-    isSetupChannelId,
     type ChannelInfo,
     type ContactChannelPayload,
     type ContactPayload,
@@ -37,6 +35,7 @@ import {
 import { channelsAvailableGet } from "@/generated/daemon/sdk.gen";
 import type { ChannelsAvailableGetResponse } from "@/generated/daemon/types.gen";
 import { useAssistantChannels } from "@/domains/contacts/hooks/use-assistant-channels";
+import { useSetupChannelParam } from "@/domains/contacts/hooks/use-setup-channel-param";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { toastOnError } from "@/utils/mutation-error";
@@ -102,15 +101,7 @@ export function ContactsPage({
   const a2aChannel = useAssistantFeatureFlagStore.use.a2aChannel();
   const identityName = useAssistantIdentityStore.use.name();
   const queryClient = useQueryClient();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const rawSetup = searchParams.get("setup");
-  const setupChannel = rawSetup && isSetupChannelId(rawSetup) ? rawSetup : null;
-
-  // Consume the `?setup=` param once on mount so it doesn't persist across navigations.
-  useEffect(() => {
-    if (!setupChannel) return;
-    setSearchParams((prev) => { prev.delete("setup"); return prev; }, { replace: true });
-  }, [setupChannel, setSearchParams]);
+  const setupChannel = useSetupChannelParam();
 
   const [selection, setSelection] = useState<ContactSelection>({
     kind: "assistant",

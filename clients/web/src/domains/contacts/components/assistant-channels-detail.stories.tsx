@@ -2,6 +2,11 @@ import type { Meta, StoryObj } from "@storybook/react-vite";
 
 import { AssistantChannelsDetail } from "./assistant-channels-detail";
 
+/**
+ * The assistant's entry in the Contacts detail pane: identity header card +
+ * boxed "Channels" card. The standalone Channels tab composition lives in
+ * `assistant-channels-list.stories.tsx`.
+ */
 const meta: Meta<typeof AssistantChannelsDetail> = {
   title: "Contacts/AssistantChannelsDetail",
   component: AssistantChannelsDetail,
@@ -31,24 +36,4 @@ export default meta;
 
 type Story = StoryObj<typeof AssistantChannelsDetail>;
 
-/** As rendered inside the Contacts page's assistant detail view. */
 export const ContactsDetailView: Story = {};
-
-/** As rendered on the standalone Channels tab — no identity header card. */
-export const ChannelsTab: Story = {
-  args: {
-    showIdentityCard: false,
-  },
-};
-
-/** Slack expanded with the trust-floor control, as after a `?setup=slack` deep link. */
-export const ChannelsTabSlackExpanded: Story = {
-  args: {
-    showIdentityCard: false,
-    initialExpandedChannel: "slack",
-    slackThreadMode: "mention_then_thread",
-    onSlackThreadModeChange: () => {},
-    channelPolicies: { slack: "trusted_contacts" },
-    onChannelPolicyChange: () => {},
-  },
-};
