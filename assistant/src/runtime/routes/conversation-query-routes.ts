@@ -127,7 +127,7 @@ type LlmContextRouteResult = Omit<LlmContextNormalizationResult, "summary"> & {
 import {
   INVARIANT_PROFILE_NAMES,
   MANAGED_PROFILE_NAMES,
-} from "../../config/seed-inference-profiles.js";
+} from "../../config/default-profile-catalog.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 
 const RESERVED_PROFILE_NAMES = new Set([

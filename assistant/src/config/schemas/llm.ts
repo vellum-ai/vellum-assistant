@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { CATALOG_DEFAULT_PROFILE_NAMES } from "../default-profile-names.js";
+
 /**
  * Unified LLM configuration schema.
  *
@@ -498,7 +500,13 @@ export const LLMSchema = z
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {
-    const profileNames = new Set(Object.keys(config.profiles ?? {}));
+    // Default profiles are code-defined (`default-profile-catalog.ts`) and
+    // resolvable whether or not they are materialized in `llm.profiles`, so
+    // their names are always valid reference targets.
+    const profileNames = new Set([
+      ...Object.keys(config.profiles ?? {}),
+      ...CATALOG_DEFAULT_PROFILE_NAMES,
+    ]);
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
       if (siteConfig?.profile == null) continue;
       if (!profileNames.has(siteConfig.profile)) {

@@ -36,8 +36,14 @@ const fullDefault = {
 };
 
 describe("resolveCallSiteConfig", () => {
-  test("returns default when call site is absent and no profile", () => {
-    const llm = LLMSchema.parse({ default: fullDefault });
+  test("returns default when the call-site default profile is disabled and no custom fallback exists", () => {
+    // mainAgent's catalog default (`balanced`) is always resolvable from the
+    // code catalog, so the pure fall-through-to-default path requires it to
+    // be disabled (the BYOK hatch state) with no `custom-balanced` present.
+    const llm = LLMSchema.parse({
+      default: fullDefault,
+      profiles: { balanced: { source: "managed", status: "disabled" } },
+    });
     const resolved = resolveCallSiteConfig("mainAgent", llm);
     expect(resolved).toEqual(fullDefault);
   });
@@ -496,7 +502,9 @@ describe("resolveCallSiteConfig", () => {
     // resolver itself must not throw (parity with `overrideProfile`).
     const llm: z.infer<typeof LLMSchema> = {
       default: fullDefault,
-      profiles: {},
+      // Disable the catalog default so the missing activeProfile's silent
+      // fall-through lands on `llm.default` rather than catalog `balanced`.
+      profiles: { balanced: { source: "managed", status: "disabled" } },
       profileOrder: [],
       callSites: {},
       activeProfile: "nonexistent",
@@ -938,6 +946,9 @@ describe("resolveCallSiteConfig", () => {
         provider_connection: "anthropic-managed",
       },
       profiles: {
+        // Disable the catalog default so the stale connection under test
+        // comes from `llm.default`, not the catalog `balanced` layer.
+        balanced: { source: "managed", status: "disabled" },
         fireworks: {
           provider: "fireworks",
           model: "accounts/fireworks/models/kimi-k2p5",
@@ -969,6 +980,9 @@ describe("mix profiles", () => {
       },
     },
     activeProfile: "ab",
+    // Dereference the same mix from a non-main call site so the
+    // cross-call-site agreement test below exercises both deref spots.
+    callSites: { memoryExtraction: { profile: "ab" } },
   });
 
   test("same seed resolves to the same arm (stable across calls)", () => {
@@ -987,8 +1001,8 @@ describe("mix profiles", () => {
 
   test("all dereference spots in a turn agree for the same seed", () => {
     // mainAgent (mix layered as activeProfile) and a non-main call site
-    // resolving the same mix as activeProfile must pick the same arm when
-    // given the same conversation seed — guards the invariant that every
+    // resolving the same mix as its call-site profile must pick the same arm
+    // when given the same conversation seed — guards the invariant that every
     // resolver call within a conversation lands on one arm.
     const main = resolveCallSiteConfig("mainAgent", mixLlm, {
       selectionSeed: "conv-xyz",
@@ -1315,10 +1329,11 @@ describe("resolveDefaultProfileKey", () => {
     expect(resolveDefaultProfileKey("filingAgent", llm)).toBe("cost-optimized");
   });
 
-  test("non-mainAgent falls back to custom-* when catalog profile is missing", () => {
+  test("non-mainAgent falls back to custom-* when the catalog profile is disabled", () => {
     const llm = LLMSchema.parse({
       default: fullDefault,
       profiles: {
+        "cost-optimized": { source: "managed", status: "disabled" },
         "custom-cost-optimized": {
           provider: "openai",
           model: "gpt-5-mini",

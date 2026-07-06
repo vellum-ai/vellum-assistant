@@ -1,3 +1,4 @@
+import { getEffectiveProfiles } from "../config/default-profile-catalog.js";
 import { resolveCallSiteConfig } from "../config/llm-resolver.js";
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -137,7 +138,7 @@ export function resolveUsageAttribution(
   );
   const profile = resolveAppliedProfile({
     callSite,
-    profiles: llm.profiles ?? {},
+    profiles: getEffectiveProfiles(llm.profiles),
     activeProfile,
     overrideProfile,
     forceOverrideProfile: input.forceOverrideProfile === true,

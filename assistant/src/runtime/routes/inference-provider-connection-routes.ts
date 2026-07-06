@@ -10,6 +10,7 @@
 
 import { z } from "zod";
 
+import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
 import { getIsPlatform } from "../../config/env-registry.js";
 import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../persistence/db-connection.js";
@@ -352,7 +353,7 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   }
 
   // llm.profiles.*: only ProfileEntry has provider_connection.
-  const profiles = config.llm?.profiles ?? {};
+  const profiles = getEffectiveProfiles(config.llm?.profiles);
   const referencingProfiles = Object.entries(profiles)
     .filter(
       ([, p]) => (p as Record<string, unknown>).provider_connection === name,

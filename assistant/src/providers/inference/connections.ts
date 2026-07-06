@@ -5,7 +5,12 @@ import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { providerConnections } from "../../persistence/schema/inference.js";
 import { getLogger } from "../../util/logger.js";
 import { clearConnectionProviderCache } from "../registry.js";
-import { VELLUM_MANAGED_PROVIDER } from "../vellum-model-routing.js";
+import {
+  VELLUM_MANAGED_CONNECTION_NAME,
+  VELLUM_MANAGED_PROVIDER,
+} from "../vellum-model-routing.js";
+
+export { VELLUM_MANAGED_CONNECTION_NAME };
 import {
   type Auth,
   AuthSchema,
@@ -317,15 +322,6 @@ export function deleteConnection(
 // ---------------------------------------------------------------------------
 // Seed canonical connections (upsert, used at boot time)
 // ---------------------------------------------------------------------------
-
-/**
- * Name of the single Vellum-managed connection. Provider-agnostic: it stores
- * the `vellum` sentinel instead of a real upstream, and the upstream is chosen
- * per-request from the resolving profile's provider (see
- * `resolveProviderFromConnection` / `isVellumManagedConnection`). This replaces
- * the former per-provider `*-managed` connections.
- */
-export const VELLUM_MANAGED_CONNECTION_NAME = "vellum";
 
 /**
  * The former per-provider `*-managed` connection names, now collapsed into the
