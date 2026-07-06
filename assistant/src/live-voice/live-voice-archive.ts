@@ -6,6 +6,7 @@ import {
   attachmentExists,
   getAttachmentById,
   linkAttachmentToMessage,
+  type StoredAttachment,
   uploadAttachment,
   uploadFileBackedAttachment,
 } from "../persistence/attachments-store.js";
@@ -367,16 +368,18 @@ function sanitizeOptionalPositiveNumber(
   return Number.isFinite(value) && value > 0 ? value : undefined;
 }
 
-function validateInput(input: Omit<ArchiveLiveVoiceAudioInput, "messageId">):
-  | {
-      archiveKey: string;
-      filename: string;
-      filenameStem: string;
-      mimeType: string;
-      sampleRate: number | undefined;
-      durationMs: number | undefined;
-    }
-  | LiveVoiceAudioArchiveResult {
+interface ValidatedArchiveInput {
+  archiveKey: string;
+  filename: string;
+  filenameStem: string;
+  mimeType: string;
+  sampleRate: number | undefined;
+  durationMs: number | undefined;
+}
+
+function validateInput(
+  input: Omit<ArchiveLiveVoiceAudioInput, "messageId">,
+): ValidatedArchiveInput | LiveVoiceAudioArchiveResult {
   if (!input.sessionId.trim() || !input.turnId.trim()) {
     return resultWarning(
       "invalid_metadata",
@@ -460,6 +463,99 @@ function artifactFromAttachment(input: {
   };
 }
 
+/** Storage backends for {@link storeLiveVoiceAudio}, one per audio source. */
+interface LiveVoiceAudioStorers {
+  storeBase64: (
+    filename: string,
+    mimeType: string,
+    dataBase64: string,
+  ) => StoredAttachment;
+  storeFile: (
+    filename: string,
+    mimeType: string,
+    filePath: string,
+    sizeBytes: number,
+  ) => StoredAttachment;
+}
+
+/**
+ * Shared storage path for live-voice audio: dispatch on the audio source
+ * (inline base64 vs readable file), store the bytes through the caller's
+ * storer pair, map the stored attachment into artifact metadata, and hand
+ * the artifact to `onStored` for the caller's result assembly. Unreadable
+ * files yield an `invalid_audio_source` warning; any thrown failure (from
+ * the storers or `onStored`) is logged with `failureLog` and collapses to
+ * a non-blocking `archive_failed` warning.
+ */
+function storeLiveVoiceAudio(
+  input: Omit<ArchiveLiveVoiceAudioInput, "messageId">,
+  validated: ValidatedArchiveInput,
+  store: LiveVoiceAudioStorers,
+  onStored: (
+    artifact: LiveVoiceAudioArtifactMetadata,
+  ) => LiveVoiceAudioArchiveResult,
+  failureLog: { message: string; context?: Record<string, unknown> },
+): LiveVoiceAudioArchiveResult {
+  try {
+    const stored =
+      input.audio.type === "base64"
+        ? store.storeBase64(
+            validated.filename,
+            validated.mimeType,
+            input.audio.dataBase64,
+          )
+        : (() => {
+            if (!existsSync(input.audio.filePath)) {
+              return null;
+            }
+            const sizeBytes =
+              input.audio.sizeBytes ?? statSync(input.audio.filePath).size;
+            return store.storeFile(
+              validated.filename,
+              validated.mimeType,
+              input.audio.filePath,
+              sizeBytes,
+            );
+          })();
+
+    if (!stored) {
+      return resultWarning(
+        "invalid_audio_source",
+        "Live voice audio file is not readable.",
+      );
+    }
+
+    return onStored(
+      artifactFromAttachment({
+        attachmentId: stored.id,
+        archiveKey: validated.archiveKey,
+        sessionId: input.sessionId,
+        turnId: input.turnId,
+        role: input.role,
+        mimeType: validated.mimeType,
+        sampleRate: validated.sampleRate,
+        durationMs: validated.durationMs,
+        sizeBytes: stored.sizeBytes,
+        filename: stored.originalFilename,
+        archivedAt: stored.createdAt,
+      }),
+    );
+  } catch (err) {
+    log.warn(
+      {
+        ...failureLog.context,
+        archiveKey: validated.archiveKey,
+        errorName: err instanceof Error ? err.name : typeof err,
+      },
+      failureLog.message,
+    );
+    return resultWarning(
+      "archive_failed",
+      "Live voice audio archive failed without blocking the turn.",
+    );
+  }
+}
+
 export function archiveLiveVoiceAudioArtifact(
   input: ArchiveLiveVoiceAudioInput,
 ): LiveVoiceAudioArchiveResult {
@@ -515,75 +611,44 @@ export function archiveLiveVoiceAudioArtifact(
     return { type: "archived", artifact, idempotent: true };
   }
 
-  try {
-    const position = input.position ?? nextAttachmentPosition(input.messageId);
-    const stored =
-      input.audio.type === "base64"
-        ? attachInlineAttachmentToMessage(
-            input.messageId,
-            position,
-            validated.filename,
-            validated.mimeType,
-            input.audio.dataBase64,
-          )
-        : (() => {
-            if (!existsSync(input.audio.filePath)) {
-              return null;
-            }
-            const sizeBytes =
-              input.audio.sizeBytes ?? statSync(input.audio.filePath).size;
-            return attachFileBackedAttachmentToMessage(
-              input.messageId,
-              position,
-              validated.filename,
-              validated.mimeType,
-              input.audio.filePath,
-              sizeBytes,
-            );
-          })();
-
-    if (!stored) {
-      return resultWarning(
-        "invalid_audio_source",
-        "Live voice audio file is not readable.",
-      );
-    }
-
-    const artifact = artifactFromAttachment({
-      attachmentId: stored.id,
-      archiveKey: validated.archiveKey,
-      sessionId: input.sessionId,
-      turnId: input.turnId,
-      role: input.role,
-      mimeType: validated.mimeType,
-      sampleRate: validated.sampleRate,
-      durationMs: validated.durationMs,
-      sizeBytes: stored.sizeBytes,
-      filename: stored.originalFilename,
-      archivedAt: stored.createdAt,
-    });
-    if (!persistArtifactMetadata(input.messageId, artifact)) {
-      log.warn(
-        { messageId: input.messageId, archiveKey: validated.archiveKey },
-        "Archived live voice audio but could not persist metadata",
-      );
-    }
-
-    return { type: "archived", artifact, idempotent: false };
-  } catch (err) {
-    log.warn(
-      {
-        messageId: input.messageId,
-        archiveKey: validated.archiveKey,
-        errorName: err instanceof Error ? err.name : typeof err,
-      },
-      "Failed to archive live voice audio artifact",
-    );
-    return resultWarning(
-      "archive_failed",
-      "Live voice audio archive failed without blocking the turn.",
-    );
-  }
+  const position = () =>
+    input.position ?? nextAttachmentPosition(input.messageId);
+  return storeLiveVoiceAudio(
+    input,
+    validated,
+    {
+      storeBase64: (filename, mimeType, dataBase64) =>
+        attachInlineAttachmentToMessage(
+          input.messageId,
+          position(),
+          filename,
+          mimeType,
+          dataBase64,
+        ),
+      storeFile: (filename, mimeType, filePath, sizeBytes) =>
+        attachFileBackedAttachmentToMessage(
+          input.messageId,
+          position(),
+          filename,
+          mimeType,
+          filePath,
+          sizeBytes,
+        ),
+    },
+    (artifact) => {
+      if (!persistArtifactMetadata(input.messageId, artifact)) {
+        log.warn(
+          { messageId: input.messageId, archiveKey: validated.archiveKey },
+          "Archived live voice audio but could not persist metadata",
+        );
+      }
+      return { type: "archived", artifact, idempotent: false };
+    },
+    {
+      message: "Failed to archive live voice audio artifact",
+      context: { messageId: input.messageId },
+    },
+  );
 }
 
 type ArchiveLiveVoiceRolelessAudioInput = Omit<
@@ -652,71 +717,28 @@ function storeLiveVoiceAudioArtifactUnlinked(
   const validated = validateInput(input);
   if ("type" in validated) return validated;
 
-  try {
-    const stored =
-      input.audio.type === "base64"
-        ? uploadAttachment(
-            validated.filename,
-            validated.mimeType,
-            input.audio.dataBase64,
-          )
-        : (() => {
-            if (!existsSync(input.audio.filePath)) {
-              return null;
-            }
-            const sizeBytes =
-              input.audio.sizeBytes ?? statSync(input.audio.filePath).size;
-            return uploadFileBackedAttachment(
-              validated.filename,
-              validated.mimeType,
-              input.audio.filePath,
-              sizeBytes,
-            );
-          })();
-
-    if (!stored) {
-      return resultWarning(
-        "invalid_audio_source",
-        "Live voice audio file is not readable.",
-      );
-    }
-
-    const artifact = artifactFromAttachment({
-      attachmentId: stored.id,
-      archiveKey: validated.archiveKey,
-      sessionId: input.sessionId,
-      turnId: input.turnId,
-      role: input.role,
-      mimeType: validated.mimeType,
-      sampleRate: validated.sampleRate,
-      durationMs: validated.durationMs,
-      sizeBytes: stored.sizeBytes,
-      filename: stored.originalFilename,
-      archivedAt: stored.createdAt,
-    });
-    return resultUnlinked(
-      "message_id_unavailable",
-      "Live voice audio was stored but could not be linked because no message id was available.",
-      {
-        sessionId: input.sessionId,
-        turnId: input.turnId,
-        role: input.role,
-        artifact,
-      },
-    );
-  } catch (err) {
-    log.warn(
-      {
-        archiveKey: validated.archiveKey,
-        errorName: err instanceof Error ? err.name : typeof err,
-      },
-      "Failed to store unlinked live voice audio artifact",
-    );
-    return resultWarning(
-      "archive_failed",
-      "Live voice audio archive failed without blocking the turn.",
-    );
-  }
+  return storeLiveVoiceAudio(
+    input,
+    validated,
+    {
+      storeBase64: (filename, mimeType, dataBase64) =>
+        uploadAttachment(filename, mimeType, dataBase64),
+      storeFile: (filename, mimeType, filePath, sizeBytes) =>
+        uploadFileBackedAttachment(filename, mimeType, filePath, sizeBytes),
+    },
+    (artifact) =>
+      resultUnlinked(
+        "message_id_unavailable",
+        "Live voice audio was stored but could not be linked because no message id was available.",
+        {
+          sessionId: input.sessionId,
+          turnId: input.turnId,
+          role: input.role,
+          artifact,
+        },
+      ),
+    { message: "Failed to store unlinked live voice audio artifact" },
+  );
 }
 
 export function linkLiveVoiceUserUtteranceAudioToMessage(

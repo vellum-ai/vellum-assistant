@@ -35,6 +35,7 @@ import type {
 } from "../calls/voice-session-source.js";
 import { getConfig } from "../config/loader.js";
 import { errorMessage } from "../util/errors.js";
+import { getLogger } from "../util/logger.js";
 import type {
   LiveVoiceAudioArchiveResult,
   LiveVoiceAudioArchiveRole,
@@ -71,6 +72,8 @@ import {
   type LiveVoiceServerFramePayload,
   type LiveVoiceSessionMode,
 } from "./protocol.js";
+
+const log = getLogger("live-voice-session");
 
 // ---------------------------------------------------------------------------
 // Injectable collaborator surface
@@ -228,6 +231,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   private userAudioByteCap = Number.POSITIVE_INFINITY;
   /** Id of the most recent turn that reached the assistant phase. */
   private lastAssistantTurnId: string | null = null;
+  /**
+   * The turn whose transcript was most recently dispatched to the
+   * controller. Persisted-message-id callbacks target this turn (not
+   * whatever `currentTurn` happens to be when the pipeline reports the
+   * id) so a callback that lands after a barge-in retired the turn is
+   * dropped instead of stamping a successor turn.
+   */
+  private dispatchedTurn: SessionTurn | null = null;
   private outboundFrames: Promise<void> = Promise.resolve();
   private sessionEndMetricsEmitted = false;
   /** Guards the async server-initiated end flow against re-entry. */
@@ -302,6 +313,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           this.lastAssistantTurnId ??
           this.context.sessionId,
         onSessionEnd: (reason) => this.handleControllerSessionEnd(reason),
+        onTtsFailure: () => this.handleTtsFailure(),
       });
       this.transport = transport;
 
@@ -386,7 +398,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.drainOutboundFrames();
   }
 
-  async close(reason: LiveVoiceSessionCloseReason): Promise<void> {
+  async close(_reason: LiveVoiceSessionCloseReason): Promise<void> {
     if (this.state !== "open") {
       return;
     }
@@ -403,7 +415,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     await this.drainOutboundFrames();
     // Release the owner last so the manager slot (and the socket) is only
     // freed once the session has fully unwound.
-    this.context.onSessionEnded?.(reason);
+    this.context.onSessionEnded?.();
   }
 
   // ── Inbound audio ────────────────────────────────────────────────────
@@ -493,11 +505,26 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         if (this.state !== "open") {
           return;
         }
-        void this.sendFrame({
-          type: "error",
-          code: LiveVoiceProtocolErrorCode.SttFailed,
-          message: `Live voice transcription error (${category}): ${message}`,
-        });
+        log.warn({ category }, `Live voice transcription error: ${message}`);
+        // A transcription error is turn-scoped whenever a user turn is in
+        // flight: retire that turn with a machine reason so the client
+        // resumes listening instead of treating the session as dead.
+        const turn = this.currentTurn;
+        if (turn?.phase === "listening") {
+          this.cancelTurnWithNotice(turn, LiveVoiceProtocolErrorCode.SttFailed);
+          return;
+        }
+        // No user turn to retire. "unconfigured" means no transcriber can
+        // be resolved at all — every future turn would fail the same way,
+        // so that one is session-fatal; other categories are transient
+        // (the ingest keeps running or falls back to batch STT).
+        if (category === "unconfigured") {
+          void this.sendFrame({
+            type: "error",
+            code: LiveVoiceProtocolErrorCode.SttFailed,
+            message: `Live voice transcription error (${category}): ${message}`,
+          });
+        }
       },
     };
   }
@@ -540,19 +567,22 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
     const controller = this.controller;
     const dispatchedTurn = turn;
+    this.dispatchedTurn = dispatchedTurn;
     void controller.handleCallerUtterance(content).catch((err) => {
       if (this.state !== "open") {
         return;
       }
-      void this.sendFrame({
-        type: "error",
-        code: LiveVoiceProtocolErrorCode.TurnFailed,
-        message: `Live voice assistant turn failed: ${errorMessage(err)}`,
-      });
-      // The turn will never produce a response; retire it so the client
+      log.warn(
+        { turnId: dispatchedTurn.turnId },
+        `Live voice assistant turn failed: ${errorMessage(err)}`,
+      );
+      // The failure is scoped to this turn: retire it so the client
       // resumes listening instead of waiting on a dead turn.
       if (!dispatchedTurn.finalized) {
-        this.cancelTurnWithNotice(dispatchedTurn, "turn_failed");
+        this.cancelTurnWithNotice(
+          dispatchedTurn,
+          LiveVoiceProtocolErrorCode.TurnFailed,
+        );
       }
     });
   }
@@ -618,6 +648,33 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     return false;
   }
 
+  /**
+   * The transport reported a failed TTS synthesis job. TTS failures are
+   * turn-scoped: retire the affected assistant turn with a `tts_failed`
+   * cancellation so the client resumes listening, aborting the in-flight
+   * generation/synthesis the same way a barge-in does so straggler audio
+   * cannot follow the cancellation notice. A failure with no live
+   * assistant turn (the turn already completed or was barged in) needs no
+   * client-visible reaction.
+   */
+  private handleTtsFailure(): void {
+    if (this.state !== "open") {
+      return;
+    }
+    const turn = this.currentTurn;
+    if (turn?.phase !== "responding" || turn.finalized) {
+      return;
+    }
+
+    const cancelTurn = () =>
+      this.cancelTurnWithNotice(turn, LiveVoiceProtocolErrorCode.TtsFailed);
+    if (this.controller?.handleBargeIn(cancelTurn)) {
+      return;
+    }
+    this.transport?.discardPendingText?.();
+    cancelTurn();
+  }
+
   // ── Assistant output ─────────────────────────────────────────────────
 
   /**
@@ -643,16 +700,18 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   /**
    * The voice bridge persisted a conversation message for the in-flight
-   * exchange. Recorded on the responding turn so its audio archives link
-   * to the message. Ids for a turn that already finalized (barge-in,
-   * supersession) are dropped — that turn's audio was archived unlinked.
+   * exchange. Recorded on the turn that was dispatched to the controller
+   * — not whatever turn is current when the pipeline reports the id — so
+   * a late callback can never stamp a successor turn. Ids for a turn that
+   * already finalized (barge-in, supersession) are dropped — that turn's
+   * audio was archived unlinked.
    */
   private handlePersistedMessageId(
     role: LiveVoiceAudioArchiveRole,
     messageId: string,
   ): void {
-    const turn = this.currentTurn;
-    if (turn?.phase !== "responding") {
+    const turn = this.dispatchedTurn;
+    if (!turn || turn.finalized) {
       return;
     }
     if (role === "user") {

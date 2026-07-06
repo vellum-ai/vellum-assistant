@@ -10,11 +10,13 @@
 
 import { describe, expect, test } from "bun:test";
 
+import type { LiveVoiceSessionArchiveAudioInput } from "../live-voice-session.js";
 import { LiveVoiceSessionStartupError } from "../live-voice-session-manager.js";
 import {
   audioFrame,
   createSessionHarness,
   frameTypes,
+  makeArchiveResult,
   START_FRAME,
   startRespondingTurn,
   waitFor,
@@ -196,7 +198,7 @@ describe("LiveVoiceSession duplex orchestration", () => {
     ).toMatchObject({ type: "turn_cancelled", reason: "empty_transcript" });
   });
 
-  test("a failed assistant turn emits turn_failed and cancels the turn", async () => {
+  test("a failed assistant turn cancels the turn with turn_failed and the session survives", async () => {
     const harness = createSessionHarness({ emitMetrics: true });
     const { session, frames, ingest, controller } = harness;
 
@@ -211,11 +213,8 @@ describe("LiveVoiceSession duplex orchestration", () => {
       frames.some((frame) => frame.type === "turn_cancelled"),
     );
 
-    expect(frames.find((frame) => frame.type === "error")).toMatchObject({
-      type: "error",
-      code: "turn_failed",
-      message: expect.stringContaining("pipeline exploded"),
-    });
+    // The failure is turn-scoped: no session-fatal error frame.
+    expect(frames.some((frame) => frame.type === "error")).toBe(false);
     expect(
       frames.find((frame) => frame.type === "turn_cancelled"),
     ).toMatchObject({ reason: "turn_failed" });
@@ -224,19 +223,129 @@ describe("LiveVoiceSession duplex orchestration", () => {
         (frame) => frame.type === "metrics" && frame.event === "turn_cancelled",
       ),
     );
+
+    // The session keeps taking turns after the failure.
+    controller.handleCallerUtterance = async (transcript) => {
+      controller.utterances.push(transcript);
+      controller.state = "processing";
+    };
+    await session.handleClientFrame(audioFrame("second audio"));
+    ingest.callbacks.onTranscriptFinal?.("try again");
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    expect(controller.utterances).toEqual(["try again"]);
   });
 
-  test("transcription errors carry the stt_failed code", async () => {
+  test("a transcription error during a user turn cancels it with stt_failed", async () => {
+    const harness = createSessionHarness({ emitMetrics: true });
+    const { session, frames, ingest, controller } = harness;
+
+    await session.start();
+    await session.handleClientFrame(audioFrame("user audio"));
+    ingest.callbacks.onError?.("provider-error", "provider connection dropped");
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+
+    expect(frames.some((frame) => frame.type === "error")).toBe(false);
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ reason: "stt_failed" });
+
+    // The session keeps listening: the next utterance dispatches normally.
+    await session.handleClientFrame(audioFrame("second audio"));
+    ingest.callbacks.onTranscriptFinal?.("hello there");
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+    expect(controller.utterances).toEqual(["hello there"]);
+  });
+
+  test("a transient transcription error with no user turn is not client-visible", async () => {
     const { session, frames, ingest } = createSessionHarness();
 
     await session.start();
-    ingest.callbacks.onError?.("stream", "provider connection dropped");
+    ingest.callbacks.onError?.("provider-error", "brief stream blip");
+    await new Promise((resolve) => setTimeout(resolve, 15));
+
+    expect(frameTypes(frames)).toEqual(["ready"]);
+    // The session is unaffected: audio still routes to the ingest.
+    await session.handleClientFrame(audioFrame("still alive"));
+    expect(ingest.pushed).toHaveLength(1);
+  });
+
+  test("an unconfigured transcriber with no user turn is session-fatal", async () => {
+    const { session, frames, ingest } = createSessionHarness();
+
+    await session.start();
+    ingest.callbacks.onError?.(
+      "unconfigured",
+      "No batch transcriber available for the configured STT provider",
+    );
     await waitFor(() => frames.some((frame) => frame.type === "error"));
 
     expect(frames.find((frame) => frame.type === "error")).toMatchObject({
       code: "stt_failed",
-      message: expect.stringContaining("provider connection dropped"),
+      message: expect.stringContaining("No batch transcriber available"),
     });
+  });
+
+  test("a TTS failure while speaking cancels the turn with tts_failed via barge-in", async () => {
+    const harness = createSessionHarness({ emitMetrics: true });
+    const { session, frames, ingest, transport, controller } = harness;
+
+    await startRespondingTurn(harness);
+    controller.state = "speaking";
+    transport.deps?.onTtsFailure();
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+
+    expect(frames.some((frame) => frame.type === "error")).toBe(false);
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ reason: "tts_failed" });
+    // Speaking-path cancellation aborts the generation via the controller.
+    expect(controller.bargeInCount).toBe(1);
+
+    // A straggler tts_done from the failed turn is dropped, and the next
+    // utterance opens a fresh turn.
+    await transport.emitTtsDone("live-turn-1");
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
+    await session.handleClientFrame(audioFrame("follow-up audio"));
+    ingest.callbacks.onTranscriptFinal?.("follow up");
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "thinking").length === 2,
+    );
+  });
+
+  test("a TTS failure during the synthesis tail (controller idle) flushes at the session layer", async () => {
+    const harness = createSessionHarness();
+    const { frames, transport, controller } = harness;
+
+    await startRespondingTurn(harness);
+    controller.state = "idle";
+    transport.deps?.onTtsFailure();
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+
+    expect(controller.bargeInCount).toBe(0);
+    expect(transport.discardCount).toBe(1);
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ reason: "tts_failed" });
+  });
+
+  test("a TTS failure after the turn completed needs no client-visible reaction", async () => {
+    const harness = createSessionHarness();
+    const { frames, transport } = harness;
+
+    await startRespondingTurn(harness);
+    await transport.emitTtsDone();
+    const framesBefore = frames.length;
+
+    transport.deps?.onTtsFailure();
+    await new Promise((resolve) => setTimeout(resolve, 15));
+
+    expect(frames).toHaveLength(framesBefore);
   });
 
   test("forwards partials and turn boundaries", async () => {
@@ -416,6 +525,54 @@ describe("LiveVoiceSession duplex orchestration", () => {
         (frame) => frame.type === "metrics" && frame.event === "turn_cancelled",
       ),
     ).toBe(true);
+  });
+
+  test("persisted message ids target the dispatched turn, never a successor", async () => {
+    const archived: LiveVoiceSessionArchiveAudioInput[] = [];
+    const harness = createSessionHarness({
+      sessionOptions: {
+        archiveAudio: (input) => {
+          archived.push(input);
+          return makeArchiveResult(input);
+        },
+      },
+    });
+    const { session, frames, ingest, transport, controller } = harness;
+
+    await startRespondingTurn(harness);
+    const reportUserMessageId = (messageId: string) =>
+      controller.options?.onPersistedUserMessageId(messageId);
+
+    // Barge-in retires turn 1 before its pipeline reports the persisted id.
+    controller.state = "speaking";
+    ingest.callbacks.onSpeechStart?.();
+    await waitFor(() => frames.some((frame) => frame.type === "interrupted"));
+
+    // The late id from the retired turn is dropped...
+    reportUserMessageId("msg-late-turn-1");
+
+    // ...and the next turn links its own id.
+    await session.handleClientFrame(audioFrame("second audio"));
+    ingest.callbacks.onTranscriptFinal?.("second utterance");
+    await waitFor(
+      () => frames.filter((frame) => frame.type === "thinking").length === 2,
+    );
+    reportUserMessageId("msg-user-turn-2");
+    await transport.emitTtsAudio("audio two");
+    await transport.emitTtsDone();
+    await waitFor(() =>
+      archived.some(
+        (input) => input.turnId === "live-turn-2" && input.role === "user",
+      ),
+    );
+
+    const secondTurnUserAudio = archived.find(
+      (input) => input.turnId === "live-turn-2" && input.role === "user",
+    );
+    expect(secondTurnUserAudio?.messageId).toBe("msg-user-turn-2");
+    expect(
+      archived.some((input) => input.messageId === "msg-late-turn-1"),
+    ).toBe(false);
   });
 
   test("controller endSession emits session_ended, closes the session, and stops accepting input", async () => {

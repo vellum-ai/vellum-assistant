@@ -50,6 +50,7 @@ import {
 } from "./voice-control-protocol.js";
 import {
   startVoiceTurn,
+  type VoiceTurnCallbacks,
   type VoiceTurnHandle,
 } from "./voice-session-bridge.js";
 import {
@@ -737,7 +738,11 @@ export class CallController {
       // Start the voice turn through the session bridge. The profile
       // supplies the approval mode, channel/interface context, and control
       // prompt (phone defaults, or the live-voice context for in-app
-      // sessions).
+      // sessions). Profile event callbacks are gated on the dispatching
+      // run (same guard as onTextDelta) so a superseded turn's late events
+      // — e.g. a persisted-message-id surfacing after a barge-in — are
+      // dropped instead of being attributed to the newer turn.
+      const { callbacks, ...profileTurnContext } = this.profile.voiceTurn;
       startVoiceTurn({
         conversationId: this.conversationId,
         callSessionId: this.callSessionId,
@@ -747,7 +752,10 @@ export class CallController {
         isInbound: this.isInbound,
         task: this.task,
         skipDisclosure: this.skipDisclosure,
-        ...this.profile.voiceTurn,
+        ...profileTurnContext,
+        ...(callbacks
+          ? { callbacks: this.guardTurnCallbacks(callbacks, runVersion) }
+          : {}),
         onTextDelta,
         onComplete,
         onError,
@@ -1366,6 +1374,49 @@ export class CallController {
 
   private isCurrentRun(runVersion: number): boolean {
     return runVersion === this.llmRunVersion;
+  }
+
+  /**
+   * Wrap a profile's per-turn event callbacks so each one only fires while
+   * the run that dispatched it is still current. Callbacks fire from
+   * fire-and-forget bridge work (and after awaits inside the bridge), so
+   * without the gate a superseded run's late event would be delivered as
+   * if it belonged to the turn that replaced it.
+   */
+  private guardTurnCallbacks(
+    callbacks: VoiceTurnCallbacks,
+    runVersion: number,
+  ): VoiceTurnCallbacks {
+    const guarded: VoiceTurnCallbacks = {};
+    const {
+      assistant_text_delta: assistantTextDelta,
+      message_complete: messageComplete,
+      persisted_user_message_id: persistedUserMessageId,
+      persisted_assistant_message_id: persistedAssistantMessageId,
+    } = callbacks;
+    if (assistantTextDelta) {
+      guarded.assistant_text_delta = (msg) => {
+        if (this.isCurrentRun(runVersion)) assistantTextDelta(msg);
+      };
+    }
+    if (messageComplete) {
+      guarded.message_complete = (msg) => {
+        if (this.isCurrentRun(runVersion)) messageComplete(msg);
+      };
+    }
+    if (persistedUserMessageId) {
+      guarded.persisted_user_message_id = (messageId) => {
+        if (this.isCurrentRun(runVersion)) persistedUserMessageId(messageId);
+      };
+    }
+    if (persistedAssistantMessageId) {
+      guarded.persisted_assistant_message_id = (messageId) => {
+        if (this.isCurrentRun(runVersion)) {
+          persistedAssistantMessageId(messageId);
+        }
+      };
+    }
+    return guarded;
   }
 
   private isCallerGuardian(): boolean {

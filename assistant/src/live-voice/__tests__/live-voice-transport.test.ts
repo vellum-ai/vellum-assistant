@@ -48,15 +48,17 @@ function createHarness(streamTtsAudio: LiveVoiceTtsStreamer) {
     frames.push(payload);
   });
   const onSessionEnd = mock((_reason?: string) => {});
+  const onTtsFailure = mock(() => {});
   const transport = new LiveVoiceCallTransport({
     sendFrame,
     streamTtsAudio,
     sampleRate: 24_000,
     turnId: () => "turn-1",
     onSessionEnd,
+    onTtsFailure,
   });
 
-  return { frames, onSessionEnd, sendFrame, transport };
+  return { frames, onSessionEnd, onTtsFailure, sendFrame, transport };
 }
 
 async function waitFor(
@@ -248,21 +250,18 @@ describe("LiveVoiceCallTransport", () => {
     expect(frames).toEqual([{ type: "tts_done", turnId: "turn-1" }]);
   });
 
-  test("TTS failure emits an error frame and still reaches tts_done", async () => {
+  test("TTS failure surfaces via onTtsFailure and still reaches tts_done", async () => {
     const streamTtsAudio = mock(async () => {
       throw new Error("provider unavailable");
     });
-    const { frames, transport } = createHarness(streamTtsAudio);
+    const { frames, onTtsFailure, transport } = createHarness(streamTtsAudio);
 
     transport.sendTextToken("This fails.", true);
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
 
-    expect(frames.find((frame) => frame.type === "error")).toMatchObject({
-      type: "error",
-      code: "tts_failed",
-      message: expect.stringContaining("provider unavailable"),
-    });
-    expect(frames.at(-1)).toEqual({ type: "tts_done", turnId: "turn-1" });
+    expect(onTtsFailure).toHaveBeenCalledTimes(1);
+    // The failure is reported to the session, never to the client directly.
+    expect(frames).toEqual([{ type: "tts_done", turnId: "turn-1" }]);
   });
 
   test("discardPendingText suppresses tts_audio sends that were already chained", async () => {
@@ -297,6 +296,7 @@ describe("LiveVoiceCallTransport", () => {
       sampleRate: 24_000,
       turnId: () => "turn-1",
       onSessionEnd: () => {},
+      onTtsFailure: () => {},
     });
 
     transport.sendTextToken("First one.", true);
