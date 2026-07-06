@@ -1830,6 +1830,8 @@ jobs:
           if ! bun install --frozen-lockfile --filter="./${{ matrix.package }}"; then
             rm -f bun.lock && rm -rf node_modules && bun install --filter="./${{ matrix.package }}"
           fi
+      - name: Strip bundled deps from the manifest
+        run: bun scripts/strip-bundled-deps.mjs "${{ matrix.package }}"
       - name: Pack tarball
         run: |
           cd "${{ matrix.package }}"

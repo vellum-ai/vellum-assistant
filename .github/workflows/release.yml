@@ -1294,6 +1294,8 @@ jobs:
       # bun pm pack bundles the workspace deps listed in bundledDependencies
       # and rewrites workspace:* to concrete versions; npm pack does neither
       # for symlinked workspace deps.
+      - name: Strip bundled deps from the manifest
+        run: bun scripts/strip-bundled-deps.mjs "${{ matrix.package }}"
       - name: Pack tarball
         run: |
           cd "${{ matrix.package }}"
@@ -1449,6 +1451,8 @@ jobs:
             rm -f bun.lock && rm -rf node_modules && bun install --filter=@vellumai/cli
           fi
 
+      - name: Strip bundled deps from the manifest
+        run: bun scripts/strip-bundled-deps.mjs cli
       - name: Pack CLI tarball
         run: |
           cd cli
@@ -1516,6 +1520,8 @@ jobs:
           if ! bun install --frozen-lockfile --filter="./${{ matrix.package }}"; then
             rm -f bun.lock && rm -rf node_modules && bun install --filter="./${{ matrix.package }}"
           fi
+      - name: Strip bundled deps from the manifest
+        run: bun scripts/strip-bundled-deps.mjs "${{ matrix.package }}"
       - name: Pack tarball
         run: |
           cd "${{ matrix.package }}"
