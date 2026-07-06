@@ -11,6 +11,12 @@ import {
   listConversations,
   userInfo,
 } from "../../../../messaging/providers/slack/client.js";
+import {
+  classifyConversationType,
+  isMemberConversation,
+  isPrivateConversation,
+  slackUserDisplayName,
+} from "../../../../messaging/providers/slack/conversation-utils.js";
 import type { SlackConversation } from "../../../../messaging/providers/slack/types.js";
 import { ACTOR_PRINCIPALS } from "../../../auth/route-policy.js";
 import { ServiceUnavailableError } from "../../errors.js";
@@ -33,21 +39,6 @@ type NormalizedChannel = z.infer<typeof NormalizedChannelSchema>;
 const SlackChannelsListResultSchema = z.object({
   channels: z.array(NormalizedChannelSchema),
 });
-
-function classifyConversation(
-  conv: SlackConversation,
-): "channel" | "group" | "dm" {
-  if (conv.is_im) {
-    return "dm";
-  }
-  if (conv.is_mpim) {
-    return "group";
-  }
-  if (conv.is_group) {
-    return "group";
-  }
-  return "channel";
-}
 
 const TYPE_SORT_ORDER: Record<string, number> = {
   channel: 0,
@@ -79,10 +70,8 @@ export async function handleListSlackChannels({
     cursor = resp.response_metadata?.next_cursor || undefined;
   } while (cursor);
 
-  // Slack omits `is_member` on IMs/MPIMs, but any DM or group DM returned by
-  // `conversations.list` is inherently one the connected identity is in.
   const conversations = memberOnly
-    ? allChannels.filter((c) => c.is_member === true || c.is_im || c.is_mpim)
+    ? allChannels.filter(isMemberConversation)
     : allChannels;
 
   const dmUserIds = conversations
@@ -93,11 +82,7 @@ export async function handleListSlackChannels({
     uniqueUserIds.map((uid) =>
       userInfo(token, uid).then((r) => ({
         uid,
-        name:
-          r.user.profile?.display_name ||
-          r.user.profile?.real_name ||
-          r.user.real_name ||
-          r.user.name,
+        name: slackUserDisplayName(r.user),
         imageUrl: r.user.profile?.image_48 ?? null,
       })),
     ),
@@ -116,7 +101,7 @@ export async function handleListSlackChannels({
   }
 
   const channels: NormalizedChannel[] = conversations.map((c) => {
-    const type = classifyConversation(c);
+    const type = classifyConversationType(c);
     let name = c.name ?? c.id;
     let imageUrl: string | null = null;
     if (type === "dm" && c.user) {
@@ -128,7 +113,7 @@ export async function handleListSlackChannels({
       id: c.id,
       name,
       type,
-      isPrivate: c.is_private ?? c.is_group ?? false,
+      isPrivate: isPrivateConversation(c),
       isMember: c.is_member ?? false,
       memberCount: c.num_members ?? null,
       topic: c.topic?.value || c.purpose?.value || null,
