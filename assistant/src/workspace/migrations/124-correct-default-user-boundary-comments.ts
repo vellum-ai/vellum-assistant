@@ -3,13 +3,12 @@ import { join } from "node:path";
 
 import type { WorkspaceMigration } from "./types.js";
 
-// Inlined snapshot of the greetings-only `users/default.md` seed written by
-// migration 122 (and carried by the bundled template of that era). Its comment
-// header and the two greeting lines still point at a "privacy boundary below"
-// as if the boundary lived in this file, but the non-guardian privacy boundary
-// renders from the always-on bundled section `10a-non-guardian-boundary` and
-// never appears here. Kept verbatim so this migration is self-contained and
-// matches the exact on-disk seed it upgrades.
+// Snapshot of the greetings-only `users/default.md` seed this migration matches
+// and rewrites. Its comment header and its two greeting lines describe the
+// non-guardian privacy boundary as a "privacy boundary below", as if the
+// boundary were part of this file. That boundary renders from the always-on
+// bundled section `10a-non-guardian-boundary` and is absent from this file, so
+// the wording is inaccurate. Matched byte-for-byte, so it is kept verbatim.
 const GREETINGS_SEED_STALE_COMMENTS = `_ Lines starting with _ are comments — they won't appear in the system prompt.
 _ This file shapes how you greet and frame conversations with people who are NOT your
 _ guardian: a trusted contact your guardian has added, or someone you don't recognize.
@@ -32,10 +31,10 @@ The person you're talking to is not your guardian, and you don't recognize them.
 {{/isStranger}}
 `;
 
-// Inlined snapshot of the corrected greetings-only template: the comment header
-// explains that the privacy boundary is built in and not part of this file, and
-// the two greeting lines reference the built-in boundary instead of a boundary
-// "below". Byte-for-byte identical to the bundled `users/default.md` template.
+// The corrected greetings-only template this migration writes. Its comment
+// header states the privacy boundary is built in and not part of this file, and
+// its two greeting lines reference the built-in privacy boundary. Byte-for-byte
+// identical to the bundled `users/default.md` template.
 const GREETINGS_SEED_CORRECTED = `_ Lines starting with _ are comments — they won't appear in the system prompt.
 _ This file shapes how you greet and frame conversations with people who are NOT your
 _ guardian: a trusted contact your guardian has added, or someone you don't recognize.
@@ -61,7 +60,7 @@ The person you're talking to is not your guardian, and you don't recognize them.
 export const correctDefaultUserBoundaryCommentsMigration: WorkspaceMigration = {
   id: "124-correct-default-user-boundary-comments",
   description:
-    "Rewrite the migration-122 users/default.md greetings seed so its comments describe the privacy boundary as the always-on bundled section it is, not a boundary living in this file",
+    "Rewrite the greetings-only users/default.md seed so its comments describe the non-guardian privacy boundary as the always-on bundled section it is, rather than a boundary living in this file",
 
   down(_workspaceDir: string): void {
     // No-op: we don't delete or revert user-editable persona files on rollback.
@@ -73,9 +72,9 @@ export const correctDefaultUserBoundaryCommentsMigration: WorkspaceMigration = {
 
     // Three cases:
     //   - absent/blank file → seed the corrected greetings template.
-    //   - exactly the migration-122 greetings seed → rewrite it so the comments
-    //     stop describing the privacy boundary as living "below" in this file;
-    //     it renders from the always-on `10a-non-guardian-boundary` section.
+    //   - exact `GREETINGS_SEED_STALE_COMMENTS` match → rewrite it to the
+    //     corrected template so the comments describe the privacy boundary as
+    //     the built-in section it is, not a boundary "below" in this file.
     //   - anything else → the guardian customized the file; leave it untouched.
     if (existsSync(defaultPath)) {
       let content: string;
