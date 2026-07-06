@@ -480,7 +480,7 @@ export function registerDefaultPluginInjectors(): void {
  * dispatch through pipelines with a terminal that assumes the default
  * plugin handles every op (e.g. compaction). Deliberately does NOT touch
  * the memory plugin's persistence-lifecycle seam — that is a memory-plugin
- * concept (`memory/persistence-hooks-registration.ts`), and tests that
+ * concept (`memory/persistence-lifecycle-seam.ts`), and tests that
  * exercise persistence side effects register it themselves.
  *
  * Tests that specifically need an empty hook registry (pipeline-unit tests)

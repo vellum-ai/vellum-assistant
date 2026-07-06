@@ -56,7 +56,7 @@ import {
   registerDefaultPluginInjectors,
   registerDefaultPlugins,
 } from "../plugins/defaults/index.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
+import { registerMemoryPersistenceHooks } from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
 import {
   registerPluginInjectors,
   unregisterPluginInjectors,
@@ -203,7 +203,7 @@ export async function bootstrapPlugins(): Promise<void> {
   // are not registered here: the memory plugin registers its own directly in
   // its `init` hook, and the daemon registers the host's non-plugin handlers in
   // `lifecycle.ts`.)
-  registerDefaultPluginPersistenceHooks();
+  registerMemoryPersistenceHooks();
 
   // Combine the canonical default plugins with any plugins registered via
   // `registerPlugin` (test fixtures). In production, `getRegisteredPlugins`

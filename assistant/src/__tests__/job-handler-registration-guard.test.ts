@@ -2,9 +2,9 @@ import { afterEach, describe, expect, it, spyOn } from "bun:test";
 
 import { registerMemoryPluginJobHandlers } from "../plugins/defaults/memory/job-handler-registration.js";
 import * as jobsWorker from "../plugins/defaults/memory/jobs-worker.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks-registration.js";
 import {
   getMemoryPersistenceHooks,
+  registerMemoryPersistenceHooks,
   resetMemoryPersistenceHooksForTests,
 } from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
 
@@ -95,10 +95,10 @@ describe("job-handler registration", () => {
     expect(NON_PLUGIN_JOB_TYPES.filter((t) => memory.has(t))).toEqual([]);
   });
 
-  it("registerDefaultPluginPersistenceHooks wires the persistence-lifecycle seam (the standalone worker has no bootstrap)", () => {
+  it("registerMemoryPersistenceHooks wires the persistence-lifecycle seam (the standalone worker has no bootstrap)", () => {
     resetMemoryPersistenceHooksForTests();
     const before = getMemoryPersistenceHooks();
-    registerDefaultPluginPersistenceHooks();
+    registerMemoryPersistenceHooks();
     // The seam must move off the no-op default — otherwise the standalone
     // worker's fork-based retrospectives silently drop carried memory state.
     expect(getMemoryPersistenceHooks()).not.toBe(before);

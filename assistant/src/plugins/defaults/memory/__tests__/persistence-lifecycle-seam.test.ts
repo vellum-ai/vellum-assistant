@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 
+import { memoryPersistenceHooks } from "../persistence-hooks.js";
 import {
   getMemoryPersistenceHooks,
   type MemoryPersistenceHooks,
   type MessagePersistedEvent,
   registerMemoryPersistenceHooks,
   resetMemoryPersistenceHooksForTests,
+  setMemoryPersistenceHooksForTests,
 } from "../persistence-lifecycle-seam.js";
 
 const event: MessagePersistedEvent = {
@@ -36,9 +38,14 @@ describe("memory persistence-lifecycle seam", () => {
     await getMemoryPersistenceHooks().onMessagePersisted(event);
   });
 
+  test("registerMemoryPersistenceHooks installs the plugin's implementation", () => {
+    registerMemoryPersistenceHooks();
+    expect(getMemoryPersistenceHooks()).toBe(memoryPersistenceHooks);
+  });
+
   test("getMemoryPersistenceHooks returns the registered implementation", async () => {
     const seen: MessagePersistedEvent[] = [];
-    registerMemoryPersistenceHooks({
+    setMemoryPersistenceHooksForTests({
       ...baseHooks,
       onMessagePersisted(ev) {
         seen.push(ev);
@@ -51,13 +58,13 @@ describe("memory persistence-lifecycle seam", () => {
   test("registration replaces the prior implementation", async () => {
     let aCalls = 0;
     let bCalls = 0;
-    registerMemoryPersistenceHooks({
+    setMemoryPersistenceHooksForTests({
       ...baseHooks,
       onMessagePersisted() {
         aCalls++;
       },
     });
-    registerMemoryPersistenceHooks({
+    setMemoryPersistenceHooksForTests({
       ...baseHooks,
       onMessagePersisted() {
         bCalls++;
@@ -70,7 +77,7 @@ describe("memory persistence-lifecycle seam", () => {
 
   test("resetMemoryPersistenceHooksForTests restores the no-op", async () => {
     let calls = 0;
-    registerMemoryPersistenceHooks({
+    setMemoryPersistenceHooksForTests({
       ...baseHooks,
       onMessagePersisted() {
         calls++;
@@ -86,7 +93,7 @@ describe("memory persistence-lifecycle seam", () => {
     getMemoryPersistenceHooks().onConversationDeleted("conv-1");
 
     const seen: string[] = [];
-    registerMemoryPersistenceHooks({
+    setMemoryPersistenceHooksForTests({
       ...baseHooks,
       onConversationDeleted(id) {
         seen.push(id);
@@ -101,7 +108,7 @@ describe("memory persistence-lifecycle seam", () => {
     getMemoryPersistenceHooks().onMessagesDeleted(["msg-a", "msg-b"]);
 
     const seen: string[][] = [];
-    registerMemoryPersistenceHooks({
+    setMemoryPersistenceHooksForTests({
       ...baseHooks,
       onMessagesDeleted(ids) {
         seen.push(ids);
@@ -116,7 +123,7 @@ describe("memory persistence-lifecycle seam", () => {
     await getMemoryPersistenceHooks().onAllConversationsCleared();
 
     let cleared = 0;
-    registerMemoryPersistenceHooks({
+    setMemoryPersistenceHooksForTests({
       ...baseHooks,
       async onAllConversationsCleared() {
         // Yield so a non-awaiting caller would observe cleared === 0.
