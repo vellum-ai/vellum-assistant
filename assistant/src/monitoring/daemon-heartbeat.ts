@@ -8,8 +8,8 @@
  * content is the daemon's pid, so the monitor knows which process's main
  * thread to inspect.
  *
- * Writes are gated on `monitoring.enabled` and never throw — the heartbeat is
- * diagnostics and must never break a tick.
+ * Writes never throw — the heartbeat is diagnostics and must never break a
+ * tick.
  */
 
 import {
@@ -21,7 +21,6 @@ import {
 } from "node:fs";
 import { dirname, join } from "node:path";
 
-import { getConfigReadOnly } from "../config/loader.js";
 import { getMonitoringDataDir } from "../util/platform.js";
 
 const HEARTBEAT_FILE = "daemon-heartbeat";
@@ -35,9 +34,6 @@ let pidWritten = false;
 /** Daemon-side: refresh the heartbeat mtime. Call from the watchdog tick. */
 export function touchDaemonHeartbeat(): void {
   try {
-    if (!getConfigReadOnly().monitoring.enabled) {
-      return;
-    }
     const path = getDaemonHeartbeatPath();
     // First touch of this process rewrites the content so the recorded pid is
     // ours, not a previous daemon's.

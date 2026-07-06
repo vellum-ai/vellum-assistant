@@ -6,19 +6,13 @@ import { z } from "zod";
  * The resource monitor runs as a separate OS process (a child of the assistant)
  * that samples the container's own cgroup memory + workspace disk off the main
  * event loop, so it keeps recording during a main-thread freeze and its samples
- * survive an OOM SIGKILL. `assistant monitoring start`/`stop` flip
- * `enabled` (and spawn/stop the process) to switch it on or off at runtime
- * without a restart; when `enabled` is set the assistant also spawns it at
- * startup.
+ * survive an OOM SIGKILL. The assistant spawns it at every startup — it is
+ * platform infrastructure, not an opt-in feature, and there is deliberately no
+ * config switch to turn it off. `assistant monitoring start`/`stop` control the
+ * process at runtime only; a stopped monitor respawns on the next boot.
  */
 export const MonitoringConfigSchema = z
   .object({
-    enabled: z
-      .boolean({ error: "monitoring.enabled must be a boolean" })
-      .default(false)
-      .describe(
-        "Whether the resource monitor process runs. When set, the assistant spawns it at startup and it samples cgroup memory + workspace disk into a ring buffer on the workspace volume. `assistant monitoring start`/`stop` flip this flag at runtime.",
-      ),
     sampleIntervalMs: z
       .number({ error: "monitoring.sampleIntervalMs must be a number" })
       .int("monitoring.sampleIntervalMs must be an integer")

@@ -1,36 +1,17 @@
 /**
  * Tests for the daemon heartbeat writer/reader against the per-test workspace.
- * The config loader is mocked so the `monitoring.enabled` gate can be
- * exercised both ways.
  */
 
-import { existsSync, rmSync } from "node:fs";
-import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
+import { rmSync } from "node:fs";
+import { beforeEach, describe, expect, test } from "bun:test";
 
-import * as actualLoader from "../../config/loader.js";
-
-// null → delegate to the real loader. bun's mock.module persists for the
-// whole process, so the mock must turn itself into a passthrough once this
-// suite finishes or it would poison later test files sharing the process.
-let monitoringEnabled: boolean | null = true;
-
-mock.module("../../config/loader.js", () => ({
-  ...actualLoader,
-  getConfigReadOnly: () =>
-    monitoringEnabled == null
-      ? actualLoader.getConfigReadOnly()
-      : { monitoring: { enabled: monitoringEnabled } },
-}));
-
-afterAll(() => {
-  monitoringEnabled = null;
-});
-
-const { getDaemonHeartbeatPath, readDaemonHeartbeat, touchDaemonHeartbeat } =
-  await import("../daemon-heartbeat.js");
+import {
+  getDaemonHeartbeatPath,
+  readDaemonHeartbeat,
+  touchDaemonHeartbeat,
+} from "../daemon-heartbeat.js";
 
 beforeEach(() => {
-  monitoringEnabled = true;
   try {
     rmSync(getDaemonHeartbeatPath());
   } catch {
@@ -61,13 +42,6 @@ describe("daemon heartbeat", () => {
     rmSync(getDaemonHeartbeatPath());
     touchDaemonHeartbeat();
     expect(readDaemonHeartbeat(Date.now())).not.toBeNull();
-  });
-
-  test("no-ops when monitoring is disabled", () => {
-    monitoringEnabled = false;
-    touchDaemonHeartbeat();
-    expect(existsSync(getDaemonHeartbeatPath())).toBe(false);
-    expect(readDaemonHeartbeat(Date.now())).toBeNull();
   });
 
   test("reader returns null for a missing file", () => {

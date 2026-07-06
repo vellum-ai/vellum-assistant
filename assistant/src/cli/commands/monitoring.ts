@@ -7,10 +7,13 @@
  *
  * Subcommands:
  *
- *   - `start`  — spawn the monitor process and enable `monitoring.enabled`.
- *   - `stop`   — SIGTERM the monitor process and disable `monitoring.enabled`.
- *   - `status` — report the monitor process state, `monitoring.enabled`,
- *     and the most recent memory/disk sample.
+ *   - `start`  — spawn the monitor process (or report the one already running).
+ *   - `stop`   — SIGTERM the monitor process until the next daemon boot.
+ *   - `status` — report the monitor process state and the most recent
+ *     memory/disk sample.
+ *
+ * The daemon spawns the monitor at every boot; there is no config switch.
+ * `stop` is a runtime-only pause for the current daemon session.
  *
  * All three are thin IPC wrappers (transport: "ipc"): the daemon owns the
  * monitor process so it is spawned as a *child of the daemon* — which is what
@@ -88,20 +91,17 @@ interface LatestSample {
 interface StartResponse {
   pid: number;
   alreadyRunning: boolean;
-  monitoringEnabled: true;
   pidPath: string;
 }
 
 interface StopResponse {
   monitoringWasRunning: boolean;
   pid?: number;
-  monitoringEnabled: false;
 }
 
 interface StatusResponse {
   status: "running" | "not_running";
   pid?: number;
-  monitoringEnabled: boolean;
   dataDir: string;
   latestSample: LatestSample | null;
 }
@@ -125,9 +125,10 @@ recording during a main-thread freeze and its samples survive an OOM SIGKILL.
 The daemon owns the process, so it is spawned as a child of the daemon and shows
 up in \`assistant ps\`.
 
-\`start\` enables monitoring.enabled (so it is respawned on the next boot)
-and \`stop\` disables it. Samples and high-memory snapshots are written under the
-data directory reported by \`status\`.
+The monitor runs by default — the daemon spawns it at every boot. \`stop\`
+pauses it for the current daemon session only; it respawns on the next boot.
+Samples and high-memory snapshots are written under the data directory
+reported by \`status\`.
 
 Examples:
   $ assistant monitoring start
@@ -137,9 +138,7 @@ Examples:
 
       monitor
         .command("start")
-        .description(
-          "Start the resource monitor process and enable monitoring.enabled",
-        )
+        .description("Start the resource monitor process")
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .action(async (_opts: { json?: boolean }, cmd: Command) => {
           const r = await cliIpcCall<StartResponse>("monitoring_start");
@@ -157,15 +156,12 @@ Examples:
               ? `Resource monitor is already running (PID ${res.pid})`
               : `Resource monitor started (PID ${res.pid})`,
           );
-          log.info(
-            "Enabled monitoring.enabled; it will also be respawned automatically on future assistant starts",
-          );
         });
 
       monitor
         .command("stop")
         .description(
-          "Stop the resource monitor process and disable monitoring.enabled",
+          "Stop the resource monitor process until the next daemon boot",
         )
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .action(async (_opts: { json?: boolean }, cmd: Command) => {
@@ -184,14 +180,12 @@ Examples:
           } else {
             log.info("Resource monitor process was not running");
           }
-          log.info("Disabled monitoring.enabled");
+          log.info("The monitor respawns on the next daemon boot");
         });
 
       monitor
         .command("status")
-        .description(
-          "Report the monitor process state, monitoring.enabled, and the latest sample",
-        )
+        .description("Report the monitor process state and the latest sample")
         .option("--json", "Emit raw JSON instead of a formatted summary")
         .action(async (_opts: { json?: boolean }, cmd: Command) => {
           const r = await cliIpcCall<StatusResponse>("monitoring_status");
@@ -209,7 +203,6 @@ Examples:
           } else {
             log.info("Resource monitor process is not running");
           }
-          log.info(`monitoring.enabled: ${res.monitoringEnabled}`);
           log.info(`Data directory: ${res.dataDir}`);
 
           const sample = res.latestSample;

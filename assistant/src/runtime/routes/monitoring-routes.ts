@@ -11,12 +11,7 @@ import { join } from "node:path";
 
 import { z } from "zod";
 
-import {
-  getConfigReadOnly,
-  loadRawConfig,
-  saveRawConfig,
-  setNestedValue,
-} from "../../config/loader.js";
+import { getConfigReadOnly } from "../../config/loader.js";
 import {
   MonitoringWorkerSpawnError,
   probeMonitoringWorker,
@@ -35,18 +30,6 @@ import { InternalError } from "./errors.js";
 import type { RouteDefinition } from "./types.js";
 
 const log = getLogger("monitoring-routes");
-
-/**
- * Persist `monitoring.enabled` to the on-disk config via the shared
- * raw-config helpers, so only this leaf changes (schema defaults are not baked
- * into the file). The daemon re-reads config from disk, so the change takes
- * effect without a restart.
- */
-function setMonitoringEnabled(enabled: boolean): void {
-  const raw = loadRawConfig();
-  setNestedValue(raw, "monitoring.enabled", enabled);
-  saveRawConfig(raw);
-}
 
 const sampleMemorySchema = z.object({
   currentBytes: z.number(),
@@ -132,29 +115,25 @@ const latestSampleSchema = z.object({
 const startResponseSchema = z.object({
   pid: z.number(),
   alreadyRunning: z.boolean(),
-  monitoringEnabled: z.literal(true),
   pidPath: z.string(),
 });
 
 const stopResponseSchema = z.object({
   monitoringWasRunning: z.boolean(),
   pid: z.number().optional(),
-  monitoringEnabled: z.literal(false),
 });
 
 const statusResponseSchema = z.object({
   status: z.enum(["running", "not_running"]),
   pid: z.number().optional(),
-  monitoringEnabled: z.boolean(),
   dataDir: z.string(),
   latestSample: latestSampleSchema.nullable(),
 });
 
 /**
- * Start (or reuse) the resource monitor process as a child of the daemon, then
- * enable `monitoring.enabled` so it is respawned on the next boot. The
- * flag is only enabled once the monitor is confirmed up — on spawn failure it
- * is left untouched.
+ * Start (or reuse) the resource monitor process as a child of the daemon.
+ * The daemon also spawns it at every boot, so this route exists to bring a
+ * stopped monitor back up without a restart.
  */
 async function handleMonitoringStart() {
   let result: { pid: number; alreadyRunning: boolean };
@@ -174,23 +153,19 @@ async function handleMonitoringStart() {
     throw new InternalError(message);
   }
 
-  setMonitoringEnabled(true);
-
   return {
     pid: result.pid,
     alreadyRunning: result.alreadyRunning,
-    monitoringEnabled: true as const,
     pidPath: getMonitoringPidPath(),
   };
 }
 
 /**
- * Disable `monitoring.enabled` and SIGTERM the monitor process if it is
- * running. A monitor that is not running is not an error.
+ * SIGTERM the monitor process if it is running. A monitor that is not
+ * running is not an error. The stop lasts until the next daemon boot, which
+ * respawns the monitor unconditionally.
  */
 function handleMonitoringStop() {
-  setMonitoringEnabled(false);
-
   let before: ReturnType<typeof stopMonitoringWorkerProcess>;
   try {
     before = stopMonitoringWorkerProcess();
@@ -203,7 +178,6 @@ function handleMonitoringStop() {
   return {
     monitoringWasRunning: before.status === "running",
     ...(before.pid != null ? { pid: before.pid } : {}),
-    monitoringEnabled: false as const,
   };
 }
 
@@ -236,18 +210,16 @@ function readLatestSample(): ResourceSample | null {
 }
 
 /**
- * Report the monitor process state, the `monitoring.enabled` config value,
- * and the most recent persisted sample so a caller can see live memory/disk
- * numbers without the monitor having to push anything.
+ * Report the monitor process state and the most recent persisted sample so a
+ * caller can see live memory/disk numbers without the monitor having to push
+ * anything.
  */
 function handleMonitoringStatus() {
   const monitor = probeMonitoringWorker();
-  const config = getConfigReadOnly();
 
   return {
     status: monitor.status,
     ...(monitor.pid != null ? { pid: monitor.pid } : {}),
-    monitoringEnabled: config.monitoring.enabled,
     dataDir: getMonitoringDataDir(),
     latestSample: readLatestSample(),
   };
@@ -265,7 +237,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleMonitoringStart,
     summary: "Start the resource monitor",
     description:
-      "Spawns (or reuses) the resource monitor process as a child of the daemon and enables monitoring.enabled.",
+      "Spawns (or reuses) the resource monitor process as a child of the daemon. The daemon also spawns it at every boot.",
     tags: ["system"],
     responseBody: startResponseSchema,
   },
@@ -280,7 +252,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleMonitoringStop,
     summary: "Stop the resource monitor",
     description:
-      "Disables monitoring.enabled and SIGTERMs the resource monitor process if it is running.",
+      "SIGTERMs the resource monitor process if it is running. The monitor respawns on the next daemon boot.",
     tags: ["system"],
     responseBody: stopResponseSchema,
   },
@@ -295,7 +267,7 @@ export const ROUTES: RouteDefinition[] = [
     handler: handleMonitoringStatus,
     summary: "Resource monitor status",
     description:
-      "Reports the resource monitor process state, monitoring.enabled, the forensics data directory, and the most recent persisted memory/disk sample.",
+      "Reports the resource monitor process state, the forensics data directory, and the most recent persisted memory/disk sample.",
     tags: ["system"],
     responseBody: statusResponseSchema,
   },

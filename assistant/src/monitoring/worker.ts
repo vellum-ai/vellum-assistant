@@ -1,9 +1,9 @@
 /**
  * Standalone entry point for the resource monitor as its own OS process.
  *
- * Spawned by `assistant monitoring start` (and at daemon startup when
- * `monitoring.enabled` is set). Loads config, starts the sampling loop,
- * writes a PID file, and stays alive until SIGTERM/SIGINT.
+ * Spawned at every daemon startup (and on demand by `assistant monitoring
+ * start`). Loads config, starts the sampling loop, writes a PID file, and
+ * stays alive until SIGTERM/SIGINT.
  *
  * Running as a separate process — off the assistant's main event loop — is the
  * whole point: the sampler keeps recording during a main-thread freeze, and its
@@ -28,7 +28,9 @@ const log = getLogger("monitoring-worker");
 function cleanupPidFile(): void {
   const pidPath = getMonitoringPidPath();
   try {
-    if (existsSync(pidPath)) unlinkSync(pidPath);
+    if (existsSync(pidPath)) {
+      unlinkSync(pidPath);
+    }
   } catch {
     // best-effort
   }

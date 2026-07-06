@@ -2,8 +2,8 @@
  * Tests for the resource monitor process control surface.
  *
  * Focuses on the readiness wait (which gates whether `assistant monitoring
- * start` reports success and flips `monitoring.enabled`) and the PID-file
- * liveness probe, mirroring the memory worker's worker-control tests.
+ * start` reports success) and the PID-file liveness probe, mirroring the
+ * memory worker's worker-control tests.
  */
 
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
@@ -48,13 +48,17 @@ function stubProcessKill(
 ): () => void {
   const original = process.kill.bind(process);
   process.kill = ((pid: number, signal?: string | number) => {
-    if ((signal ?? 0) !== 0) return true;
+    if ((signal ?? 0) !== 0) {
+      return true;
+    }
     if (permissionErrorPids.has(pid)) {
       const err = new Error("kill EPERM") as NodeJS.ErrnoException;
       err.code = "EPERM";
       throw err;
     }
-    if (livePids.has(pid)) return true;
+    if (livePids.has(pid)) {
+      return true;
+    }
     const err = new Error("kill ESRCH") as NodeJS.ErrnoException;
     err.code = "ESRCH";
     throw err;
@@ -218,7 +222,9 @@ describe("stopMonitoringWorkerProcess", () => {
     const signalled: Array<[number, string | number | undefined]> = [];
     const original = process.kill.bind(process);
     process.kill = ((pid: number, signal?: string | number) => {
-      if ((signal ?? 0) === 0) return true; // liveness probe
+      if ((signal ?? 0) === 0) {
+        return true;
+      } // liveness probe
       signalled.push([pid, signal]);
       return true;
     }) as typeof process.kill;
