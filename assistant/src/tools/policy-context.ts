@@ -44,6 +44,8 @@ export function buildPolicyContext(
     requestOrigin: context?.requestOrigin,
     trustClass: context?.trustClass,
     sourceChannel: context?.executionChannel,
+    channelExternalId: context?.channelPermissionChannelId,
+    channelConversationType: context?.channelConversationType,
     // Precompute the proc-to-skills gate (flag on AND v3 live) here so the
     // permission checker — a leaf module that must not read config — can deny
     // the memory-retrospective skill-authoring grant whenever the feature is

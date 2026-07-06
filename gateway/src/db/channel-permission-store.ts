@@ -11,8 +11,11 @@
  * and the web client share one canonical definition — same pattern as the
  * admission-policy contract.
  *
- * Nothing evaluates these cells yet; the per-tool-call evaluator composes
- * them with tool RiskLevel and CapabilitySet in the matrix-evaluation step.
+ * The per-tool-call evaluator consumes these cells through the
+ * `resolve_channel_permission_threshold` IPC: the assistant's permission
+ * checker threads the resolved threshold into its cascade (conversation
+ * override → cell → global defaults) and composes it with tool RiskLevel
+ * and the capability floor.
  */
 
 import { and, eq, sql } from "drizzle-orm";

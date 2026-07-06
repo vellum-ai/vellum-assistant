@@ -293,6 +293,7 @@ export function createToolExecutor(
       requesterChatId: turnTrust.requesterChatId,
       requesterIdentifier: turnTrust.requesterIdentifier,
       requesterDisplayName: turnTrust.requesterDisplayName,
+      channelConversationType: turnTrust.conversationType,
       channelPermissionChannelId:
         turnTrust.sourceChannel === "slack"
           ? getBindingByConversation(ctx.conversationId)?.externalChatId

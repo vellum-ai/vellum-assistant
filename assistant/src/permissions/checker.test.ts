@@ -89,9 +89,29 @@ mock.module("../util/platform.js", () => ({
 // before a prompt is surfaced; `null` means "refresh failed, keep decision".
 let mockCachedThreshold = "low";
 let mockRefreshedThreshold: string | null = null;
+// Records the cell query check() derives from the PolicyContext, so tests can
+// assert the matrix coordinates that reach the threshold cascade.
+const thresholdCallLog: Array<{
+  fn: "get" | "refresh";
+  cellQuery: Record<string, unknown> | undefined;
+}> = [];
 mock.module("./gateway-threshold-reader.js", () => ({
-  getAutoApproveThreshold: async () => mockCachedThreshold,
-  refreshAutoApproveThreshold: async () => mockRefreshedThreshold,
+  getAutoApproveThreshold: async (
+    _conversationId?: string,
+    _executionContext?: string,
+    cellQuery?: Record<string, unknown>,
+  ) => {
+    thresholdCallLog.push({ fn: "get", cellQuery });
+    return mockCachedThreshold;
+  },
+  refreshAutoApproveThreshold: async (
+    _conversationId?: string,
+    _executionContext?: string,
+    cellQuery?: Record<string, unknown>,
+  ) => {
+    thresholdCallLog.push({ fn: "refresh", cellQuery });
+    return mockRefreshedThreshold;
+  },
   _clearGlobalCacheForTesting: () => {},
 }));
 
@@ -168,6 +188,7 @@ describe("Permission Checker (gateway IPC)", () => {
     mockCachedThreshold = "low";
     mockRefreshedThreshold = null;
     mockProcToSkillsActive = true;
+    thresholdCallLog.length = 0;
   });
 
   // ── classifyRisk ──────────────────────────────────────────────────────────
@@ -620,6 +641,81 @@ describe("Permission Checker (gateway IPC)", () => {
         "/home/user/project",
       );
       expect(result.decision).toBe("prompt");
+    });
+
+    // ── Channel-permission matrix cell query ────────────────────────────────
+    // check() derives the matrix coordinates (adapter × conversation type ×
+    // channel ID × contact-type) from the PolicyContext and threads them into
+    // both threshold reads, so the cell tier of the cascade governs every
+    // policy rule without any rule changes.
+
+    const HIGH_RISK_RESULT = {
+      risk: "high",
+      reason: "Recursive force delete",
+      matchType: "registry",
+      scopeOptions: [],
+    } as const;
+
+    test("threads the full cell query into the threshold read and the pre-prompt refresh", async () => {
+      mockIpcClassifyRiskResult = { ...HIGH_RISK_RESULT, scopeOptions: [] };
+      await check("bash", { command: "rm -rf /tmp/x" }, "/home/user/project", {
+        conversationId: "conv-1",
+        trustClass: "trusted_contact",
+        sourceChannel: "slack",
+        channelExternalId: "C123",
+        channelConversationType: "dm",
+      });
+
+      const expectedQuery = {
+        adapter: "slack",
+        channelType: "dm",
+        channelExternalId: "C123",
+        contactType: "trusted_contact",
+      };
+      expect(thresholdCallLog).toEqual([
+        { fn: "get", cellQuery: expectedQuery },
+        // The high-risk prompt triggers the refresh with the same coordinates.
+        { fn: "refresh", cellQuery: expectedQuery },
+      ]);
+    });
+
+    test("omits unknown conversation type and missing channel ID from the cell query", async () => {
+      mockIpcClassifyRiskResult = { ...HIGH_RISK_RESULT, scopeOptions: [] };
+      await check("bash", { command: "rm -rf /tmp/x" }, "/home/user/project", {
+        trustClass: "unknown",
+        sourceChannel: "slack",
+        // Slack non-DMs arrive without a public/private distinction, so the
+        // conversation type is unset — the channel-type tier must not match.
+        channelConversationType: undefined,
+      });
+
+      expect(thresholdCallLog[0]).toEqual({
+        fn: "get",
+        cellQuery: {
+          adapter: "slack",
+          channelType: undefined,
+          channelExternalId: undefined,
+          contactType: "unknown",
+        },
+      });
+    });
+
+    test("builds no cell query without a source channel", async () => {
+      mockIpcClassifyRiskResult = { ...HIGH_RISK_RESULT, scopeOptions: [] };
+      await check("bash", { command: "rm -rf /tmp/x" }, "/home/user/project", {
+        trustClass: "guardian",
+      });
+      expect(thresholdCallLog[0]).toEqual({ fn: "get", cellQuery: undefined });
+    });
+
+    test("builds no cell query for an unrecognized trust class", async () => {
+      mockIpcClassifyRiskResult = { ...HIGH_RISK_RESULT, scopeOptions: [] };
+      await check("bash", { command: "rm -rf /tmp/x" }, "/home/user/project", {
+        trustClass: "non_guardian",
+        sourceChannel: "slack",
+        channelExternalId: "C123",
+      });
+      expect(thresholdCallLog[0]).toEqual({ fn: "get", cellQuery: undefined });
     });
 
     // ── Memory-retrospective skill-authoring auto-grant ─────────────────────

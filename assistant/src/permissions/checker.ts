@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
+import {
+  isChannelConversationType,
+  isTrustClass,
+  type ResolveChannelPermissionRequest,
+} from "@vellumai/gateway-client";
+
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
@@ -717,6 +723,34 @@ function isRetrospectiveSkillAuthoringGrant(
   return false;
 }
 
+/**
+ * Build the permission-matrix cell query for this check: the channel
+ * coordinates of the turn plus the actor's contact-type. Returns undefined
+ * when the turn has no channel coordinates (e.g. an internal job with no
+ * source channel) or the trust class isn't a recognized contact-type — the
+ * threshold cascade then skips the matrix and resolves from the
+ * conversation override / global defaults as before.
+ */
+function buildChannelPermissionCellQuery(
+  policyContext?: PolicyContext,
+): ResolveChannelPermissionRequest | undefined {
+  const adapter = policyContext?.sourceChannel;
+  const trustClass = policyContext?.trustClass;
+  if (!adapter || !trustClass || !isTrustClass(trustClass)) {
+    return undefined;
+  }
+  return {
+    adapter,
+    channelType: isChannelConversationType(
+      policyContext.channelConversationType,
+    )
+      ? policyContext.channelConversationType
+      : undefined,
+    channelExternalId: policyContext.channelExternalId || undefined,
+    contactType: trustClass,
+  };
+}
+
 export async function check(
   toolName: string,
   input: Record<string, unknown>,
@@ -751,9 +785,11 @@ export async function check(
 
   // Build approval context from local variables
   const tool = getTool(toolName);
+  const cellQuery = buildChannelPermissionCellQuery(policyContext);
   const threshold = await getAutoApproveThreshold(
     policyContext?.conversationId,
     policyContext?.executionContext,
+    cellQuery,
   );
   const approvalContext: ApprovalContext = {
     riskLevel: risk,
@@ -784,6 +820,7 @@ export async function check(
     const freshThreshold = await refreshAutoApproveThreshold(
       policyContext?.conversationId,
       policyContext?.executionContext,
+      cellQuery,
     );
     if (freshThreshold !== null && freshThreshold !== threshold) {
       approvalDecision = defaultApprovalPolicy.evaluate({

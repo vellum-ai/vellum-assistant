@@ -7,6 +7,11 @@
  * explicit gateway-supplied threshold.
  */
 
+import type {
+  ResolveChannelPermissionRequest,
+  ResolvedChannelPermission,
+} from "@vellumai/gateway-client";
+
 import { ipcCall } from "../ipc/gateway-client.js";
 import { getLogger } from "../util/logger.js";
 import type {
@@ -44,6 +49,27 @@ const conversationThresholdCache = new Map<
   { threshold: string | null; timestamp: number }
 >();
 const CONVERSATION_CACHE_TTL_MS = 5_000;
+
+// ── Channel-permission cell cache (5s TTL) ───────────────────────────────────
+// The permission-matrix cell for (adapter × channel-type × channel-ID ×
+// contact-type). Same short TTL as the conversation cache: a guardian can
+// edit cells mid-conversation, and each cache entry covers at most a few
+// tool calls within a turn. Negative entries (no cell) are cached too.
+
+const channelPermissionCellCache = new Map<
+  string,
+  { resolved: ResolvedChannelPermission | null; timestamp: number }
+>();
+const CELL_CACHE_TTL_MS = 5_000;
+
+function cellCacheKey(query: ResolveChannelPermissionRequest): string {
+  return [
+    query.adapter,
+    query.channelType ?? "",
+    query.channelExternalId ?? "",
+    query.contactType,
+  ].join("|");
+}
 
 // ── Failure-coalescing log helper ────────────────────────────────────────────
 // When the gateway IPC socket is broken (e.g. the path was unlinked from
@@ -110,7 +136,9 @@ function noteFailure(
 
 function noteSuccess(op: string): void {
   const state = failureStateByOp.get(op);
-  if (!state) return;
+  if (!state) {
+    return;
+  }
   log.info(
     {
       op,
@@ -152,6 +180,7 @@ export function _clearGlobalCacheForTesting(): void {
   cachedGlobalThresholds = null;
   cachedGlobalTimestamp = 0;
   conversationThresholdCache.clear();
+  channelPermissionCellCache.clear();
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -159,8 +188,12 @@ export function _clearGlobalCacheForTesting(): void {
 function mapExecutionContextToField(
   executionContext: ExecutionContext,
 ): keyof GlobalThresholds {
-  if (executionContext === "conversation") return "interactive";
-  if (executionContext === "headless") return "headless";
+  if (executionContext === "conversation") {
+    return "interactive";
+  }
+  if (executionContext === "headless") {
+    return "headless";
+  }
   return "autonomous";
 }
 
@@ -171,6 +204,61 @@ function isValidThreshold(value: string): value is AutoApproveThreshold {
     value === "medium" ||
     value === "high"
   );
+}
+
+/**
+ * Result of a cell lookup. `ok: false` is a transport failure — distinct
+ * from `resolved: null` (a successful round-trip that found no cell) so the
+ * pre-prompt refresh path can keep its decision instead of falling through
+ * to a possibly-looser global threshold.
+ */
+export type ChannelPermissionCellResult =
+  | { ok: true; resolved: ResolvedChannelPermission | null }
+  | { ok: false };
+
+/**
+ * Resolve the permission-matrix cell for a channel/actor coordinate via the
+ * gateway (`resolve_channel_permission_threshold` IPC): the winning cell
+ * threshold + scope, or a null resolution when no cascade level has a cell.
+ *
+ * Transport failures are not cached, so a transient IPC failure cannot
+ * suppress a real cell for the TTL window.
+ */
+export async function resolveChannelPermissionCell(
+  query: ResolveChannelPermissionRequest,
+  options?: { bypassCache?: boolean },
+): Promise<ChannelPermissionCellResult> {
+  const key = cellCacheKey(query);
+  if (!options?.bypassCache) {
+    const cached = channelPermissionCellCache.get(key);
+    if (cached && Date.now() - cached.timestamp < CELL_CACHE_TTL_MS) {
+      return { ok: true, resolved: cached.resolved };
+    }
+  }
+
+  const result = (await ipcCall("resolve_channel_permission_threshold", {
+    adapter: query.adapter,
+    channelType: query.channelType,
+    channelExternalId: query.channelExternalId,
+    contactType: query.contactType,
+  })) as { resolved: ResolvedChannelPermission | null } | undefined;
+
+  if (result === undefined) {
+    noteFailure(
+      "channel_permission_cell",
+      { adapter: query.adapter, contactType: query.contactType },
+      "IPC call failed for channel-permission cell lookup",
+    );
+    return { ok: false };
+  }
+
+  noteSuccess("channel_permission_cell");
+  const resolved =
+    result.resolved && isValidThreshold(result.resolved.threshold)
+      ? result.resolved
+      : null;
+  channelPermissionCellCache.set(key, { resolved, timestamp: Date.now() });
+  return { ok: true, resolved };
 }
 
 // ── Main export ──────────────────────────────────────────────────────────────
@@ -189,6 +277,7 @@ function isValidThreshold(value: string): value is AutoApproveThreshold {
 export async function getAutoApproveThreshold(
   conversationId: string | undefined,
   executionContext?: ExecutionContext,
+  cellQuery?: ResolveChannelPermissionRequest,
 ): Promise<AutoApproveThreshold> {
   const ctx: ExecutionContext = executionContext ?? "conversation";
 
@@ -238,6 +327,17 @@ export async function getAutoApproveThreshold(
           timestamp: Date.now(),
         });
       }
+    }
+  }
+
+  // Channel-permission matrix cell: sits between the conversation override
+  // (most specific) and the global defaults in the threshold cascade. A
+  // transport failure falls through to global — same direction as a failed
+  // conversation-override read.
+  if (cellQuery) {
+    const cell = await resolveChannelPermissionCell(cellQuery);
+    if (cell.ok && cell.resolved) {
+      return cell.resolved.threshold;
     }
   }
 
@@ -316,6 +416,7 @@ async function fetchGlobalThresholds(): Promise<GlobalThresholds> {
 export async function refreshAutoApproveThreshold(
   conversationId: string | undefined,
   executionContext?: ExecutionContext,
+  cellQuery?: ResolveChannelPermissionRequest,
 ): Promise<AutoApproveThreshold | null> {
   const ctx: ExecutionContext = executionContext ?? "conversation";
 
@@ -346,6 +447,21 @@ export async function refreshAutoApproveThreshold(
       threshold: null,
       timestamp: Date.now(),
     });
+  }
+
+  // Fresh cell read (cache bypassed, then primed). A transport failure here
+  // returns null — the caller keeps its prompt rather than falling through
+  // to a global threshold that may be looser than the unreadable cell.
+  if (cellQuery) {
+    const cell = await resolveChannelPermissionCell(cellQuery, {
+      bypassCache: true,
+    });
+    if (!cell.ok) {
+      return null;
+    }
+    if (cell.resolved) {
+      return cell.resolved.threshold;
+    }
   }
 
   try {
