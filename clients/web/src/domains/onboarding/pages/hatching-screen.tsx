@@ -238,7 +238,15 @@ export function HatchingScreen() {
           // retired; it only remains as a fallback for any non-local hatch that
           // still lands here.
           if (useLocalHatch) {
-            void navigate(routes.onboarding.research, { replace: true });
+            // Carry the hosting choice through so the research route's
+            // background hatch ADOPTS this just-hatched local assistant instead
+            // of running a managed hatch (see `adoptExisting` there).
+            const researchQs = hostingParam
+              ? `?hosting=${encodeURIComponent(hostingParam)}`
+              : "";
+            void navigate(`${routes.onboarding.research}${researchQs}`, {
+              replace: true,
+            });
             return;
           }
           void navigate(

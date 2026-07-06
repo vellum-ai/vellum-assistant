@@ -11,7 +11,6 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
-import { isLocalMode } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
 import { extractErrorMessage } from "@/utils/api-errors";
 
@@ -45,6 +44,21 @@ export interface UseBackgroundHatch {
   awaitReady: () => Promise<string>;
 }
 
+export interface UseBackgroundHatchOptions {
+  /**
+   * Adopt an assistant that was ALREADY provisioned in the foreground (the
+   * local-hosting path: hosting pick → hatching screen → local daemon), instead
+   * of running the managed `hatchAssistant()` here. When true we skip step 1 and
+   * discover that live assistant via `getAssistant()`.
+   *
+   * This must NOT be conflated with `isLocalMode()` (a build-time value): the
+   * desktop app runs in local mode but can still onboard a Vellum-Cloud
+   * (managed) assistant, which needs the managed hatch. Derive this from the
+   * chosen HOSTING, not the build (see the research route's `?hosting` read).
+   */
+  adoptExisting?: boolean;
+}
+
 /**
  * Background-hatch primitive for the research-onboarding flow.
  *
@@ -55,11 +69,16 @@ export interface UseBackgroundHatch {
  * is reachable. `ready` only flips after the health check passes — never on
  * the hatch return.
  *
+ * When `adoptExisting` is set (a local-hosting onboarding), the managed hatch is
+ * skipped and we adopt the already-live assistant instead.
+ *
  * Terminal failures (platform-hosted disabled, non-recoverable hatch errors,
  * lifecycle errors, timeout) set `error` and reject `awaitReady()`.
  * Recoverable failures (5xx / network) keep polling.
  */
-export function useBackgroundHatch(): UseBackgroundHatch {
+export function useBackgroundHatch(
+  { adoptExisting = false }: UseBackgroundHatchOptions = {},
+): UseBackgroundHatch {
   const [ready, setReady] = useState(false);
   const [assistantId, setAssistantId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -103,14 +122,17 @@ export function useBackgroundHatch(): UseBackgroundHatch {
     void (async () => {
       // 1. Hatch (managed/platform). 201 = newly created, 200 = existing.
       //
-      // Local mode skips this: the assistant is provisioned in the FOREGROUND by
-      // the hatching screen (species/hosting pick → local daemon) BEFORE the
-      // research flow mounts, so there's nothing to hatch here. We fall straight
-      // through to step 2, which discovers that already-active local assistant
-      // via getAssistant() (the daemon SDK routes to the local gateway). Calling
-      // managed `hatchAssistant()` in local mode would hit the platform and fail.
+      // A local-hosting onboarding skips this: the assistant is provisioned in
+      // the FOREGROUND by the hatching screen (hosting pick → local daemon)
+      // BEFORE the research flow mounts, so there's nothing to hatch here. We
+      // fall straight through to step 2, which discovers that already-active
+      // assistant via getAssistant(). Running the managed `hatchAssistant()`
+      // there would provision a SECOND (managed) assistant. Vellum-Cloud
+      // onboarding (adoptExisting=false) still runs the managed hatch, even
+      // though the desktop build reports `isLocalMode()` — that's why this keys
+      // on the chosen hosting, not the build.
       let hatchedAssistantId: string | undefined;
-      if (!isLocalMode()) {
+      if (!adoptExisting) {
         try {
           const result = await hatchAssistant();
           if (result.ok) {
@@ -182,7 +204,7 @@ export function useBackgroundHatch(): UseBackgroundHatch {
 
       settleReady(activeAssistantId);
     })();
-  }, [settleError, settleReady]);
+  }, [settleError, settleReady, adoptExisting]);
 
   const awaitReady = useCallback((): Promise<string> => {
     const settled = settledRef.current;

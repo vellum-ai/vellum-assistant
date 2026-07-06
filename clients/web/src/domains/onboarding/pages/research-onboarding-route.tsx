@@ -18,9 +18,10 @@
  */
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
+import { isLocalMode } from "@/lib/local-mode";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -226,13 +227,23 @@ export function ResearchOnboardingRoute() {
   // suggestions for the in-flow result steps. The research turn is gated on the
   // LATER of the details submit (subject) and hatch readiness: `start()` is
   // called on submit and internally awaits the hatch.
+  // A local-hosting onboarding (hosting=local/docker) already provisioned its
+  // assistant in the hatching screen, so the background hatch ADOPTS it rather
+  // than running a managed hatch. Vellum-Cloud onboarding (no / "vellum-cloud"
+  // hosting) still runs the managed hatch. `isLocalMode()` alone can't tell
+  // these apart — it's a build-time value that's true for the whole desktop app,
+  // including its Vellum-Cloud path — so we key on the chosen hosting.
+  const [searchParams] = useSearchParams();
+  const hostingParam = searchParams.get("hosting");
+  const adoptExistingAssistant =
+    isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
   const {
     start: startHatch,
     ready: hatchReady,
     assistantId: hatchedAssistantId,
     error: hatchError,
     awaitReady: awaitHatchReady,
-  } = useBackgroundHatch();
+  } = useBackgroundHatch({ adoptExisting: adoptExistingAssistant });
   const research = useResearchRunner();
   // Stable across renders (useCallback in the runner); safe as effect deps.
   const { start: startResearch, hydrate: hydrateResearch } = research;
