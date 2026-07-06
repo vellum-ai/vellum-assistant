@@ -21,6 +21,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 
 import { MIN_VERSION } from "@/lib/backwards-compat/plugins-surface";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 
 const isMobileRef = { value: false };
@@ -59,6 +60,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   useAssistantIdentityStore.getState().clearIdentity();
+  useAssistantFeatureFlagStore.setState({ channelTrustFloors: false });
 });
 
 describe("IntelligenceLayout", () => {
@@ -97,6 +99,7 @@ describe("IntelligenceLayout — Plugins tab version gate", () => {
 
   test("shows the Plugins tab (between Identity and Skills) on a plugin-capable assistant", () => {
     useAssistantIdentityStore.getState().setIdentity("Ada", MIN_VERSION);
+    useAssistantFeatureFlagStore.setState({ channelTrustFloors: true });
     const { container } = renderLayout();
     expect(tabLabels(container)).toEqual([
       "Identity",
@@ -106,6 +109,12 @@ describe("IntelligenceLayout — Plugins tab version gate", () => {
       "Contacts",
       "Channels",
     ]);
+  });
+
+  test("hides the Channels tab while channel-trust-floors is off", () => {
+    useAssistantIdentityStore.getState().setIdentity("Ada", MIN_VERSION);
+    const { container } = renderLayout();
+    expect(tabLabels(container)).not.toContain("Channels");
   });
 
   test("hides the Plugins tab on an assistant too old for the plugin routes", () => {
