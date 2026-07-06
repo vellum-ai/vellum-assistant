@@ -45,7 +45,10 @@ import {
   RiskLevel,
   type ScopeOption,
 } from "./types.js";
-import { isWorkspaceScopedInvocation } from "./workspace-policy.js";
+import {
+  isPathWithinWorkspaceRoot,
+  isWorkspaceScopedInvocation,
+} from "./workspace-policy.js";
 
 // ── Risk classification cache ────────────────────────────────────────────────
 // classifyRisk() is called on every permission check and delegates to the
@@ -137,7 +140,7 @@ function fileToolFsStateKey(
   input: Record<string, unknown>,
   workingDir?: string,
 ): string | undefined {
-  if (!FILE_TOOL_NAMES.has(toolName)) return undefined;
+  if (!FILE_TOOL_NAMES.has(toolName)) {return undefined;}
   const resolved = resolveFileToolPaths(toolName, input, workingDir);
   return `${resolved.resolvedPath ?? ""}\0${resolved.resolvedTransferDestPath ?? ""}`;
 }
@@ -157,7 +160,7 @@ function getStringField(
 ): string {
   for (const key of keys) {
     const value = input[key];
-    if (typeof value === "string") return value;
+    if (typeof value === "string") {return value;}
   }
   return "";
 }
@@ -171,7 +174,7 @@ function resolveSkillIdAndHash(
   selector: string,
 ): { id: string; versionHash?: string } | null {
   const resolved = resolveSkillSelector(selector);
-  if (!resolved.skill) return null;
+  if (!resolved.skill) {return null;}
 
   try {
     const hash = computeSkillVersionHash(resolved.skill.directoryPath);
@@ -191,9 +194,9 @@ function resolveSkillIdAndHash(
  * since ownership lives on the registry, not on the tool itself.
  */
 function isToolOwnerSkillBundled(tool: Tool | undefined): boolean {
-  if (!tool) return false;
+  if (!tool) {return false;}
   const owner = getToolOwner(tool.name);
-  if (owner?.kind !== "skill") return false;
+  if (owner?.kind !== "skill") {return false;}
   const skill = loadSkillCatalog().find((s) => s.id === owner.id);
   return skill?.bundled ?? false;
 }
@@ -248,7 +251,7 @@ function canonicalizeWebFetchUrl(parsed: URL): URL {
 
 function normalizeWebFetchUrl(rawUrl: string): URL | null {
   const trimmed = rawUrl.trim();
-  if (!trimmed) return null;
+  if (!trimmed) {return null;}
 
   if (looksLikeHostPortShorthand(trimmed)) {
     try {
@@ -361,7 +364,7 @@ function resolveClassificationPath(
   workingDir: string,
   isHostTool: boolean,
 ): string | undefined {
-  if (!filePath) return undefined;
+  if (!filePath) {return undefined;}
   // Mirror the gateway classifier's lexical base: host tools resolve the path
   // as absolute/relative-to-cwd; sandbox tools apply the /workspace remap and
   // resolve against workingDir. Then follow symlinks so a benign-looking name
@@ -453,7 +456,7 @@ function resolveFileToolPaths(
 
 function resolveSkillMetadata(selector: string): SkillMetadata | undefined {
   const resolved = resolveSkillIdAndHash(selector);
-  if (!resolved) return undefined;
+  if (!resolved) {return undefined;}
 
   const inlineExpansions = hasInlineExpansions(resolved.id);
 
@@ -644,10 +647,31 @@ export async function classifyRisk(
     resolvedPaths: gatewayResult.resolvedPaths,
   };
 
+  // ── Symlink escape check for bash sandbox auto-approve ───────────────
+  // The gateway checks bash path args against the workspace root
+  // lexically (path.resolve) — it has no filesystem access to follow
+  // symlinks. A symlink inside the workspace pointing outside (e.g.
+  // `ln -s /etc /workspace/escape`) would pass the lexical check and
+  // be auto-approved. Resolve the gateway-provided path args through
+  // symlinks here and revoke auto-approve if any escapes the workspace.
+  if (
+    result.sandboxAutoApprove &&
+    gatewayResult.sandboxPathArgs &&
+    gatewayResult.sandboxPathArgs.length > 0
+  ) {
+    const wsRoot = getWorkspaceDir();
+    const escaped = gatewayResult.sandboxPathArgs.some(
+      (p) => !isPathWithinWorkspaceRoot(p, wsRoot),
+    );
+    if (escaped) {
+      result.sandboxAutoApprove = false;
+    }
+  }
+
   // Cache the result.
   if (riskCache.size >= RISK_CACHE_MAX) {
     const oldest = riskCache.keys().next().value;
-    if (oldest !== undefined) riskCache.delete(oldest);
+    if (oldest !== undefined) {riskCache.delete(oldest);}
   }
   riskCache.set(cacheKey, result);
 
@@ -667,7 +691,7 @@ export async function classifyRisk(
   const aKey = assessmentCacheKey(toolName, input);
   if (assessmentCache.size >= RISK_CACHE_MAX) {
     const oldest = assessmentCache.keys().next().value;
-    if (oldest !== undefined) assessmentCache.delete(oldest);
+    if (oldest !== undefined) {assessmentCache.delete(oldest);}
   }
   assessmentCache.set(aKey, assessment);
 
@@ -706,8 +730,8 @@ function isRetrospectiveSkillAuthoringGrant(
   ) {
     return false;
   }
-  if (toolName === "scaffold_managed_skill") return true;
-  if (toolName === "find_similar_skills") return true;
+  if (toolName === "scaffold_managed_skill") {return true;}
+  if (toolName === "find_similar_skills") {return true;}
   if (toolName === "skill_load") {
     return (
       getStringField(input, "skill", "skill_id").trim() ===
@@ -893,9 +917,9 @@ function fileAllowlistStrategy(
       description: `Anything in ${dirName}/`,
       pattern: `${toolName}:${dir}/**`,
     });
-    if (dir === home) break;
+    if (dir === home) {break;}
     const parent = dirname(dir);
-    if (parent === dir) break;
+    if (parent === dir) {break;}
     dir = parent;
     levels++;
   }
@@ -944,7 +968,7 @@ function urlAllowlistStrategy(
 
   const seen = new Set<string>();
   return options.filter((o) => {
-    if (seen.has(o.pattern)) return false;
+    if (seen.has(o.pattern)) {return false;}
     seen.add(o.pattern);
     return true;
   });
