@@ -33,6 +33,11 @@ import type {
 } from "../../provider-types.js";
 import * as slack from "./client.js";
 import { SlackApiError } from "./client.js";
+import {
+  classifyConversationType,
+  isPrivateConversation,
+  slackUserDisplayName,
+} from "./conversation-utils.js";
 import type {
   SlackConversation,
   SlackMessage,
@@ -292,12 +297,7 @@ function normalizeSlackUserInfo(
   contactDisplayName: string | undefined,
 ): NormalizedSlackUserInfo {
   const displayName =
-    contactDisplayName ||
-    user.profile?.display_name ||
-    user.profile?.real_name ||
-    user.real_name ||
-    user.name ||
-    user.id;
+    contactDisplayName || slackUserDisplayName(user) || user.id;
   const timezone = trimNonEmpty(user.tz);
   const timezoneLabel = trimNonEmpty(user.tz_label);
   const timezoneOffsetSeconds =
@@ -337,26 +337,19 @@ function slackUserInfoMetadata(
   };
 }
 
-function mapConversationType(conv: SlackConversation): Conversation["type"] {
-  if (conv.is_im) return "dm";
-  if (conv.is_mpim) return "group";
-  if (conv.is_group) return "group";
-  return "channel";
-}
-
 function mapConversation(conv: SlackConversation): Conversation {
   const latestTs = conv.latest?.ts ? parseFloat(conv.latest.ts) * 1000 : 0;
   return {
     id: conv.id,
     name: conv.name ?? conv.id,
-    type: mapConversationType(conv),
+    type: classifyConversationType(conv),
     platform: "slack",
     unreadCount: conv.unread_count_display ?? conv.unread_count ?? 0,
     lastActivityAt: latestTs,
     memberCount: conv.num_members,
     topic: conv.topic?.value || undefined,
     isArchived: conv.is_archived,
-    isPrivate: conv.is_private ?? conv.is_group ?? false,
+    isPrivate: isPrivateConversation(conv),
     metadata: conv.is_im ? { dmUserId: conv.user } : undefined,
   };
 }
