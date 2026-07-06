@@ -96,22 +96,20 @@ const RUNTIME_PROXIED_FIRST_SEGMENTS = new Set<string>([
   // `config` retries against a nonexistent platform and floods the console
   // with 502s. Each is listed only because the gateway (or the daemon it
   // proxies to) actually serves the assistant-scoped routes the call sites
-  // hit: `config` (daemon GET/PATCH), `permissions/thresholds` +
-  // `trust-rules` (gateway, all methods), and `contacts` +
-  // `contact-channels` (gateway assistant-scoped mirrors for the contacts
-  // control plane — upsert, delete, prompt submit, channel verify; other
-  // sub-paths fall through the gateway's runtime proxy to the daemon).
+  // hit: `config` (daemon GET/PATCH), and `permissions/thresholds` +
+  // `trust-rules` (gateway, all methods).
   //
-  // Deliberately NOT listed: `artifacts` and `a2a`. There is no `artifacts`
-  // route on the gateway or daemon, and `/a2a/invites/redeem` is a platform
-  // broker route. Forwarding them would only turn the existing failure into
-  // a 404, so they stay on the platform until the assistant-scoped routes
-  // are mirrored.
+  // Deliberately NOT listed: `contacts`, `contact-channels`, `artifacts`,
+  // and `a2a`. Their assistant-scoped routes aren't served by the gateway
+  // or daemon — the contacts control plane is registered at flat
+  // `/v1/contacts...` paths (only an assistant-scoped contacts DELETE
+  // exists), there is no `artifacts` route, and `/a2a/invites/redeem` is a
+  // platform broker route. Forwarding them would only turn the existing
+  // failure into a 404, so they stay on the platform until the
+  // assistant-scoped routes are mirrored.
   "config",
   "permissions",
   "trust-rules",
-  "contacts",
-  "contact-channels",
 ]);
 
 const ASSISTANT_PATH_RE =

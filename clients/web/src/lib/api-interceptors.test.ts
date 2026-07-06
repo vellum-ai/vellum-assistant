@@ -293,23 +293,16 @@ describe("api-interceptors / self-hosted rewriting", () => {
   });
 
   test("rewrites daemon/gateway-owned segments reached via the platform client", async () => {
-    // config / permissions / trust-rules / contacts / contact-channels are
-    // daemon- or gateway-owned and are called through the platform client
-    // via raw `client.*` requests (e.g. the background `TimezoneSync` PATCH
-    // to `config`, the contacts control-plane calls in
-    // `contacts-gateway.ts`). In local / self-hosted mode they must route
-    // to the gateway like conversations rather than fall through to the
-    // dead platform proxy. (artifacts is NOT listed — its assistant-scoped
-    // routes aren't served by the gateway or daemon, so forwarding it would
-    // only 404.)
+    // config / permissions / trust-rules are daemon- or gateway-owned and
+    // are called through the platform client via raw `client.*` requests
+    // (e.g. the background `TimezoneSync` PATCH to `config`). In local /
+    // self-hosted mode they must route to the gateway like conversations
+    // rather than fall through to the dead platform proxy and flood the
+    // console with 502s. (contacts / contact-channels / artifacts are NOT
+    // listed — their assistant-scoped routes aren't served by the gateway
+    // or daemon, so forwarding them would only 404.)
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
-    for (const segment of [
-      "config",
-      "permissions",
-      "trust-rules",
-      "contacts",
-      "contact-channels",
-    ]) {
+    for (const segment of ["config", "permissions", "trust-rules"]) {
       const path = `/v1/assistants/${SELF_HOSTED_ID}/${segment}/`;
       const input = new Request(`https://platform.test${path}`, {
         method: "POST",
@@ -319,42 +312,6 @@ describe("api-interceptors / self-hosted rewriting", () => {
       expect(outUrl.origin).toBe(INGRESS);
       expect(outUrl.pathname).toBe(path);
       expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
-    }
-  });
-
-  test("rewrites the contacts control-plane mutations to the ingress", async () => {
-    // The contact delete / upsert / channel-verify calls in
-    // `contacts-gateway.ts` go through the platform client with
-    // assistant-scoped paths. In local / self-hosted mode these must reach
-    // the gateway (which serves assistant-scoped mirrors for them) — before
-    // `contacts` was allowlisted, the DELETE fell through to the platform
-    // and surfaced as a "Not Found" toast (LUM-2705).
-    setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
-    for (const { method, path } of [
-      {
-        method: "DELETE",
-        path: `/v1/assistants/${SELF_HOSTED_ID}/contacts/ct-123/`,
-      },
-      {
-        method: "POST",
-        path: `/v1/assistants/${SELF_HOSTED_ID}/contacts/`,
-      },
-      {
-        method: "POST",
-        path: `/v1/assistants/${SELF_HOSTED_ID}/contacts/prompt/submit/`,
-      },
-      {
-        method: "POST",
-        path: `/v1/assistants/${SELF_HOSTED_ID}/contact-channels/ch-123/verify/`,
-      },
-    ]) {
-      const input = new Request(`https://platform.test${path}`, { method });
-      const output = await requestInterceptor(input);
-      const outUrl = new URL(output.url);
-      expect(outUrl.origin).toBe(INGRESS);
-      expect(outUrl.pathname).toBe(path);
-      expect(output.headers.get("Authorization")).toBe(`Bearer ${ACTOR_TOKEN}`);
-      expect(output.headers.get("X-CSRFToken")).toBeNull();
     }
   });
 
@@ -472,9 +429,13 @@ describe("api-interceptors / self-hosted rewriting", () => {
       "oauth",
       // `/a2a/invites/redeem` is a platform broker (Django) route.
       "a2a",
-      // artifacts has no assistant-scoped route on the gateway or daemon,
-      // so it must NOT be rewritten — forwarding would 404 rather than
-      // reach a handler.
+      // contacts / contact-channels / artifacts are daemon/gateway-owned but
+      // their assistant-scoped routes aren't served (the contacts control
+      // plane is registered at flat `/v1/contacts...` paths; there is no
+      // artifacts route), so they must NOT be rewritten — forwarding would
+      // 404 rather than reach a handler.
+      "contacts",
+      "contact-channels",
       "artifacts",
     ]) {
       const input = new Request(
