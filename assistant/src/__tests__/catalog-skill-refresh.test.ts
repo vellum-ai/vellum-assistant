@@ -1,11 +1,12 @@
 /**
  * Staleness refresh for catalog-installed skills.
  *
- * Installed catalog skills load with user-skill precedence and previously
- * stayed frozen at install time — a published skill fix never reached
- * assistants that already had the skill. `refreshInstalledSkillIfStale`
- * refreshes a pristine, vellum-origin install when the catalog entry is
- * newer, and must never overwrite user-modified or non-catalog installs.
+ * Catalog skills install as a workspace copy that loads with user-skill
+ * precedence. `refreshInstalledSkillIfStale` refreshes a pristine,
+ * vellum-origin install in place when the catalog entry is newer, and never
+ * overwrites a user-modified or non-catalog install — so a published skill
+ * fix reaches assistants that already have the skill installed without
+ * clobbering local edits.
  */
 import {
   existsSync,

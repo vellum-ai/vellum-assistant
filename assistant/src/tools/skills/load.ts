@@ -83,6 +83,22 @@ async function refreshCatalogSkillBounded(
   ]);
 }
 
+/** Compute a skill directory's version hash, returning undefined on error. */
+function safeComputeVersionHash(
+  directoryPath: string,
+  logCtx: { skillId: string },
+): string | undefined {
+  try {
+    return computeSkillVersionHash(directoryPath);
+  } catch (err) {
+    log.warn(
+      { err, skillId: logCtx.skillId },
+      "Failed to compute skill version hash for marker",
+    );
+    return undefined;
+  }
+}
+
 /**
  * Attempt to load and parse TOOLS.json from a skill directory.
  * Returns undefined if the file doesn't exist or fails to parse.
@@ -258,6 +274,18 @@ export const skillLoadTool = {
         }
       }
     }
+
+    // Capture the version hash of the content being served NOW, before the
+    // inline-command / include awaits below. If a refresh that missed the
+    // bounded window commits in the background during those awaits, the
+    // atomic swap changes the on-disk hash — recomputing the activation
+    // marker from disk at the end would then advertise a version whose body
+    // was never injected this turn. Pinning the hash here keeps the emitted
+    // `<loaded_skill version>` marker consistent with the body served, and the
+    // background refresh is picked up on the next load.
+    const servedVersionHash = safeComputeVersionHash(skill.directoryPath, {
+      skillId: skill.id,
+    });
 
     // Per-chat plugin scope gate: a plugin-owned skill whose owning plugin is
     // outside the conversation's effective set must not have its instructions
@@ -452,6 +480,10 @@ export const skillLoadTool = {
     let immediateChildrenSection: string;
     const includedBodies: string[] = [];
     let anyChildHasTools = false;
+    // Version hash of each included child's served body, pinned at read-time so
+    // its activation marker stays consistent with the body injected here even
+    // if a background refresh swaps the child's on-disk copy mid-load.
+    const childServedVersionHashes = new Map<string, string | undefined>();
     if (skill.includes && skill.includes.length > 0 && catalogIndex) {
       const childLines: string[] = [];
       for (const childId of skill.includes) {
@@ -482,6 +514,15 @@ export const skillLoadTool = {
         // Load the included skill's body content
         const childLoaded = loadSkillBySelector(childId);
         if (childLoaded.skill && childLoaded.skill.body.length > 0) {
+          // Pin the hash of the child content read here (no await between the
+          // refresh above and this read), so its marker below matches the
+          // injected body rather than a later background-refreshed copy.
+          childServedVersionHashes.set(
+            childId,
+            safeComputeVersionHash(childLoaded.skill.directoryPath, {
+              skillId: childId,
+            }),
+          );
           let childBody = childLoaded.skill.body;
 
           // ── Inline command expansion for included child skill ─────────
@@ -589,17 +630,9 @@ export const skillLoadTool = {
           ].join("\n")
         : undefined;
 
-    let versionHash: string | undefined;
-    try {
-      versionHash = computeSkillVersionHash(skill.directoryPath);
-    } catch (err) {
-      log.warn(
-        { err, skillId: skill.id },
-        "Failed to compute skill version hash for marker",
-      );
-    }
-
-    const versionAttr = versionHash ? ` version="${versionHash}"` : "";
+    const versionAttr = servedVersionHash
+      ? ` version="${servedVersionHash}"`
+      : "";
 
     // Emit markers for included skills so their tools get projected
     const includeMarkers: string[] = [];
@@ -617,15 +650,12 @@ export const skillLoadTool = {
           !isAssistantFeatureFlagEnabled(childFlagKey2, config)
         )
           continue;
-        let childHash: string | undefined;
-        try {
-          childHash = computeSkillVersionHash(child.directoryPath);
-        } catch (err) {
-          log.warn(
-            { err, skillId: childId },
-            "Failed to compute included skill version hash",
-          );
-        }
+        // Prefer the hash pinned when the child body was read (kept
+        // consistent with the injected body); fall back to a fresh read for a
+        // child that was listed but whose body was empty/unread above.
+        const childHash = childServedVersionHashes.has(childId)
+          ? childServedVersionHashes.get(childId)
+          : safeComputeVersionHash(child.directoryPath, { skillId: childId });
         const childVersionAttr = childHash ? ` version="${childHash}"` : "";
         includeMarkers.push(
           `<loaded_skill id="${childId}"${childVersionAttr} />`,
