@@ -277,24 +277,42 @@ async function callSlackApiGet(
 /** Slack caps `markdown_text` at 12,000 characters per stream call. */
 export const SLACK_STREAM_MARKDOWN_LIMIT = 12_000;
 
+/** Slack caps `task_update` / `plan_update` chunk string fields at 256 characters. */
+const SLACK_STREAM_CHUNK_FIELD_LIMIT = 256;
+
+function capChunkField(value: string): string {
+  return value.slice(0, SLACK_STREAM_CHUNK_FIELD_LIMIT);
+}
+
 /**
- * A `task_update` streaming chunk. Identical in shape to the Slack task card
- * block, used to render plan progress while a stream is open.
+ * Build the `chunks` array for a streaming call: an optional `plan_update`
+ * titling the plan block, followed by one `task_update` per task card
+ * (identical in shape to the Slack task card block).
  *
  * @see https://docs.slack.dev/reference/methods/chat.appendStream/
  */
-function toTaskUpdateChunks(
-  tasks: readonly SlackStreamTask[] | undefined,
-): Record<string, unknown>[] | undefined {
-  if (!tasks || tasks.length === 0) return undefined;
-  return tasks.map((task) => ({
-    type: "task_update",
-    id: task.id,
-    title: task.title,
-    status: task.status,
-    ...(task.details ? { details: task.details } : {}),
-    ...(task.output ? { output: task.output } : {}),
-  }));
+function toStreamChunks(params: {
+  tasks?: readonly SlackStreamTask[];
+  planTitle?: string;
+}): Record<string, unknown>[] | undefined {
+  const chunks: Record<string, unknown>[] = [];
+  if (params.planTitle) {
+    chunks.push({
+      type: "plan_update",
+      title: capChunkField(params.planTitle),
+    });
+  }
+  for (const task of params.tasks ?? []) {
+    chunks.push({
+      type: "task_update",
+      id: task.id,
+      title: capChunkField(task.title),
+      status: task.status,
+      ...(task.details ? { details: capChunkField(task.details) } : {}),
+      ...(task.output ? { output: capChunkField(task.output) } : {}),
+    });
+  }
+  return chunks.length > 0 ? chunks : undefined;
 }
 
 /**
@@ -308,6 +326,7 @@ export async function startSlackStream(params: {
   threadTs: string;
   markdownText?: string;
   taskDisplayMode?: "plan";
+  planTitle?: string;
   tasks?: readonly SlackStreamTask[];
   recipientUserId?: string;
   recipientTeamId?: string;
@@ -321,7 +340,7 @@ export async function startSlackStream(params: {
   // Channel streams must name the reader; DMs infer it and omit both fields.
   if (params.recipientUserId) body.recipient_user_id = params.recipientUserId;
   if (params.recipientTeamId) body.recipient_team_id = params.recipientTeamId;
-  const chunks = toTaskUpdateChunks(params.tasks);
+  const chunks = toStreamChunks(params);
   if (chunks) body.chunks = chunks;
 
   const data = await callSlackApi("chat.startStream", body);
@@ -339,6 +358,7 @@ export async function appendSlackStream(params: {
   channel: string;
   streamTs: string;
   markdownText?: string;
+  planTitle?: string;
   tasks?: readonly SlackStreamTask[];
 }): Promise<void> {
   const body: Record<string, unknown> = {
@@ -346,7 +366,7 @@ export async function appendSlackStream(params: {
     ts: params.streamTs,
   };
   if (params.markdownText) body.markdown_text = params.markdownText;
-  const chunks = toTaskUpdateChunks(params.tasks);
+  const chunks = toStreamChunks(params);
   if (chunks) body.chunks = chunks;
 
   await callSlackApi("chat.appendStream", body);
@@ -363,6 +383,7 @@ export async function stopSlackStream(params: {
   streamTs: string;
   markdownText?: string;
   blocks?: readonly KnownBlock[];
+  planTitle?: string;
   tasks?: readonly SlackStreamTask[];
 }): Promise<void> {
   const body: Record<string, unknown> = {
@@ -371,7 +392,7 @@ export async function stopSlackStream(params: {
   };
   if (params.markdownText) body.markdown_text = params.markdownText;
   if (params.blocks && params.blocks.length > 0) body.blocks = params.blocks;
-  const chunks = toTaskUpdateChunks(params.tasks);
+  const chunks = toStreamChunks(params);
   if (chunks) body.chunks = chunks;
 
   await callSlackApi("chat.stopStream", body);

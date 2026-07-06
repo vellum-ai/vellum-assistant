@@ -302,6 +302,7 @@ export async function sendSlackStreamOp(
         threadTs: op.threadTs,
         markdownText: op.markdownText,
         taskDisplayMode: op.taskDisplayMode,
+        planTitle: op.planTitle,
         tasks: op.tasks,
         recipientUserId: op.recipientUserId,
         recipientTeamId: op.recipientTeamId,
@@ -314,6 +315,7 @@ export async function sendSlackStreamOp(
         channel,
         streamTs: op.streamTs,
         markdownText: op.markdownText,
+        planTitle: op.planTitle,
         tasks: op.tasks,
       });
       return { ok: true, ts: op.streamTs };
@@ -324,6 +326,7 @@ export async function sendSlackStreamOp(
         streamTs: op.streamTs,
         markdownText: op.markdownText,
         blocks: op.blocks,
+        planTitle: op.planTitle,
         tasks: op.tasks,
       });
       log.info({ channel, ts: op.streamTs }, "Slack stream stopped");
