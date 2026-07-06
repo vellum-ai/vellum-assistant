@@ -474,7 +474,20 @@ describe("createSlackReplySession", () => {
       ]),
     );
     await tick(15);
+    session.observeEvent(
+      taskProgressUpdate("surface-1", [
+        { label: "Search docs", status: "completed" },
+      ]),
+    );
+    await tick(15);
     const reconciliation = await session.finish();
+
+    // The first rejection disables task-only appends for the session, so
+    // later progress updates do not retry a doomed call.
+    const taskOnlyAttempts = slackStreamOps().filter(
+      (op) => op.action === "append" && op.markdownText === undefined,
+    );
+    expect(taskOnlyAttempts.length).toBe(1);
 
     // The failed task-only append does not degrade the stream; the plan
     // still lands on the final stop.
@@ -482,7 +495,7 @@ describe("createSlackReplySession", () => {
     expect(slackStreamOps().at(-1)).toEqual({
       action: "stop",
       streamTs: "stream-ts-1",
-      tasks: [{ id: "task-0", title: "Search docs", status: "in_progress" }],
+      tasks: [{ id: "task-0", title: "Search docs", status: "complete" }],
     });
   });
 

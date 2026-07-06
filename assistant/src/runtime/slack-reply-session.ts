@@ -145,6 +145,12 @@ export function createSlackReplySession(params: {
   // Fingerprint of the plan state last delivered to Slack, so progress that
   // advances without new body text still flushes as a task-only append.
   let deliveredProgressKey: string | undefined;
+  // Set once a chunks-only append is rejected (e.g. a Slack tier that
+  // requires `markdown_text` on every append): the session stops attempting
+  // them and progress rides the next text append or `stopStream` instead,
+  // so a rejecting workspace pays one failed call per turn, not one per
+  // progress update.
+  let taskOnlyAppendsDisabled = false;
 
   let coalesceTimer: ReturnType<typeof setTimeout> | undefined;
   let opChain: Promise<void> = Promise.resolve();
@@ -271,9 +277,10 @@ export function createSlackReplySession(params: {
       // Progress that advances without new body text still lands live:
       // `chat.appendStream` accepts a chunks-only call, so the plan block
       // ticks during tool work instead of waiting for the next text append.
-      // A failure defers the update; the unchanged fingerprint retries it on
-      // the next flush and `stopStream` carries the final state regardless.
-      if (tasks && key !== deliveredProgressKey) {
+      // A failure disables further task-only appends for the session; the
+      // unchanged fingerprint leaves the update pending, so it rides the
+      // next text append and `stopStream` carries the final state.
+      if (!taskOnlyAppendsDisabled && tasks && key !== deliveredProgressKey) {
         try {
           await deliverChannelReply(replyCallbackUrl, {
             chatId,
@@ -287,9 +294,10 @@ export function createSlackReplySession(params: {
           });
           deliveredProgressKey = key;
         } catch (err) {
+          taskOnlyAppendsDisabled = true;
           log.warn(
             { err, chatId },
-            "Slack task-only appendStream failed; deferring progress",
+            "Slack task-only appendStream failed; deferring progress to text appends",
           );
         }
       }
