@@ -57,15 +57,26 @@ mock.module("../persistence/conversation-crud.js", () => ({
 let nextPairingResult:
   | import("../notifications/conversation-pairing.js").PairingResult
   | null = null;
+// Per-channel results take precedence over nextPairingResult, so mixed
+// broadcasts can drive prod-realistic pairings (e.g. platform is push_only
+// and pairs null while vellum creates a conversation).
+let pairingResultsByChannel: Record<
+  string,
+  import("../notifications/conversation-pairing.js").PairingResult
+> = {};
 let pairingCallCount = 0;
 
 mock.module("../notifications/conversation-pairing.js", () => ({
   pairDeliveryWithConversation: async (
     _signal: unknown,
-    _channel: string,
+    channel: string,
     _copy: unknown,
     _options?: PairingOptions,
   ) => {
+    const byChannel = pairingResultsByChannel[channel];
+    if (byChannel) {
+      return byChannel;
+    }
     if (nextPairingResult) {
       const result = nextPairingResult;
       nextPairingResult = null;
@@ -156,6 +167,7 @@ class MockAdapter implements ChannelAdapter {
 describe("notification deep-link metadata", () => {
   beforeEach(() => {
     nextPairingResult = null;
+    pairingResultsByChannel = {};
     mockExistingConversations = {};
   });
 
@@ -808,6 +820,166 @@ describe("notification deep-link metadata", () => {
       const platformConvId =
         platformAdapter.sent[0].deepLinkTarget?.conversationId;
       expect(String(platformConvId)).toStartWith("mock-conv-");
+    });
+
+    // ── Vellum pairing carried into the platform deep link ─────────────
+    //
+    // In production the platform channel is push_only: its own pairing
+    // returns null. When the vellum channel creates (or reuses) a
+    // conversation in the same broadcast, the platform deep link must
+    // carry that conversation so remote-push taps land in the thread the
+    // notification is about (approval requests, guardian questions).
+
+    test("platform deep link carries the vellum-created conversation in a mixed broadcast", async () => {
+      const vellumAdapter = new MockAdapter("vellum");
+      const platformAdapter = new MockAdapter("platform");
+      const broadcaster = new NotificationBroadcaster([
+        vellumAdapter,
+        platformAdapter,
+      ]);
+
+      pairingResultsByChannel = {
+        vellum: {
+          conversationId: "conv-vellum-created",
+          messageId: "msg-vellum-seed",
+          strategy: "start_new_conversation",
+          createdNewConversation: true,
+          conversationFallbackUsed: false,
+        },
+        platform: {
+          conversationId: null,
+          messageId: null,
+          strategy: "push_only",
+          createdNewConversation: false,
+          conversationFallbackUsed: false,
+        },
+      };
+
+      // Sentinel source context (access-req-*) that resolves to no
+      // conversation, so the vellum carry is the only viable deep-link source.
+      const signal = makeSignal({ sourceContextId: "access-req-123" });
+      // Platform listed first to prove the vellum-first ordering makes the
+      // carry available regardless of selectedChannels order.
+      const decision = makeDecision({
+        selectedChannels: ["platform", "vellum"],
+        renderedCopy: {
+          vellum: { title: "Approval needed", body: "Allow file access?" },
+          platform: { title: "Approval needed", body: "Allow file access?" },
+        },
+      });
+
+      await broadcaster.broadcastDecision(signal, decision);
+
+      // Vellum unchanged: enriched from its own pairing.
+      expect(vellumAdapter.sent).toHaveLength(1);
+      expect(vellumAdapter.sent[0].deepLinkTarget?.conversationId).toBe(
+        "conv-vellum-created",
+      );
+      expect(vellumAdapter.sent[0].deepLinkTarget?.messageId).toBe(
+        "msg-vellum-seed",
+      );
+
+      // Platform carries the vellum-created conversation and seed message.
+      expect(platformAdapter.sent).toHaveLength(1);
+      expect(platformAdapter.sent[0].deepLinkTarget?.conversationId).toBe(
+        "conv-vellum-created",
+      );
+      expect(platformAdapter.sent[0].deepLinkTarget?.messageId).toBe(
+        "msg-vellum-seed",
+      );
+    });
+
+    test("platform prefers the vellum pairing over the source-context fallback in a mixed broadcast", async () => {
+      const vellumAdapter = new MockAdapter("vellum");
+      const platformAdapter = new MockAdapter("platform");
+      const broadcaster = new NotificationBroadcaster([
+        vellumAdapter,
+        platformAdapter,
+      ]);
+
+      pairingResultsByChannel = {
+        vellum: {
+          conversationId: "conv-approval-thread",
+          messageId: "msg-approval-card",
+          strategy: "start_new_conversation",
+          createdNewConversation: true,
+          conversationFallbackUsed: false,
+        },
+        platform: {
+          conversationId: null,
+          messageId: null,
+          strategy: "push_only",
+          createdNewConversation: false,
+          conversationFallbackUsed: false,
+        },
+      };
+
+      // The source context resolves to a real conversation, but the tap
+      // should land in the created approval thread, not the source.
+      const originConvId = "conv-source-of-signal";
+      mockExistingConversations[originConvId] = { id: originConvId };
+
+      const signal = makeSignal({ sourceContextId: originConvId });
+      const decision = makeDecision({
+        selectedChannels: ["vellum", "platform"],
+        renderedCopy: {
+          vellum: { title: "Question", body: "Approve?" },
+          platform: { title: "Question", body: "Approve?" },
+        },
+      });
+
+      await broadcaster.broadcastDecision(signal, decision);
+
+      expect(platformAdapter.sent).toHaveLength(1);
+      expect(platformAdapter.sent[0].deepLinkTarget?.conversationId).toBe(
+        "conv-approval-thread",
+      );
+    });
+
+    test("platform falls back to sourceContextId in a mixed broadcast when vellum pairs no conversation", async () => {
+      const vellumAdapter = new MockAdapter("vellum");
+      const platformAdapter = new MockAdapter("platform");
+      const broadcaster = new NotificationBroadcaster([
+        vellumAdapter,
+        platformAdapter,
+      ]);
+
+      // Passive vellum signal: pairing skips conversation creation.
+      pairingResultsByChannel = {
+        vellum: {
+          conversationId: null,
+          messageId: null,
+          strategy: "start_new_conversation",
+          createdNewConversation: false,
+          conversationFallbackUsed: false,
+        },
+        platform: {
+          conversationId: null,
+          messageId: null,
+          strategy: "push_only",
+          createdNewConversation: false,
+          conversationFallbackUsed: false,
+        },
+      };
+
+      const originConvId = "conv-passive-origin";
+      mockExistingConversations[originConvId] = { id: originConvId };
+
+      const signal = makeSignal({ sourceContextId: originConvId });
+      const decision = makeDecision({
+        selectedChannels: ["vellum", "platform"],
+        renderedCopy: {
+          vellum: { title: "Turn done", body: "Task finished" },
+          platform: { title: "Turn done", body: "Task finished" },
+        },
+      });
+
+      await broadcaster.broadcastDecision(signal, decision);
+
+      expect(platformAdapter.sent).toHaveLength(1);
+      expect(platformAdapter.sent[0].deepLinkTarget?.conversationId).toBe(
+        originConvId,
+      );
     });
 
     test("channels other than vellum and platform do not receive deterministic enrichment", async () => {
