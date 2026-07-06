@@ -20,6 +20,14 @@ export interface NavigationState {
   privacyConsent: boolean;
   analyticsConsentCurrent: boolean;
   diagnosticsConsentCurrent: boolean;
+  /**
+   * Whether the consent flags above reflect a completed session sync (or an
+   * explicit acceptance). They boot `false`, so acting on them before
+   * hydration would misread an established user as un-onboarded.
+   */
+  consentHydrated: boolean;
+  /** Whether the resolved assistants list reflects at least one authoritative load. */
+  assistantsHydrated: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -303,6 +311,14 @@ function requireAssistant(
     return { action: "redirect", to: routes.welcome };
   }
 
+  // Platform boot populates the assistants list and the consent flags
+  // asynchronously; both boot empty/false. Deciding before they hydrate would
+  // read an established user as brand-new and funnel them into onboarding.
+  // (Local mode is excluded above — its list is lockfile-driven.)
+  if (!state.assistantsHydrated || !state.consentHydrated) {
+    return { action: "wait" };
+  }
+
   if (!hasCompletedOnboarding(state)) {
     return { action: "redirect", to: routes.onboarding.privacy };
   }
@@ -331,6 +347,15 @@ function requireConsent(
     consentIsCurrent(state)
   ) {
     return null;
+  }
+
+  // The flags boot false and hydrate asynchronously — a redirect decided
+  // before hydration would bounce a fully consented user to review-terms.
+  // Local mode decides immediately: its platform-session paths that enforce
+  // consent hydrate synchronously during session init, and the gateway-probe
+  // path never hydrates, so waiting there would hang navigation.
+  if (!state.consentHydrated && !state.isLocalMode) {
+    return { action: "wait" };
   }
 
   const returnTo = encodeURIComponent(pathnameWithSearch);
