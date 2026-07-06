@@ -401,6 +401,68 @@ describe("LiveVoiceServerFrameSequencer", () => {
     expect(sequencer.lastSeq).toBe(3);
   });
 
+  test("preserves the ready frame's turnDetection echo", () => {
+    const sequencer = createLiveVoiceServerFrameSequencer();
+
+    const manualReady: LiveVoiceServerFrame = sequencer.next({
+      type: "ready",
+      sessionId: "session-123",
+      conversationId: "conversation-123",
+      turnDetection: "manual",
+    });
+    const vadReady: LiveVoiceServerFrame = sequencer.next({
+      type: "ready",
+      sessionId: "session-123",
+      conversationId: "conversation-123",
+      turnDetection: "server_vad",
+    });
+
+    expect(manualReady).toEqual({
+      type: "ready",
+      seq: 1,
+      sessionId: "session-123",
+      conversationId: "conversation-123",
+      turnDetection: "manual",
+    });
+    expect(vadReady).toEqual({
+      type: "ready",
+      seq: 2,
+      sessionId: "session-123",
+      conversationId: "conversation-123",
+      turnDetection: "server_vad",
+    });
+  });
+
+  test("preserves the error frame's recoverable flag", () => {
+    const sequencer = createLiveVoiceServerFrameSequencer();
+
+    const recoverable: LiveVoiceServerFrame = sequencer.next({
+      type: "error",
+      code: "invalid_field",
+      message: "transient transcriber error",
+      recoverable: true,
+    });
+    const terminal: LiveVoiceServerFrame = sequencer.next({
+      type: "error",
+      code: "invalid_field",
+      message: "startup failed",
+    });
+
+    expect(recoverable).toEqual({
+      type: "error",
+      seq: 1,
+      code: "invalid_field",
+      message: "transient transcriber error",
+      recoverable: true,
+    });
+    expect(terminal).toEqual({
+      type: "error",
+      seq: 2,
+      code: "invalid_field",
+      message: "startup failed",
+    });
+  });
+
   test("sequences utterance_discarded frames", () => {
     const sequencer = createLiveVoiceServerFrameSequencer();
 

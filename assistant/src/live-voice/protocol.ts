@@ -112,6 +112,12 @@ export interface LiveVoiceReadyServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "ready";
   readonly sessionId: string;
   readonly conversationId: string;
+  /**
+   * Echoes the turn-detection mode the session is actually running, so
+   * clients can detect a daemon that ignored a requested mode. Absent
+   * (older daemons) means "manual".
+   */
+  readonly turnDetection?: LiveVoiceTurnDetectionMode;
 }
 
 export interface LiveVoiceBusyServerFrame extends LiveVoiceServerFrameBase {
@@ -218,6 +224,12 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "error";
   readonly code: LiveVoiceProtocolErrorCode;
   readonly message: string;
+  /**
+   * True when the session continues past the error (e.g. a transient
+   * transcriber blip or one failed TTS segment). Absent (including on frames
+   * from older daemons) means the error is terminal for the session.
+   */
+  readonly recoverable?: boolean;
 }
 
 export type LiveVoiceServerFrame =

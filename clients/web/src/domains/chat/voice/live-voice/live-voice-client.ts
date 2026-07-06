@@ -37,6 +37,7 @@ import {
   type LiveVoiceTtsDoneServerFrame,
   type LiveVoiceTurnCancelledServerFrame,
   type LiveVoiceTurnDetectionMode,
+  type LiveVoiceUtteranceDiscardedServerFrame,
   type LiveVoiceUtteranceEndServerFrame,
   parseServerFrame,
 } from "@/domains/chat/voice/live-voice/protocol";
@@ -55,6 +56,11 @@ export interface LiveVoiceClientError {
   /** Protocol error code from the server `error` frame, when applicable. */
   readonly code?: string;
   readonly message: string;
+  /**
+   * True when the server marked the error recoverable and the transport was
+   * kept open — the session is still live. Absent means the client tore down.
+   */
+  readonly recoverable?: boolean;
 }
 
 /**
@@ -68,6 +74,8 @@ export interface LiveVoiceClientEventMap {
   speechStarted: LiveVoiceSpeechStartedServerFrame;
   /** Server VAD closed the utterance; transcription begins. */
   utteranceEnd: LiveVoiceUtteranceEndServerFrame;
+  /** The closed utterance had no usable speech — return to listening. */
+  utteranceDiscarded: LiveVoiceUtteranceDiscardedServerFrame;
   sttPartial: LiveVoiceSttPartialServerFrame;
   sttFinal: LiveVoiceSttFinalServerFrame;
   thinking: LiveVoiceThinkingServerFrame;
@@ -133,6 +141,7 @@ export class LiveVoiceChannelClient {
     ready: new Set(),
     speechStarted: new Set(),
     utteranceEnd: new Set(),
+    utteranceDiscarded: new Set(),
     sttPartial: new Set(),
     sttFinal: new Set(),
     thinking: new Set(),
@@ -300,6 +309,9 @@ export class LiveVoiceChannelClient {
       case "utterance_end":
         this.emit("utteranceEnd", frame);
         return;
+      case "utterance_discarded":
+        this.emit("utteranceDiscarded", frame);
+        return;
       case "stt_partial":
         this.emit("sttPartial", frame);
         return;
@@ -328,6 +340,22 @@ export class LiveVoiceChannelClient {
         this.emit("archived", frame);
         return;
       case "error":
+        // A recoverable mid-session error leaves the transport open; the
+        // session controller decides whether the session survives. (`in`
+        // narrows past LiveVoiceInvalidJsonFrame, which is never recoverable.)
+        if (
+          "recoverable" in frame &&
+          frame.recoverable === true &&
+          this.state === "active"
+        ) {
+          this.emit("error", {
+            reason: "protocol-error",
+            code: frame.code,
+            message: frame.message,
+            recoverable: true,
+          });
+          return;
+        }
         this.fail("protocol-error", frame.message, frame.code);
         return;
       case "unknown_frame":

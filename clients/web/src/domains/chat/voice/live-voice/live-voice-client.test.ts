@@ -280,6 +280,32 @@ describe("server frame dispatch", () => {
     ]);
   });
 
+  test("ready preserves the server's turnDetection echo", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open();
+
+    const seen: unknown[] = [];
+    client.on("ready", (f) => seen.push(f));
+    ws.receive({
+      type: "ready",
+      seq: 1,
+      sessionId: "sess-1",
+      conversationId: "conv-1",
+      turnDetection: "server_vad",
+    });
+
+    expect(seen).toEqual([
+      {
+        type: "ready",
+        seq: 1,
+        sessionId: "sess-1",
+        conversationId: "conv-1",
+        turnDetection: "server_vad",
+      },
+    ]);
+  });
+
   /** Per-test event recorder: `record(name)` handlers append into `got[name]`. */
   function makeRecorder() {
     const got: Record<string, unknown[]> = {};
@@ -342,26 +368,31 @@ describe("server frame dispatch", () => {
     expect(got.archived).toHaveLength(1);
   });
 
-  test("dispatches speech_started / utterance_end / turn_cancelled to their events", async () => {
+  test("dispatches speech_started / utterance_end / utterance_discarded / turn_cancelled to their events", async () => {
     const { client, ws } = await ready();
 
     const { got, record } = makeRecorder();
     client.on("speechStarted", record("speechStarted"));
     client.on("utteranceEnd", record("utteranceEnd"));
+    client.on("utteranceDiscarded", record("utteranceDiscarded"));
     client.on("turnCancelled", record("turnCancelled"));
 
     ws.receive({ type: "speech_started", seq: 2 });
     ws.receive({ type: "utterance_end", seq: 3, reason: "silence" });
     ws.receive({ type: "utterance_end", seq: 4, reason: "max-duration" });
-    ws.receive({ type: "turn_cancelled", seq: 5, turnId: "t1" });
+    ws.receive({ type: "utterance_discarded", seq: 5 });
+    ws.receive({ type: "turn_cancelled", seq: 6, turnId: "t1" });
 
     expect(got.speechStarted).toEqual([{ type: "speech_started", seq: 2 }]);
     expect(got.utteranceEnd).toEqual([
       { type: "utterance_end", seq: 3, reason: "silence" },
       { type: "utterance_end", seq: 4, reason: "max-duration" },
     ]);
+    expect(got.utteranceDiscarded).toEqual([
+      { type: "utterance_discarded", seq: 5 },
+    ]);
     expect(got.turnCancelled).toEqual([
-      { type: "turn_cancelled", seq: 5, turnId: "t1" },
+      { type: "turn_cancelled", seq: 6, turnId: "t1" },
     ]);
   });
 
@@ -397,6 +428,68 @@ describe("server frame dispatch", () => {
     expect(errors).toEqual([
       { reason: "protocol-error", code: "boom", message: "kaboom" },
     ]);
+    expect(closedCount).toBe(1);
+    expect(ws.closed).toBe(true);
+  });
+
+  test("recoverable error frame emits the error but keeps the session alive", async () => {
+    const { client, ws } = await ready();
+    const errors: {
+      reason: string;
+      code?: string;
+      message: string;
+      recoverable?: boolean;
+    }[] = [];
+    let closedCount = 0;
+    client.on("error", (e) => errors.push(e));
+    client.on("closed", () => closedCount++);
+
+    ws.receive({
+      type: "error",
+      seq: 10,
+      code: "invalid_field",
+      message: "transient blip",
+      recoverable: true,
+    });
+
+    expect(errors).toEqual([
+      {
+        reason: "protocol-error",
+        code: "invalid_field",
+        message: "transient blip",
+        recoverable: true,
+      },
+    ]);
+    expect(closedCount).toBe(0);
+    expect(ws.closed).toBe(false);
+
+    // The session stays live: later frames still dispatch.
+    const seen: unknown[] = [];
+    client.on("sttPartial", (f) => seen.push(f));
+    ws.receive({ type: "stt_partial", seq: 11, text: "still here" });
+    expect(seen).toEqual([{ type: "stt_partial", seq: 11, text: "still here" }]);
+  });
+
+  test("recoverable error before ready is still fatal", async () => {
+    const client = makeClient();
+    const ws = await connectAndGetSocket(client);
+    ws.open();
+
+    const errors: { recoverable?: boolean }[] = [];
+    let closedCount = 0;
+    client.on("error", (e) => errors.push(e));
+    client.on("closed", () => closedCount++);
+
+    ws.receive({
+      type: "error",
+      seq: 1,
+      code: "invalid_field",
+      message: "startup failed",
+      recoverable: true,
+    });
+
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.recoverable).toBeUndefined();
     expect(closedCount).toBe(1);
     expect(ws.closed).toBe(true);
   });

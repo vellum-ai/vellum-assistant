@@ -237,6 +237,17 @@ async function flushAsyncCallbacks(): Promise<void> {
 }
 
 describe("LiveVoiceSession server VAD", () => {
+  test("ready echoes turnDetection server_vad", async () => {
+    const { frames, session } = createHarness({});
+
+    await session.start();
+
+    expect(frames[0]).toMatchObject({
+      type: "ready",
+      turnDetection: "server_vad",
+    });
+  });
+
   test("silence then speech then silence emits speech_started, utterance_end, and runs a turn", async () => {
     const { frames, session } = createHarness({
       finals: ["hello world"],

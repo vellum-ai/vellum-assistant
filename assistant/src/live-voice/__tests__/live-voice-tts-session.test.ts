@@ -290,6 +290,7 @@ describe("LiveVoiceSession TTS", () => {
     expect(frames.find((frame) => frame.type === "error")).toMatchObject({
       type: "error",
       message: expect.stringContaining("provider unavailable"),
+      recoverable: true,
     });
     expect(frames.at(-1)).toMatchObject({
       type: "tts_done",
