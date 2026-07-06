@@ -1252,7 +1252,15 @@ function ensureToolResultRowReserved(
  * `tool_result` blocks of one turn in a single message. `seq` is the position
  * stamped on the triggering `tool_result` event, captured by the caller before
  * any await so it reflects exactly the content now durable in the row.
- * Indexing and the buffer drain are deferred to `finalizePendingToolResultRow`.
+ *
+ * On-arrival work is DB-only: durability comes from rewriting the reserved
+ * SQLite row in place. The JSONL disk-view projection, memory indexing, and the
+ * buffer drain are all deferred to `finalizePendingToolResultRow`, which runs
+ * once per batch. `syncMessageToDisk` appends a line rather than upserting the
+ * row, so projecting on every parallel arrival would emit one duplicate JSONL
+ * line per result; syncing a single time at finalize keeps the disk view at
+ * exactly one line per batch, mirroring how the assistant row is synced once
+ * after the loop.
  */
 async function persistPendingToolResultRow(
   state: EventHandlerState,
@@ -1277,10 +1285,6 @@ async function persistPendingToolResultRow(
   );
   if (persisted) {
     recordConversationPersistedSeq(deps.ctx.conversationId, seq);
-  }
-  const conv = getConversation(deps.ctx.conversationId);
-  if (conv != null) {
-    syncMessageToDisk(deps.ctx.conversationId, rowId, conv.createdAt);
   }
 }
 

@@ -237,6 +237,54 @@ describe("028-recover-conversations-from-disk-view migration", () => {
     expect(typeof contentBlocks[1].id).toBe("string");
   });
 
+  test("collapses consecutive byte-identical lines from legacy duplicated transcripts", () => {
+    const id = "conv-028-dupes";
+    const createdAt = "2026-03-18T16:00:00.000Z";
+
+    // A grouped tool-result row projected once per parallel result by an older
+    // build: adjacent lines share an identical `ts` and content.
+    const toolResultLine = JSON.stringify({
+      role: "user",
+      ts: "2026-03-18T16:00:20.000Z",
+      toolResults: [{ content: "result A" }, { content: "result B" }],
+    });
+    const assistantLine = JSON.stringify({
+      role: "assistant",
+      ts: "2026-03-18T16:00:30.000Z",
+      content: "done",
+    });
+
+    createDiskViewDir(
+      id,
+      {
+        id,
+        title: "Duplicated Transcript",
+        type: "standard",
+        createdAt,
+        updatedAt: createdAt,
+      },
+      [toolResultLine, toolResultLine, toolResultLine, assistantLine].join(
+        "\n",
+      ) + "\n",
+    );
+
+    recoverConversationsFromDiskViewMigration.run(workspaceDir);
+
+    const db = getDb();
+    const msgRows = db.select().from(messages).all();
+    // The three identical tool-result lines collapse to one row.
+    expect(msgRows).toHaveLength(2);
+
+    const userMsgs = msgRows.filter((m) => m.role === "user");
+    expect(userMsgs).toHaveLength(1);
+    const userContent = JSON.parse(userMsgs[0].content);
+    expect(userContent).toHaveLength(2);
+    expect(userContent.map((b: { content: unknown }) => b.content)).toEqual([
+      "result A",
+      "result B",
+    ]);
+  });
+
   test("skips existing conversations", () => {
     const id = "conv-028-existing";
     const createdAt = "2026-03-18T16:00:00.000Z";
