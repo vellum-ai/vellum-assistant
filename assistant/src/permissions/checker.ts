@@ -33,6 +33,7 @@ import {
   type ApprovalContext,
   DefaultApprovalPolicy,
 } from "./approval-policy.js";
+import { buildChannelPermissionCellQuery } from "./channel-permission-query.js";
 import {
   getAutoApproveThreshold,
   refreshAutoApproveThreshold,
@@ -811,9 +812,11 @@ export async function check(
 
   // Build approval context from local variables
   const tool = getTool(toolName);
+  const cellQuery = buildChannelPermissionCellQuery(policyContext);
   const threshold = await getAutoApproveThreshold(
     policyContext?.conversationId,
     policyContext?.executionContext,
+    cellQuery,
   );
   const approvalContext: ApprovalContext = {
     riskLevel: risk,
@@ -844,6 +847,7 @@ export async function check(
     const freshThreshold = await refreshAutoApproveThreshold(
       policyContext?.conversationId,
       policyContext?.executionContext,
+      cellQuery,
     );
     if (freshThreshold !== null && freshThreshold !== threshold) {
       approvalDecision = defaultApprovalPolicy.evaluate({

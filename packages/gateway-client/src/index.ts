@@ -200,6 +200,7 @@ export {
   ChannelPermissionCellSchema,
   ChannelPermissionScopeSchema,
   ChannelPermissionSelectorSchema,
+  isChannelConversationType,
   isRiskThreshold,
   ResolveChannelPermissionRequestSchema,
   RISK_THRESHOLD_VALUES,

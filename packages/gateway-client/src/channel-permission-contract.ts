@@ -74,6 +74,12 @@ export type ChannelConversationType =
 
 export const ChannelConversationTypeSchema = z.enum(CHANNEL_CONVERSATION_TYPES);
 
+export function isChannelConversationType(
+  value: unknown,
+): value is ChannelConversationType {
+  return ChannelConversationTypeSchema.safeParse(value).success;
+}
+
 // ── Cell selector + cell ─────────────────────────────────────────────────────
 
 /**
