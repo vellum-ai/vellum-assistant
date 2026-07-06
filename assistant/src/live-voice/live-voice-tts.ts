@@ -109,7 +109,6 @@ export async function streamLiveVoiceTtsAudio(
       useCase: options.useCase ?? "phone-call",
       voiceId: options.voiceId,
       outputFormat: options.outputFormat,
-      sampleRate,
       signal: options.signal,
       onChunk: (chunk) => {
         if (canStreamChunks) {
@@ -123,7 +122,7 @@ export async function streamLiveVoiceTtsAudio(
 
     // An abort mid-stream resolves without throwing; skip the buffered emit
     // so a truncated payload is never delivered after cancellation.
-    if (!canStreamChunks && !options.signal?.aborted) {
+    if (!canStreamChunks && !result.stopped) {
       emitAudioFrame(contentType, Buffer.concat(bufferedAudio));
     }
 

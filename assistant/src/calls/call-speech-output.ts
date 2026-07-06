@@ -95,9 +95,10 @@ export async function speakSystemPrompt(
  *   still hears the message; providers without one (e.g. Deepgram) log
  *   the error and send only the end-of-turn signal.
  *
- * Aborted synthesis (`AbortError` or an aborted `signal`) short-circuits
- * all of the above: no fallback, no end-of-turn token — the canceller
- * owns turn state.
+ * Cancellation (our own `signal` aborted) short-circuits all of the
+ * above: no fallback, no end-of-turn token — the canceller owns turn
+ * state. A provider-internal `AbortError` without our signal aborted is
+ * a synthesis failure and takes the normal fallback path.
  */
 async function synthesizeAndPlay(
   relay: CallTransport,
@@ -126,7 +127,7 @@ async function synthesizeAndPlay(
       onPlayUrl: (url) => relay.sendPlayUrl(url),
     });
 
-    await synthesizeAndEmit({
+    const result = await synthesizeAndEmit({
       provider,
       text,
       useCase: "phone-call",
@@ -140,7 +141,7 @@ async function synthesizeAndPlay(
     // signal aborts after the provider resolves but before queued emits
     // run. Same contract as the catch-side abort: the canceller owns turn
     // state, so skip the end-of-turn token.
-    if (signal?.aborted) {
+    if (result.stopped) {
       log.debug(
         { provider: provider.id },
         "System prompt TTS synthesis aborted after resolve — skipping end-of-turn",
@@ -156,14 +157,12 @@ async function synthesizeAndPlay(
     // state.
     relay.sendTextToken("", true);
   } catch (err) {
-    // Aborted synthesis (e.g. barge-in cancellation): the canceller owns
-    // turn state, so skip fallback and the end-of-turn signal entirely
-    // (mirrors call-controller's aborted-synthesis handling).
-    const isAbort =
-      signal?.aborted ||
-      ((err instanceof Error || err instanceof DOMException) &&
-        err.name === "AbortError");
-    if (isAbort) {
+    // Cancelled synthesis (e.g. barge-in): the canceller owns turn state,
+    // so skip fallback and the end-of-turn signal entirely (mirrors
+    // call-controller's aborted-synthesis handling). Requires our own
+    // signal to be aborted — a provider-internal AbortError without it is
+    // a synthesis failure and must take the fallback/end-of-turn path.
+    if (signal?.aborted) {
       log.debug(
         { provider: provider.id },
         "System prompt TTS synthesis aborted — skipping fallback",
