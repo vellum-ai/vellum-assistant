@@ -125,4 +125,31 @@ describe("useBackgroundHatch", () => {
     // A terminal (non-5xx) hatch failure must not fall through to polling.
     expect(getAssistantMock).not.toHaveBeenCalled();
   });
+
+  test("local mode adopts the existing local assistant without hatching", async () => {
+    // In local mode the assistant is provisioned by the hatching screen before
+    // the research flow mounts, so the background hatch must skip the managed
+    // `hatchAssistant()` and discover the already-active assistant via
+    // getAssistant(). Toggle platform mode off for this case (isLocalMode reads
+    // VITE_PLATFORM_MODE live), like local-mode.test.ts does.
+    const saved = process.env.VITE_PLATFORM_MODE;
+    process.env.VITE_PLATFORM_MODE = "";
+    try {
+      const { result } = renderHook(() => useBackgroundHatch());
+
+      act(() => {
+        result.current.start();
+      });
+
+      await waitFor(() => expect(result.current.ready).toBe(true));
+      // No managed hatch in local mode…
+      expect(hatchAssistantMock).not.toHaveBeenCalled();
+      // …but the existing local assistant is discovered + health-checked.
+      expect(getAssistantMock).toHaveBeenCalled();
+      expect(getAssistantHealthzMock).toHaveBeenCalledTimes(1);
+      expect(result.current.assistantId).toBe("ast-research");
+    } finally {
+      process.env.VITE_PLATFORM_MODE = saved;
+    }
+  });
 });

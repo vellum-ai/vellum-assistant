@@ -11,6 +11,7 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
+import { isLocalMode } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
 import { extractErrorMessage } from "@/utils/api-errors";
 
@@ -101,28 +102,37 @@ export function useBackgroundHatch(): UseBackgroundHatch {
 
     void (async () => {
       // 1. Hatch (managed/platform). 201 = newly created, 200 = existing.
+      //
+      // Local mode skips this: the assistant is provisioned in the FOREGROUND by
+      // the hatching screen (species/hosting pick → local daemon) BEFORE the
+      // research flow mounts, so there's nothing to hatch here. We fall straight
+      // through to step 2, which discovers that already-active local assistant
+      // via getAssistant() (the daemon SDK routes to the local gateway). Calling
+      // managed `hatchAssistant()` in local mode would hit the platform and fail.
       let hatchedAssistantId: string | undefined;
-      try {
-        const result = await hatchAssistant();
-        if (result.ok) {
-          hatchedAssistantId = result.data.id;
-          setAssistantId(result.data.id);
-        } else {
-          if (isPlatformHostedDisabled(result.status, result.error)) {
-            settleError(PLATFORM_HOSTED_DISABLED_MESSAGE);
-            return;
+      if (!isLocalMode()) {
+        try {
+          const result = await hatchAssistant();
+          if (result.ok) {
+            hatchedAssistantId = result.data.id;
+            setAssistantId(result.data.id);
+          } else {
+            if (isPlatformHostedDisabled(result.status, result.error)) {
+              settleError(PLATFORM_HOSTED_DISABLED_MESSAGE);
+              return;
+            }
+            if (!shouldRecoverFromHatchFailure(result.status)) {
+              settleError(
+                extractErrorMessage(result.error, undefined, GENERIC_HATCH_ERROR),
+              );
+              return;
+            }
+            // Recoverable — fall through to polling for an existing/active one.
           }
-          if (!shouldRecoverFromHatchFailure(result.status)) {
-            settleError(
-              extractErrorMessage(result.error, undefined, GENERIC_HATCH_ERROR),
-            );
-            return;
-          }
-          // Recoverable — fall through to polling for an existing/active one.
+        } catch (err) {
+          // Transient/transport failure — recover via polling.
+          captureError(err, { context: "research_background_hatch" });
         }
-      } catch (err) {
-        // Transient/transport failure — recover via polling.
-        captureError(err, { context: "research_background_hatch" });
       }
 
       // 2. Poll until the assistant reports `active`.
