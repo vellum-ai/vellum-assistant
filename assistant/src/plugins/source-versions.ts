@@ -21,11 +21,16 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
-import { getWorkspacePluginsDir } from "../util/platform.js";
+import { getMonitoringDataDir } from "../util/platform.js";
 
-/** Sentinel filename, directly under `<workspace>/plugins/`. The leading dot
- * keeps it out of the watcher's own per-plugin walks. */
-export const SOURCE_VERSIONS_FILENAME = ".source-versions.json";
+/**
+ * Sentinel filename, under the monitoring data directory
+ * (`<workspace>/data/monitoring/`). That home is deliberate: it is
+ * runtime-owned state the monitor already writes to, and it sits inside the
+ * workspace git-service ignore rules — the document carries absolute
+ * host-specific paths that must never be committed into workspace history.
+ */
+export const SOURCE_VERSIONS_FILENAME = "plugin-source-versions.json";
 
 /** Document format version; readers ignore documents from a different format. */
 export const SOURCE_VERSIONS_FORMAT = 1;
@@ -73,7 +78,7 @@ export interface SourceVersionsDocument {
 
 /** Absolute path of the sentinel document. */
 export function getSourceVersionsPath(): string {
-  return join(getWorkspacePluginsDir(), SOURCE_VERSIONS_FILENAME);
+  return join(getMonitoringDataDir(), SOURCE_VERSIONS_FILENAME);
 }
 
 /**

@@ -126,6 +126,23 @@ describe("snapshotPluginSource", () => {
     expect(evictionPaths).toContain(join(linkDir, "hooks", "stop.ts"));
   });
 
+  test("symlinked entries inside the tree are not followed or watched", () => {
+    const dir = makePluginDir();
+    // A directory symlink pointing back at the plugin root — following it
+    // would cycle the walk forever (or escape the root for links elsewhere).
+    symlinkSync(dir, join(dir, "hooks", "loop"));
+    // A file symlink: not part of the watched tree either.
+    writeStamped(join(dir, "hooks", "real.ts"), "export const r = 1;");
+    symlinkSync(join(dir, "hooks", "real.ts"), join(dir, "hooks", "alias.ts"));
+
+    const { evictionPaths } = snapshotPluginSource(dir);
+    const names = evictionPaths.map((p) => p.slice(dir.length));
+
+    expect(names).toContain("/hooks/real.ts");
+    expect(names).not.toContain("/hooks/alias.ts");
+    expect(names.some((n) => n.includes("/loop/"))).toBe(false);
+  });
+
   test("a missing directory yields an empty snapshot", () => {
     const snapshot = snapshotPluginSource(join(root, "does-not-exist"));
     expect(snapshot.fingerprint).toBe("");
