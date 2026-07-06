@@ -37,7 +37,11 @@ import type {
   ShutdownContext,
 } from "../plugin-api/types.js";
 import { listSurfaceDir } from "../plugins/external-plugin-loader.js";
-import { getMtime, importWithTimeout } from "../plugins/surface-import.js";
+import {
+  evictModule,
+  getMtime,
+  importWithTimeout,
+} from "../plugins/surface-import.js";
 import type { HookEntry } from "../plugins/types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspaceHooksDir } from "../util/platform.js";
@@ -112,6 +116,18 @@ async function resolveCachedHook<TCtx>(
     return undefined;
   }
 
+  // The file is new, recreated, or edited since it was last imported. Evict
+  // it from the runtime module registry first: without this, the import
+  // below would return the module Bun cached at the old content and the
+  // edit would never take effect. No-op for a first-ever load.
+  //
+  // Note the reload swaps only the exported function for future dispatches.
+  // The hook file's top-level code runs again on re-import, and nothing
+  // tears down the previous instance — so hook files must keep long-lived
+  // side effects (timers, listeners) in the owner's `init`/`shutdown`
+  // lifecycle, not at module top level.
+  evictModule(filePath);
+
   try {
     const hook = await importWithTimeout<HookFunction>(filePath);
     if (hook === undefined || typeof hook !== "function") {
@@ -142,9 +158,12 @@ async function resolveCachedHook<TCtx>(
  * a plugin can shape the threaded context before a workspace-wide hook
  * observes or finalizes it.
  *
- * Added and removed hook files are picked up live (discovery is by directory
- * listing). A content edit to an existing file is only reflected after a
- * process restart, since Bun caches dynamic imports by resolved path.
+ * Added, removed, and edited hook files are all picked up live: discovery is
+ * by directory listing, and a changed source mtime evicts the module from
+ * the runtime registry before re-import, so the edited hook takes effect on
+ * the next dispatch without a daemon restart. Eviction is per-file — an edit
+ * to a helper module a hook imports is not detected (the hook file's own
+ * mtime is what's watched) and still needs a restart.
  *
  * `effectiveEnabledPlugins` carries the per-chat plugin scope: when non-null, a
  * plugin whose name is not in the set is skipped (its hooks do not run for this
@@ -168,7 +187,9 @@ export async function collectUserHookEntries<TCtx = unknown>(
     const hookFile = listSurfaceDir(join(pluginDir, "hooks")).find(
       (f) => f.name === hookName,
     );
-    if (hookFile === undefined) continue;
+    if (hookFile === undefined) {
+      continue;
+    }
 
     const hook = await resolveCachedHook<TCtx>(
       pluginName,
@@ -233,7 +254,14 @@ export async function preImportHooksDir(
   for (const file of listSurfaceDir(hooksDir)) {
     const key = hookKey(ownerName, file.name);
     const currentMtime = getMtime(file.path);
-    if (currentMtime === 0) continue;
+    if (currentMtime === 0) {
+      continue;
+    }
+
+    // A plugin directory can be removed and reinstalled while the daemon
+    // runs; evict any module cached from the prior install so the
+    // pre-import reflects what's on disk now. No-op at boot.
+    evictModule(file.path);
 
     try {
       const hook = await importWithTimeout<HookFunction>(file.path);
@@ -293,7 +321,9 @@ export async function runInitHook(
   pluginDir: string | null = null,
 ): Promise<void> {
   const initHookEntry = hookCache.get(hookKey(ownerName, HOOKS.INIT));
-  if (initHookEntry === undefined) return;
+  if (initHookEntry === undefined) {
+    return;
+  }
 
   try {
     const initContext: InitContext = {
@@ -323,7 +353,9 @@ export async function runShutdownHook(
   reason: string,
 ): Promise<void> {
   const shutdownHookEntry = hookCache.get(hookKey(ownerName, HOOKS.SHUTDOWN));
-  if (shutdownHookEntry === undefined) return;
+  if (shutdownHookEntry === undefined) {
+    return;
+  }
 
   try {
     await shutdownHookEntry.hook(context);
