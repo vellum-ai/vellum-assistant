@@ -9,7 +9,6 @@
  */
 
 import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
-import { loadConfig } from "../config/loader.js";
 import {
   expireCanonicalGuardianRequest,
   getCanonicalRequestByPendingQuestionId,
@@ -18,13 +17,16 @@ import {
 } from "../contacts/canonical-guardian-store.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import { getPublicBaseUrl } from "../inbound/public-ingress-urls.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getCatalogProvider } from "../tts/provider-catalog.js";
+import {
+  type AudioStoreSink,
+  createAudioStoreSink,
+  synthesizeAndEmit,
+} from "../tts/synthesis-stream.js";
 import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
-import { createStreamingEntry } from "./audio-store.js";
 import {
   getEndCallListenWindowMs,
   getMaxCallDurationMs,
@@ -832,7 +834,7 @@ export class CallController {
     runVersion: number,
     format: "mp3" | "wav" | "opus" = "mp3",
   ): Promise<void> {
-    let handle: ReturnType<typeof createStreamingEntry> | null = null;
+    let sink: AudioStoreSink | null = null;
     let playUrlSent = false;
     try {
       // When format is WAV (media-stream transport), request raw PCM from
@@ -846,69 +848,32 @@ export class CallController {
       // bytes providers return. Without this, the store says "audio/wav"
       // but the bytes have no RIFF header, causing audioBufferToFrames to
       // fall through to the wrong decode path.
-      const storeFormat = outputFormat ? "pcm" : format;
-      handle = createStreamingEntry(storeFormat);
-      const config = loadConfig();
-      const baseUrl = getPublicBaseUrl(config);
-      const url = `${baseUrl}/v1/audio/${handle.audioId}`;
-      const sendPlayUrlOnce = (): void => {
-        if (playUrlSent) return;
-        // Superseded/aborted while synthesis was pending — don't start playing
-        // a stale response after the caller has already moved on.
-        if (!this.isCurrentRun(runVersion)) return;
-        // Audio is now reaching the caller (or, on transports with an
-        // audio-start signal, will be the moment the first fetched frame
-        // goes out) — flip to `speaking` so barge-in can interrupt (it
-        // stays `processing` until this point).
-        this.beginSpeakingOnAudioStart(runVersion);
-        this.transport.sendPlayUrl(url);
-        playUrlSent = true;
-      };
+      sink = createAudioStoreSink({
+        format: outputFormat ? "pcm" : format,
+        onPlayUrl: (url) => {
+          // Audio is now reaching the caller (or, on transports with an
+          // audio-start signal, will be the moment the first fetched frame
+          // goes out) — flip to `speaking` so barge-in can interrupt (it
+          // stays `processing` until this point).
+          this.beginSpeakingOnAudioStart(runVersion);
+          this.transport.sendPlayUrl(url);
+          playUrlSent = true;
+        },
+      });
 
       const abortController = new AbortController();
       this.activeSynthesisAbort = abortController;
 
-      if (provider.synthesizeStream) {
-        let streamedChunk = false;
-        await provider.synthesizeStream(
-          {
-            text,
-            useCase: "phone-call",
-            outputFormat,
-            signal: abortController.signal,
-          },
-          (chunk) => {
-            if (chunk.byteLength === 0) return;
-            if (!streamedChunk) {
-              sendPlayUrlOnce();
-              streamedChunk = true;
-            }
-            handle!.push(chunk);
-          },
-        );
-
-        // Some provider adapters may return a buffer without invoking
-        // onChunk. If that happens, do not leave a dangling unspeakable
-        // turn; degrade to native token TTS below by treating it as no-audio.
-        if (!streamedChunk) {
-          throw new Error("Streaming TTS returned no audio chunks");
-        }
-      } else {
-        // Fallback: buffer-oriented synthesis for providers that don't
-        // implement streaming (shouldn't normally reach here since
-        // useSynthesizedPath is gated on catalog callMode).
-        const result = await provider.synthesize({
-          text,
-          useCase: "phone-call",
-          outputFormat,
-          signal: abortController.signal,
-        });
-        if (result.audio.byteLength === 0) {
-          throw new Error("Buffer TTS returned an empty audio payload");
-        }
-        sendPlayUrlOnce();
-        handle.push(result.audio);
-      }
+      await synthesizeAndEmit({
+        provider,
+        text,
+        useCase: "phone-call",
+        outputFormat,
+        signal: abortController.signal,
+        isCurrent: () => this.isCurrentRun(runVersion),
+        onChunk: sink.onChunk,
+        onFirstAudio: sink.onFirstAudio,
+      });
     } catch (err) {
       if (err instanceof DOMException && err.name === "AbortError") {
         log.debug(
@@ -960,7 +925,7 @@ export class CallController {
       }
     } finally {
       this.activeSynthesisAbort = null;
-      handle?.finalize();
+      sink?.finalize();
     }
   }
 

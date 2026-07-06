@@ -5,6 +5,7 @@ import {
   MediaTurnDetector,
   type TurnDetectorConfig,
 } from "../calls/media-turn-detector.js";
+import { sanitizeForTts } from "../calls/tts-text-sanitizer.js";
 import type {
   VoiceTurnHandle,
   VoiceTurnOptions,
@@ -1007,7 +1008,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     activeTurn.ttsBuffer = remainder;
 
     for (const segment of segments) {
-      this.enqueueTtsSegment(token, segment);
+      // Sanitized per segment (not per delta) so markdown spanning deltas is
+      // stripped; assistant_text_delta frames keep the raw text.
+      const speakable = sanitizeForTts(segment).trim();
+      if (speakable.length === 0) {
+        continue;
+      }
+      this.enqueueTtsSegment(token, speakable);
     }
   }
 
