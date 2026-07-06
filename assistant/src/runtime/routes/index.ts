@@ -144,7 +144,6 @@ import { ROUTES as USER_ROUTES_CLI } from "./user-routes-cli.js";
 import { ROUTES as WAKE_CONVERSATION_ROUTES } from "./wake-conversation-routes.js";
 import { ROUTES as WATCHER_ROUTES } from "./watcher-routes.js";
 import { ROUTES as WEBHOOK_ROUTES } from "./webhook-routes.js";
-import { ROUTES as WIPE_CONVERSATION_ROUTES } from "./wipe-conversation-routes.js";
 import { ROUTES as WORK_ITEM_ROUTES } from "./work-items-routes.js";
 import { ROUTES as WORKFLOW_ROUTES } from "./workflow-routes.js";
 import { ROUTES as WORKSPACE_COMMIT_ROUTES } from "./workspace-commit-routes.js";
@@ -284,7 +283,6 @@ export const ROUTES: RouteDefinition[] = [
   ...WORKFLOW_ROUTES,
   ...WATCHER_ROUTES,
   ...WEBHOOK_ROUTES,
-  ...WIPE_CONVERSATION_ROUTES,
   ...WORKSPACE_COMMIT_ROUTES,
   ...WAKE_CONVERSATION_ROUTES,
   ...WORKSPACE_ROUTES,

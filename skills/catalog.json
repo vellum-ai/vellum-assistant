@@ -941,7 +941,7 @@
     {
       "id": "vellum-conversation-management",
       "name": "vellum-conversation-management",
-      "description": "Manage conversation threads (rename, list, export, wipe)",
+      "description": "Manage conversation threads (rename, list, export)",
       "metadata": {
         "emoji": "💬",
         "vellum": {
@@ -950,7 +950,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-06T14:33:32.000Z"
     },
     {
       "id": "vellum-github-app-setup",

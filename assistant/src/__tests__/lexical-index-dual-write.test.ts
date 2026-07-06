@@ -64,12 +64,12 @@ import {
   forkConversation,
   getMessages,
   updateMessageContent,
-  wipeConversation,
 } from "../persistence/conversation-crud.js";
 import { getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import type { MemoryJobType } from "../persistence/jobs-store.js";
+import { enqueueMemoryJob } from "../persistence/jobs-store.js";
 import { memoryJobs } from "../persistence/schema/index.js";
 import { memoryPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks.js";
 
@@ -204,16 +204,6 @@ describe("messages lexical-index dual-write", () => {
     }
   });
 
-  test("wipeConversation enqueues a purge_conversation_lexical job for the conversation", async () => {
-    const conv = createConversation("Lexical wipe thread");
-    await addMessage(conv.id, "user", "index me then wipe me");
-
-    resetMemoryJobs();
-    wipeConversation(conv.id);
-
-    expect(countJobs("purge_conversation_lexical", conv.id)).toBe(1);
-  });
-
   test("deleteConversation (direct, no route) enqueues a purge for the conversation", async () => {
     // Retrospective startup cleanup calls deleteConversation directly, bypassing
     // the HTTP route — the purge must still fire from the shared primitive.
@@ -224,6 +214,43 @@ describe("messages lexical-index dual-write", () => {
     deleteConversation(conv.id);
 
     expect(countJobs("purge_conversation_lexical", conv.id)).toBe(1);
+  });
+
+  test("deleteConversation fails pending conversation-keyed jobs but not the purge it enqueues", async () => {
+    const conv = createConversation("Cancel pending jobs thread");
+    await addMessage(conv.id, "user", "index me then delete me");
+
+    resetMemoryJobs();
+    enqueueMemoryJob("graph_extract", { conversationId: conv.id });
+
+    deleteConversation(conv.id);
+
+    const jobsByType = new Map(
+      getMemoryDb()!
+        .select({
+          type: memoryJobs.type,
+          status: memoryJobs.status,
+          payload: memoryJobs.payload,
+        })
+        .from(memoryJobs)
+        .all()
+        .filter((r) => {
+          try {
+            return (
+              (JSON.parse(r.payload) as { conversationId?: string })
+                .conversationId === conv.id
+            );
+          } catch {
+            return false;
+          }
+        })
+        .map((r) => [r.type, r.status]),
+    );
+
+    // The pre-existing conversation-keyed job is swept…
+    expect(jobsByType.get("graph_extract")).toBe("failed");
+    // …but the purge, enqueued after the sweep, stays runnable.
+    expect(jobsByType.get("purge_conversation_lexical")).toBe("pending");
   });
 
   test("deleteConversationGently (retrospective GC) enqueues a purge for the conversation", async () => {

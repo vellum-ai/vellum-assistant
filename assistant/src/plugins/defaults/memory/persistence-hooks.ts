@@ -153,17 +153,15 @@ export const memoryPersistenceHooks = {
     });
   },
 
-  onConversationWiped(conversationId: string): number {
-    // Cancel pending memory jobs only. The lexical purge is fired from the
-    // shared delete primitive via `onConversationDeleted` (which
-    // `wipeConversation` reaches through its internal `deleteConversation`), so
-    // the purge lands AFTER this cancellation pass and cannot be swept by it.
-    return cancelPendingJobsForConversation(conversationId);
-  },
-
   onConversationDeleted(conversationId: string): void {
+    // Fail the conversation's still-pending memory jobs first (graph
+    // extraction, summary builds, …) — the rows they reference are gone. The
+    // cancellation sweeps pending `conversationId`-keyed jobs, so it must run
+    // BEFORE the purge below is enqueued or it would sweep the purge too.
+    cancelPendingJobsForConversation(conversationId);
+
     // Purge the conversation's points from the lexical (Qdrant) index. Fired
-    // from the shared delete primitive, so every delete caller — route, wipe,
+    // from the shared delete primitive, so every delete caller — route,
     // retrospective cleanup, GC — cleans up. The enqueue helper self-selects:
     // enqueue a job when memory is enabled, run the delete inline (best-effort,
     // breaker-wrapped) when it is disabled.

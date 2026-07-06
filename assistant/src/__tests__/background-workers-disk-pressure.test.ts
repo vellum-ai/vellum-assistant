@@ -159,7 +159,6 @@ mock.module("../persistence/conversation-crud.js", () => ({
   updateConversationUsage: mock(() => {}),
   setLastNotifiedInferenceProfile: mock(() => {}),
   setConversationHistoryStrippedAt: mock(() => {}),
-  wipeConversation: mock(() => ({ memoryIds: [] })),
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
   extractImageSourcePaths: () => undefined,
 }));

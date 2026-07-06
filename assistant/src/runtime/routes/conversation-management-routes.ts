@@ -8,7 +8,6 @@
  * PUT    /v1/conversations/:id/enabledplugins — set per-conversation plugin scope
  * PATCH  /v1/conversations/:id/name       — rename a conversation
  * DELETE /v1/conversations                 — clear all conversations
- * POST   /v1/conversations/:id/wipe       — wipe conversation and revert memory
  * DELETE /v1/conversations/:id            — delete a single conversation
  * POST   /v1/conversations/:id/archive    — archive a conversation
  * POST   /v1/conversations/:id/unarchive  — restore an archived conversation
@@ -43,7 +42,6 @@ import {
   setConversationSurfaced,
   unarchiveConversation,
   updateConversationTitle,
-  wipeConversation,
 } from "../../persistence/conversation-crud.js";
 import {
   getOrCreateConversation,
@@ -54,7 +52,7 @@ import { enqueueMemoryJob } from "../../persistence/jobs-store.js";
 import { deleteSchedule } from "../../schedule/schedule-store.js";
 import { UserError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
-import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
+import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
 import { buildConversationDetailResponse } from "../services/conversation-serializer.js";
 import {
   publishConversationEnabledPluginsChanged,
@@ -307,52 +305,6 @@ async function handleClearAllConversations({ headers = {} }: RouteHandlerArgs) {
     headers["x-vellum-client-id"]?.trim() || undefined,
   );
   return undefined;
-}
-
-async function handleWipeConversation({
-  pathParams = {},
-  headers,
-}: RouteHandlerArgs) {
-  const resolvedId = resolveOrThrow(pathParams.id!);
-
-  await cancelScheduleIfLast(resolvedId);
-
-  destroyActiveConversation(resolvedId);
-  const result = wipeConversation(resolvedId);
-  for (const segId of result.segmentIds) {
-    enqueueMemoryJob("delete_qdrant_vectors", {
-      targetType: "segment",
-      targetId: segId,
-    });
-  }
-  for (const summaryId of result.deletedSummaryIds) {
-    enqueueMemoryJob("delete_qdrant_vectors", {
-      targetType: "summary",
-      targetId: summaryId,
-    });
-  }
-  log.info(
-    {
-      conversationId: resolvedId,
-      summariesDeleted: result.deletedSummaryIds.length,
-      jobsCancelled: result.cancelledJobCount,
-    },
-    "Wiped conversation and reverted memory changes",
-  );
-  publishConversationListAndMetadataChanged(
-    "deleted",
-    resolvedId,
-    headers?.["x-vellum-client-id"]?.trim() || undefined,
-  );
-
-  void stripConversationIds(resolvedId);
-
-  return {
-    wiped: true,
-    unsupersededItems: 0,
-    deletedSummaries: result.deletedSummaryIds.length,
-    cancelledJobs: result.cancelledJobCount,
-  };
 }
 
 async function handleDeleteConversation({
@@ -755,27 +707,6 @@ export const ROUTES: RouteDefinition[] = [
     tags: ["conversations"],
     responseStatus: "204",
     handler: handleClearAllConversations,
-  },
-  {
-    operationId: "wipeConversation",
-    endpoint: "conversations/:id/wipe",
-    method: "POST",
-    policy: {
-      requiredScopes: ["settings.write"],
-      allowedPrincipalTypes: LOCAL_PRINCIPALS,
-    },
-    summary: "Wipe a conversation",
-    description:
-      "Delete all messages in a conversation and revert associated memory changes.",
-    tags: ["conversations"],
-    pathParams: [{ name: "id", type: "uuid" }],
-    responseBody: z.object({
-      wiped: z.boolean(),
-      unsupersededItems: z.number().int(),
-      deletedSummaries: z.number().int(),
-      cancelledJobs: z.number().int(),
-    }),
-    handler: handleWipeConversation,
   },
   {
     operationId: "deleteConversation",
