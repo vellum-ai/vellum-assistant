@@ -335,15 +335,17 @@ export class NotificationBroadcaster {
         { conversationAction, bindingContext: destination.bindingContext },
       );
 
-      // For the vellum channel, merge the conversationId into deep-link metadata
-      // so the macOS client can navigate directly to the conversation. Prefer
-      // the paired conversation (interactive opt-in flows); otherwise fall back
+      // For the vellum and platform channels, merge the conversationId into
+      // deep-link metadata so clients can navigate directly to the conversation
+      // (macOS reads it from notification_intent; the platform relays it to
+      // iOS inside the APNs payload as deep_link). Prefer the
+      // paired conversation (interactive opt-in flows); otherwise fall back
       // to the originating conversation referenced by `sourceContextId` when it
       // resolves to a real row. Sentinel context ids (job IDs, call session IDs,
       // access-req-* strings) leave the deep link without a conversation, and
-      // the macOS handler opens the app to its default landing.
+      // the client opens the app to its default landing.
       let deepLinkTarget = decision.deepLinkTarget;
-      if (channel === "vellum") {
+      if (channel === "vellum" || channel === "platform") {
         const deepLinkConversationId =
           pairing.conversationId ??
           resolveSourceConversationId(signal.sourceContextId);
@@ -359,68 +361,68 @@ export class NotificationBroadcaster {
             };
           }
         }
+      }
 
-        if (pairing.conversationId) {
-          // Resolve guardian scoping for conversation-created events so clients
-          // can filter guardian-sensitive conversations the same way they filter
-          // guardian-sensitive notification intents.
-          const guardianPrincipalId =
-            typeof destination.metadata?.guardianPrincipalId === "string"
-              ? destination.metadata.guardianPrincipalId
-              : undefined;
-          const targetGuardianPrincipalId =
-            guardianPrincipalId &&
-            isGuardianSensitiveEvent(signal.sourceEventName)
-              ? guardianPrincipalId
-              : undefined;
+      if (channel === "vellum" && pairing.conversationId) {
+        // Resolve guardian scoping for conversation-created events so clients
+        // can filter guardian-sensitive conversations the same way they filter
+        // guardian-sensitive notification intents.
+        const guardianPrincipalId =
+          typeof destination.metadata?.guardianPrincipalId === "string"
+            ? destination.metadata.guardianPrincipalId
+            : undefined;
+        const targetGuardianPrincipalId =
+          guardianPrincipalId &&
+          isGuardianSensitiveEvent(signal.sourceEventName)
+            ? guardianPrincipalId
+            : undefined;
 
-          const conversationTitle =
-            copy.conversationTitle ?? copy.title ?? signal.sourceEventName;
-          const conversationSilent =
-            signal.attentionHints.urgency !== "high" &&
-            signal.attentionHints.urgency !== "critical";
-          const info: ConversationCreatedInfo = {
-            conversationId: pairing.conversationId,
-            title: conversationTitle,
-            sourceEventName: signal.sourceEventName,
-            targetGuardianPrincipalId,
-            groupId: signal.conversationMetadata?.groupId,
-            source: signal.conversationMetadata?.source,
-            silent: conversationSilent,
-          };
+        const conversationTitle =
+          copy.conversationTitle ?? copy.title ?? signal.sourceEventName;
+        const conversationSilent =
+          signal.attentionHints.urgency !== "high" &&
+          signal.attentionHints.urgency !== "critical";
+        const info: ConversationCreatedInfo = {
+          conversationId: pairing.conversationId,
+          title: conversationTitle,
+          sourceEventName: signal.sourceEventName,
+          targetGuardianPrincipalId,
+          groupId: signal.conversationMetadata?.groupId,
+          source: signal.conversationMetadata?.source,
+          silent: conversationSilent,
+        };
 
-          // The per-dispatch onConversationCreated callback fires whenever a vellum
-          // conversation is paired (new or reused) because callers like
-          // dispatchGuardianQuestion rely on it to create delivery bookkeeping
-          // rows before emitNotificationSignal() returns.
-          if (options?.onConversationCreated) {
+        // The per-dispatch onConversationCreated callback fires whenever a vellum
+        // conversation is paired (new or reused) because callers like
+        // dispatchGuardianQuestion rely on it to create delivery bookkeeping
+        // rows before emitNotificationSignal() returns.
+        if (options?.onConversationCreated) {
+          try {
+            options.onConversationCreated(info);
+          } catch (err) {
+            log.error(
+              { err, signalId: signal.signalId },
+              "per-dispatch onConversationCreated callback failed — continuing broadcast",
+            );
+          }
+        }
+
+        // Emit notification_conversation_created event only when a NEW
+        // conversation was actually created. Reusing an existing conversation
+        // should not fire the event — the client already knows about the
+        // conversation.
+        if (
+          pairing.createdNewConversation &&
+          pairing.strategy === "start_new_conversation"
+        ) {
+          if (this.onConversationCreated) {
             try {
-              options.onConversationCreated(info);
+              this.onConversationCreated(info);
             } catch (err) {
               log.error(
                 { err, signalId: signal.signalId },
-                "per-dispatch onConversationCreated callback failed — continuing broadcast",
+                "onConversationCreated callback failed — continuing broadcast",
               );
-            }
-          }
-
-          // Emit notification_conversation_created event only when a NEW
-          // conversation was actually created. Reusing an existing conversation
-          // should not fire the event — the client already knows about the
-          // conversation.
-          if (
-            pairing.createdNewConversation &&
-            pairing.strategy === "start_new_conversation"
-          ) {
-            if (this.onConversationCreated) {
-              try {
-                this.onConversationCreated(info);
-              } catch (err) {
-                log.error(
-                  { err, signalId: signal.signalId },
-                  "onConversationCreated callback failed — continuing broadcast",
-                );
-              }
             }
           }
         }

@@ -192,12 +192,16 @@ async function upsertToken(token: string, assistantId: string): Promise<void> {
 /**
  * Extract the conversation id a tapped push notification routes to.
  *
- * APNs custom keys arrive as `notification.data`. The daemon's
- * `deep_link_metadata` reaches us as `data.deep_link.conversationId` (the
- * platform forwards it into the APNs payload); producers that embed routing
- * directly in `context_payload` put `conversationId` at the top level, so
- * that is the fallback. Returns `undefined` for absent or malformed shapes —
- * never throws.
+ * APNs custom keys arrive as `notification.data`. The intended contract is
+ * daemon → platform → client: the daemon's `platform` channel sends
+ * `deep_link_metadata` with the dispatch, the platform forwards it into the
+ * APNs payload as `deep_link`, and this reads `data.deep_link.conversationId`.
+ * Producers that embed routing directly in `context_payload` put
+ * `conversationId` at the top level, so that is the fallback. Pushes whose
+ * payload carries no routing keys (a hop of the contract not yet deployed)
+ * gracefully yield `undefined` — the tap foregrounds the app without
+ * navigating. Returns `undefined` for absent or malformed shapes; never
+ * throws.
  */
 export function extractPushConversationId(data: unknown): string | undefined {
   if (typeof data !== "object" || data === null) {
@@ -242,9 +246,9 @@ async function ensureListeners(): Promise<void> {
     await PushNotifications.addListener(
       "pushNotificationActionPerformed",
       (action) => {
-        // Pushes dispatched by a platform that does not yet forward the
-        // daemon's `deep_link_metadata` carry no routing keys — the tap
-        // foregrounds the app without navigating.
+        // A payload without routing keys is a graceful no-op: the tap
+        // foregrounds the app without navigating (see
+        // extractPushConversationId for the deep-link contract).
         const conversationId = extractPushConversationId(
           action.notification.data,
         );
