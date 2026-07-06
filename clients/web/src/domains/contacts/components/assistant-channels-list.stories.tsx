@@ -1,6 +1,7 @@
-import type { Meta, StoryObj } from "@storybook/react-vite";
+import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 
 import { DetailCard } from "@/components/detail-card";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 import { AssistantChannelsList } from "./assistant-channels-list";
 
@@ -9,7 +10,17 @@ import { AssistantChannelsList } from "./assistant-channels-list";
  * wiring): a borderless page subtitle, then the channel sub-tabs in a card —
  * matching the sibling About Assistant tabs rather than the boxed
  * "Channels" card used inside the Contacts detail view.
+ *
+ * The layout is gated on the `channel-trust-floors` flag: sub-tabs when on,
+ * the accordion rows when off (see the Legacy story).
  */
+const withLayoutFlag = (tabbed: boolean): Decorator => {
+  return (Story) => {
+    useAssistantFeatureFlagStore.setState({ channelTrustFloors: tabbed });
+    return <Story />;
+  };
+};
+
 const meta: Meta<typeof AssistantChannelsList> = {
   title: "Contacts/AssistantChannelsList",
   component: AssistantChannelsList,
@@ -27,6 +38,7 @@ const meta: Meta<typeof AssistantChannelsList> = {
     onSaveTwilioCredentials: async () => {},
   },
   decorators: [
+    withLayoutFlag(true),
     (Story) => (
       <div
         style={{
@@ -66,16 +78,21 @@ export const ChannelsTabSlackConnected: Story = {
   },
 };
 
-/** Disconnected Telegram tab: the empty state above the manual token form. */
+/** Disconnected Telegram tab: empty state with guided setup + manual escape hatch. */
 export const ChannelsTabTelegramDisconnected: Story = {
   args: {
     initialChannel: "telegram",
   },
 };
 
-/** Disconnected Phone tab: the empty state above the Twilio credential form. */
+/** Disconnected Phone tab: empty state with guided setup + manual escape hatch. */
 export const ChannelsTabPhoneDisconnected: Story = {
   args: {
     initialChannel: "phone",
   },
+};
+
+/** The accordion layout rendered while `channel-trust-floors` is off. */
+export const LegacyAccordion: Story = {
+  decorators: [withLayoutFlag(false)],
 };

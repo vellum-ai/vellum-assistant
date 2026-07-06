@@ -28,6 +28,9 @@ export function ChannelsPage({
   onStartSetupConversation,
 }: ChannelsPageProps) {
   const a2aChannel = useAssistantFeatureFlagStore.use.a2aChannel();
+  // The Channels-tab restructure (sub-tabs + promoted subtitle) ships with
+  // the channel-trust-floors arc; off keeps the titled card + accordion.
+  const tabbedLayout = useAssistantFeatureFlagStore.use.channelTrustFloors();
   const identityName = useAssistantIdentityStore.use.name();
   const setupChannel = useSetupChannelParam();
   const inviteDialog = useInviteLinkDialog(assistantId);
@@ -43,6 +46,7 @@ export function ChannelsPage({
     <div className="flex flex-col gap-6">
       <DetailCard
         showBorder={false}
+        title={tabbedLayout ? undefined : "Channels"}
         subtitle={`Manage where ${displayName} can be reached.`}
       />
 
