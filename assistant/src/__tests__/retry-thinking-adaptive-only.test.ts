@@ -243,3 +243,149 @@ describe("retry normalization: adaptive-only thinking models", () => {
     expect(lastConfig()?.temperature).toBe(1);
   });
 });
+
+describe("retry normalization: non-adaptive thinking models", () => {
+  test("rewrites enabled thinking to budgeted shape for Sonnet 4.5", async () => {
+    // GIVEN a pass-through caller enabling thinking on Sonnet 4.5, which does
+    // NOT support adaptive thinking (Anthropic 400s the adaptive shape)
+    const { provider, lastConfig } = makePipeline("anthropic");
+
+    // WHEN sending with an explicit max_tokens so the budget is deterministic
+    await provider.sendMessage([userMessage], {
+      config: {
+        model: "claude-sonnet-4-5-20250929",
+        thinking: { enabled: true },
+        max_tokens: 64000,
+      },
+    });
+
+    // THEN the adaptive shape is rewritten to Anthropic's classic budgeted
+    // shape, with a budget strictly below max_tokens
+    expect(lastConfig()?.thinking).toEqual({
+      type: "enabled",
+      budget_tokens: 16000,
+    });
+  });
+
+  test("clamps budget below a small max_tokens", async () => {
+    // GIVEN a caller with a max_tokens below the default thinking budget
+    const { provider, lastConfig } = makePipeline("anthropic");
+
+    // WHEN thinking is enabled on a non-adaptive model
+    await provider.sendMessage([userMessage], {
+      config: {
+        model: "claude-sonnet-4-5-20250929",
+        thinking: { enabled: true },
+        max_tokens: 4000,
+      },
+    });
+
+    // THEN the budget is clamped to stay strictly below max_tokens
+    expect(lastConfig()?.thinking).toEqual({
+      type: "enabled",
+      budget_tokens: 3999,
+    });
+  });
+
+  test("rewrites enabled thinking to budgeted shape for OpenRouter-proxied Sonnet 4.5", async () => {
+    // GIVEN the OpenRouter-proxied Sonnet 4.5 id, which delegates to the
+    // Anthropic Messages API and hits the same adaptive-thinking rejection
+    const { provider, lastConfig } = makePipeline("openrouter");
+
+    // WHEN thinking is enabled
+    await provider.sendMessage([userMessage], {
+      config: {
+        model: "anthropic/claude-sonnet-4.5",
+        thinking: { enabled: true },
+        max_tokens: 64000,
+      },
+    });
+
+    // THEN the adaptive shape is rewritten to the budgeted shape
+    expect(lastConfig()?.thinking).toEqual({
+      type: "enabled",
+      budget_tokens: 16000,
+    });
+  });
+
+  test("preserves adaptive thinking for Opus 4.8", async () => {
+    // GIVEN Opus 4.8, one of the newer families that DOES support adaptive
+    // thinking
+    const { provider, lastConfig } = makePipeline("anthropic");
+
+    // WHEN thinking is enabled
+    await provider.sendMessage([userMessage], {
+      config: {
+        model: "claude-opus-4-8",
+        thinking: { enabled: true },
+        max_tokens: 64000,
+      },
+    });
+
+    // THEN the adaptive shape is preserved (no budgeted downgrade)
+    expect(lastConfig()?.thinking).toEqual({ type: "adaptive" });
+  });
+
+  test("preserves adaptive thinking for an unknown model", async () => {
+    // GIVEN a model not in the catalog: behavior must be conservative and
+    // leave the adaptive shape untouched rather than guessing it needs a budget
+    const { provider, lastConfig } = makePipeline("anthropic");
+
+    // WHEN thinking is enabled
+    await provider.sendMessage([userMessage], {
+      config: {
+        model: "claude-some-future-model",
+        thinking: { enabled: true },
+        max_tokens: 64000,
+      },
+    });
+
+    // THEN the adaptive shape is preserved
+    expect(lastConfig()?.thinking).toEqual({ type: "adaptive" });
+  });
+
+  test("rewrites enabled thinking to budgeted shape via resolved call-site config (Sonnet 4.5)", async () => {
+    // GIVEN a profile mirroring the production incident: a `balanced` profile
+    // pointing Sonnet 4.5 at thinking: enabled, resolved through a call site
+    setLlmConfig({
+      default: {
+        provider: "anthropic",
+        model: "claude-sonnet-4-5-20250929",
+        thinking: { enabled: true },
+      },
+    });
+    const { provider, lastConfig } = makePipeline("anthropic");
+
+    // WHEN a request resolves through the call-site config
+    await provider.sendMessage([userMessage], {
+      config: { callSite: "memoryExtraction" },
+    });
+
+    // THEN thinking resolves to the budgeted shape (not adaptive), with a valid
+    // budget strictly below the resolved max_tokens
+    const thinking = lastConfig()?.thinking as Record<string, unknown>;
+    const maxTokens = lastConfig()?.max_tokens as number;
+    expect(thinking.type).toBe("enabled");
+    expect(typeof thinking.budget_tokens).toBe("number");
+    expect(thinking.budget_tokens as number).toBeGreaterThanOrEqual(1024);
+    expect(thinking.budget_tokens as number).toBeLessThan(maxTokens);
+  });
+
+  test("preserves disabled thinking for a non-adaptive model (no budgeted rewrite)", async () => {
+    // GIVEN a non-adaptive model with thinking explicitly disabled: the mirror
+    // rewrite must only touch the enabled/adaptive shape, never a disabled one
+    const { provider, lastConfig } = makePipeline("anthropic");
+
+    // WHEN thinking is disabled
+    await provider.sendMessage([userMessage], {
+      config: {
+        model: "claude-sonnet-4-5-20250929",
+        thinking: { enabled: false },
+        max_tokens: 64000,
+      },
+    });
+
+    // THEN the disabled shape is preserved unchanged
+    expect(lastConfig()?.thinking).toEqual({ type: "disabled" });
+  });
+});
