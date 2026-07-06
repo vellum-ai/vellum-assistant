@@ -49,10 +49,18 @@ jobs:
           bun-version: '1.3.11'
 
       - name: Install dependencies
-        run: bun install --frozen-lockfile --filter=@vellumai/web
+        run: bun install --frozen-lockfile
 
       - name: Generate API clients
         run: bun run openapi-ts
+
+      # clients/web's vite.config.ts imports vite-plugin-local-mode, which pulls in
+      # @vellumai/local-mode and its transitive @vellumai/environments file: dep.
+      # Both must have their own node_modules so the config loads at build time.
+      - name: Install shared packages
+        uses: ./.github/actions/install-shared-packages
+        with:
+          packages: packages/environments packages/local-mode
 
       # Build per environment so the bundle bakes in this environment's public
       # config — the Stripe publishable key differs per env (pk_test_ vs pk_live_)
