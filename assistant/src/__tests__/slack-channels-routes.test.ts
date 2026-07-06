@@ -262,7 +262,7 @@ describe("handleListSlackChannels", () => {
     });
   });
 
-  test("memberOnly=true filters to is_member conversations before normalizing", async () => {
+  test("memberOnly=true filters out non-member channels before normalizing", async () => {
     configureToken();
 
     listConversationsResult = {
@@ -270,7 +270,7 @@ describe("handleListSlackChannels", () => {
       channels: [
         { id: "C1", name: "member-channel", is_channel: true, is_member: true },
         { id: "C2", name: "other-channel", is_channel: true, is_member: false },
-        { id: "D1", is_im: true, user: "U-unresolved", is_private: true },
+        { id: "C3", name: "bare-channel", is_channel: true },
       ],
     };
 
@@ -285,6 +285,44 @@ describe("handleListSlackChannels", () => {
       type: "channel",
       isPrivate: false,
       isMember: true,
+      memberCount: null,
+      topic: null,
+      imageUrl: null,
+    });
+  });
+
+  test("memberOnly=true keeps DMs and group DMs despite missing is_member", async () => {
+    configureToken();
+
+    listConversationsResult = {
+      ok: true,
+      channels: [
+        { id: "C2", name: "other-channel", is_channel: true, is_member: false },
+        { id: "D1", is_im: true, user: "U1", is_private: true },
+        { id: "G1", name: "group-chat", is_mpim: true, is_private: true },
+      ],
+    };
+
+    userInfoResults.set("U1", {
+      ok: true,
+      user: {
+        id: "U1",
+        name: "alice",
+        profile: { display_name: "Alice Smith" },
+      },
+    });
+
+    const result = (await handleListSlackChannels({
+      queryParams: { memberOnly: "true" },
+    })) as { channels: Array<Record<string, unknown>> };
+
+    expect(result.channels.map((c) => c.id)).toEqual(["G1", "D1"]);
+    expect(result.channels[1]).toEqual({
+      id: "D1",
+      name: "Alice Smith",
+      type: "dm",
+      isPrivate: true,
+      isMember: false,
       memberCount: null,
       topic: null,
       imageUrl: null,

@@ -79,8 +79,10 @@ export async function handleListSlackChannels({
     cursor = resp.response_metadata?.next_cursor || undefined;
   } while (cursor);
 
+  // Slack omits `is_member` on IMs/MPIMs, but any DM or group DM returned by
+  // `conversations.list` is inherently one the connected identity is in.
   const conversations = memberOnly
-    ? allChannels.filter((c) => c.is_member === true)
+    ? allChannels.filter((c) => c.is_member === true || c.is_im || c.is_mpim)
     : allChannels;
 
   const dmUserIds = conversations
@@ -163,7 +165,7 @@ export const ROUTES: RouteDefinition[] = [
         name: "memberOnly",
         schema: { type: "string", enum: ["true", "false"] },
         description:
-          "When 'true', only return conversations the connected identity is a member of",
+          "When 'true', only return conversations the connected identity is in: channels/groups with is_member, plus all DMs and group DMs",
       },
     ],
     responseBody: SlackChannelsListResultSchema,

@@ -27316,7 +27316,9 @@ paths:
             enum:
               - "true"
               - "false"
-          description: When 'true', only return conversations the connected identity is a member of
+          description:
+            "When 'true', only return conversations the connected identity is in: channels/groups with is_member, plus
+            all DMs and group DMs"
       responses:
         "200":
           description: Successful response
