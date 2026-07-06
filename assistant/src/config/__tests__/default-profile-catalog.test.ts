@@ -175,34 +175,23 @@ describe("resolver integration", () => {
 });
 
 describe("schema validation", () => {
-  test("accepts references to default profiles absent from llm.profiles", () => {
-    expect(() => LLMSchema.parse({ activeProfile: "balanced" })).not.toThrow();
-    expect(() =>
-      LLMSchema.parse({ advisorProfile: "quality-optimized" }),
-    ).not.toThrow();
-    expect(() =>
-      LLMSchema.parse({
-        callSites: { mainAgent: { profile: "cost-optimized" } },
-      }),
-    ).not.toThrow();
-  });
-
-  test("still rejects references to unknown profile names", () => {
-    expect(() => LLMSchema.parse({ activeProfile: "no-such" })).toThrow();
-    expect(() =>
-      LLMSchema.parse({ callSites: { mainAgent: { profile: "no-such" } } }),
-    ).toThrow();
-  });
-
-  test("rejects os-beta references unless the flag-gated entry is materialized", () => {
+  test("profile references are valid only when materialized in llm.profiles (parity with the seeder contract)", () => {
+    // A default name is not schema-valid while unmaterialized: the effective
+    // view does not resolve absent defaults yet, so accepting the reference
+    // would let resolution throw at dispatch. The ownership-flip follow-up
+    // makes absent defaults resolve from the catalog and relaxes this.
+    expect(() => LLMSchema.parse({ activeProfile: "balanced" })).toThrow();
     expect(() =>
       LLMSchema.parse({ activeProfile: OS_BETA_PROFILE_KEY }),
     ).toThrow();
     expect(() =>
       LLMSchema.parse({
-        activeProfile: OS_BETA_PROFILE_KEY,
-        profiles: { [OS_BETA_PROFILE_KEY]: { source: "managed" } },
+        activeProfile: "balanced",
+        profiles: managedStubs(),
       }),
     ).not.toThrow();
+    expect(() =>
+      LLMSchema.parse({ callSites: { mainAgent: { profile: "no-such" } } }),
+    ).toThrow();
   });
 });

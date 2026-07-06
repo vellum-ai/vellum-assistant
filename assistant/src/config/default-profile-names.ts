@@ -1,10 +1,9 @@
 /**
  * Names of the code-defined default inference profiles.
  *
- * This module is intentionally import-free: `schemas/llm.ts` needs the names
- * for reference validation while `default-profile-catalog.ts` (which imports
- * runtime values from `schemas/llm.ts`) needs them to key the catalog, so the
- * names live in a leaf module both can import without a cycle.
+ * This module is intentionally import-free so any config module (the
+ * catalog, the seeder, the flag reconcile, and eventually the schema) can
+ * share the names without import cycles.
  */
 
 /** Stable keys of the always-available default profiles. */
@@ -18,8 +17,8 @@ export type DefaultProfileKey = (typeof DEFAULT_PROFILE_KEYS)[number];
 /**
  * Flag-gated default profile: only available while the `os-beta` feature
  * flag has reconciled it into the workspace (see `sync-gated-profiles.ts`).
- * Deliberately NOT part of `DEFAULT_PROFILE_KEYS`: references to it are only
- * valid while a workspace entry exists, so schema validation must not treat
- * it as always resolvable.
+ * Deliberately NOT part of `DEFAULT_PROFILE_KEYS`: it is never
+ * unconditionally available, so it must not be treated as an always-valid
+ * reference target.
  */
 export const OS_BETA_PROFILE_KEY = "os-beta";
