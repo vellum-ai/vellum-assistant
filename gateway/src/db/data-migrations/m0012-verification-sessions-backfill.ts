@@ -149,24 +149,36 @@ export async function up(): Promise<MigrationResult> {
     const txn = gwDb.transaction(() => {
       // Snapshot channels holding a fresher (post-upgrade) gateway session
       // before inserting, so backfilled rows never shadow one another.
+      // Scoped to mirror the live revoke-prior semantics: an outbound mint
+      // revokes all interceptable statuses, but an inbound mint revokes only
+      // `pending` — so an inbound-only channel must not revoke backfilled
+      // outbound rows.
       const now = Date.now();
-      const supersededChannels = new Set(
-        (
-          gwDb
-            .prepare(
-              `SELECT DISTINCT channel FROM channel_verification_sessions
-                WHERE status IN ('pending', 'pending_bootstrap', 'awaiting_response')
-                  AND expires_at > ?`,
-            )
-            .all(now) as { channel: string }[]
-        ).map((r) => r.channel),
-      );
+      const channelsByStatuses = (statuses: string[]): Set<string> =>
+        new Set(
+          (
+            gwDb
+              .prepare(
+                `SELECT DISTINCT channel FROM channel_verification_sessions
+                  WHERE status IN (${statuses.map(() => "?").join(", ")})
+                    AND expires_at > ?`,
+              )
+              .all(...statuses, now) as { channel: string }[]
+          ).map((r) => r.channel),
+        );
+      const outboundSupersededChannels = channelsByStatuses([
+        "pending_bootstrap",
+        "awaiting_response",
+      ]);
+      const inboundSupersededChannels = channelsByStatuses(["pending"]);
 
       for (const row of sessionRows) {
         const superseded =
           INTERCEPTABLE_STATUSES.includes(row.status) &&
           row.expires_at > now &&
-          supersededChannels.has(row.channel);
+          (outboundSupersededChannels.has(row.channel) ||
+            (row.status === "pending" &&
+              inboundSupersededChannels.has(row.channel)));
 
         const changes = insertSession.run(
           row.id,

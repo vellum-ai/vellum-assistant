@@ -336,12 +336,12 @@ describe("m0012-verification-sessions-backfill", () => {
     expect(row.updated_at).toBe(900);
   });
 
-  test("backfills a superseded interceptable session as revoked when the gateway holds a fresh session on the channel", async () => {
+  test("backfills a superseded interceptable session as revoked when the gateway holds a fresh outbound session on the channel", async () => {
     const future = Date.now() + 60_000;
     seedGatewaySession({
       id: "gw-fresh",
       channel: "telegram",
-      status: "pending",
+      status: "awaiting_response",
       expiresAt: future,
     });
     seedAssistantSession({
@@ -355,8 +355,36 @@ describe("m0012-verification-sessions-backfill", () => {
 
     expect(gatewaySession("as-stale")!.status).toBe("revoked");
     const fresh = gatewaySession("gw-fresh")!;
-    expect(fresh.status).toBe("pending");
+    expect(fresh.status).toBe("awaiting_response");
     expect(fresh.updated_at).toBe(200);
+  });
+
+  test("a fresh inbound gateway session supersedes only assistant pending rows — outbound rows coexist (mirrors createInboundSession's narrower revoke scope)", async () => {
+    const future = Date.now() + 60_000;
+    seedGatewaySession({
+      id: "gw-inbound",
+      channel: "telegram",
+      status: "pending",
+      expiresAt: future,
+    });
+    seedAssistantSession({
+      id: "as-outbound",
+      channel: "telegram",
+      status: "awaiting_response",
+      expires_at: future,
+    });
+    seedAssistantSession({
+      id: "as-inbound",
+      channel: "telegram",
+      status: "pending",
+      expires_at: future,
+      challenge_hash: "hash-inbound",
+    });
+
+    expect(await m0012Up()).toBe("done");
+
+    expect(gatewaySession("as-outbound")!.status).toBe("awaiting_response");
+    expect(gatewaySession("as-inbound")!.status).toBe("revoked");
   });
 
   test("backfills an interceptable session with its original status when its channel has no gateway session", async () => {
