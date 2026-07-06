@@ -53,6 +53,7 @@ class FakeConversation {
   }
   updateClient() {}
   setIsSubagent() {}
+  setParentConversationId() {}
   setTrustContext(ctx: unknown) {
     this.capturedState.trustContext = ctx ?? undefined;
   }

@@ -83,6 +83,7 @@ class FakeConversation {
     this.sendToClient = sendToClient;
   }
   setIsSubagent() {}
+  setParentConversationId() {}
   setTrustContext() {}
   setAuthContext() {}
   getAuthContext() {
