@@ -121,6 +121,7 @@ import { reviseOnboardingThreadsMigration } from "./120-revise-onboarding-thread
 import { seedDefaultUserGuardrailsMigration } from "./121-seed-default-user-guardrails.js";
 import { relocateDefaultUserBoundaryMigration } from "./122-relocate-default-user-boundary.js";
 import { swapQualityProfileToFableMigration } from "./123-swap-quality-profile-to-fable.js";
+import { correctDefaultUserBoundaryCommentsMigration } from "./124-correct-default-user-boundary-comments.js";
 import { migrateToWorkspaceVolumeMigration } from "./migrate-to-workspace-volume.js";
 import type { WorkspaceMigration } from "./types.js";
 
@@ -253,4 +254,5 @@ export const WORKSPACE_MIGRATIONS: WorkspaceMigration[] = [
   seedDefaultUserGuardrailsMigration,
   relocateDefaultUserBoundaryMigration,
   swapQualityProfileToFableMigration,
+  correctDefaultUserBoundaryCommentsMigration,
 ];
