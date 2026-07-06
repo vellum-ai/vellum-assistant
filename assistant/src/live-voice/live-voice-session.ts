@@ -319,6 +319,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     );
   }
 
+  // Fire-and-forget re-arm: end-of-turn work (terminal frames, archival,
+  // metrics) must never block on the next transcriber's startup. Failures
+  // surface through rearmAfterTurn's error frame.
+  private scheduleRearmAfterTurn(): void {
+    void this.rearmAfterTurn().catch(() => {});
+  }
+
   private async rearmAfterTurn(): Promise<void> {
     if (this.isClosed || this.state === "failed") return;
 
@@ -511,7 +518,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (content.length === 0) {
       utterance.assistantTurnStarted = true;
       await this.finalizePendingUtterance(utterance, "empty_transcript");
-      await this.rearmAfterTurn();
+      this.scheduleRearmAfterTurn();
       return;
     }
 
@@ -639,7 +646,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         )}`,
       });
       await this.finalizePendingUtterance(utterance, "assistant_start_error");
-      await this.rearmAfterTurn();
+      this.scheduleRearmAfterTurn();
     }
   }
 
@@ -659,7 +666,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (utterance) {
       await this.finalizePendingUtterance(utterance, reason);
     }
-    await this.rearmAfterTurn();
+    this.scheduleRearmAfterTurn();
   }
 
   private isActiveAssistantTurn(token: symbol): boolean {
@@ -718,6 +725,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           "completed",
           {
             clearActive: false,
+            rearm: false,
           },
         );
         await this.sendFrame(
@@ -732,6 +740,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           if (currentTurn.handle && currentTurn.finalized) {
             this.activeAssistantTurn = null;
           }
+        }
+
+        // Re-arm only after the terminal tts_done frame so a slow or failing
+        // next transcriber cannot block or precede turn completion. A
+        // cancelled turn re-arms through cancelAssistantTurn instead.
+        if (!currentTurn.abortController.signal.aborted) {
+          this.scheduleRearmAfterTurn();
         }
       });
   }
@@ -888,7 +903,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     turn: ActiveAssistantTurn,
     status: "completed" | "cancelled",
     reason = "completed",
-    options: { clearActive?: boolean } = {},
+    options: { clearActive?: boolean; rearm?: boolean } = {},
   ): Promise<void> {
     if (turn.finalized) return;
 
@@ -914,7 +929,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       this.activeAssistantTurn = null;
     }
 
-    await this.rearmAfterTurn();
+    if (options.rearm ?? true) {
+      this.scheduleRearmAfterTurn();
+    }
   }
 
   private async archiveBufferedAudio(input: {
