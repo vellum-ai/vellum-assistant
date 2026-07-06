@@ -1,29 +1,23 @@
-import { join } from "node:path";
-
 import { getConfig } from "../../../config/loader.js";
 import {
   clearMessagesLexicalIndex,
   enqueueDeleteMessageLexical,
   enqueuePurgeConversationLexical,
 } from "../../../persistence/job-handlers/message-lexical.js";
-import { getWorkspaceDir } from "../../../util/platform.js";
 import { getMemoryConfig } from "./config.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
-import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import type {
   ConversationForkedEvent,
   MemoryPersistenceHooks,
   MessagePersistedEvent,
 } from "./persistence-lifecycle-seam.js";
-import { hasPkbBufferContent as pkbBufferHasContent } from "./pkb-schedule.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
 import {
   forkActivationState,
   seedForkActivationState,
 } from "./v2/activation-store.js";
-import { countBufferLines } from "./v2/consolidation-job.js";
 import {
   extractInjectedConceptSlugs,
   readInjectedBlock,
@@ -153,17 +147,5 @@ export const memoryPersistenceHooks: MemoryPersistenceHooks = {
     // after clear-all could upsert into the not-yet-dropped collection and then
     // be erased when the drop lands.
     await clearMessagesLexicalIndex(getConfig());
-  },
-
-  onWorkerStartup(): void {
-    sweepOrphanMemoryRetrospectiveConversations();
-  },
-
-  countMemoryBufferLines(): number {
-    return countBufferLines(join(getWorkspaceDir(), "memory", "buffer.md"));
-  },
-
-  hasPkbBufferContent(): boolean {
-    return pkbBufferHasContent();
   },
 };

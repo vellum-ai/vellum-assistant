@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import { getConfig } from "../../../config/loader.js";
 import { isMemoryV3Live } from "../../../config/memory-v3-gate.js";
 import type { AssistantConfig } from "../../../config/types.js";
@@ -49,7 +51,10 @@ import {
 } from "../../../persistence/jobs-store.js";
 import { spawnMemoryWorkerProcess } from "../../../persistence/worker-control.js";
 import { getLogger } from "../../../util/logger.js";
-import { getMemoryPersistenceHooks } from "./persistence-lifecycle-seam.js";
+import { getWorkspaceDir } from "../../../util/platform.js";
+import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
+import { hasPkbBufferContent } from "./pkb-schedule.js";
+import { countBufferLines } from "./v2/consolidation-job.js";
 
 const log = getLogger("memory-jobs-worker");
 
@@ -240,7 +245,7 @@ export function startInProcessMemoryJobsWorker(
   // left behind by daemon crashes mid-job. Best-effort — never block worker
   // startup on cleanup failures.
   try {
-    getMemoryPersistenceHooks().onWorkerStartup();
+    sweepOrphanMemoryRetrospectiveConversations();
   } catch (err) {
     log.warn(
       { err },
@@ -773,6 +778,11 @@ function isWithinPkbActiveHours(
   return hour >= start || hour < end;
 }
 
+/** Line count of the memory buffer, the scheduler's consolidation gate. */
+function memoryBufferLineCount(): number {
+  return countBufferLines(join(getWorkspaceDir(), "memory", "buffer.md"));
+}
+
 export function maybeEnqueueGraphMaintenanceJobs(
   config: AssistantConfig,
   nowMs = Date.now(),
@@ -846,10 +856,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
       // The checkpoint advances so the next check fires after the regular
       // interval. Manual "Run now" is unaffected (routes layer, not schedule).
       if (jobType === consolidateEntry.jobType) {
-        if (
-          getMemoryPersistenceHooks().countMemoryBufferLines() <
-          MIN_BUFFER_LINES_FOR_CONSOLIDATION
-        ) {
+        if (memoryBufferLineCount() < MIN_BUFFER_LINES_FOR_CONSOLIDATION) {
           log.debug(
             "Scheduled consolidation skipped: buffer under minimum line threshold",
           );
@@ -884,7 +891,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
     maxLines !== null &&
     !hasActiveJobOfType(consolidateEntry.jobType)
   ) {
-    if (getMemoryPersistenceHooks().countMemoryBufferLines() >= maxLines) {
+    if (memoryBufferLineCount() >= maxLines) {
       enqueueMemoryJob(
         consolidateEntry.jobType,
         AUTOMATIC_CONSOLIDATION_JOB_PAYLOAD,
@@ -926,7 +933,7 @@ export function maybeEnqueueGraphMaintenanceJobs(
         intervalMs: filingConfig.intervalMs,
         jobType: "pkb_filing",
         enabled: filingConfig.enabled,
-        hasWork: () => getMemoryPersistenceHooks().hasPkbBufferContent(),
+        hasWork: () => hasPkbBufferContent(),
       },
       {
         key: GRAPH_MAINTENANCE_CHECKPOINTS.pkbCompaction,

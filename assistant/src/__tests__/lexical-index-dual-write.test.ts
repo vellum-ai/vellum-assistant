@@ -356,13 +356,6 @@ describe("delete paths route through the persistence-hook seam", () => {
       deletedBatches.push(ids);
     },
     async onAllConversationsCleared() {},
-    onWorkerStartup() {},
-    countMemoryBufferLines() {
-      return 0;
-    },
-    hasPkbBufferContent() {
-      return false;
-    },
   };
 
   beforeEach(() => {

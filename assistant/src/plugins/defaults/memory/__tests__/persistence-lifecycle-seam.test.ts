@@ -26,13 +26,6 @@ const baseHooks: MemoryPersistenceHooks = {
   onConversationDeleted() {},
   onMessagesDeleted() {},
   async onAllConversationsCleared() {},
-  onWorkerStartup() {},
-  countMemoryBufferLines() {
-    return 0;
-  },
-  hasPkbBufferContent() {
-    return false;
-  },
 };
 
 describe("memory persistence-lifecycle seam", () => {
@@ -41,18 +34,6 @@ describe("memory persistence-lifecycle seam", () => {
   test("defaults to a no-op when no implementation is registered", async () => {
     // Resolves without throwing — the "memory not present" path.
     await getMemoryPersistenceHooks().onMessagePersisted(event);
-  });
-
-  test("countMemoryBufferLines defaults to 0 when memory is not present", () => {
-    expect(getMemoryPersistenceHooks().countMemoryBufferLines()).toBe(0);
-  });
-
-  test("countMemoryBufferLines returns the registered implementation's count", () => {
-    registerMemoryPersistenceHooks({
-      ...baseHooks,
-      countMemoryBufferLines: () => 42,
-    });
-    expect(getMemoryPersistenceHooks().countMemoryBufferLines()).toBe(42);
   });
 
   test("getMemoryPersistenceHooks returns the registered implementation", async () => {

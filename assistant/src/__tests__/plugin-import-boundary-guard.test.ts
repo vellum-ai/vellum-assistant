@@ -218,7 +218,6 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../util/sqlite-retry.js",
     "../../../util/strip-comment-lines.js",
     "../../../util/worker-memory.js",
-    "../../disabled-state.js",
     "../../types.js",
     "../injection-presence.js",
     "../injector-order.js",
