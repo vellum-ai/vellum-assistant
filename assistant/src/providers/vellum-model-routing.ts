@@ -28,6 +28,30 @@ export const MANAGED_ROUTABLE_PROVIDERS: ReadonlySet<string> = new Set(
     .map((m) => m.name),
 );
 
+/**
+ * Sentinel provider id for the single, provider-agnostic Vellum-managed
+ * connection. Unlike the per-provider `*-managed` connections, this one does
+ * not name an upstream provider on its DB row — the upstream is determined
+ * per-request from the resolving profile. This id is never a real catalog
+ * entry, so routing code must substitute the effective provider before any
+ * catalog/adapter lookup.
+ */
+export const VELLUM_MANAGED_PROVIDER = "vellum";
+
+/**
+ * Whether a connection is the provider-agnostic Vellum-managed connection.
+ * Structurally typed so this stays a pure module with no connection-schema
+ * import.
+ */
+export function isVellumManagedConnection(conn: {
+  provider: string;
+  auth: { type: string };
+}): boolean {
+  return (
+    conn.provider === VELLUM_MANAGED_PROVIDER && conn.auth.type === "platform"
+  );
+}
+
 export interface VellumModelRoute {
   /** Upstream provider id, e.g. "fireworks". Always a managed-routable id. */
   provider: string;

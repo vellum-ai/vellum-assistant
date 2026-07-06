@@ -13822,7 +13822,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            openai-compatible, minimax, atlascloud"
+            openai-compatible, minimax, atlascloud, vellum"
       responses:
         "200":
           description: Successful response
@@ -31533,6 +31533,7 @@ components:
         - openai-compatible
         - minimax
         - atlascloud
+        - vellum
     Auth:
       oneOf:
         - type: object
