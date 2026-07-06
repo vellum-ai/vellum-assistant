@@ -309,6 +309,37 @@ describe("synthesizeAndEmit (streaming)", () => {
     expect(seen).toEqual(["a", "b"]);
   });
 
+  test("queued chunks are owned copies — provider mutations of a reused buffer are not observed", async () => {
+    const reused = new Uint8Array(3);
+    const provider: TtsProvider = {
+      id: "fake-buffer-reusing",
+      capabilities: CAPABILITIES,
+      synthesize: () => Promise.reject(new Error("unused")),
+      async synthesizeStream(_request, onChunk): Promise<TtsSynthesisResult> {
+        reused.set(bytes("aaa"));
+        onChunk(reused);
+        // Both emits are still queued behind the blocked sink when the
+        // provider overwrites the buffer for the second chunk.
+        reused.set(bytes("bbb"));
+        onChunk(reused);
+        return { audio: Buffer.from("aaabbb"), contentType: "audio/mpeg" };
+      },
+    };
+    const seen: string[] = [];
+
+    await synthesizeAndEmit({
+      provider,
+      text: "hello",
+      useCase: "phone-call",
+      async onChunk(chunk) {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        seen.push(chunk.audio.toString("utf8"));
+      },
+    });
+
+    expect(seen).toEqual(["aaa", "bbb"]);
+  });
+
   test("a rejecting onChunk sink fails the call and stops further emits", async () => {
     const provider = makeStreamingProvider([bytes("a"), bytes("b")]);
     const attempted: string[] = [];

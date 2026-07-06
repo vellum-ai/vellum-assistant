@@ -126,11 +126,10 @@ export async function synthesizeAndEmit(
       if (shouldStop()) {
         return;
       }
-      const audio = Buffer.from(
-        chunk.buffer,
-        chunk.byteOffset,
-        chunk.byteLength,
-      );
+      // Owned copy (Buffer.from(Uint8Array) copies; the buffer/offset form
+      // would alias): the emit is deferred through the chain, so a provider
+      // reusing its chunk buffer must not mutate what we queued.
+      const audio = Buffer.from(chunk);
       pendingEmits = pendingEmits
         .then(() => {
           // Re-checked at emit time: an abort/staleness flip (or sink
