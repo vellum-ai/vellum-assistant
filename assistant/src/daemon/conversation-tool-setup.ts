@@ -787,6 +787,12 @@ This conversation exposes no tools. You cannot run commands, edit or read files,
  * surface on the wire and rejects at execution time, so it is not tool-less
  * from the model's perspective and is excluded.
  *
+ * A conversation with provider-native web search enabled (the advisor consult
+ * subagent) is also excluded even when its client-tool allowlist is empty:
+ * the agent loop appends a server-side `web_search` tool the provider runs
+ * itself, so the model DOES have a tool and telling it otherwise would deny
+ * its real search capability.
+ *
  * The transient per-turn `toolsDisabledDepth` disable (pointer-generation
  * turns) is deliberately NOT covered here: it toggles within a conversation's
  * lifetime, so folding it in would make the notice appear and disappear
@@ -797,8 +803,11 @@ export function isToollessConversationSurface(
   ctx: Pick<
     SkillProjectionContext,
     "subagentAllowedTools" | "subagentToolGateMode"
-  >,
+  > & { enableNativeWebSearch?: boolean },
 ): boolean {
+  if (ctx.enableNativeWebSearch === true) {
+    return false;
+  }
   return (
     ctx.subagentAllowedTools !== undefined &&
     ctx.subagentAllowedTools.size === 0 &&
@@ -821,7 +830,7 @@ export function withToollessConversationNotice(
   ctx: Pick<
     SkillProjectionContext,
     "subagentAllowedTools" | "subagentToolGateMode"
-  >,
+  > & { enableNativeWebSearch?: boolean },
 ): string {
   if (isToollessConversationSurface(ctx)) {
     return `${systemPrompt}\n\n${TOOLLESS_CONVERSATION_NOTICE}`;

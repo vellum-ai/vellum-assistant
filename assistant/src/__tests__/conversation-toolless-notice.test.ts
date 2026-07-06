@@ -88,6 +88,18 @@ describe("isToollessConversationSurface", () => {
       isToollessConversationSurface(makeCtx({ toolsDisabledDepth: 1 })),
     ).toBe(false);
   });
+
+  test("false when provider-native web search is enabled (advisor consult)", () => {
+    // The advisor consult runs with an empty client-tool allowlist but the
+    // agent loop appends a server-side web_search tool the provider executes
+    // itself — the model has a real search capability, so the notice must not
+    // deny it.
+    const ctx = {
+      ...makeCtx({ subagentAllowedTools: new Set<string>() }),
+      enableNativeWebSearch: true,
+    };
+    expect(isToollessConversationSurface(ctx)).toBe(false);
+  });
 });
 
 describe("isToollessConversationSurface — parity with resolveTools", () => {
@@ -127,6 +139,14 @@ describe("withToollessConversationNotice", () => {
       subagentAllowedTools: new Set<string>(),
       subagentToolGateMode: "execution",
     });
+    expect(withToollessConversationNotice(BASE, ctx)).toBe(BASE);
+  });
+
+  test("does not append when provider-native web search is enabled", () => {
+    const ctx = {
+      ...makeCtx({ subagentAllowedTools: new Set<string>() }),
+      enableNativeWebSearch: true,
+    };
     expect(withToollessConversationNotice(BASE, ctx)).toBe(BASE);
   });
 

@@ -590,6 +590,24 @@ export class Conversation {
   };
   public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
+  /**
+   * Whether this conversation's LLM calls get provider-native (server-side)
+   * web search (see {@link ConversationConstructorOptions.enableNativeWebSearch}).
+   * Read by the tool-less-conversation predicate: a conversation with native
+   * search enabled is not tool-less even when its client-tool allowlist is
+   * empty.
+   * @internal
+   */
+  readonly enableNativeWebSearch: boolean;
+  /**
+   * The prompt most recently pushed to the agent loop: the base
+   * {@link systemPrompt} plus the conditional tool-less-conversation notice.
+   * Tracked separately from {@link systemPrompt} — which stays notice-free —
+   * so {@link syncLoopSystemPrompt} can dedupe pushes without ever feeding a
+   * notice-bearing prompt back through the build as the next turn's base
+   * (which would append the notice again each turn).
+   */
+  private loopSystemPrompt: string;
   /** @internal */ modelOverride: string | undefined;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
   /** @internal */ activeContextNodeIds?: string[];
@@ -645,8 +663,10 @@ export class Conversation {
   ) {
     const { maxTokens, speedOverride, cacheTtl, modelOverride } = options ?? {};
     const enableNativeWebSearch = options?.enableNativeWebSearch ?? false;
+    this.enableNativeWebSearch = enableNativeWebSearch;
     this.conversationId = conversationId;
     this.systemPrompt = systemPrompt;
+    this.loopSystemPrompt = systemPrompt;
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
@@ -844,7 +864,28 @@ export class Conversation {
    * the provider's prefix cache).
    */
   buildCurrentSystemPrompt(): string {
-    const base = this.hasSystemPromptOverride
+    // A conversation whose wire tool surface is gated to empty (the manual
+    // analyze-conversation surface) keeps the default identity prompt, which
+    // describes an assistant that delegates work and calls tools. Append a
+    // notice so the model does not emit tool-call syntax as text or claim to
+    // run commands it cannot. The condition is stable per conversation, so the
+    // appended text is stable too and does not thrash the prefix cache. The
+    // notice is applied fresh over the notice-free base each build — never
+    // persisted into {@link systemPrompt} — so repeated builds cannot stack it.
+    return withToollessConversationNotice(
+      this.buildCurrentBaseSystemPrompt(),
+      this,
+    );
+  }
+
+  /**
+   * The notice-free base of the current system prompt: the construction-time
+   * override verbatim, or a fresh full rebuild (picks up workspace file
+   * changes, live trust/channel context, persona overrides, onboarding
+   * context).
+   */
+  private buildCurrentBaseSystemPrompt(): string {
+    return this.hasSystemPromptOverride
       ? this.systemPrompt
       : buildSystemPrompt({
           hasNoClient: this.hasNoClient,
@@ -854,13 +895,6 @@ export class Conversation {
           onboardingContext: this.getOnboardingContext(),
           conversationId: this.conversationId,
         });
-    // A conversation whose wire tool surface is gated to empty (the manual
-    // analyze-conversation surface) keeps the default identity prompt, which
-    // describes an assistant that delegates work and calls tools. Append a
-    // notice so the model does not emit tool-call syntax as text or claim to
-    // run commands it cannot. The condition is stable per conversation, so the
-    // appended text is stable too and does not thrash the prefix cache.
-    return withToollessConversationNotice(base, this);
   }
 
   /**
@@ -872,22 +906,32 @@ export class Conversation {
    * construction-time persona (the guardian, or `users/default.md`) for the
    * whole conversation.
    *
-   * Pushing only when the rebuilt prompt actually differs keeps the provider's
-   * prefix cache intact for the common case (a stable-identity conversation
-   * rebuilds to the same bytes, so no update is sent). A system-prompt override
-   * resolves verbatim via {@link buildCurrentSystemPrompt}, so override
-   * conversations (subagent forks, stored overrides) are inherently a no-op.
+   * Pushing only when the rebuilt prompt actually differs (tracked via
+   * {@link loopSystemPrompt}) keeps the provider's prefix cache intact for the
+   * common case (a stable-identity conversation rebuilds to the same bytes, so
+   * no update is sent). A system-prompt override resolves verbatim via
+   * {@link buildCurrentBaseSystemPrompt}, so override conversations (subagent
+   * forks, stored overrides) push at most once — when the tool-less notice
+   * first applies — and are a no-op every turn after.
+   *
+   * {@link systemPrompt} is updated with the notice-FREE base: it is the input
+   * to the next rebuild in the override path and the value fork consumers read
+   * via {@link getCurrentSystemPrompt}, so storing the notice-bearing prompt
+   * there would stack the notice turn over turn and leak it into child forks
+   * that resolve their own tool surface.
    *
    * Called by the turn runner before `agentLoop.run()`, once the turn's
    * persona snapshots ({@link currentTurnTrustContext},
    * {@link currentTurnChannelCapabilities}) are set.
    */
   syncLoopSystemPrompt(): void {
-    const next = this.buildCurrentSystemPrompt();
-    if (next === this.systemPrompt) {
+    const base = this.buildCurrentBaseSystemPrompt();
+    const next = withToollessConversationNotice(base, this);
+    if (next === this.loopSystemPrompt) {
       return;
     }
-    this.systemPrompt = next;
+    this.systemPrompt = base;
+    this.loopSystemPrompt = next;
     this.agentLoop.setSystemPrompt(next);
   }
 
@@ -1449,8 +1493,11 @@ export class Conversation {
   }
 
   /**
-   * Return the system prompt string set at construction time (or its override).
-   * Fork consumers use this to pass the parent's system prompt to the fork.
+   * Return the conversation's notice-free base system prompt (the
+   * construction-time override, or the most recent per-turn rebuild). Fork
+   * consumers use this to pass the parent's system prompt to the fork; the
+   * tool-less-conversation notice is excluded because a fork resolves its own
+   * tool surface and applies the notice itself when it qualifies.
    */
   getCurrentSystemPrompt(): string {
     return this.systemPrompt;
