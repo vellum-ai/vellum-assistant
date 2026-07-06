@@ -4200,6 +4200,71 @@ paths:
           description: ''
       x-vellum-api-clients:
       - platform
+  /v1/organizations/billing/low-balance-alert/:
+    get:
+      operationId: organizations_billing_low_balance_alert_retrieve
+      description: Return the per-org override (or null), effective, and default values.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LowBalanceAlertResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
+    put:
+      operationId: organizations_billing_low_balance_alert_update
+      description: Set (or clear, via null) the per-org low-balance threshold override.
+      parameters:
+      - in: header
+        name: Vellum-Organization-Id
+        schema:
+          type: string
+          format: uuid
+        description: Required if using Cookie-based or X-Session-Token authentication
+          methods.
+      tags:
+      - organizations
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LowBalanceAlertRequestRequest'
+          application/x-www-form-urlencoded:
+            schema:
+              $ref: '#/components/schemas/LowBalanceAlertRequestRequest'
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/LowBalanceAlertRequestRequest'
+        required: true
+      security:
+      - VellumAPIKey: []
+      - cookieAuth: []
+      - XSessionTokenAuth: []
+      responses:
+        '200':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LowBalanceAlertResponse'
+          description: ''
+      x-vellum-api-clients:
+      - platform
   /v1/organizations/billing/plans/:
     get:
       operationId: organizations_billing_plans_retrieve
@@ -6643,6 +6708,31 @@ components:
       required:
       - expiresAt
       - token
+    LowBalanceAlertRequestRequest:
+      type: object
+      description: PUT /…/low-balance-alert/ request body. ``null`` clears the override.
+      properties:
+        threshold_usd:
+          type: string
+          nullable: true
+          minLength: 1
+      required:
+      - threshold_usd
+    LowBalanceAlertResponse:
+      type: object
+      description: GET/PUT /…/low-balance-alert/ response shape.
+      properties:
+        threshold_usd:
+          type: string
+          nullable: true
+        effective_threshold_usd:
+          type: string
+        default_threshold_usd:
+          type: string
+      required:
+      - default_threshold_usd
+      - effective_threshold_usd
+      - threshold_usd
     MachineSizeEnum:
       enum:
       - small
