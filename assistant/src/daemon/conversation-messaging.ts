@@ -31,16 +31,19 @@ import {
   attachInlineAttachmentToMessage,
   attachmentExists,
   AttachmentUploadError,
+  getFilePathForAttachment,
   linkAttachmentToMessage,
   validateAttachmentUpload,
 } from "../persistence/attachments-store.js";
 import {
   addMessage,
+  extractAttachmentStoredPaths,
   extractImageSourcePaths,
   getConversation,
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
+  updateMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import {
   syncMessageToDisk,
@@ -484,30 +487,18 @@ export async function persistQueuedMessageBody(
     displayContent,
     clientMessageId,
   } = options;
-  const attachmentInputs = attachments.map((attachment) => ({
-    id: attachment.id,
-    filename: attachment.filename,
-    mimeType: attachment.mimeType,
-    data: attachment.data,
-    extractedText: attachment.extractedText,
-    filePath: attachment.filePath,
-  }));
+  const attachmentInputs: MessageAttachmentInput[] = attachments.map(
+    (attachment) => ({
+      id: attachment.id,
+      filename: attachment.filename,
+      mimeType: attachment.mimeType,
+      data: attachment.data,
+      extractedText: attachment.extractedText,
+      filePath: attachment.filePath,
+    }),
+  );
   const cleanMessage = createUserMessage(content, attachmentInputs);
-  const llmMessage = enrichMessageWithSourcePaths(
-    cleanMessage,
-    attachmentInputs,
-  );
-  log.info(
-    {
-      requestId,
-      contentBlockTypes: Array.isArray(llmMessage.content)
-        ? llmMessage.content.map((b) => b.type)
-        : typeof llmMessage.content,
-      attachmentCount: attachments.length,
-    },
-    "persistUserMessage: content blocks being sent to model",
-  );
-  ctx.messages.push(llmMessage);
+  let pushedToHistory = false;
 
   try {
     const turnCtx =
@@ -579,7 +570,6 @@ export async function persistQueuedMessageBody(
     );
 
     if (persistedUserMessage.deduplicated) {
-      ctx.messages.pop();
       return { id: persistedUserMessage.id, deduplicated: true };
     }
 
@@ -608,7 +598,11 @@ export async function persistQueuedMessageBody(
       throw new Error("Failed to persist user message");
     }
 
-    // Index user attachments in the attachments table for later retrieval.
+    // Index user attachments in the attachments table for later retrieval,
+    // capturing the resolved stored path of each linked attachment. Name
+    // collisions in the conversation's attachments/ dir get a -2/-3 suffix,
+    // so the stored path — not the original filename — is the only reliable
+    // on-disk handle for the file.
     for (let i = 0; i < attachments.length; i++) {
       const a = attachments[i];
       try {
@@ -617,7 +611,13 @@ export async function persistQueuedMessageBody(
         // re-uploading. This handles the case where data is empty because
         // the attachment content lives on disk.
         if (a.id && attachmentExists(a.id)) {
-          linkAttachmentToMessage(persistedUserMessage.id, a.id, i);
+          const scopedAttachmentId = linkAttachmentToMessage(
+            persistedUserMessage.id,
+            a.id,
+            i,
+          );
+          attachmentInputs[i].storedPath =
+            getFilePathForAttachment(scopedAttachmentId) ?? undefined;
           continue;
         }
 
@@ -631,7 +631,7 @@ export async function persistQueuedMessageBody(
           );
           continue;
         }
-        attachInlineAttachmentToMessage(
+        const stored = attachInlineAttachmentToMessage(
           persistedUserMessage.id,
           i,
           a.filename,
@@ -639,6 +639,7 @@ export async function persistQueuedMessageBody(
           a.data,
           { sourcePath: a.filePath, normalizeImage: true },
         );
+        attachmentInputs[i].storedPath = stored.filePath;
       } catch (err) {
         if (err instanceof AttachmentUploadError) {
           log.warn(
@@ -654,6 +655,31 @@ export async function persistQueuedMessageBody(
       }
     }
 
+    // Persist the resolved paths so history reloads can rebuild the same
+    // annotation block the in-memory message carries below.
+    const attachmentStoredPaths =
+      extractAttachmentStoredPaths(attachmentInputs);
+    if (attachmentStoredPaths) {
+      updateMessageMetadata(persistedUserMessage.id, { attachmentStoredPaths });
+    }
+
+    const llmMessage = enrichMessageWithSourcePaths(
+      cleanMessage,
+      attachmentInputs,
+    );
+    log.info(
+      {
+        requestId,
+        contentBlockTypes: Array.isArray(llmMessage.content)
+          ? llmMessage.content.map((b) => b.type)
+          : typeof llmMessage.content,
+        attachmentCount: attachments.length,
+      },
+      "persistUserMessage: content blocks being sent to model",
+    );
+    ctx.messages.push(llmMessage);
+    pushedToHistory = true;
+
     // Sync the persisted user message (with attachments) to the disk view
     const conv = getConversation(ctx.conversationId);
     if (conv) {
@@ -666,7 +692,9 @@ export async function persistQueuedMessageBody(
 
     return { id: persistedUserMessage.id, deduplicated: false };
   } catch (err) {
-    ctx.messages.pop();
+    if (pushedToHistory) {
+      ctx.messages.pop();
+    }
     throw err;
   }
 }

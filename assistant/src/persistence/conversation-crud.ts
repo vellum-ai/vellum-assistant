@@ -206,6 +206,13 @@ export const messageMetadataSchema = z
     forkSourceMessageId: z.string().optional(),
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
+    /**
+     * Resolved paths of the canonical attachment copies in the conversation's
+     * attachments/ directory (name collisions get a -2/-3 suffix), keyed by
+     * `${position}:${filename}`. Written after the attachments are linked;
+     * reinjected into LLM-facing content on history reload.
+     */
+    attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
     /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
      *  of `memoryInjectedBlock`. A row carries at most one of the two. The key
@@ -328,6 +335,23 @@ export function extractImageSourcePaths(
     const a = attachments[i];
     if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
       paths[`${i}:${a.filename}`] = a.filePath;
+    }
+  }
+  return Object.keys(paths).length > 0 ? paths : undefined;
+}
+
+/** Extract resolved stored paths from linked attachments for message metadata. */
+export function extractAttachmentStoredPaths(
+  attachments: ReadonlyArray<{
+    filename: string;
+    storedPath?: string;
+  }>,
+): Record<string, string> | undefined {
+  const paths: Record<string, string> = {};
+  for (let i = 0; i < attachments.length; i++) {
+    const a = attachments[i];
+    if (a.storedPath) {
+      paths[`${i}:${a.filename}`] = a.storedPath;
     }
   }
   return Object.keys(paths).length > 0 ? paths : undefined;
