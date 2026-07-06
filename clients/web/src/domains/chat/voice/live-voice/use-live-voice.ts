@@ -180,6 +180,8 @@ interface SessionContext {
   forwardingAudio: boolean;
   /** Whether the assistant has sent any TTS audio for the current response. */
   responseAudioStarted: boolean;
+  /** Monotonic count of `thinking` frames; identifies which response owns the state. */
+  responseEpoch: number;
   /** Whether an interrupt was already sent for the current response. */
   interruptSent: boolean;
   /** Whether an automatic ptt_release is already in flight for this utterance. */
@@ -294,6 +296,7 @@ export function useLiveVoice(
         captureRunning: false,
         forwardingAudio: false,
         responseAudioStarted: false,
+        responseEpoch: 0,
         interruptSent: false,
         releaseInFlight: false,
         speechMs: 0,
@@ -359,6 +362,7 @@ export function useLiveVoice(
         client.on("thinking", () => {
           if (!live()) return;
           // New response: reset the per-response transcript and barge-in flags.
+          session.responseEpoch += 1;
           session.responseAudioStarted = false;
           session.interruptSent = false;
           const s = useLiveVoiceStore.getState();
@@ -594,7 +598,9 @@ function flushPlaybackToListening(session: SessionContext): void {
  * the same socket. A `speech_started`/`turn_cancelled` during the drain
  * already flushed playback and moved the state onward, so only a
  * still-completing turn (`speaking`, or `thinking` when the turn produced no
- * audio) cycles back to `listening`.
+ * audio) cycles back to `listening`. A *newer* turn's `thinking` arriving
+ * mid-drain bumps `responseEpoch`; that turn owns the state, so the post-drain
+ * transition is skipped rather than clobbering it back to `listening`.
  *
  * Manual mode: the session is single-utterance — once `ptt_release` fires the
  * runtime won't accept more audio on it, so we don't resume listening on the
@@ -610,6 +616,7 @@ async function finishResponseAfterPlayback(
   teardown: () => void,
 ): Promise<void> {
   const generation = session.generation;
+  const responseEpoch = session.responseEpoch;
   session.responseAudioStarted = false;
   if (!session.handsFree) {
     session.forwardingAudio = false;
@@ -620,6 +627,8 @@ async function finishResponseAfterPlayback(
 
   const state = useLiveVoiceStore.getState().state;
   if (session.handsFree) {
+    // A newer turn started while audio drained; leave its state alone.
+    if (session.responseEpoch !== responseEpoch) return;
     if (state === "speaking" || state === "thinking") {
       useLiveVoiceStore.getState().setState("listening");
     }

@@ -649,6 +649,64 @@ describe("hands-free mode", () => {
     expect(h.view.result.current.state).toBe("thinking");
   });
 
+  test("a newer turn's thinking during the playback drain is not clobbered to listening", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // Turn t1 responds with audio; tts_done arrives while playback is still
+    // draining (the fake player holds the drain open until finishPlayback).
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 3,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+
+    await act(async () => {
+      h.client.emit("ttsDone", { type: "tts_done", seq: 4, turnId: "t1" });
+      await Promise.resolve();
+    });
+    expect(h.player.isPlaying).toBe(true); // drain still pending
+
+    // Turn t2 starts before t1's tail audio finishes playing.
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 5, turnId: "t2" });
+    });
+    expect(h.view.result.current.state).toBe("thinking");
+
+    await act(async () => {
+      h.player.finishPlayback();
+      await Promise.resolve();
+    });
+
+    // t1's post-drain transition must not hide that t2 is generating.
+    expect(h.view.result.current.state).toBe("thinking");
+    expect(h.client.closed).toBe(false);
+  });
+
+  test("a turn with no audio still cycles back to listening after tts_done", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+    });
+    expect(h.view.result.current.state).toBe("thinking");
+
+    // No tts_audio for this turn: the drain resolves immediately and the same
+    // turn's `thinking` cycles back to `listening`.
+    await act(async () => {
+      h.client.emit("ttsDone", { type: "tts_done", seq: 3, turnId: "t1" });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+  });
+
   test("client-local silence auto-release is inactive", async () => {
     const h = renderController();
     await startListening(h, { handsFree: true });
