@@ -94,6 +94,10 @@ export async function speakSystemPrompt(
  *   (e.g. Fish Audio) fall back to `sendTextToken(text)` so the caller
  *   still hears the message; providers without one (e.g. Deepgram) log
  *   the error and send only the end-of-turn signal.
+ *
+ * Aborted synthesis (`AbortError` or an aborted `signal`) short-circuits
+ * all of the above: no fallback, no end-of-turn token — the canceller
+ * owns turn state.
  */
 async function synthesizeAndPlay(
   relay: CallTransport,
@@ -140,6 +144,21 @@ async function synthesizeAndPlay(
     // state.
     relay.sendTextToken("", true);
   } catch (err) {
+    // Aborted synthesis (e.g. barge-in cancellation): the canceller owns
+    // turn state, so skip fallback and the end-of-turn signal entirely
+    // (mirrors call-controller's aborted-synthesis handling).
+    const isAbort =
+      signal?.aborted ||
+      ((err instanceof Error || err instanceof DOMException) &&
+        err.name === "AbortError");
+    if (isAbort) {
+      log.debug(
+        { provider: provider.id },
+        "System prompt TTS synthesis aborted — skipping fallback",
+      );
+      return;
+    }
+
     // Extract error class and code for diagnosable log entries.
     const errName = err instanceof Error ? err.name : String(err);
     const errCode =
