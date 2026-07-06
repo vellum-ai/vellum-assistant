@@ -766,6 +766,108 @@ describe("LiveVoiceSession server VAD", () => {
     expect(calls[1]?.content).toBe("resumed speech");
   });
 
+  test("a full utterance parked in the release→turn-start window flushes and turns without more speech", async () => {
+    const { startVoiceTurn, calls } = makeAutoCompletingTurnStarter([
+      "First reply.",
+      "Second reply.",
+    ]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world", "quick follow-up"],
+      startVoiceTurn,
+      holdStopEventsFor: [0],
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => countType(frames, "utterance_end") === 1);
+    await waitFor(() => transcribers[0]?.stopped === true);
+
+    // A complete follow-up utterance lands in the release→turn-start window:
+    // speech is parked, then the detector's silence timer ends its turn
+    // while the released cycle still blocks arming.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+
+    // Ongoing idle-mic silence must not evict the parked speech.
+    for (let index = 0; index < 40; index += 1) {
+      await session.handleBinaryAudio(SILENT_CHUNK);
+    }
+
+    // Turn 1 runs; the parked utterance then flushes and turns on its own —
+    // no further speech arrives past this point.
+    transcribers[0]?.flushStopEvents();
+    await waitFor(
+      () => countType(frames, "tts_done") === 2,
+      "Timed out waiting for the parked utterance to run its own turn",
+    );
+
+    expect(calls.map((options) => options.content)).toEqual([
+      "hello world",
+      "quick follow-up",
+    ]);
+    const loud = Buffer.from(LOUD_CHUNK);
+    expect(
+      transcribers[1]?.received.filter((chunk) => chunk.equals(loud)),
+    ).toHaveLength(2);
+    expect(
+      transcribers[1]?.received
+        .slice(0, 2)
+        .every((chunk) => chunk.equals(loud)),
+    ).toBe(true);
+
+    // The parked utterance's boundary replays after turn 1 completes.
+    const types = frameTypes(frames);
+    expect(countType(frames, "utterance_end")).toBe(2);
+    expect(types.lastIndexOf("utterance_end")).toBeGreaterThan(
+      types.indexOf("tts_done"),
+    );
+  });
+
+  test("utterance_discarded is sent before finalization so a newer utterance's frames follow it", async () => {
+    let releaseArchive: (() => void) | undefined;
+    const archiveAudio: LiveVoiceSessionAudioArchiver = async (input) => {
+      if (input.role === "user" && !releaseArchive) {
+        await new Promise<void>((resolve) => {
+          releaseArchive = resolve;
+        });
+      }
+      const result: LiveVoiceAudioArchiveResult = {
+        type: "warning",
+        warning: { code: "archive_failed", message: "held in test" },
+      };
+      return result;
+    };
+    const { startVoiceTurn, calls } = makeAutoCompletingTurnStarter(["Sure."]);
+    const { frames, session } = createHarness({
+      finals: ["   ", "real question"],
+      startVoiceTurn,
+      archiveAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    // The discard frame goes out while finalization is still held on the
+    // archive hook.
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "utterance_discarded"),
+    );
+
+    // A newer utterance arms and ends during the held finalization; its
+    // state must not be blipped by a stale discard afterwards.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => countType(frames, "utterance_end") === 2);
+    releaseArchive?.();
+    await waitFor(() => calls.length === 1);
+
+    expect(countType(frames, "utterance_discarded")).toBe(1);
+    const types = frameTypes(frames);
+    expect(types.indexOf("utterance_discarded")).toBeLessThan(
+      types.lastIndexOf("utterance_end"),
+    );
+    expect(calls[0]?.content).toBe("real question");
+  });
+
   test("an empty VAD utterance emits utterance_discarded", async () => {
     const startVoiceTurn = mock(async () => ({
       turnId: "bridge-turn",
