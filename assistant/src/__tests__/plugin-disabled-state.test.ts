@@ -17,8 +17,6 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { getHooksFor } from "../hooks/registry.js";
 import { RiskLevel } from "../permissions/types.js";
-import { guardPersistenceHooksByDisabledState } from "../plugins/defaults/memory/persistence-hooks-registration.js";
-import type { MessagePersistedEvent } from "../plugins/defaults/memory/persistence-lifecycle-seam.js";
 import {
   clearInjectorRegistry,
   getRegisteredInjectors,
@@ -257,110 +255,5 @@ describe("per-surface disabled-state filtering", () => {
 
     hooks = await getHooksFor("user-prompt-submit");
     expect(hooks).toHaveLength(0);
-  });
-
-  test("persistence hooks no-op while the memory plugin is disabled", async () => {
-    let calls = 0;
-    const bufferLines = 25;
-    const guarded = guardPersistenceHooksByDisabledState("default-memory", {
-      onMessagePersisted() {
-        calls++;
-      },
-      onConversationForked() {},
-      onConversationWiped() {
-        return 0;
-      },
-      onConversationDeleted() {},
-      onMessagesDeleted() {},
-      async onAllConversationsCleared() {},
-      onWorkerStartup() {},
-      countMemoryBufferLines() {
-        return bufferLines;
-      },
-      hasPkbBufferContent() {
-        return true;
-      },
-    });
-    const event: MessagePersistedEvent = {
-      messageId: "msg-1",
-      conversationId: "conv-1",
-      role: "user",
-      content: "[]",
-      createdAt: 0,
-    };
-
-    // Enabled: the wrapped handler runs.
-    await guarded.onMessagePersisted(event);
-    expect(calls).toBe(1);
-    // The gated queries return the real buffer state while enabled.
-    expect(guarded.countMemoryBufferLines()).toBe(25);
-    expect(guarded.hasPkbBufferContent()).toBe(true);
-
-    // Disable via sentinel — checked at call time, no restart needed.
-    await createSentinel("default-memory");
-    await guarded.onMessagePersisted(event);
-    expect(calls).toBe(1);
-    // Gated: reports empty buffers while disabled, so scheduled consolidation
-    // and filing stay inert.
-    expect(guarded.countMemoryBufferLines()).toBe(0);
-    expect(guarded.hasPkbBufferContent()).toBe(false);
-
-    // Re-enable.
-    await removeSentinel("default-memory");
-    await guarded.onMessagePersisted(event);
-    expect(calls).toBe(2);
-    expect(guarded.countMemoryBufferLines()).toBe(25);
-    expect(guarded.hasPkbBufferContent()).toBe(true);
-  });
-
-  test("cleanup persistence hooks run even while the memory plugin is disabled", async () => {
-    let wiped = 0;
-    let swept = 0;
-    const deleted: string[][] = [];
-    const convDeleted: string[] = [];
-    let cleared = 0;
-    const guarded = guardPersistenceHooksByDisabledState("default-memory", {
-      onMessagePersisted() {},
-      onConversationForked() {},
-      onConversationWiped() {
-        wiped++;
-        return 7;
-      },
-      onConversationDeleted(id) {
-        convDeleted.push(id);
-      },
-      onMessagesDeleted(ids) {
-        deleted.push(ids);
-      },
-      async onAllConversationsCleared() {
-        cleared++;
-      },
-      onWorkerStartup() {
-        swept++;
-      },
-      countMemoryBufferLines() {
-        return 0;
-      },
-      hasPkbBufferContent() {
-        return false;
-      },
-    });
-
-    await createSentinel("default-memory");
-
-    // Cleanup hooks are NOT gated: they must still run (and return real values)
-    // while disabled, or state created while enabled would be orphaned.
-    expect(guarded.onConversationWiped("conv-1")).toBe(7);
-    guarded.onConversationDeleted("conv-9");
-    guarded.onMessagesDeleted(["msg-1", "msg-2"]);
-    await guarded.onAllConversationsCleared();
-    guarded.onWorkerStartup();
-    expect(wiped).toBe(1);
-    expect(convDeleted).toEqual(["conv-9"]);
-    expect(deleted).toEqual([["msg-1", "msg-2"]]);
-    expect(cleared).toBe(1);
-    expect(swept).toBe(1);
-
-    await removeSentinel("default-memory");
   });
 });

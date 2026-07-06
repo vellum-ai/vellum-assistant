@@ -134,31 +134,6 @@ export interface MemoryPersistenceHooks {
    * collection that is about to be dropped).
    */
   onAllConversationsCleared(): Promise<void>;
-
-  /**
-   * The background-job worker is starting. The memory feature sweeps orphan
-   * retrospective conversations left by a crash mid-job. Best-effort; the caller
-   * wraps it in try/catch. Cleanup — runs even while the plugin is disabled.
-   */
-  onWorkerStartup(): void;
-
-  /**
-   * Current line count of the memory buffer (`memory/buffer.md`). The
-   * maintenance scheduler reads it to gate scheduled consolidation — skip a
-   * scheduled run below a floor, force one above a ceiling. Returns 0 when
-   * memory is not present, which the scheduler reads as "no buffered work" and
-   * therefore no consolidation.
-   */
-  countMemoryBufferLines(): number;
-
-  /**
-   * Whether the PKB buffer (`pkb/buffer.md`) has any filable content. The
-   * maintenance scheduler reads it to gate the scheduled `pkb_filing` job —
-   * an empty buffer means no work, so no LLM run. Returns false when memory
-   * is not present, which the scheduler reads as "no buffered work" and
-   * therefore no filing.
-   */
-  hasPkbBufferContent(): boolean;
 }
 
 const NOOP: MemoryPersistenceHooks = {
@@ -170,13 +145,6 @@ const NOOP: MemoryPersistenceHooks = {
   onConversationDeleted() {},
   onMessagesDeleted() {},
   async onAllConversationsCleared() {},
-  onWorkerStartup() {},
-  countMemoryBufferLines() {
-    return 0;
-  },
-  hasPkbBufferContent() {
-    return false;
-  },
 };
 
 let current: MemoryPersistenceHooks = NOOP;
