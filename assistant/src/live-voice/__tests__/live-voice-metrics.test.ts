@@ -204,6 +204,31 @@ describe("LiveVoiceMetricsCollector", () => {
     expect(turn.timestamps.utteranceEndAtMs).toBe(2_000);
   });
 
+  test("markBargeIn records a first-wins timestamp on the active turn", () => {
+    const clock = makeClock(3_000);
+    const collector = new LiveVoiceMetricsCollector({
+      sessionId: "session-7",
+      clock: clock.now,
+    });
+
+    collector.startTurn("turn-barge");
+    clock.advance(40);
+    const frame = collector.markBargeIn("turn-barge");
+
+    expect(frame.event).toBe("barge_in");
+    expect(frame.turnId).toBe("turn-barge");
+    expect(frame.metrics.activeTurn?.timestamps.bargeInAtMs).toBe(3_040);
+
+    clock.advance(25);
+    collector.markBargeIn("turn-barge");
+    expect(collector.getSnapshot().activeTurn?.timestamps.bargeInAtMs).toBe(
+      3_040,
+    );
+
+    const cancelled = collector.cancelTurn("barge_in", "turn-barge");
+    expect(cancelled.timestamps.bargeInAtMs).toBe(3_040);
+  });
+
   test("records only the first timestamp for first-phase metrics", () => {
     const clock = makeClock(10_000);
     const collector = new LiveVoiceMetricsCollector({
