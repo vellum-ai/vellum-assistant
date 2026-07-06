@@ -45,7 +45,6 @@ import { isTerminalState } from "./call-state-machine.js";
 import {
   createPendingQuestion,
   expirePendingQuestions,
-  getCallSession,
   recordCallEvent,
   updateCallSession,
 } from "./call-store.js";
@@ -70,6 +69,10 @@ import {
   startVoiceTurn,
   type VoiceTurnHandle,
 } from "./voice-session-bridge.js";
+import {
+  createPhoneVoiceSessionSource,
+  type VoiceSessionSource,
+} from "./voice-session-source.js";
 
 const log = getLogger("call-controller");
 
@@ -161,6 +164,8 @@ export class CallController {
   private guardianUnavailableForCall = false;
   /** Active synthesized-TTS session — tracked so interrupt handling can close it. */
   private activeSynthesisAbort: AbortController | null = null;
+  /** Source of session state reads (conversation binding, lifecycle fields). */
+  private sessionSource: VoiceSessionSource;
 
   constructor(
     callSessionId: string,
@@ -170,6 +175,7 @@ export class CallController {
       broadcast?: (msg: ServerMessage) => void;
       assistantId?: string;
       trustContext?: TrustContext;
+      sessionSource?: VoiceSessionSource;
     },
   ) {
     this.callSessionId = callSessionId;
@@ -180,10 +186,11 @@ export class CallController {
     this.assistantId = opts?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
     this.trustContext = opts?.trustContext ?? null;
 
-    // Resolve the conversation ID and skipDisclosure from the call session
-    const session = getCallSession(callSessionId);
-    this.conversationId = session?.conversationId ?? callSessionId;
-    this.skipDisclosure = session?.skipDisclosure ?? false;
+    // Resolve the conversation ID and skipDisclosure from the session source
+    this.sessionSource =
+      opts?.sessionSource ?? createPhoneVoiceSessionSource(callSessionId);
+    this.conversationId = this.sessionSource.conversationId;
+    this.skipDisclosure = this.sessionSource.skipDisclosure;
 
     this.startDurationTimer();
     this.resetSilenceTimer();
@@ -980,7 +987,7 @@ export class CallController {
       stripInternalSpeechMarkers(responseText),
     ).trim();
     if (spokenText.length > 0) {
-      const session = getCallSession(this.callSessionId);
+      const session = this.sessionSource.getSnapshot();
       if (session) {
         fireCallTranscriptNotifier(
           session.conversationId,
@@ -1179,7 +1186,7 @@ export class CallController {
   }
 
   private scheduleEndCallAfterListenWindow(): void {
-    const currentSession = getCallSession(this.callSessionId);
+    const currentSession = this.sessionSource.getSnapshot();
     if (currentSession && isTerminalState(currentSession.status)) {
       this.state = "idle";
       this.currentTurnHandle = null;
@@ -1256,7 +1263,7 @@ export class CallController {
   private completeCallFromEndMarker(): void {
     if (this.destroyed) return;
 
-    const currentSession = getCallSession(this.callSessionId);
+    const currentSession = this.sessionSource.getSnapshot();
     if (currentSession && isTerminalState(currentSession.status)) {
       this.state = "idle";
       return;
@@ -1378,7 +1385,7 @@ export class CallController {
     });
 
     // Notify the conversation that a question was asked
-    const session = getCallSession(this.callSessionId);
+    const session = this.sessionSource.getSnapshot();
     if (session) {
       fireCallQuestionNotifier(
         session.conversationId,
@@ -1559,7 +1566,7 @@ export class CallController {
       );
       // Give TTS a moment to play, then end
       this.durationEndTimer = setTimeout(() => {
-        const currentSession = getCallSession(this.callSessionId);
+        const currentSession = this.sessionSource.getSnapshot();
         const shouldNotifyCompletion = currentSession
           ? currentSession.status !== "completed" &&
             currentSession.status !== "failed" &&
