@@ -45,7 +45,10 @@ mock.module("../daemon/conversation-store.js", () => ({
   },
 }));
 
-import { startVoiceTurn } from "../calls/voice-session-bridge.js";
+import {
+  buildLiveVoiceControlPrompt,
+  startVoiceTurn,
+} from "../calls/voice-session-bridge.js";
 import {
   createConversation,
   getMessages,
@@ -1449,5 +1452,32 @@ describe("voice-session-bridge", () => {
     });
 
     expect(abortCalled).toBe(true);
+  });
+
+  describe("buildLiveVoiceControlPrompt", () => {
+    test("contains the brevity, END_CALL, and plain-speech rules", () => {
+      const prompt = buildLiveVoiceControlPrompt();
+
+      expect(prompt).toContain("<voice_call_control>");
+      expect(prompt).toContain("</voice_call_control>");
+      expect(prompt).toContain("Be concise — keep responses to 1-3 sentences.");
+      expect(prompt).toContain("[END_CALL]");
+      expect(prompt).toContain("ends the voice session");
+      expect(prompt).toContain(
+        "Your text is sent directly to a text-to-speech engine.",
+      );
+      expect(prompt).toContain("Never use markdown formatting");
+    });
+
+    test("omits phone-only rules: disclosure, guardian consultation, speaker/verification markers", () => {
+      const prompt = buildLiveVoiceControlPrompt();
+
+      expect(prompt).not.toContain("ASK_GUARDIAN");
+      expect(prompt).not.toContain("[SPEAKER");
+      expect(prompt).not.toContain("disclosure");
+      expect(prompt).not.toContain("Begin the conversation naturally");
+      expect(prompt).not.toContain("CALL_OPENING");
+      expect(prompt).not.toContain("verification");
+    });
   });
 });

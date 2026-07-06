@@ -26,30 +26,13 @@ import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import { createStreamingEntry } from "./audio-store.js";
 import {
-  getEndCallListenWindowMs,
-  getMaxCallDurationMs,
-  getSilenceTimeoutMs,
-  getUserConsultationTimeoutMs,
-} from "./call-constants.js";
-import {
-  formatDuration,
-  postPointerMessageSafe,
-} from "./call-pointer-messages.js";
-import {
   fireCallQuestionNotifier,
   fireCallTranscriptNotifier,
   registerCallController,
   unregisterCallController,
 } from "./call-state.js";
 import { isTerminalState } from "./call-state-machine.js";
-import {
-  createPendingQuestion,
-  expirePendingQuestions,
-  recordCallEvent,
-  updateCallSession,
-} from "./call-store.js";
 import type { CallTransport } from "./call-transport.js";
-import { finalizeCall } from "./finalize-call.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
 import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
@@ -70,7 +53,10 @@ import {
   type VoiceTurnHandle,
 } from "./voice-session-bridge.js";
 import {
+  createPhoneVoiceControllerProfile,
   createPhoneVoiceSessionSource,
+  type PhoneDispatchGuardianConsultation,
+  type VoiceControllerProfile,
   type VoiceSessionSource,
 } from "./voice-session-source.js";
 
@@ -166,6 +152,8 @@ export class CallController {
   private activeSynthesisAbort: AbortController | null = null;
   /** Source of session state reads (conversation binding, lifecycle fields). */
   private sessionSource: VoiceSessionSource;
+  /** Behavioral profile (lifecycle writes, guardian gating, turn context, timers). */
+  private profile: VoiceControllerProfile;
 
   constructor(
     callSessionId: string,
@@ -176,6 +164,7 @@ export class CallController {
       assistantId?: string;
       trustContext?: TrustContext;
       sessionSource?: VoiceSessionSource;
+      profile?: VoiceControllerProfile;
     },
   ) {
     this.callSessionId = callSessionId;
@@ -185,6 +174,8 @@ export class CallController {
     this.broadcast = opts?.broadcast;
     this.assistantId = opts?.assistantId ?? DAEMON_INTERNAL_ASSISTANT_ID;
     this.trustContext = opts?.trustContext ?? null;
+    this.profile =
+      opts?.profile ?? createPhoneVoiceControllerProfile(callSessionId);
 
     // Resolve the conversation ID and skipDisclosure from the session source
     this.sessionSource =
@@ -337,7 +328,7 @@ export class CallController {
     clearTimeout(this.pendingGuardianInput.timer);
     this.pendingGuardianInput = null;
 
-    updateCallSession(this.callSessionId, { status: "in_progress" });
+    this.profile.updateStatus({ status: "in_progress" });
 
     // Inject the answer as a queued instruction so it merges into the
     // next turn naturally, respecting role-alternation. If the controller
@@ -366,7 +357,7 @@ export class CallController {
   async handleUserInstruction(instructionText: string): Promise<void> {
     this.cancelPendingEndCall();
 
-    recordCallEvent(this.callSessionId, "user_instruction_relayed", {
+    this.profile.recordEvent("user_instruction_relayed", {
       instruction: instructionText,
     });
 
@@ -652,10 +643,20 @@ export class CallController {
     // When the transport requires WAV (media-stream), request WAV so
     // the audio store entry and any downstream fetch/transcode receives
     // PCM that audioBufferToFrames can convert to mu-law.
+    //
+    // Token-stream profiles (in-app live voice) skip provider resolution
+    // entirely: the transport owns synthesis, so every token flows through
+    // sendTextToken and the synthesized-play path is never taken.
     const { provider, useSynthesizedPath, audioFormat } =
-      await resolveCallTtsProvider({
-        preferWav: this.transport.requiresWavAudio,
-      });
+      this.profile.speechOutput === "token-stream"
+        ? {
+            provider: null,
+            useSynthesizedPath: false,
+            audioFormat: "mp3" as const,
+          }
+        : await resolveCallTtsProvider({
+            preferWav: this.transport.requiresWavAudio,
+          });
 
     // Buffer incoming tokens so we can strip control markers ([ASK_GUARDIAN:...], [END_CALL])
     // before they reach TTS. We hold text whenever an unmatched '[' appears, since it
@@ -733,7 +734,10 @@ export class CallController {
         reject(new Error(message));
       };
 
-      // Start the voice turn through the session bridge
+      // Start the voice turn through the session bridge. The profile
+      // supplies the approval mode, channel/interface context, and control
+      // prompt (phone defaults, or the live-voice context for in-app
+      // sessions).
       startVoiceTurn({
         conversationId: this.conversationId,
         callSessionId: this.callSessionId,
@@ -743,6 +747,7 @@ export class CallController {
         isInbound: this.isInbound,
         task: this.task,
         skipDisclosure: this.skipDisclosure,
+        ...this.profile.voiceTurn,
         onTextDelta,
         onComplete,
         onError,
@@ -980,7 +985,7 @@ export class CallController {
     const responseText = fullResponseText;
 
     // Record the assistant response event
-    recordCallEvent(this.callSessionId, "assistant_spoke", {
+    this.profile.recordEvent("assistant_spoke", {
       text: responseText,
     });
     const spokenText = sanitizeForTts(
@@ -1041,8 +1046,19 @@ export class CallController {
     const questionText =
       toolApprovalMeta?.question ?? (askMatch ? askMatch[1] : null);
 
+    const guardianConsultation = this.profile.guardianConsultation;
     if (questionText) {
-      if (this.isCallerGuardian()) {
+      if (guardianConsultation.mode === "disabled") {
+        // Defensive: the in-app control prompt omits the guardian markers
+        // entirely, so a marker here is a model deviation. It never reaches
+        // the spoken output (control markers are stripped before TTS) —
+        // just log and continue the turn without dispatching.
+        log.warn(
+          { callSessionId: this.callSessionId },
+          "Ignoring guardian consultation marker — guardian dispatch disabled for this session",
+        );
+        // Fall through to normal turn completion (idle + flushPendingInstructions)
+      } else if (this.isCallerGuardian()) {
         // Caller IS the guardian — don't dispatch cross-channel.
         // Queue an instruction so the next turn asks them directly.
         log.info(
@@ -1061,7 +1077,7 @@ export class CallController {
           { callSessionId: this.callSessionId },
           "Guardian unavailable for call — skipping ASK_GUARDIAN wait",
         );
-        recordCallEvent(this.callSessionId, "guardian_unavailable_skipped", {
+        this.profile.recordEvent("guardian_unavailable_skipped", {
           question: questionText,
         });
         this.pendingInstructions.push(
@@ -1087,7 +1103,7 @@ export class CallController {
           { callSessionId: this.callSessionId },
           "Deferring ASK_GUARDIAN — queued USER_ANSWERED pending",
         );
-        recordCallEvent(this.callSessionId, "guardian_consult_deferred", {
+        this.profile.recordEvent("guardian_consult_deferred", {
           question: questionText,
         });
         // Fall through to normal turn completion (idle + flushPendingInstructions)
@@ -1125,7 +1141,7 @@ export class CallController {
               },
               "Coalescing repeated ASK_GUARDIAN — same tool/action already pending",
             );
-            recordCallEvent(this.callSessionId, "guardian_consult_coalesced", {
+            this.profile.recordEvent("guardian_consult_coalesced", {
               question: questionText,
             });
             // Fall through to normal turn completion (idle + flushPendingInstructions)
@@ -1135,7 +1151,7 @@ export class CallController {
 
             // Expire the previous consultation's storage records so stale
             // guardian answers cannot match the old request.
-            expirePendingQuestions(this.callSessionId);
+            guardianConsultation.expirePendingQuestions();
             const previousRequest = getPendingCanonicalRequestByCallSessionId(
               this.callSessionId,
             );
@@ -1159,6 +1175,7 @@ export class CallController {
             // can backfill supersession chain metadata (superseded_by_request_id)
             // once the new request has been created.
             this.dispatchNewConsultation(
+              guardianConsultation,
               questionText,
               effectiveToolMeta,
               previousRequest?.id ?? null,
@@ -1166,7 +1183,12 @@ export class CallController {
           }
         } else {
           // No prior consultation — dispatch fresh
-          this.dispatchNewConsultation(questionText, effectiveToolMeta, null);
+          this.dispatchNewConsultation(
+            guardianConsultation,
+            questionText,
+            effectiveToolMeta,
+            null,
+          );
         }
       }
     }
@@ -1203,7 +1225,7 @@ export class CallController {
       this.endCallListenTimer = null;
     }
 
-    const listenWindowMs = getEndCallListenWindowMs();
+    const listenWindowMs = this.profile.timers.endCallListenWindowMs();
     // After the caller has re-engaged once post-END_CALL, complete
     // immediately on the next END_CALL. The first deferral gets a
     // listen window (caller might say "wait, one more thing"); a
@@ -1214,7 +1236,7 @@ export class CallController {
     const callContinues =
       this.pendingInstructions.length > 0 || effectiveListenWindowMs > 0;
     if (clearedPendingGuardianInput && callContinues) {
-      updateCallSession(this.callSessionId, { status: "in_progress" });
+      this.profile.updateStatus({ status: "in_progress" });
     }
 
     if (this.pendingInstructions.length > 0) {
@@ -1248,7 +1270,10 @@ export class CallController {
     // Expire store-side consultation records so clients don't observe
     // a completed call with a dangling pendingQuestion, and guardian
     // replies are cleanly rejected instead of hitting answerCall failures.
-    expirePendingQuestions(this.callSessionId);
+    // Pending consultations only exist under phone-dispatch mode.
+    if (this.profile.guardianConsultation.mode === "phone-dispatch") {
+      this.profile.guardianConsultation.expirePendingQuestions();
+    }
     const previousRequest = getPendingCanonicalRequestByCallSessionId(
       this.callSessionId,
     );
@@ -1269,35 +1294,19 @@ export class CallController {
       return;
     }
 
-    const shouldNotifyCompletion = !!currentSession;
-
     this.transport.endSession("Call completed");
-    updateCallSession(this.callSessionId, {
+    this.profile.updateStatus({
       status: "completed",
       endedAt: Date.now(),
     });
-    recordCallEvent(this.callSessionId, "call_ended", {
+    this.profile.recordEvent("call_ended", {
       reason: "completed",
     });
 
-    // Notify the voice conversation
-    if (shouldNotifyCompletion && currentSession) {
-      finalizeCall(this.callSessionId, currentSession.conversationId);
-    }
-
-    // Post a pointer message in the initiating conversation
-    if (currentSession?.initiatedFromConversationId) {
-      const durationMs = currentSession.startedAt
-        ? Date.now() - currentSession.startedAt
-        : 0;
-      postPointerMessageSafe(
-        currentSession.initiatedFromConversationId,
-        "completed",
-        currentSession.toNumber,
-        {
-          duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
-        },
-      );
+    // Notify the voice conversation and post a pointer message in the
+    // initiating conversation.
+    if (currentSession) {
+      this.profile.finalize(currentSession, { notifyCompletion: true });
     }
     this.state = "idle";
   }
@@ -1371,16 +1380,14 @@ export class CallController {
    * chain after the new request is created.
    */
   private dispatchNewConsultation(
+    consultation: PhoneDispatchGuardianConsultation,
     questionText: string,
     effectiveToolMeta: { toolName: string; inputDigest: string } | null,
     supersededRequestId: string | null,
   ): void {
-    const pendingQuestion = createPendingQuestion(
-      this.callSessionId,
-      questionText,
-    );
-    updateCallSession(this.callSessionId, { status: "waiting_on_user" });
-    recordCallEvent(this.callSessionId, "user_question_asked", {
+    const pendingQuestion = consultation.createPendingQuestion(questionText);
+    this.profile.updateStatus({ status: "waiting_on_user" });
+    this.profile.recordEvent("user_question_asked", {
       question: questionText,
     });
 
@@ -1480,11 +1487,11 @@ export class CallController {
       }
 
       // Expire pending questions and update call state
-      expirePendingQuestions(this.callSessionId);
+      consultation.expirePendingQuestions();
       this.pendingGuardianInput = null;
-      updateCallSession(this.callSessionId, { status: "in_progress" });
+      this.profile.updateStatus({ status: "in_progress" });
       this.guardianUnavailableForCall = true;
-      recordCallEvent(this.callSessionId, "guardian_consultation_timed_out", {
+      this.profile.recordEvent("guardian_consultation_timed_out", {
         question: questionText,
       });
 
@@ -1503,7 +1510,7 @@ export class CallController {
         this.resetSilenceTimer();
         this.flushPendingInstructions();
       }
-    }, getUserConsultationTimeoutMs());
+    }, this.profile.timers.consultTimeoutMs());
 
     this.pendingGuardianInput = {
       questionText,
@@ -1539,7 +1546,7 @@ export class CallController {
   }
 
   private startDurationTimer(): void {
-    const maxDurationMs = getMaxCallDurationMs();
+    const maxDurationMs = this.profile.timers.maxDurationMs();
     const warningMs = maxDurationMs - 2 * 60 * 1000; // 2 minutes before max
 
     if (warningMs > 0) {
@@ -1574,30 +1581,19 @@ export class CallController {
           : false;
 
         this.transport.endSession("Maximum call duration reached");
-        updateCallSession(this.callSessionId, {
+        this.profile.updateStatus({
           status: "completed",
           endedAt: Date.now(),
         });
-        recordCallEvent(this.callSessionId, "call_ended", {
+        this.profile.recordEvent("call_ended", {
           reason: "max_duration",
         });
-        if (shouldNotifyCompletion && currentSession) {
-          finalizeCall(this.callSessionId, currentSession.conversationId);
-        }
-
-        // Post a pointer message in the initiating conversation
-        if (currentSession?.initiatedFromConversationId) {
-          const durationMs = currentSession.startedAt
-            ? Date.now() - currentSession.startedAt
-            : 0;
-          postPointerMessageSafe(
-            currentSession.initiatedFromConversationId,
-            "completed",
-            currentSession.toNumber,
-            {
-              duration: durationMs > 0 ? formatDuration(durationMs) : undefined,
-            },
-          );
+        // Notify the voice conversation (unless already terminal) and post
+        // a pointer message in the initiating conversation.
+        if (currentSession) {
+          this.profile.finalize(currentSession, {
+            notifyCompletion: shouldNotifyCompletion,
+          });
         }
       }, 3000);
     }, maxDurationMs);
@@ -1622,6 +1618,6 @@ export class CallController {
         "Silence timeout triggered",
       );
       this.transport.sendTextToken("Are you still there?", true);
-    }, getSilenceTimeoutMs());
+    }, this.profile.timers.silenceTimeoutMs());
   }
 }
