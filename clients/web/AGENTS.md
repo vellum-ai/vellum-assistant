@@ -64,7 +64,7 @@ pattern (`assistant/docs/`, `docs/` at the repo root).
 ## Commands
 
 ```bash
-cd clients/web && bun install            # Install dependencies
+bun install                              # Install workspace dependencies (any directory works)
 cd clients/web && bun run dev            # Vite dev server (port 3000)
 cd clients/web && bun run openapi-ts     # Generate API client from OpenAPI specs
 cd clients/web && bunx tsc --noEmit      # Type-check
