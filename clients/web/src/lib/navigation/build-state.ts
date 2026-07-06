@@ -12,6 +12,7 @@ import {
   readPrivacyConsent,
   readAnalyticsConsentCurrent,
   readDiagnosticsConsentCurrent,
+  readConsentHydrated,
 } from "@/domains/onboarding/prefs";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import type { NavigationState } from "./navigation-resolver";
@@ -20,6 +21,8 @@ export function buildNavigationState(
   overrides?: Partial<NavigationState>,
 ): NavigationState {
   const { sessionStatus, platformSession } = useAuthStore.getState();
+  const { assistants, assistantsHydrated } =
+    useResolvedAssistantsStore.getState();
   const isRemoteGateway = isRemoteGatewayMode();
   return {
     isLocalMode: isLocalMode(),
@@ -29,7 +32,7 @@ export function buildNavigationState(
       ? remoteGatewayPublicPathPrefix()
       : "",
     isGatewayAuth: isGatewayAuthMode(),
-    hasAssistants: useResolvedAssistantsStore.getState().assistants.length > 0,
+    hasAssistants: assistants.length > 0,
     sessionSettled: isSessionSettled(sessionStatus),
     // `isAuthenticated` mirrors `sessionStatus`. The local gateway is the sole
     // session authority (#35152), so a reachable local user is already
@@ -42,6 +45,8 @@ export function buildNavigationState(
     privacyConsent: readPrivacyConsent(),
     analyticsConsentCurrent: readAnalyticsConsentCurrent(),
     diagnosticsConsentCurrent: readDiagnosticsConsentCurrent(),
+    consentHydrated: readConsentHydrated(),
+    assistantsHydrated,
     ...overrides,
   };
 }
