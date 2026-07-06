@@ -27,11 +27,14 @@ import {
   type LiveVoiceBusyServerFrame,
   type LiveVoiceClientStartFrame,
   LIVE_VOICE_AUDIO_FORMAT,
+  type LiveVoiceInterruptedServerFrame,
   type LiveVoiceMetricsServerFrame,
   type LiveVoiceReadyServerFrame,
+  type LiveVoiceSessionMode,
   type LiveVoiceSttFinalServerFrame,
   type LiveVoiceSttPartialServerFrame,
   type LiveVoiceThinkingServerFrame,
+  type LiveVoiceTurnBoundaryServerFrame,
   type LiveVoiceTtsAudioServerFrame,
   type LiveVoiceTtsDoneServerFrame,
   parseServerFrame,
@@ -62,6 +65,8 @@ export interface LiveVoiceClientEventMap {
   ready: LiveVoiceReadyServerFrame;
   sttPartial: LiveVoiceSttPartialServerFrame;
   sttFinal: LiveVoiceSttFinalServerFrame;
+  turnBoundary: LiveVoiceTurnBoundaryServerFrame;
+  interrupted: LiveVoiceInterruptedServerFrame;
   thinking: LiveVoiceThinkingServerFrame;
   assistantTextDelta: LiveVoiceAssistantTextDeltaServerFrame;
   ttsAudio: LiveVoiceTtsAudioServerFrame;
@@ -84,6 +89,11 @@ export interface LiveVoiceConnectArgs {
   assistantId: string;
   /** Optional conversation to attach the session to. */
   conversationId?: string;
+  /**
+   * Optional session mode sent in the `start` frame. Omitted for servers that
+   * predate mode negotiation (they default to PTT).
+   */
+  mode?: LiveVoiceSessionMode;
 }
 
 /** Factory so tests can inject a mock WebSocket. Defaults to the global. */
@@ -110,6 +120,7 @@ export class LiveVoiceChannelClient {
   private ws: WebSocket | null = null;
   private connectTimeout: ReturnType<typeof setTimeout> | null = null;
   private conversationId: string | undefined;
+  private mode: LiveVoiceSessionMode | undefined;
 
   private readonly listeners: {
     [E in LiveVoiceClientEventName]: Set<LiveVoiceClientEventHandler<E>>;
@@ -117,6 +128,8 @@ export class LiveVoiceChannelClient {
     ready: new Set(),
     sttPartial: new Set(),
     sttFinal: new Set(),
+    turnBoundary: new Set(),
+    interrupted: new Set(),
     thinking: new Set(),
     assistantTextDelta: new Set(),
     ttsAudio: new Set(),
@@ -165,10 +178,12 @@ export class LiveVoiceChannelClient {
   async connect({
     assistantId,
     conversationId,
+    mode,
   }: LiveVoiceConnectArgs): Promise<void> {
     if (this.state !== "idle") return;
     this.state = "connecting";
     this.conversationId = conversationId;
+    this.mode = mode;
 
     let url: string;
     try {
@@ -249,6 +264,7 @@ export class LiveVoiceChannelClient {
       type: "start",
       audio: LIVE_VOICE_AUDIO_FORMAT,
       ...(this.conversationId ? { conversationId: this.conversationId } : {}),
+      ...(this.mode ? { mode: this.mode } : {}),
     };
     this.trySend(JSON.stringify(startFrame));
   }
@@ -277,6 +293,12 @@ export class LiveVoiceChannelClient {
         return;
       case "stt_final":
         this.emit("sttFinal", frame);
+        return;
+      case "turn_boundary":
+        this.emit("turnBoundary", frame);
+        return;
+      case "interrupted":
+        this.emit("interrupted", frame);
         return;
       case "thinking":
         this.emit("thinking", frame);

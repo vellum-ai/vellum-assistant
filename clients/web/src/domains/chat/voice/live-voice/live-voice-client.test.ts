@@ -143,7 +143,7 @@ function makeClient(connectTimeoutMs = 10_000) {
 /** Connect and return the underlying fake socket once constructed. */
 async function connectAndGetSocket(
   client: LiveVoiceChannelClientType,
-  args: { assistantId: string; conversationId?: string } = {
+  args: Parameters<LiveVoiceChannelClientType["connect"]>[0] = {
     assistantId: "assistant-1",
   },
 ): Promise<FakeWebSocket> {
@@ -214,6 +214,19 @@ describe("connect", () => {
     });
   });
 
+  test("includes mode in the start frame when provided", async () => {
+    const ws = await connectAndGetSocket(makeClient(), {
+      assistantId: "assistant-1",
+      mode: "open-mic",
+    });
+    ws.open();
+    expect(ws.sentJson[0]).toEqual({
+      type: "start",
+      audio: { mimeType: "audio/pcm", sampleRate: 16000, channels: 1 },
+      mode: "open-mic",
+    });
+  });
+
   test("emits error when token minting fails", async () => {
     mintResult = Promise.reject(new Error("mint boom"));
     const client = makeClient();
@@ -272,6 +285,8 @@ describe("server frame dispatch", () => {
     };
     client.on("sttPartial", record("sttPartial"));
     client.on("sttFinal", record("sttFinal"));
+    client.on("turnBoundary", record("turnBoundary"));
+    client.on("interrupted", record("interrupted"));
     client.on("thinking", record("thinking"));
     client.on("assistantTextDelta", record("assistantTextDelta"));
     client.on("ttsAudio", record("ttsAudio"));
@@ -281,6 +296,8 @@ describe("server frame dispatch", () => {
 
     ws.receive({ type: "stt_partial", seq: 2, text: "hel" });
     ws.receive({ type: "stt_final", seq: 3, text: "hello" });
+    ws.receive({ type: "turn_boundary", seq: 10 });
+    ws.receive({ type: "interrupted", seq: 11, turnId: "t1" });
     ws.receive({ type: "thinking", seq: 4, turnId: "t1" });
     ws.receive({ type: "assistant_text_delta", seq: 5, text: "hi" });
     ws.receive({
@@ -309,6 +326,10 @@ describe("server frame dispatch", () => {
 
     expect(got.sttPartial).toEqual([{ type: "stt_partial", seq: 2, text: "hel" }]);
     expect(got.sttFinal).toEqual([{ type: "stt_final", seq: 3, text: "hello" }]);
+    expect(got.turnBoundary).toEqual([{ type: "turn_boundary", seq: 10 }]);
+    expect(got.interrupted).toEqual([
+      { type: "interrupted", seq: 11, turnId: "t1" },
+    ]);
     expect(got.thinking).toEqual([{ type: "thinking", seq: 4, turnId: "t1" }]);
     expect(got.assistantTextDelta).toEqual([
       { type: "assistant_text_delta", seq: 5, text: "hi" },
