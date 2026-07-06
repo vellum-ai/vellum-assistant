@@ -286,47 +286,12 @@ export function createElevenLabsProvider(): TtsProvider {
 }
 
 // ---------------------------------------------------------------------------
-// Native Twilio voice spec
-// ---------------------------------------------------------------------------
-
-/**
- * Build a Twilio-compatible ElevenLabs voice string.
- *
- * Twilio's native TTS voice attribute accepts:
- *   - bare voiceId
- *   - voiceId-model-speed_stability_similarity
- *
- * We default to bare voiceId unless a model is explicitly configured.
- * This avoids forcing model/tuning suffixes that may be rejected for some
- * voice + model combinations.
- */
-export function buildElevenLabsVoiceSpec(config: {
-  voiceId: string;
-  voiceModelId?: string;
-  speed?: number;
-  stability?: number;
-  similarityBoost?: number;
-}): string {
-  const voiceId = config.voiceId?.trim();
-  if (!voiceId) return "";
-
-  const voiceModelId = config.voiceModelId?.trim();
-  if (!voiceModelId) return voiceId;
-
-  const speed = config.speed ?? 1.0;
-  const stability = config.stability ?? 0.5;
-  const similarityBoost = config.similarityBoost ?? 0.75;
-  return `${voiceId}-${voiceModelId}-${speed}_${stability}_${similarityBoost}`;
-}
-
-// ---------------------------------------------------------------------------
 // Provider definition
 // ---------------------------------------------------------------------------
 
 /**
- * The complete ElevenLabs provider definition — catalog metadata, runtime
- * adapter, and the native Twilio voice-spec builder — assembled into the
- * canonical catalog by `provider-catalog.ts`.
+ * The complete ElevenLabs provider definition — catalog metadata and runtime
+ * adapter — assembled into the canonical catalog by `provider-catalog.ts`.
  */
 export const elevenLabsTtsProviderDefinition: TtsProviderDefinition = {
   id: "elevenlabs",
@@ -357,18 +322,5 @@ export const elevenLabsTtsProviderDefinition: TtsProviderDefinition = {
         "assistant credentials set --service elevenlabs --field api_key <key>",
     },
   ],
-  nativeTwilioVoiceSpec: {
-    twilioProviderName: "ElevenLabs",
-    buildVoiceSpec: (providerConfig) =>
-      buildElevenLabsVoiceSpec(
-        providerConfig as {
-          voiceId: string;
-          voiceModelId?: string;
-          speed?: number;
-          stability?: number;
-          similarityBoost?: number;
-        },
-      ),
-  },
   adapter: createElevenLabsProvider(),
 };

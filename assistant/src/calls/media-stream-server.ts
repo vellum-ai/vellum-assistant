@@ -80,7 +80,7 @@ import {
   type MediaStreamSttSessionCallbacks,
   type MediaStreamSttSessionConfig,
 } from "./media-stream-stt-session.js";
-import { routeSetup } from "./relay-setup-router.js";
+import { routeSetup } from "./call-setup-router.js";
 
 const log = getLogger("media-stream-server");
 const UUID_SHAPED_NAME =

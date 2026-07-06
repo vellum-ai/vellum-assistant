@@ -11,7 +11,7 @@ import type {
 import type {
   SetupOutcome,
   SetupResolved,
-} from "../calls/relay-setup-router.js";
+} from "../calls/call-setup-router.js";
 import type { CallSession } from "../calls/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { TrustClass } from "../runtime/trust-class.js";
@@ -109,7 +109,7 @@ type AttemptParams = Parameters<
   NonNullable<CallSetupFlowDeps["attemptVerificationCode"]>
 >[0];
 
-/** Mirror of relay-verification's attemptVerificationCode result contract. */
+/** Mirror of call-verification's attemptVerificationCode result contract. */
 function fakeAttemptVerification(opts: {
   correctCode: string;
   verificationType?: "guardian" | "trusted_contact";

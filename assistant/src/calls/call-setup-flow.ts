@@ -2,7 +2,7 @@
  * Transport-agnostic call setup flow.
  *
  * Runs the pre-conversation phase of a phone call — acting on the routing
- * outcome produced by `routeSetup` (relay-setup-router.ts) — against any
+ * outcome produced by `routeSetup` (call-setup-router.ts) — against any
  * {@link SetupFlowTransport}. All side effects (speech, call-store writes,
  * completion) flow through injected deps so the flow is unit-testable and
  * independent of any wire protocol.
@@ -53,12 +53,12 @@ import {
   type GuardianWaitResolutionContext,
 } from "./guardian-wait-controller.js";
 import { getPhoneCallerVerdict } from "./inbound-trust-reader.js";
-import type { SetupOutcome, SetupResolved } from "./relay-setup-router.js";
+import type { SetupOutcome, SetupResolved } from "./call-setup-router.js";
 import {
   attemptInviteCodeRedemption as attemptInviteCodeRedemptionImpl,
   attemptVerificationCode as attemptVerificationCodeImpl,
   parseDigitsFromSpeech,
-} from "./relay-verification.js";
+} from "./call-verification.js";
 
 const log = getLogger("call-setup-flow");
 
@@ -128,9 +128,9 @@ export interface CallSetupFlowDeps {
   resolveGuardianLabel?(): string;
   /** Assistant display name, or null when unavailable. */
   resolveAssistantLabel?(): string | null;
-  /** Defaults to {@link attemptVerificationCodeImpl} (relay-verification). */
+  /** Defaults to {@link attemptVerificationCodeImpl} (call-verification). */
   attemptVerificationCode?: typeof attemptVerificationCodeImpl;
-  /** Gateway-native invite claim. Defaults to relay-verification's. */
+  /** Gateway-native invite claim. Defaults to call-verification's. */
   attemptInviteCodeRedemption?: typeof attemptInviteCodeRedemptionImpl;
   /**
    * Re-resolve caller trust after a successful mid-setup activation

@@ -47,12 +47,6 @@ const CallsVoiceConfigSchema = z
       .string({ error: "calls.voice.language must be a string" })
       .default("en-US")
       .describe("BCP-47 language code for speech recognition and synthesis"),
-    hints: z
-      .array(z.string({ error: "calls.voice.hints values must be strings" }))
-      .default([])
-      .describe(
-        "Static vocabulary hints for speech recognition — proper nouns, domain terms, and other words the STT provider should prioritize",
-      ),
     interruptSensitivity: z
       .enum(["low", "medium", "high"], {
         error:

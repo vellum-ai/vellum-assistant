@@ -93,38 +93,6 @@ export interface TtsCredentialsGuide {
 }
 
 // ---------------------------------------------------------------------------
-// Native Twilio voice spec
-// ---------------------------------------------------------------------------
-
-/**
- * Builds the provider-specific voice spec string for a native Twilio
- * provider.
- *
- * The returned string is used as Twilio's TTS `voice` attribute. Its
- * format is provider-specific — e.g. ElevenLabs uses
- * `voiceId-modelId-speed_stability_similarity`.
- *
- * @param providerConfig - Provider-specific config block from
- *   `services.tts.providers.<id>`.
- * @returns The voice spec string for Twilio's TTS `voice` attribute, or
- *   an empty string if the provider has no voice to specify.
- */
-export type NativeTwilioVoiceSpecBuilder = (
-  providerConfig: Record<string, unknown>,
-) => string;
-
-/**
- * Twilio voice-spec builder metadata for a native-Twilio provider.
- */
-export interface NativeTwilioVoiceSpec {
-  /** The Twilio `ttsProvider` attribute value (e.g. `"ElevenLabs"`). */
-  readonly twilioProviderName: string;
-
-  /** Builds the `voice` attribute string from provider config. */
-  readonly buildVoiceSpec: NativeTwilioVoiceSpecBuilder;
-}
-
-// ---------------------------------------------------------------------------
 // Catalog entry / provider definition
 // ---------------------------------------------------------------------------
 
@@ -181,22 +149,8 @@ export interface TtsProviderCatalogEntry {
 
 /**
  * A complete provider definition: catalog metadata plus the runtime adapter.
- *
- * The union is discriminated on `callMode` so that a `"native-twilio"`
- * provider **must** declare its {@link NativeTwilioVoiceSpec} — the
- * pairing the call path depends on is enforced at compile time rather
- * than by a boot-time registration check.
  */
-export type TtsProviderDefinition =
-  | (TtsProviderCatalogEntry & {
-      readonly callMode: "native-twilio";
-      /** Twilio voice-spec builder consumed by the call strategy. */
-      readonly nativeTwilioVoiceSpec: NativeTwilioVoiceSpec;
-      /** The runtime synthesis adapter. */
-      readonly adapter: TtsProvider;
-    })
-  | (TtsProviderCatalogEntry & {
-      readonly callMode: "synthesized-play";
-      /** The runtime synthesis adapter. */
-      readonly adapter: TtsProvider;
-    });
+export type TtsProviderDefinition = TtsProviderCatalogEntry & {
+  /** The runtime synthesis adapter. */
+  readonly adapter: TtsProvider;
+};

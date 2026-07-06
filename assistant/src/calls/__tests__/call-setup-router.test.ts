@@ -73,7 +73,7 @@ mock.module("../gateway-invite-reader.js", () => ({
   getActiveVoiceInvite: async () => activeVoiceInvite,
 }));
 
-const { routeSetup } = await import("../relay-setup-router.js");
+const { routeSetup } = await import("../call-setup-router.js");
 
 // ---------------------------------------------------------------------------
 // Fixtures

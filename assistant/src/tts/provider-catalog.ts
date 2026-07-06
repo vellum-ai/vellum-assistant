@@ -3,18 +3,15 @@
  *
  * This module is the **single assembly point** for the statically-defined
  * TTS providers. Each provider module (`providers/<id>-provider.ts`) exports
- * one complete {@link TtsProviderDefinition} — catalog metadata, runtime
- * adapter, and (for native-Twilio providers) the Twilio voice-spec builder —
- * and this module collects them into the catalog that downstream consumers
- * query via {@link getCatalogProvider}, {@link listCatalogProviders}, or
- * {@link listCatalogProviderIds}.
+ * one complete {@link TtsProviderDefinition} — catalog metadata plus runtime
+ * adapter — and this module collects them into the catalog that downstream
+ * consumers query via {@link getCatalogProvider}, {@link listCatalogProviders},
+ * or {@link listCatalogProviderIds}.
  *
  * The `satisfies Record<TtsProviderId, TtsProviderDefinition>` check
  * makes the catalog exhaustive at compile time: adding an ID to
  * `TTS_PROVIDER_IDS` (`types.ts`) without a definition here — or a definition
- * without wiring — is a type error, not a boot-time failure. Likewise the
- * definition union requires a `nativeTwilioVoiceSpec` whenever `callMode` is
- * `"native-twilio"`.
+ * without wiring — is a type error, not a boot-time failure.
  *
  * Adding a new TTS provider: add its ID to `TTS_PROVIDER_IDS`, create
  * `providers/<id>-provider.ts` exporting a definition, and list it here.

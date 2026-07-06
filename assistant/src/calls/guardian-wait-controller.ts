@@ -13,7 +13,7 @@
  * injected deps so the controller is unit-testable and independent of any
  * wire protocol. Pure wait helpers (`classifyWaitUtterance`,
  * `scheduleNextHeartbeat`, `emitAccessRequestCallbackHandoff`) are reused
- * from relay-access-wait.ts.
+ * from access-request-wait.ts.
  */
 
 import { getCanonicalGuardianRequest as getCanonicalGuardianRequestFn } from "../contacts/canonical-guardian-store.js";
@@ -31,7 +31,7 @@ import {
   classifyWaitUtterance,
   emitAccessRequestCallbackHandoff,
   scheduleNextHeartbeat,
-} from "./relay-access-wait.js";
+} from "./access-request-wait.js";
 
 const log = getLogger("guardian-wait-controller");
 

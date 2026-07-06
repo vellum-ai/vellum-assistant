@@ -163,7 +163,7 @@ let mockRouteSetupResult: {
   },
 };
 
-mock.module("../calls/relay-setup-router.js", () => ({
+mock.module("../calls/call-setup-router.js", () => ({
   routeSetup: jest.fn(() => mockRouteSetupResult),
 }));
 
@@ -336,7 +336,7 @@ let mockInviteResult: MockInviteResult = {
   type: "trusted_contact",
 };
 const mockAttemptInviteCodeRedemption = jest.fn(async () => mockInviteResult);
-mock.module("../calls/relay-verification.js", () => ({
+mock.module("../calls/call-verification.js", () => ({
   attemptVerificationCode: mockAttemptVerificationCode,
   attemptInviteCodeRedemption: mockAttemptInviteCodeRedemption,
   parseDigitsFromSpeech: jest.fn((text: string) => text.replace(/\D+/g, "")),
@@ -370,7 +370,7 @@ const mockEmitCallbackHandoff = jest.fn(
     notified: false,
   }),
 );
-mock.module("../calls/relay-access-wait.js", () => ({
+mock.module("../calls/access-request-wait.js", () => ({
   classifyWaitUtterance: jest.fn(() => "neutral"),
   scheduleNextHeartbeat: jest.fn(() => null),
   emitAccessRequestCallbackHandoff: mockEmitCallbackHandoff,
@@ -394,7 +394,7 @@ import {
   activeMediaStreamSessions,
   MediaStreamCallSession,
 } from "../calls/media-stream-server.js";
-import { routeSetup } from "../calls/relay-setup-router.js";
+import { routeSetup } from "../calls/call-setup-router.js";
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket factory

@@ -17,7 +17,7 @@ import type {
 import type {
   SetupOutcome,
   SetupResolved,
-} from "../calls/relay-setup-router.js";
+} from "../calls/call-setup-router.js";
 import type { CallSession } from "../calls/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { TrustClass } from "../runtime/trust-class.js";

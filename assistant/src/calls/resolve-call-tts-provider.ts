@@ -74,8 +74,7 @@ export interface ResolveCallTtsOptions {
  * Resolve the active TTS provider via the global provider abstraction.
  *
  * The native-vs-synthesized decision is driven by the catalog's
- * `callMode` field via {@link resolveCallStrategy} -- the same single
- * decision path used by `voice-quality.ts`. Providers with
+ * `callMode` field via {@link resolveCallStrategy}. Providers with
  * `callMode: "synthesized-play"` have their audio streamed through the
  * audio store and played via `sendPlayUrl`. Providers with
  * `callMode: "native-twilio"` send text via `sendTextToken`, which the
@@ -97,8 +96,7 @@ export async function resolveCallTtsProvider(
     const config = loadConfig();
     const resolved = resolveTtsConfig(config);
 
-    // Use the catalog's callMode to decide the call path -- the same
-    // decision path used by voice-quality.ts via resolveCallStrategy().
+    // Use the catalog's callMode to decide the call path.
     const strategy = resolveCallStrategy(config);
 
     let providerId = resolved.provider;
