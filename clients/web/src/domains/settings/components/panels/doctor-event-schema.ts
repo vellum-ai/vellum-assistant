@@ -8,34 +8,62 @@
 
 import { z } from "zod";
 
+const DoctorSourceEventFields = {
+  source_event_id: z.string().nullable().optional(),
+};
+
 export const DoctorEventSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("message"), content: z.string() }),
-  z.object({ type: z.literal("message_delta"), content: z.string() }),
   z.object({
+    ...DoctorSourceEventFields,
+    type: z.literal("message"),
+    content: z.string(),
+  }),
+  z.object({
+    ...DoctorSourceEventFields,
+    type: z.literal("message_delta"),
+    content: z.string(),
+  }),
+  z.object({
+    ...DoctorSourceEventFields,
     type: z.literal("tool_call"),
     toolName: z.string(),
     input: z.record(z.string(), z.unknown()),
     id: z.string(),
   }),
   z.object({
+    ...DoctorSourceEventFields,
     type: z.literal("tool_result"),
     toolCallId: z.string(),
     content: z.string(),
     isError: z.boolean(),
   }),
   z.object({
+    ...DoctorSourceEventFields,
     type: z.literal("approval_required"),
     toolName: z.string(),
     input: z.record(z.string(), z.unknown()),
     id: z.string(),
     description: z.string(),
   }),
-  z.object({ type: z.literal("backup_prompt"), toolName: z.string() }),
   z.object({
-    type: z.literal("status"),
-    status: z.union([z.literal("active"), z.literal("completed"), z.literal("error")]),
+    ...DoctorSourceEventFields,
+    type: z.literal("backup_prompt"),
+    toolName: z.string(),
   }),
-  z.object({ type: z.literal("error"), message: z.string() }),
+  z.object({
+    ...DoctorSourceEventFields,
+    type: z.literal("status"),
+    status: z.union([
+      z.literal("active"),
+      z.literal("completed"),
+      z.literal("error"),
+    ]),
+  }),
+  z.object({
+    ...DoctorSourceEventFields,
+    type: z.literal("error"),
+    message: z.string(),
+  }),
 ]);
 
 export type DoctorEvent = z.infer<typeof DoctorEventSchema>;
