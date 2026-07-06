@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import {
-  isDbReady,
+  getDbMigrationReadiness,
   isStartupComplete,
   resetReadinessForTest,
   setDbReady,
@@ -17,16 +17,16 @@ describe("daemon-readiness", () => {
     resetReadinessForTest();
   });
 
-  test("defaults are false", () => {
-    expect(isDbReady()).toBe(false);
+  test("defaults to DB ready outside lifecycle", () => {
+    expect(getDbMigrationReadiness().ready).toBe(true);
     expect(isStartupComplete()).toBe(false);
   });
 
   test("setDbReady flips state both ways", () => {
     setDbReady(true);
-    expect(isDbReady()).toBe(true);
+    expect(getDbMigrationReadiness().ready).toBe(true);
     setDbReady(false);
-    expect(isDbReady()).toBe(false);
+    expect(getDbMigrationReadiness().ready).toBe(false);
   });
 
   test("setStartupComplete latches startup state", () => {
@@ -41,11 +41,11 @@ describe("daemon-readiness", () => {
     expect(isStartupComplete()).toBe(true);
   });
 
-  test("resetReadinessForTest clears both latches", () => {
-    setDbReady(true);
+  test("resetReadinessForTest restores default readiness", () => {
+    setDbReady(false);
     setStartupComplete();
     resetReadinessForTest();
-    expect(isDbReady()).toBe(false);
+    expect(getDbMigrationReadiness().ready).toBe(true);
     expect(isStartupComplete()).toBe(false);
   });
 });

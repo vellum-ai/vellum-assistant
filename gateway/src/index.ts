@@ -1791,6 +1791,66 @@ async function main() {
       return Response.json({ status: "ok" });
     }
 
+    if (url.pathname === "/readyz") {
+      if (draining) {
+        return Response.json({ status: "draining" }, { status: 503 });
+      }
+      // Check that the upstream assistant is also reachable so callers
+      // know the full stack is ready, not just the gateway process.
+      //
+      // The assistant's readiness body (`ready`, `dbMigrations`) is forwarded
+      // so programmatic callers — the upgrade/hatch CLI waits in particular —
+      // can distinguish "still migrating" (200, ready:false) from "ready" and
+      // detect terminally failed migrations.
+      //
+      // Status-code contract while the gateway's own post-assistant-ready
+      // work is incomplete (every non-probe route 503s "starting"):
+      // - Assistant still migrating (ready:false body): 200. Migrations can
+      //   take minutes and the orchestrator must keep the pod in service —
+      //   the forwarded ready:false body already keeps body-aware CLI waits
+      //   waiting.
+      // - Assistant ready, gateway backfills still running: 503 "starting".
+      //   This window is seconds long, and reporting ready here would let
+      //   the orchestrator route traffic — and CLI waits declare the stack
+      //   ready — while every route still 503s (upgrade would commit early;
+      //   hatch would burn its guardian-lease budget against the closed
+      //   gate).
+      try {
+        const upstream = await fetch(
+          `${config.assistantRuntimeBaseUrl}/readyz`,
+          { signal: AbortSignal.timeout(3000) },
+        );
+        const upstreamBody = (await upstream
+          .json()
+          .catch(() => null)) as Record<string, unknown> | null;
+        if (!upstream.ok) {
+          return Response.json(
+            {
+              ...(upstreamBody ?? {}),
+              status: "upstream_unhealthy",
+              upstream: upstream.status,
+            },
+            { status: 503 },
+          );
+        }
+        if (!postAssistantReadyComplete) {
+          if (upstreamBody?.ready === false) {
+            return Response.json(upstreamBody);
+          }
+          return Response.json(
+            { ...(upstreamBody ?? {}), status: "starting", ready: false },
+            { status: 503 },
+          );
+        }
+        return Response.json(upstreamBody ?? { status: "ok" });
+      } catch {
+        return Response.json(
+          { status: "upstream_unreachable" },
+          { status: 503 },
+        );
+      }
+    }
+
     if (!postAssistantReadyComplete) {
       return Response.json({ status: "starting" }, { status: 503 });
     }
@@ -1812,32 +1872,6 @@ async function main() {
 
     if (url.pathname === "/schema") {
       return Response.json(buildSchema());
-    }
-
-    if (url.pathname === "/readyz") {
-      if (draining) {
-        return Response.json({ status: "draining" }, { status: 503 });
-      }
-      // Check that the upstream assistant is also reachable so callers
-      // know the full stack is ready, not just the gateway process.
-      try {
-        const upstream = await fetch(
-          `${config.assistantRuntimeBaseUrl}/readyz`,
-          { signal: AbortSignal.timeout(3000) },
-        );
-        if (!upstream.ok) {
-          return Response.json(
-            { status: "upstream_unhealthy", upstream: upstream.status },
-            { status: 503 },
-          );
-        }
-      } catch {
-        return Response.json(
-          { status: "upstream_unreachable" },
-          { status: 503 },
-        );
-      }
-      return Response.json({ status: "ok" });
     }
 
     // Per-request IP resolver — scoped to this request so it remains
@@ -1944,7 +1978,10 @@ async function main() {
   log.info({ port: server.port }, "Gateway HTTP server listening");
 
   // Complete post-assistant-ready startup work after binding /healthz.
-  // All non-health routes stay closed until this finishes.
+  // All non-health routes stay closed until this returns. When the assistant
+  // is not migration-ready within the bounded wait, this still returns (so
+  // traffic opens) while the deferred tasks keep retrying in the background —
+  // see post-assistant-ready.ts.
   try {
     await runPostAssistantReady();
     postAssistantReadyComplete = true;

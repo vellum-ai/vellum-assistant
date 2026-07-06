@@ -695,15 +695,18 @@ export async function restore(): Promise<void> {
 
     let response: Response;
     try {
-      response = await loopbackSafeFetch(`${entry.runtimeUrl}/v1/migrations/import`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/octet-stream",
+      response = await loopbackSafeFetch(
+        `${entry.runtimeUrl}/v1/migrations/import`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/octet-stream",
+          },
+          body: bundleData,
+          signal: AbortSignal.timeout(120_000),
         },
-        body: bundleData,
-        signal: AbortSignal.timeout(120_000),
-      });
+      );
     } catch (err) {
       if (err instanceof Error && err.name === "TimeoutError") {
         console.error("Error: Import request timed out after 2 minutes.");
@@ -751,6 +754,26 @@ export async function restore(): Promise<void> {
     console.log(`  Files overwritten: ${summary.files_overwritten}`);
     console.log(`  Files skipped:     ${summary.files_skipped}`);
     console.log(`  Backups created:   ${summary.backups_created}`);
+
+    // A daemon in the terminal failed-migrations state accepts this import
+    // (the migration-repair exemption), but its readiness latch only clears
+    // on restart — without one it keeps refusing DB-backed routes.
+    try {
+      const readyz = await loopbackSafeFetch(`${entry.runtimeUrl}/readyz`, {
+        signal: AbortSignal.timeout(3_000),
+      });
+      const readyzBody = (await readyz.json().catch(() => null)) as {
+        dbMigrations?: { state?: string };
+      } | null;
+      if (readyzBody?.dbMigrations?.state === "failed") {
+        console.warn(
+          "\n⚠️  The assistant is in a failed-migrations state; the restored data takes effect after a restart:",
+        );
+        console.warn(`   vellum sleep ${name} && vellum wake ${name}`);
+      }
+    } catch {
+      // Best-effort advisory — never fail a completed restore over it.
+    }
 
     // Print warnings if any
     const warnings = result.warnings ?? [];
