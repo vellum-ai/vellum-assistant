@@ -20,8 +20,8 @@ import {
   type ProfileEntry,
 } from "../schemas/llm.js";
 
-/** Thin managed-source stubs: what a workspace looks like once default
- * profile CONTENT is code-owned — only ownership/status markers on disk. */
+/** Thin managed-source stubs: a workspace that carries only ownership
+ * markers for the defaults, no profile content. */
 function managedStubs(): Record<string, ProfileEntry> {
   return Object.fromEntries(
     DEFAULT_PROFILE_KEYS.map((key) => [key, { source: "managed" as const }]),
@@ -117,10 +117,10 @@ describe("getEffectiveProfiles", () => {
 
 describe("resolver integration", () => {
   test("resolution serves default-profile content from the code catalog, not the workspace body", () => {
-    // The headline milestone test: with only thin managed stubs on disk (the
-    // PR2 end state), resolution comes entirely from the code catalog — so
-    // shipping a release with a new catalog body changes resolution with no
-    // workspace migration.
+    // The headline milestone test: with only thin managed stubs on disk,
+    // resolution comes entirely from the code catalog — shipping a release
+    // with a new catalog body changes resolution with no workspace
+    // migration.
     const llm = LLMSchema.parse({
       activeProfile: "balanced",
       profiles: managedStubs(),
@@ -177,9 +177,8 @@ describe("resolver integration", () => {
 describe("schema validation", () => {
   test("profile references are valid only when materialized in llm.profiles (parity with the seeder contract)", () => {
     // A default name is not schema-valid while unmaterialized: the effective
-    // view does not resolve absent defaults yet, so accepting the reference
-    // would let resolution throw at dispatch. The ownership-flip follow-up
-    // makes absent defaults resolve from the catalog and relaxes this.
+    // view does not resolve absent defaults, so accepting the reference
+    // would let resolution throw at dispatch instead of failing at load.
     expect(() => LLMSchema.parse({ activeProfile: "balanced" })).toThrow();
     expect(() =>
       LLMSchema.parse({ activeProfile: OS_BETA_PROFILE_KEY }),

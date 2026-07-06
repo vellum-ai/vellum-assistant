@@ -2,8 +2,8 @@
  * Names of the code-defined default inference profiles.
  *
  * This module is intentionally import-free so any config module (the
- * catalog, the seeder, the flag reconcile, and eventually the schema) can
- * share the names without import cycles.
+ * catalog, the seeder, the flag reconcile) can share the names without
+ * import cycles.
  */
 
 /** Stable keys of the always-available default profiles. */

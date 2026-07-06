@@ -325,10 +325,9 @@ function buildDefaultProfileEntries(): Record<string, ProfileEntry> {
 }
 
 /**
- * The materialized code-default bodies keyed by profile name — what a
- * default profile resolves to when the workspace carries no state for it.
- * Currently the `vellum` column (the managed implementations); a follow-up
- * introduces the default-provider selector that picks the column.
+ * The materialized code-default bodies keyed by profile name — the
+ * code-owned content a managed-source workspace entry resolves to. These are
+ * the `vellum` column (the managed implementations).
  */
 export const CODE_DEFAULT_PROFILE_ENTRIES: Readonly<
   Record<string, ProfileEntry>
@@ -358,9 +357,8 @@ const WORKSPACE_OWNED_DEFAULT_FIELDS = ["label", "status", "topP"] as const;
  *   default body.
  * - A default absent from the workspace does not resolve: the seeder
  *   materializes every default on boot (and the flag reconcile gates
- *   `os-beta`), so absence means "not available here" — hatch windows,
- *   flag-off, or pruned states. The ownership-flip follow-up removes the
- *   seeding and switches absence to resolve from the catalog instead.
+ *   `os-beta`), so absence means the profile is not available on this
+ *   install — hatch windows, flag-off, or pruned states.
  */
 export function getEffectiveProfile(
   workspaceProfiles: Record<string, ProfileEntry> | undefined,

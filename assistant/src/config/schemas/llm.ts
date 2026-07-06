@@ -501,8 +501,7 @@ export const LLMSchema = z
     // Default profile CONTENT is code-defined (`default-profile-catalog.ts`),
     // but a default resolves only while the seeder has materialized its
     // workspace entry — so references are validated against `llm.profiles`
-    // alone. The ownership-flip follow-up makes absent defaults resolve from
-    // the catalog and widens this set to match.
+    // alone.
     const profileNames = new Set(Object.keys(config.profiles ?? {}));
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
       if (siteConfig?.profile == null) continue;
