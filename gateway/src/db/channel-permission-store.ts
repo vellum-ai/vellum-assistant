@@ -170,9 +170,15 @@ export class ChannelPermissionStore {
     const out: ChannelPermissionCellRow[] = [];
     for (const row of rows) {
       const selector = columnsToSelector(row);
-      if (!selector) continue;
-      if (!isTrustClass(row.contactType)) continue;
-      if (!isRiskThreshold(row.threshold)) continue;
+      if (!selector) {
+        continue;
+      }
+      if (!isTrustClass(row.contactType)) {
+        continue;
+      }
+      if (!isRiskThreshold(row.threshold)) {
+        continue;
+      }
       out.push({
         selector,
         contactType: row.contactType,
@@ -206,7 +212,9 @@ export class ChannelPermissionStore {
         ),
       )
       .get();
-    if (!row || !isRiskThreshold(row.threshold)) return null;
+    if (!row || !isRiskThreshold(row.threshold)) {
+      return null;
+    }
     return {
       selector,
       contactType,
@@ -225,7 +233,9 @@ export class ChannelPermissionStore {
     selector: ChannelPermissionSelector,
     contactType: ChannelPermissionCell["contactType"],
   ): boolean {
-    if (!this.get(selector, contactType)) return false;
+    if (!this.get(selector, contactType)) {
+      return false;
+    }
     const cols = selectorColumns(selector);
     this.db
       .delete(channelPermissionOverrides)
@@ -251,7 +261,9 @@ export class ChannelPermissionStore {
    * when a row was inserted.
    */
   seedCell(cell: ChannelPermissionCell): boolean {
-    if (this.get(cell.selector, cell.contactType)) return false;
+    if (this.get(cell.selector, cell.contactType)) {
+      return false;
+    }
     const cols = selectorColumns(cell.selector);
     this.db.run(sql`
       INSERT INTO channel_permission_overrides

@@ -15,7 +15,9 @@ import type { IpcRoute } from "../server.js";
 
 function route(method: string): IpcRoute {
   const found = channelPermissionRoutes.find((r) => r.method === method);
-  if (!found) throw new Error(`route not registered: ${method}`);
+  if (!found) {
+    throw new Error(`route not registered: ${method}`);
+  }
   return found;
 }
 

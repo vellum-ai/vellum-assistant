@@ -40,13 +40,21 @@ function extractChannelPermissions(
   config: Record<string, unknown>,
 ): Record<string, unknown> | null {
   const skills = config.skills;
-  if (!skills || typeof skills !== "object") return null;
+  if (!skills || typeof skills !== "object") {
+    return null;
+  }
   const entries = (skills as Record<string, unknown>).entries;
-  if (!entries || typeof entries !== "object") return null;
+  if (!entries || typeof entries !== "object") {
+    return null;
+  }
   const slack = (entries as Record<string, unknown>).slack;
-  if (!slack || typeof slack !== "object") return null;
+  if (!slack || typeof slack !== "object") {
+    return null;
+  }
   const slackConfig = (slack as Record<string, unknown>).config;
-  if (!slackConfig || typeof slackConfig !== "object") return null;
+  if (!slackConfig || typeof slackConfig !== "object") {
+    return null;
+  }
   const channelPermissions = (slackConfig as Record<string, unknown>)
     .channelPermissions;
   if (

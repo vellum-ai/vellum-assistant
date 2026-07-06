@@ -32,11 +32,15 @@ function assertKnownAdapter(selector: {
   scope: string;
   adapter?: string;
 }): void {
-  if (selector.scope === "workspace") return;
+  if (selector.scope === "workspace") {
+    return;
+  }
   if (!selector.adapter || !isChannelId(selector.adapter)) {
+    // `code` is the property buildErrorResponse mirrors into the wire
+    // `errorCode` for IPC clients.
     throw Object.assign(
       new Error(`Unknown channel adapter: ${selector.adapter ?? "(missing)"}`),
-      { statusCode: 400, errorCode: "unknown_adapter" },
+      { statusCode: 400, code: "unknown_adapter" },
     );
   }
 }
