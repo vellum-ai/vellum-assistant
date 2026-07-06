@@ -64,7 +64,6 @@ import {
   forkConversation,
   getMessages,
   updateMessageContent,
-  wipeConversation,
 } from "../persistence/conversation-crud.js";
 import { getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -202,16 +201,6 @@ describe("messages lexical-index dual-write", () => {
     for (const forkMessage of getMessages(fork.id)) {
       expect(enqueuedMessageIds.has(forkMessage.id)).toBe(false);
     }
-  });
-
-  test("wipeConversation enqueues a purge_conversation_lexical job for the conversation", async () => {
-    const conv = createConversation("Lexical wipe thread");
-    await addMessage(conv.id, "user", "index me then wipe me");
-
-    resetMemoryJobs();
-    wipeConversation(conv.id);
-
-    expect(countJobs("purge_conversation_lexical", conv.id)).toBe(1);
   });
 
   test("deleteConversation (direct, no route) enqueues a purge for the conversation", async () => {

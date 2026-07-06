@@ -7586,47 +7586,6 @@ paths:
                   - removedCount
                   - conversationId
                 additionalProperties: false
-  /v1/conversations/{id}/wipe:
-    post:
-      operationId: conversations_by_id_wipe_post
-      summary: Wipe a conversation
-      description: Delete all messages in a conversation and revert associated memory changes.
-      tags:
-        - conversations
-      parameters:
-        - name: id
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  wiped:
-                    type: boolean
-                  unsupersededItems:
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                  deletedSummaries:
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                  cancelledJobs:
-                    type: integer
-                    minimum: -9007199254740991
-                    maximum: 9007199254740991
-                required:
-                  - wiped
-                  - unsupersededItems
-                  - deletedSummaries
-                  - cancelledJobs
-                additionalProperties: false
   /v1/conversations/archive/bulk:
     post:
       operationId: conversations_archive_bulk_post
@@ -9353,47 +9312,6 @@ paths:
                 required:
                   - invoked
                   - producedToolCalls
-                additionalProperties: false
-  /v1/conversations/wipe:
-    post:
-      operationId: conversations_wipe_post
-      summary: Wipe a conversation
-      description: Permanently delete a conversation and its associated data including memory vectors.
-      tags:
-        - conversations
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                conversationId:
-                  type: string
-                  minLength: 1
-              required:
-                - conversationId
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  wiped:
-                    type: boolean
-                  unsupersededItems:
-                    type: number
-                  deletedSummaries:
-                    type: number
-                  cancelledJobs:
-                    type: number
-                required:
-                  - wiped
-                  - unsupersededItems
-                  - deletedSummaries
-                  - cancelledJobs
                 additionalProperties: false
   /v1/credentials/delete:
     post:

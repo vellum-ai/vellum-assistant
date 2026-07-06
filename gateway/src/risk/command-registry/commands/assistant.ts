@@ -106,7 +106,6 @@ const ASSISTANT_SUPPORTED_COMMAND_PATHS = [
   "conversations rename",
   "conversations export",
   "conversations clear",
-  "conversations wipe",
   "conversations wake",
   "credential-execution",
   "credential-execution grants",
@@ -400,11 +399,6 @@ const riskOverrides: AssistantRiskOverride[] = [
     path: "conversations clear",
     risk: "medium",
     reason: "Deletes conversation history",
-  },
-  {
-    path: "conversations wipe",
-    risk: "high",
-    reason: "Deletes specific conversation data",
   },
 
   // Mutating assistant state / external side effects

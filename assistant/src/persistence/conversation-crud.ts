@@ -87,7 +87,6 @@ import {
   llmRequestLogs,
   memoryEmbeddings,
   memorySegments,
-  memorySummaries,
   messageAttachments,
   messages,
   skillLoadedEvents,
@@ -1510,7 +1509,7 @@ export function deleteConversation(id: string): DeletedMemoryIds {
 
   // Let the memory feature purge the conversation's per-message index (e.g. its
   // lexical points). Fired from the shared primitive so every delete caller —
-  // route, wipe, retrospective cleanup/GC — cleans up. Routed through the
+  // route, retrospective cleanup/GC — cleans up. Routed through the
   // persistence-hook seam so this layer stays decoupled from the memory plugin;
   // a no-op when memory is not present.
   memoryPersistenceHooks.onConversationDeleted(id);
@@ -1628,65 +1627,6 @@ export async function deleteConversationGently(
   memoryPersistenceHooks.onConversationDeleted(id);
 
   return result;
-}
-
-/**
- * Wipe a conversation and revert all memory changes it caused.
- *
- * Extends `deleteConversation` with:
- * - Cancelling pending memory jobs before deletion
- * - Deleting conversation-scoped memory summaries and their embeddings
- */
-export function wipeConversation(id: string): WipeConversationResult {
-  const db = getDb();
-  const deletedSummaryIds: string[] = [];
-
-  // Step A — Cancel pending memory jobs (before deleting messages, since
-  // the cancellation queries join on `messages`). Cleanup runs even while the
-  // memory plugin is disabled; returns 0 when memory is not present.
-  const cancelledJobCount = memoryPersistenceHooks.onConversationWiped(id);
-
-  // Step C — Delete conversation-scoped memory summaries and their embeddings.
-  const summaryRows = db
-    .select({ id: memorySummaries.id })
-    .from(memorySummaries)
-    .where(
-      and(
-        eq(memorySummaries.scope, "conversation"),
-        eq(memorySummaries.scopeKey, id),
-      ),
-    )
-    .all();
-  const summaryIds = summaryRows.map((r) => r.id);
-  if (summaryIds.length > 0) {
-    db.delete(memoryEmbeddings)
-      .where(
-        and(
-          eq(memoryEmbeddings.targetType, "summary"),
-          inArray(memoryEmbeddings.targetId, summaryIds),
-        ),
-      )
-      .run();
-    db.delete(memorySummaries)
-      .where(inArray(memorySummaries.id, summaryIds))
-      .run();
-  }
-  deletedSummaryIds.push(...summaryIds);
-
-  // Step D — Delegate to deleteConversation which handles messages (cascade
-  // segments, attachments), llmRequestLogs, toolInvocations,
-  // skillLoadedEvents, embeddings, and the conversation row.
-  const deletedMemoryIds = deleteConversation(id);
-
-  // Step E — Return the combined result.
-  return {
-    ...deletedMemoryIds,
-    deletedSummaryIds: [
-      ...deletedSummaryIds,
-      ...deletedMemoryIds.deletedSummaryIds,
-    ],
-    cancelledJobCount,
-  };
 }
 
 /** Options for {@link addMessage}. Only `skipIndexing` and `clientMessageId`
@@ -2886,10 +2826,6 @@ export function deleteLastExchange(conversationId: string): number {
 interface DeletedMemoryIds {
   segmentIds: string[];
   deletedSummaryIds: string[];
-}
-
-interface WipeConversationResult extends DeletedMemoryIds {
-  cancelledJobCount: number;
 }
 
 /**

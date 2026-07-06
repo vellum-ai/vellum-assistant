@@ -591,7 +591,6 @@ describe("command-registry", () => {
       expect(getAssistantPath("email send").baseRisk).toBe("high");
       expect(getAssistantPath("domain register").baseRisk).toBe("medium");
       expect(getAssistantPath("conversations clear").baseRisk).toBe("medium");
-      expect(getAssistantPath("conversations wipe").baseRisk).toBe("high");
       expect(getAssistantPath("backup restore").baseRisk).toBe("high");
       expect(getAssistantPath("inference session open").baseRisk).toBe("low");
       expect(getAssistantPath("inference session close").baseRisk).toBe("low");

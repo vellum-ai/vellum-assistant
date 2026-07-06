@@ -10,7 +10,6 @@ import { getMemoryConfig } from "./config.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
-import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
 import {
   forkActivationState,
   seedForkActivationState,
@@ -153,17 +152,9 @@ export const memoryPersistenceHooks = {
     });
   },
 
-  onConversationWiped(conversationId: string): number {
-    // Cancel pending memory jobs only. The lexical purge is fired from the
-    // shared delete primitive via `onConversationDeleted` (which
-    // `wipeConversation` reaches through its internal `deleteConversation`), so
-    // the purge lands AFTER this cancellation pass and cannot be swept by it.
-    return cancelPendingJobsForConversation(conversationId);
-  },
-
   onConversationDeleted(conversationId: string): void {
     // Purge the conversation's points from the lexical (Qdrant) index. Fired
-    // from the shared delete primitive, so every delete caller — route, wipe,
+    // from the shared delete primitive, so every delete caller — route,
     // retrospective cleanup, GC — cleans up. The enqueue helper self-selects:
     // enqueue a job when memory is enabled, run the delete inline (best-effort,
     // breaker-wrapped) when it is disabled.

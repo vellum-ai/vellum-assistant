@@ -184,15 +184,12 @@ export function enqueueLexicalIndexForMessage(messageId: string): void {
 }
 
 /**
- * Purge a deleted/wiped conversation's points from the lexical index, as a
+ * Purge a deleted conversation's points from the lexical index, as a
  * `purge_conversation_lexical` job processed off the write path (the worker
  * drains the lexical types regardless of the memory feature's state).
  *
  * The purge targets Qdrant by `conversationId`, so it is correct even after the
- * conversation's message rows have been deleted. Callers on the wipe path must
- * invoke this AFTER `cancelPendingJobsForConversation`, which fails every
- * pending `conversationId`-keyed job — otherwise an enqueued purge is swept by
- * that same cancellation.
+ * conversation's message rows have been deleted.
  *
  * Best-effort: a failed enqueue is swallowed and logged rather than
  * propagated, so conversation deletion never fails on an indexing hiccup.
