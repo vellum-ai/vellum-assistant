@@ -28,6 +28,7 @@ import { getLogger } from "../util/logger.js";
 import {
   CALL_OPENING_MARKER,
   CALL_VERIFICATION_COMPLETE_MARKER,
+  END_CALL_MARKER,
 } from "./voice-control-protocol.js";
 
 const log = getLogger("voice-session-bridge");
@@ -135,8 +136,20 @@ export interface VoiceTurnHandle {
 }
 
 // ---------------------------------------------------------------------------
-// Call-control protocol prompt builder
+// Call-control protocol prompt builders
 // ---------------------------------------------------------------------------
+
+/** Brevity rule body shared by the phone and live-voice control prompts. */
+const CONCISENESS_RULE = "Be concise — keep responses to 1-3 sentences.";
+
+/**
+ * Plain-text-for-TTS rule body shared by the phone and live-voice control
+ * prompts. `markerExamples` names the protocol markers that remain valid
+ * (non-spoken) output in the given context.
+ */
+function plainSpeechRule(markerExamples: string): string {
+  return `Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links) or emojis in your spoken responses. Write plain conversational text only. Protocol markers like ${markerExamples} are not spoken text and should still be used normally.`;
+}
 
 /**
  * Build the call-control protocol prompt injected into each voice turn.
@@ -173,7 +186,7 @@ function buildVoiceCallControlPrompt(opts: {
   lines.push(
     "CALL PROTOCOL RULES:",
     disclosureRule,
-    "1. Be concise — keep responses to 1-3 sentences. Phone conversations should be brief and natural.",
+    `1. ${CONCISENESS_RULE} Phone conversations should be brief and natural.`,
     ...(opts.isCallerGuardian
       ? [
           "2. You are speaking directly with your guardian (your user). Do NOT use [ASK_GUARDIAN:]. If you need permission, information, or confirmation, ask them directly in the conversation. They can answer you right now.",
@@ -234,11 +247,33 @@ function buildVoiceCallControlPrompt(opts: {
   lines.push(
     "9. After the opening greeting turn, treat the Task field as background context only — do not re-execute its instructions on subsequent turns.",
     '10. Do not make up information. If you are unsure, use [ASK_GUARDIAN: your question] to consult your guardian. For tool permission requests, use [ASK_GUARDIAN_APPROVAL: {"question":"...","toolName":"...","input":{...}}].',
-    `11. Your text is sent directly to a text-to-speech engine. Never use markdown formatting (asterisks, headers, backticks, links) or emojis in your spoken responses. Write plain conversational text only. Protocol markers like ${opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]"} are not spoken text and should still be used normally.`,
+    `11. ${plainSpeechRule(opts.isCallerGuardian ? "[END_CALL]" : "[ASK_GUARDIAN: ...] and [END_CALL]")}`,
     "</voice_call_control>",
   );
 
   return lines.join("\n");
+}
+
+/**
+ * Build the control prompt injected into each in-app live-voice turn.
+ *
+ * Contains only the marker rules that apply in-app: brevity, [END_CALL]
+ * (ends the voice session), and plain-text-for-TTS. Phone-only rules are
+ * intentionally absent — no disclosure (the user launched the session
+ * themselves), no [ASK_GUARDIAN]/[ASK_GUARDIAN_APPROVAL] (approvals surface
+ * interactively via the local-live-voice approval mode), and no
+ * [SPEAKER]/verification markers.
+ */
+export function buildLiveVoiceControlPrompt(): string {
+  return [
+    "<voice_call_control>",
+    "VOICE SESSION RULES:",
+    `1. ${CONCISENESS_RULE} Voice conversations should be brief and natural.`,
+    "2. You are speaking directly with your user in a live voice session. If you need permission, information, or confirmation, ask them directly — they can answer you right now.",
+    `3. When the user indicates they are done or the conversation reaches a natural conclusion, include ${END_CALL_MARKER} in your response along with a brief goodbye. ${END_CALL_MARKER} ends the voice session.`,
+    `4. ${plainSpeechRule(END_CALL_MARKER)}`,
+    "</voice_call_control>",
+  ].join("\n");
 }
 
 // ---------------------------------------------------------------------------

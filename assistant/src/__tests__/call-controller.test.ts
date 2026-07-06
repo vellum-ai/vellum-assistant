@@ -38,6 +38,15 @@ mock.module("../config/loader.js", () => {
     },
     memory: { enabled: false },
     notifications: {},
+    liveVoice: {
+      mode: "ptt",
+      vad: {
+        speechEnergyThreshold: 800,
+        silenceThresholdMs: 800,
+        maxTurnDurationMs: 30_000,
+      },
+      maxSessionDurationSeconds: 1800,
+    },
     ingress: {
       enabled: true,
       publicBaseUrl: "https://generic.example.com",
@@ -187,10 +196,14 @@ mock.module("../contacts/guardian-delivery-reader.js", () => ({
   anyGuardian: (list: unknown[]) => list[0],
 }));
 
+const MOCK_LIVE_VOICE_PROMPT =
+  "<voice_call_control>mock live-voice prompt</voice_call_control>";
+
 mock.module("../calls/voice-session-bridge.js", () => {
   mockStartVoiceTurn = mock(createMockVoiceTurn(["Hello", " there"]));
   return {
     startVoiceTurn: (...args: unknown[]) => mockStartVoiceTurn(...args),
+    buildLiveVoiceControlPrompt: () => MOCK_LIVE_VOICE_PROMPT,
   };
 });
 
@@ -265,7 +278,10 @@ import {
 } from "../calls/call-store.js";
 import type { CallTransport } from "../calls/call-transport.js";
 import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
-import type { VoiceSessionSource } from "../calls/voice-session-source.js";
+import {
+  createInAppVoiceControllerProfile,
+  type VoiceSessionSource,
+} from "../calls/voice-session-source.js";
 import { loadConfig } from "../config/loader.js";
 import {
   getCanonicalGuardianRequest,
@@ -3533,5 +3549,190 @@ describe("call-controller", () => {
     expect(turnOpts.skipDisclosure).toBe(true);
 
     controller.destroy();
+  });
+
+  // ── In-app controller profile ───────────────────────────────────────
+
+  describe("in-app controller profile", () => {
+    const IN_APP_SESSION_ID = "live-voice-session-no-row";
+
+    /**
+     * Controller wired like an in-app live-voice session: injected session
+     * source (no call_sessions row exists) plus the in-app profile.
+     */
+    function setupInAppController() {
+      ensureConversation("conv-inapp-test");
+      const sessionSource: VoiceSessionSource = {
+        conversationId: "conv-inapp-test",
+        skipDisclosure: true,
+        getSnapshot: () => ({
+          status: "in_progress",
+          conversationId: "conv-inapp-test",
+          initiatedFromConversationId: null,
+          startedAt: Date.now(),
+          toNumber: "",
+        }),
+      };
+      const transport = createMockTransport();
+      const controller = new CallController(
+        IN_APP_SESSION_ID,
+        transport,
+        null,
+        { sessionSource, profile: createInAppVoiceControllerProfile() },
+      );
+      return { relay: transport, controller };
+    }
+
+    test("recordEvent is a no-op: turns and instructions write no call_events rows", async () => {
+      const { controller } = setupInAppController();
+
+      await controller.handleCallerUtterance("Hello");
+      await controller.handleUserInstruction("Be brief");
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(getCallEvents(IN_APP_SESSION_ID)).toEqual([]);
+
+      controller.destroy();
+    });
+
+    test("[END_CALL] ends the transport session without phone finalization", async () => {
+      mockStartVoiceTurn.mockImplementation(
+        createMockVoiceTurn(["Goodbye! ", "[END_CALL]"]),
+      );
+      const { relay, controller } = setupInAppController();
+
+      await controller.handleCallerUtterance("That's all, bye");
+      // In-app profile has no END_CALL listen window — the session ends
+      // synchronously. Give fire-and-forget finalization (if it were wired)
+      // a tick to surface before asserting nothing happened.
+      await new Promise((r) => setTimeout(r, 10));
+
+      expect(relay.endCalled).toBe(true);
+      const allText = relay.sentTokens.map((t) => t.token).join("");
+      expect(allText).not.toContain("[END_CALL]");
+
+      // No phone-call finalization: no call_sessions/call_events rows are
+      // created, and finalizeCall's completion message never lands in the
+      // session conversation.
+      expect(getCallSession(IN_APP_SESSION_ID)).toBeNull();
+      expect(getCallEvents(IN_APP_SESSION_ID)).toEqual([]);
+      expect(getMessages("conv-inapp-test")).toEqual([]);
+
+      controller.destroy();
+    });
+
+    test("ASK_GUARDIAN marker is stripped and no consultation is dispatched", async () => {
+      mockStartVoiceTurn.mockImplementation(
+        createMockVoiceTurn([
+          "Let me check. ",
+          "[ASK_GUARDIAN: Is this okay?]",
+        ]),
+      );
+      const { relay, controller } = setupInAppController();
+
+      await controller.handleCallerUtterance("Do the thing");
+      // Give any (unexpected) fire-and-forget dispatch a tick to surface.
+      await new Promise((r) => setTimeout(r, 10));
+
+      const allText = relay.sentTokens.map((t) => t.token).join("");
+      expect(allText).toContain("Let me check.");
+      expect(allText).not.toContain("ASK_GUARDIAN");
+
+      expect(controller.getPendingConsultationQuestionId()).toBeNull();
+      expect(getPendingQuestion(IN_APP_SESSION_ID)).toBeNull();
+      expect(
+        getPendingCanonicalRequestByCallSessionId(IN_APP_SESSION_ID),
+      ).toBeNull();
+      expect(controller.getState()).toBe("idle");
+
+      controller.destroy();
+    });
+
+    test("startVoiceTurn receives the live-voice turn context", async () => {
+      let captured: Record<string, unknown> | undefined;
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+        }) => {
+          captured = opts as unknown as Record<string, unknown>;
+          opts.onTextDelta("Hi.");
+          opts.onComplete();
+          return { turnId: "run-inapp", abort: () => {} };
+        },
+      );
+      const { controller } = setupInAppController();
+
+      await controller.handleCallerUtterance("Hello");
+
+      expect(captured).toMatchObject({
+        conversationId: "conv-inapp-test",
+        skipDisclosure: true,
+        approvalMode: "local-live-voice",
+        userMessageChannel: "vellum",
+        assistantMessageChannel: "vellum",
+        userMessageInterface: "macos",
+        assistantMessageInterface: "macos",
+        voiceControlPrompt: MOCK_LIVE_VOICE_PROMPT,
+      });
+
+      controller.destroy();
+    });
+
+    test("token-stream speech output: tokens flow through sendTextToken, synthesized-play path skipped", async () => {
+      // Configure a synthesized-play provider (fish-audio streaming) that
+      // would emit a play URL on the auto path. Under token-stream the
+      // provider must never be invoked and no play URL may be sent.
+      const cfg = loadConfig();
+      cfg.services.tts.provider = "fish-audio";
+      cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
+
+      let synthesizeStreamCalled = false;
+      const fishAudioStreaming: TtsProvider = {
+        id: "fish-audio",
+        capabilities: {
+          supportsStreaming: true,
+          supportedFormats: ["mp3", "wav", "opus"],
+        },
+        async synthesize() {
+          return { audio: Buffer.from("x"), contentType: "audio/mpeg" };
+        },
+        async synthesizeStream(_request, onChunk) {
+          synthesizeStreamCalled = true;
+          onChunk(Buffer.from("fish-audio-stream"));
+          return {
+            audio: Buffer.from("fish-audio-stream"),
+            contentType: "audio/mpeg",
+          };
+        },
+      };
+      _setTtsProviderForTests(fishAudioStreaming);
+
+      mockStartVoiceTurn.mockImplementation(
+        createMockVoiceTurn(["Hello from the live voice path."]),
+      );
+      const { relay, controller } = setupInAppController();
+
+      await controller.handleCallerUtterance("Hi");
+
+      expect(synthesizeStreamCalled).toBe(false);
+      expect(relay.sentPlayUrls).toEqual([]);
+      const allText = relay.sentTokens.map((t) => t.token).join("");
+      expect(allText).toContain("Hello from the live voice path.");
+      const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
+      expect(lastToken.last).toBe(true);
+
+      controller.destroy();
+    });
+
+    test("profile knobs: liveVoice max duration, no end-call listen window, guardian disabled", () => {
+      const profile = createInAppVoiceControllerProfile();
+
+      expect(profile.timers.maxDurationMs()).toBe(1800 * 1000);
+      expect(profile.timers.endCallListenWindowMs()).toBe(0);
+      expect(profile.timers.silenceTimeoutMs()).toBe(30_000);
+      expect(profile.guardianConsultation.mode).toBe("disabled");
+      expect(profile.speechOutput).toBe("token-stream");
+    });
   });
 });
