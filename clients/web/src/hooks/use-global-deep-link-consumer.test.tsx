@@ -1,14 +1,12 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { cleanup, renderHook, act } from "@testing-library/react";
 
-import {
-  __resetForTesting,
-  publish,
-} from "@/lib/event-bus";
+import { __resetForTesting, publish } from "@/lib/event-bus";
 import {
   __resetPendingDeepLinkForTesting,
   usePendingDeepLinkStore,
 } from "@/stores/pending-deep-link-store";
+import { useViewerStore } from "@/stores/viewer-store";
 
 const navigateMock = mock((_to: string) => undefined);
 mock.module("react-router", () => ({
@@ -29,9 +27,8 @@ mock.module("@sentry/react", () => ({
   captureException: () => {},
 }));
 
-const { useGlobalDeepLinkConsumer } = await import(
-  "./use-global-deep-link-consumer"
-);
+const { useGlobalDeepLinkConsumer } =
+  await import("./use-global-deep-link-consumer");
 
 beforeEach(() => {
   __resetForTesting();
@@ -39,12 +36,14 @@ beforeEach(() => {
   navigateMock.mockClear();
   ensureMainWindowVisibleMock.mockClear();
   sentryBreadcrumbMock.mockClear();
+  useViewerStore.setState({ mainView: "chat" });
 });
 
 afterEach(() => {
   cleanup();
   __resetForTesting();
   __resetPendingDeepLinkForTesting();
+  useViewerStore.setState({ mainView: "chat" });
 });
 
 describe("deeplink.send", () => {
@@ -75,6 +74,20 @@ describe("deeplink.openThread", () => {
       "/assistant/conversations/abc-123",
     );
     expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("resets the main view to chat so the thread isn't hidden behind the app viewer", () => {
+    useViewerStore.setState({ mainView: "app" });
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.openThread", { threadId: "abc-123" });
+    });
+
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/conversations/abc-123",
+    );
   });
 });
 

@@ -31,11 +31,13 @@ beforeEach(() => {
   capturedHandler = null;
   setNotificationTapHandlerMock.mockClear();
   sentryBreadcrumbMock.mockClear();
+  window.history.pushState(null, "", "/");
 });
 
 afterEach(() => {
   cleanup();
   __resetForTesting();
+  window.history.pushState(null, "", "/");
 });
 
 describe("useNotificationTapNavigation", () => {
@@ -44,6 +46,15 @@ describe("useNotificationTapNavigation", () => {
 
     expect(setNotificationTapHandlerMock).toHaveBeenCalledTimes(1);
     expect(capturedHandler).not.toBeNull();
+  });
+
+  test("a pop-out window registers no tap handler", () => {
+    window.history.pushState(null, "", "/?popout=1");
+
+    renderHook(() => useNotificationTapNavigation());
+
+    expect(setNotificationTapHandlerMock).not.toHaveBeenCalled();
+    expect(capturedHandler).toBeNull();
   });
 
   test("a tap with a conversationId publishes deeplink.openThread", () => {

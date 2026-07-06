@@ -23,6 +23,13 @@ import { setNotificationTapHandler } from "@/runtime/notifications";
  */
 export function useNotificationTapNavigation(): void {
   useEffect(() => {
+    // Electron pop-out windows (`?popout=1`) mount `RootLayout` too, and
+    // the macOS notification bridge broadcasts each action to every
+    // BrowserWindow. Only the main window may handle taps — a pop-out
+    // navigating would replace the conversation it exists to keep open.
+    if (window.location.search.includes("popout=1")) {
+      return;
+    }
     setNotificationTapHandler((payload) => {
       if (payload.conversationId) {
         publish("deeplink.openThread", { threadId: payload.conversationId });
