@@ -29,7 +29,10 @@ const meta: Meta<typeof AssistantChannelsDetail> = {
   },
   decorators: [
     (Story) => {
-      useAssistantFeatureFlagStore.setState({ channelTrustFloors: true });
+      useAssistantFeatureFlagStore.setState({
+        channelTrustFloors: true,
+        hasHydrated: true,
+      });
       return (
         <div style={{ maxWidth: 800, margin: "2rem auto" }}>
           <Story />
@@ -49,7 +52,10 @@ export const ContactsDetailView: Story = {};
 export const ContactsDetailViewLegacy: Story = {
   decorators: [
     (Story) => {
-      useAssistantFeatureFlagStore.setState({ channelTrustFloors: false });
+      useAssistantFeatureFlagStore.setState({
+        channelTrustFloors: false,
+        hasHydrated: true,
+      });
       return <Story />;
     },
   ],

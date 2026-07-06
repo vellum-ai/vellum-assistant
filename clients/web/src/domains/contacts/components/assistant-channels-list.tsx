@@ -156,6 +156,7 @@ export function AssistantChannelsList({
   initialChannel = null,
 }: AssistantChannelsListProps) {
   const tabbedLayout = useAssistantFeatureFlagStore.use.channelTrustFloors();
+  const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
   const [pendingDisconnect, setPendingDisconnect] = useState<ChannelKey | null>(null);
   const [activeChannel, setActiveChannel] = useState<ChannelKey>(
     () => initialChannel ?? channels[0]?.key ?? "slack",
@@ -197,6 +198,23 @@ export function AssistantChannelsList({
       return next;
     });
   };
+
+  // A `false` flag before /feature-flags hydrates is the registry default,
+  // not the real value — committing to the accordion and swapping to the
+  // tabs after hydration would unmount the credential forms and discard
+  // anything mid-entry. Treat the window as loading instead; a `true`
+  // (env override) is already definitive. Same pattern as `InspectPage`.
+  if (!tabbedLayout && !flagsHydrated) {
+    return (
+      <Typography
+        as="span"
+        variant="body-small-default"
+        className="text-[color:var(--content-tertiary)]"
+      >
+        Loading…
+      </Typography>
+    );
+  }
 
   return (
     <div className="flex flex-col">

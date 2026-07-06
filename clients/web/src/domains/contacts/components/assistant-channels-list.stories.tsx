@@ -16,7 +16,10 @@ import { AssistantChannelsList } from "./assistant-channels-list";
  */
 const withLayoutFlag = (tabbed: boolean): Decorator => {
   return (Story) => {
-    useAssistantFeatureFlagStore.setState({ channelTrustFloors: tabbed });
+    useAssistantFeatureFlagStore.setState({
+      channelTrustFloors: tabbed,
+      hasHydrated: true,
+    });
     return <Story />;
   };
 };

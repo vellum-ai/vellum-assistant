@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
@@ -13,13 +13,26 @@ const CHANNELS: AssistantChannelState[] = [
   { key: "phone", status: "not_configured" },
 ];
 
+// Flag values are only authoritative once /feature-flags has hydrated;
+// pre-hydration the list renders a loading placeholder instead of
+// committing to a layout (see the hydration gate in AssistantChannelsList).
 function setTabbedLayout(enabled: boolean) {
-  useAssistantFeatureFlagStore.setState({ channelTrustFloors: enabled });
+  useAssistantFeatureFlagStore.setState({
+    channelTrustFloors: enabled,
+    hasHydrated: true,
+  });
 }
+
+beforeEach(() => {
+  setTabbedLayout(false);
+});
 
 afterEach(() => {
   cleanup();
-  setTabbedLayout(false);
+  useAssistantFeatureFlagStore.setState({
+    channelTrustFloors: false,
+    hasHydrated: false,
+  });
 });
 
 describe("assistant channels surfaces", () => {
@@ -57,6 +70,25 @@ describe("assistant channels surfaces", () => {
     // Slack (connected) is the default tab: Tag chip + disconnect affordance.
     expect(document.body.textContent).toContain("Connected");
     expect(document.body.textContent).toContain("Disconnect");
+  });
+
+  test("renders a loading placeholder while a false flag is unhydrated", () => {
+    useAssistantFeatureFlagStore.setState({
+      channelTrustFloors: false,
+      hasHydrated: false,
+    });
+    render(<AssistantChannelsList assistantName="Vex" channels={CHANNELS} />);
+    expect(document.body.textContent).toContain("Loading…");
+    expect(document.body.textContent).not.toContain("Slack");
+  });
+
+  test("an unhydrated true flag (env override) renders the tabs immediately", () => {
+    useAssistantFeatureFlagStore.setState({
+      channelTrustFloors: true,
+      hasHydrated: false,
+    });
+    render(<AssistantChannelsList assistantName="Vex" channels={CHANNELS} />);
+    expect(document.querySelector('[data-slot="tabs"]')).not.toBeNull();
   });
 
   test("disconnected tab swaps the empty state for the manual form on request", () => {
