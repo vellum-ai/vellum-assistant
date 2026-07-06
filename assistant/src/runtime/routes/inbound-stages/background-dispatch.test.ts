@@ -438,7 +438,12 @@ describe("processChannelMessageInBackground — slack thread mapping", () => {
     await flush();
 
     expect(slackStreamOps()).toEqual([
-      { action: "start", threadTs, markdownText: "Streamed DM reply." },
+      {
+        action: "start",
+        threadTs,
+        markdownText: "Streamed DM reply.",
+        taskDisplayMode: "plan",
+      },
       { action: "stop", streamTs },
     ]);
     expect(

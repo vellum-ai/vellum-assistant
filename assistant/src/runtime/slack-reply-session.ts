@@ -92,9 +92,10 @@ type StreamState = "idle" | "streaming" | "fallback";
 
 /**
  * Owns the live-content lifecycle of one Slack DM reply: it consumes the
- * assistant token stream once, opens a streamed message on first deliverable
- * text, coalesces deltas into `appendStream` calls, advances a native plan
- * block from `task_progress` surfaces, and finalizes with `stopStream`.
+ * assistant token stream once, opens a streamed message (in plan display
+ * mode) on first deliverable text, coalesces deltas into `appendStream`
+ * calls, advances a native plan block from `task_progress` surfaces, and
+ * finalizes with `stopStream`.
  *
  * Any stream-call failure degrades gracefully: the session abandons streaming
  * (state `fallback`) and reports back so durable finalize posts the full reply
@@ -141,6 +142,9 @@ export function createSlackReplySession(params: {
 
   const taskProgressBySurfaceId = new Map<string, TaskProgressData>();
   let activeProgress: TaskProgressData | undefined;
+  // Fingerprint of the plan state last delivered to Slack, so progress that
+  // advances without new body text still flushes as a task-only append.
+  let deliveredProgressKey: string | undefined;
 
   let coalesceTimer: ReturnType<typeof setTimeout> | undefined;
   let opChain: Promise<void> = Promise.resolve();
@@ -163,6 +167,12 @@ export function createSlackReplySession(params: {
   const planTasks = (): SlackStreamTask[] | undefined =>
     activeProgress ? toSlackStreamTasks(activeProgress) : undefined;
 
+  const progressKey = (
+    title: string | undefined,
+    tasks: SlackStreamTask[] | undefined,
+  ): string | undefined =>
+    tasks ? JSON.stringify({ title, tasks }) : undefined;
+
   const imageBlocks = (
     text: string,
   ):
@@ -183,7 +193,7 @@ export function createSlackReplySession(params: {
       const clean = streamableText();
       if (clean.trim().length === 0) return;
       const firstChunk = clean.slice(0, SLACK_STREAM_MARKDOWN_LIMIT);
-      const planActive = activeProgress !== undefined;
+      const title = activeProgress?.title;
       const tasks = planTasks();
       try {
         const result = await deliverChannelReply(replyCallbackUrl, {
@@ -193,7 +203,13 @@ export function createSlackReplySession(params: {
             action: "start",
             threadTs,
             markdownText: firstChunk,
-            ...(planActive ? { taskDisplayMode: "plan" as const } : {}),
+            // The task display mode is fixed for the stream's lifetime at
+            // start, while a `task_progress` surface usually appears only
+            // after the first text flush has opened the stream. Plan mode
+            // only affects how task chunks render, so a stream that never
+            // carries tasks still reads as a plain message.
+            taskDisplayMode: "plan" as const,
+            ...(title ? { planTitle: title } : {}),
             ...(tasks ? { tasks } : {}),
             ...(recipientUserId ? { recipientUserId } : {}),
             ...(recipientTeamId ? { recipientTeamId } : {}),
@@ -202,6 +218,7 @@ export function createSlackReplySession(params: {
         if (result.ok && result.ts) {
           streamTs = result.ts;
           confirmedLength = firstChunk.length;
+          deliveredProgressKey = progressKey(title, tasks);
           state = "streaming";
         } else {
           state = "fallback";
@@ -218,13 +235,12 @@ export function createSlackReplySession(params: {
     enqueue(async () => {
       if (state !== "streaming" || !streamTs) return;
       const clean = streamableText();
+      const title = activeProgress?.title;
       const tasks = planTasks();
-      // `chat.appendStream` requires `markdown_text` and caps it per call, so a
-      // delta wider than the limit drains across successive append calls. Each
-      // append carries the current task state, advancing the plan alongside
-      // text. Progress that advances without new text is not appended on its
-      // own (an append with no text is rejected); it lands on the next text
-      // append or on `stopStream`.
+      const key = progressKey(title, tasks);
+      // `chat.appendStream` caps `markdown_text` per call, so a delta wider
+      // than the limit drains across successive append calls. Each append
+      // carries the current task state, advancing the plan alongside text.
       while (confirmedLength < clean.length) {
         const chunk = clean.slice(
           confirmedLength,
@@ -238,16 +254,43 @@ export function createSlackReplySession(params: {
               action: "append",
               streamTs,
               markdownText: chunk,
+              ...(title ? { planTitle: title } : {}),
               ...(tasks ? { tasks } : {}),
             },
           });
           confirmedLength += chunk.length;
+          deliveredProgressKey = key ?? deliveredProgressKey;
         } catch (err) {
           log.warn(
             { err, chatId },
             "Slack appendStream failed; deferring delta",
           );
           return;
+        }
+      }
+      // Progress that advances without new body text still lands live:
+      // `chat.appendStream` accepts a chunks-only call, so the plan block
+      // ticks during tool work instead of waiting for the next text append.
+      // A failure defers the update; the unchanged fingerprint retries it on
+      // the next flush and `stopStream` carries the final state regardless.
+      if (tasks && key !== deliveredProgressKey) {
+        try {
+          await deliverChannelReply(replyCallbackUrl, {
+            chatId,
+            assistantId,
+            slackStream: {
+              action: "append",
+              streamTs,
+              ...(title ? { planTitle: title } : {}),
+              tasks,
+            },
+          });
+          deliveredProgressKey = key;
+        } catch (err) {
+          log.warn(
+            { err, chatId },
+            "Slack task-only appendStream failed; deferring progress",
+          );
         }
       }
     });
@@ -348,6 +391,7 @@ export function createSlackReplySession(params: {
         const clean = cleanedText();
         const remaining = clean.slice(confirmedLength);
         const blocks = imageBlocks(clean);
+        const title = activeProgress?.title;
         const tasks = planTasks();
         try {
           await deliverChannelReply(replyCallbackUrl, {
@@ -358,6 +402,7 @@ export function createSlackReplySession(params: {
               streamTs,
               ...(remaining.length > 0 ? { markdownText: remaining } : {}),
               ...(blocks ? { blocks } : {}),
+              ...(title ? { planTitle: title } : {}),
               ...(tasks ? { tasks } : {}),
             },
           });
