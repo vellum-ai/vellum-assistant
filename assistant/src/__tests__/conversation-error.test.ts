@@ -307,6 +307,32 @@ describe("classifyConversationError", () => {
     });
   });
 
+  describe("empty-request-messages errors", () => {
+    it("classifies Anthropic 400 'at least one message is required' with a friendly message", () => {
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"messages: at least one message is required"},"request_id":"req_011CcdT5QRtS4tapsQiAcJgz"}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("empty_request_messages");
+      expect(result.userMessage).not.toMatch(
+        /at least one message is required/,
+      );
+      expect(result.userMessage.toLowerCase()).toContain("no content");
+    });
+
+    it("classifies an empty-messages ProviderError without a statusCode", () => {
+      const err = new ProviderError(
+        "Anthropic API error: messages: at least one message is required",
+        "anthropic",
+      );
+      const result = classifyConversationError(err, baseCtx);
+      expect(result.errorCategory).toBe("empty_request_messages");
+    });
+  });
+
   describe("image-input dimension errors via ProviderError (400)", () => {
     it("classifies Anthropic 400 with image-dimension overflow as image_dimensions_too_large (non-retryable)", () => {
       const err = new ProviderError(

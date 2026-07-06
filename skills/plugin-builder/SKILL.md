@@ -40,11 +40,11 @@ Plugins can also be discovered and managed from the Plugins tab in the app, or s
 
 A single plugin can contribute several different kinds of behavior. Each surface is discovered by convention from a named subdirectory. Missing directories are simply skipped, so a plugin contributes only what it ships.
 
-| Surface                                    | Lives in          | What it does                                                                                                                  |
-| ------------------------------------------ | ----------------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| [Lifecycle hooks](references/hooks.md)     | `hooks/<name>.ts` | Run code at fixed points in the Assistant's lifecycle to read or transform what flows through.                                |
-| [Skills](references/skills.md)             | `skills/<name>/`  | Directories of instructions and associated assets, scripts, and resources that the Assistant loads dynamically when relevant. |
-| [Model-visible tools](references/tools.md) | `tools/<name>.ts` | Add new tools the model can call. Plugin tools land in the same catalog as built-in tools.                                    |
+| Surface                                    | Lives in          | What it does                                                                                                                     |
+| ------------------------------------------ | ----------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| [Lifecycle hooks](references/hooks.md)     | `hooks/<name>.ts` | Run code at fixed points in the Assistant's lifecycle to read or transform what flows through, and broadcast progress to the UI. |
+| [Skills](references/skills.md)             | `skills/<name>/`  | Directories of instructions and associated assets, scripts, and resources that the Assistant loads dynamically when relevant.    |
+| [Model-visible tools](references/tools.md) | `tools/<name>.ts` | Add new tools the model can call. Plugin tools land in the same catalog as built-in tools.                                       |
 
 The two extensibility patterns serve different goals. **Plugins are for distribution**: you intend to share the capability, publish to the marketplace, or install it across multiple assistants. The plugin manifest (`package.json`), the `@vellumai/plugin-api` peer dependency, and the install flow exist to make a capability portable, versioned, and discoverable by others.
 

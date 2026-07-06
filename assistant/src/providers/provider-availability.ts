@@ -5,11 +5,12 @@
  * environment variable fallbacks, and managed proxy availability.
  */
 
-import { API_KEY_PROVIDERS, getConfig } from "../config/loader.js";
+import { getConfig } from "../config/loader.js";
 import { getProviderKeyAsync } from "../security/secure-keys.js";
 import { PROVIDER_CATALOG } from "./model-catalog.js";
 import { managedFallbackEnabledFor } from "./platform-proxy/context.js";
 import { getVisibleProviderCatalog } from "./provider-catalog-visibility.js";
+import { API_KEY_PROVIDERS } from "./provider-secret-catalog.js";
 
 /**
  * Check whether a single provider is usable — via a user-provided key
@@ -17,7 +18,9 @@ import { getVisibleProviderCatalog } from "./provider-catalog-visibility.js";
  * Ollama is always considered available because it does not require an API key.
  */
 export async function isProviderAvailable(provider: string): Promise<boolean> {
-  if (provider === "ollama") return true;
+  if (provider === "ollama") {
+    return true;
+  }
   return !!(
     (await getProviderKeyAsync(provider)) ||
     (await managedFallbackEnabledFor(provider))
@@ -44,11 +47,15 @@ export async function getConfiguredProviders(): Promise<string[]> {
 
   const configured: string[] = [];
   for (const p of API_KEY_PROVIDERS) {
-    if (hiddenLlmIds.has(p)) continue;
+    if (hiddenLlmIds.has(p)) {
+      continue;
+    }
     if (await isProviderAvailable(p)) {
       configured.push(p);
     }
   }
-  if (!configured.includes("ollama")) configured.push("ollama");
+  if (!configured.includes("ollama")) {
+    configured.push("ollama");
+  }
   return configured;
 }

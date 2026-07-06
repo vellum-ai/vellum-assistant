@@ -2,7 +2,7 @@
  * Gateway-owned voice verification.
  *
  * Handles the DTMF challenge-response flow for inbound phone calls
- * entirely within the gateway, BEFORE the ConversationRelay WebSocket
+ * entirely within the gateway, BEFORE the media-stream WebSocket
  * is established. The assistant never touches verification — it only
  * receives calls from verified callers.
  *
@@ -11,7 +11,7 @@
  *   2. Gateway returns <Gather> TwiML prompting for the verification code
  *   3. Twilio collects DTMF → POSTs digits back to gateway action URL
  *   4. Gateway validates code, creates guardian binding, returns TwiML
- *      that forwards to the assistant for ConversationRelay setup
+ *      that forwards to the assistant for media-stream setup
  *
  * Verification sessions and rate limits live in the gateway DB.
  */

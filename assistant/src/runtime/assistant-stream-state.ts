@@ -37,9 +37,14 @@
  * `/messages` snapshot returns it so a client can align the snapshot with the
  * stream: "these rows reflect all of this conversation's events through
  * `seq = S`." It is written at each persistence flush (assistant rows persist
- * incrementally, debounced, so the snapshot can lag the live counter) -- never
- * the live counter itself, which would over-claim events that have streamed
- * but not yet been written. Because it lives in the database it survives a
+ * incrementally, debounced, so the snapshot can lag the live counter) and at
+ * each user-row echo (the row persists before the echo is emitted, so the
+ * echo's seq is covered the moment it exists) -- never the live counter while
+ * a turn is streaming, which would over-claim events that have streamed but
+ * not yet been written. Under-claiming is equally a contract violation: a
+ * snapshot carrying a row whose event is above the advertised seq defeats
+ * clients that compare the anchor against their fold watermark to detect
+ * stale in-flight fetches. Because it lives in the database it survives a
  * restart; and because the counter resumes above the persisted reservation, a
  * value written by a previous process could only ever be lower than any seq
  * the new process assigns -- never ambiguous against it.
@@ -52,8 +57,11 @@ import {
   SSE_REPLAY_RING_AGE_LIMIT_MS,
   SSE_REPLAY_RING_COUNT_LIMIT,
 } from "../api/constants/sse-replay.js";
+import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir } from "../util/platform.js";
 import type { AssistantEvent } from "./assistant-event.js";
+
+const log = getLogger("assistant-stream-state");
 
 // ── Tunables ─────────────────────────────────────────────────────────
 
@@ -161,16 +169,37 @@ export function stampAndBuffer(
   event: AssistantEvent,
   options?: { targeting?: EventTargeting },
 ): void {
-  if (event.conversationId == null) return;
-
-  reserveSeqCapacity();
-  event.seq = state.nextSeq++;
-  if (state.firstStampedSeq === 0) state.firstStampedSeq = event.seq;
+  if (event.conversationId == null) {
+    return;
+  }
 
   // Approximate size by serialized JSON length. This is the same
   // bytes-on-wire we'll send, so it tracks ring memory pressure
-  // closely without a separate measurement pass.
-  const sizeBytes = JSON.stringify(event).length;
+  // closely without a separate measurement pass. Serialized before `seq`
+  // is stamped, so the count misses that one small field — negligible
+  // against the ring budget. An event whose payload cannot serialize
+  // (circular reference, BigInt, throwing toJSON — e.g. a plugin-supplied
+  // `hook_event` detail) is left unstamped and not buffered: it could
+  // never be written to the SSE wire, so buffering it would poison
+  // reconnect replay, and skipping the stamp entirely (like an unscoped
+  // event) keeps the seq stream gap-free. Live delivery to in-process
+  // subscribers still proceeds.
+  let sizeBytes: number;
+  try {
+    sizeBytes = JSON.stringify(event).length;
+  } catch (err) {
+    log.error(
+      { err, eventType: event.message.type },
+      "event payload failed to serialize — not stamping or buffering for replay",
+    );
+    return;
+  }
+
+  reserveSeqCapacity();
+  event.seq = state.nextSeq++;
+  if (state.firstStampedSeq === 0) {
+    state.firstStampedSeq = event.seq;
+  }
   const entry: RingEntry = {
     seq: event.seq,
     event,
@@ -212,7 +241,9 @@ export function getReplayWindow(
 ): readonly AssistantEvent[] | null {
   evict();
 
-  if (state.ring.length === 0) return [];
+  if (state.ring.length === 0) {
+    return [];
+  }
 
   // A cursor from before this process started can skip over the
   // reservation gap: seqs below `firstStampedSeq` were never assigned
@@ -223,7 +254,9 @@ export function getReplayWindow(
   const oldest = state.ring[0]?.seq ?? Infinity;
   const coversRestartGap =
     lastSeenSeq < state.firstStampedSeq && oldest === state.firstStampedSeq;
-  if (lastSeenSeq < oldest - 1 && !coversRestartGap) return null;
+  if (lastSeenSeq < oldest - 1 && !coversRestartGap) {
+    return null;
+  }
 
   return state.ring
     .filter(
@@ -238,8 +271,10 @@ export function getReplayWindow(
 
 /**
  * Current high-water `seq` -- the value last assigned by
- * {@link stampAndBuffer}, or `0` when nothing has been stamped yet in
- * this process.
+ * {@link stampAndBuffer}, or the persisted reservation ceiling when this
+ * process hasn't stamped yet (every seq a previous process could have
+ * emitted is at or below that ceiling). `0` only on a true cold start
+ * with no reservation file.
  *
  * Read synchronously right after emitting an event to learn that event's
  * `seq`: `stampAndBuffer` runs inline on the publish path (before the
@@ -247,6 +282,7 @@ export function getReplayWindow(
  * returning and this read on the single-threaded event loop.
  */
 export function getCurrentSeq(): number {
+  loadSeqReservation();
   return state.nextSeq - 1;
 }
 
@@ -314,16 +350,29 @@ function seqReservationPath(): string {
  * still advanced so the write is retried at most once per block, not
  * per event), matching the daemon's degraded-mode philosophy.
  */
-function reserveSeqCapacity(): void {
-  if (!state.seqReservationLoaded) {
-    state.seqReservationLoaded = true;
-    state.reservedSeqCeiling = readReservedCeiling();
-    if (state.reservedSeqCeiling >= state.nextSeq) {
-      state.nextSeq = state.reservedSeqCeiling + 1;
-    }
+/**
+ * Load the persisted seq reservation once per process, advancing
+ * `nextSeq` past the ceiling so this process never re-assigns (or
+ * reports, via {@link getCurrentSeq}) a seq a previous process could
+ * have emitted.
+ */
+function loadSeqReservation(): void {
+  if (state.seqReservationLoaded) {
+    return;
   }
+  state.seqReservationLoaded = true;
+  state.reservedSeqCeiling = readReservedCeiling();
+  if (state.reservedSeqCeiling >= state.nextSeq) {
+    state.nextSeq = state.reservedSeqCeiling + 1;
+  }
+}
 
-  if (state.nextSeq <= state.reservedSeqCeiling) return;
+function reserveSeqCapacity(): void {
+  loadSeqReservation();
+
+  if (state.nextSeq <= state.reservedSeqCeiling) {
+    return;
+  }
 
   const ceiling = state.nextSeq + SEQ_RESERVATION_BLOCK - 1;
   try {
@@ -374,7 +423,9 @@ function matchesSubscriber(
   subscriber: ReplaySubscriber,
 ): boolean {
   const t = entry.targeting;
-  if (!t) return true;
+  if (!t) {
+    return true;
+  }
 
   // Self-echo suppression: the originating client never receives the
   // event back.
@@ -432,13 +483,17 @@ function evict(): void {
   const now = Date.now();
   while (state.ring.length > 0) {
     const head = state.ring[0];
-    if (head == null) break;
+    if (head == null) {
+      break;
+    }
 
     const overCount = state.ring.length > RING_COUNT_LIMIT;
     const overSize = state.totalSizeBytes > RING_SIZE_LIMIT_BYTES;
     const overAge = now - head.emittedAt > RING_AGE_LIMIT_MS;
 
-    if (!overCount && !overSize && !overAge) break;
+    if (!overCount && !overSize && !overAge) {
+      break;
+    }
 
     state.ring.shift();
     state.totalSizeBytes -= head.sizeBytes;

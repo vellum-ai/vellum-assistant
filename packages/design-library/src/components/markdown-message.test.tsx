@@ -35,6 +35,28 @@ describe("MarkdownMessage", () => {
     expect(html).toContain("text-body-medium-default");
   });
 
+  test("blockquotes render as universal inset quote blocks", () => {
+    const html = renderToStaticMarkup(
+      createElement(MarkdownMessage, {
+        content: "> This is quoted.\n\nReply text.",
+      }),
+    );
+
+    expect(html).toContain("rounded-md");
+    expect(html).toContain("bg-[var(--surface-sunken)]");
+    expect(html).toContain("mx-0");
+    expect(html).toContain("flex");
+    expect(html).toContain("gap-3");
+    expect(html).toContain("h-5");
+    expect(html).toContain("w-0.5");
+    expect(html).toContain("rounded-full");
+    expect(html).toContain("min-w-0");
+    expect(html).toContain("flex-1");
+    expect(html).toContain("text-[var(--content-secondary)]");
+    expect(html).not.toContain("text-stone-600");
+    expect(html).not.toContain("italic");
+  });
+
   test("ordered list beginning at a non-1 number preserves its start", () => {
     // A terse "3." answer is parsed as a one-item ordered list starting at 3.
     // Without forwarding `start`, the <ol> defaults to 1 and renders "1.".

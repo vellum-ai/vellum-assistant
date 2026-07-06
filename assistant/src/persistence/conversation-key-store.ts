@@ -11,6 +11,7 @@ import { eq } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 import { cleanupBootstrapFiles } from "../prompts/bootstrap-cleanup.js";
+import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { initConversationDir } from "./conversation-disk-view.js";
 import { GENERATING_TITLE } from "./conversation-title-service.js";
 import { getDb } from "./db-connection.js";
@@ -217,11 +218,15 @@ export function getOrCreateConversation(
     const customTitle = opts?.title?.trim();
     const title = customTitle || GENERATING_TITLE;
     const memoryScopeId = "default";
+    // Snapshot↔stream alignment baseline, captured at the creation instant
+    // (same seed as `createConversation`; 0 is stored as NULL).
+    const initialSeq = getCurrentSeq();
 
     tx.insert(conversations)
       .values({
         id: conversationId,
         title,
+        seq: initialSeq > 0 ? initialSeq : null,
         // A caller-supplied title is user-set: mark it non-auto (0) so the
         // async LLM title generator's `canReplaceTitle` check won't overwrite
         // it. Without one, omit the column so it takes its default

@@ -1,28 +1,14 @@
-import { join } from "node:path";
-
-import { getConfig } from "../../../config/loader.js";
-import {
-  clearMessagesLexicalIndex,
-  enqueueDeleteMessageLexical,
-  enqueuePurgeConversationLexical,
-} from "../../../persistence/job-handlers/message-lexical.js";
-import type {
-  ConversationForkedEvent,
-  MemoryPersistenceHooks,
-  MessagePersistedEvent,
-} from "../../../persistence/memory-lifecycle-hooks.js";
-import { getWorkspaceDir } from "../../../util/platform.js";
+import type { DrizzleDb } from "../../../persistence/db-connection.js";
+import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { getMemoryConfig } from "./config.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
-import { sweepOrphanMemoryRetrospectiveConversations } from "./memory-retrospective-startup-cleanup.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
 import {
   forkActivationState,
   seedForkActivationState,
 } from "./v2/activation-store.js";
-import { countBufferLines } from "./v2/consolidation-job.js";
 import {
   extractInjectedConceptSlugs,
   readInjectedBlock,
@@ -33,13 +19,55 @@ import {
   seedEverInjectedFromSlugs,
 } from "./v3/ever-injected-store.js";
 
+/** A message that was just persisted to a conversation. */
+export interface MessagePersistedEvent {
+  messageId: string;
+  conversationId: string;
+  role: string;
+  /** Stored message content (JSON content-block array, serialized). */
+  content: string;
+  createdAt: number;
+  /** Trust class of the actor who produced the message, captured at persist time. */
+  provenanceTrustClass?: TrustClass;
+  /** True when the message was auto-sent by the client (e.g. a wake-up greeting). */
+  automated?: boolean;
+}
+
+/** A conversation was forked; the memory feature carries per-conversation state into the child. */
+export interface ConversationForkedEvent {
+  db: DrizzleDb;
+  sourceConversationId: string;
+  forkId: string;
+  /**
+   * Full-history fork (the child contains every source message). When false the
+   * fork is truncated and per-conversation memory state is re-derived from the
+   * child's visible window instead of copied wholesale.
+   */
+  isFullHistoryFork: boolean;
+  /** The copied messages, in order. Only `id` and `metadata` are read. */
+  messagesToCopy: ReadonlyArray<{ id: string; metadata: string | null }>;
+  /** Map of source message id → forked message id. */
+  forkedMessageIds: Map<string, string>;
+  /** Count of inherited messages behind the fork's compaction boundary. */
+  inheritedCompactedMessageCount: number;
+}
+
 /**
- * The memory feature's implementation of the persistence lifecycle seam
- * (`MemoryPersistenceHooks`). Registered into the seam at plugin bootstrap so
- * the persistence layer can drive memory side effects without importing memory
- * internals.
+ * The memory plugin's persistence-lifecycle handlers. The persistence layer's
+ * conversation write paths (`conversation-crud.ts`) import this object
+ * directly and invoke the relevant handler at each lifecycle point — the one
+ * documented persistence → memory back-import in the persistence-layering
+ * guard, to be unwound by exposing these events through the first-class
+ * `hooks` system.
+ *
+ * The direct import puts this module on an import cycle (persistence imports
+ * it; it transitively imports persistence). The cycle is benign: every
+ * binding on it is read at call time — the persistence call sites invoke the
+ * handlers inside functions, and this object references its imports only
+ * inside method bodies — so no module body ever observes a half-initialized
+ * module.
  */
-export const memoryPersistenceHooks: MemoryPersistenceHooks = {
+export const memoryPersistenceHooks = {
   async onMessagePersisted(event: MessagePersistedEvent): Promise<void> {
     await indexMessageNow({ ...event, scopeId: "default" }, getMemoryConfig());
   },
@@ -119,46 +147,12 @@ export const memoryPersistenceHooks: MemoryPersistenceHooks = {
     });
   },
 
-  onConversationWiped(conversationId: string): number {
-    // Cancel pending memory jobs only. The lexical purge is fired from the
-    // shared delete primitive via `onConversationDeleted` (which
-    // `wipeConversation` reaches through its internal `deleteConversation`), so
-    // the purge lands AFTER this cancellation pass and cannot be swept by it.
-    return cancelPendingJobsForConversation(conversationId);
-  },
-
   onConversationDeleted(conversationId: string): void {
-    // Purge the conversation's points from the lexical (Qdrant) index. Fired
-    // from the shared delete primitive, so every delete caller — route, wipe,
-    // retrospective cleanup, GC — cleans up. The enqueue helper self-selects:
-    // enqueue a job when memory is enabled, run the delete inline (best-effort,
-    // breaker-wrapped) when it is disabled.
-    enqueuePurgeConversationLexical(conversationId);
-  },
-
-  onMessagesDeleted(messageIds: string[]): void {
-    // Remove each deleted message's point from the lexical index. The enqueue
-    // helper self-selects: enqueue a job when memory is enabled, run the delete
-    // inline (best-effort, breaker-wrapped) when it is disabled.
-    for (const messageId of messageIds) {
-      enqueueDeleteMessageLexical(messageId);
-    }
-  },
-
-  async onAllConversationsCleared(): Promise<void> {
-    // Drop the whole lexical (Qdrant) collection — a "delete all" leaves no ids
-    // to key per-message cleanup on. Awaited so the drop completes before
-    // clear-all returns and writes resume; otherwise a message created right
-    // after clear-all could upsert into the not-yet-dropped collection and then
-    // be erased when the drop lands.
-    await clearMessagesLexicalIndex(getConfig());
-  },
-
-  onWorkerStartup(): void {
-    sweepOrphanMemoryRetrospectiveConversations();
-  },
-
-  countMemoryBufferLines(): number {
-    return countBufferLines(join(getWorkspaceDir(), "memory", "buffer.md"));
+    // Fail the conversation's still-pending memory jobs (graph extraction,
+    // summary builds, …) — the rows they reference are gone. The cancellation
+    // sweeps pending `conversationId`-keyed jobs, so the delete primitive
+    // fires this hook BEFORE enqueueing the conversation's lexical purge, or
+    // the purge would be swept too.
+    cancelPendingJobsForConversation(conversationId);
   },
 };

@@ -139,22 +139,6 @@ describe("useMessageReconciliation — server processing flag drives reseed", ()
     expect(invalidateSpy).not.toHaveBeenCalled();
   });
 
-  test("reseeds when the snapshot never received an authoritative flag (undefined sentinel)", async () => {
-    // The rolling snapshot was seeded without the `processing` field, so
-    // `nextProcessingState` pinned it to the `undefined` sentinel and no delta
-    // fold could ever lift it — the close-gate is starved on a non-`false`
-    // value. A modern daemon reporting idle must still trigger the reseed that
-    // plants an authoritative `false`.
-    seedSnapshotProcessing(undefined);
-    seedServerFetch(false);
-    const { result, invalidateSpy } = renderReconciliation();
-
-    const outcome = await result.current.reconcileActiveConversation();
-
-    expect(outcome.changed).toBe(false);
-    expect(invalidateSpy).toHaveBeenCalledTimes(1);
-  });
-
   test("does not reseed when the snapshot already reflects the idle turn", async () => {
     // Turn already idle locally — no stale spinner to clear, so no refetch.
     seedSnapshotProcessing(false);

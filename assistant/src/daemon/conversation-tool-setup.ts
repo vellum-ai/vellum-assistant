@@ -17,7 +17,7 @@ import type { LLMCallSite } from "../config/schemas/llm.js";
 import type { PermissionPrompter } from "../permissions/prompter.js";
 import type { SecretPrompter } from "../permissions/secret-prompter.js";
 import { getBindingByConversation } from "../persistence/external-conversation-store.js";
-import { DEFAULT_PLUGIN_NAMES } from "../plugins/defaults/default-plugin-names.js";
+import { getAllDefaultPluginNames } from "../plugins/defaults/main.js";
 import { isPluginDisabled } from "../plugins/disabled-state.js";
 import type { Message, ToolDefinition } from "../providers/types.js";
 import { assistantEventHub } from "../runtime/assistant-event-hub.js";
@@ -148,7 +148,7 @@ export function resolveConversationAttribution(
  * silently disable core behavior. A workspace-disabled default is left out so
  * `assistant plugins disable default-*` still takes effect; a default the
  * conversation explicitly enabled (rule 1) stays in regardless. Unioning here
- * fixes every consumer (tools/skills/injectors/hooks) at the single chokepoint.
+ * fixes every consumer (tools/skills/hooks) at the single chokepoint.
  */
 export function getEffectiveEnabledPluginSet(conv: {
   enabledPlugins?: string[] | null;
@@ -158,7 +158,7 @@ export function getEffectiveEnabledPluginSet(conv: {
   const effective = new Set(conv.enabledPlugins);
   // Rules 2 + 3: add a default the conversation did not already decide, unless
   // it is disabled at the workspace level.
-  for (const name of DEFAULT_PLUGIN_NAMES) {
+  for (const name of getAllDefaultPluginNames()) {
     if (!effective.has(name) && !isPluginDisabled(name)) {
       effective.add(name);
     }
@@ -198,9 +198,13 @@ export function createToolExecutor(
   const rejectNonAllowlistedTool = (
     toolName: string,
   ): ToolExecutionResult | null => {
-    if (ctx.subagentToolGateMode !== "execution") return null;
+    if (ctx.subagentToolGateMode !== "execution") {
+      return null;
+    }
     const allowlist = ctx.subagentAllowedTools;
-    if (!allowlist || allowlist.has(toolName)) return null;
+    if (!allowlist || allowlist.has(toolName)) {
+      return null;
+    }
     const allowed = [...allowlist].sort().join(", ");
     return {
       content: `This background pass may only use: ${allowed}.`,
@@ -220,9 +224,13 @@ export function createToolExecutor(
     toolName: string,
     effectiveSet: Set<string> | null,
   ): ToolExecutionResult | null => {
-    if (effectiveSet === null) return null;
+    if (effectiveSet === null) {
+      return null;
+    }
     const owner = getToolOwner(toolName);
-    if (owner?.kind !== "plugin" || effectiveSet.has(owner.id)) return null;
+    if (owner?.kind !== "plugin" || effectiveSet.has(owner.id)) {
+      return null;
+    }
     return {
       content: `Tool "${toolName}" belongs to a plugin that is not enabled in this conversation.`,
       isError: true,
@@ -251,7 +259,9 @@ export function createToolExecutor(
     // tool, not the wrapper.
     if (executionName !== "skill_execute") {
       const rejection = rejectNonAllowlistedTool(executionName);
-      if (rejection) return rejection;
+      if (rejection) {
+        return rejection;
+      }
     }
 
     if (isDoordashCommand(executionName, executionInput)) {
@@ -290,6 +300,7 @@ export function createToolExecutor(
       onOutput,
       signal: ctx.abortController?.signal,
       allowedToolNames: ctx.allowedToolNames,
+      subagentAllowedTools: ctx.subagentAllowedTools,
       forcePromptSideEffects: ctx.forcePromptSideEffects,
       diskPressureCleanupModeActive: ctx.diskPressureCleanupModeActive,
       toolUseId,
@@ -385,7 +396,9 @@ export function createToolExecutor(
       // wrapper is dispatch indirection, mirroring how wire mode gates the
       // underlying tool via the executor's allowedToolNames check.
       const innerRejection = rejectNonAllowlistedTool(toolName);
-      if (innerRejection) return innerRejection;
+      if (innerRejection) {
+        return innerRejection;
+      }
 
       // Per-chat plugin scope: reject the resolved inner tool when it belongs
       // to a plugin outside the conversation's effective set.
@@ -393,7 +406,9 @@ export function createToolExecutor(
         toolName,
         effectiveEnabledPluginSet,
       );
-      if (pluginRejection) return pluginRejection;
+      if (pluginRejection) {
+        return pluginRejection;
+      }
 
       const rawResult = await executor.execute(
         toolName,
@@ -757,7 +772,9 @@ export function createResolveToolsCallback(
   toolDefs: ToolDefinition[],
   ctx: SkillProjectionContext,
 ): ((history: Message[]) => ToolDefinition[]) | undefined {
-  if (toolDefs.length === 0) return undefined;
+  if (toolDefs.length === 0) {
+    return undefined;
+  }
 
   // Separate the initial tool defs into core (stable) and the dynamic
   // categories (MCP, workspace, plugin). We keep core tools from the snapshot
@@ -913,7 +930,9 @@ export function createResolveToolsCallback(
       if (wireAllowlist && !wireAllowlist.has(name)) {
         continue;
       }
-      if (excluded.has(name)) continue;
+      if (excluded.has(name)) {
+        continue;
+      }
       turnAllowed.add(name);
     }
     // Record the full resolved inventory durably for read-only queries before

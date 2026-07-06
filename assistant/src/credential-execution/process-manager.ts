@@ -32,9 +32,11 @@ import {
   discoverCesWithRetry,
   discoverLocalCes,
   type DiscoveryResult,
+  isCesSiblingOptIn,
   type LocalDiscoverySuccess,
   type LocalSourceDiscoverySuccess,
   type ManagedDiscoverySuccess,
+  type SiblingDiscoverySuccess,
 } from "./executable-discovery.js";
 
 const log = getLogger("ces-process-manager");
@@ -98,6 +100,13 @@ export interface CesProcessManager {
 
   /** Whether the process manager is currently running. */
   isRunning(): boolean;
+
+  /**
+   * Register a callback that fires when the current transport dies. Lets
+   * callers (e.g. ces-runtime.ts) start a proactive reconnect loop instead
+   * of waiting for a lazy credential-op-triggered reconnection.
+   */
+  onTransportClose(handler: () => void): void;
 }
 
 // ---------------------------------------------------------------------------
@@ -111,6 +120,8 @@ export function createCesProcessManager(
   let managedSocket: Socket | null = null;
   let discoveryResult: DiscoveryResult | null = null;
   let running = false;
+  let currentTransport: CesTransport | null = null;
+  const transportCloseHandlers: Array<() => void> = [];
 
   return {
     async start(): Promise<CesTransport> {
@@ -123,11 +134,15 @@ export function createCesProcessManager(
       // reconnecting assistant can briefly race the re-bind; a single probe
       // would otherwise fall back to local discovery and fail in managed mode.
       discoveryResult = await discoverCesWithRetry();
-      if (discoveryResult.mode === "unavailable") {
+      if (discoveryResult.mode === "unavailable" && !isCesSiblingOptIn()) {
         // The managed sidecar bootstrap socket is not present — this happens
         // when the instance pre-dates the socket volume mount (e.g. existing
         // Docker configs without the ces-bootstrap volume). Warn and fall
         // back to local discovery so these deployments don't fail on upgrade.
+        //
+        // NOT for the sibling opt-in: there we must connect to the
+        // CLI-launched sibling, never spawn our own CES (that would run a
+        // second CES against the same on-disk stores).
         log.warn(
           { reason: discoveryResult.reason },
           "CES managed sidecar bootstrap socket unavailable — falling back to local CES discovery",
@@ -141,18 +156,24 @@ export function createCesProcessManager(
 
       if (discoveryResult.mode === "local") {
         const transport = await startLocalProcess(discoveryResult);
+        currentTransport = transport;
+        wireTransportClose(transport);
         running = true;
         return transport;
       }
 
       if (discoveryResult.mode === "local-source") {
         const transport = await startLocalSourceProcess(discoveryResult);
+        currentTransport = transport;
+        wireTransportClose(transport);
         running = true;
         return transport;
       }
 
-      // managed mode
+      // managed sidecar or CLI-launched sibling — both connect to a socket.
       const transport = await connectManagedSocket(discoveryResult);
+      currentTransport = transport;
+      wireTransportClose(transport);
       running = true;
       return transport;
     },
@@ -170,6 +191,7 @@ export function createCesProcessManager(
         managedSocket = null;
       }
 
+      currentTransport = null;
       running = false;
       log.info("CES process manager stopped");
     },
@@ -186,6 +208,7 @@ export function createCesProcessManager(
         managedSocket = null;
       }
 
+      currentTransport = null;
       running = false;
       log.info("CES process manager force-stopped");
     },
@@ -197,7 +220,31 @@ export function createCesProcessManager(
     isRunning(): boolean {
       return running;
     },
+
+    onTransportClose(handler: () => void): void {
+      transportCloseHandlers.push(handler);
+      // If the current transport is already dead, fire immediately.
+      if (currentTransport && !currentTransport.isAlive()) {
+        handler();
+      }
+    },
   };
+
+  // -------------------------------------------------------------------------
+  // Wire the transport's onClose to all registered handlers
+  // -------------------------------------------------------------------------
+
+  function wireTransportClose(transport: CesTransport): void {
+    transport.onClose?.(() => {
+      for (const handler of transportCloseHandlers) {
+        try {
+          handler();
+        } catch {
+          // handler must never throw back into the transport
+        }
+      }
+    });
+  }
 
   // -------------------------------------------------------------------------
   // Local mode — child process over stdio
@@ -257,15 +304,15 @@ export function createCesProcessManager(
   }
 
   // -------------------------------------------------------------------------
-  // Managed mode — Unix socket connection
+  // Socket connection — managed sidecar or CLI-launched local sibling
   // -------------------------------------------------------------------------
 
   async function connectManagedSocket(
-    discovery: ManagedDiscoverySuccess,
+    discovery: ManagedDiscoverySuccess | SiblingDiscoverySuccess,
   ): Promise<CesTransport> {
     log.info(
-      { socketPath: discovery.socketPath },
-      "Connecting to managed CES sidecar",
+      { socketPath: discovery.socketPath, mode: discovery.mode },
+      "Connecting to CES over socket",
     );
 
     const socket = await connectWithTimeout(
@@ -274,7 +321,7 @@ export function createCesProcessManager(
     );
     managedSocket = socket;
 
-    log.info("Connected to managed CES sidecar");
+    log.info("Connected to CES over socket");
 
     return createSocketTransport(socket);
   }
@@ -333,7 +380,7 @@ function createCloseNotifier(): {
     isAlive: () => alive,
     markDead() {
       alive = false;
-      if (notified) return;
+      if (notified) {return;}
       notified = true;
       for (const handler of handlers) {
         try {
@@ -369,7 +416,7 @@ function createStdioTransport(proc: Subprocess): CesTransport {
       try {
         while (true) {
           const { value, done } = await reader.read();
-          if (done) break;
+          if (done) {break;}
 
           buffer += decoder.decode(value, { stream: true });
           let newlineIdx: number;
@@ -582,7 +629,7 @@ export function logCesLine(
 }
 
 function forwardStderrToLogger(proc: Subprocess): void {
-  if (!proc.stderr || typeof proc.stderr === "number") return;
+  if (!proc.stderr || typeof proc.stderr === "number") {return;}
 
   const reader = proc.stderr.getReader();
   const decoder = new TextDecoder();
@@ -592,18 +639,18 @@ function forwardStderrToLogger(proc: Subprocess): void {
     try {
       while (true) {
         const { value, done } = await reader.read();
-        if (done) break;
+        if (done) {break;}
 
         buffer += decoder.decode(value, { stream: true });
         let newlineIdx: number;
         while ((newlineIdx = buffer.indexOf("\n")) !== -1) {
           const line = buffer.slice(0, newlineIdx).trimEnd();
           buffer = buffer.slice(newlineIdx + 1);
-          if (line) logCesLine(line, proc.pid);
+          if (line) {logCesLine(line, proc.pid);}
         }
       }
       const trailing = buffer.trimEnd();
-      if (trailing) logCesLine(trailing, proc.pid);
+      if (trailing) {logCesLine(trailing, proc.pid);}
     } catch {
       // Process ended or stream closed; nothing to forward.
     }

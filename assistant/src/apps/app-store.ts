@@ -141,8 +141,8 @@ function validateId(id: string): void {
 
 /**
  * Validate a dirName read from persisted JSON.
- * Superset of validateId rules plus git pathspec metacharacters,
- * since dirName is used directly in git pathspecs by app-git-service.
+ * Superset of validateId rules plus git pathspec metacharacters, since
+ * dirName becomes a filesystem path segment under the apps directory.
  */
 export function validateDirName(dirName: string): void {
   if (

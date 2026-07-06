@@ -30,6 +30,7 @@ import { ErrorEventSchema } from "./events/error.js";
 import { GenerationCancelledEventSchema } from "./events/generation-cancelled.js";
 import { GenerationHandoffEventSchema } from "./events/generation-handoff.js";
 import { HomeFeedUpdatedEventSchema } from "./events/home-feed-updated.js";
+import { HookEventSchema } from "./events/hook-event.js";
 import { IdentityChangedEventSchema } from "./events/identity-changed.js";
 import { InteractionResolvedEventSchema } from "./events/interaction-resolved.js";
 import { MessageCompleteEventSchema } from "./events/message-complete.js";
@@ -231,6 +232,12 @@ export {
   type HomeFeedUpdatedEvent,
   HomeFeedUpdatedEventSchema,
 } from "./events/home-feed-updated.js";
+export {
+  type HookEvent,
+  type HookEventOwner,
+  HookEventOwnerSchema,
+  HookEventSchema,
+} from "./events/hook-event.js";
 export {
   type IdentityChangedEvent,
   IdentityChangedEventSchema,
@@ -583,6 +590,7 @@ export const AssistantEventSchema = z.discriminatedUnion("type", [
   GenerationCancelledEventSchema,
   GenerationHandoffEventSchema,
   HomeFeedUpdatedEventSchema,
+  HookEventSchema,
   IdentityChangedEventSchema,
   InteractionResolvedEventSchema,
   MessageCompleteEventSchema,

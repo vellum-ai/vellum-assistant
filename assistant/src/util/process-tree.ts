@@ -49,7 +49,7 @@ const SCRIPT_EXT_RE = /\.(ts|js|mjs|cjs|py)$/;
 
 /**
  * Summarize a script path as `<parent-dir>-<filename-without-ext>` so the worker
- * at `…/jobs/worker.ts` reads as `jobs-worker` and the daemon entry
+ * at `…/memory/worker.ts` reads as `memory-worker` and the daemon entry
  * `…/daemon/main.ts` as `daemon-main`. Falls back to the bare extensionless
  * filename when the script sits at the filesystem root.
  */
@@ -62,9 +62,9 @@ function scriptName(scriptPath: string): string {
 
 /**
  * Derive a readable name from a command line. For interpreter invocations
- * (`bun run /…/jobs/worker.ts`) the script path is far more useful than the
+ * (`bun run /…/memory/worker.ts`) the script path is far more useful than the
  * interpreter name, so prefer the first script-looking argument and summarize it
- * as `<parent-dir>-<filename>` (e.g. `jobs-worker`). When an interpreter is run
+ * as `<parent-dir>-<filename>` (e.g. `memory-worker`). When an interpreter is run
  * without a script file (`bun run dev`, `bun x prettier`, `bun repl`) the bare
  * interpreter name says nothing about what is running, so surface the arguments
  * — what was actually run — alongside it (e.g. `bun run dev`). Plain binaries

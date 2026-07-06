@@ -118,6 +118,7 @@ function makeCtx(
     callSite,
     supportsDynamicUi: true,
     logger: noopLogger,
+    broadcast: () => {},
   };
 }
 

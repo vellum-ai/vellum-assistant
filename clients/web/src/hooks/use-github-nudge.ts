@@ -23,7 +23,7 @@ export const GITHUB_REPO_URL =
   "https://github.com/vellum-ai/vellum-assistant";
 
 /** Minimum account age (ms since first observation) before the nudge is eligible. */
-export const GITHUB_MIN_AGE_MS = 5 * 60 * 1000; // 5 minutes
+export const GITHUB_MIN_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
 
 /** Minimum user messages sent before the nudge is eligible. */
 export const GITHUB_MIN_USER_MESSAGES = 5;

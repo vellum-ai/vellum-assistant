@@ -176,10 +176,11 @@ export function findPendingSessionByHash(
 
 /**
  * Find any pending inbound (non-expired) session for a given channel.
- * Scoped to 'pending' status only — outbound session states
- * (pending_bootstrap, awaiting_response) are excluded so that an active
- * outbound verification does not inadvertently force unrelated inbound
- * callers into the verification flow.
+ * Scoped to 'pending' status only — this is the inbound verification path used by
+ * the call setup router to gate incoming voice calls. Outbound session states
+ * (pending_bootstrap, awaiting_response) are excluded so that an active outbound
+ * verification does not inadvertently force unrelated inbound callers into the
+ * verification flow.
  */
 export function findPendingSessionForChannel(
   channel: string,

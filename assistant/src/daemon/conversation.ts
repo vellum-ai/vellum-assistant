@@ -92,6 +92,8 @@ import type { AuthContext } from "../runtime/auth/types.js";
 import { resolveCapabilities } from "../runtime/capabilities.js";
 import type { InteractiveUiResult } from "../runtime/interactive-ui.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
+import { getSubagentManager } from "../subagent/index.js";
+import type { SubagentState } from "../subagent/types.js";
 import {
   type ActivationMomentParam,
   isActivationMomentParam,
@@ -191,7 +193,9 @@ const log = getLogger("conversation");
  * per-turn `turnCount++`, so counting these reconstructs `turnCount` on load.
  */
 function startsNewTurn(role: string, content: string): boolean {
-  if (role !== "user") return false;
+  if (role !== "user") {
+    return false;
+  }
   try {
     const parsed = JSON.parse(content);
     if (
@@ -757,7 +761,9 @@ export class Conversation {
       isExclusiveTool: (name) => getTool(name)?.exclusive === true,
       resolveConversationDir: () => {
         const conv = getConversation(this.conversationId);
-        if (!conv) return null;
+        if (!conv) {
+          return null;
+        }
         return getResolvedConversationDirPath(
           this.conversationId,
           conv.createdAt,
@@ -870,7 +876,9 @@ export class Conversation {
    */
   syncLoopSystemPrompt(): void {
     const next = this.buildCurrentSystemPrompt();
-    if (next === this.systemPrompt) return;
+    if (next === this.systemPrompt) {
+      return;
+    }
     this.systemPrompt = next;
     this.agentLoop.setSystemPrompt(next);
   }
@@ -1294,7 +1302,9 @@ export class Conversation {
   private restoreSurfaceStateFromHistory(): void {
     this.surfaceState.clear();
     for (const msg of this.messages) {
-      if (!Array.isArray(msg.content)) continue;
+      if (!Array.isArray(msg.content)) {
+        continue;
+      }
       for (const block of msg.content) {
         const b = block as unknown as Record<string, unknown>;
         if (b.type === "ui_surface" && typeof b.surfaceId === "string") {
@@ -1392,6 +1402,19 @@ export class Conversation {
 
   setIsSubagent(value: boolean): void {
     this.isSubagent = value;
+  }
+
+  /**
+   * The live subagent-manager children of this conversation, for the
+   * `<active_subagents>` status block. Returns `null` when this conversation
+   * is itself a subagent (no nesting) — callers treat `null` as "no block".
+   * Housing the subagent-manager access here keeps runtime-assembly free of a
+   * subagent import (`subagent/manager` imports this module, so the reverse
+   * edge would put runtime-assembly's importers on that cycle).
+   */
+  getSubagentChildren(): SubagentState[] | null {
+    if (this.isSubagent) return null;
+    return getSubagentManager().getChildrenOf(this.conversationId);
   }
 
   /**

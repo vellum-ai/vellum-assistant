@@ -9,15 +9,16 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeAll, describe, expect, test } from "bun:test";
 
-import { getTool } from "../tools/registry.js";
+import { finalizeTool } from "../tools/tool-defaults.js";
 import type { Tool, ToolContext } from "../tools/types.js";
 
 let fileReadTool: Tool;
 const testDirs: string[] = [];
 
 beforeAll(async () => {
-  await import("../tools/filesystem/read.js");
-  fileReadTool = getTool("file_read")!;
+  const { fileReadTool: definition } =
+    await import("../tools/filesystem/read.js");
+  fileReadTool = finalizeTool(definition, "file_read");
 });
 
 function makeContext(workingDir: string): ToolContext {

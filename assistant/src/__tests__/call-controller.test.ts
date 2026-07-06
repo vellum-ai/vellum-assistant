@@ -194,19 +194,20 @@ mock.module("../calls/voice-session-bridge.js", () => {
   };
 });
 
-// ── TTS provider registry setup ──────────────────────────────────────
-// Register test providers so call-controller can resolve the TTS provider
-// abstraction. ElevenLabs is the default native provider (no streaming),
-// while Fish Audio is a synthesized provider (streaming).
+// ── TTS provider override setup ──────────────────────────────────────
+// Install test adapters that shadow the static catalog adapters so
+// call-controller resolves stubs instead of real HTTP-backed providers.
+// ElevenLabs is the default native provider (no streaming), while Fish
+// Audio is a synthesized provider (streaming).
 
 import {
-  _resetTtsProviderRegistry,
-  registerTtsProvider,
-} from "../tts/provider-registry.js";
+  _resetTtsProviderOverridesForTests,
+  _setTtsProviderForTests,
+} from "../tts/provider-catalog.js";
 import type { TtsProvider } from "../tts/types.js";
 
 function registerTestTtsProviders(): void {
-  _resetTtsProviderRegistry();
+  _resetTtsProviderOverridesForTests();
 
   const elevenlabs: TtsProvider = {
     id: "elevenlabs",
@@ -215,7 +216,7 @@ function registerTestTtsProviders(): void {
       return { audio: Buffer.from(""), contentType: "audio/mpeg" };
     },
   };
-  registerTtsProvider(elevenlabs);
+  _setTtsProviderForTests(elevenlabs);
 
   const fishAudio: TtsProvider = {
     id: "fish-audio",
@@ -230,7 +231,7 @@ function registerTestTtsProviders(): void {
       return { audio: Buffer.from(""), contentType: "audio/mpeg" };
     },
   };
-  registerTtsProvider(fishAudio);
+  _setTtsProviderForTests(fishAudio);
 
   const deepgram: TtsProvider = {
     id: "deepgram",
@@ -245,7 +246,7 @@ function registerTestTtsProviders(): void {
       };
     },
   };
-  registerTtsProvider(deepgram);
+  _setTtsProviderForTests(deepgram);
 }
 
 // Register providers immediately so they're available for all tests
@@ -290,7 +291,6 @@ interface MockTransport extends CallTransport {
   sentPlayUrls: string[];
   endCalled: boolean;
   endReason: string | undefined;
-  mockConnectionState: string;
 }
 
 function createMockTransport(): MockTransport {
@@ -299,7 +299,6 @@ function createMockTransport(): MockTransport {
     sentPlayUrls: [] as string[],
     _endCalled: false,
     _endReason: undefined as string | undefined,
-    _connectionState: "connected",
   };
 
   return {
@@ -315,12 +314,6 @@ function createMockTransport(): MockTransport {
     get endReason() {
       return state._endReason;
     },
-    get mockConnectionState() {
-      return state._connectionState;
-    },
-    set mockConnectionState(v: string) {
-      state._connectionState = v;
-    },
     sendTextToken(token: string, last: boolean) {
       state.sentTokens.push({ token, last });
     },
@@ -330,9 +323,6 @@ function createMockTransport(): MockTransport {
     endSession(reason?: string) {
       state._endCalled = true;
       state._endReason = reason;
-    },
-    getConnectionState() {
-      return state._connectionState;
     },
   } as MockTransport;
 }
@@ -856,6 +846,50 @@ describe("call-controller", () => {
     const allText = relay.sentTokens.map((t) => t.token).join("");
     expect(allText).toContain("I'm still here.");
 
+    controller.destroy();
+  });
+
+  test("second END_CALL after a deferral completes immediately (no listen window)", async () => {
+    mockEndCallListenWindowMs = 30;
+    const turnContents: string[] = [];
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        content: string;
+        onTextDelta: (t: string) => void;
+        onComplete: () => void;
+      }) => {
+        turnContents.push(opts.content);
+        if (turnContents.length === 1) {
+          opts.onTextDelta("Goodbye! [END_CALL]");
+        } else if (turnContents.length === 2) {
+          // Re-engaged by caller, responds without END_CALL — but then
+          // the caller speaks again and we want out.
+          opts.onTextDelta("Okay, one quick thing.");
+        } else {
+          opts.onTextDelta("I have to go now. Goodbye! [END_CALL]");
+        }
+        opts.onComplete();
+        return { turnId: `run-${turnContents.length}`, abort: () => {} };
+      },
+    );
+    const { session, relay, controller } = setupController();
+
+    // First turn: assistant says goodbye with END_CALL (listen window starts)
+    await controller.handleCallerUtterance("That is all, thanks");
+    expect(relay.endCalled).toBe(false);
+
+    // Caller re-engages during listen window (deferral #1)
+    await controller.handleCallerUtterance("Wait, one more thing");
+    await new Promise((r) => setTimeout(r, 40));
+    expect(relay.endCalled).toBe(false);
+
+    // Caller speaks again — assistant emits END_CALL a second time.
+    // After one deferral, this must complete immediately — no listen window.
+    await controller.handleCallerUtterance("Just kidding, keep going");
+    await new Promise((r) => setTimeout(r, 5));
+
+    expect(relay.endCalled).toBe(true);
+    expect(getCallSession(session.id)!.status).toBe("completed");
     controller.destroy();
   });
 
@@ -2444,30 +2478,11 @@ describe("call-controller", () => {
 
   // ── Silence suppression during guardian wait ──────────────────────
 
-  test('silence timeout suppressed during guardian wait: does not say "Are you still there?"', async () => {
-    mockSilenceTimeoutMs = 20; // Short timeout for testing
-    const { relay, controller } = setupController();
-
-    // Simulate guardian wait state on the relay
-    relay.mockConnectionState = "awaiting_guardian_decision";
-
-    // Wait for the silence timeout to fire
-    await new Promise((r) => setTimeout(r, 30));
-
-    // "Are you still there?" should NOT have been sent
-    const silenceTokens = relay.sentTokens.filter((t) =>
-      t.token.includes("Are you still there?"),
-    );
-    expect(silenceTokens.length).toBe(0);
-
-    controller.destroy();
-  });
-
   test("silence timeout fires normally when not in guardian wait", async () => {
     mockSilenceTimeoutMs = 20; // Short timeout for testing
     const { relay, controller } = setupController();
 
-    // Default connection state is 'connected' (not guardian wait)
+    // No pending guardian consultation — the nudge should fire.
 
     // Wait for the silence timeout to fire
     await new Promise((r) => setTimeout(r, 30));
@@ -2500,8 +2515,6 @@ describe("call-controller", () => {
 
     // Verify a guardian input request is now pending
     expect(controller.getPendingConsultationQuestionId()).not.toBeNull();
-    // Relay state is still 'connected' (not 'awaiting_guardian_decision')
-    expect(relay.mockConnectionState).toBe("connected");
 
     // Clear any tokens from the turn itself
     relay.sentTokens.length = 0;
@@ -2681,7 +2694,7 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
 
-    _resetTtsProviderRegistry();
+    _resetTtsProviderOverridesForTests();
     const elevenlabs: TtsProvider = {
       id: "elevenlabs",
       capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
@@ -2689,7 +2702,7 @@ describe("call-controller", () => {
         return { audio: Buffer.from(""), contentType: "audio/mpeg" };
       },
     };
-    registerTtsProvider(elevenlabs);
+    _setTtsProviderForTests(elevenlabs);
 
     const fishAudioFailing: TtsProvider = {
       id: "fish-audio",
@@ -2704,7 +2717,7 @@ describe("call-controller", () => {
         throw new Error("fish-audio stream failure");
       },
     };
-    registerTtsProvider(fishAudioFailing);
+    _setTtsProviderForTests(fishAudioFailing);
 
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Hello from synthesized path"]),
@@ -2731,7 +2744,7 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
 
-    _resetTtsProviderRegistry();
+    _resetTtsProviderOverridesForTests();
     // elevenlabs present so native fallback is available for fish-audio.
     const elevenlabs: TtsProvider = {
       id: "elevenlabs",
@@ -2740,7 +2753,7 @@ describe("call-controller", () => {
         return { audio: Buffer.from(""), contentType: "audio/mpeg" };
       },
     };
-    registerTtsProvider(elevenlabs);
+    _setTtsProviderForTests(elevenlabs);
 
     let releaseSynth: (() => void) | undefined;
     const synthGate = new Promise<void>((resolve) => {
@@ -2762,7 +2775,7 @@ describe("call-controller", () => {
         throw new Error("fish-audio stream failure");
       },
     };
-    registerTtsProvider(fishAudioGatedFailing);
+    _setTtsProviderForTests(fishAudioGatedFailing);
 
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Stale synthesized response"]),
@@ -2791,7 +2804,7 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
 
-    _resetTtsProviderRegistry();
+    _resetTtsProviderOverridesForTests();
     const fishAudioStreaming: TtsProvider = {
       id: "fish-audio",
       capabilities: {
@@ -2812,7 +2825,7 @@ describe("call-controller", () => {
         };
       },
     };
-    registerTtsProvider(fishAudioStreaming);
+    _setTtsProviderForTests(fishAudioStreaming);
 
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Hello from synthesized path."]),
@@ -2834,7 +2847,7 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
 
-    _resetTtsProviderRegistry();
+    _resetTtsProviderOverridesForTests();
     let releaseChunk: (() => void) | undefined;
     const chunkGate = new Promise<void>((resolve) => {
       releaseChunk = resolve;
@@ -2858,7 +2871,7 @@ describe("call-controller", () => {
         };
       },
     };
-    registerTtsProvider(fishAudioStreaming);
+    _setTtsProviderForTests(fishAudioStreaming);
 
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Hello from synthesized path."]),
@@ -2890,7 +2903,7 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
 
-    _resetTtsProviderRegistry();
+    _resetTtsProviderOverridesForTests();
     let releaseChunk: (() => void) | undefined;
     const chunkGate = new Promise<void>((resolve) => {
       releaseChunk = resolve;
@@ -2911,7 +2924,7 @@ describe("call-controller", () => {
         return { audio: Buffer.from("stale-audio"), contentType: "audio/mpeg" };
       },
     };
-    registerTtsProvider(fishAudioStreaming);
+    _setTtsProviderForTests(fishAudioStreaming);
 
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Hello from synthesized path."]),
@@ -2936,11 +2949,11 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
-  test("Deepgram selected path resolves useSynthesizedPath to true", () => {
+  test("Deepgram selected path resolves useSynthesizedPath to true", async () => {
     const cfg = loadConfig();
     cfg.services.tts.provider = "deepgram";
 
-    const result = resolveCallTtsProvider();
+    const result = await resolveCallTtsProvider();
     expect(result.provider).not.toBeNull();
     expect(result.provider!.id).toBe("deepgram");
     expect(result.useSynthesizedPath).toBe(true);
@@ -2950,7 +2963,7 @@ describe("call-controller", () => {
     const cfg = loadConfig();
     cfg.services.tts.provider = "deepgram";
 
-    _resetTtsProviderRegistry();
+    _resetTtsProviderOverridesForTests();
     const elevenlabs: TtsProvider = {
       id: "elevenlabs",
       capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
@@ -2958,7 +2971,7 @@ describe("call-controller", () => {
         return { audio: Buffer.from(""), contentType: "audio/mpeg" };
       },
     };
-    registerTtsProvider(elevenlabs);
+    _setTtsProviderForTests(elevenlabs);
 
     const deepgramFailing: TtsProvider = {
       id: "deepgram",
@@ -2972,7 +2985,7 @@ describe("call-controller", () => {
         throw err;
       },
     };
-    registerTtsProvider(deepgramFailing);
+    _setTtsProviderForTests(deepgramFailing);
 
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Hello from deepgram path"]),
@@ -2999,7 +3012,7 @@ describe("call-controller", () => {
     cfg.services.tts.provider = "fish-audio";
     cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-abc";
 
-    _resetTtsProviderRegistry();
+    _resetTtsProviderOverridesForTests();
     const elevenlabs: TtsProvider = {
       id: "elevenlabs",
       capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
@@ -3007,7 +3020,7 @@ describe("call-controller", () => {
         return { audio: Buffer.from(""), contentType: "audio/mpeg" };
       },
     };
-    registerTtsProvider(elevenlabs);
+    _setTtsProviderForTests(elevenlabs);
 
     const fishAudioFailing: TtsProvider = {
       id: "fish-audio",
@@ -3022,7 +3035,7 @@ describe("call-controller", () => {
         throw new Error("fish-audio stream failure");
       },
     };
-    registerTtsProvider(fishAudioFailing);
+    _setTtsProviderForTests(fishAudioFailing);
 
     mockStartVoiceTurn.mockImplementation(
       createMockVoiceTurn(["Hello from fish path"]),
@@ -3086,30 +3099,33 @@ describe("call-controller", () => {
   // ── Shared TTS provider resolution ──────────────────────────────────
 
   describe("resolveCallTtsProvider (shared helper)", () => {
-    test("returns native path with elevenlabs (non-streaming provider)", () => {
+    test("returns native path with elevenlabs (non-streaming provider)", async () => {
       // Default config has provider: "elevenlabs" which is registered as
       // non-streaming in registerTestTtsProviders()
-      const result = resolveCallTtsProvider();
+      const result = await resolveCallTtsProvider();
       expect(result.provider).not.toBeNull();
       expect(result.provider!.id).toBe("elevenlabs");
       expect(result.useSynthesizedPath).toBe(false);
       expect(result.audioFormat).toBe("mp3");
     });
 
-    test("returns fallback when provider registry is empty", () => {
-      _resetTtsProviderRegistry();
-      const result = resolveCallTtsProvider();
+    test("returns fallback when the configured provider is not in the catalog", async () => {
+      const cfg = loadConfig();
+      (cfg.services.tts as { provider: string }).provider =
+        "not-a-real-provider";
+
+      const result = await resolveCallTtsProvider();
       expect(result.provider).toBeNull();
       expect(result.useSynthesizedPath).toBe(false);
       expect(result.audioFormat).toBe("mp3");
     });
 
-    test("degrades fish-audio synthesized path when referenceId is missing", () => {
+    test("degrades fish-audio synthesized path when referenceId is missing", async () => {
       const cfg = loadConfig();
       cfg.services.tts.provider = "fish-audio";
       cfg.services.tts.providers["fish-audio"].referenceId = "";
 
-      const result = resolveCallTtsProvider();
+      const result = await resolveCallTtsProvider();
       expect(result.provider).toBeNull();
       expect(result.useSynthesizedPath).toBe(false);
       expect(result.audioFormat).toBe("mp3");
@@ -3133,18 +3149,18 @@ describe("call-controller", () => {
       controller.destroy();
     });
 
-    test("returns synthesized path with deepgram provider", () => {
+    test("returns synthesized path with deepgram provider", async () => {
       const cfg = loadConfig();
       cfg.services.tts.provider = "deepgram";
 
-      const result = resolveCallTtsProvider();
+      const result = await resolveCallTtsProvider();
       expect(result.provider).not.toBeNull();
       expect(result.provider!.id).toBe("deepgram");
       expect(result.useSynthesizedPath).toBe(true);
       expect(result.audioFormat).toBe("mp3");
     });
 
-    test("Deepgram does not apply fish-audio referenceId gate", () => {
+    test("Deepgram does not apply fish-audio referenceId gate", async () => {
       // Deepgram has no referenceId requirement. Verify the fish-audio
       // config gate does not apply to deepgram resolution.
       const cfg = loadConfig();
@@ -3152,7 +3168,7 @@ describe("call-controller", () => {
       // fish-audio referenceId left empty — should not affect deepgram.
       cfg.services.tts.providers["fish-audio"].referenceId = "";
 
-      const result = resolveCallTtsProvider();
+      const result = await resolveCallTtsProvider();
       expect(result.provider).not.toBeNull();
       expect(result.provider!.id).toBe("deepgram");
       expect(result.useSynthesizedPath).toBe(true);
@@ -3167,9 +3183,11 @@ describe("call-controller", () => {
 
       // Controller starts idle after construction
       expect(controller.getState()).toBe("idle");
-      const result = controller.handleBargeIn();
+      const onAccepted = mock(() => {});
+      const result = controller.handleBargeIn(onAccepted);
 
       expect(result).toBe(false);
+      expect(onAccepted).not.toHaveBeenCalled();
       // No end-of-turn token should have been sent (no interruption)
       const endTokens = relay.sentTokens.filter(
         (t) => t.last === true && t.token === "",
@@ -3203,8 +3221,10 @@ describe("call-controller", () => {
       // No outbound audio/tokens yet → still processing.
       expect(controller.getState()).toBe("processing");
 
-      const bargeResult = controller.handleBargeIn();
+      const onAccepted = mock(() => {});
+      const bargeResult = controller.handleBargeIn(onAccepted);
       expect(bargeResult).toBe(false);
+      expect(onAccepted).not.toHaveBeenCalled();
       // Still processing (not aborted), and no interrupt/end-of-turn token sent.
       expect(controller.getState()).toBe("processing");
       const endTokens = relay.sentTokens.filter(
@@ -3272,6 +3292,151 @@ describe("call-controller", () => {
       await turnPromise.catch(() => {});
     });
 
+    test("buffering transport (media-stream): streamed tokens do not flip to speaking; barge-in is rejected and the turn still delivers", async () => {
+      // Simulates the media-stream transport: sendTextToken(.., false)
+      // only buffers; audio starts later. The controller must stay in
+      // `processing` until the transport's audio-start signal fires, so
+      // VAD speech-start during generation cannot abort a silent turn.
+      let releaseTurn!: () => void;
+      const completeGate = new Promise<void>((r) => {
+        releaseTurn = r;
+      });
+
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+          signal?: AbortSignal;
+        }) => {
+          opts.onTextDelta("Hello");
+          opts.onTextDelta(" caller");
+          opts.signal?.addEventListener("abort", () => releaseTurn());
+          await completeGate;
+          opts.onComplete();
+          return { turnId: "run-buffered", abort: () => releaseTurn() };
+        },
+      );
+
+      const { relay, controller } = setupController();
+      let audioStartCallback: (() => void) | null = null;
+      relay.setAudioStartCallback = (cb) => {
+        audioStartCallback = cb;
+      };
+
+      const turnPromise = controller.handleCallerUtterance("Hi");
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+
+      // Tokens were emitted (buffered by the transport) but no audio has
+      // started — the controller must still be processing.
+      expect(
+        relay.sentTokens.filter((t) => !t.last && t.token.length > 0).length,
+      ).toBeGreaterThan(0);
+      expect(controller.getState()).toBe("processing");
+      expect(audioStartCallback).not.toBeNull();
+
+      // VAD speech-start mid-generation → barge-in rejected, turn intact.
+      expect(controller.handleBargeIn()).toBe(false);
+      expect(controller.getState()).toBe("processing");
+
+      // The turn completes and delivers its end-of-turn signal.
+      releaseTurn();
+      await turnPromise;
+      const endTokens = relay.sentTokens.filter(
+        (t) => t.last === true && t.token === "",
+      );
+      expect(endTokens.length).toBe(1);
+
+      controller.destroy();
+    });
+
+    test("buffering transport: audio-start signal flips to speaking and barge-in is accepted", async () => {
+      let releaseTurn!: () => void;
+      const completeGate = new Promise<void>((r) => {
+        releaseTurn = r;
+      });
+
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+          signal?: AbortSignal;
+        }) => {
+          opts.onTextDelta("Hello");
+          opts.signal?.addEventListener("abort", () => releaseTurn());
+          await completeGate;
+          opts.onComplete();
+          return { turnId: "run-buffered-2", abort: () => releaseTurn() };
+        },
+      );
+
+      const { relay, controller } = setupController();
+      let audioStartCallback: (() => void) | null = null;
+      let discardedPendingText = 0;
+      relay.setAudioStartCallback = (cb) => {
+        audioStartCallback = cb;
+      };
+      relay.discardPendingText = () => {
+        discardedPendingText++;
+      };
+
+      const turnPromise = controller.handleCallerUtterance("Hi");
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      expect(controller.getState()).toBe("processing");
+
+      // Transport reports real outbound audio started → speaking.
+      audioStartCallback!();
+      expect(controller.getState()).toBe("speaking");
+
+      // Barge-in now aborts the turn, discards the transport's buffered
+      // text, and returns the controller to idle.
+      expect(controller.handleBargeIn()).toBe(true);
+      expect(controller.getState()).toBe("idle");
+      expect(discardedPendingText).toBeGreaterThan(0);
+
+      controller.destroy();
+      await turnPromise.catch(() => {});
+    });
+
+    test("buffering transport: stale audio-start signal from a superseded run does not flip state", async () => {
+      let releaseTurn!: () => void;
+      const completeGate = new Promise<void>((r) => {
+        releaseTurn = r;
+      });
+
+      mockStartVoiceTurn.mockImplementation(
+        async (opts: {
+          onTextDelta: (t: string) => void;
+          onComplete: () => void;
+          signal?: AbortSignal;
+        }) => {
+          opts.onTextDelta("Hello");
+          opts.signal?.addEventListener("abort", () => releaseTurn());
+          await completeGate;
+          opts.onComplete();
+          return { turnId: "run-buffered-3", abort: () => releaseTurn() };
+        },
+      );
+
+      const { relay, controller } = setupController();
+      let audioStartCallback: (() => void) | null = null;
+      relay.setAudioStartCallback = (cb) => {
+        audioStartCallback = cb;
+      };
+
+      const turnPromise = controller.handleCallerUtterance("Hi");
+      for (let i = 0; i < 10; i++) await Promise.resolve();
+      const staleCallback = audioStartCallback!;
+
+      // Supersede the run (hard interrupt), then fire the stale signal.
+      controller.handleInterrupt();
+      expect(controller.getState()).toBe("idle");
+      staleCallback();
+      expect(controller.getState()).toBe("idle");
+
+      controller.destroy();
+      await turnPromise.catch(() => {});
+    });
+
     test("handleBargeIn returns true and interrupts when controller is speaking", async () => {
       // Create a turn that holds the speaking state long enough to test barge-in
       let resolveComplete: () => void;
@@ -3297,7 +3462,7 @@ describe("call-controller", () => {
         },
       );
 
-      const { controller } = setupController();
+      const { relay, controller } = setupController();
       const turnPromise = controller.handleCallerUtterance("Hi");
 
       // Let microtasks settle so onTextDelta runs
@@ -3305,8 +3470,24 @@ describe("call-controller", () => {
 
       expect(controller.getState()).toBe("speaking");
 
-      const result = controller.handleBargeIn();
+      // onAccepted must fire after the speaking gate but BEFORE the
+      // end-of-turn token from handleInterrupt, so a transport's queue
+      // flush cannot wipe that mark.
+      const endTokensAtAccept: number[] = [];
+      const onAccepted = mock(() => {
+        endTokensAtAccept.push(
+          relay.sentTokens.filter((t) => t.last === true && t.token === "")
+            .length,
+        );
+      });
+      const result = controller.handleBargeIn(onAccepted);
       expect(result).toBe(true);
+      expect(onAccepted).toHaveBeenCalledTimes(1);
+      expect(endTokensAtAccept).toEqual([0]);
+      const endTokens = relay.sentTokens.filter(
+        (t) => t.last === true && t.token === "",
+      );
+      expect(endTokens.length).toBe(1);
 
       // After barge-in, controller should be idle
       expect(controller.getState()).toBe("idle");

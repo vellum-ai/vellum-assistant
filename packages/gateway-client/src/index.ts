@@ -189,3 +189,30 @@ export type {
   ResolveGuardianDeliveryRequest,
   ResolveGuardianDeliveryResponse,
 } from "./guardian-delivery-contract.js";
+
+// Channel permission matrix contract (gateway ↔ daemon ↔ web) — cascade
+// cells storing a RiskThreshold per (channel × contact-type)
+export {
+  CHANNEL_CONVERSATION_TYPES,
+  CHANNEL_PERMISSION_SCOPE_RANK,
+  CHANNEL_PERMISSION_SCOPES,
+  ChannelConversationTypeSchema,
+  ChannelPermissionCellSchema,
+  ChannelPermissionScopeSchema,
+  ChannelPermissionSelectorSchema,
+  isRiskThreshold,
+  ResolveChannelPermissionRequestSchema,
+  RISK_THRESHOLD_VALUES,
+  RiskThresholdSchema,
+} from "./channel-permission-contract.js";
+
+export type {
+  ChannelConversationType,
+  ChannelPermissionCell,
+  ChannelPermissionCellRow,
+  ChannelPermissionScope,
+  ChannelPermissionSelector,
+  ResolveChannelPermissionRequest,
+  ResolvedChannelPermission,
+  RiskThreshold,
+} from "./channel-permission-contract.js";

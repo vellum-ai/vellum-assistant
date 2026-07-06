@@ -7,7 +7,7 @@
  * and are discovered through the same path as every other channel.
  *
  * This suite verifies that address-based lookup returns the correct
- * `memberRecord` with the right ACL status so relay-setup-router
+ * `memberRecord` with the right ACL status so call-setup-router
  * can emit the appropriate outcome (e.g. `unverified_caller`).
  */
 

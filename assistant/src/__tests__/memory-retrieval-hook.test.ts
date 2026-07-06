@@ -161,6 +161,7 @@ function makeHookCtx(
     modelProfileKey: "balanced",
     prompt: "",
     originalMessages: [],
+    broadcast: () => {},
     ...overrides,
   };
 }

@@ -59,7 +59,13 @@ describe("plugin pipeline", () => {
 
     const result = await runHook("user-prompt-submit", { value: 0 });
 
-    expect(result).toEqual({ value: 2 });
+    // The threaded mutation is preserved. The pipeline also stamps a
+    // `broadcast` capability onto every hook context, so assert the field
+    // rather than an exact shape.
+    expect(result).toMatchObject({ value: 2 });
+    expect(typeof (result as { broadcast?: unknown }).broadcast).toBe(
+      "function",
+    );
   });
 
   test("discards in-place mutations from a failed hook", async () => {
@@ -154,5 +160,33 @@ describe("plugin pipeline — per-conversation scope", () => {
       { conversationId: "c1", seen: [] },
     );
     expect(result.seen).toEqual(["plugin-a", "plugin-b"]);
+  });
+});
+
+describe("plugin pipeline — originalMessages isolation", () => {
+  test("mutating latestMessages does not affect originalMessages", async () => {
+    registerPlugin({
+      manifest: { name: "truncate-hook", version: "1.0.0" },
+      hooks: {
+        "user-prompt-submit": async (ctx: {
+          originalMessages: string[];
+          latestMessages: string[];
+        }) => {
+          ctx.latestMessages.length = 0;
+        },
+      },
+    });
+
+    const messages = ["hello", "world"];
+    const result = await runHook<{
+      originalMessages: readonly string[];
+      latestMessages: string[];
+    }>("user-prompt-submit", {
+      originalMessages: Object.freeze([...messages]),
+      latestMessages: messages,
+    });
+
+    expect(result.latestMessages).toEqual([]);
+    expect(result.originalMessages).toEqual(["hello", "world"]);
   });
 });

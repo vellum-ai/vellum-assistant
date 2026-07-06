@@ -22,7 +22,6 @@ const ALLOWLIST = new Set([
   // Matched by prefix check below: gateway/
 
   // --- Intentional local daemon-control paths ---
-  "assistant/src/cli/commands/conversations.ts", // CLI wipe talks to runtime directly
   "clients/macos/src/main/bundle-flow.ts", // Electron main calls the local gateway (gatewayPort) with a Guardian token to scan bundles
   ".claude/skills/update/SKILL.md", // daemon health check script
 

@@ -146,7 +146,7 @@ ${userSetup}
 ${envSetLines}
 VELLUM_ASSISTANT_NAME=${instanceName}
 mkdir -p "\$HOME/.config/vellum"
-cat > "\$HOME/.config/vellum/env" << DOTENV_EOF
+cat > "\$HOME/.config/vellum/.env" << DOTENV_EOF
 ${dotenvLines}
 RUNTIME_HTTP_PORT=7821
 DOTENV_EOF

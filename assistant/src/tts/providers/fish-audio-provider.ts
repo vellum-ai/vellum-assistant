@@ -14,6 +14,7 @@ import { synthesizeWithFishAudio } from "../../calls/fish-audio-client.js";
 import { getConfig } from "../../config/loader.js";
 import type { TtsFishAudioProviderConfig } from "../../config/schemas/tts.js";
 import { getLogger } from "../../util/logger.js";
+import type { TtsProviderDefinition } from "../provider-definition.js";
 import type {
   TtsProvider,
   TtsProviderCapabilities,
@@ -22,6 +23,13 @@ import type {
 } from "../types.js";
 
 const log = getLogger("tts:fish-audio");
+
+/**
+ * Sample rate requested when the caller wants PCM (the phone path).
+ * Twilio media streams consume 8 kHz; without this Fish defaults WAV
+ * to 44.1 kHz, which the media-stream transcoder would play ~5.5x slow.
+ */
+const TELEPHONY_SAMPLE_RATE_HZ = 8000;
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -92,11 +100,12 @@ export function createFishAudioProvider(): TtsProvider {
       const config = getConfig().services.tts.providers["fish-audio"];
       const referenceId = resolveReferenceId(request, config);
 
-      // When PCM output is requested, override to WAV. Fish Audio
-      // doesn't support raw PCM, but WAV gives us PCM in a container
-      // that audioBufferToFrames can extract.
-      const effectiveFormat =
-        request.outputFormat === "pcm" ? "wav" : config.format;
+      // When PCM output is requested, override to WAV at 8 kHz. Fish Audio
+      // doesn't support raw PCM, but WAV gives us PCM in a container that
+      // audioBufferToFrames can extract; the explicit sample rate avoids
+      // Fish's 44.1 kHz WAV default.
+      const pcmRequested = request.outputFormat === "pcm";
+      const effectiveFormat = pcmRequested ? "wav" : config.format;
 
       // Build an effective config with the resolved reference ID
       // and the potentially overridden format.
@@ -119,6 +128,7 @@ export function createFishAudioProvider(): TtsProvider {
       try {
         audio = await synthesizeWithFishAudio(request.text, effectiveConfig, {
           signal: request.signal,
+          sampleRate: pcmRequested ? TELEPHONY_SAMPLE_RATE_HZ : undefined,
         });
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") throw err;
@@ -140,11 +150,10 @@ export function createFishAudioProvider(): TtsProvider {
       const config = getConfig().services.tts.providers["fish-audio"];
       const referenceId = resolveReferenceId(request, config);
 
-      // When PCM output is requested, override to WAV. Fish Audio
-      // doesn't support raw PCM, but WAV gives us PCM in a container
-      // that audioBufferToFrames can extract.
-      const effectiveFormat =
-        request.outputFormat === "pcm" ? "wav" : config.format;
+      // When PCM output is requested, override to WAV at 8 kHz (see
+      // synthesize above).
+      const pcmRequested = request.outputFormat === "pcm";
+      const effectiveFormat = pcmRequested ? "wav" : config.format;
 
       const effectiveConfig: TtsFishAudioProviderConfig = {
         ...config,
@@ -166,6 +175,7 @@ export function createFishAudioProvider(): TtsProvider {
         audio = await synthesizeWithFishAudio(request.text, effectiveConfig, {
           onChunk,
           signal: request.signal,
+          sampleRate: pcmRequested ? TELEPHONY_SAMPLE_RATE_HZ : undefined,
         });
       } catch (err) {
         if (err instanceof Error && err.name === "AbortError") throw err;
@@ -181,3 +191,44 @@ export function createFishAudioProvider(): TtsProvider {
     },
   };
 }
+
+// ---------------------------------------------------------------------------
+// Provider definition
+// ---------------------------------------------------------------------------
+
+/**
+ * The complete Fish Audio provider definition — catalog metadata plus the
+ * runtime adapter — assembled into the canonical catalog by
+ * `provider-catalog.ts`.
+ */
+export const fishAudioTtsProviderDefinition: TtsProviderDefinition = {
+  id: "fish-audio",
+  displayName: "Fish Audio",
+  subtitle:
+    "Natural-sounding voice synthesis with custom voice cloning. Requires a Fish Audio API key and voice reference ID.",
+  supportsVoiceSelection: true,
+  apiKeyPlaceholder: "Enter your Fish Audio API key",
+  credentialsGuide: {
+    description:
+      "Sign in to Fish Audio, navigate to API Keys in your dashboard, and create a new key.",
+    url: "https://fish.audio/app/api-keys/",
+    linkLabel: "Open Fish Audio API Keys",
+  },
+  callMode: "synthesized-play",
+  allowNativeFallback: true,
+  capabilities: {
+    supportsStreaming: true,
+    supportedFormats: ["mp3", "wav", "opus"],
+  },
+  // The adapter substitutes WAV for the PCM hint (no raw PCM support).
+  mediaStreamPlayback: { outputFormat: "wav" },
+  secretRequirements: [
+    {
+      credentialStoreKey: "credential/fish-audio/api_key",
+      displayName: "Fish Audio API Key",
+      setCommand:
+        "assistant credentials set --service fish-audio --field api_key <key>",
+    },
+  ],
+  adapter: createFishAudioProvider(),
+};

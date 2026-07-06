@@ -18,8 +18,6 @@ import { pruneSeededCallsiteDefaultsFromConfig } from "./prune-seeded-callsite-d
 import { AssistantConfigSchema } from "./schema.js";
 import type { AssistantConfig } from "./types.js";
 
-export { API_KEY_PROVIDERS } from "../providers/provider-secret-catalog.js";
-
 const log = getLogger("config");
 
 let cached: AssistantConfig | null = null;

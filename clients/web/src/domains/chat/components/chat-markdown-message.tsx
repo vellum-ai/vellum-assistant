@@ -8,16 +8,16 @@ import {
   memo,
   useCallback,
 } from "react";
-
 import {
-    openMarkdownOAuthLinkInPopup,
-    shouldOpenMarkdownLinkInOAuthPopup,
-} from "@/domains/chat/utils/oauth-popup-links";
-import {
-    MarkdownMessage,
-    type MarkdownMessageProps,
+  MarkdownMessage,
+  type MarkdownMessageProps,
 } from "@vellumai/design-library";
 import { defaultUrlTransform } from "react-markdown";
+
+import {
+  openMarkdownOAuthLinkInPopup,
+  shouldOpenMarkdownLinkInOAuthPopup,
+} from "@/domains/chat/utils/oauth-popup-links";
 
 /** Returns true when `href` is a known `vellum://` attachment link. */
 export function isVellumLink(href: string | undefined): boolean {

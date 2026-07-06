@@ -591,7 +591,6 @@ describe("command-registry", () => {
       expect(getAssistantPath("email send").baseRisk).toBe("high");
       expect(getAssistantPath("domain register").baseRisk).toBe("medium");
       expect(getAssistantPath("conversations clear").baseRisk).toBe("medium");
-      expect(getAssistantPath("conversations wipe").baseRisk).toBe("high");
       expect(getAssistantPath("backup restore").baseRisk).toBe("high");
       expect(getAssistantPath("inference session open").baseRisk).toBe("low");
       expect(getAssistantPath("inference session close").baseRisk).toBe("low");
@@ -607,6 +606,11 @@ describe("command-registry", () => {
       expect(getAssistantPath("schedules cancel").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules delete").baseRisk).toBe("medium");
       expect(getAssistantPath("schedules execute").baseRisk).toBe("high");
+      expect(getAssistantPath("memory items list").baseRisk).toBe("low");
+      expect(getAssistantPath("memory items get").baseRisk).toBe("low");
+      expect(getAssistantPath("memory items create").baseRisk).toBe("medium");
+      expect(getAssistantPath("memory items update").baseRisk).toBe("medium");
+      expect(getAssistantPath("memory items delete").baseRisk).toBe("medium");
       expect(getAssistantPath("plugins list").baseRisk).toBe("low");
       expect(getAssistantPath("plugins inspect").baseRisk).toBe("low");
       expect(getAssistantPath("plugins diff").baseRisk).toBe("low");

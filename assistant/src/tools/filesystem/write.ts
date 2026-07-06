@@ -6,7 +6,6 @@ import { enqueuePkbIndexJob } from "../../plugins/defaults/memory/jobs/embed-pkb
 import { PKB_WORKSPACE_SCOPE } from "../../plugins/defaults/memory/pkb/types.js";
 import { getLogger } from "../../util/logger.js";
 import { getWorkspaceDir } from "../../util/platform.js";
-import { registerTool } from "../registry.js";
 import { FileSystemOps } from "../shared/filesystem/file-ops-service.js";
 import { formatWriteSummary } from "../shared/filesystem/format-diff.js";
 import { sandboxPolicy } from "../shared/filesystem/path-policy.js";
@@ -185,5 +184,3 @@ export const fileWriteTool = {
     };
   },
 } satisfies ToolDefinition;
-
-registerTool(fileWriteTool);

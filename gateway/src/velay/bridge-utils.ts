@@ -6,7 +6,10 @@ import type { VelayHeaders } from "./protocol.js";
 
 const MAX_WEBSOCKET_CLOSE_REASON_BYTES = 123;
 
-const VELAY_ALLOWED_HTTP_PATH_PREFIXES = ["/webhooks/twilio/"] as const;
+const VELAY_ALLOWED_HTTP_PATH_PREFIXES = [
+  "/webhooks/twilio/",
+  "/v1/audio/",
+] as const;
 const VELAY_ALLOWED_WEBSOCKET_EXACT_PATHS = [
   "/v1/live-voice",
   "/v1/stt/stream",

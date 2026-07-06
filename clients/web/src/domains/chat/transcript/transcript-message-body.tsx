@@ -315,7 +315,11 @@ export function TranscriptMessageBody({
             }
             return (
               <div key={`inline-text-${si}`} className={segmentClass}>
-                <ChatMarkdownMessage content={seg.content} hardLineBreaks onVellumLinkClick={handleVellumLinkClick} />
+                <ChatMarkdownMessage
+                  content={seg.content}
+                  hardLineBreaks
+                  onVellumLinkClick={handleVellumLinkClick}
+                />
               </div>
             );
           })}
@@ -324,7 +328,11 @@ export function TranscriptMessageBody({
     }
     return (
       <div key={key} className={segmentClass}>
-        <ChatMarkdownMessage content={text} hardLineBreaks onVellumLinkClick={handleVellumLinkClick} />
+        <ChatMarkdownMessage
+          content={text}
+          hardLineBreaks
+          onVellumLinkClick={handleVellumLinkClick}
+        />
       </div>
     );
   };

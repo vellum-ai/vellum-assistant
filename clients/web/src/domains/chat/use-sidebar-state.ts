@@ -43,6 +43,11 @@ export interface PaginatedSection {
   all: Conversation[];
   items: Conversation[];
   totalCount: number;
+  /**
+   * At most one of `showMore` / `showLess` is true: "Show more" while
+   * items remain hidden, "Show less" only once the section is fully
+   * revealed past the default limit.
+   */
   showMore: boolean;
   showLess: boolean;
   onShowMore: () => void;
@@ -71,12 +76,16 @@ function buildPaginatedSection(
   // Force enough rows visible to reveal a conversation that needs attention.
   const effectiveVisibleCount =
     attentionIndex >= visibleCount ? attentionIndex + 1 : visibleCount;
+  const showMore = effectiveVisibleCount < all.length;
   return {
     all,
     items: all.slice(0, effectiveVisibleCount),
     totalCount: all.length,
-    showMore: effectiveVisibleCount < all.length,
+    showMore,
+    // Never alongside showMore — two stacked, contradictory affordances.
+    // Collapse is offered only once the section is fully revealed.
     showLess:
+      !showMore &&
       visibleCount > SIDEBAR_CONVERSATION_LIMIT &&
       all.length > SIDEBAR_CONVERSATION_LIMIT,
     onShowMore: () =>

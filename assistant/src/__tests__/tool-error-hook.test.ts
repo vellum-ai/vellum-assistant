@@ -84,6 +84,7 @@ function makeCtx(
     callSite: "mainAgent",
     supportsDynamicUi: true,
     logger: noopLogger,
+    broadcast: () => {},
   };
 }
 

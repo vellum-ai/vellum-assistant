@@ -20,7 +20,7 @@ import {
   unregisterSkillTools,
   unregisterWorkspaceTool,
 } from "../tools/registry.js";
-import { eagerModuleToolNames, explicitTools } from "../tools/tool-manifest.js";
+import { explicitTools } from "../tools/tool-manifest.js";
 import type { Tool, ToolContext, ToolExecutionResult } from "../tools/types.js";
 
 // Clean up global registry after this file completes to prevent
@@ -110,10 +110,6 @@ describe("tool registry dynamic-tools tools", () => {
 });
 
 describe("tool manifest", () => {
-  test("eager module tool names list contains expected count", () => {
-    expect(eagerModuleToolNames.length).toBe(12);
-  });
-
   test("explicit tools list includes memory tools", () => {
     const names = explicitTools.map((t) => t.name);
     expect(names).toContain("recall");
@@ -121,10 +117,12 @@ describe("tool manifest", () => {
     expect(names).toContain("remember");
   });
 
-  test("registered tool count is at least eager + host", async () => {
+  test("initializeTools registers every explicit manifest tool", async () => {
     await initializeTools();
-    const tools = getAllTools();
-    expect(tools.length).toBeGreaterThanOrEqual(eagerModuleToolNames.length);
+    const registered = new Set(getAllTools().map((t) => t.name));
+    for (const tool of explicitTools) {
+      expect(registered.has(tool.name!), `expected "${tool.name}"`).toBe(true);
+    }
   });
 });
 
@@ -156,7 +154,7 @@ describe("baseline characterization: hardcoded tool loading", () => {
     }
   });
 
-  test("gmail tool names are NOT in eagerModuleToolNames manifest", () => {
+  test("gmail tool names are NOT in the explicit tool manifest", () => {
     const gmailTools = [
       "gmail_search",
       "gmail_list_messages",
@@ -169,8 +167,9 @@ describe("baseline characterization: hardcoded tool loading", () => {
       "gmail_send",
       "gmail_unsubscribe",
     ];
+    const explicitNames = explicitTools.map((t) => t.name);
     for (const name of gmailTools) {
-      expect(eagerModuleToolNames).not.toContain(name);
+      expect(explicitNames).not.toContain(name);
     }
   });
 });

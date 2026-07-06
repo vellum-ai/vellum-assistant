@@ -38,6 +38,10 @@ import { getConnection, listConnections } from "./inference/connections.js";
 import type { ProvidersConfig } from "./registry.js";
 import { resolveProviderFromConnection } from "./registry.js";
 import type { Provider } from "./types.js";
+import {
+  isVellumManagedConnection,
+  MANAGED_ROUTABLE_PROVIDERS,
+} from "./vellum-model-routing.js";
 
 const log = getLogger("providers/connection-resolution");
 
@@ -113,7 +117,33 @@ export async function tryResolveProviderForConnectionName(
       `provider_connection "${connectionName}" not found in DB — check your config or run the boot-time backfill`,
     );
   }
-  if (expectedProvider && connection.provider !== expectedProvider) {
+  // The provider-agnostic Vellum-managed connection carries only the `vellum`
+  // sentinel, so the usual `connection.provider === expectedProvider` equality
+  // never holds. It routes by the resolving profile's declared provider
+  // instead (threaded as `providerOverride` below), which must be present AND
+  // one of the managed-routable upstreams — the platform proxy can only serve
+  // those. A `vellum` connection paired with a non-managed provider
+  // (openrouter/ollama/openai-compatible/…) is a genuine misconfiguration: it
+  // falls through to the mismatch recovery/error path below rather than routing
+  // as platform auth, which would otherwise fail as a soft miss and silently
+  // fall back to the default provider.
+  const isVellum = isVellumManagedConnection(connection);
+  if (isVellum && !expectedProvider) {
+    throw new ConnectionResolutionError(
+      connectionName,
+      "provider_mismatch",
+      `provider_connection "${connectionName}" is the provider-agnostic Vellum-managed connection but the resolving profile declared no provider — set the profile's provider so the upstream can be selected`,
+    );
+  }
+  const isVellumRoute =
+    isVellum &&
+    !!expectedProvider &&
+    MANAGED_ROUTABLE_PROVIDERS.has(expectedProvider);
+  if (
+    !isVellumRoute &&
+    expectedProvider &&
+    connection.provider !== expectedProvider
+  ) {
     // Mismatch usually means the config deep-merge inherited a stale
     // provider_connection from a lower layer (e.g. profile sets a BYOK
     // provider with "Any active" but the default layer's
@@ -169,7 +199,10 @@ export async function tryResolveProviderForConnectionName(
   // catch is specifically for in-flight failures that should not take
   // dispatch offline.
   try {
-    return await resolveProviderFromConnection(connection, config, { model });
+    return await resolveProviderFromConnection(connection, config, {
+      model,
+      providerOverride: isVellumRoute ? expectedProvider : undefined,
+    });
   } catch (err) {
     log.warn(
       { err, connectionName },

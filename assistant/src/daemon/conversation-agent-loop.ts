@@ -15,7 +15,6 @@ import type {
   CheckpointDecision,
 } from "../agent/loop.js";
 import { createAssistantMessage } from "../agent/message-types.js";
-import { commitAppTurnChanges } from "../apps/app-git-service.js";
 import type {
   ChannelId,
   InterfaceId,
@@ -35,6 +34,7 @@ import {
 import { getConfig } from "../config/loader.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { writeRelationshipState } from "../home/relationship-state-writer.js";
+import type { UserPromptSubmitInputContext } from "../hooks/types.js";
 import {
   clearSentryConversationContext,
   setSentryConversationContext,
@@ -58,7 +58,6 @@ import {
   recordSyntheticAgentErrorMessageLog,
 } from "../persistence/llm-request-log-store.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import type { UserPromptSubmitContext } from "../plugin-api/types.js";
 import type { ConversationGraphMemory } from "../plugins/defaults/memory/graph/conversation-graph-memory.js";
 import { enqueueMemoryRetrospectiveOnCompaction } from "../plugins/defaults/memory/memory-retrospective-enqueue.js";
 import { runHook } from "../plugins/pipeline.js";
@@ -234,8 +233,9 @@ async function withAbortWatchdog<T>(
         );
       }, timeoutMs);
     };
-    if (signal.aborted) arm();
-    else {
+    if (signal.aborted) {
+      arm();
+    } else {
       onAbort = arm;
       signal.addEventListener("abort", onAbort, { once: true });
     }
@@ -243,8 +243,12 @@ async function withAbortWatchdog<T>(
   try {
     return await Promise.race([work, watchdog]);
   } finally {
-    if (timer) clearTimeout(timer);
-    if (onAbort) signal.removeEventListener("abort", onAbort);
+    if (timer) {
+      clearTimeout(timer);
+    }
+    if (onAbort) {
+      signal.removeEventListener("abort", onAbort);
+    }
     void work.catch(() => {});
   }
 }
@@ -488,10 +492,13 @@ export async function runAgentLoopImpl(
   // fall back to the conversation's persisted origin channel.
   const capturedTurnChannelContext: TurnChannelContext = (() => {
     const live = ctx.getTurnChannelContext();
-    if (live) return live;
+    if (live) {
+      return live;
+    }
     const origin = getConversationOriginChannel(ctx.conversationId);
-    if (origin)
+    if (origin) {
       return { userMessageChannel: origin, assistantMessageChannel: origin };
+    }
     return {
       userMessageChannel: "vellum" as ChannelId,
       assistantMessageChannel: "vellum" as ChannelId,
@@ -504,13 +511,16 @@ export async function runAgentLoopImpl(
   // deriving from channel.
   const capturedTurnInterfaceContext: TurnInterfaceContext = (() => {
     const live = ctx.getTurnInterfaceContext();
-    if (live) return live;
+    if (live) {
+      return live;
+    }
     const origin = getConversationOriginInterface(ctx.conversationId);
-    if (origin)
+    if (origin) {
       return {
         userMessageInterface: origin,
         assistantMessageInterface: origin,
       };
+    }
     return {
       userMessageInterface: "web" as InterfaceId,
       assistantMessageInterface: "web" as InterfaceId,
@@ -643,7 +653,9 @@ export async function runAgentLoopImpl(
     // Placed inside try so the finally block still runs if onEvent throws.
     if (options?.isUserMessage && !ctx.surfaceActionRequestIds.has(reqId)) {
       for (const [surfaceId, entry] of ctx.pendingSurfaceActions) {
-        if (entry.surfaceType === "dynamic_page") continue;
+        if (entry.surfaceType === "dynamic_page") {
+          continue;
+        }
         onEvent({
           type: "ui_surface_complete",
           conversationId: ctx.conversationId,
@@ -659,7 +671,9 @@ export async function runAgentLoopImpl(
     const isSlackConversation = ctx.channelCapabilities?.channel === "slack";
     const loadCurrentSlackChronologicalContext =
       (): SlackChronologicalContext | null => {
-        if (!isSlackConversation) return null;
+        if (!isSlackConversation) {
+          return null;
+        }
         return loadSlackChronologicalContext(
           ctx.conversationId,
           ctx.channelCapabilities!,
@@ -678,10 +692,16 @@ export async function runAgentLoopImpl(
       messages: Message[],
       compactedMessages: number,
     ): SlackChronologicalContext | null => {
-      if (!isSlackConversation || compactedMessages <= 0) return null;
+      if (!isSlackConversation || compactedMessages <= 0) {
+        return null;
+      }
       const context = slackChronologicalContext;
-      if (!context) return null;
-      if (messages !== context.messages) return null;
+      if (!context) {
+        return null;
+      }
+      if (messages !== context.messages) {
+        return null;
+      }
       const end = context.compactableStartIndex + compactedMessages;
       if (
         end <= context.compactableStartIndex ||
@@ -904,15 +924,14 @@ export async function runAgentLoopImpl(
     // the chain settles on, in plugin registration order. The loop then reports
     // its own appended output via `AgentLoopRunResult.newMessages`, which
     // persistence consumes.
-    const userPromptCtx: UserPromptSubmitContext = {
+    const userPromptCtx: UserPromptSubmitInputContext = {
       conversationId: ctx.conversationId,
       userMessageId,
       requestId: reqId,
       prompt: options?.titleText ?? content,
       isHiddenPrompt: options?.isHiddenPrompt === true,
-      originalMessages: ctx.messages,
+      originalMessages: Object.freeze([...ctx.messages]),
       latestMessages: ctx.messages,
-      logger: rlog,
       modelProfileKey,
       isNonInteractive,
     };
@@ -1203,7 +1222,9 @@ export async function runAgentLoopImpl(
 
     // Reconstruct history
     const newMessages = lastRunNewMessages.map((msg) => {
-      if (msg.role !== "assistant") return msg;
+      if (msg.role !== "assistant") {
+        return msg;
+      }
       const { cleanedContent } = cleanAssistantContent(msg.content);
       const cleanedBlocks = cleanedContent as ContentBlock[];
       return { ...msg, content: cleanedBlocks };
@@ -1537,6 +1558,7 @@ export async function runAgentLoopImpl(
       const config = getConfig();
       const maxWait = config.workspaceGit?.turnCommitMaxWaitMs ?? 4000;
       const deadlineMs = Date.now() + maxWait;
+
       const commitTurnChangesFn = ctx.commitTurnChanges ?? commitTurnChanges;
       const commitPromise = commitTurnChangesFn(
         ctx.workingDir,
@@ -1556,9 +1578,6 @@ export async function runAgentLoopImpl(
           "Turn-boundary commit timed out — continuing without waiting (commit still runs in background)",
         );
       }
-
-      // Commit app changes (fire-and-forget — apps repo is separate from workspace)
-      void commitAppTurnChanges(ctx.conversationId, ctx.turnCount);
 
       // Recompute relationship-state.json at turn boundary (fire-and-forget).
       // The writer swallows its own errors, but we still guard with catch()
@@ -1800,7 +1819,9 @@ export async function applyCompactionResult(
 }
 
 function collapseRawResponses(rawResponses?: unknown[]): unknown | undefined {
-  if (!rawResponses || rawResponses.length === 0) return undefined;
+  if (!rawResponses || rawResponses.length === 0) {
+    return undefined;
+  }
   return rawResponses.length === 1 ? rawResponses[0] : rawResponses;
 }
 

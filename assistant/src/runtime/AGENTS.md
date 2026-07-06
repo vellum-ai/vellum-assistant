@@ -159,7 +159,7 @@ Channel approval flows use `requestId` (not `runId`) as the primary identifier:
 
 ### Channel verification: gateway-owned
 
-Verification SESSION state (sessions, secrets, rate limits, validate+consume) AND the channel-verified OUTCOME (status / verifiedAt / verifiedVia) are both gateway-owned. The gateway holds the `channel_verification_sessions` + `channel_guardian_rate_limits` tables (`gateway/src/db/session-store.ts`) and mints all secrets in `gateway/src/verification/session-service.ts`; the daemon holds no session or rate-limit state (its legacy tables were dropped by gateway data migration m0013).
+Verification SESSION state (sessions, secrets, rate limits, validate+consume) AND the channel-verified OUTCOME (status / verifiedAt / verifiedVia) are both gateway-owned. The gateway holds the `channel_verification_sessions` + `channel_guardian_rate_limits` tables (`gateway/src/db/session-store.ts`) and mints all secrets in `gateway/src/verification/session-service.ts`; the daemon holds no session or rate-limit state (its legacy tables were dropped by gateway data migration m0014).
 
 The daemon relays session lifecycle operations over the `verification_sessions_*` IPC routes via `assistant/src/channels/gateway-verification-sessions.ts` and keeps what is presentation: message composition and channel delivery (`channel-verification-routes.ts`, `verification-outbound-actions.ts`). `channel-verification-service.ts` retains only guardian-delivery reads (`getGuardianBinding`, `isGuardian`, `isGuardianBoundForChannel`).
 

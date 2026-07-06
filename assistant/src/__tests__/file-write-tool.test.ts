@@ -50,15 +50,16 @@ function setWorkspaceDir(dir: string): void {
 }
 
 import { PKB_WORKSPACE_SCOPE } from "../plugins/defaults/memory/pkb/types.js";
-import { getTool } from "../tools/registry.js";
+import { finalizeTool } from "../tools/tool-defaults.js";
 import type { Tool, ToolContext } from "../tools/types.js";
 
 let fileWriteTool: Tool;
 const testDirs: string[] = [];
 
 beforeAll(async () => {
-  await import("../tools/filesystem/write.js");
-  fileWriteTool = getTool("file_write")!;
+  const { fileWriteTool: definition } =
+    await import("../tools/filesystem/write.js");
+  fileWriteTool = finalizeTool(definition, "file_write");
 });
 
 function makeContext(workingDir: string): ToolContext {

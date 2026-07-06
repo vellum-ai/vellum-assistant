@@ -12,7 +12,15 @@
 // machinery. Memory config is real (default-enabled), flipped on disk for the
 // disabled case.
 
-import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  mock,
+  spyOn,
+  test,
+} from "bun:test";
 
 import { eq } from "drizzle-orm";
 
@@ -56,19 +64,14 @@ import {
   forkConversation,
   getMessages,
   updateMessageContent,
-  wipeConversation,
 } from "../persistence/conversation-crud.js";
 import { getMemoryDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/message-lexical.js";
 import type { MemoryJobType } from "../persistence/jobs-store.js";
-import {
-  getMemoryPersistenceHooks,
-  type MemoryPersistenceHooks,
-  registerMemoryPersistenceHooks,
-} from "../persistence/memory-lifecycle-hooks.js";
+import { enqueueMemoryJob } from "../persistence/jobs-store.js";
 import { memoryJobs } from "../persistence/schema/index.js";
-import { registerDefaultPluginPersistenceHooks } from "../plugins/defaults/index.js";
+import { memoryPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks.js";
 
 await initializeDb();
 
@@ -127,7 +130,6 @@ function setMemoryEnabled(enabled: boolean): void {
 describe("messages lexical-index dual-write", () => {
   beforeEach(() => {
     resetMemoryJobs();
-    registerDefaultPluginPersistenceHooks();
   });
 
   afterEach(() => {
@@ -202,16 +204,6 @@ describe("messages lexical-index dual-write", () => {
     }
   });
 
-  test("wipeConversation enqueues a purge_conversation_lexical job for the conversation", async () => {
-    const conv = createConversation("Lexical wipe thread");
-    await addMessage(conv.id, "user", "index me then wipe me");
-
-    resetMemoryJobs();
-    wipeConversation(conv.id);
-
-    expect(countJobs("purge_conversation_lexical", conv.id)).toBe(1);
-  });
-
   test("deleteConversation (direct, no route) enqueues a purge for the conversation", async () => {
     // Retrospective startup cleanup calls deleteConversation directly, bypassing
     // the HTTP route — the purge must still fire from the shared primitive.
@@ -222,6 +214,43 @@ describe("messages lexical-index dual-write", () => {
     deleteConversation(conv.id);
 
     expect(countJobs("purge_conversation_lexical", conv.id)).toBe(1);
+  });
+
+  test("deleteConversation fails pending conversation-keyed jobs but not the purge it enqueues", async () => {
+    const conv = createConversation("Cancel pending jobs thread");
+    await addMessage(conv.id, "user", "index me then delete me");
+
+    resetMemoryJobs();
+    enqueueMemoryJob("graph_extract", { conversationId: conv.id });
+
+    deleteConversation(conv.id);
+
+    const jobsByType = new Map(
+      getMemoryDb()!
+        .select({
+          type: memoryJobs.type,
+          status: memoryJobs.status,
+          payload: memoryJobs.payload,
+        })
+        .from(memoryJobs)
+        .all()
+        .filter((r) => {
+          try {
+            return (
+              (JSON.parse(r.payload) as { conversationId?: string })
+                .conversationId === conv.id
+            );
+          } catch {
+            return false;
+          }
+        })
+        .map((r) => [r.type, r.status]),
+    );
+
+    // The pre-existing conversation-keyed job is swept…
+    expect(jobsByType.get("graph_extract")).toBe("failed");
+    // …but the purge, enqueued after the sweep, stays runnable.
+    expect(jobsByType.get("purge_conversation_lexical")).toBe("pending");
   });
 
   test("deleteConversationGently (retrospective GC) enqueues a purge for the conversation", async () => {
@@ -334,48 +363,28 @@ describe("messages lexical-index dual-write", () => {
   });
 });
 
-// The delete paths must route their cleanup through the persistence-hook seam
-// rather than importing memory internals directly, so persistence stays
-// decoupled from the plugin: single-message deletes fire `onMessagesDeleted`,
-// and whole-conversation deletes fire `onConversationDeleted` from the shared
+// Whole-conversation deletes must fire the memory plugin's
+// `onConversationDeleted` hook from the shared
 // `deleteConversation`/`deleteConversationGently` primitive (covering every
 // caller, not just the HTTP route).
-describe("delete paths route through the persistence-hook seam", () => {
-  const deletedBatches: string[][] = [];
+describe("delete paths fire the memory persistence hook", () => {
   const deletedConversations: string[] = [];
-  const spyHooks: MemoryPersistenceHooks = {
-    onMessagePersisted() {},
-    onConversationForked() {},
-    onConversationWiped() {
-      return 0;
-    },
-    onConversationDeleted(id) {
-      deletedConversations.push(id);
-    },
-    onMessagesDeleted(ids) {
-      deletedBatches.push(ids);
-    },
-    async onAllConversationsCleared() {},
-    onWorkerStartup() {},
-    countMemoryBufferLines() {
-      return 0;
-    },
-  };
+  let conversationDeletedSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     resetMemoryJobs();
-    deletedBatches.length = 0;
     deletedConversations.length = 0;
-    registerMemoryPersistenceHooks(spyHooks);
+    conversationDeletedSpy = spyOn(
+      memoryPersistenceHooks,
+      "onConversationDeleted",
+    ).mockImplementation((id: string) => {
+      deletedConversations.push(id);
+    });
   });
 
   afterEach(() => {
-    // Restore the real memory hooks so later tests are unaffected.
-    registerDefaultPluginPersistenceHooks();
-  });
-
-  test("the spy hook is installed", () => {
-    expect(getMemoryPersistenceHooks()).toBe(spyHooks);
+    // Restore the real handler so later tests are unaffected.
+    conversationDeletedSpy.mockRestore();
   });
 
   test("deleteConversation fires onConversationDeleted (covers all callers, not just the route)", async () => {
@@ -396,31 +405,5 @@ describe("delete paths route through the persistence-hook seam", () => {
     await deleteConversationGently(conv.id);
 
     expect(deletedConversations).toEqual([conv.id]);
-  });
-
-  test("deleteMessageById fires onMessagesDeleted with the single id", async () => {
-    const conv = createConversation("Seam single delete");
-    const message = await addMessage(conv.id, "user", "delete me via seam");
-
-    deletedBatches.length = 0;
-    deleteMessageById(message.id);
-
-    expect(deletedBatches).toEqual([[message.id]]);
-  });
-
-  test("deleteLastExchange fires onMessagesDeleted with every removed id", async () => {
-    const conv = createConversation("Seam undo");
-    await addMessage(conv.id, "user", "first turn");
-    await addMessage(conv.id, "assistant", "first reply");
-    const lastUser = await addMessage(conv.id, "user", "undo this");
-    const lastAssistant = await addMessage(conv.id, "assistant", "and this");
-
-    deletedBatches.length = 0;
-    deleteLastExchange(conv.id);
-
-    expect(deletedBatches).toHaveLength(1);
-    expect(new Set(deletedBatches[0])).toEqual(
-      new Set([lastUser.id, lastAssistant.id]),
-    );
   });
 });

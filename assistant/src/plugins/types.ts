@@ -11,6 +11,7 @@
 
 import type { CompactionCircuitClosedEvent } from "../api/events/compaction-circuit-closed.js";
 import type { CompactionCircuitOpenEvent } from "../api/events/compaction-circuit-open.js";
+import type { HookEventOwner } from "../api/events/hook-event.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import type {
   ChannelCapabilities,
@@ -18,13 +19,13 @@ import type {
   InjectionMode,
 } from "../daemon/conversation-runtime-assembly.js";
 import type { TrustContext } from "../daemon/trust-context.js";
-import type { JobHandler } from "../persistence/jobs-worker.js";
 import type { HookFunction } from "../plugin-api/types.js";
 import type { Message } from "../providers/types.js";
 import type { SkillRoute } from "../runtime/skill-route-registry.js";
 import type { Tool } from "../tools/types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import type { ConversationGraphMemory } from "./defaults/memory/graph/conversation-graph-memory.js";
+import type { JobHandler } from "./defaults/memory/jobs-worker.js";
 
 // ─── Manifest ────────────────────────────────────────────────────────────────
 
@@ -336,13 +337,12 @@ export interface Injector {
 export type PluginRouteRegistration = SkillRoute;
 
 /**
- * A single background-job-handler contribution: a job `type` string paired with
- * the {@link JobHandler} that processes it. Plugins contribute these via the
- * `jobHandlers` field; bootstrap registers them into the global job-handler
- * registry, and the general job worker's registration entry
- * (`jobs/register-job-handlers.ts`) forwards the union into the worker dispatch
- * table. `type` must be globally unique across every plugin — dispatch is a
- * keyed lookup. See `plugins/job-handler-registry.ts`.
+ * A single background-job-handler entry: a job `type` string paired with the
+ * {@link JobHandler} that processes it. The memory plugin's handler list
+ * (`plugins/defaults/memory/job-handlers.ts`) is an array of these, registered
+ * directly into the worker's dispatch table from the plugin's `init` hook.
+ * `type` must be globally unique across every registered handler — dispatch is a
+ * keyed lookup.
  */
 export interface JobHandlerEntry {
   /** The job-queue type string this handler processes (globally unique). */
@@ -369,6 +369,18 @@ export interface JobHandlerEntry {
 // both assign in/out of slot entries under strict-function-types contravariance.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type PluginHooks = Record<string, HookFunction<any>>;
+
+/**
+ * A resolved hook plus its owner attribution, as surfaced by the hook
+ * collection layer to the pipeline. `owner` distinguishes a plugin hook
+ * (default or user, `{ kind: "plugin", id: <plugin name> }`) from a
+ * standalone-workspace hook (`{ kind: "workspace", id }`). The pipeline uses
+ * it to attribute per-hook side effects (e.g. the `hook_event` broadcast).
+ */
+export interface HookEntry<TCtx = unknown> {
+  readonly fn: HookFunction<TCtx>;
+  readonly owner: HookEventOwner;
+}
 
 /**
  * A registered plugin. Every field besides `manifest` is optional — a plugin
@@ -401,15 +413,6 @@ export interface Plugin {
    * injectors sharing an `order`. See `plugins/injector-registry.ts`.
    */
   injectors?: readonly Injector[];
-  /**
-   * Background-job handlers contributed to the general job worker. Bootstrap
-   * registers these into the global job-handler registry before `init()` runs,
-   * symmetric with `tools`/`routes`/`injectors`; the general worker's
-   * registration entry (`jobs/register-job-handlers.ts`) forwards the union into
-   * the worker dispatch table. Each `type` must be globally unique across every
-   * plugin. See `plugins/job-handler-registry.ts`.
-   */
-  jobHandlers?: readonly JobHandlerEntry[];
 }
 
 // ─── Errors ──────────────────────────────────────────────────────────────────

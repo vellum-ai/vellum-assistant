@@ -1103,6 +1103,13 @@ describe("applyRuntimeInjections — injection mode", () => {
       conversationId: "injection-mode-conv",
       isNonInteractive: false,
       modelProfileKey: "balanced",
+      logger: {
+        info: () => {},
+        warn: () => {},
+        error: () => {},
+        debug: () => {},
+      },
+      broadcast: () => {},
     };
     await postCompact(postCompactCtx);
     const result = postCompactCtx.history;
@@ -2637,6 +2644,22 @@ describe("applyRuntimeInjections — subagent status", () => {
     role: "user",
     content: [{ type: "text", text: "user message" }],
   };
+
+  // The `<active_subagents>` block is sourced from the live conversation
+  // (Conversation.getSubagentChildren delegates to the manager), so register
+  // a fallback fake carrying that delegation for the seeded children to
+  // surface.
+  beforeEach(() => {
+    setConversation(FALLBACK_CONVERSATION_ID, {
+      conversationId: FALLBACK_CONVERSATION_ID,
+      workingDir: "/sandbox",
+      workspaceTopLevelContext: "",
+      workspaceTopLevelDirty: false,
+      surfaceState: new Map(),
+      getSubagentChildren: () =>
+        getSubagentManager().getChildrenOf(FALLBACK_CONVERSATION_ID),
+    } as never);
+  });
 
   afterEach(() => {
     clearSeededSubagents();

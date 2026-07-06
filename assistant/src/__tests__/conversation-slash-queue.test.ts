@@ -256,10 +256,6 @@ mock.module("../workspace/turn-commit.js", () => ({
   commitTurnChanges: async () => {},
 }));
 
-mock.module("../apps/app-git-service.js", () => ({
-  commitAppTurnChanges: async () => {},
-}));
-
 mock.module("../contacts/canonical-guardian-store.js", () => ({
   listPendingCanonicalGuardianRequestsByDestinationConversation: () => [],
   listCanonicalGuardianRequests: () => [],

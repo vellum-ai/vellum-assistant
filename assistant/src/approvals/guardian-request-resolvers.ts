@@ -841,7 +841,7 @@ const accessRequestResolver: GuardianRequestResolver = {
 
     // Voice approvals: directly activate the trusted contact without minting
     // a verification session. The caller is already on the line and the
-    // relay server's in-call wait loop will detect the approved status.
+    // call setup flow's in-call wait loop will detect the approved status.
     if (channel === "phone") {
       let activation: Awaited<ReturnType<typeof activateMemberChannel>>;
       try {

@@ -53,13 +53,6 @@ const DEFAULT_MAX_OUTPUT_TOKENS = 64_000;
 interface ProfileAdvancedParamsProps {
   visibility: ProfileParamVisibility;
   isReadOnly: boolean;
-  /**
-   * Overrides `isReadOnly` for the Top P toggle/slider only. Top P is
-   * user-editable wherever it's visible — including managed-profile view mode,
-   * where the rest of the advanced params stay locked. Defaults to `isReadOnly`
-   * when omitted so callers that don't opt in keep the old behavior.
-   */
-  topPReadOnly?: boolean;
   model: string;
   /** Resolved catalog entry for the selected model (null if not in catalog). */
   selectedModel: {
@@ -253,7 +246,6 @@ function TokenBudgetField({
 export function ProfileAdvancedParams({
   visibility,
   isReadOnly,
-  topPReadOnly,
   model,
   selectedModel,
   defaultMaxOutputTokens,
@@ -303,10 +295,6 @@ export function ProfileAdvancedParams({
     contextWindowCeiling,
   );
 
-  // Top P stays editable even when the rest of the params are locked (managed
-  // view mode). Fall back to the shared `isReadOnly` when the caller omits the
-  // override.
-  const topPDisabled = topPReadOnly ?? isReadOnly;
 
   return (
     // space-y-4 matches the modal body's rhythm so each advanced param gets
@@ -343,7 +331,11 @@ export function ProfileAdvancedParams({
             Effort
           </label>
           <SegmentControl
-            items={EFFORT_OPTIONS.map((v) => ({ value: v, label: v }))}
+            items={EFFORT_OPTIONS.map((v) => ({
+              value: v,
+              label: v,
+              disabled: isReadOnly,
+            }))}
             value={effort}
             onChange={(v) => onEffortChange(v)}
             ariaLabel="Effort"
@@ -358,7 +350,11 @@ export function ProfileAdvancedParams({
             Speed
           </label>
           <SegmentControl
-            items={SPEED_OPTIONS.map((v) => ({ value: v, label: v }))}
+            items={SPEED_OPTIONS.map((v) => ({
+              value: v,
+              label: v,
+              disabled: isReadOnly,
+            }))}
             value={speed}
             onChange={(v) => onSpeedChange(v)}
             ariaLabel="Speed"
@@ -373,7 +369,11 @@ export function ProfileAdvancedParams({
             Verbosity
           </label>
           <SegmentControl
-            items={VERBOSITY_OPTIONS.map((v) => ({ value: v, label: v }))}
+            items={VERBOSITY_OPTIONS.map((v) => ({
+              value: v,
+              label: v,
+              disabled: isReadOnly,
+            }))}
             value={verbosity}
             onChange={(v) => onVerbosityChange(v)}
             ariaLabel="Verbosity"
@@ -420,7 +420,7 @@ export function ProfileAdvancedParams({
             checked={topPEnabled}
             onChange={(v) => onTopPEnabledChange(v)}
             label="Top P"
-            disabled={topPDisabled}
+            disabled={isReadOnly}
           />
           {topPEnabled && (
             <div className="flex items-center justify-between">
@@ -433,7 +433,7 @@ export function ProfileAdvancedParams({
                   min={0}
                   max={1}
                   step={0.01}
-                  disabled={topPDisabled}
+                  disabled={isReadOnly}
                   showValue
                   formatValue={(v) =>
                     typeof v === "number" ? v.toFixed(2) : String(v)
@@ -485,6 +485,7 @@ export function ProfileAdvancedParams({
             ).map((v) => ({
               value: v,
               label: `${v}`,
+              disabled: isReadOnly,
             }))}
             value={thinkingLevel}
             onChange={onThinkingLevelChange}
