@@ -37,6 +37,10 @@ import {
   resolveProfileParamVisibility,
 } from "@/domains/settings/ai/profile-param-visibility";
 import { deriveProfileDefaults } from "@/domains/settings/ai/profile-prefill";
+import {
+  MANAGED_ROUTABLE_PROVIDERS,
+  VELLUM_CONNECTION_PROVIDER,
+} from "@/domains/settings/ai/constants";
 import { isProviderSelectableForAssistant } from "@/domains/settings/ai/provider-availability";
 import type {
   ConnectionProvider,
@@ -51,6 +55,23 @@ import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
 // of selecting a provider.
 const CREATE_NEW_PROVIDER_SENTINEL = "__create_new_provider__";
 type EffortSelection = "inherit" | NonNullable<ProfileEntry["effort"]>;
+
+/**
+ * Whether a connection (identified by its stored `provider`) can back a profile
+ * whose provider is `selectedProvider`. The provider-agnostic Vellum-managed
+ * connection stores the `vellum` sentinel but serves every managed-routable
+ * provider, so it counts as available for those.
+ */
+function connectionServesProvider(
+  connectionProvider: string,
+  selectedProvider: string,
+): boolean {
+  if (connectionProvider === selectedProvider) return true;
+  return (
+    connectionProvider === VELLUM_CONNECTION_PROVIDER &&
+    MANAGED_ROUTABLE_PROVIDERS.has(selectedProvider)
+  );
+}
 
 export interface ProfileEditorModalProps {
   isOpen: boolean;
@@ -323,11 +344,15 @@ function ProfileEditorModalInner({
   }, [connections, locallyCreatedConnections]);
 
   // Connections matching the currently selected provider. Also used by
-  // the save handler for binding resolution.
+  // the save handler for binding resolution. The provider-agnostic `vellum`
+  // connection serves managed-routable providers, so it counts as available
+  // for those even though its own `provider` is the `vellum` sentinel.
   const availableConnectionsForProvider = useMemo(
     () =>
       provider
-        ? effectiveConnections.filter((c) => c.provider === provider)
+        ? effectiveConnections.filter((c) =>
+            connectionServesProvider(c.provider, provider),
+          )
         : [],
     [provider, effectiveConnections],
   );
@@ -369,8 +394,8 @@ function ProfileEditorModalInner({
     // Auto-select connection: if exactly one connection exists for the new
     // provider, select it automatically. If multiple exist, clear so the user
     // must pick. If zero, clear.
-    const connectionsForProvider = effectiveConnections.filter(
-      (c) => c.provider === newProvider,
+    const connectionsForProvider = effectiveConnections.filter((c) =>
+      connectionServesProvider(c.provider, newProvider),
     );
     setProviderConnection(
       connectionsForProvider.length === 1 ? connectionsForProvider[0].name : "",

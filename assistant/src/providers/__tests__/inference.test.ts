@@ -72,6 +72,24 @@ describe("migrateCreateProviderConnections", () => {
     const managed = listConnections(db, { provider: "vellum" });
     expect(managed.filter((c) => c.name === "vellum").length).toBe(1);
   });
+
+  test("seedCanonicalConnections does not clobber a user connection named vellum", () => {
+    const { db } = setupDb();
+    // `vellum` was not reserved before consolidation, so an install may already
+    // have a BYOK connection keyed `vellum`. Seeding must not rewrite it to the
+    // platform-auth sentinel.
+    createConnection(db, {
+      name: "vellum",
+      provider: "anthropic",
+      auth: { type: "api_key", credential: "credential/anthropic/api_key" },
+    });
+
+    seedCanonicalConnections(db);
+
+    const conn = getConnection(db, "vellum");
+    expect(conn?.provider).toBe("anthropic");
+    expect(conn?.auth.type).toBe("api_key");
+  });
 });
 
 // ---------------------------------------------------------------------------

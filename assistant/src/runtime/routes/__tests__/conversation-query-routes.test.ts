@@ -867,6 +867,35 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
     expect(savedProfile.provider_connection).toBe("vellum");
   });
 
+  test("Any active derivation skips orphaned legacy *-managed rows", async () => {
+    getDb().delete(providerConnections).run();
+    // Upgraded workspaces may still carry a legacy openai-managed row (hidden
+    // from the list route, deleted by a follow-up migration). It must not be
+    // auto-picked — the derivation should bind to `vellum` instead.
+    createConnection(getDb(), {
+      name: "openai-managed",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+    createConnection(getDb(), {
+      name: "vellum",
+      provider: "vellum",
+      auth: { type: "platform" },
+    });
+
+    await replaceProfileRoute.handler({
+      pathParams: { name: "custom" },
+      body: { provider: "openai", model: "gpt-5.5" },
+    });
+
+    const savedProfile = (
+      savedRawConfig?.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles.custom;
+    expect(savedProfile.provider_connection).toBe("vellum");
+  });
+
   test("auto-derives provider_connection for BYOK provider (Any active)", async () => {
     // Seed a fireworks connection in the DB.
     createConnection(getDb(), {

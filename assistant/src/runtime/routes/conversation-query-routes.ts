@@ -85,6 +85,7 @@ import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defa
 import {
   createConnection,
   getConnection,
+  LEGACY_MANAGED_CONNECTION_NAMES,
   listConnections,
   PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   VELLUM_MANAGED_CONNECTION_NAME,
@@ -1299,7 +1300,13 @@ async function handleReplaceInferenceProfile({
   if (!isManaged && fragment.provider && !fragment.provider_connection) {
     const provider = fragment.provider as string;
     const db = getDb();
-    const [active] = listConnections(db, { provider });
+    // Exclude the orphaned legacy `*-managed` rows: they may still linger in
+    // provider_connections on upgraded workspaces (hidden from the list route
+    // until a follow-up migration deletes them). Auto-binding to one would keep
+    // the profile stale and break it once those rows are removed.
+    const [active] = listConnections(db, { provider }).filter(
+      (c) => !LEGACY_MANAGED_CONNECTION_NAMES.has(c.name),
+    );
     if (active) {
       fragment.provider_connection = active.name;
     } else if (

@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { providerConnections } from "../../persistence/schema/inference.js";
+import { getLogger } from "../../util/logger.js";
 import { clearConnectionProviderCache } from "../registry.js";
 import { VELLUM_MANAGED_PROVIDER } from "../vellum-model-routing.js";
 import {
@@ -15,6 +16,8 @@ import {
   type ProviderConnection,
   VALID_CONNECTION_PROVIDERS,
 } from "./auth.js";
+
+const log = getLogger("providers/inference/connections");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -389,6 +392,26 @@ export const MANAGED_CONNECTION_NAMES: ReadonlySet<string> = new Set(
 export function seedCanonicalConnections(db: DrizzleDb): void {
   const now = Date.now();
   for (const { name, provider, auth, label } of CANONICAL_CONNECTIONS) {
+    // Never clobber a pre-existing user connection that happens to share this
+    // canonical name. `vellum` was not a reserved name before consolidation, so
+    // an install may already have a BYOK connection keyed `vellum` (with a real
+    // provider + api_key auth). Upserting it here would silently rewrite it to
+    // the platform-auth sentinel and make it managed/write-protected, breaking
+    // any profile that references the user's connection. Only seed/refresh when
+    // the row is absent or already our sentinel (same provider).
+    const existing = db
+      .select({ provider: providerConnections.provider })
+      .from(providerConnections)
+      .where(eq(providerConnections.name, name))
+      .get();
+    if (existing && existing.provider !== provider) {
+      log.warn(
+        { name, existingProvider: existing.provider },
+        `Skipping canonical seed for "${name}": a user-owned connection already claims this name.`,
+      );
+      continue;
+    }
+
     db.insert(providerConnections)
       .values({
         name,
