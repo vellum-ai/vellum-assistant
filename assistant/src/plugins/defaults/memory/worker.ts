@@ -18,7 +18,6 @@ import { getLogger } from "../../../util/logger.js";
 import { getMemoryWorkerPidPath } from "../../../util/platform.js";
 import { registerMemoryPluginJobHandlers } from "./job-handler-registration.js";
 import { startInProcessMemoryJobsWorker } from "./jobs-worker.js";
-import { registerMemoryPersistenceHooks } from "./persistence-lifecycle-seam.js";
 
 const log = getLogger("memory-worker-process");
 
@@ -46,13 +45,10 @@ async function main(): Promise<void> {
   writeFileSync(pidPath, String(process.pid), { flag: "w" });
   log.info({ pid: process.pid, pidPath }, "Memory worker process started");
 
-  // This process does not run plugin bootstrap, so self-register everything the
-  // worker dispatches from before starting it: the job handlers (the memory
-  // plugin's own plus the host's non-plugin domain handlers) and the memory
-  // persistence-lifecycle hooks (without which the fork-based retrospectives
-  // silently drop carried memory state).
+  // This process does not run plugin bootstrap, so self-register the job
+  // handlers the worker dispatches from before starting it — the memory
+  // plugin's own plus the host's non-plugin domain handlers.
   registerMemoryPluginJobHandlers();
-  registerMemoryPersistenceHooks();
 
   // Populate the tool registry (core built-ins + workspace tools), exactly as
   // the daemon and the schedule worker do at startup. Jobs in this process

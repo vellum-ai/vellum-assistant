@@ -1,18 +1,15 @@
 import { getConfig } from "../../../config/loader.js";
+import type { DrizzleDb } from "../../../persistence/db-connection.js";
 import {
   clearMessagesLexicalIndex,
   enqueueDeleteMessageLexical,
   enqueuePurgeConversationLexical,
 } from "../../../persistence/job-handlers/message-lexical.js";
+import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { getMemoryConfig } from "./config.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
 import { indexMessageNow } from "./indexer.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
-import type {
-  ConversationForkedEvent,
-  MemoryPersistenceHooks,
-  MessagePersistedEvent,
-} from "./persistence-lifecycle-seam.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
 import {
   forkActivationState,
@@ -28,13 +25,55 @@ import {
   seedEverInjectedFromSlugs,
 } from "./v3/ever-injected-store.js";
 
+/** A message that was just persisted to a conversation. */
+export interface MessagePersistedEvent {
+  messageId: string;
+  conversationId: string;
+  role: string;
+  /** Stored message content (JSON content-block array, serialized). */
+  content: string;
+  createdAt: number;
+  /** Trust class of the actor who produced the message, captured at persist time. */
+  provenanceTrustClass?: TrustClass;
+  /** True when the message was auto-sent by the client (e.g. a wake-up greeting). */
+  automated?: boolean;
+}
+
+/** A conversation was forked; the memory feature carries per-conversation state into the child. */
+export interface ConversationForkedEvent {
+  db: DrizzleDb;
+  sourceConversationId: string;
+  forkId: string;
+  /**
+   * Full-history fork (the child contains every source message). When false the
+   * fork is truncated and per-conversation memory state is re-derived from the
+   * child's visible window instead of copied wholesale.
+   */
+  isFullHistoryFork: boolean;
+  /** The copied messages, in order. Only `id` and `metadata` are read. */
+  messagesToCopy: ReadonlyArray<{ id: string; metadata: string | null }>;
+  /** Map of source message id → forked message id. */
+  forkedMessageIds: Map<string, string>;
+  /** Count of inherited messages behind the fork's compaction boundary. */
+  inheritedCompactedMessageCount: number;
+}
+
 /**
- * The memory feature's implementation of the persistence lifecycle seam
- * (`MemoryPersistenceHooks`). Registered into the seam at plugin bootstrap so
- * the persistence layer can drive memory side effects without importing memory
- * internals.
+ * The memory plugin's persistence-lifecycle handlers. The persistence layer's
+ * conversation write paths (`conversation-crud.ts`) import this object
+ * directly and invoke the relevant handler at each lifecycle point — the one
+ * documented persistence → memory back-import in the persistence-layering
+ * guard, to be unwound by exposing these events through the first-class
+ * `hooks` system.
+ *
+ * The direct import puts this module on an import cycle (persistence imports
+ * it; it transitively imports persistence). The cycle is benign: every
+ * binding on it is read at call time — the persistence call sites invoke the
+ * handlers inside functions, and this object references its imports only
+ * inside method bodies — so no module body ever observes a half-initialized
+ * module.
  */
-export const memoryPersistenceHooks: MemoryPersistenceHooks = {
+export const memoryPersistenceHooks = {
   async onMessagePersisted(event: MessagePersistedEvent): Promise<void> {
     await indexMessageNow({ ...event, scopeId: "default" }, getMemoryConfig());
   },

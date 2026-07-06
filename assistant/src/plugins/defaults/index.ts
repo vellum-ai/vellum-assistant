@@ -478,10 +478,7 @@ export function registerDefaultPluginInjectors(): void {
  * so integration tests that exercise the full agent loop have a
  * production-parity plugin stack. Use this in `beforeEach` of tests that
  * dispatch through pipelines with a terminal that assumes the default
- * plugin handles every op (e.g. compaction). Deliberately does NOT touch
- * the memory plugin's persistence-lifecycle seam — that is a memory-plugin
- * concept (`memory/persistence-lifecycle-seam.ts`), and tests that
- * exercise persistence side effects register it themselves.
+ * plugin handles every op (e.g. compaction).
  *
  * Tests that specifically need an empty hook registry (pipeline-unit tests)
  * should continue to call {@link resetHookRegistryForTests} directly.
