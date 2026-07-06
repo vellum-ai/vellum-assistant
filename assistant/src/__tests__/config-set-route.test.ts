@@ -102,17 +102,187 @@ describe("config_set route - request validation", () => {
     ).rejects.toThrow("`value` is required");
   });
 
-  test("accepts body with explicit null value", async () => {
-    rawConfig = { heartbeat: { activeHoursStart: "09:00" } };
+  test("accepts explicit null on a nullable scalar field (persists null)", async () => {
+    // `llmRequestLogRetentionMs` is schema-nullable (null = "no limit"), so an
+    // explicit-null set is a valid whole-config write and must persist as null.
+    rawConfig = { memory: { cleanup: { llmRequestLogRetentionMs: 86400000 } } };
     savedRaw = null;
     const result = await configSetRoute.handler({
-      body: { path: "heartbeat.activeHoursStart", value: null },
+      body: { path: "memory.cleanup.llmRequestLogRetentionMs", value: null },
     });
     expect(result).toEqual({ ok: true });
     expect(savedRaw).not.toBeNull();
-    const heartbeat = (savedRaw as unknown as Record<string, unknown>)
-      .heartbeat as Record<string, unknown>;
-    expect(heartbeat.activeHoursStart).toBeNull();
+    const cleanup = (
+      (savedRaw as unknown as Record<string, unknown>).memory as Record<
+        string,
+        unknown
+      >
+    ).cleanup as Record<string, unknown>;
+    expect(cleanup.llmRequestLogRetentionMs).toBeNull();
+  });
+
+  test("rejects a write whose merged config fails the schema (invalid enum)", async () => {
+    // `source` accepts only "managed" | "user"; "custom" is rejected. Using a
+    // non-managed profile so the generic schema gate fires (managed profiles
+    // hit the read-only guard first). The error must name the offending path
+    // and state nothing was written.
+    rawConfig = {
+      llm: {
+        profiles: {
+          "my-custom": {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+          },
+        },
+      },
+    };
+    savedRaw = null;
+    await expect(
+      configSetRoute.handler({
+        body: { path: "llm.profiles.my-custom.source", value: "custom" },
+      }),
+    ).rejects.toThrow(BadRequestError);
+    await expect(
+      configSetRoute.handler({
+        body: { path: "llm.profiles.my-custom.source", value: "custom" },
+      }),
+    ).rejects.toThrow(/llm\.profiles\.my-custom\.source: .*managed.*user/);
+    await expect(
+      configSetRoute.handler({
+        body: { path: "llm.profiles.my-custom.source", value: "custom" },
+      }),
+    ).rejects.toThrow(/nothing was written/);
+    // No write reached disk.
+    expect(savedRaw).toBeNull();
+  });
+
+  test("rejects a write introducing an unknown llm.callSites key", async () => {
+    rawConfig = {};
+    savedRaw = null;
+    await expect(
+      configSetRoute.handler({
+        body: {
+          path: "llm.callSites.doesNotExist.profile",
+          value: "balanced",
+        },
+      }),
+    ).rejects.toThrow(/llm\.callSites\.doesNotExist/);
+    expect(savedRaw).toBeNull();
+  });
+
+  test("null on an absent nullable scalar creates the path and persists explicit null", async () => {
+    // Sparse config: the path was never written. The explicit-null override
+    // (null = "no retention limit") must be persisted, not silently dropped —
+    // otherwise the effective value stays the schema default.
+    rawConfig = {};
+    savedRaw = null;
+    const result = await configSetRoute.handler({
+      body: { path: "memory.cleanup.llmRequestLogRetentionMs", value: null },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(savedRaw).not.toBeNull();
+    const cleanup = (
+      (savedRaw as unknown as Record<string, unknown>).memory as Record<
+        string,
+        unknown
+      >
+    ).cleanup as Record<string, unknown>;
+    expect("llmRequestLogRetentionMs" in cleanup).toBe(true);
+    expect(cleanup.llmRequestLogRetentionMs).toBeNull();
+    // The effective (schema-parsed) config reflects the override: explicit
+    // null survives parsing instead of being replaced by the default.
+    const { AssistantConfigSchema } = await import("../config/schema.js");
+    const effective = AssistantConfigSchema.parse(savedRaw);
+    expect(effective.memory.cleanup.llmRequestLogRetentionMs).toBeNull();
+  });
+
+  test("null on an absent object entry stays a no-op (no spurious null leaf)", async () => {
+    // Deleting a record entry that does not exist writes nothing at the path.
+    // Persisting explicit null there would fail the schema (ProfileEntry
+    // expects an object).
+    rawConfig = {
+      llm: {
+        profiles: {
+          "my-custom": {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+          },
+        },
+      },
+    };
+    savedRaw = null;
+    const result = await configSetRoute.handler({
+      body: { path: "llm.profiles.gemini-probe", value: null },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(savedRaw).not.toBeNull();
+    const profiles = (
+      (savedRaw as unknown as Record<string, unknown>).llm as Record<
+        string,
+        unknown
+      >
+    ).profiles as Record<string, unknown>;
+    expect("gemini-probe" in profiles).toBe(false);
+    expect(profiles["my-custom"]).toBeDefined();
+  });
+
+  test("clearing an object profile entry with null deletes it and validates as absent", async () => {
+    // `set llm.profiles.gemini-probe null` removes the entry. The merged config
+    // validates with the key absent (an explicit null would fail ProfileEntry).
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: {
+            source: "managed",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+          },
+          "gemini-probe": {
+            source: "user",
+            provider: "google",
+            model: "gemini-2.0-flash",
+          },
+        },
+      },
+    };
+    savedRaw = null;
+    const result = await configSetRoute.handler({
+      body: { path: "llm.profiles.gemini-probe", value: null },
+    });
+    expect(result).toEqual({ ok: true });
+    const profiles = (
+      (savedRaw as unknown as Record<string, unknown>).llm as Record<
+        string,
+        unknown
+      >
+    ).profiles as Record<string, unknown>;
+    expect("gemini-probe" in profiles).toBe(false);
+    expect(profiles.balanced).toBeDefined();
+  });
+
+  test("partial-path write validates the merged whole config, not just the fragment", async () => {
+    // `activeProfile` alone parses fine, but the merged config still carries an
+    // invalid on-disk profile-source, so the write is rejected on the merge.
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: {
+            source: "bogus",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+          },
+        },
+      },
+    };
+    savedRaw = null;
+    await expect(
+      configSetRoute.handler({
+        body: { path: "llm.activeProfile", value: "balanced" },
+      }),
+    ).rejects.toThrow(/llm\.profiles\.balanced\.source/);
+    expect(savedRaw).toBeNull();
   });
 
   test("rejects body missing path field", async () => {
@@ -211,7 +381,7 @@ describe("config_set route - request validation", () => {
     rawConfig = {
       llm: { default: { provider: "anthropic" } },
       calls: { enabled: true },
-      heartbeat: { activeHoursStart: "09:00", activeHoursEnd: "22:00" },
+      heartbeat: { activeHoursStart: 9, activeHoursEnd: 22 },
     };
     savedRaw = null;
     await configSetRoute.handler({
@@ -222,8 +392,8 @@ describe("config_set route - request validation", () => {
     expect(saved.llm).toEqual({ default: { provider: "anthropic" } });
     expect(saved.calls).toEqual({ enabled: true });
     expect(saved.heartbeat).toEqual({
-      activeHoursStart: "09:00",
-      activeHoursEnd: "22:00",
+      activeHoursStart: 9,
+      activeHoursEnd: 22,
     });
   });
 });
