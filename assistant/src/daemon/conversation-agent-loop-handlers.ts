@@ -168,6 +168,15 @@ export interface EventHandlerState {
   exchangeLlmCallCount: number;
   readonly exchangeRawResponses: unknown[];
   model: string;
+  /**
+   * Inference-profile override actually applied to the most recent LLM API
+   * call (overwritten, not accumulated — mirrors `model`), including any
+   * `PRE_MODEL_CALL` hook selection. Null when no override was in effect.
+   * Feeds usage attribution so the persisted profile matches what ran.
+   */
+  appliedOverrideProfile: string | null;
+  /** Whether `appliedOverrideProfile` was force-floated for the most recent call. */
+  appliedForceOverrideProfile: boolean;
   providerErrorUserMessage: string | null;
   persistProviderErrorAsAssistantMessage: boolean;
   lastAssistantMessageId: string | undefined;
@@ -383,6 +392,8 @@ export function createEventHandlerState(): EventHandlerState {
     exchangeLlmCallCount: 0,
     exchangeRawResponses: [],
     model: "",
+    appliedOverrideProfile: null,
+    appliedForceOverrideProfile: false,
     providerErrorUserMessage: null,
     persistProviderErrorAsAssistantMessage: false,
     lastAssistantMessageId: undefined,
@@ -2214,6 +2225,9 @@ function handleUsage(
   state.exchangeCacheReadInputTokens += event.cacheReadInputTokens ?? 0;
   state.exchangeOutputTokens += event.outputTokens;
   state.model = event.model;
+  state.appliedOverrideProfile = event.appliedOverrideProfile ?? null;
+  state.appliedForceOverrideProfile =
+    event.appliedForceOverrideProfile ?? false;
 
   // Feed the self-calibration loop: compare the pre-send estimate to the
   // provider's ground-truth inputTokens. `recordEstimate` silently ignores

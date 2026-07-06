@@ -363,6 +363,19 @@ export type AgentEvent =
        * for this call (e.g. legacy/stubbed code paths).
        */
       estimatedInputTokens?: number;
+      /**
+       * The inference-profile override actually applied to this call — the
+       * turn-level override, or the `PRE_MODEL_CALL` hook's per-message
+       * `modelProfile` when a model router seeded one. Null when no override
+       * was in effect. Usage attribution credits this so `llm_usage` rows
+       * report the profile that determined the request, not the pre-hook one.
+       */
+      appliedOverrideProfile?: string | null;
+      /**
+       * Whether `appliedOverrideProfile` was floated above the call-site
+       * profile for this call (mirrors the resolver's `forceOverrideProfile`).
+       */
+      appliedForceOverrideProfile?: boolean;
     }
   | {
       /**
@@ -1490,10 +1503,18 @@ export class AgentLoop {
         // share an `AgentLoop` instance but ought to inherit a different
         // profile correct — and matches how `callSite` is plumbed.
         const effectiveOverrideProfile = resolveEffectiveOverrideProfile();
+        // Tracks the override that actually determines this request so usage
+        // attribution can credit it. Seeded from the turn-level override and
+        // updated below if the `PRE_MODEL_CALL` hook routes to a different
+        // profile.
+        let appliedOverrideProfile: string | null =
+          effectiveOverrideProfile ?? null;
+        let appliedForceOverrideProfile = false;
         if (effectiveOverrideProfile) {
           providerConfig.overrideProfile = effectiveOverrideProfile;
           if (forceOverrideProfile) {
             providerConfig.forceOverrideProfile = true;
+            appliedForceOverrideProfile = true;
           }
         }
 
@@ -1683,12 +1704,16 @@ export class AgentLoop {
           const hookModelProfile = finalPreModelCtx.modelProfile?.trim();
           if (hookModelProfile) {
             providerConfig.overrideProfile = hookModelProfile;
+            appliedOverrideProfile = hookModelProfile;
             if (forceOverrideProfile) {
               providerConfig.forceOverrideProfile = true;
+              appliedForceOverrideProfile = true;
             }
           } else {
             delete providerConfig.overrideProfile;
             delete providerConfig.forceOverrideProfile;
+            appliedOverrideProfile = null;
+            appliedForceOverrideProfile = false;
           }
           // The hook owns the policy (it sees `callSite`/conversation and
           // self-gates); the loop honors whatever it decides.
@@ -1782,6 +1807,8 @@ export class AgentLoop {
           rawRequest: response.rawRequest,
           rawResponse: response.rawResponse,
           estimatedInputTokens: preSendEstimatedTokens,
+          appliedOverrideProfile,
+          appliedForceOverrideProfile,
         });
 
         // Flush any buffered streaming text from the substitution pipeline
