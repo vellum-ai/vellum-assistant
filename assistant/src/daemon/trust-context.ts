@@ -151,7 +151,10 @@ export function mapChatTypeToConversationType(
     case "im": // Slack DM
     case "private": // Telegram DM
       return "dm";
-    case "mpim": // Slack multi-party DM
+    // "mpim" is Slack's multi-party DM. The gateway normalizer currently
+    // collapses mpim into "channel", so this arm matches nothing from Slack
+    // today; it pins the correct mapping for the raw Slack vocabulary.
+    case "mpim":
     case "group": // Telegram group
     case "supergroup": // Telegram supergroup
       return "private";

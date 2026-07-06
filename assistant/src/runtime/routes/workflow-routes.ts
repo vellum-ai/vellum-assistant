@@ -9,8 +9,11 @@
 
 import { z } from "zod";
 
+import type { TrustContext } from "../../daemon/trust-context.js";
+import { buildChannelPermissionCellQuery } from "../../permissions/channel-permission-query.js";
 import { getAutoApproveThreshold } from "../../permissions/gateway-threshold-reader.js";
 import { isFullAccessThreshold } from "../../permissions/threshold.js";
+import { getBindingByConversation } from "../../persistence/external-conversation-store.js";
 import { manifestGrantsSideEffects } from "../../workflows/capabilities.js";
 import {
   getJournal,
@@ -44,6 +47,7 @@ export interface WorkflowRoutesDeps {
   >;
   listWorkflows: typeof listWorkflows;
   getAutoApproveThreshold: typeof getAutoApproveThreshold;
+  getBindingByConversation: typeof getBindingByConversation;
   getJournal: typeof getJournal;
 }
 
@@ -52,6 +56,7 @@ function defaultDeps(): WorkflowRoutesDeps {
     getManager: getWorkflowRunManager,
     listWorkflows,
     getAutoApproveThreshold,
+    getBindingByConversation,
     getJournal,
   };
 }
@@ -276,6 +281,37 @@ function handleAbortRun(id: string) {
   return { ok: true, runId: id };
 }
 
+/**
+ * Channel-permission cell coordinates for the resume consent gate, derived
+ * from the run's persisted originating trust snapshot — the same snapshot
+ * `resume()` replays — so the cell that governs the run's tool calls also
+ * governs the no-prompt resume. Without this, a strict channel cell would be
+ * skipped and the gate would decide off a possibly-looser global threshold.
+ *
+ * Runs without channel coordinates (desktop/internal origins, legacy rows
+ * with no snapshot) yield no query: the cascade then resolves conversation
+ * override → global, and the full-access gate is the sole consent check.
+ */
+function buildResumeCellQuery(
+  run: WorkflowRun,
+): ReturnType<typeof buildChannelPermissionCellQuery> {
+  if (!run.trust || typeof run.trust !== "object") {
+    return undefined;
+  }
+  const snapshot = run.trust as Partial<TrustContext>;
+  return buildChannelPermissionCellQuery({
+    sourceChannel: snapshot.sourceChannel,
+    trustClass: snapshot.trustClass,
+    channelConversationType: snapshot.conversationType,
+    // Slack channel-scoped cells key on the binding's external chat id —
+    // the same lookup conversation-tool-setup uses for live tool calls.
+    channelExternalId:
+      snapshot.sourceChannel === "slack" && run.conversationId
+        ? deps.getBindingByConversation(run.conversationId)?.externalChatId
+        : undefined,
+  });
+}
+
 async function handleResumeRun(id: string) {
   const manager = deps.getManager();
   // status() is the source of truth for existence, so 404 an unknown id here
@@ -296,9 +332,13 @@ async function handleResumeRun(id: string) {
   // the caller to the assistant. A read-only run (no declared tools/host
   // functions) resumes freely regardless of posture.
   if (manifestGrantsSideEffects(run.capabilities)) {
+    // The cell query makes the gate honor a strict channel-permission cell
+    // for channel-originated runs; without it the read would skip the cell
+    // tier and a full-access global would clear the gate the cell blocks.
     const threshold = await deps.getAutoApproveThreshold(
       run.conversationId ?? undefined,
       "conversation",
+      buildResumeCellQuery(run),
     );
     if (!isFullAccessThreshold(threshold)) {
       throw new ForbiddenError(

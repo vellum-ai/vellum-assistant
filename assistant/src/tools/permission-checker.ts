@@ -1,7 +1,7 @@
 import { getIsContainerized } from "../config/env-registry.js";
 import { mapApprovalProvenance } from "../permissions/approval-provenance.js";
+import { buildChannelPermissionCellQuery } from "../permissions/channel-permission-query.js";
 import {
-  buildChannelPermissionCellQuery,
   check,
   classifyRisk,
   generateAllowlistOptions,

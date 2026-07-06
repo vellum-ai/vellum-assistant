@@ -272,6 +272,30 @@ describe("channel-permission cell layer", () => {
     ).toBe("medium");
   });
 
+  test("a bare-null cell response is a transport failure, not a null-deref or a cached negative", async () => {
+    // The route contract always wraps the resolution ({ resolved: … }); a
+    // bare null is malformed. It must behave exactly like a transport
+    // failure: hot path falls to global, refresh keeps its prompt, nothing
+    // is cached so a real cell is seen as soon as the response is healthy.
+    ipcHandlers.set("get_conversation_threshold", () => null);
+    ipcHandlers.set("resolve_channel_permission_threshold", () => null);
+    setGlobals("high");
+
+    expect(
+      await getAutoApproveThreshold("conv-c12", "conversation", CELL_QUERY),
+    ).toBe("high");
+    expect(
+      await refreshAutoApproveThreshold("conv-c12", "conversation", CELL_QUERY),
+    ).toBeNull();
+
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "none", scope: "channel" },
+    }));
+    expect(
+      await getAutoApproveThreshold("conv-c12", "conversation", CELL_QUERY),
+    ).toBe("none");
+  });
+
   test("an invalid cell threshold value is treated as no cell", async () => {
     ipcHandlers.set("get_conversation_threshold", () => null);
     ipcHandlers.set("resolve_channel_permission_threshold", () => ({

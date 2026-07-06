@@ -94,11 +94,15 @@ mock.module("../util/logger.js", () => ({
 }));
 
 /**
- * Sentinel cell query the mocked checker returns. When set, the permission
+ * Sentinel cell query the mocked builder returns. When set, the permission
  * checker must thread it into every gateway threshold read for the
  * invocation — including the non-interactive guardian background read.
  */
 let cellQueryOverride: Record<string, unknown> | undefined;
+
+mock.module("../permissions/channel-permission-query.js", () => ({
+  buildChannelPermissionCellQuery: () => cellQueryOverride,
+}));
 
 mock.module("../permissions/checker.js", () => ({
   classifyRisk: async () => ({ level: riskOverride }),
@@ -112,7 +116,6 @@ mock.module("../permissions/checker.js", () => ({
   generateScopeOptions: () =>
     scopeOptionsOverride ?? [{ label: "/tmp", scope: "/tmp" }],
   getCachedAssessment: () => undefined,
-  buildChannelPermissionCellQuery: () => cellQueryOverride,
 }));
 
 mock.module("../telemetry/tool-usage-store.js", () => ({

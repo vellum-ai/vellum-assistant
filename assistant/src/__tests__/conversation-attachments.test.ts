@@ -33,7 +33,6 @@ mock.module("../permissions/checker.js", () => ({
   classifyRisk: () => Promise.resolve({ level: "low" }),
   generateAllowlistOptions: () => Promise.resolve([]),
   generateScopeOptions: () => [],
-  buildChannelPermissionCellQuery: () => undefined,
 }));
 
 mock.module("../permissions/trust-store.js", () => ({

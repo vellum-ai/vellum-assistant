@@ -2,12 +2,6 @@ import { createHash } from "node:crypto";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-import {
-  isChannelConversationType,
-  isTrustClass,
-  type ResolveChannelPermissionRequest,
-} from "@vellumai/gateway-client";
-
 import { getIsContainerized } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
 import { loadSkillCatalog, resolveSkillSelector } from "../config/skills.js";
@@ -39,6 +33,7 @@ import {
   type ApprovalContext,
   DefaultApprovalPolicy,
 } from "./approval-policy.js";
+import { buildChannelPermissionCellQuery } from "./channel-permission-query.js";
 import {
   getAutoApproveThreshold,
   refreshAutoApproveThreshold,
@@ -721,40 +716,6 @@ function isRetrospectiveSkillAuthoringGrant(
     );
   }
   return false;
-}
-
-/**
- * Build the permission-matrix cell query for this check: the channel
- * coordinates of the turn plus the actor's contact-type. Returns undefined
- * when the turn has no channel coordinates (e.g. an internal job with no
- * source channel) or the trust class isn't a recognized contact-type — the
- * threshold cascade then skips the matrix and resolves from the
- * conversation override / global defaults as before.
- *
- * Exported so every threshold read for one invocation derives the same
- * coordinates from one place: `check()` here plus the provenance and
- * non-interactive-guardian re-reads in `tools/permission-checker.ts` must
- * all consult the cell, or a follow-up read of a looser global could
- * silently override a stricter cell verdict.
- */
-export function buildChannelPermissionCellQuery(
-  policyContext?: PolicyContext,
-): ResolveChannelPermissionRequest | undefined {
-  const adapter = policyContext?.sourceChannel;
-  const trustClass = policyContext?.trustClass;
-  if (!adapter || !trustClass || !isTrustClass(trustClass)) {
-    return undefined;
-  }
-  return {
-    adapter,
-    channelType: isChannelConversationType(
-      policyContext.channelConversationType,
-    )
-      ? policyContext.channelConversationType
-      : undefined,
-    channelExternalId: policyContext.channelExternalId || undefined,
-    contactType: trustClass,
-  };
 }
 
 export async function check(

@@ -63,12 +63,16 @@ const channelPermissionCellCache = new Map<
 const CELL_CACHE_TTL_MS = 5_000;
 
 function cellCacheKey(query: ResolveChannelPermissionRequest): string {
-  return [
+  // JSON-encoded tuple rather than a delimiter join: channelExternalId is
+  // provider-supplied text, and an unescaped delimiter inside it could
+  // collide two coordinates onto one cache entry (letting a negative entry
+  // for one coordinate suppress a real cell for another).
+  return JSON.stringify([
     query.adapter,
-    query.channelType ?? "",
-    query.channelExternalId ?? "",
+    query.channelType ?? null,
+    query.channelExternalId ?? null,
     query.contactType,
-  ].join("|");
+  ]);
 }
 
 // ── Failure-coalescing log helper ────────────────────────────────────────────
@@ -241,9 +245,13 @@ export async function resolveChannelPermissionCell(
     channelType: query.channelType,
     channelExternalId: query.channelExternalId,
     contactType: query.contactType,
-  })) as { resolved: ResolvedChannelPermission | null } | undefined;
+  })) as { resolved: ResolvedChannelPermission | null } | null | undefined;
 
-  if (result === undefined) {
+  // The route contract always wraps the resolution (`{ resolved: … }`), so a
+  // bare null/undefined is a transport failure or a malformed response —
+  // treated as a failure (uncached, hot path falls to global, refresh keeps
+  // its prompt) rather than dereferenced.
+  if (result == null) {
     noteFailure(
       "channel_permission_cell",
       { adapter: query.adapter, contactType: query.contactType },
