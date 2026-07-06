@@ -286,11 +286,16 @@ describe("requireFreshApproval: non-interactive guardian denial", () => {
       makeContext({ isInteractive: false, trustClass: "guardian" }),
     );
 
-    const backgroundRead = thresholdReadLog.find(
-      (r) => r.executionContext === "background",
-    );
-    expect(backgroundRead).toBeDefined();
-    expect(backgroundRead?.cellQuery).toEqual(cellQueryOverride);
+    // Both threshold reads happen on this path — the provenance snapshot and
+    // the background auto-approve — and BOTH classify as "background" for a
+    // non-interactive guardian turn, so a find()-style assertion on the first
+    // matching entry can be satisfied by the provenance read alone. Assert
+    // the invariant directly instead: every threshold read for the
+    // invocation carries the cell query. One cell-less read is a bypass.
+    expect(thresholdReadLog.length).toBeGreaterThanOrEqual(2);
+    for (const read of thresholdReadLog) {
+      expect(read.cellQuery).toEqual(cellQueryOverride);
+    }
   });
 
   test("high-risk tools are denied in non-interactive guardian sessions", async () => {

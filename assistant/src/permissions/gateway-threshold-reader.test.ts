@@ -252,6 +252,27 @@ describe("channel-permission cell layer", () => {
     ).toBe("medium");
   });
 
+  test("the cell governs background and headless contexts, not just conversation", async () => {
+    // Non-interactive guardian sessions (background jobs, headless runs)
+    // read the "background"/"headless" global fields — but a strict channel
+    // cell must still beat them. Gating the cell branch on the conversation
+    // context would reintroduce the guardian background auto-approve bypass.
+    ipcHandlers.set("resolve_channel_permission_threshold", () => ({
+      resolved: { threshold: "none", scope: "channel" },
+    }));
+    setGlobals("high");
+
+    expect(
+      await getAutoApproveThreshold("conv-bg", "background", CELL_QUERY),
+    ).toBe("none");
+    expect(
+      await getAutoApproveThreshold(undefined, "headless", CELL_QUERY),
+    ).toBe("none");
+    expect(
+      await refreshAutoApproveThreshold("conv-bg", "background", CELL_QUERY),
+    ).toBe("none");
+  });
+
   test("without a cell query the cascade never consults the matrix", async () => {
     ipcHandlers.set("get_conversation_threshold", () => null);
     setGlobals("medium");
