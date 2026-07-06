@@ -437,23 +437,156 @@ function classifyCore(
           errorCategory: "vision_not_supported",
         };
       }
-      // Extract the provider detail after "API error (NNN): " prefix
-      const detailMatch = message.match(/API error \(\d+\):\s*(.+)/i);
-      const detail = detailMatch?.[1];
-      const suffix = detail
-        ? `: ${detail.length > 200 ? detail.slice(0, 200) + "…" : detail}`
-        : "";
-      return {
-        code: "PROVIDER_API",
-        userMessage: `The AI provider rejected the request (HTTP ${error.statusCode})${suffix}`,
-        retryable: true,
-        errorCategory: "provider_api_error",
-      };
+      return unclassifiedProviderRejectionClassification(error, message);
     }
   }
 
   // Regex fallback for non-ProviderError or ProviderError without statusCode
   return classifyByMessage(error, message);
+}
+
+/**
+ * Human-relevant fields pulled from an unclassified provider 4xx rejection.
+ * `detail` is the provider's own error-message string (e.g. "adaptive
+ * thinking is not supported on this model"); `errorType` is the provider's
+ * error class (e.g. "invalid_request_error"); `requestId` is diagnostic-only
+ * and never surfaced in user-facing copy.
+ */
+interface ProviderRejectionDetail {
+  detail?: string;
+  errorType?: string;
+  requestId?: string;
+}
+
+/**
+ * Parse the first JSON object embedded in `text`. Provider SDKs prefix the
+ * raw non-2xx body with the status number (e.g. `400 {"type":"error",…}`),
+ * so `JSON.parse` on the whole string fails; scanning from the first `{`
+ * recovers the envelope.
+ */
+function parseEmbeddedJsonObject(
+  text: string,
+): Record<string, unknown> | undefined {
+  const start = text.indexOf("{");
+  if (start === -1) {
+    return undefined;
+  }
+  try {
+    const parsed: unknown = JSON.parse(text.slice(start));
+    if (typeof parsed === "object" && parsed !== null) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Extract the provider's human-relevant detail, error class, and request id
+ * from an unclassified 4xx rejection. Prefers the structured `ProviderError`
+ * fields when the provider populated them, then falls back to the JSON
+ * envelope embedded in the error message (Anthropic: `{ error: { type,
+ * message } }`; OpenAI/OpenRouter: `{ error: { message, type, code } }`).
+ */
+function extractProviderRejectionDetail(
+  error: unknown,
+  message: string,
+): ProviderRejectionDetail {
+  const out: ProviderRejectionDetail = {};
+  if (error instanceof ProviderError) {
+    if (error.apiErrorType) {
+      out.errorType = error.apiErrorType;
+    }
+    if (error.requestId) {
+      out.requestId = error.requestId;
+    }
+  }
+
+  const rawBody =
+    error instanceof ProviderError && error.rawBody ? error.rawBody : message;
+  const parsed = parseEmbeddedJsonObject(rawBody);
+  if (parsed) {
+    const inner =
+      typeof parsed.error === "object" && parsed.error !== null
+        ? (parsed.error as Record<string, unknown>)
+        : undefined;
+    const detail = inner?.message ?? parsed.message;
+    if (typeof detail === "string" && detail.trim().length > 0) {
+      out.detail = detail.trim();
+    }
+    const type = inner?.type ?? parsed.type;
+    if (!out.errorType && typeof type === "string" && type.length > 0) {
+      out.errorType = type;
+    }
+    const requestId = parsed.request_id ?? parsed.requestId;
+    if (
+      !out.requestId &&
+      typeof requestId === "string" &&
+      requestId.length > 0
+    ) {
+      out.requestId = requestId;
+    }
+  }
+
+  // No JSON envelope — recover the plain-text detail after the
+  // "API error (NNN): " prefix, but only when it isn't itself a JSON blob
+  // (guard against leaking a malformed envelope verbatim).
+  if (!out.detail) {
+    const detailMatch = message.match(/API error \(\d+\):\s*(.+)/is);
+    const raw = detailMatch?.[1]?.trim();
+    if (raw && !raw.includes("{")) {
+      out.detail = raw;
+    }
+  }
+
+  return out;
+}
+
+/** Collapse whitespace and clamp a provider detail string for display. */
+function clampProviderDetail(detail: string): string {
+  const oneLine = detail.replace(/\s+/g, " ").trim();
+  const clamped = oneLine.length > 200 ? `${oneLine.slice(0, 200)}…` : oneLine;
+  return /[.!?…]$/.test(clamped) ? clamped : `${clamped}.`;
+}
+
+/**
+ * Classify a provider 4xx that matched none of the specific classifiers into
+ * an assistant-voice, plain-language message. The raw wire body (JSON
+ * envelope, HTTP status, request id) is deliberately kept out of the
+ * user-facing copy — it lives in the logs for diagnostics. When the provider
+ * flags the rejection as an `invalid_request_error`, the copy points the user
+ * at their model configuration, since that class most often means the request
+ * shape the assistant built is incompatible with the selected model.
+ */
+function unclassifiedProviderRejectionClassification(
+  error: unknown,
+  message: string,
+): Omit<ClassifiedConversationError, "debugDetails"> {
+  const { detail, errorType } = extractProviderRejectionDetail(error, message);
+
+  const configRelated =
+    typeof errorType === "string" && /invalid_request/i.test(errorType);
+
+  const parts: string[] = [
+    detail
+      ? `The model provider rejected this request: ${clampProviderDetail(detail)}`
+      : "The model provider rejected this request.",
+  ];
+  if (configRelated) {
+    parts.push(
+      "This usually means the assistant's model configuration isn't compatible with the selected model. Switching model profiles or reverting a recent change in Settings → Models & Services may fix it.",
+    );
+  } else {
+    parts.push("Please try again in a moment.");
+  }
+
+  return {
+    code: "PROVIDER_API",
+    userMessage: parts.join(" "),
+    retryable: true,
+    errorCategory: "provider_api_error",
+  };
 }
 
 /** Check whether an error message indicates a context-too-large failure. */

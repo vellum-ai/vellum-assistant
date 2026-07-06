@@ -385,6 +385,90 @@ describe("classifyConversationError", () => {
     });
   });
 
+  describe("unclassified provider 4xx rejections (friendly messaging)", () => {
+    it("surfaces the provider detail without dumping the raw JSON envelope, and hints at model config for invalid_request_error", () => {
+      // The production incident: a config-induced Anthropic 400 whose raw wire
+      // body was persisted verbatim as the assistant message.
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"invalid_request_error","message":"adaptive thinking is not supported on this model"},"request_id":"req_011CabcdEFGH"}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_api_error");
+      expect(result.retryable).toBe(true);
+
+      // The human-relevant provider detail is surfaced …
+      expect(result.userMessage).toContain(
+        "adaptive thinking is not supported on this model",
+      );
+      // … but no raw JSON envelope, request id, or HTTP-status jargon leaks.
+      expect(result.userMessage).not.toContain("{");
+      expect(result.userMessage).not.toContain("}");
+      expect(result.userMessage).not.toContain("invalid_request_error");
+      expect(result.userMessage).not.toContain("request_id");
+      expect(result.userMessage).not.toContain("req_011CabcdEFGH");
+      expect(result.userMessage).not.toMatch(/HTTP\s*400/i);
+      expect(result.userMessage).not.toMatch(/\bHTTP\b/);
+
+      // invalid_request_error → point the user at model configuration.
+      expect(result.userMessage).toMatch(/model configuration/i);
+      expect(result.userMessage).toContain("Settings → Models & Services");
+    });
+
+    it("reads the detail and error class from structured ProviderError fields when present", () => {
+      const err = new ProviderError(
+        "Provider rejected the request",
+        "openai",
+        400,
+        {
+          apiErrorType: "invalid_request_error",
+          requestId: "req_openai_123",
+          rawBody:
+            '{"error":{"message":"temperature is not supported with this model","type":"invalid_request_error","code":"unsupported_parameter"}}',
+        },
+      );
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.userMessage).toContain(
+        "temperature is not supported with this model",
+      );
+      expect(result.userMessage).not.toContain("{");
+      expect(result.userMessage).toMatch(/model configuration/i);
+    });
+
+    it("omits the model-config hint for non-invalid_request 4xx classes", () => {
+      const err = new ProviderError(
+        'Anthropic API error (400): 400 {"type":"error","error":{"type":"not_found_error","message":"model: unknown-model-xyz"}}',
+        "anthropic",
+        400,
+      );
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.userMessage).toContain("model: unknown-model-xyz");
+      expect(result.userMessage).not.toMatch(/model configuration/i);
+      expect(result.userMessage).toMatch(/try again/i);
+      expect(result.userMessage).not.toContain("{");
+    });
+
+    it("falls back to a generic assistant-voice message when no detail can be extracted", () => {
+      const err = new ProviderError("Bad Request", "anthropic", 400);
+      const result = classifyConversationError(err, baseCtx);
+
+      expect(result.code).toBe("PROVIDER_API");
+      expect(result.errorCategory).toBe("provider_api_error");
+      expect(result.userMessage).toContain(
+        "The model provider rejected this request",
+      );
+      expect(result.userMessage).not.toContain("{");
+      expect(result.userMessage).not.toMatch(/\bHTTP\b/);
+    });
+  });
+
   describe("ordering errors (tool_use/tool_result mismatches)", () => {
     const cases = [
       "tool_result block not immediately after tool_use block",
