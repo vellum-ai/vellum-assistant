@@ -50,7 +50,11 @@ const { useLiveVoiceStore } = await import(
 // ---------------------------------------------------------------------------
 
 class FakeClient {
-  connectArgs: { assistantId: string; conversationId?: string } | null = null;
+  connectArgs: {
+    assistantId: string;
+    conversationId?: string;
+    turnDetection?: "manual" | "server_vad";
+  } | null = null;
   sentAudio: ArrayBuffer[] = [];
   pttReleaseCount = 0;
   interruptCount = 0;
@@ -78,6 +82,7 @@ class FakeClient {
   async connect(args: {
     assistantId: string;
     conversationId?: string;
+    turnDetection?: "manual" | "server_vad";
   }): Promise<void> {
     this.connectArgs = args;
   }
@@ -216,9 +221,12 @@ function renderController() {
 }
 
 /** Start a session and drive it to the listening state (ready + capture). */
-async function startListening(h: ReturnType<typeof renderController>) {
+async function startListening(
+  h: ReturnType<typeof renderController>,
+  options?: { handsFree?: boolean },
+) {
   await act(async () => {
-    await h.view.result.current.start("assistant-1", "conv-1");
+    await h.view.result.current.start("assistant-1", "conv-1", options);
   });
   // `ready` kicks off capture; await the microtask that resolves capture.start.
   await act(async () => {
@@ -472,6 +480,219 @@ describe("automatic ptt_release", () => {
 
     expect(h.client.pttReleaseCount).toBe(0);
     expect(h.view.result.current.state).toBe("listening");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Hands-free mode (server turn detection)
+// ---------------------------------------------------------------------------
+
+describe("hands-free mode", () => {
+  /** Drive one full server-VAD turn: speech → utterance end → response. */
+  async function driveTurn(
+    h: ReturnType<typeof renderController>,
+    seq: number,
+    turnId: string,
+    text: string,
+  ) {
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq });
+      h.client.emit("sttPartial", {
+        type: "stt_partial",
+        seq: seq + 1,
+        text: text.slice(0, 3),
+      });
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: seq + 2,
+        reason: "silence",
+      });
+      h.client.emit("sttFinal", { type: "stt_final", seq: seq + 3, text });
+      h.client.emit("thinking", { type: "thinking", seq: seq + 4, turnId });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: seq + 5,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+    await act(async () => {
+      h.client.emit("ttsDone", { type: "tts_done", seq: seq + 6, turnId });
+      h.player.finishPlayback();
+      await Promise.resolve();
+    });
+  }
+
+  test("connects with server_vad turn detection", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    expect(h.client.connectArgs).toEqual({
+      assistantId: "assistant-1",
+      conversationId: "conv-1",
+      turnDetection: "server_vad",
+    });
+    expect(h.view.result.current.state).toBe("listening");
+  });
+
+  test("runs two full turns on one socket without a second client or ptt_release", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    await driveTurn(h, 2, "t1", "hello");
+    // Multi-turn: tts_done drains playback but does NOT tear down.
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.closed).toBe(false);
+    expect(h.getCapture().shutdownCount).toBe(0);
+
+    // Forwarding stayed on for the whole session (full duplex).
+    act(() => {
+      h.getCapture().pushChunk(pcmChunk(20));
+    });
+    expect(h.client.sentAudio).toHaveLength(1);
+
+    await driveTurn(h, 10, "t2", "again");
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.view.result.current.finalTranscript).toBe("again");
+
+    // Same client and mic for the whole conversation; the server owns turn
+    // taking (no client ptt_release), and only stop() ends the session.
+    expect(h.client.pttReleaseCount).toBe(0);
+    expect(h.getCapture().startCount).toBe(1);
+    expect(h.client.closed).toBe(false);
+
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+    expect(h.view.result.current.state).toBe("idle");
+    expect(h.client.ended).toBe(true);
+  });
+
+  test("speech_started resets the user transcripts for the new utterance", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    await driveTurn(h, 2, "t1", "hello");
+    expect(h.view.result.current.finalTranscript).toBe("hello");
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 10 });
+    });
+    expect(h.view.result.current.finalTranscript).toBe("");
+    expect(h.view.result.current.partialTranscript).toBe("");
+  });
+
+  test("speech_started while speaking stops the player and returns to listening", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 3,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+    expect(h.player.isPlaying).toBe(true);
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 4 });
+    });
+
+    // Tail playback is flushed immediately and the session keeps running.
+    expect(h.player.isPlaying).toBe(false);
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.closed).toBe(false);
+    expect(h.client.interruptCount).toBe(0);
+  });
+
+  test("turn_cancelled stops the player and returns to listening", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 3,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.player.isPlaying).toBe(true);
+
+    // Barge-in: speech_started precedes turn_cancelled on the wire.
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 4 });
+      h.client.emit("turnCancelled", {
+        type: "turn_cancelled",
+        seq: 5,
+        turnId: "t1",
+      });
+    });
+
+    expect(h.player.isPlaying).toBe(false);
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.closed).toBe(false);
+
+    // The session continues into the next turn on the same socket.
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 6, turnId: "t2" });
+    });
+    expect(h.view.result.current.state).toBe("thinking");
+  });
+
+  test("client-local silence auto-release is inactive", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // Speech followed by a silence window well past the manual-mode release
+    // threshold: the server owns utterance boundaries, so no ptt_release.
+    act(() => {
+      h.getCapture().pushAmplitude(0.1);
+      h.getCapture().pushChunk(pcmChunk(200));
+      h.getCapture().pushAmplitude(0.0);
+      h.getCapture().pushChunk(pcmChunk(2000));
+    });
+
+    expect(h.client.pttReleaseCount).toBe(0);
+    expect(h.view.result.current.state).toBe("listening");
+    // Audio (speech and silence) keeps streaming to the server VAD.
+    expect(h.client.sentAudio).toHaveLength(2);
+  });
+
+  test("client-local amplitude barge-in is inactive while the assistant speaks", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 3,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+
+    act(() => {
+      h.getCapture().pushAmplitude(0.3); // over BARGE_IN_AMPLITUDE_THRESHOLD
+    });
+
+    // The server detects barge-in from the forwarded audio; the client never
+    // interrupts or stops playback on amplitude alone.
+    expect(h.client.interruptCount).toBe(0);
+    expect(h.player.isPlaying).toBe(true);
+    expect(h.view.result.current.state).toBe("speaking");
   });
 });
 
