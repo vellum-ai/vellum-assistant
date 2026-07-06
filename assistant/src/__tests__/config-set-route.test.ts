@@ -171,6 +171,63 @@ describe("config_set route - request validation", () => {
     expect(savedRaw).toBeNull();
   });
 
+  test("null on an absent nullable scalar creates the path and persists explicit null", async () => {
+    // Sparse config: the path was never written. The explicit-null override
+    // (null = "no retention limit") must be persisted, not silently dropped —
+    // otherwise the effective value stays the schema default.
+    rawConfig = {};
+    savedRaw = null;
+    const result = await configSetRoute.handler({
+      body: { path: "memory.cleanup.llmRequestLogRetentionMs", value: null },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(savedRaw).not.toBeNull();
+    const cleanup = (
+      (savedRaw as unknown as Record<string, unknown>).memory as Record<
+        string,
+        unknown
+      >
+    ).cleanup as Record<string, unknown>;
+    expect("llmRequestLogRetentionMs" in cleanup).toBe(true);
+    expect(cleanup.llmRequestLogRetentionMs).toBeNull();
+    // The effective (schema-parsed) config reflects the override: explicit
+    // null survives parsing instead of being replaced by the default.
+    const { AssistantConfigSchema } = await import("../config/schema.js");
+    const effective = AssistantConfigSchema.parse(savedRaw);
+    expect(effective.memory.cleanup.llmRequestLogRetentionMs).toBeNull();
+  });
+
+  test("null on an absent object entry stays a no-op (no spurious null leaf)", async () => {
+    // Deleting a record entry that does not exist writes nothing at the path.
+    // Persisting explicit null there would fail the schema (ProfileEntry
+    // expects an object).
+    rawConfig = {
+      llm: {
+        profiles: {
+          "my-custom": {
+            source: "user",
+            provider: "anthropic",
+            model: "claude-sonnet-4-6",
+          },
+        },
+      },
+    };
+    savedRaw = null;
+    const result = await configSetRoute.handler({
+      body: { path: "llm.profiles.gemini-probe", value: null },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(savedRaw).not.toBeNull();
+    const profiles = (
+      (savedRaw as unknown as Record<string, unknown>).llm as Record<
+        string,
+        unknown
+      >
+    ).profiles as Record<string, unknown>;
+    expect("gemini-probe" in profiles).toBe(false);
+    expect(profiles["my-custom"]).toBeDefined();
+  });
+
   test("clearing an object profile entry with null deletes it and validates as absent", async () => {
     // `set llm.profiles.gemini-probe null` removes the entry. The merged config
     // validates with the key absent (an explicit null would fail ProfileEntry).

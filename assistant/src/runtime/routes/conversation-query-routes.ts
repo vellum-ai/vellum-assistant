@@ -1115,32 +1115,48 @@ async function handlePatchConfig({ body }: RouteHandlerArgs) {
  *   as absent, not as `null` (which `ProfileEntry` rejects).
  * - **Existing value is a scalar / null / array**: assign `null`, preserving
  *   nullable fields (e.g. `memory.cleanup.llmRequestLogRetentionMs`).
- * - **Key absent**: no-op — assigning `null` to a missing key would persist a
- *   spurious leaf.
+ * - **Key absent**: schema-directed. A sparse config file usually omits the
+ *   key even when the field is meaningful, so "absent" cannot uniformly mean
+ *   no-op: `set memory.cleanup.llmRequestLogRetentionMs null` against a
+ *   config that never wrote that path must still persist the explicit-null
+ *   override (null = "no limit"), or the effective value silently stays the
+ *   schema default. `getSchemaAtPath` decides: when the leaf schema accepts
+ *   `null` (a nullable field where null is a meaningful value), the path is
+ *   created and explicit `null` persisted — the merged-config validation then
+ *   has the final say, surfacing cross-field constraints as a rejection
+ *   instead of a silent no-op. When it rejects `null` or the path has no
+ *   object-shape schema (record entries like `llm.profiles.*` /
+ *   `llm.callSites.*`, where null means "delete"), clearing a nonexistent
+ *   entry stays a no-op.
  */
 function clearLeafForNullSet(raw: Record<string, unknown>, path: string): void {
   const keys = path.split(".");
-  let parent = raw;
+  let parent: Record<string, unknown> | null = raw;
   for (let i = 0; i < keys.length - 1; i++) {
-    const next = parent[keys[i]!];
+    const next: unknown = parent[keys[i]!];
     if (next == null || typeof next !== "object" || Array.isArray(next)) {
-      return;
+      parent = null;
+      break;
     }
     parent = next as Record<string, unknown>;
   }
   const leaf = keys[keys.length - 1]!;
-  if (!(leaf in parent)) {
+  if (parent != null && leaf in parent) {
+    const existing = parent[leaf];
+    if (
+      existing != null &&
+      typeof existing === "object" &&
+      !Array.isArray(existing)
+    ) {
+      delete parent[leaf];
+    } else {
+      parent[leaf] = null;
+    }
     return;
   }
-  const existing = parent[leaf];
-  if (
-    existing != null &&
-    typeof existing === "object" &&
-    !Array.isArray(existing)
-  ) {
-    delete parent[leaf];
-  } else {
-    parent[leaf] = null;
+  const leafSchema = getSchemaAtPath(AssistantConfigSchema, path);
+  if (leafSchema != null && leafSchema.safeParse(null).success) {
+    setNestedValue(raw, path, null);
   }
 }
 
