@@ -93,7 +93,10 @@ const UpsertContactRequestSchema = z.object({
     .describe(
       "Existing contact id to update; omit to create or match by channel",
     ),
-  displayName: z.string().optional(),
+  displayName: z
+    .string()
+    .min(1)
+    .describe("Required on every upsert, including updates by id"),
   notes: z.string().nullable().optional(),
   contactType: z.string().optional(),
   assistantMetadata: z

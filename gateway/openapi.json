@@ -24,7 +24,11 @@
                     "description": "Existing contact id to update; omit to create or match by channel",
                     "type": "string"
                   },
-                  "displayName": { "type": "string" },
+                  "displayName": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "Required on every upsert, including updates by id"
+                  },
                   "notes": {
                     "anyOf": [{ "type": "string" }, { "type": "null" }]
                   },
@@ -64,7 +68,8 @@
                       "required": ["type", "address"]
                     }
                   }
-                }
+                },
+                "required": ["displayName"]
               }
             }
           }
