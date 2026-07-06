@@ -86,41 +86,107 @@ export async function resolveTelephonyTtsCapability(): Promise<TelephonyTtsCapab
 export async function evaluateTelephonyTtsPlayability(
   providerId: string,
 ): Promise<TelephonyTtsCapability> {
+  const result = await findTtsProviderGap(
+    providerId,
+    (entry) => entry.mediaStreamPlayback.outputFormat !== "none",
+  );
+  if (result.gap === null) {
+    return { status: "playable", providerId: result.entry.id };
+  }
+
+  switch (result.gap.kind) {
+    case "unknown-provider":
+      // Unknown providers have no declared playable format.
+      return {
+        status: "not-playable",
+        providerId,
+        reason: "unsupported-format",
+      };
+    case "unsupported-capability":
+      return {
+        status: "not-playable",
+        providerId: result.gap.entry.id,
+        reason: "unsupported-format",
+      };
+    case "missing-credentials":
+      return {
+        status: "not-playable",
+        providerId: result.gap.entry.id,
+        reason: "missing-credentials",
+      };
+    case "missing-fish-audio-reference-id":
+      return {
+        status: "not-playable",
+        providerId: result.gap.entry.id,
+        reason: "missing-fish-audio-reference-id",
+      };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Shared provider-gap skeleton
+// ---------------------------------------------------------------------------
+
+/** A required secret declared by a TTS catalog entry. */
+export type TtsProviderSecret =
+  TtsProviderCatalogEntry["secretRequirements"][number];
+
+/**
+ * Why a TTS provider fails a capability preflight, before the caller maps it
+ * onto its own transport-specific result/message shape.
+ */
+export type TtsProviderGap =
+  | { kind: "unknown-provider" }
+  | { kind: "unsupported-capability"; entry: TtsProviderCatalogEntry }
+  | {
+      kind: "missing-credentials";
+      entry: TtsProviderCatalogEntry;
+      secret: TtsProviderSecret;
+    }
+  | { kind: "missing-fish-audio-reference-id"; entry: TtsProviderCatalogEntry };
+
+/** Result of {@link findTtsProviderGap}: the first gap found, or none. */
+export type TtsProviderGapResult =
+  | { gap: null; entry: TtsProviderCatalogEntry }
+  | { gap: TtsProviderGap };
+
+/**
+ * Run the shared TTS-provider preflight skeleton: catalog lookup →
+ * transport-specific capability predicate → required-secret resolution →
+ * fish-audio referenceId invariant. Returns the first gap found, in that
+ * order, or the catalog entry when the provider passes every check.
+ *
+ * Shared by {@link evaluateTelephonyTtsPlayability} (predicate:
+ * media-stream-playable output format) and the live-voice credential
+ * preflight (predicate: streaming synthesis support) so the two transports
+ * stay behaviorally aligned everywhere except the capability itself.
+ */
+export async function findTtsProviderGap(
+  providerId: string,
+  supportsCapability: (entry: TtsProviderCatalogEntry) => boolean,
+): Promise<TtsProviderGapResult> {
   let entry: TtsProviderCatalogEntry;
   try {
     entry = getCatalogProvider(providerId);
   } catch {
-    // Unknown providers have no declared playable format.
-    return { status: "not-playable", providerId, reason: "unsupported-format" };
+    return { gap: { kind: "unknown-provider" } };
   }
 
-  if (entry.mediaStreamPlayback.outputFormat === "none") {
-    return {
-      status: "not-playable",
-      providerId: entry.id,
-      reason: "unsupported-format",
-    };
+  if (!supportsCapability(entry)) {
+    return { gap: { kind: "unsupported-capability", entry } };
   }
 
   for (const secret of entry.secretRequirements) {
     if (!(await ttsSecretResolves(secret.credentialStoreKey))) {
-      return {
-        status: "not-playable",
-        providerId: entry.id,
-        reason: "missing-credentials",
-      };
+      return { gap: { kind: "missing-credentials", entry, secret } };
     }
   }
 
   if (entry.id === "fish-audio" && !fishAudioReferenceIdConfigured()) {
-    return {
-      status: "not-playable",
-      providerId: entry.id,
-      reason: "missing-fish-audio-reference-id",
-    };
+    return { gap: { kind: "missing-fish-audio-reference-id", entry } };
   }
 
-  return { status: "playable", providerId: entry.id };
+  return { gap: null, entry };
 }
 
 /**

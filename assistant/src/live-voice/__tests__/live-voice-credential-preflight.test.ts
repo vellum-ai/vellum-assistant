@@ -38,23 +38,30 @@ const realConfigLoaderModule = {
 
 // -- Mutable stub state --------------------------------------------------------
 
+import type { ResolveStreamingTranscriberOptions } from "../../providers/speech-to-text/resolve.js";
 import type {
   BatchTranscriber,
   StreamingTranscriber,
 } from "../../stt/types.js";
 
 let streamingTranscriber: StreamingTranscriber | null;
+let resolveStreamingImpl: (
+  options: ResolveStreamingTranscriberOptions,
+) => Promise<StreamingTranscriber | null>;
 let batchTranscriber: BatchTranscriber | null;
 let providerKeys: Record<string, string>;
 let sttProvider: string;
 let ttsProvider: string;
+let ttsProviderConfigs: Record<string, unknown>;
 
 mock.module("../../providers/speech-to-text/resolve.js", () => ({
   ...realSttResolveModule,
-  resolveStreamingTranscriber: async () =>
+  resolveStreamingTranscriber: async (
+    options?: ResolveStreamingTranscriberOptions,
+  ) =>
     preflightMocksActive
-      ? streamingTranscriber
-      : realSttResolveModule.resolveStreamingTranscriber(),
+      ? resolveStreamingImpl(options ?? {})
+      : realSttResolveModule.resolveStreamingTranscriber(options),
   resolveBatchTranscriber: async () =>
     preflightMocksActive
       ? batchTranscriber
@@ -80,7 +87,7 @@ mock.module("../../config/loader.js", () => ({
       ? ({
           services: {
             stt: { provider: sttProvider },
-            tts: { provider: ttsProvider, providers: {} },
+            tts: { provider: ttsProvider, providers: ttsProviderConfigs },
           },
         } as unknown as ReturnType<typeof realConfigLoaderModule.getConfig>)
       : realConfigLoaderModule.getConfig(),
@@ -98,12 +105,15 @@ afterAll(() => {
 
 beforeEach(() => {
   // Baseline: everything ready — a streaming STT transcriber resolves and
-  // the streaming-capable fish-audio TTS provider has credentials.
+  // the streaming-capable fish-audio TTS provider has credentials and a
+  // configured voice reference ID.
   streamingTranscriber = {} as StreamingTranscriber;
+  resolveStreamingImpl = async () => streamingTranscriber;
   batchTranscriber = null;
   providerKeys = { deepgram: "test-key", "fish-audio": "test-key" };
   sttProvider = "deepgram";
   ttsProvider = "fish-audio";
+  ttsProviderConfigs = { "fish-audio": { referenceId: "ref_test" } };
 });
 
 function expectNotReady(
@@ -128,6 +138,24 @@ describe("resolveLiveVoiceCredentialReadiness", () => {
 
     const readiness = await resolveLiveVoiceCredentialReadiness();
     expect(readiness).toEqual({ status: "ready" });
+  });
+
+  test("STT leg attempts the same streaming tiers as the ingest: boundary finals, then plain", async () => {
+    const calls: ResolveStreamingTranscriberOptions[] = [];
+    resolveStreamingImpl = async (options) => {
+      calls.push(options);
+      // Boundary tier unavailable (e.g. openai-whisper); plain tier works.
+      return options.utteranceBoundaryFinals
+        ? null
+        : ({} as StreamingTranscriber);
+    };
+
+    const readiness = await resolveLiveVoiceCredentialReadiness();
+    expect(readiness).toEqual({ status: "ready" });
+    expect(calls.map((o) => Boolean(o.utteranceBoundaryFinals))).toEqual([
+      true,
+      false,
+    ]);
   });
 
   test("STT credentials missing → not-ready with an stt entry naming the credential provider", async () => {
@@ -221,6 +249,26 @@ describe("resolveLiveVoiceCredentialReadiness", () => {
     expect(readiness.userMessage).toContain('"fish-audio"');
     expect(readiness.userMessage).toContain("text-to-speech");
     expect(readiness.userMessage).toContain("Fish Audio API Key");
+  });
+
+  test("fish-audio with credentials but no referenceId → not-ready naming the missing reference ID", async () => {
+    ttsProviderConfigs = {};
+
+    const readiness = expectNotReady(
+      await resolveLiveVoiceCredentialReadiness(),
+    );
+    expect(readiness.missing).toEqual([
+      {
+        kind: "tts",
+        providerId: "fish-audio",
+        reason:
+          'TTS provider "fish-audio" has no Fish Audio reference ID configured (services.tts.providers.fish-audio.referenceId)',
+      },
+    ]);
+    expect(readiness.userMessage).toContain("Fish Audio voice reference ID");
+    expect(readiness.userMessage).toContain(
+      "services.tts.providers.fish-audio.referenceId",
+    );
   });
 
   test("unknown TTS provider → not-ready with a catalog gap naming the configured id", async () => {

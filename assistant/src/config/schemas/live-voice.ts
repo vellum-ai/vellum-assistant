@@ -1,6 +1,20 @@
 import { z } from "zod";
 
-export const VALID_LIVE_VOICE_MODES = ["ptt", "open-mic"] as const;
+import type { LiveVoiceSessionMode } from "../../live-voice/protocol.js";
+
+/**
+ * Valid live-voice microphone modes. The wire source of truth is the
+ * protocol's `LiveVoiceSessionMode` (`live-voice/protocol.ts`), whose
+ * backing const is module-private — the values are restated here for the
+ * zod enum, with `satisfies` proving every listed mode is a valid protocol
+ * mode (the schema test asserts the reverse direction, so the two lists
+ * cannot drift). The type-only import is erased at runtime, so this adds
+ * no config→live-voice runtime dependency.
+ */
+export const VALID_LIVE_VOICE_MODES = [
+  "ptt",
+  "open-mic",
+] as const satisfies readonly LiveVoiceSessionMode[];
 
 export const LiveVoiceVadConfigSchema = z
   .object({
