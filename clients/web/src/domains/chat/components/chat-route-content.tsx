@@ -80,6 +80,7 @@ import {
   isManagedCredentialChatError,
   shouldShowGenericChatErrorNotice,
 } from "@/domains/chat/utils/error-classification";
+import { openUrlInPopupOrTab } from "@/domains/chat/utils/oauth-popup-links";
 import { useInteractionStore } from "@/domains/chat/interaction-store";
 import type { DisplayAttachment, DisplayMessage } from "@/domains/chat/types/types";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -562,11 +563,35 @@ export function ChatMainPanel({
     </Button>
   ) : undefined;
 
+  // Blocked automatic opens (see `handleOpenUrl`) carry the URL in
+  // `actionUrl`; the button click is a real user gesture, so the re-open
+  // always succeeds and the banner clears itself.
+  const buildOpenUrlAction = (
+    actionUrl: string | undefined,
+    clear: () => void,
+  ) =>
+    actionUrl ? (
+      <Button
+        variant="outlined"
+        size="compact"
+        onClick={() => {
+          if (openUrlInPopupOrTab(actionUrl)) {
+            clear();
+          }
+        }}
+      >
+        Open page
+      </Button>
+    ) : undefined;
+
   const genericChatError = shouldShowGenericChatErrorNotice(error) && error
     ? {
         message: error.message,
         tone: "error" as const,
-        actions: doctorAction,
+        actions:
+          buildOpenUrlAction(error.actionUrl, () =>
+            useChatSessionStore.getState().setError(null),
+          ) ?? doctorAction,
       }
     : null;
   const hasGenericChatError = genericChatError !== null;
@@ -575,9 +600,11 @@ export function ChatMainPanel({
       ? {
           message: notice.message,
           tone: "warning" as const,
-          actions: isManagedCredentialChatError(notice)
-            ? doctorAction
-            : undefined,
+          actions:
+            buildOpenUrlAction(notice.actionUrl, () =>
+              useChatSessionStore.getState().setNotice(null),
+            ) ??
+            (isManagedCredentialChatError(notice) ? doctorAction : undefined),
         }
       : null;
   const genericChatBanner = genericChatError ?? genericChatNotice;

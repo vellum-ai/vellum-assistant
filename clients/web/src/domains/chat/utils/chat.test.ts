@@ -45,6 +45,13 @@ describe("chat utilities", () => {
     test("ordinary conversation events stay scoped", () => {
       expect(scoped("tool_output_chunk")).toBe(true);
     });
+
+    test("open_url is global (CLI signal-bridge emits carry no conversationId)", () => {
+      // `assistant mcp auth` / `assistant oauth connect` emit `open_url` via
+      // the workspace signals bridge, which has no conversation binding — the
+      // conversation gate would otherwise silently drop the browser hand-off.
+      expect(scoped("open_url")).toBe(false);
+    });
   });
 
   describe("hasAssistantMessage", () => {

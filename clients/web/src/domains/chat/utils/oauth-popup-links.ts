@@ -101,3 +101,24 @@ export function openMarkdownOAuthLinkInPopup(
 ): boolean {
   return openOAuthUrlInPopup(href);
 }
+
+/**
+ * Open an external http(s) URL in the browser: OAuth-shaped URLs get the
+ * sized popup, everything else a new tab. Returns false when the browser
+ * blocked the open — automatic opens (e.g. driven by an SSE event) carry
+ * no user activation, so callers should surface a clickable fallback that
+ * re-invokes this from a real click.
+ */
+export function openUrlInPopupOrTab(url: string): boolean {
+  if (openOAuthUrlInPopup(url)) {
+    return true;
+  }
+
+  const popup = window.open(url, "_blank");
+  if (popup === null) {
+    return false;
+  }
+
+  popup.focus();
+  return true;
+}

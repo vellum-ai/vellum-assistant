@@ -29,6 +29,12 @@ const GLOBAL_STREAM_EVENT_TYPE_NAMES = [
   // (daemon emits `{ type, tab }`), so the conversation-id gate would
   // otherwise drop it before it reached `handleNavigateSettings`.
   "navigate_settings",
+  // Client directive to open a URL (OAuth authorization pages, browser
+  // hand-offs). CLI commands emit it via the workspace `signals/emit-event`
+  // bridge (e.g. `assistant mcp auth`), which has no conversation binding,
+  // so the wire payload has no `conversationId` and the conversation gate
+  // would drop it before it reached `handleOpenUrl`.
+  "open_url",
   "identity_changed",
   "avatar_updated",
   "sync_changed",

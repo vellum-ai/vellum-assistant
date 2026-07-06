@@ -1,7 +1,7 @@
 import {
   getHttpUrl,
   getSameOriginRoutePath,
-  openOAuthUrlInPopup,
+  openUrlInPopupOrTab,
 } from "@/domains/chat/utils/oauth-popup-links";
 import { getSettingsRouteForClientTab } from "@/utils/settings-navigation";
 import { openUrl } from "@/runtime/browser";
@@ -28,10 +28,6 @@ export function handleOpenUrl(
     return;
   }
 
-  if (openOAuthUrlInPopup(event.url)) {
-    return;
-  }
-
   const url = getHttpUrl(event.url);
   if (!url) {
     ctx.setError({
@@ -45,15 +41,15 @@ export function handleOpenUrl(
     return;
   }
 
-  const popup = window.open(url, "_blank");
-  if (popup === null) {
-    ctx.setError({
-      message: "Popup blocked. Please allow popups for Vellum and try again.",
+  if (!openUrlInPopupOrTab(url)) {
+    // No user activation behind an SSE-driven open, so browsers commonly
+    // block it. The notice's action button re-opens from a real click.
+    ctx.setNotice({
+      message:
+        "Your browser blocked a page the assistant tried to open. Use the button to open it.",
+      actionUrl: url,
     });
-    return;
   }
-
-  popup.focus();
 }
 
 export function handleNavigateSettings(

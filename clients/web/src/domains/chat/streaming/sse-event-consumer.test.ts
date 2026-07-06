@@ -136,6 +136,26 @@ describe("sse-event-consumer — cross-conversation filter", () => {
     );
   });
 
+  test("open_url with no envelope conversationId passes through", () => {
+    const { deps, handleStreamEvent } = makeDeps();
+    const consumer = createSseEventConsumer(deps);
+
+    // CLI-initiated emits (signals/emit-event bridge) have no conversation
+    // binding, so the envelope carries no conversationId — the event must
+    // still reach `handleOpenUrl` instead of being dropped as unscoped.
+    consumer.handleSseEvent(
+      makeEnvelope({
+        message: { type: "open_url", url: "https://example.com/authorize" },
+      }),
+    );
+
+    expect(handleStreamEvent).toHaveBeenCalledTimes(1);
+    expect(recordDiagnosticMock).not.toHaveBeenCalledWith(
+      "sse_event_wrong_conversation_filtered",
+      expect.anything(),
+    );
+  });
+
   test("conversation event with missing conversationId is dropped + diagnosed", () => {
     const { deps, handleStreamEvent } = makeDeps();
     const consumer = createSseEventConsumer(deps);
