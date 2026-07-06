@@ -75,6 +75,7 @@ mock.module("../permissions/checker.js", () => ({
   ],
   generateScopeOptions: () => [{ label: "/tmp", scope: "/tmp" }],
   getCachedAssessment: () => undefined,
+  buildChannelPermissionCellQuery: () => undefined,
 }));
 
 mock.module("../persistence/conversation-crud.js", () => ({

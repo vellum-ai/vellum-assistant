@@ -730,8 +730,14 @@ function isRetrospectiveSkillAuthoringGrant(
  * source channel) or the trust class isn't a recognized contact-type — the
  * threshold cascade then skips the matrix and resolves from the
  * conversation override / global defaults as before.
+ *
+ * Exported so every threshold read for one invocation derives the same
+ * coordinates from one place: `check()` here plus the provenance and
+ * non-interactive-guardian re-reads in `tools/permission-checker.ts` must
+ * all consult the cell, or a follow-up read of a looser global could
+ * silently override a stricter cell verdict.
  */
-function buildChannelPermissionCellQuery(
+export function buildChannelPermissionCellQuery(
   policyContext?: PolicyContext,
 ): ResolveChannelPermissionRequest | undefined {
   const adapter = policyContext?.sourceChannel;

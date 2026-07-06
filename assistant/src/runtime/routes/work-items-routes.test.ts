@@ -17,6 +17,7 @@ mock.module("../../util/logger.js", () => ({
 mock.module("../../permissions/checker.js", () => ({
   check: async () => ({ decision: "prompt" }),
   classifyRisk: async () => ({ level: "high" }),
+  buildChannelPermissionCellQuery: () => undefined,
 }));
 
 import { initializeDb } from "../../persistence/db-init.js";

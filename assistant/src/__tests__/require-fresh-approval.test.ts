@@ -93,6 +93,13 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
+/**
+ * Sentinel cell query the mocked checker returns. When set, the permission
+ * checker must thread it into every gateway threshold read for the
+ * invocation — including the non-interactive guardian background read.
+ */
+let cellQueryOverride: Record<string, unknown> | undefined;
+
 mock.module("../permissions/checker.js", () => ({
   classifyRisk: async () => ({ level: riskOverride }),
   check: async () => {
@@ -105,6 +112,7 @@ mock.module("../permissions/checker.js", () => ({
   generateScopeOptions: () =>
     scopeOptionsOverride ?? [{ label: "/tmp", scope: "/tmp" }],
   getCachedAssessment: () => undefined,
+  buildChannelPermissionCellQuery: () => cellQueryOverride,
 }));
 
 mock.module("../telemetry/tool-usage-store.js", () => ({
@@ -130,8 +138,23 @@ mock.module("../tools/registry.js", () => ({
   getAllTools: () => [],
 }));
 
+/** Records every getAutoApproveThreshold call so tests can assert the cell
+ * query is threaded into each read (including the background auto-approve). */
+const thresholdReadLog: Array<{
+  conversationId?: string;
+  executionContext?: string;
+  cellQuery?: Record<string, unknown>;
+}> = [];
+
 mock.module("../permissions/gateway-threshold-reader.js", () => ({
-  getAutoApproveThreshold: async () => thresholdOverride,
+  getAutoApproveThreshold: async (
+    conversationId?: string,
+    executionContext?: string,
+    cellQuery?: Record<string, unknown>,
+  ) => {
+    thresholdReadLog.push({ conversationId, executionContext, cellQuery });
+    return thresholdOverride;
+  },
   // Refresh failure ("null") keeps the original decision — these tests
   // exercise the cached-threshold paths only.
   refreshAutoApproveThreshold: async () => null,
@@ -194,6 +217,8 @@ describe("requireFreshApproval: non-interactive guardian denial", () => {
     scopeOptionsOverride = undefined;
     riskOverride = "high";
     thresholdOverride = "medium";
+    cellQueryOverride = undefined;
+    thresholdReadLog.length = 0;
   });
 
   afterEach(() => {});
@@ -235,6 +260,34 @@ describe("requireFreshApproval: non-interactive guardian denial", () => {
 
     // Regular tools should be auto-approved
     expect(result.isError).toBe(false);
+  });
+
+  test("the non-interactive guardian background read consults the channel cell", async () => {
+    // Regression: the background auto-approve re-read must carry the same
+    // channel-permission cell query as check(). Without it, a Slack guardian
+    // turn whose channel cell is Strict would be auto-approved off the looser
+    // background global — silently bypassing the cell.
+    riskOverride = RiskLevel.Medium;
+    checkResultOverride = { decision: "prompt", reason: "Needs approval" };
+    cellQueryOverride = {
+      adapter: "slack",
+      channelType: "dm",
+      channelExternalId: "C123",
+      contactType: "guardian",
+    };
+
+    const executor = new ToolExecutor(makePrompter());
+    await executor.execute(
+      "bash",
+      { command: "echo hello" },
+      makeContext({ isInteractive: false, trustClass: "guardian" }),
+    );
+
+    const backgroundRead = thresholdReadLog.find(
+      (r) => r.executionContext === "background",
+    );
+    expect(backgroundRead).toBeDefined();
+    expect(backgroundRead?.cellQuery).toEqual(cellQueryOverride);
   });
 
   test("high-risk tools are denied in non-interactive guardian sessions", async () => {
