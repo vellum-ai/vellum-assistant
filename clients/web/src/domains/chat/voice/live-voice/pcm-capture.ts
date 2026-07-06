@@ -39,7 +39,7 @@ import { getVoiceInputMediaStream } from "@/utils/voice-input-device";
 // to reach into the protocol module. Canonical definition lives in protocol.ts.
 export { LIVE_VOICE_AUDIO_FORMAT };
 
-// Matches `use-audio-amplitude.ts` (and the macOS AudioEngineController):
+// Matches `use-audio-amplitude.ts`:
 // EMA with alpha 0.5, scaled by 14 and clamped to 1.0.
 const AMPLITUDE_SMOOTHING = 0.5;
 const AMPLITUDE_SCALE = 14.0;

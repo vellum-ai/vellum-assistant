@@ -721,13 +721,32 @@ The local live voice channel uses a single gateway-authenticated WebSocket at `/
 
 The assistant runtime route lives in `src/runtime/http-server.ts`. It mirrors the STT streaming security posture: direct access must come from private-network peers/origins, and authenticated deployments require the gateway service token. The runtime parses JSON frames with `parseLiveVoiceClientTextFrame()`, parses binary frames with `parseLiveVoiceBinaryAudioFrame()`, and routes accepted sessions through `LiveVoiceSessionManager`. The manager owns a single-active-session lock and returns a `busy` frame for concurrent sessions.
 
-Sessions are full-duplex and multi-turn: one WebSocket spans the whole conversation, the client mic streams continuously (audio frames are accepted in every non-closed state), and turn-taking is owned by the phone stack's `CallController` running under the in-app `VoiceControllerProfile` (`src/calls/voice-session-source.ts` — no `call_sessions` row, lifecycle writes are no-ops, guardian dispatch disabled, token-stream speech output). `LiveVoiceSession` is a composition root that wires three collaborators:
+Sessions are full-duplex and multi-turn: one WebSocket spans the whole conversation, the client mic streams continuously (audio frames are accepted in every non-closed state), and turn-taking is owned by the phone stack's `CallController` running under the in-app `VoiceControllerProfile` built by `createInAppVoiceControllerProfile()` (`src/calls/voice-session-source.ts` — no `call_sessions` row, lifecycle writes are no-ops, guardian dispatch disabled, token-stream speech output, and an in-app control prompt from `buildLiveVoiceControlPrompt()` instead of the phone-call prompt). `LiveVoiceSession` is a composition root that wires three collaborators:
 
-- `LiveVoiceIngest` — inbound PCM16 audio: energy VAD (`pcm-speech-activity.ts`), turn segmentation (`MediaTurnDetector`), and streaming STT with per-turn batch fallback. Sessions negotiate a mic mode on the `start` frame (`ptt` default, `open-mic`); server-side VAD runs in both modes.
+- `LiveVoiceIngest` — inbound PCM16 audio: energy VAD (`pcm-speech-activity.ts`), turn segmentation (`MediaTurnDetector`), and streaming STT with per-turn batch fallback.
 - `CallController` — turn state (`idle|processing|speaking`), barge-in gating (accepted only while speaking), control markers (`[END_CALL]` ends the session via the transport), and voice turns through `voice-session-bridge`.
 - `LiveVoiceCallTransport` — consumes the controller's token stream, runs segmented streaming TTS, and emits `tts_audio`/`tts_done` frames.
 
-Server-VAD speech onset (or a client `interrupt` frame) during assistant speech is a barge-in: the controller aborts the in-flight turn, the transport flushes pending synthesis, and the session emits an `interrupted` frame with the aborted turn id, then keeps listening. `ptt_release` is a manual end-of-turn signal (authoritative in PTT, a hint in open-mic; the ingest emits `turn_boundary` when the local detector ends a turn). Session startup is gated by `resolveLiveVoiceCredentialReadiness()` — a missing STT or TTS credential fails the `start` frame with a `credentials_missing` error instead of failing mid-conversation. The session-wide duration limit (`liveVoice.maxSessionDurationSeconds`) is enforced by the controller's in-app timers.
+```
+client mic ── binary PCM16 frames ──> LiveVoiceIngest
+                                        (energy VAD → MediaTurnDetector → streaming STT)
+                                            │ speech-start / transcript finals
+                                            v
+                                      CallController
+                                        (in-app VoiceControllerProfile:
+                                         turn state, barge-in, timers, control markers)
+                                            │ voice turns via voice-session-bridge;
+                                            │ response token stream
+                                            v
+                                      LiveVoiceCallTransport
+                                        (speakable segments → streaming TTS)
+                                            │
+client playback <── tts_audio / tts_done ───┘
+```
+
+Each session runs in one of two mic modes, negotiated on the `start` frame and defaulting to `liveVoice.mode` (`ptt`) when the frame omits it. In `ptt` the client's `ptt_release` frame is the authoritative end-of-turn signal; in `open-mic` the server segments turns itself (VAD + `MediaTurnDetector`) and `ptt_release` is only a hint. Server-side VAD runs in both modes so barge-in works during assistant playback regardless of mode.
+
+Server-VAD speech onset (or a client `interrupt` frame) during assistant speech is a barge-in: the controller aborts the in-flight turn, the transport flushes pending synthesis, and the session emits an `interrupted` frame with the aborted turn id, then keeps listening. When the server-side detector ends a user turn, the ingest emits a `turn_boundary` frame so the client can render the transition. Session startup is gated by `resolveLiveVoiceCredentialReadiness()` — a missing STT or TTS credential fails the `start` frame with a `credentials_missing` error instead of failing mid-conversation. The session-wide duration limit (`liveVoice.maxSessionDurationSeconds`) is enforced by the controller's in-app timers.
 
 The assistant-side live voice module is intentionally bounded under `src/live-voice/`:
 
@@ -749,7 +768,17 @@ Live voice STT uses the same `resolveStreamingTranscriber()` path as conversatio
 
 Live voice TTS uses `streamLiveVoiceTtsAudio()` and the configured `services.tts.provider`. The selected provider must be registered, catalog-compatible, and expose `capabilities.supportsStreaming` plus `synthesizeStream()`. Fish Audio is the current catalog provider with streaming synthesis support; non-streaming providers remain available for buffered message playback or other supported surfaces, but live voice fails the credential preflight instead of silently falling back to buffered playback.
 
-Live voice is local/gateway-scoped. Managed/cloud WebSocket proxy support, cross-region routing, and p50/p95 latency guarantees are out of scope. Metrics frames expose timing data for measurement, but the architecture does not promise a hard latency SLO. VAD thresholds, mic-mode default, and the session duration cap live under the `liveVoice` config namespace (`src/config/schemas/live-voice.ts`).
+Live voice is local/gateway-scoped. Managed/cloud WebSocket proxy support, cross-region routing, and p50/p95 latency guarantees are out of scope. Metrics frames expose timing data for measurement, but the architecture does not promise a hard latency SLO.
+
+Engine tuning lives under the `liveVoice` config namespace (`src/config/schemas/live-voice.ts`):
+
+| Key                                   | Default | Purpose                                                                                |
+| ------------------------------------- | ------- | -------------------------------------------------------------------------------------- |
+| `liveVoice.mode`                      | `ptt`   | Default mic mode (`ptt` or `open-mic`) when the `start` frame does not negotiate one   |
+| `liveVoice.vad.speechEnergyThreshold` | `800`   | Mean absolute amplitude (16-bit linear scale) above which a PCM frame counts as speech |
+| `liveVoice.vad.silenceThresholdMs`    | `800`   | Trailing silence (ms) after speech that ends the user's turn                           |
+| `liveVoice.vad.maxTurnDurationMs`     | `30000` | Maximum duration (ms) of a single user turn before it is force-ended                   |
+| `liveVoice.maxSessionDurationSeconds` | `1800`  | Session-wide duration cap, enforced by the controller's in-app timers                  |
 
 **Client service-first boundary:**
 

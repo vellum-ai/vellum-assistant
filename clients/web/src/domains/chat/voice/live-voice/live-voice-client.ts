@@ -15,9 +15,9 @@
  * - Every inbound server frame is JSON text and is parsed via
  *   {@link parseServerFrame}.
  *
- * Connection handshake mirrors the macOS client: a ~10s connect timeout fails
- * the session if no `ready` frame arrives, and a server `busy` frame is handled
- * distinctly from `error`.
+ * Connection handshake: a ~10s connect timeout fails the session if no
+ * `ready` frame arrives, and a server `busy` frame is handled distinctly
+ * from `error`.
  */
 
 import { resolveLiveVoiceWsUrl } from "@/domains/chat/voice/live-voice/connection";

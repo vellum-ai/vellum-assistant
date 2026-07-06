@@ -66,7 +66,7 @@ import {
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 
 // ---------------------------------------------------------------------------
-// Thresholds (mirror the macOS LiveVoiceChannelManager defaults)
+// Client-side amplitude/timing thresholds
 // ---------------------------------------------------------------------------
 
 /** Mic amplitude (in [0, 1]) above which barge-in interrupts assistant speech. */

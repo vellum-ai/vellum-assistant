@@ -44,11 +44,11 @@ The request carries base64-encoded WAV audio and a MIME type. The daemon resolve
 
 **Key source files:**
 
-| File                                             | Purpose                                                                   |
-| ------------------------------------------------ | ------------------------------------------------------------------------- |
-| `gateway/src/http/routes/runtime-proxy.ts`       | Assistant-scoped path rewriting (`/v1/assistants/:id/...` → `/v1/...`)    |
-| `assistant/src/runtime/routes/stt-routes.ts`     | Daemon HTTP endpoint: validates audio, resolves transcriber, returns text |
-| `clients/web/src/domains/chat/voice/stt-api.ts`     | Web client: POSTs audio to the gateway, returns a typed result            |
+| File                                            | Purpose                                                                   |
+| ----------------------------------------------- | ------------------------------------------------------------------------- |
+| `gateway/src/http/routes/runtime-proxy.ts`      | Assistant-scoped path rewriting (`/v1/assistants/:id/...` → `/v1/...`)    |
+| `assistant/src/runtime/routes/stt-routes.ts`    | Daemon HTTP endpoint: validates audio, resolves transcriber, returns text |
+| `clients/web/src/domains/chat/voice/stt-api.ts` | Web client: POSTs audio to the gateway, returns a typed result            |
 
 ### STT Streaming WebSocket Proxy
 
@@ -73,13 +73,13 @@ Clients open WebSocket connections through the gateway to the daemon's real-time
 
 **Key source files:**
 
-| File                                              | Purpose                                                                                                            |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
-| `gateway/src/http/routes/stt-stream-websocket.ts` | WebSocket upgrade handler (`createSttStreamWebsocketHandler`) and proxy handlers (`getSttStreamWebsocketHandlers`) |
-| `gateway/src/index.ts`                            | Route registration: wires upgrade handler to the gateway's Bun HTTP server                                         |
-| `assistant/src/runtime/http-server.ts`            | Daemon-side WebSocket upgrade at `/v1/stt/stream`, session creation and registry                                   |
-| `assistant/src/stt/stt-stream-session.ts`         | Runtime session orchestrator: drives the `StreamingTranscriber` from the WebSocket                                 |
-| `clients/web/src/domains/chat/voice/dictation-stream.ts` | Web client: opens the gateway WebSocket, parses transcript events, reports failures                            |
+| File                                                     | Purpose                                                                                                            |
+| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `gateway/src/http/routes/stt-stream-websocket.ts`        | WebSocket upgrade handler (`createSttStreamWebsocketHandler`) and proxy handlers (`getSttStreamWebsocketHandlers`) |
+| `gateway/src/index.ts`                                   | Route registration: wires upgrade handler to the gateway's Bun HTTP server                                         |
+| `assistant/src/runtime/http-server.ts`                   | Daemon-side WebSocket upgrade at `/v1/stt/stream`, session creation and registry                                   |
+| `assistant/src/stt/stt-stream-session.ts`                | Runtime session orchestrator: drives the `StreamingTranscriber` from the WebSocket                                 |
+| `clients/web/src/domains/chat/voice/dictation-stream.ts` | Web client: opens the gateway WebSocket, parses transcript events, reports failures                                |
 
 ### Assistant Feature Flags API
 
@@ -636,17 +636,17 @@ If no guardian binding exists for the channel, escalation fails closed -- the me
 
 **Assistant DB** (`assistant.db` — current owner of contact info, migrating to gateway):
 
-| Table              | Purpose                                                                |
-| ------------------ | ---------------------------------------------------------------------- |
-| `contacts`         | Contact records with role, relationship, and per-contact metadata      |
-| `contact_channels` | Channel bindings per contact with access policy (allow/deny/escalate)  |
+| Table              | Purpose                                                               |
+| ------------------ | --------------------------------------------------------------------- |
+| `contacts`         | Contact records with role, relationship, and per-contact metadata     |
+| `contact_channels` | Channel bindings per contact with access policy (allow/deny/escalate) |
 
 **Gateway DB** (`gateway.sqlite` — canonical owner of invites, future owner of auth/authz):
 
-| Table              | Purpose                                                                 |
-| ------------------ | ----------------------------------------------------------------------- |
-| `contacts`         | Contact auth/authz: id, display_name, role, principal_id                |
-| `contact_channels` | Channel bindings with policy, status, external IDs, verification state  |
+| Table              | Purpose                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------ |
+| `contacts`         | Contact auth/authz: id, display_name, role, principal_id                             |
+| `contact_channels` | Channel bindings with policy, status, external IDs, verification state               |
 | `ingress_invites`  | Canonical invite store — token/code hashes, expiry, use counts, voice/display fields |
 
 The gateway's `ingress_invites` table is the sole invite store: mint, list, revoke, and redemption all run gateway-natively, and the daemon relays its invite surfaces here over IPC. The gateway data migrations `m0007`/`m0009` reference `assistant_ingress_invites` — a legacy assistant table absent from the current assistant schema — only as a one-time backfill source.
@@ -655,17 +655,17 @@ The gateway declares `contacts` and `contact_channels` tables and exposes them v
 
 #### Key Modules
 
-| Module                                                    | Purpose                                                                    |
-| --------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Module                                                    | Purpose                                                                             |
+| --------------------------------------------------------- | ----------------------------------------------------------------------------------- |
 | `gateway/src/http/routes/contacts-control-plane-proxy.ts` | Gateway-native invite lifecycle (mint, list, revoke, redeem) shared by HTTP and IPC |
-| `gateway/src/ipc/invite-handlers.ts`                      | IPC routes relaying the daemon's invite surfaces to the native functions   |
-| `gateway/src/verification/invite-redemption.ts`           | Redemption engine — validation, atomic claim, ACL activation               |
-| `assistant/src/contacts/contact-store.ts`                 | Contact and channel lookups (findContactChannel, guardian bindings)        |
-| `assistant/src/contacts/contacts-write.ts`                | Contact and channel writes (upsert, policy changes, redemption info mirror) |
-| `assistant/src/ipc/routes/invite-ipc-routes.ts`           | `invite_redeemed` info mirror — local contact/channel identity upsert      |
-| `assistant/src/runtime/routes/inbound-message-handler.ts` | ACL enforcement point -- member lookup, policy check, escalation creation  |
-| `gateway/src/db/contact-store.ts`                         | Gateway-side ContactStore — contact/channel reads and invite CRUD          |
-| `gateway/src/ipc/contact-handlers.ts`                     | IPC route handlers for contact reads                                       |
+| `gateway/src/ipc/invite-handlers.ts`                      | IPC routes relaying the daemon's invite surfaces to the native functions            |
+| `gateway/src/verification/invite-redemption.ts`           | Redemption engine — validation, atomic claim, ACL activation                        |
+| `assistant/src/contacts/contact-store.ts`                 | Contact and channel lookups (findContactChannel, guardian bindings)                 |
+| `assistant/src/contacts/contacts-write.ts`                | Contact and channel writes (upsert, policy changes, redemption info mirror)         |
+| `assistant/src/ipc/routes/invite-ipc-routes.ts`           | `invite_redeemed` info mirror — local contact/channel identity upsert               |
+| `assistant/src/runtime/routes/inbound-message-handler.ts` | ACL enforcement point -- member lookup, policy check, escalation creation           |
+| `gateway/src/db/contact-store.ts`                         | Gateway-side ContactStore — contact/channel reads and invite CRUD                   |
+| `gateway/src/ipc/contact-handlers.ts`                     | IPC route handlers for contact reads                                                |
 
 ### Telegram Credential Flow
 
@@ -980,36 +980,36 @@ sequenceDiagram
 
 ### Key Components
 
-| File                                                             | Role                                                                                                                                                                                                                   |
-| ---------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `assistant/src/calls/call-store.ts`                              | CRUD operations for call sessions, call events, and pending questions in SQLite via Drizzle ORM                                                                                                                        |
-| `assistant/src/calls/call-domain.ts`                             | Shared domain functions (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`) used by both tools and HTTP routes                                                                              |
-| `assistant/src/calls/guardian-dispatch.ts`                       | Cross-channel dispatch engine: fans out ASK_GUARDIAN questions to mac/telegram, creates server-side guardian conversations, manages deliveries                                                                         |
-| `assistant/src/memory/guardian-action-store.ts`                  | CRUD for guardian action requests and deliveries; first-writer-wins resolution via atomic status check                                                                                                                 |
-| `assistant/src/calls/guardian-action-sweep.ts`                   | Periodic 60s sweep for expired guardian action requests; sends expiry notices to all delivery channels                                                                                                                 |
-| `assistant/src/calls/call-domain.ts:createInboundVoiceSession()` | Creates or reuses a voice session for an inbound call keyed by CallSid (idempotent replay protection)                                                                                                                  |
-| `assistant/src/runtime/channel-verification-service.ts`          | Channel verification session lifecycle: create session with six-digit code, find pending sessions, validate and consume on match                                                                                       |
-| `assistant/src/calls/call-state-machine.ts`                      | Deterministic state transition validator with allowed-transition table and terminal-state enforcement                                                                                                                  |
-| `assistant/src/calls/call-recovery.ts`                           | Startup reconciliation of non-terminal calls: fetches provider status and transitions stale sessions                                                                                                                   |
-| `assistant/src/calls/twilio-provider.ts`                         | Twilio Voice REST API integration (initiateCall, endCall, getCallStatus) using direct fetch — no Twilio SDK dependency                                                                                                 |
-| `assistant/src/calls/twilio-routes.ts`                           | HTTP webhook handlers: voice webhook (returns `<Connect><Stream>` TwiML, enforces the credential preflight with `<Say>` + `<Hangup/>` when not ready), status callback                                                 |
-| `assistant/src/calls/media-stream-server.ts`                     | WebSocket handler for Twilio Media Streams; manages one MediaStreamCallSession per call, runs `routeSetup`, and drives interactive setup outcomes through `CallSetupFlow`                                              |
-| `assistant/src/calls/call-setup-flow.ts`                         | Transport-agnostic call setup flow: verification, invite-redemption, name-capture, and unverified-caller sub-flows over DTMF/spoken input                                                                              |
-| `assistant/src/calls/guardian-wait-controller.ts`                | Guardian access-request wait orchestration: hold messaging, heartbeats, status polling, consultation timeout, callback handoff                                                                                         |
-| `assistant/src/calls/media-stream-stt-session.ts`                | Daemon-side STT for media-stream audio: streaming transcriber (utterance-boundary finals) with batch + VAD turn-detection fallback                                                                                     |
-| `assistant/src/calls/telephony-credential-preflight.ts`          | Combined STT + TTS credential-readiness resolver gating inbound TwiML and outbound call placement                                                                                                                      |
-| `assistant/src/calls/speaker-identification.ts`                  | Reusable speaker recognition primitive for voice prompts: extracts provider speaker metadata (top-level and nested fields), resolves stable per-call speaker identities, and emits speaker context for personalization |
-| `assistant/src/calls/call-controller.ts`                         | Session-backed voice controller: routes voice turns through the daemon session pipeline via voice-session-bridge, detects ASK_GUARDIAN and END_CALL control markers                                                    |
-| `assistant/src/calls/voice-session-bridge.ts`                    | Bridge between the voice call controller and the daemon session/run pipeline: wraps RunOrchestrator.startRun() with voice-specific defaults, translating agent-loop events into callbacks for real-time TTS streaming  |
-| `assistant/src/calls/call-state.ts`                              | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and controller registry                                                     |
-| `assistant/src/calls/call-constants.ts`                          | Config-backed constants: max call duration, user consultation timeout, silence timeout, denied emergency numbers                                                                                                       |
-| `assistant/src/calls/voice-provider.ts`                          | Abstract VoiceProvider interface for provider-agnostic call initiation                                                                                                                                                 |
-| `assistant/src/calls/twilio-config.ts`                           | Twilio credential and configuration resolution from secure key store and environment                                                                                                                                   |
-| `assistant/src/calls/types.ts`                                   | TypeScript type definitions: CallSession, CallEvent, CallPendingQuestion, CallStatus, CallEventType                                                                                                                    |
-| `gateway/src/http/routes/twilio-voice-webhook.ts`                | Gateway route: validates Twilio signature, forwards voice webhook to runtime                                                                                                                                           |
-| `gateway/src/http/routes/twilio-status-webhook.ts`               | Gateway route: validates Twilio signature, forwards status callback to runtime                                                                                                                                         |
-| `gateway/src/http/routes/twilio-media-websocket.ts`              | Gateway route: WebSocket proxy for Media Streams frames between Twilio and runtime (all calls)                                                                                                                         |
-| `gateway/src/twilio/validate-webhook.ts`                         | Twilio webhook validation: HMAC-SHA1 signature verification, payload size limits, fail-closed when auth token missing                                                                                                  |
+| File                                                             | Role                                                                                                                                                                                                                                                                                             |
+| ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `assistant/src/calls/call-store.ts`                              | CRUD operations for call sessions, call events, and pending questions in SQLite via Drizzle ORM                                                                                                                                                                                                  |
+| `assistant/src/calls/call-domain.ts`                             | Shared domain functions (`startCall`, `getCallStatus`, `cancelCall`, `answerCall`, `relayInstruction`) used by both tools and HTTP routes                                                                                                                                                        |
+| `assistant/src/calls/guardian-dispatch.ts`                       | Cross-channel dispatch engine: fans out ASK_GUARDIAN questions to mac/telegram, creates server-side guardian conversations, manages deliveries                                                                                                                                                   |
+| `assistant/src/memory/guardian-action-store.ts`                  | CRUD for guardian action requests and deliveries; first-writer-wins resolution via atomic status check                                                                                                                                                                                           |
+| `assistant/src/calls/guardian-action-sweep.ts`                   | Periodic 60s sweep for expired guardian action requests; sends expiry notices to all delivery channels                                                                                                                                                                                           |
+| `assistant/src/calls/call-domain.ts:createInboundVoiceSession()` | Creates or reuses a voice session for an inbound call keyed by CallSid (idempotent replay protection)                                                                                                                                                                                            |
+| `assistant/src/runtime/channel-verification-service.ts`          | Channel verification session lifecycle: create session with six-digit code, find pending sessions, validate and consume on match                                                                                                                                                                 |
+| `assistant/src/calls/call-state-machine.ts`                      | Deterministic state transition validator with allowed-transition table and terminal-state enforcement                                                                                                                                                                                            |
+| `assistant/src/calls/call-recovery.ts`                           | Startup reconciliation of non-terminal calls: fetches provider status and transitions stale sessions                                                                                                                                                                                             |
+| `assistant/src/calls/twilio-provider.ts`                         | Twilio Voice REST API integration (initiateCall, endCall, getCallStatus) using direct fetch — no Twilio SDK dependency                                                                                                                                                                           |
+| `assistant/src/calls/twilio-routes.ts`                           | HTTP webhook handlers: voice webhook (returns `<Connect><Stream>` TwiML, enforces the credential preflight with `<Say>` + `<Hangup/>` when not ready), status callback                                                                                                                           |
+| `assistant/src/calls/media-stream-server.ts`                     | WebSocket handler for Twilio Media Streams; manages one MediaStreamCallSession per call, runs `routeSetup`, and drives interactive setup outcomes through `CallSetupFlow`                                                                                                                        |
+| `assistant/src/calls/call-setup-flow.ts`                         | Transport-agnostic call setup flow: verification, invite-redemption, name-capture, and unverified-caller sub-flows over DTMF/spoken input                                                                                                                                                        |
+| `assistant/src/calls/guardian-wait-controller.ts`                | Guardian access-request wait orchestration: hold messaging, heartbeats, status polling, consultation timeout, callback handoff                                                                                                                                                                   |
+| `assistant/src/calls/media-stream-stt-session.ts`                | Daemon-side STT for media-stream audio: streaming transcriber (utterance-boundary finals) with batch + VAD turn-detection fallback                                                                                                                                                               |
+| `assistant/src/calls/telephony-credential-preflight.ts`          | Combined STT + TTS credential-readiness resolver gating inbound TwiML and outbound call placement                                                                                                                                                                                                |
+| `assistant/src/calls/speaker-identification.ts`                  | Reusable speaker recognition primitive for voice prompts: extracts provider speaker metadata (top-level and nested fields), resolves stable per-call speaker identities, and emits speaker context for personalization                                                                           |
+| `assistant/src/calls/call-controller.ts`                         | Voice turn controller shared by phone calls and in-app live voice (session reads via `VoiceSessionSource`, per-flavor behavior via `VoiceControllerProfile`): routes voice turns through the daemon session pipeline via voice-session-bridge, detects ASK_GUARDIAN and END_CALL control markers |
+| `assistant/src/calls/voice-session-bridge.ts`                    | Bridge between the voice call controller and the daemon session/run pipeline: wraps RunOrchestrator.startRun() with voice-specific defaults, translating agent-loop events into callbacks for real-time TTS streaming                                                                            |
+| `assistant/src/calls/call-state.ts`                              | Notifier pattern (Maps with register/unregister/fire helpers) for cross-component communication: question notifiers, completion notifiers, and controller registry                                                                                                                               |
+| `assistant/src/calls/call-constants.ts`                          | Config-backed constants: max call duration, user consultation timeout, silence timeout, denied emergency numbers                                                                                                                                                                                 |
+| `assistant/src/calls/voice-provider.ts`                          | Abstract VoiceProvider interface for provider-agnostic call initiation                                                                                                                                                                                                                           |
+| `assistant/src/calls/twilio-config.ts`                           | Twilio credential and configuration resolution from secure key store and environment                                                                                                                                                                                                             |
+| `assistant/src/calls/types.ts`                                   | TypeScript type definitions: CallSession, CallEvent, CallPendingQuestion, CallStatus, CallEventType                                                                                                                                                                                              |
+| `gateway/src/http/routes/twilio-voice-webhook.ts`                | Gateway route: validates Twilio signature, forwards voice webhook to runtime                                                                                                                                                                                                                     |
+| `gateway/src/http/routes/twilio-status-webhook.ts`               | Gateway route: validates Twilio signature, forwards status callback to runtime                                                                                                                                                                                                                   |
+| `gateway/src/http/routes/twilio-media-websocket.ts`              | Gateway route: WebSocket proxy for Media Streams frames between Twilio and runtime (all calls)                                                                                                                                                                                                   |
+| `gateway/src/twilio/validate-webhook.ts`                         | Twilio webhook validation: HMAC-SHA1 signature verification, payload size limits, fail-closed when auth token missing                                                                                                                                                                            |
 
 ### Call State Machine
 
@@ -1154,20 +1154,20 @@ Malformed or unprocessable provider callback payloads are logged as dead-letter 
 
 Call behavior is controlled via the `calls` config block in the assistant configuration (`config/schema.ts`). All values have sensible defaults and are validated via Zod:
 
-| Field                             | Type     | Default                                       | Description                                                                                                                                                                                     |
-| --------------------------------- | -------- | --------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `calls.enabled`                   | boolean  | `true`                                        | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors.                                                                                              |
-| `calls.provider`                  | enum     | `'twilio'`                                    | Voice provider to use (currently only Twilio is supported).                                                                                                                                     |
-| `calls.maxDurationSeconds`        | int      | `3600`                                        | Maximum allowed duration per call.                                                                                                                                                              |
-| `calls.userConsultTimeoutSeconds` | int      | `120`                                         | How long to wait for a user answer before timing out a pending question.                                                                                                                        |
-| `calls.disclosure.enabled`        | boolean  | `true`                                        | Whether the AI should disclose it is an AI at the start of the call.                                                                                                                            |
-| `calls.disclosure.text`           | string   | _(default disclosure prompt)_                 | The disclosure instruction included in the system prompt.                                                                                                                                       |
-| `calls.safety.denyCategories`     | string[] | `[]`                                          | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting).                                                                                             |
-| `llm.callSites.callAgent.model`   | string   | _(unset — falls back to `llm.default.model`)_ | Optional override for the LLM model used in voice call conversations.                                                                                                                           |
-| `calls.voice.language`            | string   | `'en-US'`                                     | Language code for TTS and transcription.                                                                                                                                                        |
-| `services.stt.provider`           | enum     | `'deepgram'`                                  | STT provider for all boundaries including telephony. The daemon transcribes media-stream call audio with this provider (streaming when supported, batch otherwise).                             |
-| `services.tts.provider`           | enum     | `'elevenlabs'`                                | Active TTS provider for speech synthesis (catalog-driven; see [TTS Provider Abstraction](../assistant/ARCHITECTURE.md#tts-provider-abstraction-servicestts)).                                   |
-| `services.tts.providers.<id>.*`   | object   | _(per-provider defaults)_                     | Provider-specific settings block. One block per catalog entry (e.g. `elevenlabs`, `fish-audio`).                                                                                                |
+| Field                             | Type     | Default                                       | Description                                                                                                                                                         |
+| --------------------------------- | -------- | --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `calls.enabled`                   | boolean  | `true`                                        | Master toggle for the calls feature. When `false`, call routes return 403 and tools return errors.                                                                  |
+| `calls.provider`                  | enum     | `'twilio'`                                    | Voice provider to use (currently only Twilio is supported).                                                                                                         |
+| `calls.maxDurationSeconds`        | int      | `3600`                                        | Maximum allowed duration per call.                                                                                                                                  |
+| `calls.userConsultTimeoutSeconds` | int      | `120`                                         | How long to wait for a user answer before timing out a pending question.                                                                                            |
+| `calls.disclosure.enabled`        | boolean  | `true`                                        | Whether the AI should disclose it is an AI at the start of the call.                                                                                                |
+| `calls.disclosure.text`           | string   | _(default disclosure prompt)_                 | The disclosure instruction included in the system prompt.                                                                                                           |
+| `calls.safety.denyCategories`     | string[] | `[]`                                          | Categories of calls to deny (e.g., emergency numbers are always denied regardless of this setting).                                                                 |
+| `llm.callSites.callAgent.model`   | string   | _(unset — falls back to `llm.default.model`)_ | Optional override for the LLM model used in voice call conversations.                                                                                               |
+| `calls.voice.language`            | string   | `'en-US'`                                     | Language code for TTS and transcription.                                                                                                                            |
+| `services.stt.provider`           | enum     | `'deepgram'`                                  | STT provider for all boundaries including telephony. The daemon transcribes media-stream call audio with this provider (streaming when supported, batch otherwise). |
+| `services.tts.provider`           | enum     | `'elevenlabs'`                                | Active TTS provider for speech synthesis (catalog-driven; see [TTS Provider Abstraction](../assistant/ARCHITECTURE.md#tts-provider-abstraction-servicestts)).       |
+| `services.tts.providers.<id>.*`   | object   | _(per-provider defaults)_                     | Provider-specific settings block. One block per catalog entry (e.g. `elevenlabs`, `fish-audio`).                                                                    |
 
 ### Caller Identity Resolution
 

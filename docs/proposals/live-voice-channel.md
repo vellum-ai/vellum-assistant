@@ -1,8 +1,11 @@
 # Live Voice Channel Integration Plan
 
-> **Implementation status:** V1 now uses `/v1/live-voice` as a gateway-authenticated WebSocket route. The gateway handler is `gateway/src/http/routes/live-voice-websocket.ts`; the assistant runtime upgrade and protocol shell live in `assistant/src/runtime/http-server.ts`; and the assistant-side module boundaries are under `assistant/src/live-voice/`. Treat the proposal below (including its references to the removed Swift macOS client) as historical design context; the durable architecture reference is `assistant/ARCHITECTURE.md`.
+> **SUPERSEDED — do not use for new planning.** This document was the V1 plan; V1 shipped (push-to-talk live voice at `/v1/live-voice`, web client behind the `voice-mode` flag). It is now stale in two load-bearing ways:
 >
-> V1 requires a configured streaming STT provider for live partial/final transcripts and a streaming-capable TTS provider for streamed assistant audio. Managed/cloud WebSocket proxy support, cross-region routing, and hard p50/p95 latency guarantees are explicitly out of scope for this version.
+> 1. It predates **PR #37047** (JARVIS-1111, merged 2026-07-02), which removed Twilio ConversationRelay and moved all phone-call STT/TTS into the daemon over a transport-agnostic pipeline. The reuse assessments below — in particular "do not reuse `CallController`", "`media-stream-stt-session.ts` mostly not reusable", and the explicit-interrupt-only barge-in recommendation — no longer reflect the codebase.
+> 2. It references the removed Swift macOS client (`VoiceInputManager.swift`, `AudioEngineController.swift`, etc.). The macOS app is now an Electron shell around the web client; the only live-voice client implementation is `clients/web/src/domains/chat/voice/live-voice/`.
+>
+> The current design doc for the voice mode project (full-duplex in-app voice) is **[`voice-mode.md`](./voice-mode.md)**. The durable architecture reference is `assistant/ARCHITECTURE.md`. The proposal below is preserved as historical design context only.
 
 ## 1. Existing Infrastructure Map
 
