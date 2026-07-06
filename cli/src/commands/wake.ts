@@ -13,7 +13,7 @@ import {
   seedGuardianTokenFromSiblingEnv,
 } from "../lib/guardian-token.js";
 import {
-  probeDaemonReadiness,
+  probeDaemonReadinessWithRetry,
   waitForDaemonMigrationsReady,
 } from "../lib/http-client.js";
 import {
@@ -220,12 +220,8 @@ export async function wake(): Promise<void> {
     // startLocalDaemon's post-spawn wait is bounded (60s) — a longer
     // migration outlives it. Classify the fresh spawn the same way the
     // attach path does, so the gateway-coordination wait below applies to
-    // both paths and wake's closing summary stays honest. A single probe
-    // can time out transiently under migration CPU load — retry once.
-    let readiness = await probeDaemonReadiness(resources.daemonPort);
-    if (readiness === "unreachable") {
-      readiness = await probeDaemonReadiness(resources.daemonPort);
-    }
+    // both paths and wake's closing summary stays honest.
+    const readiness = await probeDaemonReadinessWithRetry(resources.daemonPort);
     daemonUnready = readiness === "migrating";
     daemonMigrationsFailed = readiness === "failed";
   } else {

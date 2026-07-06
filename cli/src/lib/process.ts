@@ -4,7 +4,7 @@ import { existsSync, readFileSync, unlinkSync } from "fs";
 import {
   httpHealthCheck,
   type HttpProbeEndpoint,
-  probeDaemonReadiness,
+  probeDaemonReadinessWithRetry,
   waitForDaemonReady,
 } from "./http-client.js";
 
@@ -152,13 +152,7 @@ export async function resolveProcessState(
   }
 
   if (readinessEndpoint !== "healthz") {
-    let readiness = await probeDaemonReadiness(healthPort);
-    if (readiness === "unreachable") {
-      // A single probe can time out transiently (1.5s budget under migration
-      // CPU load) — retry once before treating the daemon as unresponsive,
-      // so callers don't misreport a healthy-but-busy daemon.
-      readiness = await probeDaemonReadiness(healthPort);
-    }
+    const readiness = await probeDaemonReadinessWithRetry(healthPort);
     if (readiness === "failed") {
       return { status: "migration_failed", pid: result.pid };
     }

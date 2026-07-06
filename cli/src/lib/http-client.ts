@@ -109,6 +109,21 @@ export async function probeDaemonReadiness(
 }
 
 /**
+ * `probeDaemonReadiness` with one retry on a transient timeout: a single
+ * probe's 1.5s budget can elapse while a synchronous migration step blocks
+ * the daemon's event loop, misreporting a live daemon as unreachable.
+ */
+export async function probeDaemonReadinessWithRetry(
+  port: number,
+): Promise<DaemonReadiness> {
+  const first = await probeDaemonReadiness(port);
+  if (first !== "unreachable") {
+    return first;
+  }
+  return probeDaemonReadiness(port);
+}
+
+/**
  * Poll `/readyz` until the daemon is ready, its migrations have terminally
  * FAILED (returned immediately — failed never recovers without a restart, so
  * waiting out the deadline would be pure delay), or `deadlineMs` passes.

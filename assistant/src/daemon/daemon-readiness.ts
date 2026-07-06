@@ -123,10 +123,6 @@ export function getDbMigrationReadiness(): DbMigrationReadiness {
   return dbMigrationReadiness;
 }
 
-export function isDbReady(): boolean {
-  return dbMigrationReadiness.ready;
-}
-
 // One-way latch: once startup completes it stays complete for the process
 // lifetime.
 export function setStartupComplete(): void {

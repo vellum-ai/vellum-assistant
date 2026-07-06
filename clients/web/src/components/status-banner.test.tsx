@@ -356,11 +356,10 @@ describe("StatusBanner", () => {
   });
 
   test("falls back to the org's platform assistant even when a local assistant is selected", () => {
-    // Deliberate: the fallback is unconditional. Selection-based gating was
-    // attempted and reverted — every variant broke a hydration, cross-org, or
-    // store-population edge case, hiding the migrating/crash-loop banner for
-    // the org's real platform assistant. Do NOT re-gate this on selection
-    // semantics without a proper selector in assistant/selection.ts.
+    // The fallback is deliberately unconditional — gating it on selection
+    // semantics hides the migrating/crash-loop banner for the org's real
+    // platform assistant in hydration, cross-org, and store-population
+    // edge cases.
     activeAssistantIdMock = null;
     assistantStateMock = { kind: "loading" };
     selectedAssistantIdMock = "assistant-local";

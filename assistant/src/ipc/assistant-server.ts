@@ -34,7 +34,6 @@ import { createServer, type Server, type Socket } from "node:net";
 import { ensureSocketDir, SocketWatchdog } from "@vellumai/ipc-server-utils";
 
 import {
-  DB_MIGRATION_READINESS_EXEMPT_OPERATIONS,
   getDbMigrationReadiness,
   isDbMigrationGateBypassed,
 } from "../daemon/daemon-readiness.js";
@@ -69,17 +68,6 @@ import { ensureSocketPathFree } from "./socket-cleanup.js";
 import { resolveIpcSocketPath } from "./socket-path.js";
 
 const log = getLogger("assistant-ipc-server");
-
-// IPC methods that must stay answerable while DB migrations are still running.
-// Everything else touches the ORM (shared ROUTES handlers, db_proxy, invite
-// methods) and is gated on migration readiness so it can't hit a not-yet-
-// created table. Derived from the shared exempt set in daemon-readiness.ts
-// (the same source the HTTP gate uses) plus the `$cancel` control method,
-// which only aborts an in-flight request and never reads the DB.
-const DB_MIGRATION_READINESS_EXEMPT_IPC_METHODS = new Set([
-  ...DB_MIGRATION_READINESS_EXEMPT_OPERATIONS,
-  "$cancel",
-]);
 
 // ---------------------------------------------------------------------------
 // Types
@@ -477,8 +465,8 @@ export class AssistantIpcServer {
     method: string,
     id: string,
   ): IpcResponse | null {
-    if (DB_MIGRATION_READINESS_EXEMPT_IPC_METHODS.has(method)) return null;
-    if (isDbMigrationGateBypassed(method)) return null;
+    // `$cancel` only aborts an in-flight request and never reads the DB.
+    if (method === "$cancel" || isDbMigrationGateBypassed(method)) return null;
     const readiness = getDbMigrationReadiness();
     if (readiness.ready) return null;
     return {

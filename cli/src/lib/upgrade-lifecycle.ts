@@ -525,8 +525,12 @@ export async function rollbackMigrations(
       const text = await resp.text();
       let gatewayStarting = false;
       try {
+        // The daemon's running-migrations 503 also says "starting" but
+        // carries a `reason` field — don't retry against that one (the
+        // rollback stays blocked until migrations leave the running state).
+        const parsed = JSON.parse(text) as { status?: string; reason?: string };
         gatewayStarting =
-          (JSON.parse(text) as { status?: string }).status === "starting";
+          parsed.status === "starting" && parsed.reason === undefined;
       } catch {
         // Non-JSON error body — not the starting gate.
       }
@@ -553,6 +557,43 @@ export async function rollbackMigrations(
     console.warn(`⚠️  Migration rollback failed: ${msg}`);
     return false;
   }
+}
+
+/**
+ * Recovery step for a reverted stack that reports terminally failed
+ * migrations: import the backup (the failed-state migrations/import
+ * exemption admits it, and the import replaces the DB wholesale), then
+ * restart the containers — the failed readiness latch only clears on
+ * restart — and re-check readiness. Shared by the upgrade failure branch
+ * and performDockerRollback's auto-rollback.
+ */
+export async function attemptFailedStateRestore(opts: {
+  runtimeUrl: string;
+  assistantId: string;
+  backupPath: string;
+  /** Label for log lines, e.g. "pre-upgrade" or "pre-rollback". */
+  backupLabel: string;
+  res: Parameters<typeof stopContainers>[0];
+  containerOptions: Parameters<typeof startContainers>[0];
+}): Promise<{ restored: boolean; ready: boolean }> {
+  console.log(
+    `📦 Reverted stack not ready — attempting ${opts.backupLabel} backup restore...`,
+  );
+  console.log(`   Source: ${opts.backupPath}`);
+  const restored = await restoreBackup(
+    opts.runtimeUrl,
+    opts.assistantId,
+    opts.backupPath,
+  );
+  if (!restored) {
+    return { restored: false, ready: false };
+  }
+  console.log(
+    "   Backup imported — restarting containers to complete recovery...",
+  );
+  await stopContainers(opts.res);
+  await startContainers(opts.containerOptions, (msg) => console.log(msg));
+  return { restored: true, ready: await waitForReady(opts.runtimeUrl) };
 }
 
 // ---------------------------------------------------------------------------
@@ -917,41 +958,28 @@ export async function performDockerRollback(
         let revertReady = await waitForReady(entry.runtimeUrl);
         let restoredViaFailedState = false;
         if (!revertReady && preRollbackBackupPath) {
-          // The reverted stack can itself report terminally failed
-          // migrations — the state the failed-state migrations/import
-          // exemption exists to repair. The import replaces the DB
-          // wholesale, but the failed readiness latch only clears on
-          // restart, so restart the containers and re-check.
-          console.log(
-            `📦 Reverted stack not ready — attempting pre-rollback backup restore...`,
-          );
-          console.log(`   Source: ${preRollbackBackupPath}`);
-          restoredViaFailedState = await restoreBackup(
-            entry.runtimeUrl,
-            entry.assistantId,
-            preRollbackBackupPath,
-          );
-          if (restoredViaFailedState) {
-            console.log(
-              "   Backup imported — restarting containers to complete recovery...",
-            );
-            await stopContainers(res);
-            await startContainers(
-              {
-                signingKey,
-                bootstrapSecret,
-                cesServiceToken,
-                extraAssistantEnv,
-                extraGatewayEnv,
-                gatewayPort,
-                assistantPort,
-                imageTags: currentImageRefs,
-                instanceName,
-                res,
-              },
-              (msg) => console.log(msg),
-            );
-            revertReady = await waitForReady(entry.runtimeUrl);
+          const recovery = await attemptFailedStateRestore({
+            runtimeUrl: entry.runtimeUrl,
+            assistantId: entry.assistantId,
+            backupPath: preRollbackBackupPath,
+            backupLabel: "pre-rollback",
+            res,
+            containerOptions: {
+              signingKey,
+              bootstrapSecret,
+              cesServiceToken,
+              extraAssistantEnv,
+              extraGatewayEnv,
+              gatewayPort,
+              assistantPort,
+              imageTags: currentImageRefs,
+              instanceName,
+              res,
+            },
+          });
+          restoredViaFailedState = recovery.restored;
+          if (recovery.restored) {
+            revertReady = recovery.ready;
           }
         }
         if (revertReady) {

@@ -45,6 +45,7 @@ import { emitCliError, categorizeUpgradeError } from "../lib/cli-error.js";
 import { exec } from "../lib/step-runner.js";
 import {
   broadcastUpgradeEvent,
+  attemptFailedStateRestore,
   buildCompleteEvent,
   buildProgressEvent,
   buildStartingEvent,
@@ -608,42 +609,28 @@ async function upgradeDocker(
         let rollbackReady = await waitForReady(entry.runtimeUrl);
         let restoredViaFailedState = false;
         if (!rollbackReady && backupPath) {
-          // The reverted stack can itself land in the terminal
-          // failed-migrations state (e.g. schema residue from the failed
-          // upgrade's partial migration) — the exact state the failed-state
-          // migrations/import exemption exists to repair. The import
-          // replaces the DB wholesale, but the failed readiness latch only
-          // clears on restart, so restart the containers and re-check.
-          console.log(
-            `📦 Reverted stack not ready — attempting pre-upgrade backup restore...`,
-          );
-          console.log(`   Source: ${backupPath}`);
-          restoredViaFailedState = await restoreBackup(
-            entry.runtimeUrl,
-            entry.assistantId,
+          const recovery = await attemptFailedStateRestore({
+            runtimeUrl: entry.runtimeUrl,
+            assistantId: entry.assistantId,
             backupPath,
-          );
-          if (restoredViaFailedState) {
-            console.log(
-              "   Backup imported — restarting containers to complete recovery...",
-            );
-            await stopContainers(res);
-            await startContainers(
-              {
-                signingKey,
-                bootstrapSecret,
-                cesServiceToken,
-                extraAssistantEnv,
-                extraGatewayEnv,
-                gatewayPort,
-                assistantPort,
-                imageTags: previousImageRefs,
-                instanceName,
-                res,
-              },
-              (msg) => console.log(msg),
-            );
-            rollbackReady = await waitForReady(entry.runtimeUrl);
+            backupLabel: "pre-upgrade",
+            res,
+            containerOptions: {
+              signingKey,
+              bootstrapSecret,
+              cesServiceToken,
+              extraAssistantEnv,
+              extraGatewayEnv,
+              gatewayPort,
+              assistantPort,
+              imageTags: previousImageRefs,
+              instanceName,
+              res,
+            },
+          });
+          restoredViaFailedState = recovery.restored;
+          if (recovery.restored) {
+            rollbackReady = recovery.ready;
           }
         }
         if (rollbackReady) {

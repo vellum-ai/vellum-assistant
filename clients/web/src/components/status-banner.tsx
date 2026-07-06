@@ -520,11 +520,10 @@ function useAssistantBannerConfig(): BannerConfig | null {
     // fallback is deliberate: during boot and claim/migration windows the
     // selection can legitimately be null, stale, or pointing at a local
     // assistant while the org's platform assistant is the one with status
-    // worth showing (e.g. "Assistant is migrating"). Do not gate this on
-    // selection semantics — prior attempts each broke a hydration, cross-org,
-    // or store-population edge case; if the brief wrong-assistant poll while
-    // lifecycle is unresolved ever matters, fix it with a proper selector in
-    // assistant/selection.ts instead.
+    // worth showing (e.g. "Assistant is migrating"). Gating this on selection
+    // semantics breaks hydration, cross-org, and store-population edge
+    // cases; if the brief wrong-assistant poll while lifecycle is unresolved
+    // ever matters, fix it with a selector in assistant/selection.ts.
     return (
       platformAssistants.find(
         (assistant) => assistant.id === selectedAssistantId,

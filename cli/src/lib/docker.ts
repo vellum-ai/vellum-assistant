@@ -1614,9 +1614,9 @@ async function waitForGatewayAndLease(opts: {
 }): Promise<{
   ready: boolean;
   guardianAccessToken?: string;
-  /** Why readiness was not reached — distinguishes a terminal migration
-   * failure (returned in seconds) from an actual timeout. */
-  notReadyReason?: "migrations_failed" | "timeout";
+  /** Present when readiness was not reached because migrations terminally
+   * failed (returned in seconds, unlike an actual timeout). */
+  notReadyReason?: "migrations_failed";
 }> {
   const {
     bootstrapSecret,
@@ -1738,7 +1738,9 @@ async function waitForGatewayAndLease(opts: {
     log("");
     return {
       ready: false,
-      notReadyReason: migrationsFailed ? "migrations_failed" : "timeout",
+      ...(migrationsFailed
+        ? { notReadyReason: "migrations_failed" as const }
+        : {}),
     };
   }
 

@@ -22,6 +22,7 @@ import {
   type DaemonReadiness,
   httpHealthCheck,
   probeDaemonReadiness,
+  probeDaemonReadinessWithRetry,
   waitForDaemonMigrationsReady,
   waitForDaemonReady,
 } from "./http-client.js";
@@ -1359,14 +1360,10 @@ export async function startLocalDaemon(
       if (await checkOrphanedDaemon(pidFile, resources.daemonPort)) {
         ensureBunInstalled();
         // The orphan already answers health checks — a readiness probe
-        // classifies it without blocking on an in-flight migration. A single
-        // probe can time out transiently under migration CPU load, and the
-        // "did not become ready" log line would misdiagnose it — retry once.
-        let readiness = await probeDaemonReadiness(resources.daemonPort);
-        if (readiness === "unreachable") {
-          readiness = await probeDaemonReadiness(resources.daemonPort);
-        }
-        logDaemonReadiness(readiness);
+        // classifies it without blocking on an in-flight migration.
+        logDaemonReadiness(
+          await probeDaemonReadinessWithRetry(resources.daemonPort),
+        );
         return;
       }
 
