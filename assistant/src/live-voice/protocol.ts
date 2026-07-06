@@ -13,6 +13,7 @@ const _LIVE_VOICE_SERVER_FRAME_TYPES = [
   "busy",
   "speech_started",
   "utterance_end",
+  "utterance_discarded",
   "stt_partial",
   "stt_final",
   "thinking",
@@ -136,6 +137,15 @@ export interface LiveVoiceUtteranceEndServerFrame extends LiveVoiceServerFrameBa
   readonly reason: "silence" | "max-duration";
 }
 
+/**
+ * Emitted only in server_vad mode when the closed utterance produced no
+ * usable speech: it is dropped without an assistant turn and the client
+ * should return to listening.
+ */
+export interface LiveVoiceUtteranceDiscardedServerFrame extends LiveVoiceServerFrameBase {
+  readonly type: "utterance_discarded";
+}
+
 export interface LiveVoiceSttPartialServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "stt_partial";
   readonly text: string;
@@ -215,6 +225,7 @@ export type LiveVoiceServerFrame =
   | LiveVoiceBusyServerFrame
   | LiveVoiceSpeechStartedServerFrame
   | LiveVoiceUtteranceEndServerFrame
+  | LiveVoiceUtteranceDiscardedServerFrame
   | LiveVoiceSttPartialServerFrame
   | LiveVoiceSttFinalServerFrame
   | LiveVoiceThinkingServerFrame
@@ -233,6 +244,7 @@ export type LiveVoiceServerFramePayload =
   | WithoutSeq<LiveVoiceBusyServerFrame>
   | WithoutSeq<LiveVoiceSpeechStartedServerFrame>
   | WithoutSeq<LiveVoiceUtteranceEndServerFrame>
+  | WithoutSeq<LiveVoiceUtteranceDiscardedServerFrame>
   | WithoutSeq<LiveVoiceSttPartialServerFrame>
   | WithoutSeq<LiveVoiceSttFinalServerFrame>
   | WithoutSeq<LiveVoiceThinkingServerFrame>

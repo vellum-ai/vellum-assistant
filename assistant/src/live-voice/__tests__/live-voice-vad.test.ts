@@ -65,7 +65,10 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   stopped = false;
   private onEvent: ((event: SttStreamServerEvent) => void) | null = null;
 
-  constructor(private readonly stopEvents: SttStreamServerEvent[]) {}
+  constructor(
+    private readonly stopEvents: SttStreamServerEvent[],
+    private readonly holdStopEvents = false,
+  ) {}
 
   async start(onEvent: (event: SttStreamServerEvent) => void): Promise<void> {
     this.onEvent = onEvent;
@@ -78,6 +81,12 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   stop(): void {
     if (this.stopped) return;
     this.stopped = true;
+    if (!this.holdStopEvents) {
+      this.flushStopEvents();
+    }
+  }
+
+  flushStopEvents(): void {
     for (const event of this.stopEvents) {
       this.onEvent?.(event);
     }
@@ -98,6 +107,8 @@ function createHarness(options: {
   holdSendFrame?: (
     payload: Parameters<LiveVoiceSessionFactoryContext["sendFrame"]>[0],
   ) => Promise<void> | null;
+  // Transcriber indices whose stop events wait for flushStopEvents().
+  holdStopEventsFor?: number[];
 }) {
   const sequencer = createLiveVoiceServerFrameSequencer();
   const frames: LiveVoiceServerFrame[] = [];
@@ -117,10 +128,10 @@ function createHarness(options: {
   const resolveTranscriber = mock(async () => {
     const text =
       finals[transcribers.length] ?? `utterance ${transcribers.length + 1}`;
-    const transcriber = new MockStreamingTranscriber([
-      { type: "final", text },
-      { type: "closed" },
-    ]);
+    const transcriber = new MockStreamingTranscriber(
+      [{ type: "final", text }, { type: "closed" }],
+      options.holdStopEventsFor?.includes(transcribers.length) ?? false,
+    );
     transcribers.push(transcriber);
     return transcriber;
   });
@@ -561,9 +572,7 @@ describe("LiveVoiceSession server VAD", () => {
     await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
     await waitFor(() => archivedUserAudio.length === 1);
     // Archived user audio covers pre-roll + speech, not the idle stretch.
-    expect(archivedUserAudio[0]?.byteLength).toBe(
-      26 * SILENT_CHUNK.byteLength,
-    );
+    expect(archivedUserAudio[0]?.byteLength).toBe(26 * SILENT_CHUNK.byteLength);
   });
 
   test("an utterance captured during an open turn seeds its metrics marks", async () => {
@@ -636,6 +645,157 @@ describe("LiveVoiceSession server VAD", () => {
     );
     expect(turn?.timestamps.speechStartAtMs).not.toBeNull();
     expect(turn?.timestamps.utteranceEndAtMs).not.toBeNull();
+  });
+
+  test("barge-in racing message_complete cancels the turn and keeps the interrupting utterance", async () => {
+    let firstTurnCallbacks: VoiceTurnCallbacks | undefined;
+    const abort = mock();
+    let turnCalls = 0;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      turnCalls += 1;
+      if (turnCalls === 1) {
+        firstTurnCallbacks = options.callbacks;
+        return { turnId: "bridge-turn-1", abort };
+      }
+      options.callbacks?.assistant_text_delta?.(makeTextDelta("Sure."));
+      options.callbacks?.message_complete?.(makeMessageComplete());
+      return { turnId: "bridge-turn-2", abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk(`audio:${options.text}`));
+      return makeTtsResult(options.text);
+    });
+    const { frames, session } = createHarness({
+      finals: ["what's the weather", "actually never mind"],
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    firstTurnCallbacks?.assistant_text_delta?.(
+      makeTextDelta("It is sunny today."),
+    );
+    await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+
+    // The LLM finishes just as the user barges in: message_complete queues
+    // the completion continuation and the abort fires before it runs.
+    firstTurnCallbacks?.message_complete?.(makeMessageComplete());
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+
+    // The cancelled turn never completes: no tts_done for it.
+    expect(
+      frames.some(
+        (frame) => frame.type === "tts_done" && frame.turnId === "live-turn-1",
+      ),
+    ).toBe(false);
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ turnId: "live-turn-1" });
+
+    // The interrupting utterance survives and drives the next turn.
+    await waitFor(() => turnCalls === 2);
+    expect(startVoiceTurn.mock.calls[1]?.[0]).toMatchObject({
+      content: "actually never mind",
+    });
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "tts_done" && frame.turnId === "live-turn-2",
+      ),
+    );
+    expect(abort).toHaveBeenCalledTimes(1);
+  });
+
+  test("speech in the release→turn-start window is pre-rolled into the next utterance", async () => {
+    const { startVoiceTurn, calls } = makeAutoCompletingTurnStarter([
+      "First reply.",
+      "Second reply.",
+    ]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["hello world", "resumed speech"],
+      startVoiceTurn,
+      // A long silence threshold keeps utterance boundaries under the
+      // test's control via ptt_release.
+      turnDetectorConfig: { silenceThresholdMs: 5_000 },
+      holdStopEventsFor: [0],
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => transcribers[0]?.stopped === true);
+
+    // Speech resumes while the released utterance still waits for its
+    // transcriber to close — the turn cannot start yet.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    expect(transcribers[0]?.received).toHaveLength(1);
+
+    // The transcriber closes; turn 1 runs and the next utterance arms.
+    transcribers[0]?.flushStopEvents();
+    await waitFor(() => countType(frames, "tts_done") === 1);
+    await waitFor(() => transcribers.length === 2);
+
+    // The next chunk flushes the window speech ahead of itself.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => (transcribers[1]?.received.length ?? 0) === 3);
+    const loud = Buffer.from(LOUD_CHUNK);
+    expect(transcribers[1]?.received.every((chunk) => chunk.equals(loud))).toBe(
+      true,
+    );
+
+    // The resumed speech still becomes a turn.
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => calls.length === 2);
+    expect(calls[1]?.content).toBe("resumed speech");
+  });
+
+  test("an empty VAD utterance emits utterance_discarded", async () => {
+    const startVoiceTurn = mock(async () => ({
+      turnId: "bridge-turn",
+      abort: mock(),
+    }));
+    const { frames, session } = createHarness({
+      finals: ["   "],
+      startVoiceTurn,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "utterance_discarded"),
+    );
+
+    expect(startVoiceTurn).not.toHaveBeenCalled();
+    const types = frameTypes(frames);
+    expect(types.indexOf("utterance_end")).toBeLessThan(
+      types.indexOf("utterance_discarded"),
+    );
+  });
+
+  test("manual mode does not emit utterance_discarded for an empty transcript", async () => {
+    const startVoiceTurn = mock(async () => ({
+      turnId: "bridge-turn",
+      abort: mock(),
+    }));
+    const { frames, session } = createHarness({
+      startFrame: MANUAL_START_FRAME,
+      finals: ["   "],
+      startVoiceTurn,
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await session.handleClientFrame({ type: "ptt_release" });
+    await flushAsyncCallbacks();
+
+    expect(startVoiceTurn).not.toHaveBeenCalled();
+    expect(countType(frames, "utterance_discarded")).toBe(0);
   });
 
   test("manual mode emits none of the VAD frames", async () => {

@@ -50,8 +50,6 @@ import {
 type LiveVoiceSessionState =
   | "initializing"
   | "active"
-  | "utterance_released"
-  | "transcriber_closed"
   | "interrupted"
   | "failed"
   | "closed";
@@ -300,9 +298,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   }
 
   // Creates the next utterance record and arms a fresh streaming transcriber
-  // for it. Called once from start() and again after every finalized turn so
-  // the session cycles: active → utterance_released → transcriber_closed →
-  // (turn) → active.
+  // for it. Called once from start() and, in server_vad mode, again after
+  // every finalized turn (per-utterance phase tracks the cycle).
   private async beginUtterance(): Promise<UtteranceStartResult> {
     const utterance: UtteranceCycle = {
       phase: "pending",
@@ -388,8 +385,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
 
   // Fire-and-forget re-arm: end-of-turn work (terminal frames, archival,
   // metrics) must never block on the next transcriber's startup. Failures
-  // surface through rearmAfterTurn's error frame.
+  // surface through rearmAfterTurn's error frame. Multi-turn cycling is a
+  // server_vad capability; manual sessions keep single-utterance semantics
+  // (no speculative post-turn transcriber).
   private scheduleRearmAfterTurn(): void {
+    if (!this.turnDetector) return;
     void this.rearmAfterTurn().catch(() => {});
   }
 
@@ -465,17 +465,20 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     // collecting or streaming them; flushed on speech onset so the
     // transcriber still gets leading context ahead of the first syllable.
     if (!hasSpeech && !detector.isActive) {
-      this.vadPreRollChunks.push(Buffer.from(chunk));
-      while (this.vadPreRollChunks.length > SERVER_VAD_PRE_ROLL_MAX_CHUNKS) {
-        this.vadPreRollChunks.shift();
-      }
+      this.pushVadPreRoll(chunk);
       return;
     }
 
     let utterance = this.currentUtterance;
     if (!utterance) return;
     if (utterance.released || utterance.completed) {
-      if (!hasSpeech || !this.canArmNextUtterance(utterance)) return;
+      if (!hasSpeech) return;
+      if (!this.canArmNextUtterance(utterance)) {
+        // Speech in the release→turn-start window: hold it in the pre-roll
+        // ring so it flushes into the next utterance once it arms.
+        this.pushVadPreRoll(chunk);
+        return;
+      }
       // Sets currentUtterance synchronously; the transcriber resolves async
       // while this chunk lands in the new utterance's pending buffer.
       void this.armUtterance();
@@ -508,9 +511,16 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   // A released utterance's transcription pipeline still reads
   // currentUtterance; replacing it is only safe once its assistant turn has
   // started (or the cycle fully finalized). Speech in the short
-  // release→turn-start window is not captured.
+  // release→turn-start window waits in the pre-roll ring.
   private canArmNextUtterance(utterance: UtteranceCycle): boolean {
     return utterance.completed || utterance.assistantTurnStarted;
+  }
+
+  private pushVadPreRoll(chunk: Buffer): void {
+    this.vadPreRollChunks.push(Buffer.from(chunk));
+    while (this.vadPreRollChunks.length > SERVER_VAD_PRE_ROLL_MAX_CHUNKS) {
+      this.vadPreRollChunks.shift();
+    }
   }
 
   private bufferPendingUtteranceAudio(
@@ -649,7 +659,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     utterance: UtteranceCycle,
   ): Promise<void> {
     utterance.phase = "released";
-    this.state = "utterance_released";
     try {
       utterance.transcriber?.stop();
     } catch (err) {
@@ -661,7 +670,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         )}`,
       });
       utterance.phase = "transcriber_closed";
-      this.state = "transcriber_closed";
     }
     await this.startAssistantTurnIfReady();
     await this.drainOutboundFrames();
@@ -709,7 +717,6 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       case "closed":
         utterance.phase = "transcriber_closed";
         utterance.transcriber = null;
-        this.state = "transcriber_closed";
         await this.startAssistantTurnIfReady();
         return;
     }
@@ -758,6 +765,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     if (content.length === 0) {
       utterance.assistantTurnStarted = true;
       await this.finalizePendingUtterance(utterance, "empty_transcript");
+      if (this.turnDetector) {
+        // Hands-free clients moved to "transcribing" on utterance_end; tell
+        // them the utterance was dropped so they return to listening.
+        await this.sendFrame({ type: "utterance_discarded" });
+      }
       this.scheduleRearmAfterTurn();
       return;
     }
@@ -816,6 +828,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
             if (
               activeTurn?.token !== token ||
               activeTurn.assistantCompleted ||
+              // A barged-in turn finalizes through cancelAssistantTurn.
+              activeTurn.abortController.signal.aborted ||
               this.isClosed
             ) {
               return;
@@ -903,8 +917,11 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       }
     }
 
+    // In server_vad mode currentUtterance may already be the next cycle
+    // (e.g. barge-in speech); only finalize it when it belongs to the
+    // cancelled turn or no turn was active (close/interrupt paths).
     const utterance = this.currentUtterance;
-    if (utterance) {
+    if (utterance && (!turn || turn.utterance === utterance)) {
       await this.finalizePendingUtterance(utterance, reason);
     }
     this.scheduleRearmAfterTurn();
@@ -958,6 +975,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       .then(async () => {
         const currentTurn = this.activeAssistantTurn;
         if (currentTurn?.token !== token || currentTurn.ttsDone) return;
+        // Barge-in can abort while this continuation is queued; the turn
+        // then finalizes as cancelled through cancelAssistantTurn.
+        if (currentTurn.abortController.signal.aborted) return;
 
         currentTurn.ttsDone = true;
         await this.finalizeAssistantTurn(

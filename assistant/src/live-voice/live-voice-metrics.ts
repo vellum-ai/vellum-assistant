@@ -60,6 +60,7 @@ interface LiveVoiceTurnTimestamps {
   speechStartAtMs: number | null;
   pttReleaseAtMs: number | null;
   utteranceEndAtMs: number | null;
+  bargeInAtMs: number | null;
   finalTranscriptAtMs: number | null;
   firstAssistantDeltaAtMs: number | null;
   firstTtsAudioAtMs: number | null;
@@ -186,6 +187,7 @@ export class LiveVoiceMetricsCollector {
         speechStartAtMs: null,
         pttReleaseAtMs: null,
         utteranceEndAtMs: null,
+        bargeInAtMs: null,
         finalTranscriptAtMs: null,
         firstAssistantDeltaAtMs: null,
         firstTtsAudioAtMs: null,
@@ -260,7 +262,11 @@ export class LiveVoiceMetricsCollector {
   }
 
   markBargeIn(turnId?: string): LiveVoiceMetricsFrame {
-    return this.emit("barge_in", turnId ?? this.activeTurn?.turnId);
+    const turn = this.ensureActiveTurn(turnId);
+    if (turn.timestamps.bargeInAtMs === null) {
+      turn.timestamps.bargeInAtMs = this.timestamp();
+    }
+    return this.emit("barge_in", turn.turnId);
   }
 
   markFinalTranscript(turnId?: string): LiveVoiceMetricsFrame {

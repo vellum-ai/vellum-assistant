@@ -401,6 +401,17 @@ describe("LiveVoiceServerFrameSequencer", () => {
     expect(sequencer.lastSeq).toBe(3);
   });
 
+  test("sequences utterance_discarded frames", () => {
+    const sequencer = createLiveVoiceServerFrameSequencer();
+
+    const discarded: LiveVoiceServerFrame = sequencer.next({
+      type: "utterance_discarded",
+    });
+
+    expect(discarded).toEqual({ type: "utterance_discarded", seq: 1 });
+    expect(sequencer.lastSeq).toBe(1);
+  });
+
   test("sequences both utterance_end reasons", () => {
     const sequencer = createLiveVoiceServerFrameSequencer();
 
