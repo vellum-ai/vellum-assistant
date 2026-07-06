@@ -121,7 +121,7 @@ describe("handleListSlackChannels", () => {
       name: "group-chat",
       type: "group",
       isPrivate: true,
-      isMember: false,
+      isMember: true,
       memberCount: null,
       topic: null,
       imageUrl: null,
@@ -131,7 +131,7 @@ describe("handleListSlackChannels", () => {
       name: "Alice Smith",
       type: "dm",
       isPrivate: true,
-      isMember: false,
+      isMember: true,
       memberCount: null,
       topic: null,
       imageUrl: null,
@@ -245,7 +245,7 @@ describe("handleListSlackChannels", () => {
       name: "Alice Smith",
       type: "dm",
       isPrivate: true,
-      isMember: false,
+      isMember: true,
       memberCount: null,
       topic: null,
       imageUrl: "https://avatars.example.com/u1_48.png",
@@ -255,7 +255,7 @@ describe("handleListSlackChannels", () => {
       name: "Bob Jones",
       type: "dm",
       isPrivate: true,
-      isMember: false,
+      isMember: true,
       memberCount: null,
       topic: null,
       imageUrl: null,
@@ -317,12 +317,13 @@ describe("handleListSlackChannels", () => {
     })) as { channels: Array<Record<string, unknown>> };
 
     expect(result.channels.map((c) => c.id)).toEqual(["G1", "D1"]);
+    expect(result.channels.every((c) => c.isMember === true)).toBe(true);
     expect(result.channels[1]).toEqual({
       id: "D1",
       name: "Alice Smith",
       type: "dm",
       isPrivate: true,
-      isMember: false,
+      isMember: true,
       memberCount: null,
       topic: null,
       imageUrl: null,

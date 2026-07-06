@@ -114,7 +114,7 @@ export async function handleListSlackChannels({
       name,
       type,
       isPrivate: isPrivateConversation(c),
-      isMember: c.is_member ?? false,
+      isMember: isMemberConversation(c),
       memberCount: c.num_members ?? null,
       topic: c.topic?.value || c.purpose?.value || null,
       imageUrl,
