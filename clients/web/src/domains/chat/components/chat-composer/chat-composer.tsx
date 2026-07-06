@@ -26,6 +26,7 @@ import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { ComposerDraftNotices } from "@/domains/chat/components/composer-draft-notices";
 import { StreamingWaveform } from "@/domains/chat/components/chat-composer/streaming-waveform";
 import { VoiceComposerBar } from "@/domains/chat/components/chat-composer/voice-composer-bar";
+import { VoiceLiveTranscript } from "@/domains/chat/components/chat-composer/voice-live-transcript";
 import { LiveVoiceButton } from "@/domains/chat/components/live-voice-button";
 import {
     VoiceInputButton,
@@ -255,6 +256,22 @@ export function ChatComposer({
     showVoiceInput &&
     liveVoiceState !== "idle" &&
     liveVoiceState !== "failed";
+  // Whether the session has any speech transcript to show. A boolean
+  // *presence* subscription, not the text itself: zustand only re-renders
+  // when the selected value changes identity, so per-delta transcript
+  // updates never reach the composer — the bit flips once when speech
+  // starts and once when the store clears. The streaming text is rendered
+  // by `VoiceLiveTranscript`, which subscribes to the store on its own,
+  // keeping this component's deliberate opt-out of high-frequency
+  // live-voice updates (see `observeAudioState: false` above) intact.
+  const hasLiveVoiceTranscript = useLiveVoiceStore(
+    (s) => Boolean(s.partialTranscript || s.finalTranscript),
+  );
+  // While speech is streaming, the disabled textarea is visually hidden and
+  // the display-only transcript renders in its grid cell (Light 55). With no
+  // transcript yet, the textarea stays visible so its placeholder shows
+  // through (Light 53 baseline).
+  const showLiveVoiceTranscript = isLiveVoiceActive && hasLiveVoiceTranscript;
   // Amplitude is polled by the voice bar's canvas draw loop straight from the
   // store (~30 Hz), so per-sample updates never flow through props.
   const getLiveVoiceAmplitude = useCallback(
@@ -593,9 +610,22 @@ export function ChatComposer({
                 // into this region). The grid mirror keeps the height stable.
                 disabled={typingDisabled || isLiveVoiceActive}
                 rows={1}
-                className="col-start-1 row-start-1 w-full resize-none overflow-y-auto border-none bg-transparent px-4 pt-3 pb-2 text-chat text-[var(--content-default)] placeholder:text-[var(--content-disabled)] focus:outline-none disabled:opacity-50"
+                className={`col-start-1 row-start-1 w-full resize-none overflow-y-auto border-none bg-transparent px-4 pt-3 pb-2 text-chat text-[var(--content-default)] placeholder:text-[var(--content-disabled)] focus:outline-none disabled:opacity-50 ${
+                  showLiveVoiceTranscript ? "hidden" : ""
+                }`}
                 style={{ maxHeight: `${textareaMaxHeightPx}px` }}
               />
+              {isLiveVoiceActive && (
+                // Live speech streams display-only into the textarea's grid
+                // cell (Light 55); renders nothing until there is text, so
+                // the placeholder above stays visible. The shared cell keeps
+                // the grid's auto-grow/max-height behavior identical to the
+                // textarea it visually replaces.
+                <VoiceLiveTranscript
+                  className="col-start-1 row-start-1"
+                  maxHeightPx={textareaMaxHeightPx}
+                />
+              )}
             </div>
             {showInlineVoicePreview && (
               // Non-Electron fallback: Electron uses the shared top-center
