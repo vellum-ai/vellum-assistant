@@ -12,6 +12,10 @@ import { getLogger } from "../util/logger.js";
 import type { ChannelDeliveryResult } from "./gateway-client.js";
 import { deliverChannelReply } from "./gateway-client.js";
 import type { RuntimeAttachmentMetadata } from "./http-types.js";
+import {
+  containsNoResponseMarker,
+  stripNoResponseMarkers,
+} from "./no-response.js";
 
 const log = getLogger("channel-reply-delivery");
 
@@ -50,40 +54,64 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-const NO_RESPONSE_RE = /^\s*<no_response\s*\/?>\s*$/;
-
-/** Returns true when any segment is a `<no_response/>` sentinel. */
+/** Returns true when any segment carries a `<no_response/>` sentinel. */
 function hasNoResponseMarker(textSegments: string[]): boolean {
-  return textSegments.some((s) => NO_RESPONSE_RE.test(s));
+  return textSegments.some(containsNoResponseMarker);
 }
 
 function toDeliverableTextSegments(
   textSegments: string[],
   fallbackText?: string,
 ): string[] {
+  // Hide the sentinel itself, never the content around it: strip every
+  // occurrence from mixed segments so a reply the model wrapped around a
+  // stray <no_response/> still reaches the user, and the raw sentinel never
+  // leaks into the channel as visible text.
   const nonEmptySegments = textSegments
-    .map(stripVellumLinks)
-    .filter(
-      (segment) => segment.trim().length > 0 && !NO_RESPONSE_RE.test(segment),
-    );
+    .map((segment) => {
+      const stripped = stripVellumLinks(segment);
+      return containsNoResponseMarker(stripped)
+        ? stripNoResponseMarkers(stripped)
+        : stripped;
+    })
+    .filter((segment) => segment.trim().length > 0);
   if (nonEmptySegments.length > 0) return nonEmptySegments;
   // If the only text was <no_response/>, treat as intentional silence —
   // do not fall back to fallbackText.
   if (hasNoResponseMarker(textSegments)) return [];
-  if (typeof fallbackText === "string" && fallbackText.trim().length > 0) {
-    return [fallbackText];
+  if (typeof fallbackText === "string") {
+    const fallback = stripNoResponseMarkers(fallbackText);
+    if (fallback.length > 0) return [fallback];
   }
   return [];
 }
 
-function hasDeliverableReply(
+/**
+ * A reply worth delivering on its own merits: real text after sentinel
+ * stripping, or attachments. A bare `<no_response/>` row does NOT count.
+ */
+function hasRealDeliverableReply(
   rendered: RenderedHistoryContent,
   attachments: RuntimeAttachmentMetadata[],
 ): boolean {
   return (
     toDeliverableTextSegments(rendered.textSegments, rendered.text).length >
-      0 ||
-    attachments.length > 0 ||
+      0 || attachments.length > 0
+  );
+}
+
+/**
+ * A reply whose delivery is a terminal outcome: real content, or a bare
+ * `<no_response/>` sentinel whose "delivery" is deliberate silence. The
+ * unbounded fallback scan stops at either so a silence marker can never be
+ * skipped in favor of re-delivering an older turn's reply.
+ */
+function hasDeliverableReply(
+  rendered: RenderedHistoryContent,
+  attachments: RuntimeAttachmentMetadata[],
+): boolean {
+  return (
+    hasRealDeliverableReply(rendered, attachments) ||
     hasNoResponseMarker(rendered.textSegments)
   );
 }
@@ -284,16 +312,27 @@ export function findAssistantReplyMessageIdForTurn(
     }
   }
 
+  let sentinelRowId: string | undefined;
   for (let i = turnEndIndex - 1; i > userIndex; i--) {
     const msg = msgs[i];
     if (msg.role === "assistant") {
       const { rendered, replyAttachments } = readPersistedAssistantReply(msg);
-      if (hasDeliverableReply(rendered, replyAttachments)) {
+      if (hasRealDeliverableReply(rendered, replyAttachments)) {
         return msg.id;
+      }
+      if (
+        sentinelRowId === undefined &&
+        hasNoResponseMarker(rendered.textSegments)
+      ) {
+        sentinelRowId = msg.id;
       }
     }
   }
-  return undefined;
+  // Silence means the turn produced no real reply text anywhere — not "the
+  // last row was a sentinel". Only when no row in the turn carries real
+  // content does the bare <no_response/> row become the reply; delivering it
+  // suppresses all output as deliberate silence.
+  return sentinelRowId;
 }
 
 async function deliverPersistedAssistantMessageViaCallback(
@@ -302,8 +341,10 @@ async function deliverPersistedAssistantMessageViaCallback(
   callbackUrl: string,
   assistantId: string | undefined,
   options: DeliverReplyOptions | undefined,
+  preRead?: ReturnType<typeof readPersistedAssistantReply>,
 ): Promise<boolean> {
-  const { rendered, replyAttachments } = readPersistedAssistantReply(msg);
+  const { rendered, replyAttachments } =
+    preRead ?? readPersistedAssistantReply(msg);
   if (!hasDeliverableReply(rendered, replyAttachments)) {
     return false;
   }
@@ -355,14 +396,27 @@ export async function deliverReplyViaCallback(
         `Target assistant reply message not found: ${options.messageId}`,
       );
     }
-    await deliverPersistedAssistantMessageViaCallback(
-      msg,
-      externalChatId,
-      callbackUrl,
-      assistantId,
-      options,
-    );
-    return;
+    // The targeted row is usually the turn's final assistant row, but a bare
+    // <no_response/> or tool-only final row is not necessarily the turn's
+    // reply — the model may have written the real reply in an earlier row of
+    // the same turn. When the turn boundary is known, defer to the turn scan
+    // below; it returns this same sentinel row (deliberate silence) only when
+    // no row in the turn carries real content.
+    const preRead = readPersistedAssistantReply(msg);
+    if (
+      hasRealDeliverableReply(preRead.rendered, preRead.replyAttachments) ||
+      !options.sinceMessageId
+    ) {
+      await deliverPersistedAssistantMessageViaCallback(
+        msg,
+        externalChatId,
+        callbackUrl,
+        assistantId,
+        options,
+        preRead,
+      );
+      return;
+    }
   }
 
   if (options?.sinceMessageId) {
