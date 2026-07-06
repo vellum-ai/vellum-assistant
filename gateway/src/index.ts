@@ -752,6 +752,13 @@ async function main() {
       handler: (req) => handleContactPromptSubmit(req),
     },
     {
+      // Assistant-scoped variant for clients using the auto-prefix.
+      path: /^\/v1\/assistants\/[^/]+\/contacts\/prompt\/submit\/?$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleContactPromptSubmit(req),
+    },
+    {
       path: "/v1/contacts",
       method: "GET",
       auth: "edge",
@@ -759,6 +766,13 @@ async function main() {
     },
     {
       path: "/v1/contacts",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
+    },
+    {
+      // Assistant-scoped variant for clients using the auto-prefix.
+      path: /^\/v1\/assistants\/[^/]+\/contacts\/?$/,
       method: "POST",
       auth: "edge",
       handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
@@ -778,6 +792,14 @@ async function main() {
     },
     {
       path: /^\/v1\/contact-channels\/([^/]+)\/verify$/,
+      method: "POST",
+      auth: "edge-guardian",
+      handler: (req, params) =>
+        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
+    },
+    {
+      // Assistant-scoped variant for clients using the auto-prefix.
+      path: /^\/v1\/assistants\/[^/]+\/contact-channels\/([^/]+)\/verify\/?$/,
       method: "POST",
       auth: "edge-guardian",
       handler: (req, params) =>
