@@ -522,16 +522,26 @@ export async function persistQueuedMessageBody(
       turnChannel: turnCtx?.userMessageChannel,
     });
 
-    // OS-surface attribution for turn telemetry. The client-reported OS is
-    // validated through `parseClientOs` and stored under the `client`
-    // metadata bag (`$.client.os`), which `turn-events-store` forwards onto
-    // `TurnTelemetryEvent.client`. Caller-supplied `client` metadata wins —
-    // this only fills the key when absent.
+    // Client attribution for turn telemetry, stored under the `client`
+    // metadata bag which `turn-events-store` forwards onto
+    // `TurnTelemetryEvent.client`. The bag merges two sources per key:
+    // caller-supplied `client` metadata (e.g. the sanitized browser/OS/
+    // version headers read by `handleSendMessage`) wins, and the
+    // transport-reported OS (validated through `parseClientOs`) fills in
+    // `os` when the caller didn't supply one — so header-less paths (CLI,
+    // channel ingress) keep their OS attribution.
     const clientOs = parseClientOs(ctx.clientOs);
+    const callerClient =
+      metadataWithoutSlackInbound.client != null &&
+      typeof metadataWithoutSlackInbound.client === "object"
+        ? (metadataWithoutSlackInbound.client as Record<string, unknown>)
+        : null;
+    const clientEntries = {
+      ...(clientOs ? { os: clientOs } : {}),
+      ...(callerClient ?? {}),
+    };
     const clientBag =
-      metadataWithoutSlackInbound.client == null && clientOs
-        ? { client: { os: clientOs } }
-        : {};
+      Object.keys(clientEntries).length > 0 ? { client: clientEntries } : {};
 
     const mergedMetadata = {
       ...metadataWithoutSlackInbound,

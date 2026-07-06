@@ -169,10 +169,13 @@ export const messageMetadataSchema = z
      * "macos" | "android") from the request body's `clientOs` field, stamped
      * by `persistQueuedMessageBody` — the transport `userMessageInterface` is
      * "web" for the web, iOS, and macOS apps alike, so this is the only
-     * per-platform attribution. Forwarded verbatim onto
-     * `TurnTelemetryEvent.client` for downstream analytics. Kept as a
-     * permissive `record` so adding a new client field doesn't require a
-     * migration -- dbt can unpack later via JSON_VALUE.
+     * per-platform attribution. `browser_family` / `browser_version` /
+     * `interface_version` (and an `os` override) come from the sanitized
+     * `x-vellum-*` client-metadata headers read by `handleSendMessage`
+     * (see `@vellumai/service-contracts/client-metadata`). Forwarded
+     * verbatim onto `TurnTelemetryEvent.client` for downstream analytics.
+     * Kept as a permissive `record` so adding a new client field doesn't
+     * require a migration -- dbt can unpack later via JSON_VALUE.
      */
     client: z.record(z.string(), z.unknown()).optional(),
     subagentNotification: subagentNotificationSchema.optional(),

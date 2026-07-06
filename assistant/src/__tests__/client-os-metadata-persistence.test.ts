@@ -163,4 +163,18 @@ describe("client OS surface metadata persistence", () => {
       interface_version: "1.2.3",
     });
   });
+
+  test("transport os fills in when the caller bag omits it", async () => {
+    const ctx = createWebTurnContext("ios");
+    await persistQueuedMessageBody(ctx, {
+      content: "hello",
+      requestId: "req-merge",
+      metadata: { client: { browser_family: "safari" } },
+    });
+
+    expect(lastUserMetadata().client).toEqual({
+      os: "ios",
+      browser_family: "safari",
+    });
+  });
 });

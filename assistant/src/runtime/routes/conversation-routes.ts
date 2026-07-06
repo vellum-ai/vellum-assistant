@@ -3,6 +3,11 @@
  */
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
+import {
+  CLIENT_METADATA_HEADERS,
+  type ClientMetadataField,
+  sanitizeClientMetadataValue,
+} from "@vellumai/service-contracts/client-metadata";
 import { z } from "zod";
 
 import { enrichMessageWithSourcePaths } from "../../agent/attachments.js";
@@ -1289,6 +1294,51 @@ export function persistOnboardingArtifacts(onboarding: {
   });
 }
 
+type ClientMetadataBag = Partial<Record<ClientMetadataField, string>>;
+
+/**
+ * Read the sanitized client-metadata headers (browser family/version, OS
+ * surface, build version) sent by web-bundle clients. Values are persisted
+ * under `metadata.client` on the user message, which `turn-events-store`
+ * projects onto `TurnTelemetryEvent.client` for analytics. Returns
+ * `undefined` when no valid header is present so callers can omit the bag.
+ */
+function readClientMetadataHeaders(
+  headers: Record<string, string> | undefined,
+): ClientMetadataBag | undefined {
+  if (!headers) {
+    return undefined;
+  }
+  const bag: ClientMetadataBag = {};
+  for (const [field, headerName] of Object.entries(
+    CLIENT_METADATA_HEADERS,
+  ) as Array<[ClientMetadataField, string]>) {
+    const value = sanitizeClientMetadataValue(headers[headerName]);
+    if (value) {
+      bag[field] = value;
+    }
+  }
+  return Object.keys(bag).length > 0 ? bag : undefined;
+}
+
+/**
+ * Attach the client-metadata bag to a persist-time metadata object under the
+ * `client` key. Passes `metadata` through untouched (including `undefined`)
+ * when there is no client metadata.
+ */
+function withClientMetadata(
+  metadata: Record<string, unknown> | undefined,
+  clientMetadata: ClientMetadataBag | undefined,
+): Record<string, unknown> | undefined {
+  if (!clientMetadata) {
+    return metadata;
+  }
+  return {
+    ...(metadata ?? {}),
+    client: clientMetadata,
+  };
+}
+
 export async function handleSendMessage(
   { body: rawBody, headers }: RouteHandlerArgs,
   deps: {
@@ -1342,6 +1392,7 @@ export async function handleSendMessage(
   const actorPrincipalId = headers?.["x-vellum-actor-principal-id"];
   const principalType = headers?.["x-vellum-principal-type"];
   const originClientId = headers?.["x-vellum-client-id"]?.trim() || undefined;
+  const clientMetadata = readClientMetadataHeaders(headers);
 
   const { conversationKey, content, attachmentIds } = body;
   const inboundConversationId =
@@ -1998,17 +2049,20 @@ export async function handleSendMessage(
       attachments,
       onEvent: broadcastMessage,
       requestId,
-      metadata: {
-        userMessageChannel: sourceChannel,
-        assistantMessageChannel: sourceChannel,
-        userMessageInterface: sourceInterface,
-        assistantMessageInterface: sourceInterface,
-        ...(body.automated === true ? { automated: true } : {}),
-        // Carry the transcript-suppression flag through the queue so a
-        // hidden send that lands mid-turn stays hidden when drained —
-        // the drain path persists this metadata and skips the echo.
-        ...(body.hidden === true ? { hidden: true } : {}),
-      },
+      metadata: withClientMetadata(
+        {
+          userMessageChannel: sourceChannel,
+          assistantMessageChannel: sourceChannel,
+          userMessageInterface: sourceInterface,
+          assistantMessageInterface: sourceInterface,
+          ...(body.automated === true ? { automated: true } : {}),
+          // Carry the transcript-suppression flag through the queue so a
+          // hidden send that lands mid-turn stays hidden when drained —
+          // the drain path persists this metadata and skips the echo.
+          ...(body.hidden === true ? { hidden: true } : {}),
+        },
+        clientMetadata,
+      ),
       isInteractive,
       sourceActorPrincipalId,
       transport,
@@ -2144,7 +2198,7 @@ export async function handleSendMessage(
         content: rawContent,
         attachments,
         requestId: crypto.randomUUID(),
-        metadata: slashMeta,
+        metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
       if (persisted.deduplicated) {
@@ -2243,7 +2297,7 @@ export async function handleSendMessage(
         content: rawContent,
         attachments,
         requestId: crypto.randomUUID(),
-        metadata: slashMeta,
+        metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
     } catch (err) {
@@ -2356,7 +2410,7 @@ export async function handleSendMessage(
         content: rawContent,
         attachments,
         requestId: crypto.randomUUID(),
-        metadata: slashMeta,
+        metadata: withClientMetadata(slashMeta, clientMetadata),
         clientMessageId,
       });
       if (persisted.deduplicated) {
@@ -2439,13 +2493,15 @@ export async function handleSendMessage(
     content: resolvedContent,
     attachments,
     requestId,
-    metadata:
+    metadata: withClientMetadata(
       body.automated === true || body.hidden === true
         ? {
             ...(body.automated === true ? { automated: true } : {}),
             ...(body.hidden === true ? { hidden: true } : {}),
           }
         : undefined,
+      clientMetadata,
+    ),
     clientMessageId,
   });
 
