@@ -9,10 +9,22 @@
  * start instead of mid-conversation. It opens no live connections and
  * performs no session wiring — the session composition root gates startup
  * on the verdict. Mirrors `calls/telephony-credential-preflight.ts` for
- * the phone-call transport.
+ * the phone-call transport, sharing its gap/readiness shapes and the
+ * TTS-provider gap skeleton (`findTtsProviderGap`); only the capability
+ * predicates differ (streaming synthesis here, media-stream playability
+ * there).
+ *
+ * The STT leg attempts the exact tiers the ingest uses at runtime
+ * ({@link resolveTieredStreamingTranscriber}: utterance-boundary finals,
+ * then plain streaming), then the batch fallback, so ready/not-ready
+ * matches what a session would actually resolve.
  */
 
-import { ttsSecretResolves } from "../calls/telephony-tts-capability.js";
+import type {
+  TelephonyCredentialGap,
+  TelephonyCredentialReadiness,
+} from "../calls/telephony-credential-preflight.js";
+import { findTtsProviderGap } from "../calls/telephony-tts-capability.js";
 import { getConfig } from "../config/loader.js";
 import { getProviderEntry } from "../providers/speech-to-text/provider-catalog.js";
 import {
@@ -21,33 +33,27 @@ import {
   sttProviderKeyResolves,
 } from "../providers/speech-to-text/resolve.js";
 import type { SttProviderId } from "../stt/types.js";
-import type { TtsProviderCatalogEntry } from "../tts/provider-catalog.js";
-import { getCatalogProvider, getTtsProvider } from "../tts/provider-catalog.js";
+import { getTtsProvider } from "../tts/provider-catalog.js";
 import { resolveTtsConfig } from "../tts/tts-config-resolver.js";
+import { resolveTieredStreamingTranscriber } from "./live-voice-ingest.js";
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
-/** A single credential/capability gap blocking live-voice readiness. */
-export interface LiveVoiceCredentialGap {
-  kind: "stt" | "tts";
-  providerId: string;
-  reason: string;
-}
+/**
+ * A single credential/capability gap blocking live-voice readiness.
+ * Structurally shared with the telephony preflight — the two transports
+ * report gaps identically.
+ */
+export type LiveVoiceCredentialGap = TelephonyCredentialGap;
 
-/** Result of resolving whether live-voice STT+TTS credentials are in order. */
-export type LiveVoiceCredentialReadiness =
-  | { status: "ready" }
-  | {
-      status: "not-ready";
-      missing: LiveVoiceCredentialGap[];
-      /**
-       * A single human-readable sentence naming the offending provider(s)
-       * and missing credential(s), suitable for the client `error` frame.
-       */
-      userMessage: string;
-    };
+/**
+ * Result of resolving whether live-voice STT+TTS credentials are in order.
+ * Structurally shared with the telephony preflight; the `userMessage` is a
+ * single human-readable sentence suitable for the client `error` frame.
+ */
+export type LiveVoiceCredentialReadiness = TelephonyCredentialReadiness;
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -59,9 +65,12 @@ export type LiveVoiceCredentialReadiness =
  *
  * Readiness requires:
  * - STT: the configured `services.stt.provider` resolves a streaming
- *   transcriber, or — acceptable fallback mode — a batch transcriber.
+ *   transcriber on either tier the ingest uses (boundary finals, then
+ *   plain streaming), or — acceptable fallback mode — a batch transcriber.
  * - TTS: the configured `services.tts.provider` supports streaming
- *   synthesis (`synthesizeStream`) and all of its required secrets resolve.
+ *   synthesis (`synthesizeStream`), all of its required secrets resolve,
+ *   and provider-specific invariants hold (fish-audio needs a configured
+ *   `referenceId`, or `synthesizeStream` fails on the first response).
  */
 export async function resolveLiveVoiceCredentialReadiness(): Promise<LiveVoiceCredentialReadiness> {
   const gaps = (await Promise.all([resolveSttGap(), resolveTtsGap()])).filter(
@@ -92,12 +101,16 @@ interface GapWithClause {
 }
 
 /**
- * Resolve the STT leg: no gap when the configured provider yields a
- * streaming transcriber or (batch-fallback mode) a batch transcriber.
- * When neither resolves, classify why so the gap names the missing piece.
+ * Resolve the STT leg: no gap when the configured provider resolves a
+ * streaming transcriber on either runtime tier, or (batch-fallback mode) a
+ * batch transcriber. When nothing resolves, classify why so the gap names
+ * the missing piece.
  */
 async function resolveSttGap(): Promise<GapWithClause | null> {
-  if ((await resolveStreamingTranscriber()) !== null) {
+  if (
+    (await resolveTieredStreamingTranscriber(resolveStreamingTranscriber)) !==
+    null
+  ) {
     return null;
   }
   if ((await resolveBatchTranscriber()) !== null) {
@@ -139,54 +152,68 @@ async function resolveSttGap(): Promise<GapWithClause | null> {
 }
 
 /**
- * Resolve the TTS leg: no gap when the configured provider supports
- * streaming synthesis and every secret its catalog entry requires
- * resolves to a value.
+ * Resolve the TTS leg via the shared provider-gap skeleton
+ * ({@link findTtsProviderGap}): no gap when the configured provider
+ * supports streaming synthesis, every required secret resolves, and the
+ * fish-audio `referenceId` invariant holds.
  */
 async function resolveTtsGap(): Promise<GapWithClause | null> {
   const { provider: providerId } = resolveTtsConfig(getConfig());
 
-  let entry: TtsProviderCatalogEntry;
-  try {
-    entry = getCatalogProvider(providerId);
-  } catch {
-    return {
-      gap: {
-        kind: "tts",
-        providerId,
-        reason: `TTS provider "${providerId}" is not in the provider catalog`,
-      },
-      clause: `a recognized text-to-speech provider (the configured "${providerId}" is not in the provider catalog)`,
-    };
+  const result = await findTtsProviderGap(providerId, (entry) => {
+    const adapter = getTtsProvider(entry.id);
+    return (
+      adapter.capabilities.supportsStreaming &&
+      typeof adapter.synthesizeStream === "function"
+    );
+  });
+  if (result.gap === null) {
+    return null;
   }
 
-  const adapter = getTtsProvider(entry.id);
-  if (
-    !adapter.capabilities.supportsStreaming ||
-    typeof adapter.synthesizeStream !== "function"
-  ) {
-    return {
-      gap: {
-        kind: "tts",
-        providerId: entry.id,
-        reason: `TTS provider "${entry.id}" does not support streaming synthesis`,
-      },
-      clause: `a text-to-speech provider that supports streaming synthesis (the configured "${entry.id}" does not)`,
-    };
-  }
-
-  for (const secret of entry.secretRequirements) {
-    if (!(await ttsSecretResolves(secret.credentialStoreKey))) {
+  switch (result.gap.kind) {
+    case "unknown-provider":
       return {
         gap: {
           kind: "tts",
-          providerId: entry.id,
-          reason: `TTS provider "${entry.id}" is missing credentials (${secret.displayName})`,
+          providerId,
+          reason: `TTS provider "${providerId}" is not in the provider catalog`,
         },
-        clause: `an API key for the text-to-speech provider "${entry.id}" (${secret.displayName})`,
+        clause: `a recognized text-to-speech provider (the configured "${providerId}" is not in the provider catalog)`,
+      };
+    case "unsupported-capability": {
+      const { id } = result.gap.entry;
+      return {
+        gap: {
+          kind: "tts",
+          providerId: id,
+          reason: `TTS provider "${id}" does not support streaming synthesis`,
+        },
+        clause: `a text-to-speech provider that supports streaming synthesis (the configured "${id}" does not)`,
+      };
+    }
+    case "missing-credentials": {
+      const { id } = result.gap.entry;
+      const { displayName } = result.gap.secret;
+      return {
+        gap: {
+          kind: "tts",
+          providerId: id,
+          reason: `TTS provider "${id}" is missing credentials (${displayName})`,
+        },
+        clause: `an API key for the text-to-speech provider "${id}" (${displayName})`,
+      };
+    }
+    case "missing-fish-audio-reference-id": {
+      const { id } = result.gap.entry;
+      return {
+        gap: {
+          kind: "tts",
+          providerId: id,
+          reason: `TTS provider "${id}" has no Fish Audio reference ID configured (services.tts.providers.fish-audio.referenceId)`,
+        },
+        clause: `a Fish Audio voice reference ID for the text-to-speech provider "${id}" (set services.tts.providers.fish-audio.referenceId)`,
       };
     }
   }
-
-  return null;
 }

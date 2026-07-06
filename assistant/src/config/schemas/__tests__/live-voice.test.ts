@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { LiveVoiceSessionMode } from "../../../live-voice/protocol.js";
 import {
   LiveVoiceConfigSchema,
   LiveVoiceVadConfigSchema,
@@ -88,5 +89,20 @@ describe("LiveVoiceConfigSchema", () => {
 
   test("VALID_LIVE_VOICE_MODES lists ptt and open-mic", () => {
     expect(VALID_LIVE_VOICE_MODES).toEqual(["ptt", "open-mic"]);
+  });
+
+  test("VALID_LIVE_VOICE_MODES stays in lockstep with the protocol's LiveVoiceSessionMode", () => {
+    // The schema's `satisfies` clause proves every listed mode is a valid
+    // protocol mode; this compile-time assertion proves the reverse — the
+    // list is exhaustive over LiveVoiceSessionMode — so the two disconnected
+    // arrays (protocol.ts's const is module-private) cannot drift.
+    type Assert<T extends true> = T;
+    type _EveryProtocolModeListed = Assert<
+      LiveVoiceSessionMode extends (typeof VALID_LIVE_VOICE_MODES)[number]
+        ? true
+        : false
+    >;
+    const modes: readonly LiveVoiceSessionMode[] = VALID_LIVE_VOICE_MODES;
+    expect(modes.length).toBe(2);
   });
 });

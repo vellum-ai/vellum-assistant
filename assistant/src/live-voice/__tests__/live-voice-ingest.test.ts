@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
+import type { ResolveStreamingTranscriberOptions } from "../../providers/speech-to-text/resolve.js";
 import type {
   BatchTranscriber,
   StreamingTranscriber,
@@ -41,18 +42,42 @@ class MockStreamingTranscriber implements StreamingTranscriber {
   }
 }
 
+/**
+ * Plain-tier streaming mock: like openai-whisper, it emits its `final` only
+ * at end-of-stream — `stop()` flushes the pending final and then closes.
+ */
+class MockPlainStreamingTranscriber extends MockStreamingTranscriber {
+  constructor(private readonly finalOnStop: string) {
+    super();
+  }
+
+  override stop(): void {
+    super.stop();
+    this.emit({ type: "final", text: this.finalOnStop });
+    this.emit({ type: "closed" });
+  }
+}
+
 class MockBatchTranscriber implements BatchTranscriber {
   readonly providerId = "openai-whisper" as const;
   readonly boundaryId = "daemon-batch" as const;
   readonly requests: SttTranscribeRequest[] = [];
 
-  constructor(private readonly texts: string[] = []) {}
+  constructor(
+    private readonly texts: string[] = [],
+    private readonly delaysMs: number[] = [],
+  ) {}
 
   async transcribe(
     request: SttTranscribeRequest,
   ): Promise<SttTranscribeResult> {
+    const index = this.requests.length;
     this.requests.push(request);
-    return { text: this.texts[this.requests.length - 1] ?? "transcript" };
+    const delay = this.delaysMs[index] ?? 0;
+    if (delay > 0) {
+      await sleep(delay);
+    }
+    return { text: this.texts[index] ?? "transcript" };
   }
 }
 
@@ -253,6 +278,8 @@ describe("LiveVoiceIngest batch fallback", () => {
     const transcriber = new MockStreamingTranscriber();
     const batch = new MockBatchTranscriber(["after the crash"]);
     const { events, ingest } = createIngest({
+      // Open-mic so the post-crash turn auto-ends on silence.
+      config: { mode: "open-mic" },
       deps: {
         resolveStreamingTranscriber: async () => transcriber,
         resolveBatchTranscriber: async () => batch,
@@ -282,6 +309,8 @@ describe("LiveVoiceIngest batch fallback", () => {
     });
     const batch = new MockBatchTranscriber(["queued turn", "live turn"]);
     const { events, ingest } = createIngest({
+      // Open-mic so turns auto-end on silence while streaming is pending.
+      config: { mode: "open-mic" },
       deps: {
         resolveStreamingTranscriber: () => pending,
         resolveBatchTranscriber: async () => batch,
@@ -363,10 +392,243 @@ describe("LiveVoiceIngest batch fallback", () => {
   });
 });
 
+describe("LiveVoiceIngest mode semantics", () => {
+  test("ptt: sustained silence after speech does not end the turn; forceTurnEnd does", async () => {
+    const batch = new MockBatchTranscriber(["held utterance"]);
+    const { events, ingest } = createIngest({
+      config: { mode: "ptt" },
+      deps: {
+        resolveStreamingTranscriber: async () => null,
+        resolveBatchTranscriber: async () => batch,
+      },
+    });
+
+    ingest.start();
+    await sleep(5);
+    ingest.pushAudio(speechChunk());
+
+    // Sustained silence well past the silence threshold while the user
+    // keeps holding push-to-talk: no auto turn end, no final.
+    for (let i = 0; i < 3; i++) {
+      await sleep(SILENCE_THRESHOLD_MS + 20);
+      ingest.pushAudio(quietChunk(1));
+    }
+    expect(events).not.toContain("turn-boundary");
+    expect(events.filter((event) => event.startsWith("final:"))).toEqual([]);
+
+    // Release ends the turn and both halves of the utterance transcribe.
+    ingest.forceTurnEnd();
+    await waitFor(() => events.includes("final:held utterance"));
+    expect(events).toContain("turn-boundary");
+    expect(batch.requests).toHaveLength(1);
+
+    ingest.dispose();
+  });
+
+  test("open-mic: silence after speech ends the turn without forceTurnEnd", async () => {
+    const batch = new MockBatchTranscriber(["hands free"]);
+    const { events, ingest } = createIngest({
+      config: { mode: "open-mic" },
+      deps: {
+        resolveStreamingTranscriber: async () => null,
+        resolveBatchTranscriber: async () => batch,
+      },
+    });
+
+    ingest.start();
+    await sleep(5);
+    ingest.pushAudio(speechChunk());
+
+    await waitFor(() => events.includes("final:hands free"));
+    expect(events).toContain("turn-boundary");
+
+    ingest.dispose();
+  });
+
+  test("max-turn-duration cap ends the turn in both modes", async () => {
+    for (const mode of ["ptt", "open-mic"] as const) {
+      const batch = new MockBatchTranscriber([`${mode} capped`]);
+      const { events, ingest } = createIngest({
+        config: {
+          mode,
+          vad: {
+            speechEnergyThreshold: 800,
+            // High silence threshold proves the boundary comes from the cap.
+            silenceThresholdMs: 10_000,
+            maxTurnDurationMs: 40,
+          },
+        },
+        deps: {
+          resolveStreamingTranscriber: async () => null,
+          resolveBatchTranscriber: async () => batch,
+        },
+      });
+
+      ingest.start();
+      await sleep(5);
+      ingest.pushAudio(speechChunk());
+
+      await waitFor(() => events.includes(`final:${mode} capped`));
+      expect(events).toContain("turn-boundary");
+
+      ingest.dispose();
+    }
+  });
+});
+
+describe("LiveVoiceIngest two-tier streaming resolution", () => {
+  test("uses the boundary tier when it resolves and never cycles the session per turn", async () => {
+    const transcriber = new MockStreamingTranscriber();
+    const calls: ResolveStreamingTranscriberOptions[] = [];
+    const { ingest } = createIngest({
+      deps: {
+        resolveStreamingTranscriber: async (options) => {
+          calls.push(options);
+          return options.utteranceBoundaryFinals ? transcriber : null;
+        },
+      },
+    });
+
+    ingest.start();
+    ingest.pushAudio(speechChunk());
+    await waitFor(() => transcriber.sentChunks.length === 1);
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.utteranceBoundaryFinals).toBe(true);
+    expect(calls[0]?.sampleRate).toBe(SAMPLE_RATE);
+
+    // Boundary tier: a turn end relies on provider utterance finals — the
+    // provider session is not stopped/restarted.
+    ingest.forceTurnEnd();
+    await sleep(10);
+    expect(transcriber.stopped).toBe(false);
+    expect(calls).toHaveLength(1);
+
+    ingest.dispose();
+  });
+
+  test("plain tier: partials flow and finals are forced per turn via stop/restart", async () => {
+    const first = new MockPlainStreamingTranscriber("first turn");
+    const second = new MockPlainStreamingTranscriber("second turn");
+    const transcribers = [first, second];
+    const calls: ResolveStreamingTranscriberOptions[] = [];
+    const { events, ingest } = createIngest({
+      deps: {
+        resolveStreamingTranscriber: async (options) => {
+          calls.push(options);
+          if (options.utteranceBoundaryFinals) {
+            return null;
+          }
+          return transcribers.shift() ?? null;
+        },
+        resolveBatchTranscriber: async () => {
+          throw new Error("batch fallback must not be used in plain tier");
+        },
+      },
+    });
+
+    ingest.start();
+    ingest.pushAudio(speechChunk());
+    await waitFor(() => first.sentChunks.length === 1);
+
+    // Live partials flow in the plain tier.
+    first.emit({ type: "partial", text: "liv" });
+    expect(events).toContain("partial:liv");
+
+    // Turn end (PTT release) forces the utterance final by stopping the
+    // provider session (which flushes its end-of-stream final).
+    ingest.forceTurnEnd();
+    expect(first.stopped).toBe(true);
+    expect(events).toContain("final:first turn");
+
+    // The next turn's audio reaches a fresh provider session and its
+    // forced final arrives in order.
+    ingest.pushAudio(speechChunk());
+    await waitFor(() => second.sentChunks.length === 1);
+    ingest.forceTurnEnd();
+    await waitFor(() => events.includes("final:second turn"));
+    expect(events.filter((event) => event.startsWith("final:"))).toEqual([
+      "final:first turn",
+      "final:second turn",
+    ]);
+
+    // Tier order: boundary attempted once up front, then plain; the two
+    // per-turn restarts skip the boundary attempt.
+    expect(calls.map((o) => Boolean(o.utteranceBoundaryFinals))).toEqual([
+      true,
+      false,
+      false,
+      false,
+    ]);
+    expect(events.filter((event) => event.startsWith("error:"))).toEqual([]);
+
+    ingest.dispose();
+  });
+
+  test("falls back to batch only after both streaming tiers resolve null", async () => {
+    const calls: ResolveStreamingTranscriberOptions[] = [];
+    const batch = new MockBatchTranscriber(["batch final"]);
+    const { events, ingest } = createIngest({
+      deps: {
+        resolveStreamingTranscriber: async (options) => {
+          calls.push(options);
+          return null;
+        },
+        resolveBatchTranscriber: async () => batch,
+      },
+    });
+
+    ingest.start();
+    await waitFor(() => calls.length === 2);
+    expect(calls.map((o) => Boolean(o.utteranceBoundaryFinals))).toEqual([
+      true,
+      false,
+    ]);
+
+    ingest.pushAudio(speechChunk());
+    ingest.forceTurnEnd();
+    await waitFor(() => events.includes("final:batch final"));
+
+    ingest.dispose();
+  });
+});
+
+describe("LiveVoiceIngest batch turn ordering", () => {
+  test("finals emit strictly in turn order even when the first transcription is slow", async () => {
+    const batch = new MockBatchTranscriber(["first", "second"], [60, 0]);
+    const { events, ingest } = createIngest({
+      deps: {
+        resolveStreamingTranscriber: async () => null,
+        resolveBatchTranscriber: async () => batch,
+      },
+    });
+
+    ingest.start();
+    await sleep(5);
+
+    ingest.pushAudio(speechChunk());
+    ingest.forceTurnEnd();
+    ingest.pushAudio(speechChunk());
+    ingest.forceTurnEnd();
+
+    await waitFor(
+      () => events.filter((event) => event.startsWith("final:")).length === 2,
+    );
+    expect(events.filter((event) => event.startsWith("final:"))).toEqual([
+      "final:first",
+      "final:second",
+    ]);
+
+    ingest.dispose();
+  });
+});
+
 describe("LiveVoiceIngest VAD and turn detection", () => {
   test("fires onSpeechStart exactly once per speech onset", async () => {
     const batch = new MockBatchTranscriber();
     const { events, ingest } = createIngest({
+      // Open-mic so silence ends the first turn between the two onsets.
+      config: { mode: "open-mic" },
       deps: {
         resolveStreamingTranscriber: async () => null,
         resolveBatchTranscriber: async () => batch,
@@ -389,9 +651,10 @@ describe("LiveVoiceIngest VAD and turn detection", () => {
     ingest.dispose();
   });
 
-  test("fires onTurnBoundary after the silence threshold", async () => {
+  test("open-mic: fires onTurnBoundary after the silence threshold", async () => {
     const batch = new MockBatchTranscriber();
     const { events, ingest } = createIngest({
+      config: { mode: "open-mic" },
       deps: {
         resolveStreamingTranscriber: async () => null,
         resolveBatchTranscriber: async () => batch,

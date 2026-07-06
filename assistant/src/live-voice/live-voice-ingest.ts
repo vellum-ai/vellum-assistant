@@ -8,20 +8,32 @@
  *
  * - **Streaming** (default) — chunks are fed to a
  *   {@link StreamingTranscriber} resolved for the configured `services.stt`
- *   provider with utterance-boundary finals. Partials are forwarded via
- *   `onPartial` (the in-app UI displays live transcripts); non-empty finals
- *   fire `onTranscriptFinal`. Chunks arriving while the provider session is
- *   still starting are held in a bounded buffer and flushed on start
- *   (overflow drops the oldest chunks and is counted + logged at teardown).
+ *   provider in two tiers: utterance-boundary finals when the provider
+ *   supports them (`"boundary"` tier — Deepgram), otherwise plain streaming
+ *   (`"plain"` tier — live partials flow, and the ingest forces the
+ *   utterance final at each local turn boundary by stopping the provider
+ *   session and starting a fresh one for the next turn). Partials are
+ *   forwarded via `onPartial` (the in-app UI displays live transcripts);
+ *   non-empty finals fire `onTranscriptFinal`. Chunks arriving while the
+ *   provider session is starting (or restarting between plain-tier turns)
+ *   are held in a bounded buffer and flushed on start (overflow drops the
+ *   oldest chunks and is counted + logged at teardown).
  * - **Batch** — segmented audio turns are wrapped in a WAV container and
- *   transcribed per turn via the batch transcriber. Used when no streaming
- *   transcriber is available for the configured provider or the provider
- *   closed the streaming session unexpectedly mid-session.
+ *   transcribed per turn via the batch transcriber, strictly in turn order.
+ *   Used when no streaming transcriber is available for the configured
+ *   provider or the provider closed the streaming session unexpectedly
+ *   mid-session.
  *
  * Speech-start (`onSpeechStart`) and turn boundaries (`onTurnBoundary`)
  * always come from the local VAD/turn detector, never from transcriber
  * events — the session layer decides what they mean (barge-in in open-mic,
  * informational in PTT).
+ *
+ * The session `mode` drives turn detection: in `open-mic`, trailing silence
+ * (`vad.silenceThresholdMs`) auto-ends the user's turn; in `ptt`, silence
+ * never ends a turn — turns end only via {@link LiveVoiceIngest.forceTurnEnd}
+ * (the client's `ptt_release`) or the `vad.maxTurnDurationMs` hard cap.
+ * The VAD's `onSpeechStart` fires in both modes (barge-in needs it).
  *
  * This module is **transport-neutral** — it exposes callback hooks rather
  * than driving any session flow itself; the live-voice session instantiates
@@ -56,7 +68,13 @@ export interface LiveVoiceIngestConfig {
   /** Sample rate of the inbound PCM16 audio in Hz. */
   sampleRate: number;
 
-  /** Microphone mode the session negotiated (informational for the ingest). */
+  /**
+   * Microphone mode the session negotiated. Drives turn detection:
+   * `open-mic` auto-ends turns after `vad.silenceThresholdMs` of trailing
+   * silence; `ptt` disables silence-based auto-end — turns end only via
+   * {@link LiveVoiceIngest.forceTurnEnd} (client `ptt_release`) or the
+   * `vad.maxTurnDurationMs` cap. Speech-start detection runs in both modes.
+   */
   mode: LiveVoiceSessionMode;
 
   /** VAD thresholds (from `getConfig().liveVoice.vad` at the call site). */
@@ -76,6 +94,14 @@ const DEFAULT_TRANSCRIPTION_TIMEOUT_MS = 10_000;
 
 /** Default bound for the startup chunk buffer. */
 const DEFAULT_STREAMING_STARTUP_BUFFER_FRAMES = 500;
+
+/**
+ * Silence threshold used in `ptt` mode: the maximum delay `setTimeout`
+ * supports (2^31 - 1 ms, ~24.8 days), so the turn detector's silence timer
+ * effectively never fires and turns end only via `forceTurnEnd` (client
+ * `ptt_release`) or the max-turn-duration cap.
+ */
+const PTT_SILENCE_THRESHOLD_MS = 2 ** 31 - 1;
 
 /**
  * Transcription mode:
@@ -153,6 +179,57 @@ export interface LiveVoiceIngestDeps {
 }
 
 // ---------------------------------------------------------------------------
+// Two-tier streaming resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * How a resolved streaming transcriber delivers utterance finals.
+ *
+ * - `"boundary"` — the provider emits `final` events at utterance
+ *   boundaries itself (Deepgram).
+ * - `"plain"` — the provider streams live partials but only emits its
+ *   `final` at end-of-stream (or per committed segment), so the ingest
+ *   forces the utterance final at each local turn boundary by stopping the
+ *   provider session and starting a fresh one for the next turn.
+ */
+export type LiveVoiceStreamingTier = "boundary" | "plain";
+
+/** A streaming transcriber together with the tier it resolved under. */
+export interface TieredStreamingTranscriber {
+  transcriber: StreamingTranscriber;
+  tier: LiveVoiceStreamingTier;
+}
+
+/**
+ * Resolve a streaming transcriber for live voice in two tiers: first with
+ * utterance-boundary finals (`"boundary"`), then plain streaming
+ * (`"plain"`). Returns `null` only when neither tier resolves — the caller
+ * falls back to per-turn batch transcription.
+ *
+ * Shared by {@link LiveVoiceIngest} (runtime) and the live-voice credential
+ * preflight, so the preflight's ready/not-ready verdict validates exactly
+ * the legs the runtime will use.
+ */
+export async function resolveTieredStreamingTranscriber(
+  resolve: LiveVoiceIngestStreamingResolver,
+  sampleRate?: number,
+): Promise<TieredStreamingTranscriber | null> {
+  const rateOption = sampleRate === undefined ? {} : { sampleRate };
+  const boundary = await resolve({
+    ...rateOption,
+    utteranceBoundaryFinals: true,
+  });
+  if (boundary) {
+    return { transcriber: boundary, tier: "boundary" };
+  }
+  const plain = await resolve(rateOption);
+  if (plain) {
+    return { transcriber: plain, tier: "plain" };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Ingest
 // ---------------------------------------------------------------------------
 
@@ -179,6 +256,20 @@ export class LiveVoiceIngest {
 
   /** Live streaming transcriber (streaming mode only). */
   private streamingTranscriber: StreamingTranscriber | null = null;
+
+  /**
+   * Tier the streaming transcriber resolved under. Settled by the first
+   * successful resolution; plain-tier restarts skip the boundary attempt
+   * (it would re-log the fallback warning every turn).
+   */
+  private streamingTier: LiveVoiceStreamingTier | null = null;
+
+  /**
+   * Serializes per-turn batch transcriptions (and empty-turn finals) so
+   * `onTranscriptFinal` fires strictly in turn order even when an earlier
+   * turn's transcription request is slower than a later one.
+   */
+  private batchTurnQueue: Promise<void> = Promise.resolve();
 
   /**
    * Whether the ingest deliberately stopped the streaming transcriber
@@ -230,7 +321,13 @@ export class LiveVoiceIngest {
 
     this.turnDetector = new MediaTurnDetector(
       {
-        silenceThresholdMs: config.vad.silenceThresholdMs,
+        // PTT: silence never auto-ends a turn — the turn ends only on
+        // forceTurnEnd (client ptt_release) or the max-duration cap.
+        // Open-mic: trailing silence is the primary turn-end signal.
+        silenceThresholdMs:
+          config.mode === "ptt"
+            ? PTT_SILENCE_THRESHOLD_MS
+            : config.vad.silenceThresholdMs,
         maxTurnDurationMs: config.vad.maxTurnDurationMs,
       },
       {
@@ -242,7 +339,7 @@ export class LiveVoiceIngest {
         },
         onTurnEnd: (_reason, durationMs) => {
           this.callbacks.onTurnBoundary?.();
-          void this.handleTurnEnd(durationMs);
+          this.handleTurnEnd(durationMs);
         },
       },
     );
@@ -306,11 +403,13 @@ export class LiveVoiceIngest {
   }
 
   /**
-   * End the current utterance immediately — the PTT release path.
+   * End the current utterance immediately — the PTT release path (and the
+   * only silence-independent turn-end signal in `ptt` mode).
    *
    * Flushes the turn detector: in batch mode the buffered turn is
-   * transcribed now; in streaming mode the provider's utterance-boundary
-   * finals deliver the transcript.
+   * transcribed now; in boundary-tier streaming the provider's
+   * utterance-boundary finals deliver the transcript; in plain-tier
+   * streaming the ingest forces the final by cycling the provider session.
    */
   forceTurnEnd(): void {
     this.turnDetector.forceEnd();
@@ -327,8 +426,10 @@ export class LiveVoiceIngest {
     if (this.disposed) {
       return;
     }
-    this.turnDetector.forceEnd();
+    // Set before forceEnd so a plain-tier turn end skips its stop/restart
+    // cycle — the direct stop below flushes the trailing final instead.
     this.deliberateStop = true;
+    this.turnDetector.forceEnd();
     stopStreamingBestEffort(this.streamingTranscriber);
     this.logStartupDrops();
     this.callbacks.onStop?.();
@@ -361,19 +462,30 @@ export class LiveVoiceIngest {
   // ── Streaming mode ─────────────────────────────────────────────────
 
   /**
-   * Resolve and start the streaming transcriber, then flush the chunks
-   * buffered during startup. Falls back to the batch path when no
-   * streaming transcriber is available or the provider session cannot be
-   * established — the mode is settled before streaming ever becomes
-   * active, so modes are never mixed mid-session.
+   * Resolve and start the streaming transcriber (two-tier: boundary
+   * finals, then plain streaming), then flush the chunks buffered during
+   * startup. Falls back to the batch path when neither tier resolves or
+   * the provider session cannot be established — the mode is settled
+   * before streaming ever becomes active, so modes are never mixed
+   * mid-session. Also serves plain-tier per-turn restarts, which reuse
+   * the same startup-buffer machinery for the restart gap.
    */
   private async startStreaming(): Promise<void> {
-    let transcriber: StreamingTranscriber | null = null;
+    let resolved: TieredStreamingTranscriber | null = null;
     try {
-      transcriber = await this.resolveStreaming({
-        sampleRate: this.config.sampleRate,
-        utteranceBoundaryFinals: true,
-      });
+      if (this.streamingTier === "plain") {
+        // Per-turn restart: the tier already settled plain — skip the
+        // boundary attempt (it would re-log its fallback warning per turn).
+        const transcriber = await this.resolveStreaming({
+          sampleRate: this.config.sampleRate,
+        });
+        resolved = transcriber ? { transcriber, tier: "plain" } : null;
+      } else {
+        resolved = await resolveTieredStreamingTranscriber(
+          this.resolveStreaming,
+          this.config.sampleRate,
+        );
+      }
     } catch (err) {
       log.warn(
         { error: err },
@@ -381,18 +493,21 @@ export class LiveVoiceIngest {
       );
     }
 
-    if (this.disposed) {
-      stopStreamingBestEffort(transcriber);
+    if (this.disposed || this.deliberateStop) {
+      stopStreamingBestEffort(resolved?.transcriber ?? null);
       return;
     }
 
-    if (!transcriber) {
+    if (!resolved) {
       this.enterBatchMode();
       return;
     }
 
+    const { transcriber, tier } = resolved;
     try {
-      await transcriber.start((event) => this.handleStreamingEvent(event));
+      await transcriber.start((event) =>
+        this.handleStreamingEvent(event, transcriber),
+      );
     } catch (err) {
       log.warn(
         { error: err },
@@ -404,12 +519,13 @@ export class LiveVoiceIngest {
       return;
     }
 
-    if (this.disposed) {
+    if (this.disposed || this.deliberateStop) {
       stopStreamingBestEffort(transcriber);
       return;
     }
 
     this.streamingTranscriber = transcriber;
+    this.streamingTier = tier;
     this.mode = "streaming";
 
     // Flush audio buffered while the provider session was starting.
@@ -446,11 +562,9 @@ export class LiveVoiceIngest {
         { turnCount: pending.length },
         "Transcribing turns completed during streaming startup via batch fallback",
       );
-      void (async () => {
-        for (const { chunks, durationMs } of pending) {
-          await this.transcribeTurn(chunks, durationMs);
-        }
-      })();
+      for (const { chunks, durationMs } of pending) {
+        this.enqueueTurnTranscription(chunks, durationMs);
+      }
     }
   }
 
@@ -459,9 +573,17 @@ export class LiveVoiceIngest {
    *
    * Partials are forwarded (the in-app UI displays live transcripts) but
    * never drive turn-taking: turn boundaries come from the local VAD and
-   * transcripts commit on the provider's utterance-boundary finals.
+   * transcripts commit on the provider's finals (utterance-boundary finals
+   * in the boundary tier; per-turn forced finals in the plain tier).
+   *
+   * @param source - The transcriber that emitted the event, so `closed`
+   *   from a deliberately replaced plain-tier session is not mistaken for
+   *   a provider-initiated close of the live one.
    */
-  private handleStreamingEvent(event: SttStreamServerEvent): void {
+  private handleStreamingEvent(
+    event: SttStreamServerEvent,
+    source: StreamingTranscriber,
+  ): void {
     if (this.disposed) {
       return;
     }
@@ -483,6 +605,11 @@ export class LiveVoiceIngest {
         this.callbacks.onError?.(event.category, event.message);
         return;
       case "closed":
+        if (this.streamingTranscriber !== source) {
+          // Stale close from a stopped/replaced session (e.g. the previous
+          // plain-tier turn's transcriber) — the live session is unaffected.
+          return;
+        }
         this.streamingTranscriber = null;
         // Provider-initiated close mid-session: without a live transcriber
         // the streaming mode would silently drop all subsequent audio.
@@ -496,6 +623,21 @@ export class LiveVoiceIngest {
         }
         return;
     }
+  }
+
+  /**
+   * Force the just-ended turn's utterance final in the plain streaming
+   * tier: stop the provider session (plain-tier providers flush their
+   * final at end-of-stream — V1's ptt_release did exactly this) and start
+   * a fresh session for the next turn, reusing the startup-buffer
+   * machinery so no audio is lost in the restart gap.
+   */
+  private async restartPlainStreamingForNextTurn(): Promise<void> {
+    const transcriber = this.streamingTranscriber;
+    this.streamingTranscriber = null;
+    this.mode = "streaming-pending";
+    stopStreamingBestEffort(transcriber);
+    await this.startStreaming();
   }
 
   /**
@@ -524,11 +666,10 @@ export class LiveVoiceIngest {
 
   // ── Turn completion ────────────────────────────────────────────────
 
-  private async handleTurnEnd(durationMs: number): Promise<void> {
-    // Streaming modes take transcripts from the provider's
-    // utterance-boundary finals, not the local VAD. Turns completed
-    // while streaming is still pending are queued so a later batch
-    // fallback can transcribe their buffered audio.
+  private handleTurnEnd(durationMs: number): void {
+    // Streaming modes take transcripts from the provider's finals, not
+    // the local VAD. Turns completed while streaming is still pending are
+    // queued so a later batch fallback can transcribe their buffered audio.
     if (this.mode !== "batch") {
       if (this.mode === "streaming-pending") {
         const chunks = this.currentTurnChunks;
@@ -536,20 +677,42 @@ export class LiveVoiceIngest {
         if (chunks.length > 0) {
           this.pendingCompletedTurns.push({ chunks, durationMs });
         }
+        return;
+      }
+      // Plain-tier streaming never emits an utterance-boundary final on
+      // its own — force it by cycling the provider session. (During a
+      // deliberate stop the direct transcriber stop flushes it instead.)
+      if (this.streamingTier === "plain" && !this.deliberateStop) {
+        void this.restartPlainStreamingForNextTurn();
       }
       return;
     }
 
+    // Capture the turn's audio synchronously (the next turn's onTurnStart
+    // clears the buffer), then transcribe on the serialized queue so
+    // finals emit strictly in turn order.
     const chunks = this.currentTurnChunks;
     this.currentTurnChunks = [];
+    this.enqueueTurnTranscription(chunks, durationMs);
+  }
 
-    if (chunks.length === 0) {
-      // Silence turn — no audio to transcribe.
-      this.callbacks.onTranscriptFinal?.("", durationMs);
-      return;
-    }
-
-    await this.transcribeTurn(chunks, durationMs);
+  /**
+   * Chain a completed turn onto the serialized transcription queue.
+   * Empty (silence) turns emit an empty final from the same queue so
+   * ordering holds across every turn kind.
+   */
+  private enqueueTurnTranscription(chunks: Buffer[], durationMs: number): void {
+    this.batchTurnQueue = this.batchTurnQueue.then(async () => {
+      if (this.disposed) {
+        return;
+      }
+      if (chunks.length === 0) {
+        // Silence turn — no audio to transcribe.
+        this.callbacks.onTranscriptFinal?.("", durationMs);
+        return;
+      }
+      await this.transcribeTurn(chunks, durationMs);
+    });
   }
 
   /** Batch-transcribe a completed turn's audio chunks. */
