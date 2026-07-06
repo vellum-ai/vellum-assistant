@@ -27,8 +27,12 @@ import { VoiceTimelineWaveform } from "@/domains/chat/voice/voice-timeline-wavef
  * output streams into the thread transcript like text chat, so the bar
  * only carries a small label. `idle`/`failed` map to an empty label —
  * the parent unmounts the bar in those states.
+ *
+ * Exported for the title-bar session pill (`voice-session-pill-host.tsx`),
+ * which shows the same activity label while the user is away from the
+ * owning thread.
  */
-const STATE_LABELS: Record<LiveVoiceSessionState, string> = {
+export const STATE_LABELS: Record<LiveVoiceSessionState, string> = {
   idle: "",
   connecting: "Connecting…",
   listening: "Listening…",
