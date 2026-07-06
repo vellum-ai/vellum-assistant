@@ -196,6 +196,7 @@ export function SlackChannelList({
                   itemContent={(_, channel) => (
                     <SlackChannelRow channel={channel} />
                   )}
+                  className="h-full"
                 />
               </div>
             ) : (
