@@ -188,18 +188,27 @@ export function useBackgroundHatch(
       }
 
       // 3. Poll healthz until the daemon is reachable, then mark ready.
-      while (true) {
-        try {
-          const health = await getAssistantHealthz(activeAssistantId);
-          if (health.ok) break;
-        } catch {
-          // Daemon not reachable yet.
+      //
+      // Skipped when adopting an already-hatched local assistant: the hatching
+      // screen already polled the local gateway's `/readyz` before handing off
+      // here, so it's known reachable — and the assistant-scoped
+      // `getAssistantHealthz()` SDK call doesn't resolve against a local gateway
+      // (it needs a guardian-token-authed `/v1/assistants/{id}/healthz`), so
+      // running it here would spin to the timeout on a healthy assistant.
+      if (!adoptExisting) {
+        while (true) {
+          try {
+            const health = await getAssistantHealthz(activeAssistantId);
+            if (health.ok) break;
+          } catch {
+            // Daemon not reachable yet.
+          }
+          if (timedOut()) {
+            settleError(TIMEOUT_ERROR);
+            return;
+          }
+          await sleep(POLL_INTERVAL_MS);
         }
-        if (timedOut()) {
-          settleError(TIMEOUT_ERROR);
-          return;
-        }
-        await sleep(POLL_INTERVAL_MS);
       }
 
       settleReady(activeAssistantId);

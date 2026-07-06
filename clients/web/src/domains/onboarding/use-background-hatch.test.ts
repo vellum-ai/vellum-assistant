@@ -142,9 +142,12 @@ describe("useBackgroundHatch", () => {
     await waitFor(() => expect(result.current.ready).toBe(true));
     // No managed hatch when adopting…
     expect(hatchAssistantMock).not.toHaveBeenCalled();
-    // …but the existing assistant is discovered + health-checked.
+    // …the existing assistant is discovered via getAssistant…
     expect(getAssistantMock).toHaveBeenCalled();
-    expect(getAssistantHealthzMock).toHaveBeenCalledTimes(1);
+    // …and the assistant-scoped healthz is SKIPPED (the hatching screen already
+    // confirmed the local gateway's /readyz, and that SDK call doesn't resolve
+    // against a local gateway anyway).
+    expect(getAssistantHealthzMock).not.toHaveBeenCalled();
     expect(result.current.assistantId).toBe("ast-research");
   });
 
