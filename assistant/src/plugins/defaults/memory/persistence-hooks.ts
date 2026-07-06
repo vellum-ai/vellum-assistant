@@ -1,10 +1,4 @@
-import { getConfig } from "../../../config/loader.js";
 import type { DrizzleDb } from "../../../persistence/db-connection.js";
-import {
-  clearMessagesLexicalIndex,
-  enqueueDeleteMessageLexical,
-  enqueuePurgeConversationLexical,
-} from "../../../persistence/job-handlers/message-lexical.js";
 import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
 import { getMemoryConfig } from "./config.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
@@ -154,35 +148,11 @@ export const memoryPersistenceHooks = {
   },
 
   onConversationDeleted(conversationId: string): void {
-    // Fail the conversation's still-pending memory jobs first (graph
-    // extraction, summary builds, …) — the rows they reference are gone. The
-    // cancellation sweeps pending `conversationId`-keyed jobs, so it must run
-    // BEFORE the purge below is enqueued or it would sweep the purge too.
+    // Fail the conversation's still-pending memory jobs (graph extraction,
+    // summary builds, …) — the rows they reference are gone. The cancellation
+    // sweeps pending `conversationId`-keyed jobs, so the delete primitive
+    // fires this hook BEFORE enqueueing the conversation's lexical purge, or
+    // the purge would be swept too.
     cancelPendingJobsForConversation(conversationId);
-
-    // Purge the conversation's points from the lexical (Qdrant) index. Fired
-    // from the shared delete primitive, so every delete caller — route,
-    // retrospective cleanup, GC — cleans up. The enqueue helper self-selects:
-    // enqueue a job when memory is enabled, run the delete inline (best-effort,
-    // breaker-wrapped) when it is disabled.
-    enqueuePurgeConversationLexical(conversationId);
-  },
-
-  onMessagesDeleted(messageIds: string[]): void {
-    // Remove each deleted message's point from the lexical index. The enqueue
-    // helper self-selects: enqueue a job when memory is enabled, run the delete
-    // inline (best-effort, breaker-wrapped) when it is disabled.
-    for (const messageId of messageIds) {
-      enqueueDeleteMessageLexical(messageId);
-    }
-  },
-
-  async onAllConversationsCleared(): Promise<void> {
-    // Drop the whole lexical (Qdrant) collection — a "delete all" leaves no ids
-    // to key per-message cleanup on. Awaited so the drop completes before
-    // clear-all returns and writes resume; otherwise a message created right
-    // after clear-all could upsert into the not-yet-dropped collection and then
-    // be erased when the drop lands.
-    await clearMessagesLexicalIndex(getConfig());
   },
 };

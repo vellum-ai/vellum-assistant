@@ -363,21 +363,16 @@ describe("messages lexical-index dual-write", () => {
   });
 });
 
-// The delete paths must route their cleanup through the persistence-hook seam
-// rather than importing memory internals directly, so persistence stays
-// decoupled from the plugin: single-message deletes fire `onMessagesDeleted`,
-// and whole-conversation deletes fire `onConversationDeleted` from the shared
+// Whole-conversation deletes must fire the memory plugin's
+// `onConversationDeleted` hook from the shared
 // `deleteConversation`/`deleteConversationGently` primitive (covering every
 // caller, not just the HTTP route).
-describe("delete paths route through the memory persistence hooks", () => {
-  const deletedBatches: string[][] = [];
+describe("delete paths fire the memory persistence hook", () => {
   const deletedConversations: string[] = [];
   let conversationDeletedSpy: ReturnType<typeof spyOn>;
-  let messagesDeletedSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     resetMemoryJobs();
-    deletedBatches.length = 0;
     deletedConversations.length = 0;
     conversationDeletedSpy = spyOn(
       memoryPersistenceHooks,
@@ -385,18 +380,11 @@ describe("delete paths route through the memory persistence hooks", () => {
     ).mockImplementation((id: string) => {
       deletedConversations.push(id);
     });
-    messagesDeletedSpy = spyOn(
-      memoryPersistenceHooks,
-      "onMessagesDeleted",
-    ).mockImplementation((ids: string[]) => {
-      deletedBatches.push(ids);
-    });
   });
 
   afterEach(() => {
-    // Restore the real handlers so later tests are unaffected.
+    // Restore the real handler so later tests are unaffected.
     conversationDeletedSpy.mockRestore();
-    messagesDeletedSpy.mockRestore();
   });
 
   test("deleteConversation fires onConversationDeleted (covers all callers, not just the route)", async () => {
@@ -417,31 +405,5 @@ describe("delete paths route through the memory persistence hooks", () => {
     await deleteConversationGently(conv.id);
 
     expect(deletedConversations).toEqual([conv.id]);
-  });
-
-  test("deleteMessageById fires onMessagesDeleted with the single id", async () => {
-    const conv = createConversation("Seam single delete");
-    const message = await addMessage(conv.id, "user", "delete me via seam");
-
-    deletedBatches.length = 0;
-    deleteMessageById(message.id);
-
-    expect(deletedBatches).toEqual([[message.id]]);
-  });
-
-  test("deleteLastExchange fires onMessagesDeleted with every removed id", async () => {
-    const conv = createConversation("Seam undo");
-    await addMessage(conv.id, "user", "first turn");
-    await addMessage(conv.id, "assistant", "first reply");
-    const lastUser = await addMessage(conv.id, "user", "undo this");
-    const lastAssistant = await addMessage(conv.id, "assistant", "and this");
-
-    deletedBatches.length = 0;
-    deleteLastExchange(conv.id);
-
-    expect(deletedBatches).toHaveLength(1);
-    expect(new Set(deletedBatches[0])).toEqual(
-      new Set([lastUser.id, lastAssistant.id]),
-    );
   });
 });
