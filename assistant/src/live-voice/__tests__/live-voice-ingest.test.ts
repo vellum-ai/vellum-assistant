@@ -81,11 +81,14 @@ class MockBatchTranscriber implements BatchTranscriber {
   }
 }
 
-/** PCM16 chunk whose mean amplitude exceeds the speech energy threshold. */
-function speechChunk(samples = 320): Buffer {
+/**
+ * PCM16 chunk whose mean amplitude exceeds the speech energy threshold.
+ * The amplitude doubles as an identification tag in assertions.
+ */
+function speechChunk(samples = 320, amplitude = 8_000): Buffer {
   const buf = Buffer.alloc(samples * 2);
   for (let i = 0; i < samples; i++) {
-    buf.writeInt16LE(8_000, i * 2);
+    buf.writeInt16LE(amplitude, i * 2);
   }
   return buf;
 }
@@ -131,6 +134,11 @@ function createIngest(
     options.deps,
   );
   return { events, ingest };
+}
+
+/** The `final:` events recorded so far, in emission order. */
+function finalsOf(events: string[]): string[] {
+  return events.filter((event) => event.startsWith("final:"));
 }
 
 function sleep(ms: number): Promise<void> {
@@ -669,6 +677,278 @@ describe("LiveVoiceIngest VAD and turn detection", () => {
 
     await waitFor(() => events.includes("turn-boundary"));
     expect(events.filter((event) => event === "turn-boundary")).toHaveLength(1);
+
+    ingest.dispose();
+  });
+});
+
+describe("LiveVoiceIngest empty-turn signaling", () => {
+  test("boundary tier: turn with no provider final emits one empty final after the fallback window", async () => {
+    const transcriber = new MockStreamingTranscriber();
+    const { events, ingest } = createIngest({
+      config: { streamingBoundaryFinalTimeoutMs: 40 },
+      deps: { resolveStreamingTranscriber: async () => transcriber },
+    });
+
+    ingest.start();
+    ingest.pushAudio(speechChunk());
+    await waitFor(() => transcriber.sentChunks.length === 1);
+
+    // A noise-triggered turn ends but the provider never emits a final.
+    ingest.forceTurnEnd();
+    expect(events).toContain("turn-boundary");
+    expect(finalsOf(events)).toEqual([]);
+
+    // The fallback window elapses: exactly one empty final resolves the turn.
+    await waitFor(() => events.includes("final:"));
+    await sleep(60);
+    expect(finalsOf(events)).toEqual(["final:"]);
+
+    ingest.dispose();
+  });
+
+  test("boundary tier: no empty final when the provider final arrives within the window", async () => {
+    const transcriber = new MockStreamingTranscriber();
+    const { events, ingest } = createIngest({
+      config: { streamingBoundaryFinalTimeoutMs: 40 },
+      deps: { resolveStreamingTranscriber: async () => transcriber },
+    });
+
+    ingest.start();
+    ingest.pushAudio(speechChunk());
+    await waitFor(() => transcriber.sentChunks.length === 1);
+
+    ingest.forceTurnEnd();
+    transcriber.emit({ type: "final", text: "real words" });
+
+    await sleep(80);
+    expect(finalsOf(events)).toEqual(["final:real words"]);
+
+    ingest.dispose();
+  });
+
+  test("boundary tier: no empty final when the provider final beat the local boundary", async () => {
+    const transcriber = new MockStreamingTranscriber();
+    const { events, ingest } = createIngest({
+      config: { streamingBoundaryFinalTimeoutMs: 40 },
+      deps: { resolveStreamingTranscriber: async () => transcriber },
+    });
+
+    ingest.start();
+    ingest.pushAudio(speechChunk());
+    await waitFor(() => transcriber.sentChunks.length === 1);
+
+    // Provider endpointing is faster than the local silence threshold: the
+    // final lands before the local turn boundary fires.
+    transcriber.emit({ type: "final", text: "quick" });
+    ingest.forceTurnEnd();
+
+    await sleep(80);
+    expect(finalsOf(events)).toEqual(["final:quick"]);
+
+    ingest.dispose();
+  });
+
+  test("boundary tier: turn completed during startup gets the empty-final fallback", async () => {
+    let releaseTranscriber!: (t: StreamingTranscriber | null) => void;
+    const pendingResolution = new Promise<StreamingTranscriber | null>(
+      (resolve) => {
+        releaseTranscriber = resolve;
+      },
+    );
+    const transcriber = new MockStreamingTranscriber();
+    const { events, ingest } = createIngest({
+      config: { streamingBoundaryFinalTimeoutMs: 40 },
+      deps: {
+        resolveStreamingTranscriber: (options) =>
+          options.utteranceBoundaryFinals
+            ? pendingResolution
+            : Promise.resolve(null),
+      },
+    });
+
+    ingest.start();
+    ingest.pushAudio(speechChunk());
+    ingest.forceTurnEnd();
+
+    releaseTranscriber(transcriber);
+    // Boundary settle flushes the completed turn's audio (the provider
+    // would emit its final for real speech)...
+    await waitFor(() => transcriber.sentChunks.length === 1);
+
+    // ...but for noise it emits nothing: the fallback resolves the turn.
+    await waitFor(() => events.includes("final:"));
+    await sleep(60);
+    expect(finalsOf(events)).toEqual(["final:"]);
+
+    ingest.dispose();
+  });
+
+  test("plain tier: empty end-of-stream final emits one empty final for the turn", async () => {
+    const first = new MockPlainStreamingTranscriber("");
+    const second = new MockPlainStreamingTranscriber("real turn");
+    const transcribers = [first, second, new MockPlainStreamingTranscriber("")];
+    const { events, ingest } = createIngest({
+      deps: {
+        resolveStreamingTranscriber: async (options) =>
+          options.utteranceBoundaryFinals
+            ? null
+            : (transcribers.shift() ?? null),
+      },
+    });
+
+    ingest.start();
+    ingest.pushAudio(speechChunk());
+    await waitFor(() => first.sentChunks.length === 1);
+
+    // The forced end-of-stream final is empty: the turn transcribed to
+    // nothing and resolves with exactly one empty final.
+    ingest.forceTurnEnd();
+    expect(finalsOf(events)).toEqual(["final:"]);
+
+    // The next turn's real final still flows, with no extra empty final.
+    ingest.pushAudio(speechChunk());
+    await waitFor(() => second.sentChunks.length === 1);
+    ingest.forceTurnEnd();
+    await waitFor(() => events.includes("final:real turn"));
+    expect(finalsOf(events)).toEqual(["final:", "final:real turn"]);
+
+    ingest.dispose();
+  });
+});
+
+describe("LiveVoiceIngest plain-tier pending turns", () => {
+  test("plain settle batch-transcribes turns completed during startup, excludes their frames, and orders finals", async () => {
+    let releaseFirst!: (t: StreamingTranscriber | null) => void;
+    const firstResolution = new Promise<StreamingTranscriber | null>(
+      (resolve) => {
+        releaseFirst = resolve;
+      },
+    );
+    const live = new MockPlainStreamingTranscriber("second utterance");
+    let plainResolutions = 0;
+    // Slow batch transcription proves later streaming finals are held
+    // behind the pending turn's batch final.
+    const batch = new MockBatchTranscriber(["first utterance"], [50]);
+    const { events, ingest } = createIngest({
+      deps: {
+        resolveStreamingTranscriber: (options) => {
+          if (options.utteranceBoundaryFinals) {
+            return Promise.resolve(null);
+          }
+          plainResolutions += 1;
+          return plainResolutions === 1
+            ? firstResolution
+            : Promise.resolve<StreamingTranscriber | null>(
+                new MockPlainStreamingTranscriber(""),
+              );
+        },
+        resolveBatchTranscriber: async () => batch,
+      },
+    });
+
+    ingest.start();
+
+    // Turn 1 completes entirely inside the startup gap.
+    ingest.pushAudio(speechChunk(320, 8_000));
+    ingest.forceTurnEnd();
+    // Turn 2 starts during the gap and is still in progress at settle.
+    ingest.pushAudio(speechChunk(320, 9_000));
+
+    releaseFirst(live);
+    await waitFor(() => live.sentChunks.length === 1);
+
+    // Only the in-progress turn's audio was flushed into the new session —
+    // the completed turn's frames go to batch instead (no double
+    // transcription).
+    expect(live.sentChunks.map((sent) => sent.audio.readInt16LE(0))).toEqual([
+      9_000,
+    ]);
+
+    // Turn 2 ends: its forced streaming final must not overtake turn 1's
+    // still-in-flight batch final.
+    ingest.forceTurnEnd();
+    expect(live.stopped).toBe(true);
+    expect(finalsOf(events)).toEqual([]);
+
+    await waitFor(() => finalsOf(events).length === 2);
+    expect(finalsOf(events)).toEqual([
+      "final:first utterance",
+      "final:second utterance",
+    ]);
+    expect(batch.requests).toHaveLength(1);
+    // The batch request carries the completed turn's audio.
+    expect(batch.requests[0]?.audio.readInt16LE(44)).toBe(8_000);
+
+    ingest.dispose();
+  });
+
+  test("fast double-utterance across a plain-tier restart gap resolves every turn in order", async () => {
+    const first = new MockPlainStreamingTranscriber("turn one");
+    const afterGap = new MockPlainStreamingTranscriber("turn three");
+    let releaseAfterGap!: (t: StreamingTranscriber | null) => void;
+    const gapResolution = new Promise<StreamingTranscriber | null>(
+      (resolve) => {
+        releaseAfterGap = resolve;
+      },
+    );
+    let plainResolutions = 0;
+    const batch = new MockBatchTranscriber(["turn two"], [20]);
+    const { events, ingest } = createIngest({
+      deps: {
+        resolveStreamingTranscriber: (options) => {
+          if (options.utteranceBoundaryFinals) {
+            return Promise.resolve(null);
+          }
+          plainResolutions += 1;
+          if (plainResolutions === 1) {
+            return Promise.resolve<StreamingTranscriber | null>(first);
+          }
+          if (plainResolutions === 2) {
+            return gapResolution;
+          }
+          return Promise.resolve<StreamingTranscriber | null>(
+            new MockPlainStreamingTranscriber(""),
+          );
+        },
+        resolveBatchTranscriber: async () => batch,
+      },
+    });
+
+    ingest.start();
+    ingest.pushAudio(speechChunk(320, 8_000));
+    await waitFor(() => first.sentChunks.length === 1);
+
+    // Turn 1 ends: the per-turn cycle forces its final and starts the
+    // (deferred) next session.
+    ingest.forceTurnEnd();
+    expect(events).toContain("final:turn one");
+
+    // A fast follow-up utterance starts AND completes inside the restart
+    // gap — it must not merge into the next streaming turn's final.
+    ingest.pushAudio(speechChunk(320, 9_000));
+    ingest.forceTurnEnd();
+
+    releaseAfterGap(afterGap);
+    await waitFor(() => events.includes("final:turn two"));
+
+    // The next live turn streams into the fresh session, untouched by the
+    // completed turn's frames.
+    ingest.pushAudio(speechChunk(320, 7_000));
+    await waitFor(() => afterGap.sentChunks.length === 1);
+    expect(
+      afterGap.sentChunks.map((sent) => sent.audio.readInt16LE(0)),
+    ).toEqual([7_000]);
+    ingest.forceTurnEnd();
+
+    await waitFor(() => finalsOf(events).length === 3);
+    expect(finalsOf(events)).toEqual([
+      "final:turn one",
+      "final:turn two",
+      "final:turn three",
+    ]);
+    expect(batch.requests).toHaveLength(1);
+    expect(batch.requests[0]?.audio.readInt16LE(44)).toBe(9_000);
 
     ingest.dispose();
   });
