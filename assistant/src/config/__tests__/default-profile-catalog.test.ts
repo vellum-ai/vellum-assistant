@@ -193,4 +193,16 @@ describe("schema validation", () => {
       LLMSchema.parse({ callSites: { mainAgent: { profile: "no-such" } } }),
     ).toThrow();
   });
+
+  test("rejects os-beta references unless the flag-gated entry is materialized", () => {
+    expect(() =>
+      LLMSchema.parse({ activeProfile: OS_BETA_PROFILE_KEY }),
+    ).toThrow();
+    expect(() =>
+      LLMSchema.parse({
+        activeProfile: OS_BETA_PROFILE_KEY,
+        profiles: { [OS_BETA_PROFILE_KEY]: { source: "managed" } },
+      }),
+    ).not.toThrow();
+  });
 });

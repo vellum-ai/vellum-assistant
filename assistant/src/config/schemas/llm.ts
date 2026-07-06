@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { CATALOG_DEFAULT_PROFILE_NAMES } from "../default-profile-names.js";
+import { DEFAULT_PROFILE_KEYS } from "../default-profile-names.js";
 
 /**
  * Unified LLM configuration schema.
@@ -500,12 +500,15 @@ export const LLMSchema = z
     pricingOverrides: z.array(PricingOverrideSchema).default([]),
   })
   .superRefine((config, ctx) => {
-    // Default profiles are code-defined (`default-profile-catalog.ts`) and
-    // resolvable whether or not they are materialized in `llm.profiles`, so
-    // their names are always valid reference targets.
+    // The always-available default profiles are code-defined
+    // (`default-profile-catalog.ts`), so their names are valid reference
+    // targets whether or not they are materialized in `llm.profiles`. The
+    // flag-gated `os-beta` is excluded: it resolves only while a workspace
+    // entry exists, so a reference to it is valid only when that entry is
+    // present in `config.profiles`.
     const profileNames = new Set([
       ...Object.keys(config.profiles ?? {}),
-      ...CATALOG_DEFAULT_PROFILE_NAMES,
+      ...DEFAULT_PROFILE_KEYS,
     ]);
     for (const [siteId, siteConfig] of Object.entries(config.callSites ?? {})) {
       if (siteConfig?.profile == null) continue;

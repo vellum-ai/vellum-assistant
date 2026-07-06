@@ -18,16 +18,8 @@ export type DefaultProfileKey = (typeof DEFAULT_PROFILE_KEYS)[number];
 /**
  * Flag-gated default profile: only available while the `os-beta` feature
  * flag has reconciled it into the workspace (see `sync-gated-profiles.ts`).
+ * Deliberately NOT part of `DEFAULT_PROFILE_KEYS`: references to it are only
+ * valid while a workspace entry exists, so schema validation must not treat
+ * it as always resolvable.
  */
 export const OS_BETA_PROFILE_KEY = "os-beta";
-
-/**
- * Every default profile name the code catalog can serve, including the
- * flag-gated one. Used by `LLMSchema.superRefine` to accept references to
- * default profiles regardless of whether they are materialized in
- * `llm.profiles` (the resolver serves them from the code catalog).
- */
-export const CATALOG_DEFAULT_PROFILE_NAMES: ReadonlySet<string> = new Set([
-  ...DEFAULT_PROFILE_KEYS,
-  OS_BETA_PROFILE_KEY,
-]);
