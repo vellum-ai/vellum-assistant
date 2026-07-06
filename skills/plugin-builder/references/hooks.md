@@ -22,7 +22,7 @@ The loop moves a conversation turn through a series of **lifecycle events**. The
 
 The loop can iterate several times within a single user turn: every tool result returns to a fresh model call, and a `post-model-call` hook can choose to continue rather than end the turn. Because of this, `pre-model-call`, `post-model-call`, and `post-tool-use` can each fire more than once per turn.
 
-The Assistant also hooks into Lifecycle Events that sit outside the Agent Loop: `init` fires at bootstrap, and `shutdown` fires at teardown.
+The Assistant also hooks into Lifecycle Events that sit outside the Agent Loop: `init` fires at bootstrap, `shutdown` fires at teardown, and `conversation-deleted` fires after a conversation is deleted from storage.
 
 ## Hooks reference
 
@@ -148,6 +148,19 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 | `logger`         | `PluginLogger`           | Read-only | Logger pre-tagged with the hook name, your plugin, and the conversation / request identity. Log through it; no manual tagging needed.                                                                                                   |
 | `broadcast`      | `HookBroadcast`          | Read-only | Emit a transient `hook_event` to any UI watching the conversation. You supply a JSON-serializable `detail` record; the runtime stamps the conversation, hook name, and owner attribution. Best-effort: never throws or blocks the turn. |
 
+### `conversation-deleted`
+
+**Context:** `ConversationDeletedContext`
+**When:** Once per deleted conversation, after its rows are removed. Fires from the shared delete primitives, so every delete caller (route, retrospective cleanup, GC) dispatches it.
+**Use it to:** Clean up per-conversation state your plugin keeps (caches, queued work, external records) keyed by the conversation id. Fire-and-forget: hooks run async with no ordering guarantee relative to the caller, and by the time a hook runs the conversation's rows are gone.
+**Example:** [memory](https://github.com/vellum-ai/vellum-assistant/blob/main/assistant/src/plugins/defaults/memory/hooks/conversation-deleted.ts)
+
+| Field            | Type            | Access    | Description                                                                                                                                                                                                                             |
+| ---------------- | --------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `conversationId` | `string`        | Read-only | ID of the conversation that was deleted.                                                                                                                                                                                                |
+| `logger`         | `PluginLogger`  | Read-only | Logger pre-tagged with the hook name, your plugin, and the conversation identity. Log through it; no manual tagging needed.                                                                                                             |
+| `broadcast`      | `HookBroadcast` | Read-only | Emit a transient `hook_event` to any UI watching the conversation. You supply a JSON-serializable `detail` record; the runtime stamps the conversation, hook name, and owner attribution. Best-effort: never throws or blocks the turn. |
+
 ### `shutdown`
 
 **Context:** `ShutdownContext`
@@ -173,22 +186,23 @@ Within a single plugin, hooks for the same name are not duplicated: each plugin 
 
 These are the hook-related exports from [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api). Each context type's full field contract is documented in the hook sections above.
 
-| Export                    | Kind  | Purpose                                                                                                                           |
-| ------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `HOOKS`                   | const | Wired hook names keyed by constant (INIT, PRE_MODEL_CALL, and so on). Reference hooks by this instead of free-form strings.       |
-| `HookName`                | type  | Union of every wired hook name declared in HOOKS.                                                                                 |
-| `HookFunction`            | type  | Signature every hook implements: `(ctx) => Promise<Partial<ctx> \| void>`.                                                        |
-| `HookBroadcast`           | type  | Signature of `ctx.broadcast(detail)`: emit a transient `hook_event` to UIs watching the conversation.                             |
-| `InitContext`             | type  | Passed to the init hook at bootstrap.                                                                                             |
-| `ShutdownContext`         | type  | Passed to the shutdown hook at teardown.                                                                                          |
-| `UserPromptSubmitContext` | type  | Passed to user-prompt-submit, before a turn's messages reach the agent loop.                                                      |
-| `PreModelCallContext`     | type  | Passed to pre-model-call, before each provider call.                                                                              |
-| `PostToolUseContext`      | type  | Passed to post-tool-use, once per tool result.                                                                                    |
-| `PostModelCallContext`    | type  | Passed to post-model-call at every model-call outcome (a finalized reply or a provider rejection); carries the continue decision. |
-| `PostCompactContext`      | type  | Passed to post-compact, after the loop compacts a conversation mid-turn.                                                          |
-| `StopContext`             | type  | Passed to stop, the terminal hook, once the turn has committed to ending.                                                         |
-| `PostModelCallDecision`   | type  | The post-model-call decision shape: whether to end the turn or continue.                                                          |
-| `AgentLoopExitReason`     | type  | Which terminal state a turn reached, carried on StopContext.                                                                      |
+| Export                       | Kind  | Purpose                                                                                                                           |
+| ---------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `HOOKS`                      | const | Wired hook names keyed by constant (INIT, PRE_MODEL_CALL, and so on). Reference hooks by this instead of free-form strings.       |
+| `HookName`                   | type  | Union of every wired hook name declared in HOOKS.                                                                                 |
+| `HookFunction`               | type  | Signature every hook implements: `(ctx) => Promise<Partial<ctx> \| void>`.                                                        |
+| `HookBroadcast`              | type  | Signature of `ctx.broadcast(detail)`: emit a transient `hook_event` to UIs watching the conversation.                             |
+| `InitContext`                | type  | Passed to the init hook at bootstrap.                                                                                             |
+| `ShutdownContext`            | type  | Passed to the shutdown hook at teardown.                                                                                          |
+| `UserPromptSubmitContext`    | type  | Passed to user-prompt-submit, before a turn's messages reach the agent loop.                                                      |
+| `PreModelCallContext`        | type  | Passed to pre-model-call, before each provider call.                                                                              |
+| `PostToolUseContext`         | type  | Passed to post-tool-use, once per tool result.                                                                                    |
+| `PostModelCallContext`       | type  | Passed to post-model-call at every model-call outcome (a finalized reply or a provider rejection); carries the continue decision. |
+| `PostCompactContext`         | type  | Passed to post-compact, after the loop compacts a conversation mid-turn.                                                          |
+| `StopContext`                | type  | Passed to stop, the terminal hook, once the turn has committed to ending.                                                         |
+| `ConversationDeletedContext` | type  | Passed to conversation-deleted, after a conversation is deleted from storage.                                                     |
+| `PostModelCallDecision`      | type  | The post-model-call decision shape: whether to end the turn or continue.                                                          |
+| `AgentLoopExitReason`        | type  | Which terminal state a turn reached, carried on StopContext.                                                                      |
 
 ## Anatomy of a hook
 

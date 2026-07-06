@@ -13,12 +13,13 @@
 // disabled case.
 
 import {
+  afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
   mock,
-  spyOn,
   test,
 } from "bun:test";
 
@@ -55,6 +56,10 @@ import {
 } from "../config/loader.js";
 import { consolidateAssistantMessages } from "../daemon/conversation-history.js";
 import {
+  registerPluginHooks,
+  unregisterPluginHooks,
+} from "../hooks/registry.js";
+import {
   addMessage,
   createConversation,
   deleteConversation,
@@ -71,9 +76,29 @@ import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/messa
 import type { MemoryJobType } from "../persistence/jobs-store.js";
 import { enqueueMemoryJob } from "../persistence/jobs-store.js";
 import { memoryJobs } from "../persistence/schema/index.js";
-import { memoryPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks.js";
+import memoryConversationDeleted from "../plugins/defaults/memory/hooks/conversation-deleted.js";
+import type { PluginHooks } from "../plugins/types.js";
 
 await initializeDb();
+
+// Register the memory plugin's `conversation-deleted` hook the way boot does,
+// so the delete primitives' dispatch reaches the plugin's job sweep.
+registerPluginHooks("default-memory", {
+  "conversation-deleted": memoryConversationDeleted,
+} as PluginHooks);
+
+/** Poll until `read()` returns a defined value or the timeout elapses. */
+async function waitFor<T>(
+  read: () => T | undefined,
+  timeoutMs = 2000,
+): Promise<T | undefined> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const value = read();
+    if (value !== undefined || Date.now() > deadline) return value;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+}
 
 function countJobs(type: MemoryJobType, conversationId?: string): number {
   const rows = getMemoryDb()!
@@ -216,25 +241,25 @@ describe("messages lexical-index dual-write", () => {
     expect(countJobs("purge_conversation_lexical", conv.id)).toBe(1);
   });
 
-  test("deleteConversation fails pending conversation-keyed jobs but not the purge it enqueues", async () => {
+  test("deleteConversation fails its pending memory jobs but leaves host jobs runnable", async () => {
     const conv = createConversation("Cancel pending jobs thread");
     await addMessage(conv.id, "user", "index me then delete me");
 
     resetMemoryJobs();
+    // One memory-plugin job type, one host-owned job type — both keyed by the
+    // conversation id.
     enqueueMemoryJob("graph_extract", { conversationId: conv.id });
+    enqueueMemoryJob("conversation_analyze", { conversationId: conv.id });
 
     deleteConversation(conv.id);
 
-    const jobsByType = new Map(
+    const jobStatus = (type: MemoryJobType): string | undefined =>
       getMemoryDb()!
-        .select({
-          type: memoryJobs.type,
-          status: memoryJobs.status,
-          payload: memoryJobs.payload,
-        })
+        .select({ status: memoryJobs.status, payload: memoryJobs.payload })
         .from(memoryJobs)
+        .where(eq(memoryJobs.type, type))
         .all()
-        .filter((r) => {
+        .find((r) => {
           try {
             return (
               (JSON.parse(r.payload) as { conversationId?: string })
@@ -243,14 +268,19 @@ describe("messages lexical-index dual-write", () => {
           } catch {
             return false;
           }
-        })
-        .map((r) => [r.type, r.status]),
-    );
+        })?.status;
 
-    // The pre-existing conversation-keyed job is swept…
-    expect(jobsByType.get("graph_extract")).toBe("failed");
-    // …but the purge, enqueued after the sweep, stays runnable.
-    expect(jobsByType.get("purge_conversation_lexical")).toBe("pending");
+    // The hook dispatch is fire-and-forget, so wait for the plugin's sweep to
+    // land before asserting.
+    const graphExtractStatus = await waitFor(() =>
+      jobStatus("graph_extract") === "failed" ? "failed" : undefined,
+    );
+    expect(graphExtractStatus).toBe("failed");
+    // The sweep is scoped to the plugin's own job types: host-owned jobs —
+    // including the purge the delete primitive itself enqueued — stay
+    // runnable.
+    expect(jobStatus("conversation_analyze")).toBe("pending");
+    expect(jobStatus("purge_conversation_lexical")).toBe("pending");
   });
 
   test("deleteConversationGently (retrospective GC) enqueues a purge for the conversation", async () => {
@@ -363,47 +393,52 @@ describe("messages lexical-index dual-write", () => {
   });
 });
 
-// Whole-conversation deletes must fire the memory plugin's
-// `onConversationDeleted` hook from the shared
-// `deleteConversation`/`deleteConversationGently` primitive (covering every
-// caller, not just the HTTP route).
-describe("delete paths fire the memory persistence hook", () => {
+// Whole-conversation deletes must dispatch the `conversation-deleted` hook
+// from the shared `deleteConversation`/`deleteConversationGently` primitive
+// (covering every caller, not just the HTTP route). Captured through a
+// registered test hook — the same chain a user plugin would subscribe on.
+describe("delete paths dispatch the conversation-deleted hook", () => {
   const deletedConversations: string[] = [];
-  let conversationDeletedSpy: ReturnType<typeof spyOn>;
+
+  beforeAll(() => {
+    registerPluginHooks("test-conversation-deleted-capture", {
+      "conversation-deleted": async (ctx: { conversationId: string }) => {
+        deletedConversations.push(ctx.conversationId);
+      },
+    } as PluginHooks);
+  });
+
+  afterAll(() => {
+    unregisterPluginHooks("test-conversation-deleted-capture");
+  });
 
   beforeEach(() => {
     resetMemoryJobs();
     deletedConversations.length = 0;
-    conversationDeletedSpy = spyOn(
-      memoryPersistenceHooks,
-      "onConversationDeleted",
-    ).mockImplementation((id: string) => {
-      deletedConversations.push(id);
-    });
   });
 
-  afterEach(() => {
-    // Restore the real handler so later tests are unaffected.
-    conversationDeletedSpy.mockRestore();
-  });
-
-  test("deleteConversation fires onConversationDeleted (covers all callers, not just the route)", async () => {
-    const conv = createConversation("Seam conversation delete");
+  test("deleteConversation dispatches conversation-deleted (covers all callers, not just the route)", async () => {
+    const conv = createConversation("Hook conversation delete");
     await addMessage(conv.id, "user", "hello");
 
-    deletedConversations.length = 0;
     deleteConversation(conv.id);
 
-    expect(deletedConversations).toEqual([conv.id]);
+    // The dispatch is fire-and-forget; wait for the chain to land.
+    const seen = await waitFor(() =>
+      deletedConversations.includes(conv.id) ? true : undefined,
+    );
+    expect(seen).toBe(true);
   });
 
-  test("deleteConversationGently fires onConversationDeleted (the retrospective-GC path)", async () => {
-    const conv = createConversation("Seam gentle delete");
+  test("deleteConversationGently dispatches conversation-deleted (the retrospective-GC path)", async () => {
+    const conv = createConversation("Hook gentle delete");
     await addMessage(conv.id, "user", "hello");
 
-    deletedConversations.length = 0;
     await deleteConversationGently(conv.id);
 
-    expect(deletedConversations).toEqual([conv.id]);
+    const seen = await waitFor(() =>
+      deletedConversations.includes(conv.id) ? true : undefined,
+    );
+    expect(seen).toBe(true);
   });
 });
