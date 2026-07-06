@@ -50,13 +50,6 @@ export interface SynthesisEmitOptions {
   /** Output-encoding hint forwarded on the provider request (e.g. `"pcm"`). */
   outputFormat?: TtsSynthesisRequest["outputFormat"];
 
-  /**
-   * Advisory playback sample rate for sinks/consumers. Not part of
-   * {@link TtsSynthesisRequest} — providers negotiate sample rate via their
-   * own config.
-   */
-  sampleRate?: number;
-
   /** Abort signal forwarded to the provider and checked before each emit. */
   signal?: AbortSignal;
 
@@ -79,6 +72,13 @@ export interface SynthesisEmitResult {
 
   /** Provider-reported MIME type of the complete synthesized audio. */
   contentType: string;
+
+  /**
+   * `true` when emission was halted by an aborted `signal` or an
+   * `isCurrent()` staleness flip — the silent-resolve path. Callers use
+   * this instead of re-probing the signal after resolve.
+   */
+  stopped: boolean;
 }
 
 /**
@@ -166,7 +166,7 @@ export async function synthesizeAndEmit(
     if (emittedChunks === 0 && !stopped) {
       throw new Error("Streaming TTS returned no audio chunks");
     }
-    return { emittedChunks, contentType: result.contentType };
+    return { emittedChunks, contentType: result.contentType, stopped };
   }
 
   const result = await provider.synthesize(request);
@@ -178,7 +178,7 @@ export async function synthesizeAndEmit(
     emittedChunks = 1;
     await onChunk({ audio: result.audio, contentType: result.contentType });
   }
-  return { emittedChunks, contentType: result.contentType };
+  return { emittedChunks, contentType: result.contentType, stopped };
 }
 
 // ---------------------------------------------------------------------------

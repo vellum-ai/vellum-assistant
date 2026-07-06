@@ -836,6 +836,7 @@ export class CallController {
   ): Promise<void> {
     let sink: AudioStoreSink | null = null;
     let playUrlSent = false;
+    const abortController = new AbortController();
     try {
       // When format is WAV (media-stream transport), request raw PCM from
       // the provider so the audio bytes match the store's content-type.
@@ -861,7 +862,6 @@ export class CallController {
         },
       });
 
-      const abortController = new AbortController();
       this.activeSynthesisAbort = abortController;
 
       await synthesizeAndEmit({
@@ -875,7 +875,10 @@ export class CallController {
         onFirstAudio: sink.onFirstAudio,
       });
     } catch (err) {
-      if (err instanceof DOMException && err.name === "AbortError") {
+      // Cancellation requires our own signal to be aborted — a
+      // provider-internal AbortError without it is a synthesis failure
+      // and must take the fallback path below.
+      if (abortController.signal.aborted) {
         log.debug(
           { provider: provider.id },
           "TTS synthesis aborted (barge-in)",

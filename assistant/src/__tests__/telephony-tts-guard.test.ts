@@ -619,4 +619,53 @@ describe("speakSystemPrompt aborted synthesis", () => {
     expect(sentPlayUrls).toEqual([]);
     expect(sentTokens).toEqual([]);
   });
+
+  test("provider AbortError without our signal aborted is a failure — WAV fallback retry still runs", async () => {
+    testConfig.services.tts.provider = "deepgram";
+    storedKeys["deepgram"] = "dg-key";
+    storedKeys["elevenlabs"] = "el-key";
+
+    // Provider-internal network abort: it throws AbortError, but the
+    // caller's signal was never aborted — not a cancellation.
+    const controller = new AbortController();
+    const deepgramSynthesize = jest.fn(async () => {
+      throw new DOMException("socket torn down", "AbortError");
+    });
+    const elevenlabsSynthesize = jest.fn(async () => {
+      return { audio: Buffer.from("pcm-bytes"), contentType: "audio/pcm" };
+    });
+    registerStubProvider("deepgram", deepgramSynthesize);
+    registerStubProvider("elevenlabs", elevenlabsSynthesize);
+
+    const { relay, sentTokens, sentPlayUrls } = createRelay(true);
+    await speakSystemPrompt(
+      relay,
+      "You have a new message.",
+      controller.signal,
+    );
+
+    expect(deepgramSynthesize).toHaveBeenCalledTimes(1);
+    expect(elevenlabsSynthesize).toHaveBeenCalledTimes(1);
+    expect(sentPlayUrls.length).toBe(1);
+    expect(sentTokens).toEqual([{ token: "", last: true }]);
+  });
+
+  test("provider AbortError without any signal is a failure — non-WAV native fallback still runs", async () => {
+    testConfig.services.tts.provider = "fish-audio";
+    testConfig.services.tts.providers["fish-audio"].referenceId = "ref-123";
+
+    const fishSynthesize = jest.fn(async () => {
+      throw new DOMException("socket torn down", "AbortError");
+    });
+    registerStubProvider("fish-audio", fishSynthesize);
+
+    const { relay, sentTokens, sentPlayUrls } = createRelay(false);
+    await speakSystemPrompt(relay, "You have a new message.");
+
+    expect(fishSynthesize).toHaveBeenCalledTimes(1);
+    expect(sentPlayUrls).toEqual([]);
+    expect(sentTokens).toEqual([
+      { token: "You have a new message.", last: true },
+    ]);
+  });
 });

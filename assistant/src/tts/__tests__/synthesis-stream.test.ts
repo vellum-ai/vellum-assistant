@@ -116,7 +116,11 @@ describe("synthesizeAndEmit (streaming)", () => {
     });
 
     expect(sink.events).toEqual(["firstAudio", "chunk:a", "chunk:b"]);
-    expect(result).toEqual({ emittedChunks: 2, contentType: "audio/mpeg" });
+    expect(result).toEqual({
+      emittedChunks: 2,
+      contentType: "audio/mpeg",
+      stopped: false,
+    });
   });
 
   test("skips empty chunks", async () => {
@@ -183,6 +187,7 @@ describe("synthesizeAndEmit (streaming)", () => {
 
     expect(sink.events).toEqual([]);
     expect(result.emittedChunks).toBe(0);
+    expect(result.stopped).toBe(true);
   });
 
   test("isCurrent() returning false mid-stream stops emission silently", async () => {
@@ -210,6 +215,7 @@ describe("synthesizeAndEmit (streaming)", () => {
 
     expect(sink.events).toEqual([]);
     expect(result.emittedChunks).toBe(0);
+    expect(result.stopped).toBe(true);
   });
 
   test("abort while an async sink call is in flight suppresses queued chunks", async () => {
@@ -243,6 +249,7 @@ describe("synthesizeAndEmit (streaming)", () => {
     expect(reached).toEqual(["a"]);
     expect(events).toEqual(["firstAudio", "chunk:a"]);
     expect(result.emittedChunks).toBe(1);
+    expect(result.stopped).toBe(true);
   });
 
   test("isCurrent() flipping false while an async sink call is in flight suppresses queued chunks", async () => {
@@ -270,6 +277,7 @@ describe("synthesizeAndEmit (streaming)", () => {
 
     expect(reached).toEqual(["a"]);
     expect(result.emittedChunks).toBe(1);
+    expect(result.stopped).toBe(true);
   });
 
   test("isCurrent() false before the first chunk emits nothing and does not throw", async () => {
@@ -287,6 +295,7 @@ describe("synthesizeAndEmit (streaming)", () => {
 
     expect(sink.events).toEqual([]);
     expect(result.emittedChunks).toBe(0);
+    expect(result.stopped).toBe(true);
   });
 
   test("async onChunk sinks observe chunks in emission order", async () => {
@@ -477,7 +486,11 @@ describe("synthesizeAndEmit (buffer)", () => {
 
     expect(sink.events).toEqual(["firstAudio", "chunk:abc"]);
     expect(sink.chunks[0]?.contentType).toBe("audio/wav");
-    expect(result).toEqual({ emittedChunks: 1, contentType: "audio/wav" });
+    expect(result).toEqual({
+      emittedChunks: 1,
+      contentType: "audio/wav",
+      stopped: false,
+    });
   });
 
   test("throws on an empty audio payload", async () => {
@@ -511,6 +524,7 @@ describe("synthesizeAndEmit (buffer)", () => {
 
     expect(sink.events).toEqual([]);
     expect(result.emittedChunks).toBe(0);
+    expect(result.stopped).toBe(true);
   });
 
   test("aborted signal skips the emit silently", async () => {
@@ -530,6 +544,7 @@ describe("synthesizeAndEmit (buffer)", () => {
 
     expect(sink.events).toEqual([]);
     expect(result.emittedChunks).toBe(0);
+    expect(result.stopped).toBe(true);
   });
 
   test("passes the request through to synthesize", async () => {
