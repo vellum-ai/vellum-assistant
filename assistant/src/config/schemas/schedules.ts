@@ -17,9 +17,9 @@ export const ScheduleWorkerConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "schedules.worker.enabled must be a boolean" })
-      .default(false)
+      .default(true)
       .describe(
-        "Whether scheduled jobs run in a separate schedule worker OS process instead of the assistant's in-process scheduler. When set, the assistant spawns the worker at startup and its own scheduler stands down from executing schedules. `assistant schedules worker start`/`stop` flip this flag at runtime.",
+        "Whether scheduled jobs run in a separate schedule worker OS process instead of the assistant's in-process scheduler. When set (the default), the assistant spawns the worker at startup and its own scheduler stands down from executing schedules. `assistant schedules worker start`/`stop` flip this flag at runtime.",
       ),
   })
   .describe("Schedule worker process configuration");
