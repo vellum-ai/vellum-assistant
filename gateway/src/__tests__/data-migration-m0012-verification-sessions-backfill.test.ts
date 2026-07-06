@@ -3,7 +3,9 @@
  *
  * Verifies that assistant `channel_verification_sessions` rows are copied
  * into the gateway table with full field fidelity (in-flight sessions
- * survive an upgrade boot), that `channel_guardian_rate_limits` rows are
+ * survive an upgrade boot), that interceptable non-expired assistant rows
+ * backfill as `revoked` when the gateway already holds a fresh interceptable
+ * session on the channel, that `channel_guardian_rate_limits` rows are
  * copied only where the gateway has no row for the actor key (gateway wins
  * conflicts), that re-running is idempotent, that an already-dropped source
  * table yields "done", that IPC failure yields "skip" and retries, and that
@@ -332,6 +334,129 @@ describe("m0012-verification-sessions-backfill", () => {
     const row = gatewaySession("sess-1")!;
     expect(row.status).toBe("consumed");
     expect(row.updated_at).toBe(900);
+  });
+
+  test("backfills a superseded interceptable session as revoked when the gateway holds a fresh session on the channel", async () => {
+    const future = Date.now() + 60_000;
+    seedGatewaySession({
+      id: "gw-fresh",
+      channel: "telegram",
+      status: "pending",
+      expiresAt: future,
+    });
+    seedAssistantSession({
+      id: "as-stale",
+      channel: "telegram",
+      status: "awaiting_response",
+      expires_at: future,
+    });
+
+    expect(await m0012Up()).toBe("done");
+
+    expect(gatewaySession("as-stale")!.status).toBe("revoked");
+    const fresh = gatewaySession("gw-fresh")!;
+    expect(fresh.status).toBe("pending");
+    expect(fresh.updated_at).toBe(200);
+  });
+
+  test("backfills an interceptable session with its original status when its channel has no gateway session", async () => {
+    const future = Date.now() + 60_000;
+    seedGatewaySession({
+      id: "gw-fresh",
+      channel: "telegram",
+      status: "pending",
+      expiresAt: future,
+    });
+    seedAssistantSession({
+      id: "as-other",
+      channel: "slack",
+      status: "pending",
+      expires_at: future,
+    });
+
+    expect(await m0012Up()).toBe("done");
+    expect(gatewaySession("as-other")!.status).toBe("pending");
+  });
+
+  test("terminal-status and expired assistant rows skip the supersede check", async () => {
+    const future = Date.now() + 60_000;
+    seedGatewaySession({
+      id: "gw-fresh",
+      channel: "telegram",
+      status: "pending",
+      expiresAt: future,
+    });
+    seedAssistantSession({
+      id: "as-consumed",
+      channel: "telegram",
+      status: "consumed",
+      expires_at: future,
+    });
+    seedAssistantSession({
+      id: "as-expired",
+      channel: "telegram",
+      status: "pending",
+      expires_at: Date.now() - 1_000,
+      challenge_hash: "hash-expired",
+    });
+
+    expect(await m0012Up()).toBe("done");
+    expect(gatewaySession("as-consumed")!.status).toBe("consumed");
+    expect(gatewaySession("as-expired")!.status).toBe("pending");
+  });
+
+  test("gateway sessions with expired or terminal status do not trigger the supersede path", async () => {
+    const future = Date.now() + 60_000;
+    seedGatewaySession({
+      id: "gw-expired",
+      channel: "telegram",
+      status: "pending",
+      expiresAt: Date.now() - 1_000,
+    });
+    seedGatewaySession({
+      id: "gw-consumed",
+      channel: "telegram",
+      status: "consumed",
+      expiresAt: future,
+    });
+    seedAssistantSession({
+      id: "as-live",
+      channel: "telegram",
+      status: "pending",
+      expires_at: future,
+    });
+
+    expect(await m0012Up()).toBe("done");
+    expect(gatewaySession("as-live")!.status).toBe("pending");
+  });
+
+  test("idempotent: re-run after the supersede path yields identical state", async () => {
+    const future = Date.now() + 60_000;
+    seedGatewaySession({
+      id: "gw-fresh",
+      channel: "telegram",
+      status: "pending",
+      expiresAt: future,
+    });
+    seedAssistantSession({
+      id: "as-stale",
+      channel: "telegram",
+      status: "pending",
+      expires_at: future,
+    });
+
+    expect(await m0012Up()).toBe("done");
+    const firstRun = {
+      ids: gatewaySessionIds(),
+      stale: gatewaySession("as-stale"),
+      fresh: gatewaySession("gw-fresh"),
+    };
+    expect(firstRun.stale!.status).toBe("revoked");
+
+    expect(await m0012Up()).toBe("done");
+    expect(gatewaySessionIds()).toEqual(firstRun.ids);
+    expect(gatewaySession("as-stale")).toEqual(firstRun.stale);
+    expect(gatewaySession("gw-fresh")).toEqual(firstRun.fresh);
   });
 
   test("gateway wins a rate-limit conflict on the actor key", async () => {
