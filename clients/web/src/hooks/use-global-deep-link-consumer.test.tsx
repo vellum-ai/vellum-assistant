@@ -116,6 +116,27 @@ describe("deeplink.openThread", () => {
       "abc-123",
     );
   });
+
+  test("same-thread tap keeps live subagent/workflow state — the id doesn't change, so re-seed effects wouldn't re-run", () => {
+    useSubagentStore.setState({ orderedIds: ["sub-1"] });
+    useWorkflowStore.setState({ orderedIds: ["wf-1"] });
+    useConversationStore.setState({ activeConversationId: "abc-123" });
+    useViewerStore.setState({ mainView: "app" });
+    renderHook(() => useGlobalDeepLinkConsumer());
+
+    act(() => {
+      publish("deeplink.openThread", { threadId: "abc-123" });
+    });
+
+    expect(useSubagentStore.getState().orderedIds).toEqual(["sub-1"]);
+    expect(useWorkflowStore.getState().orderedIds).toEqual(["wf-1"]);
+    // Viewer reset + URL sync + window activation still apply.
+    expect(useViewerStore.getState().mainView).toBe("chat");
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/assistant/conversations/abc-123",
+    );
+    expect(ensureMainWindowVisibleMock).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("deeplink.unknown", () => {
