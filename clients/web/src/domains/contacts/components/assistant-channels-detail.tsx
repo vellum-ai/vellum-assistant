@@ -10,9 +10,9 @@ interface AssistantChannelsDetailProps extends AssistantChannelsListProps {
 
 /**
  * The assistant's entry in the Contacts detail pane: the contact-style
- * identity header card followed by the channel list in a "Channels" card.
+ * identity header card followed by the channel sub-tabs in a "Channels" card.
  * The standalone Channels tab renders the same `AssistantChannelsList`
- * under its own page heading instead.
+ * under its own page subtitle instead.
  */
 export function AssistantChannelsDetail({
   onGenerateInviteLink,

@@ -6,8 +6,11 @@ import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialo
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
 import { Notice } from "@vellumai/design-library/components/notice";
+import { Tabs } from "@vellumai/design-library/components/tabs";
+import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 
+import { EmptyState } from "@/components/empty-state";
 import { assistantDisplayName as toAssistantDisplayName } from "@/domains/contacts/assistant-display-name";
 import { SlackChannelCard } from "@/domains/contacts/components/slack-channel-card";
 import { SlackSetupWizard, type SlackThreadMode, type MutationStatus } from "@/components/slack-setup-wizard";
@@ -19,6 +22,8 @@ import {
   POLICY_LABELS,
   type AdmissionPolicy,
 } from "@/lib/channel-admission-policy/types";
+import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
+import { ChannelIcon, getChannelLabel } from "@/utils/channel-presentation";
 
 type ChannelKey = SetupChannelId;
 
@@ -80,13 +85,22 @@ export interface AssistantChannelsListProps {
   slackSaveError?: string | null;
   onSlackThreadModeChange?: (mode: SlackThreadMode) => void;
   onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
-  /** Pre-expand a channel on mount (e.g. from a `?setup=slack` deep-link). */
-  initialExpandedChannel?: ChannelKey | null;
+  /**
+   * Pre-open a channel on mount (e.g. from a `?setup=slack` deep-link):
+   * selects its tab in the tabbed layout, expands its row in the accordion.
+   */
+  initialChannel?: ChannelKey | null;
 }
 
 const CHANNEL_META: Record<
   ChannelKey,
-  { label: string; disconnectMessage: string }
+  {
+    /** Row label in the accordion layout; also the disconnect-dialog subject. */
+    label: string;
+    disconnectMessage: string;
+    /** One-line pitch for the disconnected empty state. Slack has none — its disconnected state is the setup wizard. */
+    disconnectedPitch?: (displayName: string) => string;
+  }
 > = {
   slack: {
     label: "Slack",
@@ -97,20 +111,28 @@ const CHANNEL_META: Record<
     label: "Telegram",
     disconnectMessage:
       "This clears the stored Telegram bot token for this assistant. You can reconnect later.",
+    disconnectedPitch: (displayName) =>
+      `Connect a Telegram bot so ${displayName} can send and receive messages on Telegram.`,
   },
   phone: {
     label: "Phone Calling",
     disconnectMessage:
       "This clears the stored Twilio credentials for this assistant. You can reconnect later.",
+    disconnectedPitch: (displayName) =>
+      `Connect your Twilio account so ${displayName} can make and answer phone calls.`,
   },
 };
 
 /**
- * The Slack/Telegram/Phone accordion rows plus their disconnect and
- * trust-floor confirmation dialogs. Owns which rows are expanded and which
+ * The Slack/Telegram/Phone channel sections plus their disconnect and
+ * trust-floor confirmation dialogs. Owns which section is open and which
  * confirmations are pending; the queries and mutations behind the props live
- * in `useAssistantChannels`. Rendered inside a card by both mount points —
- * the Channels tab and the Contacts assistant detail.
+ * in `useAssistantChannels`. Rendered by both mount points — the Channels
+ * tab (in a card) and the Contacts assistant detail.
+ *
+ * Layout is gated on the `channel-trust-floors` flag (the Channels-tab
+ * restructure ships with that arc): on → adapter sub-tabs with empty states
+ * for disconnected channels, off → the accordion rows.
  */
 export function AssistantChannelsList({
   assistantName,
@@ -131,11 +153,16 @@ export function AssistantChannelsList({
   slackSaveError,
   onSlackThreadModeChange,
   onSaveTwilioCredentials,
-  initialExpandedChannel = null,
+  initialChannel = null,
 }: AssistantChannelsListProps) {
+  const tabbedLayout = useAssistantFeatureFlagStore.use.channelTrustFloors();
+  const flagsHydrated = useAssistantFeatureFlagStore.use.hasHydrated();
   const [pendingDisconnect, setPendingDisconnect] = useState<ChannelKey | null>(null);
+  const [activeChannel, setActiveChannel] = useState<ChannelKey>(
+    () => initialChannel ?? channels[0]?.key ?? "slack",
+  );
   const [expandedChannels, setExpandedChannels] = useState<Set<ChannelKey>>(
-    () => initialExpandedChannel ? new Set([initialExpandedChannel]) : new Set(),
+    () => initialChannel ? new Set([initialChannel]) : new Set(),
   );
   // Floor confirmation: non-null while a floor in POLICY_CONFIRMATIONS awaits
   // the user's go-ahead before persisting.
@@ -172,59 +199,123 @@ export function AssistantChannelsList({
     });
   };
 
+  // A `false` flag before /feature-flags hydrates is the registry default,
+  // not the real value — committing to the accordion and swapping to the
+  // tabs after hydration would unmount the credential forms and discard
+  // anything mid-entry. Treat the window as loading instead; a `true`
+  // (env override) is already definitive. Same pattern as `InspectPage`.
+  if (!tabbedLayout && !flagsHydrated) {
+    return (
+      <Typography
+        as="span"
+        variant="body-small-default"
+        className="text-[color:var(--content-tertiary)]"
+      >
+        Loading…
+      </Typography>
+    );
+  }
+
   return (
     <div className="flex flex-col">
-      {channels.map((channel, index) => (
-        <div key={channel.key}>
-          {index > 0 ? (
-            <div
-              className="border-t"
-              style={{ borderColor: "var(--border-base)" }}
-            />
-          ) : null}
-          <ChannelRow
-            channel={channel}
-            assistantName={assistantName}
-            assistantDisplayName={displayName}
-            pending={pendingChannelKey === channel.key}
-            expanded={expandedChannels.has(channel.key)}
-            onToggleExpand={() => toggleExpanded(channel.key)}
-            onSetup={
-              channel.key === "slack"
-                ? () => {
-                    setExpandedChannels((prev) => {
-                      const next = new Set(prev);
-                      next.add(channel.key);
-                      return next;
-                    });
-                  }
-                : onSetup
-                  ? () => onSetup(channel.key)
+      {tabbedLayout ? (
+        <Tabs.Root
+          value={activeChannel}
+          onValueChange={(value) => setActiveChannel(value as ChannelKey)}
+        >
+          <Tabs.List>
+            {channels.map((channel) => (
+              <Tabs.Trigger key={channel.key} value={channel.key}>
+                {getChannelLabel(channel.key)}
+              </Tabs.Trigger>
+            ))}
+          </Tabs.List>
+          {channels.map((channel) => (
+            <Tabs.Panel key={channel.key} value={channel.key} className="pt-4">
+              <ChannelPanel
+                channel={channel}
+                assistantName={assistantName}
+                assistantDisplayName={displayName}
+                pending={pendingChannelKey === channel.key}
+                initialManualEntry={initialChannel === channel.key}
+                onSetup={onSetup ? () => onSetup(channel.key) : undefined}
+                onDisconnect={
+                  onDisconnect ? () => setPendingDisconnect(channel.key) : undefined
+                }
+                onSaveTelegramToken={onSaveTelegramToken}
+                onSaveSlackConfig={onSaveSlackConfig}
+                slackSaveStatus={slackSaveStatus}
+                slackSaveError={slackSaveError}
+                slackThreadMode={slackThreadMode}
+                slackThreadModePending={slackThreadModePending}
+                onSlackThreadModeChange={onSlackThreadModeChange}
+                onSaveTwilioCredentials={onSaveTwilioCredentials}
+                policy={channelPolicies?.[channel.key]}
+                policySaving={policySavingKey === channel.key}
+                policyLoading={policiesLoading}
+                policyError={policiesError}
+                onPolicyChange={
+                  onChannelPolicyChange
+                    ? (next) => handlePolicyChange(channel.key, next)
+                    : undefined
+                }
+              />
+            </Tabs.Panel>
+          ))}
+        </Tabs.Root>
+      ) : (
+        channels.map((channel, index) => (
+          <div key={channel.key}>
+            {index > 0 ? (
+              <div
+                className="border-t"
+                style={{ borderColor: "var(--border-base)" }}
+              />
+            ) : null}
+            <ChannelRow
+              channel={channel}
+              assistantName={assistantName}
+              assistantDisplayName={displayName}
+              pending={pendingChannelKey === channel.key}
+              expanded={expandedChannels.has(channel.key)}
+              onToggleExpand={() => toggleExpanded(channel.key)}
+              onSetup={
+                channel.key === "slack"
+                  ? () => {
+                      setExpandedChannels((prev) => {
+                        const next = new Set(prev);
+                        next.add(channel.key);
+                        return next;
+                      });
+                    }
+                  : onSetup
+                    ? () => onSetup(channel.key)
+                    : undefined
+              }
+              onDisconnect={
+                onDisconnect ? () => setPendingDisconnect(channel.key) : undefined
+              }
+              onSaveTelegramToken={onSaveTelegramToken}
+              onSaveSlackConfig={onSaveSlackConfig}
+              slackSaveStatus={slackSaveStatus}
+              slackSaveError={slackSaveError}
+              slackThreadMode={slackThreadMode}
+              slackThreadModePending={slackThreadModePending}
+              onSlackThreadModeChange={onSlackThreadModeChange}
+              onSaveTwilioCredentials={onSaveTwilioCredentials}
+              policy={channelPolicies?.[channel.key]}
+              policySaving={policySavingKey === channel.key}
+              policyLoading={policiesLoading}
+              policyError={policiesError}
+              onPolicyChange={
+                onChannelPolicyChange
+                  ? (next) => handlePolicyChange(channel.key, next)
                   : undefined
-            }
-            onDisconnect={
-              onDisconnect ? () => setPendingDisconnect(channel.key) : undefined
-            }
-            onSaveTelegramToken={onSaveTelegramToken}
-            onSaveSlackConfig={onSaveSlackConfig}
-            slackSaveStatus={slackSaveStatus}
-            slackSaveError={slackSaveError}
-            slackThreadMode={slackThreadMode}
-            slackThreadModePending={slackThreadModePending}
-            onSlackThreadModeChange={onSlackThreadModeChange}
-            onSaveTwilioCredentials={onSaveTwilioCredentials}
-            policy={channelPolicies?.[channel.key]}
-            policySaving={policySavingKey === channel.key}
-            policyLoading={policiesLoading}
-            policyError={policiesError}
-            onPolicyChange={
-              onChannelPolicyChange
-                ? (next) => handlePolicyChange(channel.key, next)
-                : undefined
-            }
-          />
-        </div>
-      ))}
+              }
+            />
+          </div>
+        ))
+      )}
 
       <ConfirmDialog
         open={pendingDisconnect !== null}
@@ -261,7 +352,163 @@ export function AssistantChannelsList({
 }
 
 // ---------------------------------------------------------------------------
-// Channel Row
+// Channel Panel (tabbed layout)
+// ---------------------------------------------------------------------------
+
+interface ChannelPanelProps {
+  channel: AssistantChannelState;
+  assistantName: string;
+  /** Trimmed assistant name with a "your assistant" fallback, for copy. */
+  assistantDisplayName: string;
+  pending: boolean;
+  /**
+   * Open the manual credential form immediately instead of the empty state —
+   * set for `?setup=<channel>` deep links (e.g. the mobile chat-drawer
+   * handoff continues credential entry here).
+   */
+  initialManualEntry?: boolean;
+  onSetup?: () => void;
+  onDisconnect?: () => void;
+  onSaveTelegramToken?: (botToken: string) => Promise<void>;
+  onSaveSlackConfig?: (botToken: string, appToken: string) => void;
+  slackSaveStatus?: MutationStatus;
+  slackSaveError?: string | null;
+  slackThreadMode?: SlackThreadMode;
+  slackThreadModePending?: boolean;
+  onSlackThreadModeChange?: (mode: SlackThreadMode) => void;
+  onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
+  policy?: AdmissionPolicy;
+  policySaving?: boolean;
+  policyLoading?: boolean;
+  policyError?: boolean;
+  onPolicyChange?: (policy: AdmissionPolicy) => void;
+}
+
+function ChannelPanel({
+  channel,
+  assistantName,
+  assistantDisplayName,
+  pending,
+  initialManualEntry = false,
+  onSetup,
+  onDisconnect,
+  onSaveTelegramToken,
+  onSaveSlackConfig,
+  slackSaveStatus,
+  slackSaveError,
+  slackThreadMode,
+  slackThreadModePending = false,
+  onSlackThreadModeChange,
+  onSaveTwilioCredentials,
+  policy,
+  policySaving = false,
+  policyLoading = false,
+  policyError = false,
+  onPolicyChange,
+}: ChannelPanelProps) {
+  const meta = CHANNEL_META[channel.key];
+  const connected = channel.status === "ready";
+  // Disconnected Telegram/Phone default to the pitch + guided setup; the
+  // manual credential form swaps in when the user opts into it (or arrived
+  // via a setup deep link).
+  const [manualEntry, setManualEntry] = useState(initialManualEntry);
+  const showCredentialForm = connected || manualEntry;
+
+  return (
+    <div className="flex flex-col gap-4">
+      {connected ? (
+        <div className="flex items-center gap-3">
+          <Tag tone="positive" leftIcon={<CheckCircle />}>
+            Connected
+          </Tag>
+          {channel.address ? (
+            <span
+              className="text-body-medium-lighter"
+              style={{ color: "var(--content-tertiary)" }}
+            >
+              {channel.address}
+            </span>
+          ) : null}
+          <div className="ml-auto">
+            <Button
+              type="button"
+              variant="danger"
+              onClick={onDisconnect}
+              disabled={!onDisconnect || pending}
+            >
+              {pending ? "Disconnecting…" : "Disconnect"}
+            </Button>
+          </div>
+        </div>
+      ) : channel.key !== "slack" && !manualEntry ? (
+        // Slack's disconnected state is the setup wizard below; Telegram and
+        // Phone pitch the channel and point at the guided setup, with a
+        // manual-credentials escape hatch.
+        <EmptyState
+          icon={<ChannelIcon channelId={channel.key} className="h-6 w-6" />}
+          title={`${getChannelLabel(channel.key)} isn't connected`}
+          description={meta.disconnectedPitch?.(assistantDisplayName)}
+          action={
+            <div className="flex flex-col items-center gap-1">
+              <Button
+                type="button"
+                variant="outlined"
+                onClick={onSetup}
+                disabled={!onSetup || pending}
+              >
+                {pending ? "Opening…" : "Set up"}
+              </Button>
+              <Button
+                type="button"
+                variant="link"
+                onClick={() => setManualEntry(true)}
+              >
+                or connect manually
+              </Button>
+            </div>
+          }
+        />
+      ) : null}
+
+      {connected && onPolicyChange ? (
+        <ChannelTrustFloorSection
+          assistantDisplayName={assistantDisplayName}
+          policy={policy}
+          saving={policySaving}
+          loading={policyLoading}
+          error={policyError}
+          onChange={onPolicyChange}
+        />
+      ) : null}
+
+      {channel.key === "telegram" && showCredentialForm ? (
+        <TelegramCredentialEntry onSave={onSaveTelegramToken} />
+      ) : null}
+
+      {channel.key === "slack" ? (
+        <SlackChannelCard assistantName={assistantName} connected={connected}>
+          <SlackSetupWizard
+            assistantName={assistantName}
+            connected={connected}
+            onSave={onSaveSlackConfig}
+            saveStatus={slackSaveStatus}
+            saveError={slackSaveError}
+            threadMode={slackThreadMode}
+            threadModePending={slackThreadModePending}
+            onThreadModeChange={onSlackThreadModeChange}
+          />
+        </SlackChannelCard>
+      ) : null}
+
+      {channel.key === "phone" && showCredentialForm ? (
+        <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />
+      ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Channel Row (accordion layout, `channel-trust-floors` off)
 // ---------------------------------------------------------------------------
 
 interface ChannelRowProps {
@@ -373,37 +620,45 @@ function ChannelRow({
       {expanded ? (
         <div className={connected ? "flex flex-col gap-4" : undefined}>
           {connected && onPolicyChange ? (
-            <ChannelTrustFloorSection
-              assistantDisplayName={assistantDisplayName}
-              policy={policy}
-              saving={policySaving}
-              loading={policyLoading}
-              error={policyError}
-              onChange={onPolicyChange}
-            />
+            <div className="pl-7">
+              <ChannelTrustFloorSection
+                assistantDisplayName={assistantDisplayName}
+                policy={policy}
+                saving={policySaving}
+                loading={policyLoading}
+                error={policyError}
+                onChange={onPolicyChange}
+              />
+            </div>
           ) : null}
 
           {channel.key === "telegram" ? (
-            <TelegramCredentialEntry onSave={onSaveTelegramToken} />
+            <div className="pl-7">
+              <TelegramCredentialEntry onSave={onSaveTelegramToken} />
+            </div>
           ) : null}
 
           {channel.key === "slack" ? (
-            <SlackChannelCard assistantName={assistantName} connected={connected}>
-              <SlackSetupWizard
-                assistantName={assistantName}
-                connected={connected}
-                onSave={onSaveSlackConfig}
-                saveStatus={slackSaveStatus}
-                saveError={slackSaveError}
-                threadMode={slackThreadMode}
-                threadModePending={slackThreadModePending}
-                onThreadModeChange={onSlackThreadModeChange}
-              />
-            </SlackChannelCard>
+            <div className="pl-7">
+              <SlackChannelCard assistantName={assistantName} connected={connected}>
+                <SlackSetupWizard
+                  assistantName={assistantName}
+                  connected={connected}
+                  onSave={onSaveSlackConfig}
+                  saveStatus={slackSaveStatus}
+                  saveError={slackSaveError}
+                  threadMode={slackThreadMode}
+                  threadModePending={slackThreadModePending}
+                  onThreadModeChange={onSlackThreadModeChange}
+                />
+              </SlackChannelCard>
+            </div>
           ) : null}
 
           {channel.key === "phone" ? (
-            <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />
+            <div className="pl-7">
+              <TwilioCredentialEntry onSave={onSaveTwilioCredentials} />
+            </div>
           ) : null}
         </div>
       ) : null}
@@ -441,7 +696,7 @@ function ChannelTrustFloorSection({
   }));
 
   return (
-    <div className="flex flex-col gap-2 pl-7">
+    <div className="flex flex-col gap-2">
       <Typography
         as="span"
         variant="body-small-emphasised"
@@ -532,7 +787,7 @@ function TelegramCredentialEntry({ onSave }: TelegramCredentialEntryProps) {
   };
 
   return (
-    <div className="flex flex-col gap-3 pl-7">
+    <div className="flex flex-col gap-3">
       <Input
         label="Bot Token"
         type="password"
@@ -590,7 +845,7 @@ function TwilioCredentialEntry({ onSave }: TwilioCredentialEntryProps) {
   };
 
   return (
-    <div className="flex flex-col gap-3 pl-7">
+    <div className="flex flex-col gap-3">
       <Input
         label="Account SID"
         type="text"
