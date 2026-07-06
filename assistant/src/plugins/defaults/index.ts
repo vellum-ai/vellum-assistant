@@ -61,6 +61,7 @@ import maxTokensContinuePostModelCall from "./max-tokens-continue/hooks/post-mod
 import maxTokensContinueStop from "./max-tokens-continue/hooks/stop.js";
 import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { type: "json" };
 import memoryInit from "./memory/hooks/init.js";
+import memoryMessagePersisted from "./memory/hooks/message-persisted.js";
 import memoryPostCompact from "./memory/hooks/post-compact.js";
 import memoryShutdown from "./memory/hooks/shutdown.js";
 import memoryUserPromptSubmit from "./memory/hooks/user-prompt-submit.js";
@@ -148,10 +149,11 @@ export const defaultEmptyResponsePlugin: Plugin = {
  * `memory` — the assistant's combined memory plugin. Assembles the turn's
  * runtime injections (the unified `<turn_context>` block, Slack chronological
  * transcript, NOW.md / PKB / memory-v2 / workspace blocks) and houses the
- * memory-v3 orchestration engine (`memory/v3/`) and its injectors. Two hooks
+ * memory-v3 orchestration engine (`memory/v3/`) and its injectors. Three hooks
  * drive it: `user-prompt-submit` runs memory-graph retrieval and the initial
- * injection, and `post-compact` re-applies the injections onto the compacted
- * history after a mid-turn compaction. It contributes its personal-memory
+ * injection, `post-compact` re-applies the injections onto the compacted
+ * history after a mid-turn compaction, and `message-persisted` feeds each
+ * persisted message into segment indexing / extraction. It contributes its personal-memory
  * runtime injectors (PKB context/reminder and the memory-v2 static block, plus
  * the two memory-v3 injectors) to the global injector registry via the
  * `injectors` field; the registry unions them with the domain plugins'
@@ -170,6 +172,7 @@ export const defaultMemoryPlugin: Plugin = {
     shutdown: memoryShutdown,
     "user-prompt-submit": memoryUserPromptSubmit,
     "post-compact": memoryPostCompact,
+    "message-persisted": memoryMessagePersisted,
   },
   injectors: [...memoryInjectors, memoryV3Injector, memoryV3SpotlightInjector],
 };

@@ -22,7 +22,7 @@ The loop moves a conversation turn through a series of **lifecycle events**. The
 
 The loop can iterate several times within a single user turn: every tool result returns to a fresh model call, and a `post-model-call` hook can choose to continue rather than end the turn. Because of this, `pre-model-call`, `post-model-call`, and `post-tool-use` can each fire more than once per turn.
 
-The Assistant also hooks into Lifecycle Events that sit outside the Agent Loop: `init` fires at bootstrap, and `shutdown` fires at teardown.
+The Assistant also hooks into Lifecycle Events that sit outside the Agent Loop: `init` fires at bootstrap, `shutdown` fires at teardown, and `message-persisted` fires after a message row is written to conversation storage.
 
 ## Hooks reference
 
@@ -148,6 +148,25 @@ These are the lifecycle hooks. The full set of wired hook names lives in the [`H
 | `logger`         | `PluginLogger`           | Read-only | Logger pre-tagged with the hook name, your plugin, and the conversation / request identity. Log through it; no manual tagging needed.                                                                                                   |
 | `broadcast`      | `HookBroadcast`          | Read-only | Emit a transient `hook_event` to any UI watching the conversation. You supply a JSON-serializable `detail` record; the runtime stamps the conversation, hook name, and owner attribution. Best-effort: never throws or blocks the turn. |
 
+### `message-persisted`
+
+**Context:** `MessagePersistedContext`
+**When:** Once per transcript-visible message persisted through the plain persist path, after the row is inserted. Rows the persist call excludes from downstream processing — `skipIndexing` inserts and hidden machine signals — do not fire it.
+**Use it to:** Observe persisted messages for side effects (for example feeding an index). Observation-only: the context is a snapshot of the persisted row, and changing it does not alter what was stored.
+**Example:** [memory](https://github.com/vellum-ai/vellum-assistant/blob/main/assistant/src/plugins/defaults/memory/hooks/message-persisted.ts)
+
+| Field                  | Type                 | Access    | Description                                                                                                                                                                                                                             |
+| ---------------------- | -------------------- | --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `messageId`            | `string`             | Read-only | Persisted row id of the message.                                                                                                                                                                                                        |
+| `conversationId`       | `string`             | Read-only | Conversation the message was persisted to.                                                                                                                                                                                              |
+| `role`                 | `string`             | Read-only | Message role (`user`, `assistant`, `system`, ...).                                                                                                                                                                                      |
+| `content`              | `string`             | Read-only | Stored message content (JSON content-block array, serialized).                                                                                                                                                                          |
+| `createdAt`            | `number`             | Read-only | Row creation time (epoch millis).                                                                                                                                                                                                       |
+| `provenanceTrustClass` | `TrustClass \| null` | Read-only | Trust class of the actor who produced the message, captured at persist time. Null when the persisting path recorded none (legacy rows and internal writers).                                                                            |
+| `automated`            | `boolean`            | Read-only | True when the message was auto-sent by the client (for example a wake-up greeting).                                                                                                                                                     |
+| `logger`               | `PluginLogger`       | Read-only | Logger pre-tagged with the hook name, your plugin, and the conversation identity. Log through it; no manual tagging needed.                                                                                                             |
+| `broadcast`            | `HookBroadcast`      | Read-only | Emit a transient `hook_event` to any UI watching the conversation. You supply a JSON-serializable `detail` record; the runtime stamps the conversation, hook name, and owner attribution. Best-effort: never throws or blocks the turn. |
+
 ### `shutdown`
 
 **Context:** `ShutdownContext`
@@ -187,6 +206,8 @@ These are the hook-related exports from [`@vellumai/plugin-api`](https://github.
 | `PostModelCallContext`    | type  | Passed to post-model-call at every model-call outcome (a finalized reply or a provider rejection); carries the continue decision. |
 | `PostCompactContext`      | type  | Passed to post-compact, after the loop compacts a conversation mid-turn.                                                          |
 | `StopContext`             | type  | Passed to stop, the terminal hook, once the turn has committed to ending.                                                         |
+| `MessagePersistedContext` | type  | Passed to message-persisted, after a message row is written to conversation storage.                                              |
+| `TrustClass`              | type  | Trust class of the actor who produced a message, carried on MessagePersistedContext.                                              |
 | `PostModelCallDecision`   | type  | The post-model-call decision shape: whether to end the turn or continue.                                                          |
 | `AgentLoopExitReason`     | type  | Which terminal state a turn reached, carried on StopContext.                                                                      |
 

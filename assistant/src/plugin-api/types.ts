@@ -14,6 +14,7 @@ export type {
   AgentLoopExitReason,
   BaseHookContext,
   HookBroadcast,
+  MessagePersistedContext,
   PluginLogger,
   PostCompactContext,
   PostModelCallContext,
@@ -23,6 +24,7 @@ export type {
   StopContext,
   UserPromptSubmitContext,
 } from "../hooks/types.js";
+export type { TrustClass } from "../runtime/trust-class.js";
 export type {
   ToolContext,
   ToolDefinition,
@@ -56,6 +58,7 @@ export { RiskLevel } from "../tools/types.js";
  *   - `post-tool-use` — {@link PostToolUseContext}
  *   - `stop` — {@link StopContext}
  *   - `post-model-call` — {@link PostModelCallContext}
+ *   - `message-persisted` — {@link MessagePersistedContext}
  */
 export type HookFunction<TCtx = unknown> = (
   ctx: TCtx,

@@ -30,6 +30,8 @@ export const HOOKS = {
   POST_MODEL_CALL: "post-model-call",
   /** Fires after the loop successfully compacts a conversation mid-turn. */
   POST_COMPACT: "post-compact",
+  /** Fires once per transcript-visible message persisted through the plain persist path, after the row is inserted. Observation-only. */
+  MESSAGE_PERSISTED: "message-persisted",
 } as const;
 
 /** Union of every hook name declared in {@link HOOKS}. */

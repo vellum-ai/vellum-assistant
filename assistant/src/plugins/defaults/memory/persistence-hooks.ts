@@ -1,8 +1,5 @@
 import type { DrizzleDb } from "../../../persistence/db-connection.js";
-import type { TrustClass } from "../../../runtime/actor-trust-resolver.js";
-import { getMemoryConfig } from "./config.js";
 import { forkGraphMemoryState } from "./graph/graph-memory-state-store.js";
-import { indexMessageNow } from "./indexer.js";
 import { forkRetrospectiveState } from "./memory-retrospective-state.js";
 import { cancelPendingJobsForConversation } from "./task-memory-cleanup.js";
 import {
@@ -18,20 +15,6 @@ import {
   MEMORY_V3_INJECTED_BLOCK_METADATA_KEY,
   seedEverInjectedFromSlugs,
 } from "./v3/ever-injected-store.js";
-
-/** A message that was just persisted to a conversation. */
-export interface MessagePersistedEvent {
-  messageId: string;
-  conversationId: string;
-  role: string;
-  /** Stored message content (JSON content-block array, serialized). */
-  content: string;
-  createdAt: number;
-  /** Trust class of the actor who produced the message, captured at persist time. */
-  provenanceTrustClass?: TrustClass;
-  /** True when the message was auto-sent by the client (e.g. a wake-up greeting). */
-  automated?: boolean;
-}
 
 /** A conversation was forked; the memory feature carries per-conversation state into the child. */
 export interface ConversationForkedEvent {
@@ -68,10 +51,6 @@ export interface ConversationForkedEvent {
  * module.
  */
 export const memoryPersistenceHooks = {
-  async onMessagePersisted(event: MessagePersistedEvent): Promise<void> {
-    await indexMessageNow({ ...event, scopeId: "default" }, getMemoryConfig());
-  },
-
   onConversationForked(event: ConversationForkedEvent): void {
     const {
       db,

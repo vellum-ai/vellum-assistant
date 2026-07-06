@@ -23,6 +23,7 @@ import type {
   Message,
   ToolResultContent,
 } from "../providers/types.js";
+import type { TrustClass } from "../runtime/trust-class.js";
 
 // ─── Logger ──────────────────────────────────────────────────────────────────
 
@@ -611,3 +612,46 @@ export interface PostModelCallInputContext {
  */
 export interface PostModelCallContext
   extends PostModelCallInputContext, BaseHookContext {}
+
+// ─── Message-persisted hook context ──────────────────────────────────────────
+
+/**
+ * Context passed to the `message-persisted` hook. Fires once per message
+ * persisted through the plain persist path (`addMessage`), after the row is
+ * inserted. Rows the persist call excludes from downstream processing —
+ * `skipIndexing` inserts (paths that run their own post-persist indexing,
+ * e.g. streaming reserve+finalize) and transcript-suppressed machine signals
+ * (`metadata.hidden`) — do not fire it.
+ *
+ * Observation-only: the context carries a snapshot of the persisted row and
+ * hooks cannot alter it. The default memory plugin contributes a hook here
+ * that feeds the message into its segment indexing / extraction pipeline.
+ */
+export interface MessagePersistedInputContext {
+  /** Persisted row ID of the message. */
+  readonly messageId: string;
+  /** Conversation the message was persisted to. */
+  readonly conversationId: string;
+  /** Message role (`user`, `assistant`, `system`, ...). */
+  readonly role: string;
+  /** Stored message content (JSON content-block array, serialized). */
+  readonly content: string;
+  /** Row creation time (epoch millis). */
+  readonly createdAt: number;
+  /**
+   * Trust class of the actor who produced the message, captured at persist
+   * time. `null` when the persisting path recorded none (legacy rows and
+   * internal writers) — consumers treat that as trusted-by-provenance.
+   */
+  readonly provenanceTrustClass: TrustClass | null;
+  /** True when the message was auto-sent by the client (e.g. a wake-up greeting). */
+  readonly automated: boolean;
+}
+
+/**
+ * The full `message-persisted` context a hook receives — the dispatching call
+ * site's {@link MessagePersistedInputContext} plus the pipeline-stamped
+ * {@link BaseHookContext} capabilities.
+ */
+export interface MessagePersistedContext
+  extends MessagePersistedInputContext, BaseHookContext {}

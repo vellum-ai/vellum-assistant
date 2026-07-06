@@ -29,7 +29,10 @@ import { findConversation } from "../daemon/conversation-registry.js";
 import { conversationMetadataSyncTag } from "../daemon/message-types/sync.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
+import type { MessagePersistedInputContext } from "../hooks/types.js";
+import { HOOKS } from "../plugin-api/constants.js";
 import { memoryPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks.js";
+import { runHook } from "../plugins/pipeline.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
 import { trustClassSchema } from "../runtime/trust-class.js";
@@ -1698,29 +1701,24 @@ export async function addMessage(
     // The direct write seams (streaming finalize, import, edit) enqueue for
     // themselves; this covers the plain addMessage path.
     enqueueLexicalIndexForMessage(message.id);
-    try {
-      const parsed = metadata
-        ? messageMetadataSchema.safeParse(metadata)
-        : null;
-      const provenanceTrustClass = parsed?.success
-        ? parsed.data.provenanceTrustClass
-        : undefined;
-      const automated = parsed?.success ? parsed.data.automated : undefined;
-      await memoryPersistenceHooks.onMessagePersisted({
-        messageId: message.id,
-        conversationId: message.conversationId,
-        role: message.role,
-        content: message.content,
-        createdAt: message.createdAt,
-        provenanceTrustClass,
-        automated,
-      });
-    } catch (err) {
-      log.warn(
-        { err, conversationId, messageId: message.id },
-        "Failed to index message for memory",
-      );
-    }
+
+    // Notify `message-persisted` hooks (e.g. the memory plugin's segment
+    // indexing / extraction). The pipeline contains per-hook failures and
+    // filters disabled plugins, so a failed or disabled consumer never fails
+    // the persist. Awaited so post-persist processing completes before the
+    // caller proceeds, matching the write path's ordering guarantees.
+    const parsed = metadata ? messageMetadataSchema.safeParse(metadata) : null;
+    await runHook(HOOKS.MESSAGE_PERSISTED, {
+      messageId: message.id,
+      conversationId: message.conversationId,
+      role: message.role,
+      content: message.content,
+      createdAt: message.createdAt,
+      provenanceTrustClass:
+        (parsed?.success ? parsed.data.provenanceTrustClass : undefined) ??
+        null,
+      automated: (parsed?.success ? parsed.data.automated : undefined) ?? false,
+    } satisfies MessagePersistedInputContext);
   }
 
   if (role === "assistant") {

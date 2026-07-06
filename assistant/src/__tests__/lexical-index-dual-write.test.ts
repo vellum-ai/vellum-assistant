@@ -2,13 +2,15 @@
 //   - a real persist (`addMessage`) enqueues one `index_message_lexical` job
 //     for the message, regardless of whether memory is enabled or disabled
 //     (message-content search is host infrastructure);
+//   - a real persist dispatches the `message-persisted` hook (the memory
+//     plugin's segment indexing rides on it), and a hook throw is contained
+//     by the pipeline without losing the lexical enqueue;
 //   - forking a conversation copies message rows WITHOUT routing through
 //     the persist path, so a fork enqueues ZERO `index_message_lexical`
-//     jobs (the fork-exclusion regression);
-//   - wiping a conversation enqueues one `purge_conversation_lexical` job.
+//     jobs (the fork-exclusion regression).
 //
 // The heavy segment indexer (`indexMessageNow`) is stubbed to a no-op so these
-// tests exercise only the lexical enqueue seam, not the embedding/extraction
+// tests exercise only the enqueue/dispatch seams, not the embedding/extraction
 // machinery. Memory config is real (default-enabled), flipped on disk for the
 // disabled case.
 
@@ -30,18 +32,19 @@ mock.module("../util/logger.js", () => ({
   getLogger: () => makeMockLogger(),
 }));
 
-// Stub the segment indexer so `onMessagePersisted` runs cheaply. The lexical
-// enqueue in the hook is a separate call and still fires. Other exports are
-// provided so any transitive importer of this module resolves. `throwFromIndex`
-// lets a test simulate a transient segment-indexing failure to prove the
-// lexical enqueue survives it.
+// Stub the segment indexer so the memory plugin's `message-persisted` hook
+// runs cheaply. Other exports are provided so any transitive importer of this
+// module resolves. `throwFromIndex` lets a test simulate a transient
+// segment-indexing failure to prove the persist survives it.
 let throwFromIndex = false;
+let indexedMessageIds: string[] = [];
 mock.module("../plugins/defaults/memory/indexer.js", () => ({
   MIN_SEGMENT_CHARS: 50,
-  indexMessageNow: async () => {
+  indexMessageNow: async (input: { messageId: string }) => {
     if (throwFromIndex) {
       throw new Error("simulated segment-indexing failure");
     }
+    indexedMessageIds.push(input.messageId);
     return { indexedSegments: 0, enqueuedJobs: 0 };
   },
   enqueueBackfillJob: () => "",
@@ -54,6 +57,7 @@ import {
   saveRawConfig,
 } from "../config/loader.js";
 import { consolidateAssistantMessages } from "../daemon/conversation-history.js";
+import { registerPluginHooks } from "../hooks/registry.js";
 import {
   addMessage,
   createConversation,
@@ -71,9 +75,17 @@ import { enqueueLexicalIndexForMessage } from "../persistence/job-handlers/messa
 import type { MemoryJobType } from "../persistence/jobs-store.js";
 import { enqueueMemoryJob } from "../persistence/jobs-store.js";
 import { memoryJobs } from "../persistence/schema/index.js";
+import memoryMessagePersisted from "../plugins/defaults/memory/hooks/message-persisted.js";
 import { memoryPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks.js";
+import type { PluginHooks } from "../plugins/types.js";
 
 await initializeDb();
+
+// Register the memory plugin's `message-persisted` hook the way boot does, so
+// `addMessage`'s dispatch reaches the (indexer-stubbed) plugin implementation.
+registerPluginHooks("default-memory", {
+  "message-persisted": memoryMessagePersisted,
+} as PluginHooks);
 
 function countJobs(type: MemoryJobType, conversationId?: string): number {
   const rows = getMemoryDb()!
@@ -137,6 +149,7 @@ describe("messages lexical-index dual-write", () => {
     // into later tests sharing this process.
     setMemoryEnabled(true);
     throwFromIndex = false;
+    indexedMessageIds = [];
   });
 
   test("addMessage enqueues one index_message_lexical job for the persisted message", async () => {
@@ -148,10 +161,39 @@ describe("messages lexical-index dual-write", () => {
     expect(ids.filter((id) => id === message.id)).toHaveLength(1);
   });
 
+  test("addMessage dispatches message-persisted to the memory plugin's hook", async () => {
+    const conv = createConversation("Hook dispatch thread");
+    const message = await addMessage(conv.id, "user", "segment me");
+
+    expect(indexedMessageIds).toEqual([message.id]);
+  });
+
+  test("hidden machine signals do not dispatch message-persisted", async () => {
+    const conv = createConversation("Hidden signal thread");
+    await addMessage(conv.id, "user", "machine signal", {
+      metadata: { hidden: true },
+    });
+
+    expect(indexedMessageIds).toEqual([]);
+  });
+
+  test("skipIndexing persists do not dispatch message-persisted", async () => {
+    // Paths that run their own post-persist indexing (streaming
+    // reserve+finalize, import) insert with `skipIndexing` and must not
+    // double-feed the memory pipeline.
+    const conv = createConversation("Skip indexing thread");
+    await addMessage(conv.id, "user", "already indexed elsewhere", {
+      skipIndexing: true,
+    });
+
+    expect(indexedMessageIds).toEqual([]);
+  });
+
   test("lexical job is still enqueued when segment indexing (indexMessageNow) throws", async () => {
     // The sparse lexical job is independent of the dense embedding path, so a
     // transient segment-indexing failure must not leave the message missing
-    // from the lexical index. `addMessage` catches the hook throw as non-fatal.
+    // from the lexical index. The hook pipeline contains the throw as
+    // non-fatal.
     throwFromIndex = true;
     const conv = createConversation("Segment failure thread");
     const message = await addMessage(

@@ -104,6 +104,7 @@ export type {
   HookBroadcast,
   HookFunction,
   InitContext,
+  MessagePersistedContext,
   ModelProfileInfo,
   PluginLogger,
   PostCompactContext,
@@ -116,6 +117,7 @@ export type {
   ToolContext,
   ToolDefinition,
   ToolExecutionResult,
+  TrustClass,
   UserPromptSubmitContext,
 } from "./types.js";
 export { RiskLevel } from "./types.js";
