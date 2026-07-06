@@ -5,6 +5,7 @@ import { useNavigate } from "react-router";
 import { useBusSubscription } from "@/hooks/use-bus-subscription";
 import { ensureMainWindowVisible } from "@/runtime/main-window";
 import { usePendingDeepLinkStore } from "@/stores/pending-deep-link-store";
+import { useViewerStore } from "@/stores/viewer-store";
 import { routes } from "@/utils/routes";
 
 /**
@@ -15,7 +16,8 @@ import { routes } from "@/utils/routes";
  *
  * Responsibilities:
  *
- * - `deeplink.openThread` → `ensureMainWindowVisible()` +
+ * - `deeplink.openThread` → `ensureMainWindowVisible()` + reset the
+ *   viewer to chat (dismisses a full-width app viewer) +
  *   `navigate(routes.conversation(threadId))`.
  * - `deeplink.send` → `ensureMainWindowVisible()` + navigate to
  *   `/assistant` + park the message in `usePendingDeepLinkStore`
@@ -42,6 +44,9 @@ export function useGlobalDeepLinkConsumer(): void {
 
   useBusSubscription("deeplink.openThread", ({ threadId }) => {
     void ensureMainWindowVisible();
+    // Mirror the normal conversation-switch path: dismiss the full-width
+    // app viewer so the navigated-to thread is actually visible.
+    useViewerStore.getState().setMainView("chat");
     navigateRef.current(routes.conversation(threadId));
   });
 
