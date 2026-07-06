@@ -31,7 +31,12 @@
  * playback and opens the next utterance, `utterance_end` marks transcription,
  * and `turn_cancelled` drops a barged-in turn's playback. The client-local
  * silence auto-release and amplitude barge-in below are disabled in this mode.
- * The session ends only on user toggle-off, `busy`, `error`, or socket close.
+ * The session ends only on user toggle-off, `busy`, a terminal `error`, or
+ * socket close — errors the daemon marks `recoverable` (transient transcriber
+ * or per-segment TTS failures) keep the conversation alive. If the daemon's
+ * `ready` does not echo `turnDetection: "server_vad"` (older daemon that
+ * ignored the request), the session falls back to full manual behavior so it
+ * still works instead of hanging.
  *
  * ## State transitions
  * Manual (one session = one turn): `idle → connecting` (start) → `listening`
@@ -318,8 +323,15 @@ export function useLiveVoice(
         sessionRef.current === session && session.generation === generation;
 
       session.unsubscribes.push(
-        client.on("ready", () => {
+        client.on("ready", (frame) => {
           if (!live()) return;
+          // Version skew: an older daemon ignores the start frame's
+          // turnDetection and runs a manual session without echoing the mode.
+          // Fall back to manual behavior (auto-release, amplitude barge-in,
+          // single-turn teardown) so the session works instead of hanging.
+          if (session.handsFree && frame.turnDetection !== "server_vad") {
+            session.handsFree = false;
+          }
           void startCapture(session, teardown);
         }),
         client.on("speechStarted", () => {
@@ -334,6 +346,15 @@ export function useLiveVoice(
           if (!live() || !session.handsFree) return;
           // Server VAD closed the utterance; its transcription is finishing.
           useLiveVoiceStore.getState().setState("transcribing");
+        }),
+        client.on("utteranceDiscarded", () => {
+          if (!live() || !session.handsFree) return;
+          // The closed utterance had no usable speech (noise/cough); return
+          // to listening. A discarded utterance never reaches `thinking`
+          // (empty finals stay in `transcribing`), so any other state belongs
+          // to a newer turn and is left alone.
+          const s = useLiveVoiceStore.getState();
+          if (s.state === "transcribing") s.setState("listening");
         }),
         client.on("sttPartial", (frame) => {
           if (!live()) return;
@@ -361,6 +382,10 @@ export function useLiveVoice(
             return;
           }
           if (session.handsFree) {
+            // An empty final never starts a server turn (the utterance will
+            // be discarded); stay in `transcribing` so `utterance_discarded`
+            // can safely return to `listening` without racing a real turn.
+            if (frame.text.trim().length === 0) return;
             // The next turn now owns the state: a prior turn's drain waiter
             // must not reset it to `listening` if it resolves before the
             // server's `thinking` frame (which re-bumps; the guard only
@@ -418,6 +443,15 @@ export function useLiveVoice(
         }),
         client.on("error", (err: LiveVoiceClientError) => {
           if (!live()) return;
+          // Hands-free: a recoverable error (transient transcriber blip,
+          // one failed TTS segment) must not kill the conversation. Resume
+          // listening unless a turn is mid-flight; the transport stayed open.
+          if (session.handsFree && err.recoverable === true) {
+            console.warn(`live-voice: recoverable error: ${err.message}`);
+            const s = useLiveVoiceStore.getState();
+            if (s.state === "transcribing") s.setState("listening");
+            return;
+          }
           finishWithError(session, teardown, err.message);
         }),
         client.on("closed", () => {

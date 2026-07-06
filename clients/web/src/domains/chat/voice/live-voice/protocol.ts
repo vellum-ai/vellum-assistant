@@ -84,6 +84,7 @@ const LIVE_VOICE_SERVER_FRAME_TYPES = [
   "busy",
   "speech_started",
   "utterance_end",
+  "utterance_discarded",
   "stt_partial",
   "stt_final",
   "thinking",
@@ -107,6 +108,12 @@ export interface LiveVoiceReadyServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "ready";
   readonly sessionId: string;
   readonly conversationId: string;
+  /**
+   * Echoes the turn-detection mode the session is actually running. Absent
+   * (older daemons that ignore the start frame's `turnDetection`) means
+   * "manual" — hands-free callers must fall back accordingly.
+   */
+  readonly turnDetection?: LiveVoiceTurnDetectionMode;
 }
 
 export interface LiveVoiceBusyServerFrame extends LiveVoiceServerFrameBase {
@@ -130,6 +137,16 @@ export interface LiveVoiceSpeechStartedServerFrame extends LiveVoiceServerFrameB
 export interface LiveVoiceUtteranceEndServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "utterance_end";
   readonly reason: "silence" | "max-duration";
+}
+
+/**
+ * Emitted only in server_vad mode when the closed utterance produced no
+ * usable speech (noise/cough): it is dropped without an assistant turn and
+ * the client should return to listening.
+ */
+export interface LiveVoiceUtteranceDiscardedServerFrame
+  extends LiveVoiceServerFrameBase {
+  readonly type: "utterance_discarded";
 }
 
 export interface LiveVoiceSttPartialServerFrame extends LiveVoiceServerFrameBase {
@@ -201,6 +218,12 @@ export interface LiveVoiceErrorServerFrame extends LiveVoiceServerFrameBase {
   readonly type: "error";
   readonly code: string;
   readonly message: string;
+  /**
+   * True when the session continues past the error (e.g. a transient
+   * transcriber blip or one failed TTS segment). Absent (including on frames
+   * from older daemons) means the error is terminal for the session.
+   */
+  readonly recoverable?: boolean;
 }
 
 export type LiveVoiceServerFrame =
@@ -208,6 +231,7 @@ export type LiveVoiceServerFrame =
   | LiveVoiceBusyServerFrame
   | LiveVoiceSpeechStartedServerFrame
   | LiveVoiceUtteranceEndServerFrame
+  | LiveVoiceUtteranceDiscardedServerFrame
   | LiveVoiceSttPartialServerFrame
   | LiveVoiceSttFinalServerFrame
   | LiveVoiceThinkingServerFrame

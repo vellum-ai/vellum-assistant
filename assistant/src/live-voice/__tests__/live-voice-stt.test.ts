@@ -134,7 +134,33 @@ describe("LiveVoiceSession STT", () => {
         seq: 1,
         sessionId: "session-123",
         conversationId: "conversation-123",
+        turnDetection: "manual",
       },
+    ]);
+  });
+
+  test("marks transient transcriber errors recoverable while the session continues", async () => {
+    const { frames, session, transcriber } = createSessionWithTranscriber();
+
+    await session.start();
+    transcriber.emit({
+      type: "error",
+      category: "provider-error",
+      message: "whisper poll failed",
+    });
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
+
+    expect(frames.find((frame) => frame.type === "error")).toMatchObject({
+      type: "error",
+      code: "invalid_field",
+      message: "whisper poll failed",
+      recoverable: true,
+    });
+
+    // The session is still live: audio keeps streaming to the transcriber.
+    await session.handleBinaryAudio(new Uint8Array([1, 2, 3]));
+    expect(transcriber.audioChunks.map((chunk) => [...chunk])).toEqual([
+      [1, 2, 3],
     ]);
   });
 

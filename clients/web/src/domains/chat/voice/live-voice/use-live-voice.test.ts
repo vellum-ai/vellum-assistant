@@ -229,12 +229,14 @@ async function startListening(
     await h.view.result.current.start("assistant-1", "conv-1", options);
   });
   // `ready` kicks off capture; await the microtask that resolves capture.start.
+  // A current daemon echoes the session's turn-detection mode.
   await act(async () => {
     h.client.emit("ready", {
       type: "ready",
       seq: 1,
       sessionId: "s1",
       conversationId: "conv-1",
+      turnDetection: options?.handsFree ? "server_vad" : "manual",
     });
     await Promise.resolve();
   });
@@ -806,6 +808,217 @@ describe("hands-free mode", () => {
     expect(h.client.interruptCount).toBe(0);
     expect(h.player.isPlaying).toBe(true);
     expect(h.view.result.current.state).toBe("speaking");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Version skew: hands-free against an older daemon
+// ---------------------------------------------------------------------------
+
+describe("hands-free fallback to manual (older daemon)", () => {
+  test("ready without turnDetection re-enables auto-release, amplitude barge-in, and single-turn teardown", async () => {
+    const h = renderController();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1", {
+        handsFree: true,
+      });
+    });
+    // An older daemon ignores the requested server_vad and never echoes it.
+    await act(async () => {
+      h.client.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId: "conv-1",
+      });
+      await Promise.resolve();
+    });
+    expect(h.client.connectArgs).toMatchObject({ turnDetection: "server_vad" });
+    expect(h.view.result.current.state).toBe("listening");
+
+    // Client-local silence auto-release fires again (manual behavior).
+    act(() => {
+      h.getCapture().pushAmplitude(0.1);
+      h.getCapture().pushChunk(pcmChunk(200));
+      h.getCapture().pushAmplitude(0.0);
+      h.getCapture().pushChunk(pcmChunk(1000));
+    });
+    expect(h.client.pttReleaseCount).toBe(1);
+    expect(h.view.result.current.state).toBe("transcribing");
+
+    // Client-local amplitude barge-in fires again and ends the (manual,
+    // single-turn) session — no silent hang against the older daemon.
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+      h.client.emit("ttsAudio", {
+        type: "tts_audio",
+        seq: 3,
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        dataBase64: "AAAA",
+      });
+    });
+    expect(h.view.result.current.state).toBe("speaking");
+    act(() => {
+      h.getCapture().pushAmplitude(0.3);
+    });
+    expect(h.client.interruptCount).toBe(1);
+    expect(h.view.result.current.state).toBe("idle");
+    expect(h.client.closed).toBe(true);
+  });
+
+  test("ready echoing server_vad keeps hands-free behaviors disabled", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.getCapture().pushAmplitude(0.1);
+      h.getCapture().pushChunk(pcmChunk(200));
+      h.getCapture().pushAmplitude(0.0);
+      h.getCapture().pushChunk(pcmChunk(2000));
+    });
+
+    expect(h.client.pttReleaseCount).toBe(0);
+    expect(h.view.result.current.state).toBe("listening");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Recoverable errors (hands-free survives; manual stays fatal)
+// ---------------------------------------------------------------------------
+
+describe("recoverable errors", () => {
+  test("hands-free: a recoverable error returns to listening and the session continues", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 2,
+        reason: "silence",
+      });
+    });
+    expect(h.view.result.current.state).toBe("transcribing");
+
+    act(() => {
+      h.client.emit("error", {
+        reason: "protocol-error",
+        message: "whisper poll failed",
+        recoverable: true,
+      });
+    });
+
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.view.result.current.error).toBe(null);
+    expect(h.client.closed).toBe(false);
+    expect(h.getCapture().shutdownCount).toBe(0);
+
+    // The conversation keeps going on the same socket.
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 3, turnId: "t1" });
+    });
+    expect(h.view.result.current.state).toBe("thinking");
+  });
+
+  test("hands-free: a recoverable error mid-turn leaves the current status alone", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 2, turnId: "t1" });
+    });
+    act(() => {
+      h.client.emit("error", {
+        reason: "protocol-error",
+        message: "one TTS segment failed",
+        recoverable: true,
+      });
+    });
+
+    expect(h.view.result.current.state).toBe("thinking");
+    expect(h.client.closed).toBe(false);
+  });
+
+  test("manual mode: a recoverable error is still fatal", async () => {
+    const h = renderController();
+    await startListening(h);
+
+    act(() => {
+      h.client.emit("error", {
+        reason: "protocol-error",
+        message: "transient blip",
+        recoverable: true,
+      });
+    });
+
+    expect(h.view.result.current.state).toBe("failed");
+    expect(h.view.result.current.error).toBe("transient blip");
+    expect(h.client.closed).toBe(true);
+    expect(h.getCapture().shutdownCount).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// utterance_discarded (hands-free)
+// ---------------------------------------------------------------------------
+
+describe("utterance_discarded", () => {
+  test("a noise-only utterance returns to listening instead of sticking in transcribing", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("speechStarted", { type: "speech_started", seq: 2 });
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 3,
+        reason: "silence",
+      });
+    });
+    expect(h.view.result.current.state).toBe("transcribing");
+
+    // A whitespace-only final never starts a server turn; stay transcribing
+    // so the discard can safely resolve the utterance.
+    act(() => {
+      h.client.emit("sttFinal", { type: "stt_final", seq: 4, text: " " });
+    });
+    expect(h.view.result.current.state).toBe("transcribing");
+
+    act(() => {
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 5,
+      });
+    });
+    expect(h.view.result.current.state).toBe("listening");
+    expect(h.client.closed).toBe(false);
+  });
+
+  test("does not clobber a newer turn's thinking", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    act(() => {
+      h.client.emit("utteranceEnd", {
+        type: "utterance_end",
+        seq: 2,
+        reason: "silence",
+      });
+    });
+    // A newer utterance's turn starts before the stale discard arrives.
+    act(() => {
+      h.client.emit("thinking", { type: "thinking", seq: 3, turnId: "t2" });
+    });
+    expect(h.view.result.current.state).toBe("thinking");
+
+    act(() => {
+      h.client.emit("utteranceDiscarded", {
+        type: "utterance_discarded",
+        seq: 4,
+      });
+    });
+    expect(h.view.result.current.state).toBe("thinking");
   });
 });
 

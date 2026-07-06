@@ -251,6 +251,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           type: "ready",
           sessionId: this.context.sessionId,
           conversationId: this.conversationId,
+          turnDetection: this.turnDetector ? "server_vad" : "manual",
         });
     }
   }
@@ -707,11 +708,13 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
         // Non-terminal: providers like OpenAI Whisper emit `error` for
         // transient poll failures and continue streaming. Let `closed` /
         // `final` drive turn lifecycle so we don't drain audio buffers or
-        // mark the turn cancelled prematurely.
+        // mark the turn cancelled prematurely. The entry guard above ensures
+        // the session is still live, so the frame is recoverable.
         await this.sendFrame({
           type: "error",
           code: LiveVoiceProtocolErrorCode.InvalidField,
           message: event.message,
+          recoverable: true,
         });
         return;
       case "closed":
@@ -1100,11 +1103,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
           await ttsAudioFrames;
         } catch (err) {
           if (!this.isForwardingTts(token)) return;
+          // Per-segment failure: the turn (and session) continue, so the
+          // error is recoverable for the client.
           await this.sendFrame(
             {
               type: "error",
               code: LiveVoiceProtocolErrorCode.InvalidField,
               message: `Live voice TTS failed: ${errorMessage(err)}`,
+              recoverable: true,
             },
             () => this.isForwardingTts(token),
           );
