@@ -772,6 +772,19 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       case "closed":
         utterance.phase = "transcriber_closed";
         utterance.transcriber = null;
+        // The provider closed an unreleased hands-free cycle with nothing
+        // captured (e.g. idle timeout): retire it so the next speech chunk
+        // lazily arms a fresh utterance instead of dropping audio on the
+        // null transcriber.
+        if (
+          this.turnDetector &&
+          !utterance.released &&
+          !utterance.completed &&
+          utterance.finalTranscriptSegments.length === 0
+        ) {
+          await this.finalizePendingUtterance(utterance, "transcriber_closed");
+          return;
+        }
         await this.startAssistantTurnIfReady();
         return;
     }

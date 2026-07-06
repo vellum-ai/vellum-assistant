@@ -91,6 +91,11 @@ class MockStreamingTranscriber implements StreamingTranscriber {
       this.onEvent?.(event);
     }
   }
+
+  // Provider-initiated event (e.g. an idle-timeout close), no stop() needed.
+  emit(event: SttStreamServerEvent): void {
+    this.onEvent?.(event);
+  }
 }
 
 function createHarness(options: {
@@ -822,6 +827,106 @@ describe("LiveVoiceSession server VAD", () => {
     expect(types.lastIndexOf("utterance_end")).toBeGreaterThan(
       types.indexOf("tts_done"),
     );
+  });
+
+  test("an idle transcriber close before speech re-arms capture for the next utterance", async () => {
+    const { startVoiceTurn, calls } = makeAutoCompletingTurnStarter(["Hi."]);
+    const { frames, session, transcribers } = createHarness({
+      finals: ["never spoken", "hello after close"],
+      startVoiceTurn,
+    });
+
+    await session.start();
+    // Idle mic ahead of the close: these chunks sit in the pre-roll ring.
+    await session.handleBinaryAudio(SILENT_CHUNK);
+    await session.handleBinaryAudio(SILENT_CHUNK);
+    await session.handleBinaryAudio(SILENT_CHUNK);
+
+    // Provider idle-timeout closes the armed transcriber before any speech.
+    transcribers[0]?.emit({ type: "closed" });
+    await flushAsyncCallbacks();
+    // Recovery is lazy: nothing re-arms until speech arrives.
+    expect(transcribers).toHaveLength(1);
+
+    // The first speech after the close arms a fresh utterance; the pre-roll
+    // and the speech chunk all reach the new transcriber.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => (transcribers[1]?.received.length ?? 0) === 4);
+
+    expect(transcribers[0]?.received).toHaveLength(0);
+    const silent = Buffer.from(SILENT_CHUNK);
+    const loud = Buffer.from(LOUD_CHUNK);
+    expect(
+      transcribers[1]?.received
+        .slice(0, 3)
+        .every((chunk) => chunk.equals(silent)),
+    ).toBe(true);
+    expect(transcribers[1]?.received.at(-1)?.equals(loud)).toBe(true);
+
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.content).toBe("hello after close");
+    expect(countType(frames, "utterance_discarded")).toBe(0);
+    expect(countType(frames, "error")).toBe(0);
+  });
+
+  test("an idle transcriber close during an in-flight turn neither disturbs the turn nor double-arms", async () => {
+    let firstTurnCallbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      if (startVoiceTurn.mock.calls.length === 1) {
+        firstTurnCallbacks = options.callbacks;
+        return { turnId: "bridge-turn-1", abort: mock() };
+      }
+      options.callbacks?.assistant_text_delta?.(makeTextDelta("Sure."));
+      options.callbacks?.message_complete?.(makeMessageComplete());
+      return { turnId: "bridge-turn-2", abort: mock() };
+    });
+    const { frames, session, transcribers } = createHarness({
+      finals: ["first question", "never spoken", "follow-up"],
+      startVoiceTurn,
+      // A long silence threshold keeps utterance 2 unreleased when its
+      // transcriber closes; boundaries are driven by ptt_release.
+      turnDetectorConfig: { silenceThresholdMs: 5_000 },
+    });
+
+    await session.start();
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => frames.some((frame) => frame.type === "thinking"));
+
+    // Speech during the thinking turn arms utterance 2...
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await waitFor(() => (transcribers[1]?.received.length ?? 0) === 1);
+    // ...whose transcriber then idle-closes before the utterance ends.
+    transcribers[1]?.emit({ type: "closed" });
+    await flushAsyncCallbacks();
+
+    // The in-flight turn is untouched and nothing re-armed underneath it.
+    expect(transcribers).toHaveLength(2);
+    expect(countType(frames, "turn_cancelled")).toBe(0);
+
+    // Turn 1 completes normally; the post-turn re-arm then arms exactly once.
+    firstTurnCallbacks?.assistant_text_delta?.(makeTextDelta("Answer one."));
+    firstTurnCallbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() =>
+      frames.some(
+        (frame) => frame.type === "tts_done" && frame.turnId === "live-turn-1",
+      ),
+    );
+    await waitFor(() => transcribers.length === 3);
+    await flushAsyncCallbacks();
+    expect(transcribers).toHaveLength(3);
+    expect(countType(frames, "turn_cancelled")).toBe(0);
+    expect(countType(frames, "utterance_discarded")).toBe(0);
+    expect(countType(frames, "error")).toBe(0);
+
+    // The recovered capture path still runs a full follow-up turn.
+    await session.handleBinaryAudio(LOUD_CHUNK);
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitFor(() => startVoiceTurn.mock.calls.length === 2);
+    expect(startVoiceTurn.mock.calls[1]?.[0]).toMatchObject({
+      content: "follow-up",
+    });
   });
 
   test("utterance_discarded is sent before finalization so a newer utterance's frames follow it", async () => {
