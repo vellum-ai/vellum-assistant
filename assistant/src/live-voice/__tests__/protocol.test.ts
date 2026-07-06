@@ -163,35 +163,59 @@ describe("parseLiveVoiceClientTextFrame", () => {
     });
   });
 
-  test("parses start frames with each valid turnDetection mode", () => {
-    for (const turnDetection of ["manual", "server_vad"] as const) {
-      const result = parseLiveVoiceClientTextFrame(
-        JSON.stringify({
-          type: "start",
-          turnDetection,
-          audio: {
-            mimeType: "audio/pcm",
-            sampleRate: 24000,
-            channels: 1,
-          },
-        }),
-      );
-
-      expect(result.ok).toBe(true);
-      if (!result.ok) {
-        continue;
-      }
-
-      expect(result.frame).toEqual({
+  test("parses start frames with turnDetection manual", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({
         type: "start",
-        turnDetection,
+        turnDetection: "manual",
         audio: {
           mimeType: "audio/pcm",
           sampleRate: 24000,
           channels: 1,
         },
-      });
+      }),
+    );
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) {
+      return;
     }
+
+    expect(result.frame).toEqual({
+      type: "start",
+      turnDetection: "manual",
+      audio: {
+        mimeType: "audio/pcm",
+        sampleRate: 24000,
+        channels: 1,
+      },
+    });
+  });
+
+  test("rejects turnDetection server_vad until its session lifecycle is implemented", () => {
+    const result = parseLiveVoiceClientTextFrame(
+      JSON.stringify({
+        type: "start",
+        turnDetection: "server_vad",
+        audio: {
+          mimeType: "audio/pcm",
+          sampleRate: 24000,
+          channels: 1,
+        },
+      }),
+    );
+
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+
+    expect(result.error).toMatchObject({
+      code: "invalid_field",
+      field: "turnDetection",
+      frameType: "start",
+      message: "start frame field turnDetection: server_vad is not yet supported",
+    });
   });
 
   test("omits turnDetection when absent from the start frame", () => {

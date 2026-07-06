@@ -413,6 +413,17 @@ function validateStartFrame(
     );
   }
 
+  // Temporary: server_vad is declared in the contract but not yet accepted;
+  // the session lifecycle for it is not implemented.
+  if (value.turnDetection === "server_vad") {
+    return protocolError(
+      "invalid_field",
+      "start frame field turnDetection: server_vad is not yet supported",
+      "turnDetection",
+      "start",
+    );
+  }
+
   return {
     ok: true,
     frame: {
