@@ -78,6 +78,38 @@ export const ChannelsTabSlackConnected: Story = {
     onSlackThreadModeChange: () => {},
     channelPolicies: { slack: "trusted_contacts" },
     onChannelPolicyChange: () => {},
+    slackChannels: [
+      {
+        id: "C001",
+        name: "general",
+        type: "channel",
+        isPrivate: false,
+        isMember: true,
+        memberCount: 42,
+        topic: null,
+        imageUrl: null,
+      },
+      {
+        id: "C002",
+        name: "leadership",
+        type: "channel",
+        isPrivate: true,
+        isMember: true,
+        memberCount: 4,
+        topic: null,
+        imageUrl: null,
+      },
+      {
+        id: "D001",
+        name: "Alice",
+        type: "dm",
+        isPrivate: true,
+        isMember: true,
+        memberCount: null,
+        topic: null,
+        imageUrl: null,
+      },
+    ],
   },
 };
 

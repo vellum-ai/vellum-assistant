@@ -16,6 +16,7 @@ import {
   integrationsSlackChannelConfigGetOptions,
   integrationsSlackChannelConfigGetQueryKey,
   integrationsSlackChannelConfigPatchMutation,
+  slackChannelsGetOptions,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import {
   integrationsSlackChannelConfigDelete,
@@ -91,6 +92,17 @@ export function useAssistantChannels({
     ...integrationsSlackChannelConfigGetOptions(pathOpts),
     enabled: slackConnected,
     select: (data: IntegrationsSlackChannelConfigGetResponse) => data.threadMode,
+  });
+
+  // Presence-only channel list for the Slack sub-tab. Member-only is the
+  // product contract (no toggle), so the filter is baked into the query.
+  const slackChannelsQuery = useQuery({
+    ...slackChannelsGetOptions({
+      path: { assistant_id: assistantId },
+      query: { memberOnly: "true" },
+    }),
+    enabled: slackConnected,
+    select: (data) => data.channels,
   });
 
   // Per-channel trust floors (admission policy), shown inline on each connected
@@ -191,6 +203,9 @@ export function useAssistantChannels({
       : null,
     slackThreadMode: slackConfigQuery.data,
     slackThreadModePending: slackThreadModeMutation.isPending,
+    slackChannels: slackChannelsQuery.data,
+    slackChannelsLoading: slackChannelsQuery.isPending,
+    slackChannelsError: slackChannelsQuery.isError,
     channelPolicies: channelTrustFloors.policies,
     policySavingKey: channelTrustFloors.savingKey,
     policiesLoading: channelTrustFloors.isLoading,
