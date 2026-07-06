@@ -303,10 +303,11 @@ function buildResumeCellQuery(
     sourceChannel: snapshot.sourceChannel,
     trustClass: snapshot.trustClass,
     channelConversationType: snapshot.conversationType,
-    // Slack channel-scoped cells key on the binding's external chat id —
-    // the same lookup conversation-tool-setup uses for live tool calls.
+    // Channel-scoped cells key on the binding's external chat id — the
+    // canonical conversation address for every channel adapter, and the
+    // same lookup conversation-tool-setup uses for live tool calls.
     channelExternalId:
-      snapshot.sourceChannel === "slack" && run.conversationId
+      snapshot.sourceChannel && run.conversationId
         ? deps.getBindingByConversation(run.conversationId)?.externalChatId
         : undefined,
   });

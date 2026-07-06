@@ -371,7 +371,7 @@ export interface ToolContext {
   requesterIdentifier?: string;
   /** Preferred display name for the requester. */
   requesterDisplayName?: string;
-  /** Slack channel ID for channel-scoped permission enforcement. When set, tools are checked against the channel's permission profile. */
+  /** External channel/conversation ID of the current chat (binding external chat id). Keys the channel tier of permission-matrix cell resolution for every adapter; for Slack it also drives the legacy per-tool channel gate. */
   channelPermissionChannelId?: string;
   /** The tool_use block ID from the LLM response, used to correlate confirmation prompts with specific tool invocations. */
   toolUseId?: string;

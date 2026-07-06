@@ -305,6 +305,34 @@ describe("workflow routes (happy paths)", () => {
     ]);
   });
 
+  test("resumeWorkflowRun consent gate carries the channel ID for non-Slack adapters too", async () => {
+    // The binding's external chat id is the canonical conversation address
+    // for every channel adapter, so a Telegram-originated run threads its
+    // chat id into the gate the same way a Slack run does — a strict
+    // channel-scoped Telegram cell must govern the no-prompt resume.
+    const { thresholdCalls } = setup({
+      threshold: "high",
+      bindingExternalChatId: "-1001234500000",
+      runs: [
+        makeRun({
+          id: "run-1",
+          status: "interrupted",
+          conversationId: "conv-1",
+          trust: { sourceChannel: "telegram", trustClass: "trusted_contact" },
+          capabilities: { tools: ["bash"], hostFunctions: [], persona: false },
+        }),
+      ],
+    });
+    await route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } });
+
+    expect(thresholdCalls[0].cellQuery).toEqual({
+      adapter: "telegram",
+      channelType: undefined,
+      channelExternalId: "-1001234500000",
+      contactType: "trusted_contact",
+    });
+  });
+
   test("resumeWorkflowRun consent gate builds no cell query without channel coordinates", async () => {
     // Desktop/internal runs (no trust snapshot, or no source channel) have
     // no channel coordinates — the threshold read must fall through to the
