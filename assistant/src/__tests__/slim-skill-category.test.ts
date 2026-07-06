@@ -225,9 +225,8 @@ describe("listSkills — origin derivation", () => {
     expect(skill.kind).toBe("installed");
   });
 
-  // Regression: an install-meta.json origin outside the known set used to fall
-  // off the end of toSlimSkillResponse's switch and return undefined, poisoning
-  // listSkills() and 500-ing the whole /v1/skills listing.
+  // An install-meta.json origin outside the known set degrades to "custom", and
+  // every listSkills() entry is a defined response.
   test("managed skill with an unknown origin degrades to custom, never undefined", () => {
     mockSummaries = [makeSummary({ id: "weird-origin", source: "managed" })];
     mockCachedCatalog = [];

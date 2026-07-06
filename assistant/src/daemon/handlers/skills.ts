@@ -404,10 +404,9 @@ function toSlimSkillResponse(
     case "assistant-memory":
       return { ...base, origin };
     default:
-      // An install-meta.json with an origin outside the known set (e.g. a raw
-      // unnormalized "skills.sh", or a hand-synced first-party value) must not
-      // return undefined — one bad skill dir would poison listSkills() and 500
-      // the entire /v1/skills listing. Degrade to "custom".
+      // origin comes from install-meta.json on disk and isn't validated, so it
+      // may hold a value outside the known set. Degrade any such origin to
+      // "custom" — every skill must map to a defined response.
       return { ...base, origin: "custom" };
   }
 }
