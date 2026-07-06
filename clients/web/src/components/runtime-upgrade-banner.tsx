@@ -179,7 +179,6 @@ export function RuntimeUpgradeBanner({
   const platformUpgrade = usePlatformRuntimeUpgrade({
     assistantId,
     targetVersion: targetVersion ?? undefined,
-    shouldStopPolling: platformOperationalStatus?.detail_state === "failed",
   });
   const upgradePending =
     mode === "platform" ? platformUpgrade.isPending : localUpgrade.isPending;
@@ -287,23 +286,33 @@ export function RuntimeUpgradeBanner({
 function usePlatformRuntimeUpgrade({
   assistantId,
   targetVersion,
-  shouldStopPolling = false,
 }: {
   assistantId: string | null | undefined;
   targetVersion?: string;
-  shouldStopPolling?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [isPollingUpgrade, setIsPollingUpgrade] = useState(false);
+  const [pollingAssistantId, setPollingAssistantId] = useState<string | null>(
+    null,
+  );
   const targetVersionRef = useRef<string | null>(null);
+  const { data: pollingOperationalStatus } = useAssistantOperationalStatus(
+    pollingAssistantId,
+    { ignoreActiveAssistantGate: true },
+  );
   const mutation = useMutation({
-    mutationFn: async () => {
-      if (!assistantId) {
-        throw new Error("No assistant is active.");
-      }
+    mutationFn: async ({
+      assistantId: upgradeAssistantId,
+      targetVersion: requestedTargetVersion,
+    }: {
+      assistantId: string;
+      targetVersion?: string;
+    }) => {
       const { data } = await assistantsUpgradeDetailCreate({
-        path: { id: assistantId },
-        body: targetVersion ? { version: targetVersion } : {},
+        path: { id: upgradeAssistantId },
+        body: requestedTargetVersion
+          ? { version: requestedTargetVersion }
+          : {},
         throwOnError: true,
       });
       return data;
@@ -311,16 +320,22 @@ function usePlatformRuntimeUpgrade({
   });
 
   useEffect(() => {
-    if (!isPollingUpgrade || !shouldStopPolling) return;
+    if (
+      !isPollingUpgrade ||
+      pollingOperationalStatus?.detail_state !== "failed"
+    ) {
+      return;
+    }
     targetVersionRef.current = null;
+    setPollingAssistantId(null);
     setIsPollingUpgrade(false);
-  }, [isPollingUpgrade, shouldStopPolling]);
+  }, [isPollingUpgrade, pollingOperationalStatus?.detail_state]);
 
   useQuery({
     ...assistantsRetrieveOptions({
-      path: { id: assistantId ?? "" },
+      path: { id: pollingAssistantId ?? "" },
     }),
-    enabled: isPollingUpgrade && !!assistantId,
+    enabled: isPollingUpgrade && !!pollingAssistantId,
     refetchInterval: (query) => {
       const version = query.state.data?.current_release_version;
       if (
@@ -335,6 +350,7 @@ function usePlatformRuntimeUpgrade({
               .upsertFromApi(query.state.data);
           }
           targetVersionRef.current = null;
+          setPollingAssistantId(null);
           setIsPollingUpgrade(false);
           toast.success("Update complete — assistant is healthy.");
         });
@@ -350,16 +366,23 @@ function usePlatformRuntimeUpgrade({
       if (!assistantId) {
         throw new Error("No assistant is active.");
       }
-      const result = await mutation.mutateAsync();
+      const upgradeAssistantId = assistantId;
+      const requestedTargetVersion = targetVersion;
+      const result = await mutation.mutateAsync({
+        assistantId: upgradeAssistantId,
+        targetVersion: requestedTargetVersion,
+      });
       const isNoOp = result.detail?.includes("Already on the latest");
       if (!isNoOp) {
-        targetVersionRef.current = result.version ?? targetVersion ?? null;
+        targetVersionRef.current =
+          result.version ?? requestedTargetVersion ?? null;
         if (targetVersionRef.current) {
+          setPollingAssistantId(upgradeAssistantId);
           setIsPollingUpgrade(true);
         }
         queryClient.invalidateQueries({
           queryKey: assistantsRetrieveQueryKey({
-            path: { id: assistantId },
+            path: { id: upgradeAssistantId },
           }),
         });
       }

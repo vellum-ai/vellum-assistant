@@ -132,9 +132,14 @@ async function fetchOperationalStatus(
   return status;
 }
 
-export function useAssistantOperationalStatus(assistantId: string | null) {
+export function useAssistantOperationalStatus(
+  assistantId: string | null,
+  opts?: { ignoreActiveAssistantGate?: boolean },
+) {
   const platformHostedGate = usePlatformGate({ platformHostedOnly: true });
   const platformApiGate = usePlatformGate();
+  const ignoreActiveAssistantGate =
+    opts?.ignoreActiveAssistantGate === true;
   const assistantState = useAssistantLifecycleStore.use.assistantState();
   const operationalStatusAssistantId =
     useAssistantLifecycleStore.use.operationalStatusAssistantId();
@@ -142,16 +147,19 @@ export function useAssistantOperationalStatus(assistantId: string | null) {
   const isOrgReady = useIsOrgReady();
   const targetIsLifecycleOperationAssistant =
     Boolean(assistantId) && assistantId === operationalStatusAssistantId;
-  const enabled =
-    Boolean(assistantId) &&
-    platformHostedGate === "full" &&
-    platformApiGate === "full" &&
-    isOrgReady &&
+  const canPollForActiveAssistant =
+    ignoreActiveAssistantGate ||
     canPollOperationalStatus({
       assistantState,
       activeAssistantIsPlatformHosted,
       targetIsLifecycleOperationAssistant,
     });
+  const enabled =
+    Boolean(assistantId) &&
+    (ignoreActiveAssistantGate || platformHostedGate === "full") &&
+    platformApiGate === "full" &&
+    isOrgReady &&
+    canPollForActiveAssistant;
 
   return useQuery({
     queryKey: assistantsOperationalStatusDetailReadOptions({
