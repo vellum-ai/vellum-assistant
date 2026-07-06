@@ -104,6 +104,7 @@ describe("IntelligenceLayout — Plugins tab version gate", () => {
       "Skills",
       "Workspace",
       "Contacts",
+      "Channels",
     ]);
   });
 

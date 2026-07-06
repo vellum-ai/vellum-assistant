@@ -12,7 +12,7 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
-import { routes } from "@/utils/routes";
+import { isAboutAssistantPath, routes } from "@/utils/routes";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
@@ -242,11 +242,7 @@ export function ChatLayout() {
     location.pathname === routes.home ||
     location.pathname === routes.schedules.root ||
     location.pathname.startsWith(`${routes.schedules.root}/`);
-  const isIdentityActive =
-    location.pathname === routes.identity ||
-    location.pathname === routes.skills ||
-    location.pathname === routes.workspace ||
-    location.pathname.startsWith(routes.contacts.root);
+  const isIdentityActive = isAboutAssistantPath(location.pathname);
 
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);

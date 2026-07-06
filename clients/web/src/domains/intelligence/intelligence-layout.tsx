@@ -20,6 +20,7 @@ const BASE_INTELLIGENCE_TABS: readonly IntelligenceTab[] = [
   { label: "Skills", to: routes.skills },
   { label: "Workspace", to: routes.workspace },
   { label: "Contacts", to: routes.contacts.root },
+  { label: "Channels", to: routes.channels },
 ];
 
 const PLUGINS_TAB: IntelligenceTab = {
@@ -29,9 +30,9 @@ const PLUGINS_TAB: IntelligenceTab = {
 
 /**
  * Shared layout for the "About Assistant" pages (Identity, Skills,
- * Workspace, Contacts, plus Plugins on plugin-capable assistants).
- * Renders a heading + tab bar above an `<Outlet />` for the active
- * tab's content.
+ * Workspace, Contacts, Channels, plus Plugins on plugin-capable
+ * assistants). Renders a heading + tab bar above an `<Outlet />` for
+ * the active tab's content.
  *
  * Mounted as a pathless layout route in `routes.tsx` so the child
  * routes keep their existing URL paths (`/assistant/identity`, etc.)
