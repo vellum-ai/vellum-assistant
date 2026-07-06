@@ -177,7 +177,7 @@ let mockAdmissionPolicy: unknown = null;
 // while the admission IPC read is pending).
 let mockAdmissionGate: Promise<void> | null = null;
 const mockGetChannelAdmissionPolicy = jest.fn(async () => {
-  if (mockAdmissionGate) await mockAdmissionGate;
+  if (mockAdmissionGate) {await mockAdmissionGate;}
   return mockAdmissionPolicy;
 });
 mock.module("../calls/channel-admission-reader.js", () => ({
@@ -383,6 +383,7 @@ mock.module("../calls/access-request-wait.js", () => ({
 import { revokeScopedApprovalGrantsForContext } from "../approvals/scoped-approval-grants.js";
 import { CallController } from "../calls/call-controller.js";
 import { postPointerMessageSafe } from "../calls/call-pointer-messages.js";
+import { routeSetup } from "../calls/call-setup-router.js";
 import { speakSystemPrompt } from "../calls/call-speech-output.js";
 import {
   fireCallTranscriptNotifier,
@@ -394,7 +395,6 @@ import {
   activeMediaStreamSessions,
   MediaStreamCallSession,
 } from "../calls/media-stream-server.js";
-import { routeSetup } from "../calls/call-setup-router.js";
 
 // ---------------------------------------------------------------------------
 // Mock WebSocket factory
@@ -409,7 +409,7 @@ function createMockWs() {
   return {
     ws: {
       send(data: string) {
-        if (closed) throw new Error("WebSocket is closed");
+        if (closed) {throw new Error("WebSocket is closed");}
         sent.push(data);
       },
       close(code?: number, reason?: string) {

@@ -19,6 +19,11 @@
 import { getCanonicalGuardianRequest as getCanonicalGuardianRequestFn } from "../contacts/canonical-guardian-store.js";
 import { getLogger } from "../util/logger.js";
 import {
+  classifyWaitUtterance,
+  emitAccessRequestCallbackHandoff,
+  scheduleNextHeartbeat,
+} from "./access-request-wait.js";
+import {
   getAccessRequestPollIntervalMs,
   getTtsPlaybackDelayMs,
   getUserConsultationTimeoutMs,
@@ -27,11 +32,6 @@ import type {
   recordCallEvent as recordCallEventFn,
   updateCallSession as updateCallSessionFn,
 } from "./call-store.js";
-import {
-  classifyWaitUtterance,
-  emitAccessRequestCallbackHandoff,
-  scheduleNextHeartbeat,
-} from "./access-request-wait.js";
 
 const log = getLogger("guardian-wait-controller");
 

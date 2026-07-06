@@ -40,11 +40,17 @@ import type {
   SetupFlowState,
   SetupFlowTransport,
 } from "./call-setup-flow-types.js";
+import type { SetupOutcome, SetupResolved } from "./call-setup-router.js";
 import type { fireCallTranscriptNotifier as fireCallTranscriptNotifierFn } from "./call-state.js";
 import type {
   recordCallEvent as recordCallEventFn,
   updateCallSession as updateCallSessionFn,
 } from "./call-store.js";
+import {
+  attemptInviteCodeRedemption as attemptInviteCodeRedemptionImpl,
+  attemptVerificationCode as attemptVerificationCodeImpl,
+  parseDigitsFromSpeech,
+} from "./call-verification.js";
 import type { finalizeCall as finalizeCallFn } from "./finalize-call.js";
 import {
   GuardianWaitController,
@@ -53,12 +59,6 @@ import {
   type GuardianWaitResolutionContext,
 } from "./guardian-wait-controller.js";
 import { getPhoneCallerVerdict } from "./inbound-trust-reader.js";
-import type { SetupOutcome, SetupResolved } from "./call-setup-router.js";
-import {
-  attemptInviteCodeRedemption as attemptInviteCodeRedemptionImpl,
-  attemptVerificationCode as attemptVerificationCodeImpl,
-  parseDigitsFromSpeech,
-} from "./call-verification.js";
 
 const log = getLogger("call-setup-flow");
 
