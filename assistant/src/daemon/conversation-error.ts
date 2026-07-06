@@ -482,12 +482,89 @@ function parseEmbeddedJsonObject(
   return undefined;
 }
 
+// Aggregator wrapper message (OpenRouter) whose actionable downstream detail
+// lives in `error.metadata.raw` rather than `error.message`.
+const AGGREGATOR_GENERIC_WRAPPER = /^provider returned error\.?$/i;
+
+/**
+ * Bound on `metadata.raw` unwrapping — one aggregator hop (OpenRouter →
+ * downstream provider) is the real-world shape; the limit only guards
+ * against a pathological self-referencing envelope.
+ */
+const MAX_ENVELOPE_UNWRAP_DEPTH = 2;
+
+/**
+ * Pull the human-relevant fields out of one parsed provider error envelope.
+ * Handles Anthropic (`{ error: { type, message } }`), OpenAI/OpenRouter
+ * (`{ error: { message, type, code } }`), and flat (`{ message, type }`)
+ * shapes. For OpenRouter, the downstream provider's actionable error is a
+ * stringified envelope buried in `error.metadata.raw` while `error.message`
+ * is the generic "Provider returned error" wrapper — unwrap it (bounded
+ * depth) and let the downstream fields win over the generic wrapper.
+ */
+function extractEnvelopeFields(
+  parsed: Record<string, unknown>,
+  depth = 0,
+): ProviderRejectionDetail {
+  const out: ProviderRejectionDetail = {};
+  const inner =
+    typeof parsed.error === "object" && parsed.error !== null
+      ? (parsed.error as Record<string, unknown>)
+      : parsed;
+
+  const detail = inner.message ?? parsed.message;
+  if (typeof detail === "string" && detail.trim().length > 0) {
+    out.detail = detail.trim();
+  }
+  const type = inner.type ?? parsed.type;
+  if (typeof type === "string" && type.length > 0) {
+    out.errorType = type;
+  }
+  const requestId = parsed.request_id ?? parsed.requestId;
+  if (typeof requestId === "string" && requestId.length > 0) {
+    out.requestId = requestId;
+  }
+
+  const meta =
+    typeof inner.metadata === "object" && inner.metadata !== null
+      ? (inner.metadata as Record<string, unknown>)
+      : undefined;
+  const raw = meta?.raw;
+  if (depth < MAX_ENVELOPE_UNWRAP_DEPTH && typeof raw === "string") {
+    const nestedParsed = parseEmbeddedJsonObject(raw);
+    // A non-JSON `raw` is used directly as the detail; anything containing a
+    // brace that failed to parse is discarded rather than leaked verbatim.
+    const nested = nestedParsed
+      ? extractEnvelopeFields(nestedParsed, depth + 1)
+      : raw.includes("{") || raw.trim().length === 0
+        ? undefined
+        : { detail: raw.trim() };
+    if (nested?.detail) {
+      const outerIsGenericWrapper =
+        out.detail === undefined || AGGREGATOR_GENERIC_WRAPPER.test(out.detail);
+      if (outerIsGenericWrapper) {
+        out.detail = nested.detail;
+        if (nested.errorType) {
+          out.errorType = nested.errorType;
+        }
+      } else if (nested.errorType && !out.errorType) {
+        out.errorType = nested.errorType;
+      }
+      if (nested.requestId && !out.requestId) {
+        out.requestId = nested.requestId;
+      }
+    }
+  }
+
+  return out;
+}
+
 /**
  * Extract the provider's human-relevant detail, error class, and request id
  * from an unclassified 4xx rejection. Prefers the structured `ProviderError`
  * fields when the provider populated them, then falls back to the JSON
- * envelope embedded in the error message (Anthropic: `{ error: { type,
- * message } }`; OpenAI/OpenRouter: `{ error: { message, type, code } }`).
+ * envelope embedded in the raw body / error message (see
+ * `extractEnvelopeFields` for the supported shapes).
  */
 function extractProviderRejectionDetail(
   error: unknown,
@@ -507,26 +584,23 @@ function extractProviderRejectionDetail(
     error instanceof ProviderError && error.rawBody ? error.rawBody : message;
   const parsed = parseEmbeddedJsonObject(rawBody);
   if (parsed) {
-    const inner =
-      typeof parsed.error === "object" && parsed.error !== null
-        ? (parsed.error as Record<string, unknown>)
-        : undefined;
-    const detail = inner?.message ?? parsed.message;
-    if (typeof detail === "string" && detail.trim().length > 0) {
-      out.detail = detail.trim();
+    const envelope = extractEnvelopeFields(parsed);
+    if (envelope.detail) {
+      out.detail = envelope.detail;
     }
-    const type = inner?.type ?? parsed.type;
-    if (!out.errorType && typeof type === "string" && type.length > 0) {
-      out.errorType = type;
+    if (!out.errorType && envelope.errorType) {
+      out.errorType = envelope.errorType;
     }
-    const requestId = parsed.request_id ?? parsed.requestId;
-    if (
-      !out.requestId &&
-      typeof requestId === "string" &&
-      requestId.length > 0
-    ) {
-      out.requestId = requestId;
+    if (!out.requestId && envelope.requestId) {
+      out.requestId = envelope.requestId;
     }
+  }
+
+  // A detail that is itself the aggregator's generic wrapper carries no
+  // signal — drop it so the copy falls back to the generic assistant-voice
+  // sentence instead of persisting "Provider returned error".
+  if (out.detail && AGGREGATOR_GENERIC_WRAPPER.test(out.detail)) {
+    out.detail = undefined;
   }
 
   // No JSON envelope — recover the plain-text detail after the
@@ -535,7 +609,7 @@ function extractProviderRejectionDetail(
   if (!out.detail) {
     const detailMatch = message.match(/API error \(\d+\):\s*(.+)/is);
     const raw = detailMatch?.[1]?.trim();
-    if (raw && !raw.includes("{")) {
+    if (raw && !raw.includes("{") && !AGGREGATOR_GENERIC_WRAPPER.test(raw)) {
       out.detail = raw;
     }
   }
