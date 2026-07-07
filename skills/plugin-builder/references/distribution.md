@@ -53,6 +53,7 @@ The Vellum team reviews each entry before it lands in the catalog. The review ch
 - The plugin has a valid `package.json` with a `@vellumai/plugin-api` peer dependency.
 - The plugin loads cleanly (hooks register, tools validate, no import errors at boot).
 - The surfaces the plugin claims (hooks, tools, skills) contribute something on boot rather than silently failing.
+- The plugin has a README with the standard visual header (icon, title, short description, badges). See the "Write the README" section in SKILL.md.
 
 Once the review approves and the PR merges, the plugin appears in `assistant plugins search` and is installable by name.
 

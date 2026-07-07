@@ -90,7 +90,44 @@ assistant plugins install owner/repo --name my-plugin
 
 A URL install bypasses the marketplace entirely: the tree is cloned verbatim (no adapter stub is overlaid) and the source is **untrusted**. The CLI prints a yellow warning naming the source. See `references/distribution.md` for the full details.
 
-## Verify before shipping
+## Write the README
+
+The README is the storefront. Every marketplace plugin should have the same visual header at the top so users can scan and compare. The header is a centered card with four elements: icon, title, tagline, and badges.
+
+```markdown
+<div align="center">
+
+<img src="hero.png" width="200" alt="My Plugin">
+
+# my-plugin
+
+**one-line tagline that says what it does**
+
+![version](https://img.shields.io/badge/version-0.1.0-blue) ![license](https://img.shields.io/badge/license-MIT-green) ![made for](https://img.shields.io/badge/made%20for-Vellum-8A2BE2)
+
+[What You Get](#what-you-get) • [Requirements](#requirements) • [Install](#install) • [Usage](#usage)
+
+</div>
+
+---
+```
+
+The four required elements:
+
+1. **Icon.** A hero image or logo, centered, 200px wide. This is the visual identity of the plugin. If you do not have one, skip the image tag but keep the centered title block.
+2. **Title.** The plugin name as a top-level heading.
+3. **Short description.** One line in bold, directly under the title. What the plugin does in plain language. No marketing fluff.
+4. **Badges.** Version, license, and a "made for Vellum" badge. Use [shields.io](https://shields.io) static badges.
+
+Section navigation links below the badges are optional but recommended so users can jump to what matters.
+
+Below the header, write whatever sections make sense for your plugin. The header is the standard part.
+
+### Example
+
+See the [travel-planner README](https://example.com/your-plugin#readme) for a reference implementation.
+
+## Verify before shipping## Verify before shipping
 
 1. Plugin directory copied into `plugins/<name>/`, `assistant plugins list` shows status `ok` (not `error`, not `skipped`).
 2. `assistant plugins inspect <name>` reports `up-to-date` and `drift: none`.
@@ -111,6 +148,7 @@ Once merged, users install by name: `assistant plugins install my-plugin`. The n
 - Directory matches the loader convention (`hooks/`, `tools/`, `skills/`, optional `src/`).
 - `package.json` declares `name`, `version`, and a real `peerDependencies["@vellumai/plugin-api"]` range.
 - Each surface has been exercised locally with a working example.
+- A `README.md` has the standard visual header (icon, title, short description, badges).
 - A `marketplace.json` entry exists with a full SHA in `source.ref`, and the Vellum team's review is in flight.
 
 ## Reference files
