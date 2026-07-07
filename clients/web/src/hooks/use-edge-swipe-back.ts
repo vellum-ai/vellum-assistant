@@ -193,7 +193,16 @@ export function useEdgeSwipeBack({
     },
     onCommit: () => {
       const el = containerRef.current;
-      if (!el) {return;}
+      if (!el) {
+        // The gesture committed before the container mounted (a detail page
+        // still on its loading/error branch). There's nothing to slide off,
+        // but the arbiter has suppressed the drawer for this owner, so
+        // dropping the commit would strand the swipe as a no-op. Navigate
+        // back immediately so a committed edge-swipe always resolves to one
+        // action.
+        onBackRef.current();
+        return;
+      }
       runCommitAnimation(el);
     },
     onCancel: (animate) => {
