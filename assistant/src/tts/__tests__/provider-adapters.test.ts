@@ -838,7 +838,7 @@ describe("Fish Audio TTS provider adapter", () => {
     expect(result.contentType).toBe("audio/pcm");
   });
 
-  test("pcm output request honors the sampleRateHz hint", async () => {
+  test("pcm output request honors a supported sampleRateHz hint", async () => {
     const provider = createFishAudioProvider();
     await provider.synthesize(
       makeRequest({ outputFormat: "pcm", sampleRateHz: 24000 }),
@@ -848,6 +848,19 @@ describe("Fish Audio TTS provider adapter", () => {
     expect((config as { format: string }).format).toBe("pcm");
     expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
       24000,
+    );
+  });
+
+  test("pcm output request clamps an unsupported sampleRateHz hint to the nearest supported rate", async () => {
+    const provider = createFishAudioProvider();
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 48000 }),
+    );
+
+    const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
+    expect((config as { format: string }).format).toBe("pcm");
+    expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
+      44100,
     );
   });
 
@@ -866,14 +879,19 @@ describe("Fish Audio TTS provider adapter", () => {
     expect(result.contentType).toBe("audio/pcm");
   });
 
-  test("resolveOutputSampleRateHz passes the pcm hint through and is undefined otherwise", () => {
+  test("resolveOutputSampleRateHz clamps unsupported pcm hints and is undefined otherwise", () => {
     const provider = createFishAudioProvider();
 
     expect(
       provider.resolveOutputSampleRateHz!(
         makeRequest({ outputFormat: "pcm", sampleRateHz: 48000 }),
       ),
-    ).toBe(48000);
+    ).toBe(44100);
+    expect(
+      provider.resolveOutputSampleRateHz!(
+        makeRequest({ outputFormat: "pcm", sampleRateHz: 24000 }),
+      ),
+    ).toBe(24000);
     expect(
       provider.resolveOutputSampleRateHz!(makeRequest({ outputFormat: "pcm" })),
     ).toBe(16000);
