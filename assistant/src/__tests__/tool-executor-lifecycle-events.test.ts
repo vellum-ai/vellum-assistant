@@ -95,7 +95,9 @@ mock.module("../telemetry/tool-usage-store.js", () => ({
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => {
-    if (name === "unknown_tool") return undefined;
+    if (name === "unknown_tool") {
+      return undefined;
+    }
     // Skill tools carry executionTarget from their manifest. Ownership lives
     // on the registry (mocked below via getToolOwner reading the override's
     // owner field), so it doesn't appear on the Tool object itself.
@@ -109,7 +111,9 @@ mock.module("../tools/registry.js", () => ({
         executionTarget: "host" as const,
         input_schema: {},
         execute: async () => {
-          if (toolThrow) throw toolThrow;
+          if (toolThrow) {
+            throw toolThrow;
+          }
           return fakeToolResult;
         },
       };
@@ -124,7 +128,9 @@ mock.module("../tools/registry.js", () => ({
         executionTarget: "sandbox" as const,
         input_schema: {},
         execute: async () => {
-          if (toolThrow) throw toolThrow;
+          if (toolThrow) {
+            throw toolThrow;
+          }
           return fakeToolResult;
         },
       };
@@ -141,7 +147,9 @@ mock.module("../tools/registry.js", () => ({
         executionTarget: "sandbox" as const,
         input_schema: {},
         execute: async () => {
-          if (toolThrow) throw toolThrow;
+          if (toolThrow) {
+            throw toolThrow;
+          }
           return fakeToolResult;
         },
       };
@@ -163,7 +171,9 @@ mock.module("../tools/registry.js", () => ({
       executionTarget,
       input_schema: {},
       execute: async () => {
-        if (toolThrow) throw toolThrow;
+        if (toolThrow) {
+          throw toolThrow;
+        }
         return fakeToolResult;
       },
     };
@@ -251,8 +261,9 @@ describe("ToolExecutor lifecycle events", () => {
       workingDir: "/tmp/project",
     });
     const executed = events[1];
-    if (executed.type !== "executed")
+    if (executed.type !== "executed") {
       throw new Error("Expected executed event");
+    }
     expect(executed.executionTarget).toBe("sandbox");
     expect(executed.riskLevel).toBe("low");
     expect(executed.result).toMatchObject({ content: "ok", isError: false });
@@ -283,8 +294,9 @@ describe("ToolExecutor lifecycle events", () => {
     ]);
 
     const promptEvent = events[1];
-    if (promptEvent.type !== "permission_prompt")
+    if (promptEvent.type !== "permission_prompt") {
       throw new Error("Expected permission_prompt event");
+    }
     expect(promptEvent.executionTarget).toBe("sandbox");
     expect(promptEvent.riskLevel).toBe("medium");
     expect(promptEvent.reason).toBe("medium risk: requires approval");
@@ -296,8 +308,9 @@ describe("ToolExecutor lifecycle events", () => {
     ]);
 
     const deniedEvent = events[2];
-    if (deniedEvent.type !== "permission_denied")
+    if (deniedEvent.type !== "permission_denied") {
       throw new Error("Expected permission_denied event");
+    }
     expect(deniedEvent.executionTarget).toBe("sandbox");
     expect(deniedEvent.decision).toBe("deny");
     expect(deniedEvent.reason).toBe("Permission denied by user");
@@ -351,11 +364,14 @@ describe("ToolExecutor lifecycle events", () => {
     expect(result).toMatchObject({ content: "ok", isError: false });
     expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
     const startEvent = events[0];
-    if (startEvent.type !== "start") throw new Error("Expected start event");
+    if (startEvent.type !== "start") {
+      throw new Error("Expected start event");
+    }
     expect(startEvent.executionTarget).toBe("host");
     const executed = events[1];
-    if (executed.type !== "executed")
+    if (executed.type !== "executed") {
       throw new Error("Expected executed event");
+    }
     expect(executed.executionTarget).toBe("host");
   });
 
@@ -385,8 +401,9 @@ describe("ToolExecutor lifecycle events", () => {
       "permission_denied",
     ]);
     const deniedEvent = events[1];
-    if (deniedEvent.type !== "permission_denied")
+    if (deniedEvent.type !== "permission_denied") {
       throw new Error("Expected permission_denied event");
+    }
     expect(deniedEvent.reason).toBe("Blocked by deny rule: rm *");
   });
 
@@ -402,7 +419,9 @@ describe("ToolExecutor lifecycle events", () => {
     expect(result.isError).toBe(true);
     expect(events.map((event) => event.type)).toEqual(["start", "error"]);
     const errorEvent = events[1];
-    if (errorEvent.type !== "error") throw new Error("Expected error event");
+    if (errorEvent.type !== "error") {
+      throw new Error("Expected error event");
+    }
     expect(errorEvent.errorMessage).toBe("boom");
     expect(errorEvent.isExpected).toBe(false);
     expect(errorEvent.errorName).toBe("Error");
@@ -420,7 +439,9 @@ describe("ToolExecutor lifecycle events", () => {
     expect(result).toEqual({ content: "tool failed", isError: true });
     expect(events.map((event) => event.type)).toEqual(["start", "error"]);
     const errorEvent = events[1];
-    if (errorEvent.type !== "error") throw new Error("Expected error event");
+    if (errorEvent.type !== "error") {
+      throw new Error("Expected error event");
+    }
     expect(errorEvent.isExpected).toBe(true);
     expect(errorEvent.errorName).toBe("ToolError");
   });
@@ -441,7 +462,9 @@ describe("ToolExecutor lifecycle events", () => {
     });
     expect(events.map((event) => event.type)).toEqual(["start", "error"]);
     const errorEvent = events[1];
-    if (errorEvent.type !== "error") throw new Error("Expected error event");
+    if (errorEvent.type !== "error") {
+      throw new Error("Expected error event");
+    }
     expect(errorEvent.errorMessage).toContain("Unknown tool: unknown_tool");
     expect(errorEvent.decision).toBe("error");
     expect(errorEvent.isExpected).toBe(true);
@@ -458,7 +481,9 @@ describe("ToolExecutor lifecycle events", () => {
     );
 
     const startEvent = events[0];
-    if (startEvent.type !== "start") throw new Error("Expected start event");
+    if (startEvent.type !== "start") {
+      throw new Error("Expected start event");
+    }
     expect(startEvent.executionTarget).toBe("sandbox");
     const executedEvent = events.find(
       (e) => e.type === "executed" || e.type === "error",
@@ -477,7 +502,9 @@ describe("ToolExecutor lifecycle events", () => {
     );
 
     const startEvent = events[0];
-    if (startEvent.type !== "start") throw new Error("Expected start event");
+    if (startEvent.type !== "start") {
+      throw new Error("Expected start event");
+    }
     expect(startEvent.executionTarget).toBe("host");
     const executedEvent = events.find(
       (e) => e.type === "executed" || e.type === "error",
@@ -485,43 +512,55 @@ describe("ToolExecutor lifecycle events", () => {
     expect(executedEvent?.executionTarget).toBe("host");
   });
 
-  test("skill tool with host execution_target resolves to host executionTarget", async () => {
+  test("forwards a host context.executionTarget into lifecycle events", async () => {
+    // The resolver stamps executionTarget from the tool presented to the model
+    // (e.g. a skill tool whose manifest declares "host"); the executor routes
+    // and emits by that context value, not a registry re-lookup.
     const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
 
     await executor.execute(
       "skill_host_tool",
       { query: "test" },
-      makeContext(events),
+      makeContext(events, { executionTarget: "host" }),
     );
 
     expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
     const startEvent = events[0];
-    if (startEvent.type !== "start") throw new Error("Expected start event");
+    if (startEvent.type !== "start") {
+      throw new Error("Expected start event");
+    }
     expect(startEvent.executionTarget).toBe("host");
     const executed = events[1];
-    if (executed.type !== "executed")
+    if (executed.type !== "executed") {
       throw new Error("Expected executed event");
+    }
     expect(executed.executionTarget).toBe("host");
   });
 
-  test("manifest executionTarget takes priority over host_ prefix heuristic", async () => {
+  test("forwards a sandbox context.executionTarget even for a host_ name", async () => {
+    // A tool whose manifest declares "sandbox" despite a host_ prefix: the
+    // resolver captures "sandbox" (resolveExecutionTarget honors the manifest),
+    // and the executor forwards it verbatim rather than re-deriving from name.
     const events: ToolLifecycleEvent[] = [];
     const executor = new ToolExecutor(makePrompter());
 
     await executor.execute(
       "host_skill_sandboxed",
       { query: "test" },
-      makeContext(events),
+      makeContext(events, { executionTarget: "sandbox" }),
     );
 
     expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
     const startEvent = events[0];
-    if (startEvent.type !== "start") throw new Error("Expected start event");
+    if (startEvent.type !== "start") {
+      throw new Error("Expected start event");
+    }
     expect(startEvent.executionTarget).toBe("sandbox");
     const executed = events[1];
-    if (executed.type !== "executed")
+    if (executed.type !== "executed") {
       throw new Error("Expected executed event");
+    }
     expect(executed.executionTarget).toBe("sandbox");
   });
 
@@ -553,8 +592,9 @@ describe("ToolExecutor lifecycle events", () => {
     );
 
     const executed = events.find((event) => event.type === "executed");
-    if (executed?.type !== "executed")
+    if (executed?.type !== "executed") {
       throw new Error("Expected executed event");
+    }
     expect(executed.attribution).toEqual(testAttribution);
   });
 
@@ -571,7 +611,9 @@ describe("ToolExecutor lifecycle events", () => {
     );
 
     const errorEvent = events.find((event) => event.type === "error");
-    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    if (errorEvent?.type !== "error") {
+      throw new Error("Expected error event");
+    }
     expect(errorEvent.attribution).toEqual(testAttribution);
   });
 
@@ -587,8 +629,9 @@ describe("ToolExecutor lifecycle events", () => {
 
     expect(result).toMatchObject({ content: "ok", isError: false });
     const executed = events.find((event) => event.type === "executed");
-    if (executed?.type !== "executed")
+    if (executed?.type !== "executed") {
       throw new Error("Expected executed event");
+    }
     expect(executed.attribution).toBeNull();
   });
 
@@ -602,7 +645,9 @@ describe("ToolExecutor lifecycle events", () => {
 
     expect(result.isError).toBe(true);
     const errorEvent = events.find((event) => event.type === "error");
-    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    if (errorEvent?.type !== "error") {
+      throw new Error("Expected error event");
+    }
     expect(errorEvent.attribution).toBeNull();
   });
 
@@ -618,7 +663,9 @@ describe("ToolExecutor lifecycle events", () => {
 
     expect(result.isError).toBe(true);
     const errorEvent = events.find((event) => event.type === "error");
-    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    if (errorEvent?.type !== "error") {
+      throw new Error("Expected error event");
+    }
     expect(errorEvent.errorMessage).toContain("Unknown tool: unknown_tool");
     expect(errorEvent.attribution).toEqual(testAttribution);
   });
@@ -635,7 +682,9 @@ describe("ToolExecutor lifecycle events", () => {
 
     expect(result.isError).toBe(true);
     const errorEvent = events.find((event) => event.type === "error");
-    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    if (errorEvent?.type !== "error") {
+      throw new Error("Expected error event");
+    }
     expect(errorEvent.attribution).toBeNull();
   });
 
@@ -656,7 +705,9 @@ describe("ToolExecutor lifecycle events", () => {
 
     expect(result).toEqual({ content: "Cancelled", isError: true });
     const errorEvent = events.find((event) => event.type === "error");
-    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    if (errorEvent?.type !== "error") {
+      throw new Error("Expected error event");
+    }
     expect(errorEvent.errorMessage).toBe("Cancelled");
     expect(errorEvent.attribution).toEqual(testAttribution);
   });
@@ -673,8 +724,9 @@ describe("ToolExecutor lifecycle events", () => {
     await executor.execute("file_read", rawInput, makeContext(events));
 
     const executed = events.find((event) => event.type === "executed");
-    if (executed?.type !== "executed")
+    if (executed?.type !== "executed") {
       throw new Error("Expected executed event");
+    }
     // The event input is sanitized, but the size reflects the raw payload.
     expect(executed.input.token).toBe("<redacted />");
     expect(executed.inputBytes).toBe(rawSize);
@@ -694,7 +746,9 @@ describe("ToolExecutor lifecycle events", () => {
     await executor.execute("file_read", rawInput, makeContext(events));
 
     const errorEvent = events.find((event) => event.type === "error");
-    if (errorEvent?.type !== "error") throw new Error("Expected error event");
+    if (errorEvent?.type !== "error") {
+      throw new Error("Expected error event");
+    }
     expect(errorEvent.input.api_key).toBe("<redacted />");
     expect(errorEvent.inputBytes).toBe(
       Buffer.byteLength(JSON.stringify(rawInput), "utf8"),
@@ -714,8 +768,9 @@ describe("ToolExecutor lifecycle events", () => {
     await executor.execute("file_read", { path: "a" }, makeContext(events));
 
     const executed = events.find((event) => event.type === "executed");
-    if (executed?.type !== "executed")
+    if (executed?.type !== "executed") {
       throw new Error("Expected executed event");
+    }
     // The event carries the sanitized content...
     expect(executed.result.content).not.toContain("SECRET-CODE-123");
     // ...but the stamped size is the raw pre-sanitization byte length.
@@ -732,8 +787,9 @@ describe("ToolExecutor lifecycle events", () => {
     await executor.execute("file_read", { path: "a" }, makeContext(events));
 
     const executed = events.find((event) => event.type === "executed");
-    if (executed?.type !== "executed")
+    if (executed?.type !== "executed") {
       throw new Error("Expected executed event");
+    }
     expect(executed.result.content).toBe("ok");
     expect(executed.resultBytes).toBe(Buffer.byteLength("ok", "utf8"));
   });
@@ -806,11 +862,14 @@ describe("ToolExecutor lifecycle events", () => {
 
     expect(events.map((event) => event.type)).toEqual(["start", "executed"]);
     const startEvent = events[0];
-    if (startEvent.type !== "start") throw new Error("Expected start event");
+    if (startEvent.type !== "start") {
+      throw new Error("Expected start event");
+    }
     expect(startEvent.executionTarget).toBe("sandbox");
     const executed = events[1];
-    if (executed.type !== "executed")
+    if (executed.type !== "executed") {
       throw new Error("Expected executed event");
+    }
     expect(executed.executionTarget).toBe("sandbox");
   });
 
@@ -864,8 +923,9 @@ describe("ToolExecutor lifecycle events", () => {
 
     const promptEvent = events.find((e) => e.type === "permission_prompt");
     expect(promptEvent).toBeDefined();
-    if (promptEvent?.type !== "permission_prompt")
+    if (promptEvent?.type !== "permission_prompt") {
       throw new Error("Expected permission_prompt event");
+    }
     expect(promptEvent.toolName).toBe("bash");
     expect(promptEvent.reason).toBe(
       "Side-effect tool requires explicit approval",
@@ -923,8 +983,9 @@ describe("ToolExecutor lifecycle events", () => {
 
     const promptEvent = events.find((e) => e.type === "permission_prompt");
     expect(promptEvent).toBeDefined();
-    if (promptEvent?.type !== "permission_prompt")
+    if (promptEvent?.type !== "permission_prompt") {
       throw new Error("Expected permission_prompt event");
+    }
     expect(promptEvent.toolName).toBe("file_edit");
     expect(promptEvent.reason).toBe(
       "Side-effect tool requires explicit approval",
