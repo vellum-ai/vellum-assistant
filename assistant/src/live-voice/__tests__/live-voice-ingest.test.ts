@@ -45,6 +45,8 @@ class MockStreamingTranscriber implements StreamingTranscriber {
 /**
  * Plain-tier streaming mock: like openai-whisper, it emits its `final` only
  * at end-of-stream — `stop()` flushes the pending final and then closes.
+ * The flush is asynchronous, as with real providers: the final arrives on
+ * a later network event, never inside the `stop()` call itself.
  */
 class MockPlainStreamingTranscriber extends MockStreamingTranscriber {
   constructor(private readonly finalOnStop: string) {
@@ -53,7 +55,21 @@ class MockPlainStreamingTranscriber extends MockStreamingTranscriber {
 
   override stop(): void {
     super.stop();
-    this.emit({ type: "final", text: this.finalOnStop });
+    setTimeout(() => {
+      this.emit({ type: "final", text: this.finalOnStop });
+      this.emit({ type: "closed" });
+    }, 0);
+  }
+}
+
+/**
+ * Plain-tier mock whose stop-flush is released manually, so a test can
+ * land a stopped session's forced final arbitrarily late — e.g. after a
+ * restart gap already settled with pending completed turns.
+ */
+class ManualFlushPlainStreamingTranscriber extends MockStreamingTranscriber {
+  flushStopFinal(text: string): void {
+    this.emit({ type: "final", text });
     this.emit({ type: "closed" });
   }
 }
@@ -544,10 +560,10 @@ describe("LiveVoiceIngest two-tier streaming resolution", () => {
     expect(events).toContain("partial:liv");
 
     // Turn end (PTT release) forces the utterance final by stopping the
-    // provider session (which flushes its end-of-stream final).
+    // provider session (which flushes its end-of-stream final async).
     ingest.forceTurnEnd();
     expect(first.stopped).toBe(true);
-    expect(events).toContain("final:first turn");
+    await waitFor(() => events.includes("final:first turn"));
 
     // The next turn's audio reaches a fresh provider session and its
     // forced final arrives in order.
@@ -804,6 +820,7 @@ describe("LiveVoiceIngest empty-turn signaling", () => {
     // The forced end-of-stream final is empty: the turn transcribed to
     // nothing and resolves with exactly one empty final.
     ingest.forceTurnEnd();
+    await waitFor(() => finalsOf(events).length === 1);
     expect(finalsOf(events)).toEqual(["final:"]);
 
     // The next turn's real final still flows, with no extra empty final.
@@ -919,10 +936,10 @@ describe("LiveVoiceIngest plain-tier pending turns", () => {
     ingest.pushAudio(speechChunk(320, 8_000));
     await waitFor(() => first.sentChunks.length === 1);
 
-    // Turn 1 ends: the per-turn cycle forces its final and starts the
-    // (deferred) next session.
+    // Turn 1 ends: the per-turn cycle forces its final (flushed async by
+    // the stopped session) and starts the (deferred) next session.
     ingest.forceTurnEnd();
-    expect(events).toContain("final:turn one");
+    await waitFor(() => events.includes("final:turn one"));
 
     // A fast follow-up utterance starts AND completes inside the restart
     // gap — it must not merge into the next streaming turn's final.
@@ -947,6 +964,69 @@ describe("LiveVoiceIngest plain-tier pending turns", () => {
       "final:turn two",
       "final:turn three",
     ]);
+    expect(batch.requests).toHaveLength(1);
+    expect(batch.requests[0]?.audio.readInt16LE(44)).toBe(9_000);
+
+    ingest.dispose();
+  });
+
+  test("a forced final arriving after the restart-gap settle still precedes the pending turn's batch final", async () => {
+    const first = new ManualFlushPlainStreamingTranscriber();
+    let releaseAfterGap!: (t: StreamingTranscriber | null) => void;
+    const gapResolution = new Promise<StreamingTranscriber | null>(
+      (resolve) => {
+        releaseAfterGap = resolve;
+      },
+    );
+    let plainResolutions = 0;
+    const batch = new MockBatchTranscriber(["turn two"]);
+    const { events, ingest } = createIngest({
+      deps: {
+        resolveStreamingTranscriber: (options) => {
+          if (options.utteranceBoundaryFinals) {
+            return Promise.resolve(null);
+          }
+          plainResolutions += 1;
+          if (plainResolutions === 1) {
+            return Promise.resolve<StreamingTranscriber | null>(first);
+          }
+          if (plainResolutions === 2) {
+            return gapResolution;
+          }
+          return Promise.resolve<StreamingTranscriber | null>(
+            new MockPlainStreamingTranscriber(""),
+          );
+        },
+        resolveBatchTranscriber: async () => batch,
+      },
+    });
+
+    ingest.start();
+    ingest.pushAudio(speechChunk(320, 8_000));
+    await waitFor(() => first.sentChunks.length === 1);
+
+    // Turn 1 ends: its forced final is now outstanding on the stopped
+    // session, which has not flushed it yet.
+    ingest.forceTurnEnd();
+    expect(first.stopped).toBe(true);
+
+    // Turn 2 starts AND completes inside the restart gap...
+    ingest.pushAudio(speechChunk(320, 9_000));
+    ingest.forceTurnEnd();
+
+    // ...and the gap settles (routing turn 2 to batch transcription)
+    // while turn 1's final is still outstanding. Turn 2's batch final
+    // must hold until turn 1's final resolves — an inversion here would
+    // make the session treat turn 1's transcript as the newer utterance,
+    // superseding turn 2's response.
+    releaseAfterGap(new MockPlainStreamingTranscriber(""));
+    await sleep(25);
+    expect(finalsOf(events)).toEqual([]);
+
+    // Turn 1's final flushes late. Order must still be turn 1, turn 2.
+    first.flushStopFinal("turn one");
+    await waitFor(() => finalsOf(events).length === 2);
+    expect(finalsOf(events)).toEqual(["final:turn one", "final:turn two"]);
     expect(batch.requests).toHaveLength(1);
     expect(batch.requests[0]?.audio.readInt16LE(44)).toBe(9_000);
 

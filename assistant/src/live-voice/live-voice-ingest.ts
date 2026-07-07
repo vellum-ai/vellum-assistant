@@ -396,6 +396,15 @@ export class LiveVoiceIngest {
     settled: boolean;
     /** The empty fallback was emitted — drop the source's late finals. */
     emittedEmpty: boolean;
+    /**
+     * Set when a later turn settled onto the batch queue while this final
+     * was still outstanding
+     * ({@link chainBatchQueueBehindOutstandingForcedFinal}): resolution
+     * delivers the text (real final, or `""` for the empty fallback) here
+     * instead of emitting directly, so the queued placeholder emits it in
+     * turn order ahead of the younger turns.
+     */
+    deliver?: (text: string) => void;
   } | null = null;
 
   /**
@@ -560,6 +569,9 @@ export class LiveVoiceIngest {
     this.activeTranscriptionAbort = null;
     this.turnDetector.dispose();
     this.clearBoundaryFinalFallback();
+    // Release a queue placeholder waiting on the forced final (the
+    // placeholder's own disposed check suppresses the emission).
+    this.plainForcedFinal?.deliver?.("");
     this.plainForcedFinal = null;
     this.currentTurnChunks = [];
     this.pendingCompletedTurns = [];
@@ -669,6 +681,10 @@ export class LiveVoiceIngest {
           { turnCount: pending.length },
           "Batch-transcribing turns completed during plain-tier streaming startup",
         );
+        // The previous turn's forced final may still be outstanding (its
+        // stopped session flushes asynchronously): its final must enter
+        // the queue before these younger turns' batch finals.
+        this.chainBatchQueueBehindOutstandingForcedFinal();
         for (const { chunks, durationMs } of pending) {
           this.enqueueTurnTranscription(chunks, durationMs);
         }
@@ -708,6 +724,12 @@ export class LiveVoiceIngest {
     this.startupFrames = [];
     this.startupFramesPushedTotal = 0;
     this.startupFramesCompletedTurnsMark = 0;
+
+    // A plain-tier turn's forced final may still be outstanding (e.g. the
+    // restart's resolution failed into this recovery). Every batch-mode
+    // final flows through the serialized queue, so chaining once here
+    // keeps the outstanding older final ahead of all of them.
+    this.chainBatchQueueBehindOutstandingForcedFinal();
 
     const pending = this.pendingCompletedTurns;
     this.pendingCompletedTurns = [];
@@ -808,7 +830,11 @@ export class LiveVoiceIngest {
         return; // the closed handler emits the empty fallback
       }
       forced.settled = true;
-      this.emitStreamingFinal(text, forced.durationMs);
+      if (forced.deliver) {
+        forced.deliver(text);
+      } else {
+        this.emitStreamingFinal(text, forced.durationMs);
+      }
       return;
     }
 
@@ -916,7 +942,38 @@ export class LiveVoiceIngest {
     }
     forced.settled = true;
     forced.emittedEmpty = true;
-    this.emitStreamingFinal("", forced.durationMs);
+    if (forced.deliver) {
+      forced.deliver("");
+    } else {
+      this.emitStreamingFinal("", forced.durationMs);
+    }
+  }
+
+  /**
+   * If the previous plain-tier stop-cycle's forced final is still
+   * outstanding (the stopped session flushes its end-of-stream final
+   * asynchronously), claim it onto the batch queue ahead of whatever is
+   * enqueued next: the final — real, or the empty fallback when the
+   * stopped session closes without one — is delivered from the queue, so
+   * a younger turn routed through the queue can never overtake it. The
+   * placeholder is bounded by the same signals that settle every forced
+   * final: the stopped session's `final`/`closed` events, the next
+   * restart's settle, or {@link dispose}.
+   */
+  private chainBatchQueueBehindOutstandingForcedFinal(): void {
+    const forced = this.plainForcedFinal;
+    if (forced === null || forced.settled || forced.deliver) {
+      return;
+    }
+    const delivered = new Promise<string>((resolve) => {
+      forced.deliver = resolve;
+    });
+    this.batchTurnQueue = this.batchTurnQueue.then(async () => {
+      const text = await delivered;
+      if (!this.disposed) {
+        this.callbacks.onTranscriptFinal?.(text, forced.durationMs);
+      }
+    });
   }
 
   // ── Boundary-tier empty-final fallback ─────────────────────────────

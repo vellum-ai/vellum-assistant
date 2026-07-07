@@ -1387,34 +1387,19 @@ export class CallController {
     callbacks: VoiceTurnCallbacks,
     runVersion: number,
   ): VoiceTurnCallbacks {
+    const guard =
+      <A extends unknown[]>(fn: (...args: A) => void) =>
+      (...args: A): void => {
+        if (this.isCurrentRun(runVersion)) fn(...args);
+      };
     const guarded: VoiceTurnCallbacks = {};
-    const {
-      assistant_text_delta: assistantTextDelta,
-      message_complete: messageComplete,
-      persisted_user_message_id: persistedUserMessageId,
-      persisted_assistant_message_id: persistedAssistantMessageId,
-    } = callbacks;
-    if (assistantTextDelta) {
-      guarded.assistant_text_delta = (msg) => {
-        if (this.isCurrentRun(runVersion)) assistantTextDelta(msg);
-      };
-    }
-    if (messageComplete) {
-      guarded.message_complete = (msg) => {
-        if (this.isCurrentRun(runVersion)) messageComplete(msg);
-      };
-    }
-    if (persistedUserMessageId) {
-      guarded.persisted_user_message_id = (messageId) => {
-        if (this.isCurrentRun(runVersion)) persistedUserMessageId(messageId);
-      };
-    }
-    if (persistedAssistantMessageId) {
-      guarded.persisted_assistant_message_id = (messageId) => {
-        if (this.isCurrentRun(runVersion)) {
-          persistedAssistantMessageId(messageId);
-        }
-      };
+    for (const key of Object.keys(callbacks) as (keyof VoiceTurnCallbacks)[]) {
+      const fn = callbacks[key];
+      if (fn) {
+        // Iterating the present keys (rather than naming them) means a
+        // callback added to VoiceTurnCallbacks can never skip the guard.
+        guarded[key] = guard(fn as (...args: unknown[]) => void);
+      }
     }
     return guarded;
   }

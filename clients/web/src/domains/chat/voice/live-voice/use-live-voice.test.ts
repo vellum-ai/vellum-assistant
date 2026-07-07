@@ -751,10 +751,9 @@ describe("turn_cancelled", () => {
     });
 
     expect(h.view.result.current.state).toBe("listening");
-    // The machine reason is surfaced non-fatally.
-    expect(useLiveVoiceStore.getState().turnCancelledReason).toBe(
-      "empty_transcript",
-    );
+    // The machine reason is surfaced non-fatally through the hook's
+    // public result.
+    expect(h.view.result.current.turnCancelledReason).toBe("empty_transcript");
 
     // Forwarding re-opened: the next utterance streams again.
     act(() => {
@@ -767,7 +766,7 @@ describe("turn_cancelled", () => {
     act(() => {
       h.client.emit("thinking", { type: "thinking", seq: 5, turnId: "t2" });
     });
-    expect(useLiveVoiceStore.getState().turnCancelledReason).toBeNull();
+    expect(h.view.result.current.turnCancelledReason).toBeNull();
   });
 
   test("while speaking flushes playback and resumes listening", async () => {
@@ -798,9 +797,7 @@ describe("turn_cancelled", () => {
 
     expect(h.player.stopCount).toBeGreaterThanOrEqual(1);
     expect(h.view.result.current.state).toBe("listening");
-    expect(useLiveVoiceStore.getState().turnCancelledReason).toBe(
-      "tts_failed",
-    );
+    expect(h.view.result.current.turnCancelledReason).toBe("tts_failed");
     expect(h.client.closed).toBe(false);
   });
 

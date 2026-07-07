@@ -47,6 +47,14 @@ interface FakeTurnScript {
   deltas: string[];
   /** When false, the turn stays in flight until aborted (barge-in). */
   autoComplete?: boolean;
+  /**
+   * Deltas emitted only after {@link lateGate} resolves, deliberately
+   * WITHOUT re-checking the abort signal: they simulate a bridge that
+   * keeps streaming briefly after an abort, which the controller's
+   * run-version guard must drop.
+   */
+  lateDeltas?: string[];
+  lateGate?: Promise<void>;
 }
 
 let turnScripts: FakeTurnScript[] = [];
@@ -70,6 +78,12 @@ async function fakeStartVoiceTurn(
       break;
     }
     opts.onTextDelta?.(delta);
+  }
+  if (script.lateGate) {
+    await script.lateGate;
+    for (const delta of script.lateDeltas ?? []) {
+      opts.onTextDelta?.(delta);
+    }
   }
   if (script.autoComplete !== false && !opts.signal?.aborted) {
     opts.onComplete?.();
@@ -143,9 +157,15 @@ class MockStreamingTranscriber implements StreamingTranscriber {
 /** Whether the fake TTS holds each synthesis job open until aborted. */
 let ttsHoldUntilAbort = false;
 
+/** Whether the fake TTS fails every job before emitting any audio. */
+let ttsFailSynthesis = false;
+
 const fakeStreamTtsAudio: LiveVoiceTtsStreamer = async (
   options: LiveVoiceTtsOptions,
 ) => {
+  if (ttsFailSynthesis) {
+    throw new Error("synthetic TTS provider failure");
+  }
   options.onAudioChunk({
     type: "tts_audio",
     contentType: "audio/pcm",
@@ -296,6 +316,7 @@ beforeEach(() => {
   turnScripts = [];
   voiceTurnCalls = [];
   ttsHoldUntilAbort = false;
+  ttsFailSynthesis = false;
 });
 
 afterEach(async () => {
@@ -442,6 +463,51 @@ describe("LiveVoiceSession wired duplex integration", () => {
     );
     expect(metricsEvents).toContain("turn_cancelled:live-turn-1");
     expect(metricsEvents).toContain("turn_completed:live-turn-2");
+    expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
+  });
+
+  test("a pre-audio TTS failure aborts the run — no deltas or audio leak after turn_cancelled", async () => {
+    let releaseLateDeltas!: () => void;
+    const lateGate = new Promise<void>((resolve) => {
+      releaseLateDeltas = resolve;
+    });
+    turnScripts = [
+      {
+        deltas: ["First sentence. "],
+        lateDeltas: ["Late sentence after the failure."],
+        lateGate,
+        autoComplete: false,
+      },
+    ];
+    // Every synthesis job fails before emitting audio, so the controller
+    // never leaves `processing` (the audio-start callback never fires).
+    ttsFailSynthesis = true;
+    const { session, frames, transcriber } = createWiredHarness();
+
+    await session.start();
+    await session.handleBinaryAudio(loudChunk());
+    await waitFor(() => transcriber.audioChunks.length >= 1);
+    await session.handleClientFrame({ type: "ptt_release" });
+    transcriber.emit({ type: "final", text: "question one" });
+
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ reason: "tts_failed" });
+
+    // The generation streams on after the cancellation: the aborted run's
+    // late tokens must not surface as frames or synthesis to the client.
+    const deltasBeforeLate = typedFrames(frames, "assistant_text_delta");
+    releaseLateDeltas();
+    await new Promise((resolve) => setTimeout(resolve, 30));
+
+    expect(typedFrames(frames, "assistant_text_delta")).toEqual(
+      deltasBeforeLate,
+    );
+    expect(typedFrames(frames, "tts_audio")).toEqual([]);
+    expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
     expect(frames.filter((frame) => frame.type === "error")).toEqual([]);
   });
 

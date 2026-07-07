@@ -110,6 +110,12 @@ export interface UseLiveVoiceResult {
   assistantTranscript: string;
   /** Smoothed mic amplitude in [0, 1]. */
   inputAmplitude: number;
+  /**
+   * Machine reason from the last server `turn_cancelled` frame (e.g.
+   * `empty_transcript`, `stt_failed`, `tts_failed`). Non-fatal — the
+   * session resumed listening. Cleared when the next turn is accepted.
+   */
+  turnCancelledReason: string | null;
   /** Failure message when `state === "failed"`, else `null`. */
   error: string | null;
   /**
@@ -203,6 +209,7 @@ export function useLiveVoice(
   const finalTranscript = useLiveVoiceStore.use.finalTranscript();
   const assistantTranscript = useLiveVoiceStore.use.assistantTranscript();
   const inputAmplitude = useLiveVoiceStore.use.inputAmplitude();
+  const turnCancelledReason = useLiveVoiceStore.use.turnCancelledReason();
   const error = useLiveVoiceStore.use.error();
 
   const sessionRef = useRef<SessionContext | null>(null);
@@ -474,6 +481,7 @@ export function useLiveVoice(
     finalTranscript,
     assistantTranscript,
     inputAmplitude,
+    turnCancelledReason,
     error,
     start,
     stop,

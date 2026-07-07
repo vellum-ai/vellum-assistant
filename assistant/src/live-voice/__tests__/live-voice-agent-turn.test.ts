@@ -287,6 +287,30 @@ describe("LiveVoiceSession duplex orchestration", () => {
     });
   });
 
+  test("an unconfigured transcriber during a user turn cancels it and is still session-fatal", async () => {
+    const { session, frames, ingest } = createSessionHarness();
+
+    await session.start();
+    await session.handleClientFrame(audioFrame("user audio"));
+    ingest.callbacks.onError?.(
+      "unconfigured",
+      "No batch transcriber available for the configured STT provider",
+    );
+    await waitFor(() => frames.some((frame) => frame.type === "error"));
+
+    // The in-flight turn is retired so the client's turn state settles...
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ reason: "stt_failed" });
+    // ...but the error is session-fatal — every future turn would fail
+    // the same way, so it must not collapse into a per-utterance
+    // cancellation loop.
+    expect(frames.find((frame) => frame.type === "error")).toMatchObject({
+      code: "stt_failed",
+      message: expect.stringContaining("No batch transcriber available"),
+    });
+  });
+
   test("a TTS failure while speaking cancels the turn with tts_failed via barge-in", async () => {
     const harness = createSessionHarness({ emitMetrics: true });
     const { session, frames, ingest, transport, controller } = harness;
@@ -314,6 +338,30 @@ describe("LiveVoiceSession duplex orchestration", () => {
     await waitFor(
       () => frames.filter((frame) => frame.type === "thinking").length === 2,
     );
+  });
+
+  test("a pre-audio TTS failure (controller still processing) hard-aborts the run", async () => {
+    const harness = createSessionHarness();
+    const { frames, transport, controller } = harness;
+
+    await startRespondingTurn(harness);
+    // The generation is running but no audio has been emitted yet, so the
+    // controller never flipped to `speaking`.
+    expect(controller.getState()).toBe("processing");
+
+    transport.deps?.onTtsFailure();
+    await waitFor(() =>
+      frames.some((frame) => frame.type === "turn_cancelled"),
+    );
+
+    expect(
+      frames.find((frame) => frame.type === "turn_cancelled"),
+    ).toMatchObject({ reason: "tts_failed" });
+    // The speaking-gated barge-in was rejected; the hard interrupt must
+    // abort the still-running generation instead (otherwise it keeps
+    // streaming deltas/audio after the client got turn_cancelled).
+    expect(controller.bargeInCount).toBe(0);
+    expect(controller.interruptCount).toBe(1);
   });
 
   test("a TTS failure during the synthesis tail (controller idle) flushes at the session layer", async () => {
