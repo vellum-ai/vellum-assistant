@@ -14,9 +14,11 @@ import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-
 import { ContactsList } from "@/domains/contacts/components/contacts-list";
 import { GenerateInviteLinkDialog } from "@/domains/contacts/components/generate-invite-link-dialog";
 import { GuardianDetailView } from "@/domains/contacts/components/guardian-detail-view";
+import { channelLinkProvenance } from "@/domains/contacts/channel-linking";
 import { LinkAccountDialog } from "@/domains/contacts/components/link-account-dialog";
 import { findDuplicateCandidate } from "@/domains/contacts/duplicate-suggestion";
 import { slackRosterOptions } from "@/domains/contacts/slack-users-query";
+import { useSupportsSlackRosterLink } from "@/lib/backwards-compat/slack-roster-link";
 import {
     deleteContact as gatewayDeleteContact,
     upsertContact,
@@ -205,9 +207,13 @@ export function ContactsPage({
     ReadonlySet<string>
   >(new Set());
   const duplicateCandidate = useMemo<ContactPayload | null>(() => {
-    if (!selectedContact || selectedContact.role === "guardian") return null;
+    if (!selectedContact || selectedContact.role === "guardian") {
+      return null;
+    }
     const candidate = findDuplicateCandidate(selectedContact, mergeCandidates);
-    if (!candidate) return null;
+    if (!candidate) {
+      return null;
+    }
     return dismissedDuplicateKeys.has(`${selectedContact.id}:${candidate.id}`)
       ? null
       : candidate;
@@ -421,11 +427,29 @@ export function ContactsPage({
     onLinked: invalidateContacts,
   });
 
-  // Roster fetch is deferred until the picker opens; the cached result also
-  // feeds the header provenance line's handle lookup.
+  // Older assistants don't serve GET /v1/slack/users — hide the Link action
+  // and skip the roster fetch so the row degrades to Invite-only.
+  const supportsSlackRosterLink = useSupportsSlackRosterLink();
+
+  // The header provenance line renders the @handle for guardian-linked
+  // bindings from the roster, so the fetch is enabled while such a contact
+  // is selected — not only while the picker is open.
+  const needsRosterForProvenance = useMemo(
+    () =>
+      selectedContact?.channels.some(
+        (ch) =>
+          ch.type === "slack" &&
+          channelLinkProvenance(ch) === "guardian_linked",
+      ) ?? false,
+    [selectedContact],
+  );
+
   const slackRosterQuery = useQuery({
     ...slackRosterOptions(assistantId),
-    enabled: Boolean(assistantId) && slackLink.dialogOpen,
+    enabled:
+      Boolean(assistantId) &&
+      supportsSlackRosterLink &&
+      (slackLink.dialogOpen || needsRosterForProvenance),
     select: (data) => data.users,
   });
 
@@ -439,7 +463,9 @@ export function ContactsPage({
   );
 
   const handleDismissDuplicate = useCallback(() => {
-    if (!selectedContact || !duplicateCandidate) return;
+    if (!selectedContact || !duplicateCandidate) {
+      return;
+    }
     const key = `${selectedContact.id}:${duplicateCandidate.id}`;
     setDismissedDuplicateKeys((prev) => new Set(prev).add(key));
   }, [selectedContact, duplicateCandidate]);
@@ -606,7 +632,9 @@ export function ContactsPage({
               }
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
-              onLinkAccount={handleLinkAccount}
+              onLinkAccount={
+                supportsSlackRosterLink ? handleLinkAccount : undefined
+              }
               onDismissDuplicate={handleDismissDuplicate}
               onMergeDuplicate={handleMergeDuplicate}
             />

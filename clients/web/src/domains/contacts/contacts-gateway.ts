@@ -90,12 +90,16 @@ export async function verifyContactChannel(
  * The gateway upsert silently skips a channel whose (type, address) already
  * belongs to another contact, so a missing channel on the returned contact
  * is surfaced as a conflict error instead of a half-linked success.
+ *
+ * Returns void: the upsert snapshot predates the verify write, so returning
+ * it would hand callers a contact whose channel still reads unverified.
+ * Callers refetch/invalidate instead.
  */
 export async function linkContactChannelAccount(
   assistantId: string,
   contact: { id: string; displayName: string },
   channel: { type: string; address: string },
-): Promise<Contact> {
+): Promise<void> {
   const updated = await upsertContact(assistantId, {
     id: contact.id,
     displayName: contact.displayName,
@@ -121,7 +125,6 @@ export async function linkContactChannelAccount(
     );
   }
   await verifyContactChannel(assistantId, linked.id);
-  return updated;
 }
 
 /**
@@ -138,7 +141,14 @@ export async function redeemA2AInvite(
   errorCode?: string;
 }> {
   const { data, error, response } = await client.post<
-    { 200: { success?: boolean; already_connected?: boolean; error?: string; error_code?: string } },
+    {
+      200: {
+        success?: boolean;
+        already_connected?: boolean;
+        error?: string;
+        error_code?: string;
+      };
+    },
     unknown
   >({
     url: "/v1/assistants/{assistant_id}/a2a/invites/redeem/",

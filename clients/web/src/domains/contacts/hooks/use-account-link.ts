@@ -50,7 +50,7 @@ export function useAccountLink({
         type: channelType,
         address: args.account.id,
       }),
-    onSuccess: (_contact, args) => {
+    onSuccess: (_result, args) => {
       setDialogOpen(false);
       toast.success(`Linked as @${args.account.username}`);
       onLinked();

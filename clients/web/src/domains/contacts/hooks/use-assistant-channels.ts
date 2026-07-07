@@ -12,6 +12,7 @@ import {
   type SetupChannelId,
 } from "@/domains/contacts/types";
 import { memberSlackChannelsOptions, memberSlackChannelsQueryKey } from "@/domains/contacts/slack-channels-query";
+import { slackRosterQueryKey } from "@/domains/contacts/slack-users-query";
 import {
   channelsReadinessGetOptions,
   channelsReadinessGetQueryKey,
@@ -134,11 +135,15 @@ export function useAssistantChannels({
     onSettled: (_data, _error, channelKey) => {
       invalidateReadiness();
       if (channelKey === "slack") {
-        // Drop the channel-list cache with the credentials: a later
-        // reconnect may target a different workspace, and serving the old
-        // workspace's channels from cache would misreport presence.
+        // Drop the channel-list and roster caches with the credentials: a
+        // later reconnect may target a different workspace, and serving the
+        // old workspace's channels/members from cache would misreport
+        // presence (or let the link picker verify against a stale user id).
         queryClient.removeQueries({
           queryKey: memberSlackChannelsQueryKey(assistantId),
+        });
+        queryClient.removeQueries({
+          queryKey: slackRosterQueryKey(assistantId),
         });
       }
     },

@@ -118,7 +118,20 @@ function ContactDetailViewInner({
           actions={
             <Button
               onClick={() => setMergeConfirmOpen(true)}
-              disabled={mergePending || savePending || deletePending}
+              disabled={
+                mergePending ||
+                savePending ||
+                deletePending ||
+                dirty ||
+                isEmptyDraft
+              }
+              title={
+                dirty
+                  ? "Save your changes before merging"
+                  : isEmptyDraft
+                    ? "Save this contact before merging"
+                    : undefined
+              }
             >
               {mergePending ? "Merging…" : `Merge into ${headerName}`}
             </Button>
