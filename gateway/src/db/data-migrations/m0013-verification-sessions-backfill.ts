@@ -18,7 +18,7 @@
  * `INSERT OR IGNORE` lets the gateway win conflicts on both the id PK and
  * the unique (channel, actor_external_user_id, actor_chat_id) index.
  *
- * Copy, not move: never writes to the assistant DB (m0013 does the drop,
+ * Copy, not move: never writes to the assistant DB (m0014 does the drop,
  * gated on this migration's checkpoint). Returns "done" when the assistant
  * source table is already gone; any failure returns "skip" to retry on the
  * next startup.
