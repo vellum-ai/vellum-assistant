@@ -9,6 +9,7 @@ on:
       - 'bun.lock'
       - 'patches/**'
       - 'clients/web/**'
+      - 'assistant/src/api/**'
       - 'packages/design-library/**'
       - 'packages/local-mode/**'
       - 'packages/environments/**'
