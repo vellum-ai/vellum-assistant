@@ -197,6 +197,15 @@ function mockFetchError(status: number, body: string): void {
   ) as unknown as typeof globalThis.fetch;
 }
 
+function streamOf(...parts: Uint8Array[]): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const part of parts) controller.enqueue(part);
+      controller.close();
+    },
+  });
+}
+
 // ===========================================================================
 // ElevenLabs provider adapter
 // ===========================================================================
@@ -394,15 +403,6 @@ describe("ElevenLabs TTS provider adapter", () => {
   });
 
   // -- Streaming -------------------------------------------------------------
-
-  function streamOf(...parts: Uint8Array[]): ReadableStream<Uint8Array> {
-    return new ReadableStream<Uint8Array>({
-      start(controller) {
-        for (const part of parts) controller.enqueue(part);
-        controller.close();
-      },
-    });
-  }
 
   test("synthesizeStream reads chunks from the /stream endpoint and concatenates them", async () => {
     const part1 = new Uint8Array([0x01, 0x02]);
@@ -1073,14 +1073,20 @@ describe("Deepgram TTS provider adapter", () => {
     expect(provider.id).toBe("deepgram");
   });
 
-  test("advertises mp3, wav, opus format support without streaming", () => {
+  test("advertises mp3, wav, opus, pcm format support with streaming", () => {
     const provider = createDeepgramProvider();
-    expect(provider.capabilities.supportsStreaming).toBe(false);
+    expect(provider.capabilities.supportsStreaming).toBe(true);
     expect(provider.capabilities.supportedFormats).toEqual([
       "mp3",
       "wav",
       "opus",
+      "pcm",
     ]);
+  });
+
+  test("implements synthesizeStream", () => {
+    const provider = createDeepgramProvider();
+    expect(typeof provider.synthesizeStream).toBe("function");
   });
 
   // -- Request mapping -----------------------------------------------------
@@ -1243,6 +1249,165 @@ describe("Deepgram TTS provider adapter", () => {
     expect(capturedUrl).toContain("model=aura-luna-en");
   });
 
+  // -- Streaming -------------------------------------------------------------
+
+  test("synthesizeStream reads chunks from /v1/speak and concatenates them", async () => {
+    const part1 = new Uint8Array([0x01, 0x02]);
+    const part2 = new Uint8Array([0x03]);
+    const part3 = new Uint8Array([0x04, 0x05]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(streamOf(part1, part2, part3), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const received: Uint8Array[] = [];
+    const provider = createDeepgramProvider();
+    const result = await provider.synthesizeStream!(
+      makeRequest({ outputFormat: "pcm" }),
+      (chunk) => received.push(chunk),
+    );
+
+    expect(capturedUrl).toContain("/v1/speak");
+    expect(capturedUrl).toContain("encoding=linear16");
+    expect(capturedUrl).toContain("container=none");
+    expect(capturedUrl).toContain("sample_rate=");
+    expect(received).toEqual([part1, part2, part3]);
+    expect(result.audio).toEqual(Buffer.from([0x01, 0x02, 0x03, 0x04, 0x05]));
+    expect(result.contentType).toBe("audio/pcm");
+  });
+
+  test("synthesizeStream rejects after the first-chunk timeout when the stream never produces audio", async () => {
+    globalThis.fetch = mock(
+      async () =>
+        new Response(new ReadableStream<Uint8Array>({ start() {} }), {
+          status: 200,
+        }),
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider({
+      firstChunkTimeoutMs: 20,
+      idleTimeoutMs: 20,
+    });
+
+    await expect(
+      provider.synthesizeStream!(
+        makeRequest({ outputFormat: "pcm" }),
+        () => {},
+      ),
+    ).rejects.toMatchObject({
+      name: "DeepgramTtsError",
+      code: "DEEPGRAM_TTS_STREAM_TIMEOUT",
+      message: expect.stringContaining("timed out after 20ms"),
+    });
+  });
+
+  test("synthesizeStream rejects after the idle timeout when the stream stalls mid-stream", async () => {
+    globalThis.fetch = mock(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new Uint8Array([0x01, 0x02]));
+              // Never enqueue again and never close — a mid-stream stall.
+            },
+          }),
+          { status: 200 },
+        ),
+    ) as unknown as typeof globalThis.fetch;
+
+    const received: Uint8Array[] = [];
+    const provider = createDeepgramProvider({
+      firstChunkTimeoutMs: 1_000,
+      idleTimeoutMs: 20,
+    });
+
+    await expect(
+      provider.synthesizeStream!(
+        makeRequest({ outputFormat: "pcm" }),
+        (chunk) => received.push(chunk),
+      ),
+    ).rejects.toMatchObject({
+      name: "DeepgramTtsError",
+      code: "DEEPGRAM_TTS_STREAM_TIMEOUT",
+    });
+    expect(received).toHaveLength(1);
+  });
+
+  test("synthesizeStream throws DEEPGRAM_TTS_EMPTY_RESPONSE on null body", async () => {
+    globalThis.fetch = mock(
+      async () => new Response(null, { status: 200 }),
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesizeStream!(makeRequest(), () => {});
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeepgramTtsError);
+      expect((err as DeepgramTtsError).code).toBe(
+        "DEEPGRAM_TTS_EMPTY_RESPONSE",
+      );
+    }
+  });
+
+  test("synthesizeStream throws DEEPGRAM_TTS_EMPTY_RESPONSE on zero-byte stream", async () => {
+    globalThis.fetch = mock(
+      async () => new Response(streamOf(), { status: 200 }),
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesizeStream!(makeRequest(), () => {});
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeepgramTtsError);
+      expect((err as DeepgramTtsError).code).toBe(
+        "DEEPGRAM_TTS_EMPTY_RESPONSE",
+      );
+    }
+  });
+
+  test("synthesizeStream throws DEEPGRAM_TTS_HTTP_ERROR on non-200 response", async () => {
+    mockFetchError(429, "Rate limit exceeded");
+
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesizeStream!(makeRequest(), () => {});
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(DeepgramTtsError);
+      expect((err as DeepgramTtsError).code).toBe("DEEPGRAM_TTS_HTTP_ERROR");
+      expect((err as DeepgramTtsError).statusCode).toBe(429);
+    }
+  });
+
+  test("synthesizeStream propagates AbortError unmodified", async () => {
+    globalThis.fetch = mock(async () => {
+      const abortError = new Error("The operation was aborted");
+      abortError.name = "AbortError";
+      throw abortError;
+    }) as unknown as typeof globalThis.fetch;
+
+    const controller = new AbortController();
+    const provider = createDeepgramProvider();
+
+    try {
+      await provider.synthesizeStream!(
+        makeRequest({ signal: controller.signal }),
+        () => {},
+      );
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).not.toBeInstanceOf(DeepgramTtsError);
+      expect((err as Error).name).toBe("AbortError");
+    }
+  });
+
   // -- Content type / format -----------------------------------------------
 
   test("returns audio/mpeg content type for mp3 format", async () => {
@@ -1254,6 +1419,18 @@ describe("Deepgram TTS provider adapter", () => {
 
     expect(result.contentType).toBe("audio/mpeg");
     expect(result.audio.byteLength).toBeGreaterThan(0);
+  });
+
+  test("synthesizeStream resolves audio/mpeg content type for mp3 format", async () => {
+    globalThis.fetch = mock(
+      async () =>
+        new Response(streamOf(new Uint8Array([0x49])), { status: 200 }),
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createDeepgramProvider();
+    const result = await provider.synthesizeStream!(makeRequest(), () => {});
+
+    expect(result.contentType).toBe("audio/mpeg");
   });
 
   // -- Required config validation ------------------------------------------

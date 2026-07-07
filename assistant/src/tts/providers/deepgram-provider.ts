@@ -2,9 +2,12 @@
  * Deepgram TTS provider adapter.
  *
  * Wraps the Deepgram REST text-to-speech API (`/v1/speak`) behind the uniform
- * {@link TtsProvider} interface. Reads the API key from the secure credential
- * store using the shared `deepgram` bare key (shared with STT) and the model
- * configuration from `services.tts.providers.deepgram` config section.
+ * {@link TtsProvider} interface. The endpoint streams its body natively via
+ * chunked transfer, so `synthesizeStream` forwards audio chunks as they
+ * arrive from the same URL that `synthesize` buffers. Reads the API key from
+ * the secure credential store using the shared `deepgram` bare key (shared
+ * with STT) and the model configuration from `services.tts.providers.deepgram`
+ * config section.
  */
 
 import { getConfig } from "../../config/loader.js";
@@ -12,6 +15,7 @@ import type { TtsDeepgramProviderConfig } from "../../config/schemas/tts.js";
 import { getProviderKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
+import { readChunkedBody } from "../stream-read.js";
 import type {
   TtsProvider,
   TtsProviderCapabilities,
@@ -29,7 +33,8 @@ export type DeepgramTtsErrorCode =
   | "DEEPGRAM_TTS_NO_API_KEY"
   | "DEEPGRAM_TTS_HTTP_ERROR"
   | "DEEPGRAM_TTS_EMPTY_RESPONSE"
-  | "DEEPGRAM_TTS_REQUEST_FAILED";
+  | "DEEPGRAM_TTS_REQUEST_FAILED"
+  | "DEEPGRAM_TTS_STREAM_TIMEOUT";
 
 export class DeepgramTtsError extends Error {
   readonly code: DeepgramTtsErrorCode;
@@ -165,104 +170,157 @@ function resolveOutputParams(
   return { encoding: config.format, contentTypeKey: config.format };
 }
 
-export function createDeepgramProvider(): TtsProvider {
+/**
+ * Resolve credentials and config, build the `/v1/speak` URL, and issue the
+ * Deepgram TTS HTTP request. Shared by `synthesize` and `synthesizeStream` —
+ * Deepgram's single endpoint streams its body natively, so both paths hit the
+ * same URL. Throws on missing credentials and non-OK responses; resolves with
+ * the OK response and the resolved content type.
+ */
+async function performTtsRequest(
+  request: TtsSynthesisRequest,
+): Promise<{ response: Response; contentType: string }> {
+  const apiKey = await getProviderKeyAsync("deepgram");
+  if (!apiKey) {
+    throw new DeepgramTtsError(
+      "DEEPGRAM_TTS_NO_API_KEY",
+      "Deepgram API key not configured. " +
+        "Add it in Settings → Voice or via: assistant keys set deepgram <key>",
+    );
+  }
+
+  const config = getConfig().services.tts.providers.deepgram;
+  const outputParams = resolveOutputParams(request, config);
+  const model = config.model;
+
+  const params = new URLSearchParams({
+    model,
+    encoding: outputParams.encoding,
+  });
+  if (outputParams.container) {
+    params.set("container", outputParams.container);
+  }
+  if (outputParams.sample_rate != null) {
+    params.set("sample_rate", String(outputParams.sample_rate));
+  }
+  const url = `${DEEPGRAM_API_BASE}/v1/speak?${params.toString()}`;
+
+  log.info(
+    {
+      model,
+      encoding: outputParams.encoding,
+      container: outputParams.container,
+      textLength: request.text.length,
+    },
+    "Starting Deepgram TTS synthesis",
+  );
+
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Token ${apiKey}`,
+      },
+      body: JSON.stringify({ text: request.text }),
+      signal: request.signal,
+    });
+  } catch (err) {
+    if (err instanceof Error && err.name === "AbortError") throw err;
+    throw new DeepgramTtsError(
+      "DEEPGRAM_TTS_REQUEST_FAILED",
+      `Deepgram TTS request failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text().catch(() => "");
+    throw new DeepgramTtsError(
+      "DEEPGRAM_TTS_HTTP_ERROR",
+      `Deepgram TTS returned ${response.status}: ${errorText}`,
+      response.status,
+    );
+  }
+
+  const contentType =
+    FORMAT_CONTENT_TYPE[outputParams.contentTypeKey] ?? "audio/mpeg";
+
+  return { response, contentType };
+}
+
+/** Stream-stall timeouts, injectable for tests. */
+export interface DeepgramStreamTimeouts {
+  firstChunkTimeoutMs?: number;
+  idleTimeoutMs?: number;
+}
+
+/**
+ * Issue the TTS request and consume the response into a complete result.
+ * The streaming path forwards chunks via `onChunk` as they arrive, guarded
+ * by first-chunk/idle stall timeouts; the buffer path reads the whole body.
+ */
+async function performSynthesis(
+  request: TtsSynthesisRequest,
+  options: {
+    stream: boolean;
+    onChunk?: (chunk: Uint8Array) => void;
+  } & DeepgramStreamTimeouts,
+): Promise<TtsSynthesisResult> {
+  const { response, contentType } = await performTtsRequest(request);
+
+  let audio: Buffer;
+  if (options.stream) {
+    if (!response.body) {
+      throw new DeepgramTtsError(
+        "DEEPGRAM_TTS_EMPTY_RESPONSE",
+        "Deepgram streaming TTS returned no response body",
+      );
+    }
+    audio = await readChunkedBody(response.body, {
+      onChunk: options.onChunk,
+      firstChunkTimeoutMs: options.firstChunkTimeoutMs,
+      idleTimeoutMs: options.idleTimeoutMs,
+      makeTimeoutError: (timeoutMs) =>
+        new DeepgramTtsError(
+          "DEEPGRAM_TTS_STREAM_TIMEOUT",
+          `Deepgram streaming TTS read timed out after ${timeoutMs}ms`,
+        ),
+    });
+  } else {
+    audio = Buffer.from(await response.arrayBuffer());
+  }
+
+  if (audio.byteLength === 0) {
+    throw new DeepgramTtsError(
+      "DEEPGRAM_TTS_EMPTY_RESPONSE",
+      "Deepgram TTS returned an empty audio response",
+    );
+  }
+
+  log.debug(
+    { bytes: audio.byteLength, stream: options.stream },
+    "Deepgram TTS synthesis complete",
+  );
+
+  return { audio, contentType };
+}
+
+export function createDeepgramProvider(
+  streamTimeouts: DeepgramStreamTimeouts = {},
+): TtsProvider {
   const capabilities: TtsProviderCapabilities = {
-    supportsStreaming: false,
-    supportedFormats: ["mp3", "wav", "opus"],
+    supportsStreaming: true,
+    supportedFormats: ["mp3", "wav", "opus", "pcm"],
   };
 
   return {
     id: "deepgram",
     capabilities,
     resolveOutputSampleRateHz: resolvePcmOutputSampleRateHz,
-
-    async synthesize(
-      request: TtsSynthesisRequest,
-    ): Promise<TtsSynthesisResult> {
-      const apiKey = await getProviderKeyAsync("deepgram");
-      if (!apiKey) {
-        throw new DeepgramTtsError(
-          "DEEPGRAM_TTS_NO_API_KEY",
-          "Deepgram API key not configured. " +
-            "Add it in Settings → Voice or via: assistant keys set deepgram <key>",
-        );
-      }
-
-      const config = getConfig().services.tts.providers.deepgram;
-      const outputParams = resolveOutputParams(request, config);
-      const model = config.model;
-
-      const params = new URLSearchParams({
-        model,
-        encoding: outputParams.encoding,
-      });
-      if (outputParams.container) {
-        params.set("container", outputParams.container);
-      }
-      if (outputParams.sample_rate != null) {
-        params.set("sample_rate", String(outputParams.sample_rate));
-      }
-      const url = `${DEEPGRAM_API_BASE}/v1/speak?${params.toString()}`;
-
-      log.info(
-        {
-          model,
-          encoding: outputParams.encoding,
-          container: outputParams.container,
-          textLength: request.text.length,
-        },
-        "Starting Deepgram TTS synthesis",
-      );
-
-      let response: Response;
-      try {
-        response = await fetch(url, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Token ${apiKey}`,
-          },
-          body: JSON.stringify({ text: request.text }),
-          signal: request.signal,
-        });
-      } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") throw err;
-        throw new DeepgramTtsError(
-          "DEEPGRAM_TTS_REQUEST_FAILED",
-          `Deepgram TTS request failed: ${err instanceof Error ? err.message : String(err)}`,
-        );
-      }
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "");
-        throw new DeepgramTtsError(
-          "DEEPGRAM_TTS_HTTP_ERROR",
-          `Deepgram TTS returned ${response.status}: ${errorText}`,
-          response.status,
-        );
-      }
-
-      const arrayBuffer = await response.arrayBuffer();
-      if (arrayBuffer.byteLength === 0) {
-        throw new DeepgramTtsError(
-          "DEEPGRAM_TTS_EMPTY_RESPONSE",
-          "Deepgram TTS returned an empty audio response",
-        );
-      }
-
-      const contentType =
-        FORMAT_CONTENT_TYPE[outputParams.contentTypeKey] ?? "audio/mpeg";
-
-      log.debug(
-        { bytes: arrayBuffer.byteLength },
-        "Deepgram TTS synthesis complete",
-      );
-
-      return {
-        audio: Buffer.from(arrayBuffer),
-        contentType,
-      };
-    },
+    synthesize: (request) => performSynthesis(request, { stream: false }),
+    synthesizeStream: (request, onChunk) =>
+      performSynthesis(request, { stream: true, onChunk, ...streamTimeouts }),
   };
 }
 
@@ -291,8 +349,8 @@ export const deepgramTtsProviderDefinition: TtsProviderDefinition = {
   callMode: "synthesized-play",
   allowNativeFallback: false,
   capabilities: {
-    supportsStreaming: false,
-    supportedFormats: ["mp3", "wav", "opus"],
+    supportsStreaming: true,
+    supportedFormats: ["mp3", "wav", "opus", "pcm"],
   },
   // The adapter honours the PCM hint via `linear16` + `container=none`.
   mediaStreamPlayback: { outputFormat: "pcm" },
