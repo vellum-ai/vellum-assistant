@@ -166,13 +166,13 @@
       "source": {
         "source": "github",
         "repo": "AnitaKirkovska/amex-perk-reminder",
-        "ref": "9570473bb3c56b39662dc631fe7171970d23bb66"
+        "ref": "48649b3e9f5c37153c7a8b2887a740eadd7c0b1e"
       },
       "description": "Track every credit on the Amex cards you hold (Platinum, Gold, Business Platinum, Delta Gold/Platinum/Reserve) with status-aware reminders before any window closes.",
       "category": "lifestyle",
       "homepage": "https://github.com/AnitaKirkovska/amex-perk-reminder",
       "license": "MIT",
-      "ref": "9570473bb3c56b39662dc631fe7171970d23bb66"
+      "ref": "48649b3e9f5c37153c7a8b2887a740eadd7c0b1e"
     }
   ]
 }
