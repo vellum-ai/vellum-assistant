@@ -32,6 +32,7 @@ import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useBookmarksSync } from "@/hooks/use-bookmarks-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
+import { useNotificationTapNavigation } from "@/hooks/use-notification-tap-navigation";
 import { usePushRegistration } from "@/hooks/use-push-registration";
 import { useSoundEffects } from "@/hooks/use-sound-effects";
 import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
@@ -135,6 +136,7 @@ export function RootLayout() {
   useFeatureFlagBusSync(assistantId, isAssistantActive);
   useNotificationIntentSync(assistantId);
   usePushRegistration(assistantId);
+  useNotificationTapNavigation();
   useSoundEffects(assistantId, isAssistantActive);
   useDocumentEditorSync();
   useBookmarksSync();
@@ -305,7 +307,8 @@ export function RootLayout() {
           keyboardOpen && visibleViewport
             ? `${visibleViewport.height + keyboardOffsetTop}px`
             : "100dvh",
-        paddingTop: keyboardOffsetTop > 0 ? `${keyboardOffsetTop}px` : undefined,
+        paddingTop:
+          keyboardOffsetTop > 0 ? `${keyboardOffsetTop}px` : undefined,
         paddingBottom: keyboardOpen
           ? "0px"
           : "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
@@ -322,7 +325,10 @@ export function RootLayout() {
       {!electron && !isPopout && !suppressStatusBanner ? (
         <StatusBanner placement="web" reserveTopSafeArea />
       ) : null}
-      <div className="flex min-w-0 flex-col overflow-hidden w-full" style={{ flex: "1 1 0%", minHeight: 0 }}>
+      <div
+        className="flex min-w-0 flex-col overflow-hidden w-full"
+        style={{ flex: "1 1 0%", minHeight: 0 }}
+      >
         <Outlet />
       </div>
 
