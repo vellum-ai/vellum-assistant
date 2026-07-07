@@ -148,6 +148,18 @@
       "category": "health",
       "homepage": "https://github.com/vellum-ai/fitness-companion",
       "license": "MIT"
+    },
+    {
+      "name": "motion-animations",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/motion-animations",
+        "ref": "09dd03adc8e921118eb327484e59b665248416d2"
+      },
+      "description": "Teaches the assistant to build polished UI animations with Motion (motion.dev) for React: animated product mockups, chat replays, typing effects, and staggered reveals, with a complete animated chat example included.",
+      "category": "creative",
+      "homepage": "https://github.com/vellum-ai/motion-animations",
+      "license": "MIT"
     }
   ]
 }
