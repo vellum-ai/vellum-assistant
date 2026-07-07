@@ -9,6 +9,7 @@
 import {
   batchGetMessages,
   getProfile,
+  GMAIL_API_BASE_URL,
   GMAIL_REQUIRED_SCOPES,
   listMessages,
 } from "../../messaging/providers/gmail/client.js";
@@ -84,6 +85,7 @@ async function fetchHistory(
   const resp = await connection.request({
     method: "GET",
     path: "/history",
+    baseUrl: GMAIL_API_BASE_URL,
     query,
   });
 

@@ -908,9 +908,33 @@ async function handleRequest({ body = {} }: RouteHandlerArgs) {
       : `Request returned HTTP ${response.status}. The OAuth token may be expired or revoked.\n\n` +
         `Run 'assistant oauth status ${b.provider}' to check connection status.\n` +
         `To reconnect, run 'assistant oauth connect --help'.`;
+  } else if (response.status === 404 && isHtmlResponse(response.headers)) {
+    // An HTML 404 (rather than a JSON API error) is the signature of a request
+    // reaching a valid host but a path that host does not serve — e.g. a
+    // relative path resolved against a base URL that points at the wrong
+    // product. Surface the resolved base so the caller can tell where the path
+    // landed, and steer them to an absolute URL for non-default services.
+    const resolvedBaseUrl =
+      baseUrl ?? providerRow.baseUrl ?? "(none configured)";
+    result.hint =
+      `Request returned HTTP ${response.status} with an HTML body, which usually means ` +
+      `the path does not exist on the base URL it resolved against.\n\n` +
+      `This request used base URL "${resolvedBaseUrl}" (relative paths are joined onto it). ` +
+      `If you meant a different service on this provider, pass an absolute URL ` +
+      `(e.g. https://host/full/path) so the host and full path are set explicitly.`;
   }
 
   return result;
+}
+
+/** True when the response's Content-Type header indicates an HTML body. */
+function isHtmlResponse(headers: Record<string, string>): boolean {
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === "content-type") {
+      return value.toLowerCase().includes("text/html");
+    }
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
