@@ -1,31 +1,32 @@
 /**
  * Normalization for secret values at ingestion points.
  *
- * Pasted credentials routinely carry invisible edge newlines — a trailing
- * `\n` from a terminal copy, a `\r\n` from a clipboard round-trip — which
- * are then stored verbatim and break downstream consumers with hard-to-debug
- * auth failures (e.g. a bearer token stored with a trailing `\n` producing
- * 401 "Invalid bearer token").
+ * Pasted credentials routinely carry invisible edge whitespace — a trailing
+ * newline from a terminal copy, a `\r\n` from a clipboard round-trip, stray
+ * spaces from a PDF copy — which is then stored verbatim and breaks
+ * downstream consumers with hard-to-debug auth failures (e.g. a bearer token
+ * stored with a trailing `\n` producing 401 "Invalid bearer token").
  *
  * The rules:
- *  - Trim ONLY carriage returns and line feeds, and only at the edges.
- *    Edge CR/LF is always a paste artifact: a newline cannot be typed into a
- *    single-line secret field. Edge spaces/tabs are preserved — the vault
- *    also stores passwords (e.g. for browser credential fill), and a real
- *    password may legitimately begin or end with a space.
+ *  - Trim ALL leading/trailing whitespace (spaces, tabs, `\r`, `\n`).
+ *    Deliberate decision: edge whitespace in stored secrets is not
+ *    supported. Paste artifacts with edge whitespace vastly outnumber
+ *    legitimately edge-spaced passwords, and most auth systems trim edge
+ *    whitespace themselves. If a real need for an edge-spaced secret ever
+ *    appears, add an explicit opt-out at that ingestion point — do not
+ *    weaken this default.
  *  - Never modify interior whitespace. The store holds multi-line secrets
  *    such as PEM private keys, where interior newlines are load-bearing.
+ *    Edge-trimming a PEM is harmless; touching its interior would corrupt it.
  */
 
-const EDGE_NEWLINES = /^[\r\n]+|[\r\n]+$/g;
-
 /**
- * Trim leading and trailing newline characters (`\r`, `\n`) from a secret
- * value. Spaces, tabs, and all interior whitespace are preserved.
+ * Trim leading and trailing whitespace (spaces, tabs, `\r`, `\n`, and other
+ * Unicode whitespace) from a secret value. Interior whitespace is preserved.
  * Idempotent: already-clean values are returned unchanged.
  */
 export function normalizeSecretValue(value: string): string {
-  return value.replace(EDGE_NEWLINES, "");
+  return value.trim();
 }
 
 /**

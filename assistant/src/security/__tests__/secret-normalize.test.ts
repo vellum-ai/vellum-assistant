@@ -37,16 +37,16 @@ describe("normalizeSecretValue", () => {
     );
   });
 
-  test("preserves leading and trailing spaces (passwords may need them)", () => {
-    expect(normalizeSecretValue(" hunter2 ")).toBe(" hunter2 ");
+  test("trims leading and trailing spaces (edge whitespace unsupported by design)", () => {
+    expect(normalizeSecretValue(" hunter2 ")).toBe("hunter2");
   });
 
-  test("preserves edge tabs", () => {
-    expect(normalizeSecretValue("\thunter2\t")).toBe("\thunter2\t");
+  test("trims edge tabs", () => {
+    expect(normalizeSecretValue("\thunter2\t")).toBe("hunter2");
   });
 
-  test("trims edge newlines but keeps adjacent edge spaces", () => {
-    expect(normalizeSecretValue(" hunter2 \r\n")).toBe(" hunter2 ");
+  test("trims mixed edge whitespace", () => {
+    expect(normalizeSecretValue(" hunter2 \r\n")).toBe("hunter2");
   });
 
   test("preserves interior whitespace in multi-line PEM keys", () => {
@@ -68,8 +68,8 @@ describe("normalizeSecretValue", () => {
     expect(normalizeSecretValue(once)).toBe(once);
   });
 
-  test("trims newline-only values to empty string", () => {
-    expect(normalizeSecretValue("\r\n\n")).toBe("");
+  test("trims whitespace-only values to empty string", () => {
+    expect(normalizeSecretValue("  \r\n\t ")).toBe("");
   });
 
   test("trims empty string to empty string", () => {
