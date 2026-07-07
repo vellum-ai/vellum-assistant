@@ -257,6 +257,7 @@ export const routeTree = [
                 { path: "voice", lazy: { Component: () => import("@/domains/settings/pages/voice-page").then((m) => m.VoicePage) } },
                 { path: "devices", lazy: { Component: () => import("@/domains/settings/pages/devices-page").then((m) => m.DevicesPage) } },
                 { path: "privacy", lazy: { Component: () => import("@/domains/settings/pages/privacy-page").then((m) => m.PrivacyPage) } },
+                { path: "security", lazy: { Component: () => import("@/domains/settings/security/security-page").then((m) => m.SecurityPage) } },
                 { path: "archive", lazy: { Component: () => import("@/domains/settings/pages/archive-page").then((m) => m.ArchivePage) } },
                 { path: "bookmarks", lazy: { Component: () => import("@/domains/settings/pages/bookmarks-page").then((m) => m.BookmarksPage) } },
                 { path: "billing", lazy: { Component: () => import("@/domains/settings/billing/billing-page").then((m) => m.BillingPage) } },

@@ -24,8 +24,12 @@ export function SettingsLayout() {
   const settingsDeveloperNav = useAssistantFeatureFlagStore.use.settingsDeveloperNav();
   const platformNotifications = useClientFeatureFlagStore.use.platformNotifications();
   const bookmarksEnabled = useClientFeatureFlagStore.use.bookmarks();
+  const accountMfaEnabled = useClientFeatureFlagStore.use.accountMfa();
   const platformGate = usePlatformGate({ platformHostedOnly: true });
-  const billingGate = usePlatformGate();
+  // The Vellum account exists independently of the active assistant's
+  // hosting, so account-level entries (billing, security) use the default
+  // gate — hidden only when the platform API is disabled entirely.
+  const accountGate = usePlatformGate();
   const { pathname } = useLocation();
   const navigate = useNavigate();
   // Show Log Out when a platform session exists, Log In otherwise.
@@ -41,7 +45,13 @@ export function SettingsLayout() {
         ) {
           return false;
         }
-        if (item.id === "billing" && billingGate !== "full") {
+        if (item.id === "billing" && accountGate !== "full") {
+          return false;
+        }
+        if (
+          item.id === "security" &&
+          (!accountMfaEnabled || accountGate === "gated")
+        ) {
           return false;
         }
         if (item.id === "bookmarks" && !bookmarksEnabled) {
@@ -61,7 +71,13 @@ export function SettingsLayout() {
         }
         return true;
       }),
-    [platformNotifications, platformGate, billingGate, bookmarksEnabled],
+    [
+      platformNotifications,
+      platformGate,
+      accountGate,
+      bookmarksEnabled,
+      accountMfaEnabled,
+    ],
   );
 
   const bottomItems = useMemo<SidebarItem[]>(() => {
