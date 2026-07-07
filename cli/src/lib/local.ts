@@ -573,14 +573,12 @@ function applyDaemonEnvOverrides(
     env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH =
       options.defaultWorkspaceConfigPath;
   }
-  // When the CLI launches CES as a sibling (CES_STANDALONE), pin the daemon to
-  // the exact socket the sibling binds so the two agree regardless of any stale
-  // CES_LOCAL_SOCKET inherited from the parent environment. The assistant then
-  // connects to the sibling instead of spawning its own CES.
-  if (isCesSiblingOptIn()) {
-    env.CES_STANDALONE = "1";
-    env.CES_LOCAL_SOCKET = resolveCesSocketPath(resources);
-  }
+  // Pin the daemon to the exact socket the sibling binds so the two agree
+  // regardless of any stale CES_LOCAL_SOCKET inherited from the parent
+  // environment. The assistant connects to the sibling instead of spawning
+  // its own CES.
+  env.CES_STANDALONE = "1";
+  env.CES_LOCAL_SOCKET = resolveCesSocketPath(resources);
   applyIpcSocketDirOverride(env);
 }
 
@@ -850,19 +848,9 @@ function resolveCesSocketPath(resources?: LocalInstanceResources): string {
 }
 
 /**
- * Whether the CLI should launch CES as an independent sibling process instead
- * of leaving the assistant to spawn it as an stdio child. Temporary opt-in
- * (`CES_STANDALONE=1`) while local CES converges onto the sibling model that
- * containerized homes already use.
- */
-function isCesSiblingOptIn(): boolean {
-  return process.env.CES_STANDALONE === "1";
-}
-
-/**
- * Launch the local CES sibling over a Unix socket (opted into via
- * `CES_STANDALONE=1`). No-op unless the opt-in is set, in which case the
- * assistant continues to spawn CES itself as today.
+ * Launch the local CES sibling over a Unix socket. The sibling model is now
+ * the default topology for local (non-containerized) instances, matching how
+ * containerized homes already run CES.
  *
  * The sibling runs with `CES_STANDALONE=1` so its lifecycle is anchored to
  * SIGTERM rather than stdin EOF, mirroring the gateway: a CLI-owned process
@@ -873,8 +861,6 @@ export async function startCes(
   watch: boolean = false,
   resources?: LocalInstanceResources,
 ): Promise<void> {
-  if (!isCesSiblingOptIn()) return;
-
   const vellumDir = resources
     ? join(resources.instanceDir, ".vellum")
     : join(homedir(), ".vellum");

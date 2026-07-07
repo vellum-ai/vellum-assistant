@@ -203,17 +203,17 @@ describe("health probes", () => {
 });
 
 // ---------------------------------------------------------------------------
-// 3. Local stdio transport not inherited by subprocesses
+// 3. Local socket transport not inherited by subprocesses
 // ---------------------------------------------------------------------------
 
 describe("local entrypoint transport isolation", () => {
-  test("main.ts serves over stdio or a Unix socket, never a TCP listener", () => {
+  test("main.ts serves over a Unix socket, never stdio or a TCP listener", () => {
     const src = readFileSync(resolve(__dirname, "..", "main.ts"), "utf-8");
-    // Serves the stdio-child transport (default mode).
-    expect(src).toMatch(/process\.stdin/);
-    expect(src).toMatch(/process\.stdout/);
-    // Standalone mode (CES_STANDALONE=1) listens on a Unix socket path only —
-    // never a numeric TCP port — and never opens an HTTP server.
+    // Socket transport only — no stdio-child transport.
+    expect(src).not.toMatch(/process\.stdin/);
+    expect(src).not.toMatch(/process\.stdout/);
+    // Listens on a Unix socket path only — never a numeric TCP port — and
+    // never opens an HTTP server.
     expect(src).not.toMatch(/Bun\.serve\(/);
     expect(src).not.toMatch(/\.listen\(\d+/);
   });
