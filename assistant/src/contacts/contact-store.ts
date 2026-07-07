@@ -789,8 +789,7 @@ export function mergeContactMirror(params: {
 
 /**
  * Full identity-mirror upsert for the gateway's `contacts_mirror_upsert_full`
- * op — the typed replacement for the gateway's raw dual-write SQL. One
- * transaction; semantics are byte-faithful to the raw writes it replaces:
+ * op. One transaction:
  *
  * - Existing contact: sparse omit-to-preserve UPDATE — only provided fields
  *   change (a partial upsert can't clobber notes/contact_type or revert a

@@ -178,10 +178,9 @@ const UpsertFullParamsSchema = z.object({
 });
 
 /**
- * Full contact + channels identity-mirror upsert — the typed replacement for
- * the gateway's raw dual-write (`dualWriteContactToAssistantDb`). One daemon
- * transaction; sparse omit-to-preserve update, slug-resolved user_file on
- * create, assistant_contact_metadata upsert, and channel conflict-skip /
+ * Full contact + channels identity-mirror upsert. One daemon transaction;
+ * sparse omit-to-preserve update, slug-resolved user_file on create,
+ * assistant_contact_metadata upsert, and channel conflict-skip /
  * gateway-id-adoption sync (see `upsertContactMirrorFull`).
  */
 export function handleContactsMirrorUpsertFull({
