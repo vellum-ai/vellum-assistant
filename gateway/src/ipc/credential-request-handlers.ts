@@ -141,10 +141,12 @@ export function createCredentialRequest(
     "Credential request minted",
   );
 
+  // The token rides in the URL FRAGMENT: browsers never send fragments over
+  // HTTP, so it cannot land in reverse-proxy/access logs or Referer headers.
   return {
     ok: true,
     token,
-    url: `${publicBaseUrl}/assistant/credentials/enter?token=${encodeURIComponent(token)}`,
+    url: `${publicBaseUrl}/assistant/credentials/enter#token=${encodeURIComponent(token)}`,
     expiresAt: row.expiresAt,
   };
 }
