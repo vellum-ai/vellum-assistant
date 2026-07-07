@@ -1282,9 +1282,14 @@ describe("Batched drain", () => {
     await waitForPendingRun(2);
 
     // Two persisted user rows in the DB (one per batched message), each with
-    // its own imageSourcePaths metadata keyed by the right filename.
+    // its own imageSourcePaths metadata keyed by the right filename. Attachment
+    // media is written as a workspace reference via a follow-up
+    // updateMessageContent (not the initial addMessage), so identify the rows by
+    // their imageSourcePaths metadata rather than inline image content.
     const userRows = capturedAddMessages.filter(
-      (m) => m.role === "user" && m.content.includes('"image"'),
+      (m) =>
+        m.role === "user" &&
+        (m.metadata as Record<string, unknown> | undefined)?.imageSourcePaths,
     );
     expect(userRows).toHaveLength(2);
     const pathsA = (userRows[0].metadata as Record<string, unknown>)
