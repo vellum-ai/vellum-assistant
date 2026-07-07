@@ -263,6 +263,13 @@ export interface ConversationConstructorOptions {
    * access; non-native providers get nothing. Defaults to false.
    */
   enableNativeWebSearch?: boolean;
+  /**
+   * For subagent conversations, the id of the parent that spawned this one.
+   * Set once here (there is no setter) so it is the authoritative, non-writable
+   * source for {@link Conversation.isSubagent} and for routing child → parent
+   * notifications. Omitted for top-level conversations.
+   */
+  parentConversationId?: string;
 }
 
 export class Conversation {
@@ -356,16 +363,16 @@ export class Conversation {
    */
   currentCallSite?: LLMCallSite;
   /** @internal */ hasNoClient = false;
-  /** @internal */ isSubagent = false;
   /**
-   * For subagent conversations, the id of the parent that spawned this one.
-   * Set once at spawn from the trusted spawn config, so it is the authoritative
-   * (non-writable) source for routing child → parent notifications — as opposed
-   * to the durable subagent record, which lives under the sandbox workspace and
-   * could be tampered with by a subagent running sandbox tools.
+   * For subagent conversations, the id of the parent that spawned this one; set
+   * once at construction and never reassigned. `undefined` for top-level
+   * conversations. It is the single source of truth for {@link isSubagent} and
+   * the authoritative (non-writable) routing target for child → parent
+   * notifications — as opposed to the durable subagent record, which lives under
+   * the sandbox workspace and could be tampered with by a sandbox-tool subagent.
    * @internal
    */
-  parentConversationId?: string;
+  readonly parentConversationId?: string;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
@@ -654,6 +661,7 @@ export class Conversation {
     const { maxTokens, speedOverride, cacheTtl, modelOverride } = options ?? {};
     const enableNativeWebSearch = options?.enableNativeWebSearch ?? false;
     this.conversationId = conversationId;
+    this.parentConversationId = options?.parentConversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
     this.workingDir = workingDir;
@@ -1409,12 +1417,9 @@ export class Conversation {
     this.enabledPlugins = plugins;
   }
 
-  setIsSubagent(value: boolean): void {
-    this.isSubagent = value;
-  }
-
-  setParentConversationId(parentConversationId: string): void {
-    this.parentConversationId = parentConversationId;
+  /** True when this conversation was spawned as a subagent (has a parent). */
+  get isSubagent(): boolean {
+    return this.parentConversationId !== undefined;
   }
 
   /**

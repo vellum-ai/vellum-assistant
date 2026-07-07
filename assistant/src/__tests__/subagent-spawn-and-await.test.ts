@@ -82,8 +82,7 @@ class FakeConversation {
     // wrappedSendToClient tap is the one the deltas flow through.
     this.sendToClient = sendToClient;
   }
-  setIsSubagent() {}
-  setParentConversationId() {}
+
   setTrustContext() {}
   setAuthContext() {}
   getAuthContext() {

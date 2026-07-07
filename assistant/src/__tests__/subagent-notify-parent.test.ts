@@ -61,7 +61,7 @@ mock.module("../daemon/conversation-registry.js", () => ({
   findConversationOrSubagent: (id: string) => {
     const live = liveSubagents.get(id);
     return live
-      ? { isSubagent: true, parentConversationId: live.parentConversationId }
+      ? { parentConversationId: live.parentConversationId }
       : undefined;
   },
 }));

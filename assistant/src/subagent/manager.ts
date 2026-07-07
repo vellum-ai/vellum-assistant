@@ -489,6 +489,9 @@ export class SubagentManager {
       {
         maxTokens,
         cacheTtl: "5m",
+        // Records the parent at construction; drives isSubagent and notify
+        // routing from non-writable in-process state.
+        parentConversationId: config.parentConversationId,
         // The advisor consult runs tool-less for CLIENT tools but should ground
         // its guidance with provider-native web search when the resolved
         // provider supports it. This is a server tool the provider runs itself,
@@ -501,8 +504,6 @@ export class SubagentManager {
     // Mark conversation as having no direct client — it routes through parent.
     // This ensures interactive prompts (host attachment reads) fail fast.
     conversation.updateClient(wrappedSendToClient, true);
-    conversation.setIsSubagent(true);
-    conversation.setParentConversationId(config.parentConversationId);
     // Subagents are created as background conversations (see the
     // `bootstrapConversation` call above) and never call `loadFromDb`, so cache
     // the type on the live conversation directly for the runtime-assembly path.
