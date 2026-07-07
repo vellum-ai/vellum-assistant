@@ -1,5 +1,12 @@
 import { lazy } from "react";
-import { Circle, CircleCheck, CircleX, Clock, Loader2 } from "lucide-react";
+import {
+  Circle,
+  CircleAlert,
+  CircleCheck,
+  CircleX,
+  Clock,
+  Loader2,
+} from "lucide-react";
 
 import { CardSurfaceDataSchema } from "@vellumai/assistant-api";
 import type { Surface } from "@/domains/chat/types/types";
@@ -87,21 +94,27 @@ function normalizedTitle(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function StatusBadge({ status }: { status: string | undefined }) {
-  const { label, colorClass } = getStatusConfig(status);
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-body-small-default",
-        colorClass,
-      )}
-      style={{
-        backgroundColor: "color-mix(in srgb, currentColor 15%, transparent)",
-      }}
-    >
-      {label}
-    </span>
-  );
+/**
+ * Status glyph shown left of the task title. Replaces the former text badge
+ * ("Completed" / "In Progress" pill) per Figma review (node 6638-6732): a
+ * green check-in-circle for completed, a red exclamation-in-circle for
+ * failed, and the existing spinner while in progress. Pending/waiting render
+ * no glyph — a bare title reads cleaner than a placeholder circle.
+ */
+function TitleStatusIcon({ status }: { status: string | undefined }) {
+  const { colorClass } = getStatusConfig(status);
+  const iconClass = cn("h-4 w-4 shrink-0", colorClass);
+
+  switch (status) {
+    case "completed":
+      return <CircleCheck className={iconClass} />;
+    case "failed":
+      return <CircleAlert className={iconClass} />;
+    case "in_progress":
+      return <Loader2 className={cn(iconClass, "animate-spin")} />;
+    default:
+      return null;
+  }
 }
 
 function StepIcon({ status }: { status: string | undefined }) {
@@ -183,36 +196,42 @@ function TaskStepList({
         const status = effectiveStepStatus(step.status, taskCompleted);
         const showDetailOnRight = status === "in_progress" && !!step.detail;
         return (
-          <div
-            key={step.id || index}
-            className="flex items-center gap-2.5 py-2 first:pt-0 last:pb-0"
-          >
-            <span className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-[var(--tag-bg-neutral)] px-1.5 text-label-medium-default tabular-nums text-[var(--content-tertiary)]">
-              {index + 1}
-            </span>
-            <div className="min-w-0 flex-1">
-              <span className="text-body-medium-default text-[var(--content-strong)]">
-                {step.label}
+          // Figma review (node 6638-6732): the number badge and status icon
+          // must center against the *title line*, not the label+detail block —
+          // so the detail lives outside the `items-center` row, indented past
+          // the 24px badge + 10px gap.
+          <div key={step.id || index} className="py-2 first:pt-0 last:pb-0">
+            <div className="flex items-center gap-2.5">
+              <span className="inline-flex h-6 min-w-6 shrink-0 items-center justify-center rounded-md bg-[var(--tag-bg-neutral)] px-1.5 text-label-medium-default tabular-nums text-[var(--content-tertiary)]">
+                {index + 1}
               </span>
-              {step.detail && !showDetailOnRight && (
-                <p className="text-body-small-default text-[var(--content-tertiary)]">
-                  {step.detail}
-                </p>
-              )}
-            </div>
-            {showDetailOnRight && (
-              <div className="h-4 min-w-0 max-w-[50%] overflow-hidden">
-                <span
-                  className="block truncate text-body-small-default leading-[16px] text-[var(--content-tertiary)]"
-                  title={step.detail!}
-                >
-                  {step.detail}
+              <div className="min-w-0 flex-1">
+                {/* `block` so the label's own 18px token line-height governs
+                  wrapped lines instead of the parent block's taller strut —
+                  Figma review: "Title line height is too large". */}
+                <span className="block text-body-medium-default text-[var(--content-strong)]">
+                  {step.label}
                 </span>
               </div>
-            )}
-            <div className="shrink-0">
-              <StepIcon status={status} />
+              {showDetailOnRight && (
+                <div className="h-4 min-w-0 max-w-[50%] overflow-hidden">
+                  <span
+                    className="block truncate text-body-small-default leading-[16px] text-[var(--content-tertiary)]"
+                    title={step.detail!}
+                  >
+                    {step.detail}
+                  </span>
+                </div>
+              )}
+              <div className="shrink-0">
+                <StepIcon status={status} />
+              </div>
             </div>
+            {step.detail && !showDetailOnRight && (
+              <p className="pl-[34px] text-body-small-default text-[var(--content-tertiary)]">
+                {step.detail}
+              </p>
+            )}
           </div>
         );
       })}
@@ -252,13 +271,21 @@ export function CardSurface({ surface, onAction }: CardSurfaceProps) {
     const steps = templateData.steps as TaskStepItem[];
 
     return (
-      <SurfaceContainer surface={surface} onAction={onAction} hideTitle>
+      // `max-md:mb-2` — Figma review (node 6638-6732): "4-8px more margin"
+      // below the task card before the next transcript block on mobile;
+      // stacks on the transcript column's `gap-2`.
+      <SurfaceContainer
+        surface={surface}
+        onAction={onAction}
+        hideTitle
+        className="max-md:mb-2"
+      >
         <div>
-          <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <TitleStatusIcon status={status} />
             <span className="text-title-small text-[var(--content-strong)]">
               {title}
             </span>
-            <StatusBadge status={status} />
           </div>
           <TaskStepList steps={steps} taskCompleted={status === "completed"} />
         </div>

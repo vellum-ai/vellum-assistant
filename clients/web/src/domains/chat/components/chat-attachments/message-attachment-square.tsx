@@ -22,6 +22,7 @@ import {
     middleTruncate,
     type AttachmentIconKind,
 } from "@/domains/chat/components/chat-attachments/utils";
+import { useIsNativePlatform } from "@/runtime/native-auth";
 
 interface MessageAttachmentSquareProps {
   filename: string;
@@ -66,6 +67,7 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
   const isClickable = onPreview != null;
   const displayName = middleTruncate(filename, 18);
   const displaySize = formatAttachmentSize(sizeBytes);
+  const isNative = useIsNativePlatform();
 
   const handleDownloadClick = useCallback(
     (e: MouseEvent) => {
@@ -127,12 +129,16 @@ export const MessageAttachmentSquare: FC<MessageAttachmentSquareProps> = ({
       >
         {displayName}
       </Typography>
-      <Typography
-        variant="label-small-default"
-        className="text-[var(--content-disabled)]"
-      >
-        {displaySize}
-      </Typography>
+      {/* iOS-only simplification (Figma review, node 6638-6731): the file
+          size adds noise on the narrow native layout. Web/electron keep it. */}
+      {!isNative && (
+        <Typography
+          variant="label-small-default"
+          className="text-[var(--content-disabled)]"
+        >
+          {displaySize}
+        </Typography>
+      )}
     </div>
   );
 };
