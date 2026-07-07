@@ -4,10 +4,13 @@ import type { KeyboardEvent } from "react";
 import { PluginIcon } from "@/domains/intelligence/components/plugins/plugin-icon";
 import { UpdateAvailableBadge } from "@/domains/intelligence/components/plugins/update-available-badge";
 import type { PluginListItem } from "@/domains/intelligence/plugins/types";
+import { usePluginIconSrc } from "@/domains/intelligence/plugins/use-plugin-icon-src";
 import type { PluginDrift } from "@/domains/intelligence/use-plugin-drift";
 import { Button, Card, Tag } from "@vellumai/design-library";
 
 interface PluginListRowProps {
+  /** Owning assistant — used to fetch the bundled icon through the daemon client. */
+  assistantId: string;
   item: PluginListItem;
   /** Inspect result for the installed copy; owned by the tab, passed in so
    *  the row stays presentational. Gates the upgrade affordance. */
@@ -27,6 +30,7 @@ interface PluginListRowProps {
  * `stopPropagation`s so it never also selects the row.
  */
 export function PluginListRow({
+  assistantId,
   item,
   drift,
   onSelect,
@@ -43,6 +47,13 @@ export function PluginListRow({
   // it happens on the detail page (the row is not interactive).
   const showEnablement = item.enabled !== undefined;
   const dimmed = item.enabled === false;
+
+  const iconSrc = usePluginIconSrc(
+    assistantId,
+    item.name,
+    item.hasIcon,
+    item.iconVersion,
+  );
 
   const handleRowKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
     // Ignore key events bubbling up from a focused inline action button —
@@ -66,6 +77,8 @@ export function PluginListRow({
         <PluginIcon
           size="sm"
           external={item.external}
+          icon={item.icon}
+          iconSrc={iconSrc}
           className={dimmed ? "opacity-50" : undefined}
         />
         <div className="min-w-0 flex-1">
@@ -109,7 +122,9 @@ export function PluginListRow({
           {item.issues && item.issues.length > 0 ? (
             <p
               className="mt-1 truncate text-body-small-default"
-              style={{ color: "var(--content-warning, var(--content-tertiary))" }}
+              style={{
+                color: "var(--content-warning, var(--content-tertiary))",
+              }}
               title={item.issues.join("; ")}
             >
               {item.issues[0]}

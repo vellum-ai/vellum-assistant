@@ -1,12 +1,80 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  activationZonePx,
   commitThresholdPx,
+  computeDrawerOffset,
   computeVisualOffset,
   decideDirection,
   isCommitted,
+  isEditableTarget,
   isVerticalEscape,
+  shouldArmAt,
 } from "@/hooks/use-edge-swipe";
+
+describe("activationZonePx", () => {
+  test("spans the left half of the viewport", () => {
+    expect(activationZonePx(390)).toBe(195);
+    expect(activationZonePx(1000)).toBe(500);
+  });
+});
+
+describe("isEditableTarget", () => {
+  test("is true for a text field and its descendants", () => {
+    const textarea = document.createElement("textarea");
+    expect(isEditableTarget(textarea)).toBe(true);
+    expect(isEditableTarget(document.createElement("input"))).toBe(true);
+  });
+
+  test("is true inside a contenteditable region", () => {
+    const editor = document.createElement("div");
+    editor.setAttribute("contenteditable", "true");
+    const child = document.createElement("span");
+    editor.appendChild(child);
+    document.body.appendChild(editor);
+    expect(isEditableTarget(child)).toBe(true);
+    editor.remove();
+  });
+
+  test("is false for non-editable content and explicit contenteditable=false", () => {
+    expect(isEditableTarget(document.createElement("div"))).toBe(false);
+    const readOnly = document.createElement("div");
+    readOnly.setAttribute("contenteditable", "false");
+    expect(isEditableTarget(readOnly)).toBe(false);
+    expect(isEditableTarget(null)).toBe(false);
+  });
+});
+
+describe("shouldArmAt", () => {
+  test("arms anywhere in the left half off editable surfaces", () => {
+    expect(shouldArmAt(150, 390, false)).toBe(true);
+    expect(shouldArmAt(194, 390, false)).toBe(true);
+  });
+
+  test("does not arm past the left half", () => {
+    expect(shouldArmAt(196, 390, false)).toBe(false);
+  });
+
+  test("stays edge-only over editable surfaces", () => {
+    // Deliberate edge swipe still arms over an editor…
+    expect(shouldArmAt(20, 390, true)).toBe(true);
+    // …but a mid-band start on an editable surface does not.
+    expect(shouldArmAt(150, 390, true)).toBe(false);
+  });
+});
+
+describe("computeDrawerOffset", () => {
+  test("anchors the panel's right edge to the finger's absolute position", () => {
+    // At x, a full-width panel resting closed at -viewportWidth is revealed to
+    // width x, so its translateX is x - viewportWidth.
+    expect(computeDrawerOffset(150, 390)).toBe(-240);
+    expect(computeDrawerOffset(390, 390)).toBe(0);
+  });
+
+  test("never exceeds fully open (clamps at 0)", () => {
+    expect(computeDrawerOffset(500, 390)).toBe(0);
+  });
+});
 
 describe("commitThresholdPx", () => {
   test("uses the fixed px ceiling on wide viewports", () => {
