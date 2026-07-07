@@ -13,29 +13,29 @@
  */
 
 import { getLogger } from "../../util/logger.js";
+import { isHighSurrogate } from "../../util/unicode.js";
 import type { StreamReadTimeouts } from "../stream-read.js";
+import {
+  DEFAULT_FIRST_CHUNK_TIMEOUT_MS,
+  DEFAULT_IDLE_TIMEOUT_MS,
+} from "../stream-read.js";
 
 const log = getLogger("xai-tts-socket");
 
 /** Default timeout (ms) for the WebSocket connection handshake. */
 const DEFAULT_CONNECT_TIMEOUT_MS = 10_000;
 
-/** Stall-timeout defaults (ms), matching `stream-read.ts`. */
-const DEFAULT_FIRST_CHUNK_TIMEOUT_MS = 10_000;
-const DEFAULT_IDLE_TIMEOUT_MS = 5_000;
-
 /** Maximum characters per `text.delta` frame, per xAI docs. */
 const MAX_TEXT_DELTA_CHARS = 15_000;
 
 /**
  * Minimal structural WebSocket interface so tests can substitute a mock.
- * Intentionally duplicated from the STT adapter (`xai-realtime.ts`) to
- * keep tts/ free of a cross-subsystem dependency.
+ * Trimmed to the surface this module actually uses; kept local so tts/
+ * stays free of a cross-subsystem dependency on the STT adapter.
  */
 interface WsLike {
-  readonly readyState: number;
-  send(data: string | ArrayBufferLike | ArrayBuffer | Uint8Array): void;
-  close(code?: number, reason?: string): void;
+  send(data: string): void;
+  close(): void;
   addEventListener(type: "open", listener: () => void): void;
   addEventListener(
     type: "close",
@@ -198,13 +198,17 @@ export function synthesizeOverXaiTtsSocket(
       }
       try {
         const text = options.text;
-        for (let offset = 0; offset < text.length; offset += MAX_TEXT_DELTA_CHARS) {
+        let offset = 0;
+        while (offset < text.length) {
+          let end = Math.min(offset + MAX_TEXT_DELTA_CHARS, text.length);
+          // Never split a surrogate pair across delta frames.
+          if (end < text.length && isHighSurrogate(text.charCodeAt(end - 1))) {
+            end -= 1;
+          }
           ws.send(
-            JSON.stringify({
-              type: "text.delta",
-              delta: text.slice(offset, offset + MAX_TEXT_DELTA_CHARS),
-            }),
+            JSON.stringify({ type: "text.delta", delta: text.slice(offset, end) }),
           );
+          offset = end;
         }
         ws.send(JSON.stringify({ type: "text.done" }));
       } catch (err) {
@@ -224,11 +228,18 @@ export function synthesizeOverXaiTtsSocket(
       receivedAnyFrame = true;
       armStallTimer();
 
-      if (typeof ev.data !== "string") {return;}
+      let raw: string;
+      if (typeof ev.data === "string") {
+        raw = ev.data;
+      } else if (ev.data instanceof ArrayBuffer || ArrayBuffer.isView(ev.data)) {
+        raw = new TextDecoder().decode(ev.data);
+      } else {
+        return;
+      }
 
       let frame: XaiTtsFrame;
       try {
-        frame = JSON.parse(ev.data) as XaiTtsFrame;
+        frame = JSON.parse(raw) as XaiTtsFrame;
       } catch {
         log.debug("Dropped non-JSON xAI TTS frame");
         return;
@@ -241,7 +252,12 @@ export function synthesizeOverXaiTtsSocket(
           const chunk = Buffer.from(frame.delta, "base64");
           if (chunk.byteLength === 0) {return;}
           chunks.push(chunk);
-          onChunk?.(chunk);
+          try {
+            onChunk?.(chunk);
+          } catch (err) {
+            // Propagate sink failures like readChunkedBody: fail the session.
+            fail(err);
+          }
           return;
         }
 
