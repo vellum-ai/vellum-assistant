@@ -2,7 +2,12 @@
  * Tests for guardian-bootstrap guardian lookups
  * (findVellumGuardian + findGuardianForChannelActor), which read the gateway
  * DB directly, plus the resolve-or-mint path in resolveOrCreateVellumGuardian
- * (via ensureVellumGuardianBinding / bootstrapGuardian).
+ * (via ensureVellumGuardianBinding / bootstrapGuardian) and its divergent
+ * re-mint guard (evidence of a prior guardian refuses the implicit mint).
+ *
+ * The guardian-integrity reporter is silenced/observed via its test-only
+ * overrides, and the integrity cache is busted between tests — same seam
+ * conventions as the guardian-integrity test trio (no mock.module).
  *
  * Guardian rows are seeded ONLY in the gateway DB. By default the assistant
  * DB proxy is swapped for a backend that throws, proving the lookups never
@@ -20,6 +25,7 @@ import {
   expect,
   beforeAll,
   beforeEach,
+  afterEach,
   afterAll,
   mock,
 } from "bun:test";
@@ -63,14 +69,26 @@ import {
   findGuardianForChannelActor,
   ensureVellumGuardianBinding,
   bootstrapGuardian,
+  VellumGuardianMintRefusedError,
 } from "../auth/guardian-bootstrap.js";
+import { bustGuardianIntegrityCache } from "../auth/guardian-integrity.js";
 import { initSigningKey } from "../auth/token-service.js";
 import {
   initGatewayDb,
   getGatewayDb,
   resetGatewayDb,
 } from "../db/connection.js";
-import { contacts, contactChannels } from "../db/schema.js";
+import {
+  contacts,
+  contactChannels,
+  actorTokenRecords,
+  actorRefreshTokenRecords,
+} from "../db/schema.js";
+import {
+  resetGuardianIntegrityReporterForTesting,
+  setGuardianIntegrityReporterOverridesForTesting,
+} from "../guardian-integrity-reporter.js";
+import { seedActorToken, seedContact } from "./helpers/contact-fixtures.js";
 
 // Initialize signing key so bootstrapGuardian's JWT minting works.
 initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long"));
@@ -147,11 +165,36 @@ beforeAll(async () => {
   await initGatewayDb();
 });
 
+// Captured missing-guardian reporter detail payloads (via the log override).
+const reportCalls: Record<string, unknown>[] = [];
+
 beforeEach(() => {
   const db = getGatewayDb();
   db.delete(contactChannels).run();
   db.delete(contacts).run();
+  // Token rows are guardian-integrity evidence; bootstrapGuardian tests mint
+  // them, so clear between tests to keep the evidence signals deterministic.
+  db.delete(actorTokenRecords).run();
+  db.delete(actorRefreshTokenRecords).run();
+  bustGuardianIntegrityCache();
   assistantBackend = throwingBackend;
+  reportCalls.length = 0;
+  resetGuardianIntegrityReporterForTesting();
+  setGuardianIntegrityReporterOverridesForTesting({
+    fetchImpl: async () => new Response("{}"),
+    mintToken: () => "svc-token",
+    baseUrl: "http://127.0.0.1:7821",
+    log: {
+      error: (detail) => {
+        reportCalls.push(detail);
+      },
+      warn: () => {},
+    },
+  });
+});
+
+afterEach(() => {
+  resetGuardianIntegrityReporterForTesting();
 });
 
 afterAll(() => {
@@ -326,6 +369,7 @@ describe("resolve-or-mint (resolveOrCreateVellumGuardian)", () => {
 
     expect(result.guardianPrincipalId).toBe("principal-existing");
     expect(result.isNew).toBe(false);
+    expect(result.mintedOverPriorEvidence).toBe(false);
     expect(result.accessToken).toBeTruthy();
     expect(result.refreshToken).toBeTruthy();
   });
@@ -340,5 +384,89 @@ describe("resolve-or-mint (resolveOrCreateVellumGuardian)", () => {
 
     expect(result.guardianPrincipalId).toMatch(/^vellum-principal-/);
     expect(result.isNew).toBe(true);
+    expect(result.mintedOverPriorEvidence).toBe(false);
+  });
+
+  test("startup backfill refuses to mint over contact evidence and fires the reporter", async () => {
+    seedContact({ id: "invited-contact" });
+
+    // Throwing assistant backend stays installed: the refusal must happen
+    // before any mint/mirror write. The rejection is an ordinary Error —
+    // post-assistant-ready wraps the backfill in try/catch, so boot
+    // continues degraded instead of crashing.
+    await expect(ensureVellumGuardianBinding()).rejects.toBeInstanceOf(
+      VellumGuardianMintRefusedError,
+    );
+
+    expect(gatewayVellumGuardians()).toHaveLength(0);
+    const contactRows = getGatewayDb().select().from(contacts).all();
+    expect(contactRows).toHaveLength(1); // no new principal row minted
+    expect(reportCalls).toEqual([
+      { has_contacts: true, has_actor_tokens: false },
+    ]);
+  });
+
+  test("startup backfill refuses to mint over actor-token evidence (guardian rows lost)", async () => {
+    seedActorToken();
+
+    await expect(ensureVellumGuardianBinding()).rejects.toBeInstanceOf(
+      VellumGuardianMintRefusedError,
+    );
+
+    expect(gatewayVellumGuardians()).toHaveLength(0);
+    expect(getGatewayDb().select().from(contacts).all()).toHaveLength(0);
+    expect(reportCalls).toEqual([
+      { has_contacts: false, has_actor_tokens: true },
+    ]);
+  });
+
+  test("refuses when a guardian contact exists but the vellum binding is inactive — no missing-guardian report", async () => {
+    seedGuardianChannel({
+      type: "vellum",
+      address: "vellum-principal-stale",
+      status: "revoked",
+      principalId: "principal-stale",
+    });
+
+    await expect(ensureVellumGuardianBinding()).rejects.toBeInstanceOf(
+      VellumGuardianMintRefusedError,
+    );
+
+    // Integrity state is "ok" (a guardian row exists), so the
+    // missing-guardian reporter stays quiet; the refusal is still logged.
+    expect(reportCalls).toHaveLength(0);
+  });
+
+  test("startup backfill recovers once the guardian is re-seeded", async () => {
+    seedActorToken();
+    await expect(ensureVellumGuardianBinding()).rejects.toBeInstanceOf(
+      VellumGuardianMintRefusedError,
+    );
+
+    seedGuardianChannel({
+      type: "vellum",
+      address: "vellum-principal-reseeded",
+      principalId: "principal-reseeded",
+    });
+
+    expect(await ensureVellumGuardianBinding()).toBe("principal-reseeded");
+  });
+
+  test("bootstrapGuardian (guardian init) mints over evidence with the returned flag set", async () => {
+    assistantBackend = makeAssistantBackend();
+    seedContact({ id: "invited-contact" });
+
+    const result = await bootstrapGuardian({
+      platform: "macos",
+      deviceId: "device-1",
+    });
+
+    expect(result.guardianPrincipalId).toMatch(/^vellum-principal-/);
+    expect(result.isNew).toBe(true);
+    expect(result.mintedOverPriorEvidence).toBe(true);
+    expect(gatewayVellumGuardians()).toHaveLength(1);
+    // The sanctioned recovery path warns locally; it is not a
+    // missing-guardian integrity report.
+    expect(reportCalls).toHaveLength(0);
   });
 });

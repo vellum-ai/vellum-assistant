@@ -39,6 +39,12 @@ const {
   resetRemoteWebPairingChallengesForTests,
   setRemoteWebPairingChallengeNowForTests,
 } = await import("../remote-web/pairing-challenge-store.js");
+const { bustGuardianIntegrityCache } =
+  await import("../auth/guardian-integrity.js");
+const {
+  resetGuardianIntegrityReporterForTesting,
+  setGuardianIntegrityReporterOverridesForTesting,
+} = await import("../guardian-integrity-reporter.js");
 
 const GUARDIAN_ID = "guardian-001";
 const PUBLIC_BASE_URL = "https://paired.example.com";
@@ -603,6 +609,76 @@ describe("remote web pairing token exchange", () => {
     expect(setCookies(retry)).toHaveLength(1);
     expect(activeTokens()).toHaveLength(1);
     expect(activeRefreshTokens()).toHaveLength(1);
+  });
+
+  test("guardian mint refusal fails closed with 503 and releases the approved code", async () => {
+    const challenge = createRemoteWebPairingChallenge(PUBLIC_BASE_URL);
+    expect(approveRemoteWebPairingChallenge(challenge.userCode).status).toBe(
+      "approved",
+    );
+
+    // Guardian rows lost, but a residual non-guardian contact is evidence of
+    // prior onboarding — the fallback mint must refuse rather than diverge.
+    clearGatewayGuardian();
+    const now = Date.now();
+    getGatewayDb()
+      .insert(contacts)
+      .values({
+        id: "contact-invited",
+        displayName: "invited",
+        role: "contact",
+        createdAt: now,
+        updatedAt: now,
+      })
+      .run();
+    bustGuardianIntegrityCache();
+    setGuardianIntegrityReporterOverridesForTesting({
+      fetchImpl: async () => new Response("{}"),
+      mintToken: () => "svc-token",
+      baseUrl: "http://127.0.0.1:7821",
+      log: { error: () => {}, warn: () => {} },
+    });
+
+    try {
+      const res = await handleRemoteWebPairingToken(
+        makeTokenRequest({ deviceCode: challenge.deviceCode }),
+      );
+
+      expect(res.status).toBe(503);
+      expect(await res.json()).toEqual({
+        error: {
+          code: "GUARDIAN_REPAIR_REQUIRED",
+          message:
+            "gateway guardian binding is missing over evidence of prior onboarding — repair via guardian init, then retry pairing",
+        },
+      });
+      expect(setCookies(res)).toHaveLength(0);
+      expect(activeTokens()).toHaveLength(0);
+      expect(activeRefreshTokens()).toHaveLength(0);
+      // No divergent principal was minted.
+      expect(
+        getGatewayDb()
+          .select()
+          .from(contacts)
+          .where(eq(contacts.role, "guardian"))
+          .all(),
+      ).toHaveLength(0);
+      expect(getGatewayDb().select().from(contacts).all()).toHaveLength(1);
+      // The approved code was released, so pairing succeeds after repair.
+      expect(
+        getRemoteWebPairingChallengeForTests(challenge.userCode)?.status,
+      ).toBe("approved");
+
+      seedGatewayGuardian();
+      const retry = await handleRemoteWebPairingToken(
+        makeTokenRequest({ deviceCode: challenge.deviceCode }),
+      );
+      expect(retry.status).toBe(200);
+      expect(activeTokens()).toHaveLength(1);
+    } finally {
+      resetGuardianIntegrityReporterForTesting();
+      bustGuardianIntegrityCache();
+    }
   });
 
   test("expired device code does not mint credentials", async () => {
