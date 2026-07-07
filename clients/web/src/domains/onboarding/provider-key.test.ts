@@ -215,7 +215,7 @@ describe("pending provider key", () => {
         label: "Balanced",
         description: "Good balance of quality, cost, and speed",
         maxTokens: 64_000,
-        contextWindow: { maxInputTokens: 1_000_000 },
+        contextWindow: { maxInputTokens: 200_000 },
         effort: "high",
         thinking: { enabled: true, streamThinking: true },
       },

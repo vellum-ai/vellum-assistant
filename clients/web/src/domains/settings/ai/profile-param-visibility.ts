@@ -155,6 +155,7 @@ const TOP_P_OPENAI_COMPAT_PROVIDERS = new Set([
   "ollama",
   "openrouter",
   "together",
+  "vercel-ai-gateway",
 ]);
 
 /**
@@ -176,7 +177,9 @@ export function resolveProfileParamVisibility(
   const providerId = provider.toLowerCase();
   const modelId = model.toLowerCase();
   const usesAnthropicWire =
-    providerId === "anthropic" || (providerId === "openrouter" && isVendorPrefixedAnthropicModel(modelId));
+    providerId === "anthropic" ||
+    ((providerId === "openrouter" || providerId === "vercel-ai-gateway") &&
+      isVendorPrefixedAnthropicModel(modelId));
   const supportsThinkingResult = modelSupportsThinking(providerId, modelId);
 
   return {
@@ -187,10 +190,12 @@ export function resolveProfileParamVisibility(
     verbosity: providerId === "openai" && isOpenAIGPT5Family(modelId),
     temperature: usesAnthropicWire,
     topP: supportsTopP(providerId, usesAnthropicWire),
+    // Gateway thinking is anthropic/*-only: the OpenAI-compat path has no
+    // thinking translation (effort still works there via reasoning_effort).
     thinking:
       (providerId === "anthropic" ||
         providerId === "openrouter" ||
-        providerId === "vercel-ai-gateway") &&
+        (providerId === "vercel-ai-gateway" && isVendorPrefixedAnthropicModel(modelId))) &&
       supportsThinkingResult &&
       !isAdaptiveThinkingOnlyModel(providerId, modelId),
     thinkingLevel: providerId === "gemini" && supportsThinkingResult,
