@@ -53,9 +53,19 @@ let interceptResult: { intercepted: boolean; [k: string]: unknown } = {
 const tryTextVerificationInterceptMock = mock(async () => interceptResult);
 
 let ipcCalls: { method: string; params?: Record<string, unknown> }[] = [];
+// Simulates a down assistant daemon for the identity mirror only: the typed
+// identity lookup + contacts_mirror_* writes throw; unrelated IPC still acks.
+let assistantMirrorDown = false;
 const ipcCallAssistantMock = mock(
   async (method: string, params?: Record<string, unknown>) => {
     ipcCalls.push({ method, params });
+    if (
+      assistantMirrorDown &&
+      (method === "contact_channel_identity_lookup" ||
+        method.startsWith("contacts_mirror_"))
+    ) {
+      throw new Error("assistant IPC unavailable");
+    }
     return { ok: true };
   },
 );
@@ -219,6 +229,7 @@ beforeEach(async () => {
   ipcCalls = [];
   forwardToRuntimeMock.mockClear();
   interceptResult = { intercepted: false };
+  assistantMirrorDown = false;
   assistantDbQueryImpl = async () => [];
   assistantDbRunImpl = async () => {};
 });
@@ -402,15 +413,10 @@ describe("handle-inbound invite redemption intercept", () => {
     expect(ipcCalls.find((c) => c.method === "invite_redeemed")).toBeUndefined();
   });
 
-  test("assistant DB proxy down: valid code still redeems with the success reply, never forwards", async () => {
+  test("assistant mirror IPC down: valid code still redeems with the success reply, never forwards", async () => {
     seedContact("c1");
     const inviteId = seedInvite();
-    assistantDbQueryImpl = async () => {
-      throw new Error("assistant IPC unavailable");
-    };
-    assistantDbRunImpl = async () => {
-      throw new Error("assistant IPC unavailable");
-    };
+    assistantMirrorDown = true;
 
     const result = await handleInbound(makeConfig(), makeEvent(), {
       ...ROUTING,
