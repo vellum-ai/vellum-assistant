@@ -12,6 +12,8 @@ When you introduce a new env var that the assistant process needs to read at run
 
 **Default to including it.** If the var doesn't contain secrets (e.g. a URL, a feature flag, a path, a mode string), add it. Only omit it if it carries credential material (tokens, passwords, private keys) — those must stay isolated to CES.
 
+`CES_LOCAL_SOCKET` is intentionally included despite the socket exposing credential RPCs — assistant subprocesses are expected to reach CES. Credential protection is rules-based access control inside CES, not socket-path secrecy (see root `AGENTS.md`).
+
 ## Daemon startup philosophy
 
 The daemon must **never** block startup due to **subsystem** failures (DB, Qdrant, plugins, feature flags, etc.). If an individual subsystem fails, log the error and continue in degraded mode so the process remains reachable for health checks and diagnostics.
