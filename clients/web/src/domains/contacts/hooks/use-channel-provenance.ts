@@ -1,17 +1,14 @@
-import { useMemo } from "react";
-
 import { useQuery } from "@tanstack/react-query";
 
 import type { CascadeProvenance } from "@/domains/contacts/components/provenance-pill";
 import { isSetupChannelId, type SetupChannelId } from "@/domains/contacts/types";
-import {
-  channelAdmissionPolicyQueryKey,
-  fetchChannelPolicies,
-} from "@/lib/channel-admission-policy/api";
+import { assistantChannelAdmissionPolicyListOptions } from "@/generated/gateway/@tanstack/react-query.gen";
+import type { AssistantChannelAdmissionPolicyListResponse } from "@/generated/gateway/types.gen";
 import {
   ADMISSION_POLICY_DEFAULT,
   type ChannelPolicyView,
 } from "@/lib/channel-admission-policy/types";
+import { toChannelPolicyViews } from "@/lib/channel-admission-policy/api";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 export type ChannelProvenanceMap = Partial<
@@ -44,6 +41,12 @@ export function deriveChannelProvenance(
   return map;
 }
 
+function selectChannelProvenance(
+  data: AssistantChannelAdmissionPolicyListResponse,
+): ChannelProvenanceMap {
+  return deriveChannelProvenance(toChannelPolicyViews(data));
+}
+
 /**
  * Per-channel cascade provenance for the contact detail's channel rows —
  * whether each setup channel's admission floor comes from the global default
@@ -52,8 +55,9 @@ export function deriveChannelProvenance(
  * `channelTrustFloors` flag itself; when off it returns `undefined`, which
  * hides the provenance pill entirely.
  *
- * Builds its query key via {@link channelAdmissionPolicyQueryKey} so it
- * shares one cache entry with `useChannelTrustFloors`.
+ * Spreads the generated `assistantChannelAdmissionPolicyListOptions` so it
+ * shares the generated query key — and one raw cache entry — with
+ * `useChannelTrustFloors`.
  */
 export function useChannelProvenance(
   assistantId: string,
@@ -61,15 +65,12 @@ export function useChannelProvenance(
   const enabled = useAssistantFeatureFlagStore.use.channelTrustFloors();
 
   const query = useQuery({
-    queryKey: channelAdmissionPolicyQueryKey(assistantId),
-    queryFn: () => fetchChannelPolicies(assistantId),
+    ...assistantChannelAdmissionPolicyListOptions({
+      path: { assistant_id: assistantId },
+    }),
     enabled,
+    select: selectChannelProvenance,
   });
 
-  return useMemo(() => {
-    if (!enabled || !query.data) {
-      return undefined;
-    }
-    return deriveChannelProvenance(query.data);
-  }, [enabled, query.data]);
+  return enabled ? query.data : undefined;
 }
