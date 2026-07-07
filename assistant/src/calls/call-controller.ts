@@ -735,7 +735,13 @@ export class CallController {
       ttsProvider: TtsProvider,
       segments: string[],
     ): void => {
-      for (const segment of segments) {
+      for (const rawSegment of segments) {
+        // Sanitized per segment (not per delta) so markdown spanning deltas
+        // is stripped before the text reaches any TTS route.
+        const segment = sanitizeForTts(rawSegment).trim();
+        if (segment.length === 0) {
+          continue;
+        }
         synthesisChain = synthesisChain.then(async () => {
           if (!this.isCurrentRun(runVersion) || synthesisFailure) return;
           try {
@@ -780,10 +786,10 @@ export class CallController {
 
     /** Emit a chunk of safe text to the appropriate TTS backend. */
     const emitSafeChunk = (safeText: string): void => {
-      const cleaned = sanitizeForTts(safeText);
-      if (cleaned.length === 0) return;
       if (synthProvider) {
-        pendingSynthText += cleaned;
+        // Boundary detection runs on raw text; each extracted segment is
+        // sanitized inside enqueueSynthesisSegments.
+        pendingSynthText += safeText;
         const { segments, remainder } = extractSpeakableSegments(
           pendingSynthText,
           false,
@@ -791,6 +797,8 @@ export class CallController {
         pendingSynthText = remainder;
         enqueueSynthesisSegments(synthProvider, segments);
       } else {
+        const cleaned = sanitizeForTts(safeText);
+        if (cleaned.length === 0) return;
         this.beginSpeakingOnAudioStart(runVersion);
         this.transport.sendTextToken(cleaned, false);
       }

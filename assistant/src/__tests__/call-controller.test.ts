@@ -3197,6 +3197,23 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("synthesized provider: markdown spanning delta boundaries is stripped before synthesis", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder();
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["This is **very", " important**. Please note it."]),
+    );
+    const { controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    expect(synthesizedTexts).toEqual([
+      "This is very important.",
+      "Please note it.",
+    ]);
+
+    controller.destroy();
+  });
+
   test("synthesized provider: barge-in mid-turn stops subsequent segment synthesis", async () => {
     let releaseFirst: (() => void) | undefined;
     const firstGate = new Promise<void>((r) => {
