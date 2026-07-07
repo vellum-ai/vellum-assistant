@@ -5,7 +5,7 @@
 
 import type { InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
-import type { ExecutionTarget } from "../tools/types.js";
+import type { ExecutionTarget } from "../tools/tool-types.js";
 import type { SurfaceConversationContext } from "./conversation-surfaces.js";
 import type { TrustContext } from "./trust-context.js";
 
