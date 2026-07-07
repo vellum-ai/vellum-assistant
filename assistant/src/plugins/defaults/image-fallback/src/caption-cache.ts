@@ -31,12 +31,37 @@ import { Database } from "bun:sqlite";
 
 const MAX_MEMORY_ENTRIES = 500;
 const MAX_DB_ROWS = 2000;
+const MAX_DELETED_TOMBSTONES = 500;
 
 /** In-memory LRU, keyed by image hash (conversation-agnostic). */
 const cache = new Map<string, string>();
 
 /** Plugin-owned SQLite handle; `null` until `init` opens it (fail-open). */
 let db: Database | null = null;
+
+/**
+ * Recently deleted conversations, so a caption write racing its own
+ * conversation's deletion (a vision call still in flight when the
+ * `conversation-deleted` hook runs) is dropped instead of re-creating rows
+ * for a dead conversation. In-memory is sufficient: the race is
+ * within-process — an in-flight caption call cannot survive a restart.
+ * Bounded FIFO (insertion order) to keep the set from growing with
+ * long-lived daemons.
+ */
+const deletedConversations = new Set<string>();
+
+function tombstoneConversation(conversationId: string): void {
+  if (
+    deletedConversations.size >= MAX_DELETED_TOMBSTONES &&
+    !deletedConversations.has(conversationId)
+  ) {
+    const oldest = deletedConversations.values().next();
+    if (!oldest.done) {
+      deletedConversations.delete(oldest.value as string);
+    }
+  }
+  deletedConversations.add(conversationId);
+}
 
 /** sha-256 hex digest of an image's base64 payload. */
 export function imageHash(data: string): string {
@@ -95,7 +120,7 @@ function dbRecordUse(
   conversationId: string,
   caption: string,
 ): void {
-  if (db == null) {
+  if (db == null || deletedConversations.has(conversationId)) {
     return;
   }
   try {
@@ -175,12 +200,20 @@ export function getCachedCaption(
   return persisted;
 }
 
-/** Store a caption in both the in-memory layer and the durable table. */
+/**
+ * Store a caption in both the in-memory layer and the durable table. Dropped
+ * entirely when the conversation was already deleted — a vision call that
+ * lost the race against its conversation's deletion must not re-introduce
+ * derived caption text for it.
+ */
 export function setCachedCaption(
   hash: string,
   conversationId: string,
   caption: string,
 ): void {
+  if (deletedConversations.has(conversationId)) {
+    return;
+  }
   setMemoryCaption(hash, caption);
   dbRecordUse(hash, conversationId, caption);
 }
@@ -192,6 +225,9 @@ export function setCachedCaption(
  * image.
  */
 export function deleteConversationCaptions(conversationId: string): number {
+  // Tombstone first, before any early return: an in-flight vision call for
+  // this conversation must find the tombstone when it tries to persist.
+  tombstoneConversation(conversationId);
   if (db == null) {
     return 0;
   }
@@ -224,9 +260,10 @@ export function deleteConversationCaptions(conversationId: string): number {
   }
 }
 
-/** Test-only: clear the in-memory layer and best-effort clear the table. */
+/** Test-only: clear the in-memory layers and best-effort clear the table. */
 export function resetCaptionCacheForTests(): void {
   cache.clear();
+  deletedConversations.clear();
   try {
     db?.exec(/*sql*/ `DELETE FROM image_captions`);
   } catch {

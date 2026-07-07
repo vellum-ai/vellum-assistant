@@ -213,4 +213,27 @@ describe("conversation-deleted cleanup", () => {
   test("is a no-op for a conversation with no rows", () => {
     expect(deleteConversationCaptions("conv-unknown")).toBe(0);
   });
+
+  test("a caption write racing its conversation's deletion is dropped", () => {
+    const hash = imageHash("in-flight-during-deletion");
+    // Deletion wins the race: the hook runs while the vision call is still
+    // awaiting, then the call completes and tries to persist its caption.
+    deleteConversationCaptions("conv-racing");
+    setCachedCaption(hash, "conv-racing", "A caption for a dead conversation.");
+
+    expect(rowsFor(hash)).toHaveLength(0);
+    // Not resurrected via the in-memory layer either: another conversation's
+    // lookup misses and must re-caption.
+    expect(getCachedCaption(hash, "conv-live")).toBeUndefined();
+  });
+
+  test("cache-hit bookkeeping for a deleted conversation records no rows", () => {
+    const hash = imageHash("shared-with-deleted");
+    setCachedCaption(hash, "conv-live", "A surviving caption.");
+    deleteConversationCaptions("conv-racing");
+    // A hash-wide hit from the deleted conversation must not re-associate it.
+    expect(getCachedCaption(hash, "conv-racing")).toBe("A surviving caption.");
+    const conversations = rowsFor(hash).map((r) => r.conversation_id);
+    expect(conversations).toEqual(["conv-live"]);
+  });
 });
