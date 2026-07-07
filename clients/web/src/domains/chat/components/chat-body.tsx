@@ -80,8 +80,7 @@ export interface ChatBodyProps {
    * Optional CSS length reserved at the bottom of the panel (applied as
    * `padding-bottom` on the outer container). Used on mobile while the app
    * overlay is minimized to its strip: the strip overlays the bottom of the
-   * chat, so the composer lifts above it instead of hiding underneath —
-   * Figma review (node 6629-6730): "should also push the chat input up".
+   * chat, so the composer lifts above it instead of hiding underneath.
    */
   bottomInset?: string;
 

@@ -62,23 +62,21 @@ export function MobileAppOverlay({
     <div
       className={cn(
         "fixed inset-x-0 z-30 transition-transform duration-300 ease-out",
-        // Figma review (node 6629-6730): the minimized strip overlays the
-        // chat, so it needs a top-directional shadow to read as a layer
-        // above it rather than blending in.
+        // The minimized strip overlays the chat, so it needs a
+        // top-directional shadow to read as a layer above it rather than
+        // blending in.
         isAppMinimized && "shadow-[0_-4px_16px_rgba(0,0,0,0.15)]",
       )}
       style={{
         ...shellStyle,
         // Minimized: slide down until only the nav bar peeks above the bottom
         // edge. The bar is 64px tall on mobile (`py-3` 24px + 40px
-        // `touch-mobile:` buttons), and both insets the shell's padding
-        // applies must be subtracted — the top inset because `paddingTop`
-        // shifts the content down, and the hook's effective bottom inset
+        // `touch-mobile:` buttons). Both insets the shell's padding applies
+        // must be subtracted: the top inset because `paddingTop` shifts the
+        // content down, and the hook's effective bottom inset
         // (`--overlay-safe-area-bottom`) so the strip clears the iOS home
-        // indicator when the keyboard is closed but sits flush on the
-        // keyboard when it's open (the hook zeroes the inset then; the raw
-        // safe area would lift the strip over the composer). Figma review
-        // (node 6629-6730): "moves it too far down, should be higher".
+        // indicator while the keyboard is closed yet sits flush on the
+        // keyboard while it's open (the hook zeroes the inset then).
         transform: isAppMinimized
           ? "translateY(calc(100% - var(--app-strip-h, 64px) - var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) - var(--overlay-safe-area-bottom, 0px)))"
           : "translateY(0)",

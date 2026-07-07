@@ -175,9 +175,9 @@ export function DynamicPageSurface({
           })
       : undefined;
     return (
-      // `max-md:mt-2` — Figma review (node 6629-6729): more breathing room
-      // between the activity status line and the app card on mobile. Stacks
-      // on the transcript column's `gap-2` for 16px total.
+      // `max-md:mt-2` adds breathing room between the activity status line
+      // and the app card on mobile; stacks on the transcript column's `gap-2`
+      // for 16px total.
       <div className="max-w-sm max-md:mt-2">
         <AppCard
           name={cardName}
