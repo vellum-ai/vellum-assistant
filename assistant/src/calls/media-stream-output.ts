@@ -7,11 +7,12 @@
  *
  * The media-stream transport operates on raw audio frames:
  *
- * - `sendTextToken()` — Accumulates text tokens and, on `last: true`,
- *   synthesizes the accumulated text via the configured TTS provider,
- *   transcodes the resulting audio to mu-law 8 kHz, and streams it as
- *   media frames to Twilio. An empty token with `last: true` sends an
- *   end-of-turn mark without synthesizing.
+ * - `sendTextToken()` — Accumulates text tokens, extracts complete
+ *   speakable segments as they form, and synthesizes each segment via
+ *   the configured TTS provider, transcoding the resulting audio to
+ *   mu-law 8 kHz media frames for Twilio. On `last: true` the remaining
+ *   text is flushed as a final segment followed by an end-of-turn mark.
+ *   An empty token with `last: true` sends only the mark.
  *
  * - `sendPlayUrl()` — Fetches audio from the given URL, transcodes it
  *   to mu-law 8 kHz, and streams the resulting frames to Twilio.
@@ -32,10 +33,12 @@
 
 import type { ServerWebSocket } from "bun";
 
+import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import { getLogger } from "../util/logger.js";
 import type { CallTransport } from "./call-transport.js";
 import {
   chunkMulawToBase64Frames,
+  MULAW_FRAME_SIZE,
   pcm16ToMulaw,
   resamplePcm16,
 } from "./media-stream-audio-transcode.js";
@@ -49,6 +52,14 @@ const log = getLogger("media-stream-output");
 
 /** Twilio media streams consume 8 kHz mono mu-law. */
 const TELEPHONY_SAMPLE_RATE_HZ = 8000;
+
+/**
+ * PCM sample rate requested from streaming-capable providers. Deterministic
+ * across providers (ElevenLabs maps the hint to `pcm_16000`; fish-audio
+ * honours it directly), so the incremental transcode can hard-wire its
+ * downsample ratio to the telephony rate.
+ */
+const STREAMING_PCM_SAMPLE_RATE_HZ = 16_000;
 
 /**
  * Keep every `factor`-th 16-bit LE sample. Cheap decimation (no anti-alias
@@ -96,7 +107,10 @@ export class MediaStreamOutput implements CallTransport {
   private ws: ServerWebSocket<unknown>;
   private state: MediaStreamOutputState = "connected";
 
-  /** Accumulated text from sendTextToken calls before the final `last: true`. */
+  /**
+   * Text accumulated from sendTextToken calls that has not yet formed a
+   * complete speakable segment.
+   */
   private textBuffer = "";
 
   /** FIFO queue of playback items awaiting delivery. */
@@ -134,27 +148,33 @@ export class MediaStreamOutput implements CallTransport {
   // ── CallTransport interface ─────────────────────────────────────────
 
   /**
-   * Accumulate text tokens for TTS synthesis. When `last` is true, the
-   * accumulated text is queued for synthesis and delivery as media frames.
+   * Accumulate text tokens for TTS synthesis. Each complete speakable
+   * segment (sentence or newline-bounded line) is queued for synthesis
+   * as soon as it forms, so speech starts before the turn completes.
+   * When `last` is true, the remaining text is force-flushed as a final
+   * segment.
    *
    * An empty token with `last: true` signals end-of-turn without TTS:
    * a mark is sent so the session transitions from "assistant speaking"
    * to "caller speaking".
    */
   sendTextToken(token: string, last: boolean): void {
-    if (this.state === "closed") return;
+    if (this.state === "closed") {
+      return;
+    }
 
     this.textBuffer += token;
 
+    const { segments, remainder } = extractSpeakableSegments(
+      this.textBuffer,
+      last,
+    );
+    this.textBuffer = remainder;
+    for (const segment of segments) {
+      this.enqueuePlayback({ type: "synthesize", text: segment });
+    }
+
     if (last) {
-      const text = this.textBuffer.trim();
-      this.textBuffer = "";
-
-      if (text.length > 0) {
-        // Queue synthesis of the accumulated text.
-        this.enqueuePlayback({ type: "synthesize", text });
-      }
-
       // Always send an end-of-turn mark so the media-stream server
       // can detect turn boundaries.
       this.enqueuePlayback({ type: "mark", name: "end-of-turn" });
@@ -456,7 +476,10 @@ export class MediaStreamOutput implements CallTransport {
 
   /**
    * Synthesize text via the TTS provider and send resulting audio as
-   * mu-law frames. Falls back to a silent frame if synthesis fails.
+   * mu-law frames. PCM-capable providers are transcoded incrementally —
+   * each streamed chunk becomes frames as it arrives — while other
+   * providers accumulate into the whole-buffer conversion path. Falls
+   * back to a silent frame if synthesis fails.
    */
   private async processSynthesizeItem(
     text: string,
@@ -482,21 +505,108 @@ export class MediaStreamOutput implements CallTransport {
         return;
       }
 
-      if (version !== this.playbackVersion || this.isClosed()) return;
+      if (version !== this.playbackVersion || this.isClosed()) {
+        return;
+      }
+
+      const { synthesizeAndEmit } = await import("../tts/synthesis-stream.js");
+      const isCurrent = (): boolean =>
+        version === this.playbackVersion && !this.isClosed();
+
+      // PCM-capable providers honour `outputFormat: "pcm"` at the requested
+      // sample rate, so their chunks can be transcoded to mu-law frames as
+      // they arrive. Other providers accumulate below and go through the
+      // whole-buffer content-type sniffing path.
+      const streamsPcm = provider.capabilities.supportedFormats.includes("pcm");
+      const bufferedChunks: Buffer[] = [];
+
+      // Chunk boundaries can split a 16-bit sample or a decimation pair;
+      // the unprocessable tail (< 4 bytes) carries into the next chunk so
+      // sample alignment and decimation phase stay stable across chunks.
+      let pcmCarry: Buffer | undefined;
+      // Mu-law bytes short of a whole 20 ms frame, carried likewise.
+      let mulawCarry: Buffer = Buffer.alloc(0);
+
+      const sendMulaw = (mulaw: Buffer, flushPartialFrame: boolean): void => {
+        mulawCarry =
+          mulawCarry.length > 0 ? Buffer.concat([mulawCarry, mulaw]) : mulaw;
+        const sendableBytes = flushPartialFrame
+          ? mulawCarry.length
+          : mulawCarry.length - (mulawCarry.length % MULAW_FRAME_SIZE);
+        if (sendableBytes === 0) {
+          return;
+        }
+        const frames = chunkMulawToBase64Frames(
+          mulawCarry.subarray(0, sendableBytes),
+        );
+        mulawCarry = mulawCarry.subarray(sendableBytes);
+        this.sendFrames(frames);
+      };
 
       // Synthesize the text. Request PCM output so the media-stream
       // transport receives raw samples it can transcode to mu-law.
       // Providers that support it (e.g. ElevenLabs pcm_16000) will
       // return raw PCM; others fall back to their default format and
       // the content-type sniffing below handles the mismatch.
-      const result = await provider.synthesize({
+      const result = await synthesizeAndEmit({
+        provider,
         text,
         useCase: "phone-call",
         outputFormat: "pcm",
+        sampleRateHz: STREAMING_PCM_SAMPLE_RATE_HZ,
         signal: abortController.signal,
+        isCurrent,
+        onChunk: (chunk) => {
+          if (!streamsPcm) {
+            bufferedChunks.push(chunk.audio);
+            return;
+          }
+          if (!isCurrent()) {
+            return;
+          }
+          const combined = pcmCarry
+            ? Buffer.concat([pcmCarry, chunk.audio])
+            : chunk.audio;
+          // 4 bytes = two 16 kHz samples = one 8 kHz output sample.
+          const usableBytes = combined.length & ~3;
+          pcmCarry =
+            usableBytes < combined.length
+              ? combined.subarray(usableBytes)
+              : undefined;
+          if (usableBytes === 0) {
+            return;
+          }
+          const pcm8k = this.pcm16ToTelephonyRate(
+            combined.subarray(0, usableBytes),
+            STREAMING_PCM_SAMPLE_RATE_HZ,
+          );
+          sendMulaw(pcm16ToMulaw(pcm8k), false);
+        },
       });
 
-      if (version !== this.playbackVersion || this.isClosed()) return;
+      if (!isCurrent()) {
+        return;
+      }
+
+      if (streamsPcm) {
+        if (pcmCarry) {
+          // A sub-sample tail is malformed provider output; decimation
+          // would drop it anyway.
+          log.debug(
+            { streamSid: this.streamSid, carryBytes: pcmCarry.length },
+            "Dropping sub-sample tail from PCM16 TTS stream",
+          );
+        }
+        // Flush the final partial frame — the whole-buffer path sends a
+        // short trailing frame the same way.
+        sendMulaw(Buffer.alloc(0), true);
+        return;
+      }
+
+      // A stopped stream means partial audio; never send a truncated buffer.
+      if (result.stopped) {
+        return;
+      }
 
       // Derive the format from the provider's actual content type rather
       // than the declared audioFormat. The declared format may not match
@@ -515,8 +625,13 @@ export class MediaStreamOutput implements CallTransport {
                   result.contentType.includes("x-raw")
                 ? "pcm"
                 : audioFormat; // fall back to declared format for unknown types
-      const frames = this.audioBufferToFrames(result.audio, actualFormat);
-      if (version !== this.playbackVersion || this.isClosed()) return;
+      const frames = this.audioBufferToFrames(
+        Buffer.concat(bufferedChunks),
+        actualFormat,
+      );
+      if (!isCurrent()) {
+        return;
+      }
 
       this.sendFrames(frames);
     } catch (err) {

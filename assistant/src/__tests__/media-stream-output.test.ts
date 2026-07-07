@@ -29,7 +29,10 @@ mock.module("../calls/resolve-call-tts-provider.js", () => ({
   })),
 }));
 
-import { mulawToPcm16 } from "../calls/media-stream-audio-transcode.js";
+import {
+  mulawToPcm16,
+  pcm16ToMulaw,
+} from "../calls/media-stream-audio-transcode.js";
 import { MediaStreamOutput } from "../calls/media-stream-output.js";
 import { resolveCallTtsProvider } from "../calls/resolve-call-tts-provider.js";
 
@@ -142,6 +145,39 @@ function concatMulawPayloads(sent: string[]): Buffer {
       .filter((s) => JSON.parse(s).event === "media")
       .map((s) => Buffer.from(JSON.parse(s).media.payload, "base64")),
   );
+}
+
+/** Number of media frames among the sent messages. */
+function countMediaFrames(sent: string[]): number {
+  return sent.filter((s) => JSON.parse(s).event === "media").length;
+}
+
+/** Encode samples as a raw PCM16 LE buffer. */
+function pcm16Buffer(samples: number[]): Buffer {
+  const buf = Buffer.alloc(samples.length * 2);
+  for (let i = 0; i < samples.length; i++) {
+    buf.writeInt16LE(samples[i], i * 2);
+  }
+  return buf;
+}
+
+/** Keep every other PCM16 sample (16 kHz -> 8 kHz decimation). */
+function decimateByTwo(pcm: Buffer): Buffer {
+  const outCount = Math.floor(pcm.length / 2 / 2);
+  const out = Buffer.alloc(outCount * 2);
+  for (let i = 0; i < outCount; i++) {
+    out.writeInt16LE(pcm.readInt16LE(i * 4), i * 2);
+  }
+  return out;
+}
+
+/** Install a resolveCallTtsProvider mock returning the given provider. */
+function useProvider(provider: unknown): void {
+  mockResolveCallTtsProvider.mockImplementation(() => ({
+    provider,
+    useSynthesizedPath: false,
+    audioFormat: "wav" as const,
+  }));
 }
 
 /** Count sign changes in a PCM16 LE buffer (proxy for tone frequency). */
@@ -880,6 +916,215 @@ describe("MediaStreamOutput", () => {
       const wav = makeWavBuffer(interleaved, { sampleRate: 8000, channels: 2 });
       const sent = await synthesizeWav(wav);
       // One channel of 400 samples -> 400 mu-law bytes.
+      expect(totalMulawBytes(sent)).toBe(400);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Incremental sentence-bounded synthesis
+  // ---------------------------------------------------------------------------
+
+  describe("incremental sentence-bounded synthesis", () => {
+    test("complete sentences synthesize and play before last: true arrives", async () => {
+      const wav = makeWavBuffer(sineSamples(400, 440, 8000));
+      mockSynthesize.mockResolvedValue({
+        audio: wav,
+        contentType: "audio/wav",
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+
+      output.sendTextToken("First sentence. Sec", false);
+      await drain();
+
+      // The completed first sentence synthesizes (and its frames go out)
+      // while the turn is still streaming.
+      expect(mockSynthesize).toHaveBeenCalledTimes(1);
+      expect(mockSynthesize.mock.calls[0][0].text).toBe("First sentence.");
+      expect(countMediaFrames(sent)).toBeGreaterThan(0);
+
+      output.sendTextToken("ond sentence.", true);
+      await drain();
+
+      expect(mockSynthesize).toHaveBeenCalledTimes(2);
+      expect(mockSynthesize.mock.calls[1][0].text).toBe("Second sentence.");
+    });
+
+    test("end-of-turn mark follows the final segment's frames", async () => {
+      const wav = makeWavBuffer(sineSamples(400, 440, 8000));
+      mockSynthesize.mockResolvedValue({
+        audio: wav,
+        contentType: "audio/wav",
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("One. Two.", true);
+      await drain();
+
+      expect(mockSynthesize).toHaveBeenCalledTimes(2);
+      const events = sent.map((s) => JSON.parse(s).event);
+      const markIndex = events.indexOf("mark");
+      const lastMediaIndex = events.lastIndexOf("media");
+      expect(lastMediaIndex).toBeGreaterThanOrEqual(0);
+      expect(markIndex).toBeGreaterThan(lastMediaIndex);
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Streaming PCM synthesis (incremental transcode)
+  // ---------------------------------------------------------------------------
+
+  describe("streaming PCM synthesis", () => {
+    test("frames are sent before the provider stream completes", async () => {
+      let releaseStream!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        releaseStream = resolve;
+      });
+      // 640 samples at 16 kHz -> 320 samples at 8 kHz = two whole frames.
+      const chunk = pcm16Buffer(sineSamples(640, 440, 16000));
+      useProvider({
+        id: "streaming-pcm",
+        capabilities: { supportsStreaming: true, supportedFormats: ["pcm"] },
+        synthesize: jest.fn(),
+        async synthesizeStream(
+          _request: unknown,
+          onChunk: (c: Uint8Array) => void,
+        ) {
+          onChunk(chunk);
+          await gate;
+          onChunk(chunk);
+          return {
+            audio: Buffer.concat([chunk, chunk]),
+            contentType: "audio/pcm",
+          };
+        },
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("Hello there.", true);
+      await drain();
+
+      // First chunk's frames went out while the stream is still open,
+      // and the end-of-turn mark has not been sent yet.
+      const framesBefore = countMediaFrames(sent);
+      expect(framesBefore).toBe(2);
+      expect(sent.some((s) => JSON.parse(s).event === "mark")).toBe(false);
+
+      releaseStream();
+      await drain();
+
+      expect(countMediaFrames(sent)).toBe(4);
+      expect(sent.some((s) => JSON.parse(s).event === "mark")).toBe(true);
+    });
+
+    test("odd-byte and partial-frame chunk boundaries produce well-formed frames", async () => {
+      // 800 samples at 16 kHz (1600 bytes), split at deliberately awkward
+      // boundaries: odd bytes, non-frame-aligned sizes.
+      const full = pcm16Buffer(sineSamples(800, 440, 16000));
+      const cuts = [0, 3, 251, 640, 1001, full.length];
+      const chunks = cuts
+        .slice(0, -1)
+        .map((start, i) => full.subarray(start, cuts[i + 1]));
+      useProvider({
+        id: "streaming-pcm",
+        capabilities: { supportsStreaming: true, supportedFormats: ["pcm"] },
+        synthesize: jest.fn(),
+        async synthesizeStream(
+          _request: unknown,
+          onChunk: (c: Uint8Array) => void,
+        ) {
+          for (const c of chunks) {
+            onChunk(c);
+          }
+          return { audio: full, contentType: "audio/pcm" };
+        },
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("Test.", true);
+      await drain();
+
+      // The concatenated mu-law output must be byte-identical to a
+      // whole-buffer transcode: no dropped or torn samples at chunk seams.
+      const expected = pcm16ToMulaw(decimateByTwo(full));
+      expect(expected.length).toBe(400);
+      expect(concatMulawPayloads(sent).equals(expected)).toBe(true);
+    });
+
+    test("playbackVersion bump mid-stream stops further frames", async () => {
+      let releaseStream!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        releaseStream = resolve;
+      });
+      const chunk = pcm16Buffer(sineSamples(640, 440, 16000));
+      useProvider({
+        id: "streaming-pcm",
+        capabilities: { supportsStreaming: true, supportedFormats: ["pcm"] },
+        synthesize: jest.fn(),
+        async synthesizeStream(
+          _request: unknown,
+          onChunk: (c: Uint8Array) => void,
+        ) {
+          onChunk(chunk);
+          await gate;
+          // Stale chunk emitted after barge-in must never become frames.
+          onChunk(chunk);
+          return {
+            audio: Buffer.concat([chunk, chunk]),
+            contentType: "audio/pcm",
+          };
+        },
+      });
+
+      const { ws, sent } = createMockWs();
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("Hello there.", true);
+      await drain();
+
+      const framesBefore = countMediaFrames(sent);
+      expect(framesBefore).toBeGreaterThan(0);
+
+      output.clearAudio();
+      releaseStream();
+      await drain();
+
+      expect(countMediaFrames(sent)).toBe(framesBefore);
+    });
+
+    test("streaming provider without PCM support falls back to the whole-buffer path", async () => {
+      const wav = makeWavBuffer(sineSamples(400, 440, 8000));
+      const half = Math.floor(wav.length / 2);
+      let midStreamFrames = -1;
+      const sentRef: { sent: string[] } = { sent: [] };
+      useProvider({
+        id: "streaming-wav",
+        capabilities: { supportsStreaming: true, supportedFormats: ["wav"] },
+        synthesize: jest.fn(),
+        async synthesizeStream(
+          _request: unknown,
+          onChunk: (c: Uint8Array) => void,
+        ) {
+          onChunk(wav.subarray(0, half));
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          midStreamFrames = countMediaFrames(sentRef.sent);
+          onChunk(wav.subarray(half));
+          return { audio: wav, contentType: "audio/wav" };
+        },
+      });
+
+      const { ws, sent } = createMockWs();
+      sentRef.sent = sent;
+      const output = new MediaStreamOutput(ws, "stream-1");
+      output.sendTextToken("Hello.", true);
+      await drain();
+
+      // Nothing streamed mid-flight; the whole accumulated WAV is
+      // transcoded once at the end.
+      expect(midStreamFrames).toBe(0);
       expect(totalMulawBytes(sent)).toBe(400);
     });
   });
