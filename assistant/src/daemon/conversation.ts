@@ -44,7 +44,6 @@ import {
   registerToolProfilingListener,
   ToolProfiler,
 } from "../events/tool-profiling-listener.js";
-import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -180,7 +179,6 @@ import type { ConversationTransportMetadata } from "./message-types/conversation
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
-import { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation");
 
@@ -603,7 +601,6 @@ export class Conversation {
     clientTimezone: string | null;
     timeSinceLastMessage: string | null;
   };
-  public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
   /** @internal */ modelOverride: string | undefined;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
@@ -667,7 +664,6 @@ export class Conversation {
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
     this.graphMemory = new ConversationGraphMemory(conversationId);
-    this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
       // Route through emitConfirmationStateChanged so the event reaches
@@ -703,7 +699,6 @@ export class Conversation {
     this.executor = new ToolExecutor(this.prompter);
     this.profiler = new ToolProfiler();
     registerToolMetricsLoggingListener(this.eventBus);
-    registerToolTraceListener(this.eventBus, this.traceEmitter);
     registerToolProfilingListener(this.eventBus, this.profiler);
     registerToolPermissionTelemetryListener(this.eventBus);
     const auditToolLifecycleEvent = createToolAuditListener();
@@ -1378,7 +1373,6 @@ export class Conversation {
     this.sendToClient = sendToClient;
     this.hasNoClient = hasNoClient;
     this.prompter.updateSender(sendToClient);
-    this.traceEmitter.updateSender(sendToClient);
 
     // Replay last activity state so a reconnecting client sees the current phase
     // instead of being stuck on the last state it received before disconnection.

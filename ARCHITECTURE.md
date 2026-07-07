@@ -296,11 +296,6 @@ subgraph "Text Q&A Session"
             CHAT_VIEW["ChatView<br/>bubbles + composer + stop"]
         end
 
-        subgraph "Debug Panel"
-            TRACE_STORE["TraceStore<br/>in-memory, per-session<br/>dedup + retention cap"]
-            DEBUG_PANEL["DebugPanel UI<br/>metrics strip + timeline"]
-        end
-
         subgraph "Dynamic Workspace"
             WORKSPACE["WorkspaceView<br/>toolbar + WKWebView + composer + optional docked chat"]
             DYN_PAGE["DynamicPageSurfaceView<br/>WKWebView + widget injection"]
@@ -357,12 +352,6 @@ subgraph "Text Q&A Session"
             DB_TASK_RUNS["task_runs"]
             DB_WORK_ITEMS["work_items"]
             DB_CONTACTS["contacts<br/>(migrating to gateway)"]
-        end
-
-        subgraph "Tracing"
-            TRACE_EMITTER["TraceEmitter<br/>per-session, monotonic seq"]
-            TOOL_TRACE["ToolTraceListener<br/>event bus subscriber"]
-            EVENT_BUS["EventBus<br/>domain events"]
         end
 
         subgraph "Skill Tool System"
@@ -548,13 +537,6 @@ subgraph "Text Q&A Session"
     %% Web server
     WEB_API -->|"HTTP"| RUNTIME_CLIENT
     RUNTIME_CLIENT -->|"HTTP"| HTTP_RT
-
-    %% Tracing data flow
-    SESSION_MGR --> TRACE_EMITTER
-    EVENT_BUS --> TOOL_TRACE
-    TOOL_TRACE --> TRACE_EMITTER
-    TRACE_EMITTER -->|"trace_event<br/>(SSE)"| TRACE_STORE
-    TRACE_STORE --> DEBUG_PANEL
 
     %% Integration data flow
     HANDLERS -->|"integration_connect"| INT_REGISTRY

@@ -38,7 +38,6 @@ import {
   enqueuePruneOldConversationsJob,
   enqueuePruneOldLlmRequestLogsJob,
   enqueuePruneOldToolInvocationsJob,
-  enqueuePruneOldTraceEventsJob,
   failMemoryJob,
   failStalledJobs,
   hasActiveJobOfType,
@@ -682,10 +681,6 @@ function maybeEnqueueScheduledCleanupJobs(
     cleanup.llmRequestLogRetentionMs !== null
       ? enqueuePruneOldLlmRequestLogsJob(cleanup.llmRequestLogRetentionMs)
       : null;
-  const pruneTraceEventsJobId =
-    cleanup.traceEventRetentionDays > 0
-      ? enqueuePruneOldTraceEventsJob(cleanup.traceEventRetentionDays)
-      : null;
   // Audit-log (tool_invocations) retention is configured separately under
   // `auditLog.retentionDays`, but rides this same cleanup cadence for now.
   const pruneToolInvocationsJobId =
@@ -697,12 +692,10 @@ function maybeEnqueueScheduledCleanupJobs(
     {
       pruneConversationsJobId,
       pruneLlmRequestLogsJobId,
-      pruneTraceEventsJobId,
       pruneToolInvocationsJobId,
       enqueueIntervalMs: cleanup.enqueueIntervalMs,
       conversationRetentionDays: cleanup.conversationRetentionDays,
       llmRequestLogRetentionMs: cleanup.llmRequestLogRetentionMs,
-      traceEventRetentionDays: cleanup.traceEventRetentionDays,
       auditLogRetentionDays: config.auditLog.retentionDays,
     },
     "Enqueued scheduled memory cleanup jobs",

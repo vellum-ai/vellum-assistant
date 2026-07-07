@@ -143,7 +143,6 @@ export interface PendingToolResult {
 
 /** Mutable state shared across event handlers within a single agent loop run. */
 export interface EventHandlerState {
-  llmCallStartedEmitted: boolean;
   /**
    * Profile key whose `model_profile` notice has been assembled into the turn
    * context but not yet marked notified. Set when the turn injects the notice,
@@ -370,7 +369,6 @@ export interface EventHandlerDeps {
 
 export function createEventHandlerState(): EventHandlerState {
   return {
-    llmCallStartedEmitted: false,
     pendingNotifiedInferenceProfile: null,
     pendingDirectiveDisplayBuffer: "",
     firstAssistantText: "",
@@ -665,30 +663,6 @@ function schedulePartialFlush(
 // disagree even for tool-call-only responses where text_delta never fires
 // (and therefore the started event would otherwise fall back here *after*
 // the AsyncLocalStorage context in CallSiteRoutingProvider has already exited).
-function emitLlmCallStartedIfNeeded(
-  state: EventHandlerState,
-  deps: EventHandlerDeps,
-  providerNameOverride?: string,
-): void {
-  if (state.llmCallStartedEmitted) {
-    return;
-  }
-  state.llmCallStartedEmitted = true;
-  const providerName = providerNameOverride ?? deps.ctx.provider.name;
-  deps.ctx.traceEmitter.emit(
-    "llm_call_started",
-    `LLM call to ${providerName}`,
-    {
-      requestId: deps.reqId,
-      status: "info",
-      attributes: {
-        provider: providerName,
-        model: state.model || "unknown",
-      },
-    },
-  );
-}
-
 // ── Client Payload Size Caps ─────────────────────────────────────────
 // tool_input_delta streams accumulated JSON as tools run. For non-app
 // tools the client discards it (extractCodePreview only handles app tools),
@@ -911,7 +885,6 @@ function handleTextDelta(
   deps: EventHandlerDeps,
   event: Extract<AgentEvent, { type: "text_delta" }>,
 ): void {
-  emitLlmCallStartedIfNeeded(state, deps);
   state.pendingDirectiveDisplayBuffer += event.text;
   const drained = drainDirectiveDisplayBuffer(
     state.pendingDirectiveDisplayBuffer,
@@ -972,7 +945,6 @@ function handleThinkingDelta(
   if (!deps.ctx.streamThinking) {
     return;
   }
-  emitLlmCallStartedIfNeeded(state, deps);
   deps.onEvent({
     type: "assistant_thinking_delta",
     thinking: event.thinking,
@@ -2177,27 +2149,6 @@ export async function handleMessageComplete(
   }
 
   deps.ctx.currentTurnSurfaces = [];
-
-  // Emit trace event. Char count is computed from the cleaned +
-  // redacted text blocks (UI surface blocks filtered out via the
-  // type guard) — same shape as what was just persisted.
-  const charCount = contentForPersistence
-    .filter(
-      (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
-    )
-    .reduce((sum, b) => sum + b.text.length, 0);
-  const toolUseCount = event.message.content.filter(
-    (b) => b.type === "tool_use",
-  ).length;
-  deps.ctx.traceEmitter.emit(
-    "assistant_message",
-    "Assistant message complete",
-    {
-      requestId: deps.reqId,
-      status: "success",
-      attributes: { charCount, toolUseCount },
-    },
-  );
 }
 
 function handleUsage(
@@ -2249,14 +2200,12 @@ function handleUsage(
   // so the next call in the turn serializes only its own marks. Non-fatal: a
   // tracking hiccup must never escalate into a turn-level throw.
   let latencyBreakdownJson: string | undefined;
-  let ttftMs: number | undefined;
   try {
     const segment = deps.latencyTracker?.serializeSince(state.latencyCursor);
     if (segment) {
       state.latencyCursor = segment.cursor;
       if (segment.breakdown) {
         latencyBreakdownJson = JSON.stringify(segment.breakdown);
-        ttftMs = segment.breakdown.ttftMs ?? undefined;
       }
     }
   } catch (err) {
@@ -2281,31 +2230,6 @@ function handleUsage(
       deps.rlog.warn({ err }, "Failed to persist LLM request log (non-fatal)");
     }
   }
-
-  // Pass providerName so that if text_delta never fired (tool-call-only
-  // responses), the started event uses the same resolved name as finished.
-  emitLlmCallStartedIfNeeded(state, deps, providerName);
-
-  deps.ctx.traceEmitter.emit(
-    "llm_call_finished",
-    `LLM call to ${providerName} finished`,
-    {
-      requestId: deps.reqId,
-      status: "success",
-      attributes: {
-        provider: providerName,
-        model: event.model,
-        inputTokens: event.inputTokens,
-        outputTokens: event.outputTokens,
-        latencyMs: event.providerDurationMs,
-        // Time-to-first-token for this call (network + provider queue + first
-        // token), so the Logs-tab trace timeline reflects TTFT alongside the
-        // whole-call latency. Omitted when no token streamed (pure tool call).
-        ...(ttftMs != null ? { ttftMs } : {}),
-      },
-    },
-  );
-  state.llmCallStartedEmitted = false;
 
   // Emit a lightweight per-call usage progress event so clients can show
   // live-updating token/cost metrics. This is a UI hint only — no DB writes.

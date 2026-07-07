@@ -45,7 +45,6 @@ const MEMORY_JOB_TYPES = [
 const NON_PLUGIN_JOB_TYPES = [
   "prune_old_conversations",
   "prune_old_llm_request_logs",
-  "prune_old_trace_events",
   "prune_old_tool_invocations",
   "index_message_lexical",
   "purge_conversation_lexical",

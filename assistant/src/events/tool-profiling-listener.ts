@@ -1,4 +1,3 @@
-import type { TraceEmitter } from "../daemon/trace-emitter.js";
 import { getLogger } from "../util/logger.js";
 import type { EventBus, Subscription } from "./bus.js";
 import type { AssistantDomainEvents } from "./domain-events.js";
@@ -93,7 +92,7 @@ export class ToolProfiler {
     this.peakRssBytes = 0;
   }
 
-  emitSummary(traceEmitter: TraceEmitter, requestId?: string): void {
+  emitSummary(requestId?: string): void {
     const summary = this.getSummary();
     if (summary.toolCount === 0) return;
 
@@ -109,6 +108,7 @@ export class ToolProfiler {
 
     log.info(
       {
+        requestId,
         toolCount: summary.toolCount,
         totalToolTimeMs: summary.totalToolTimeMs,
         wallClockMs: summary.wallClockMs,
@@ -119,24 +119,6 @@ export class ToolProfiler {
         tools: summary.tools,
       },
       "Tool execution profiling summary",
-    );
-
-    traceEmitter.emit(
-      "tool_profiling_summary",
-      `${summary.toolCount} tool calls in ${summary.wallClockMs}ms (tool time: ${summary.totalToolTimeMs}ms, slowest: ${slowestTool} ${slowestMs}ms)`,
-      {
-        requestId,
-        status: "info",
-        attributes: {
-          toolCount: summary.toolCount,
-          totalToolTimeMs: summary.totalToolTimeMs,
-          wallClockMs: summary.wallClockMs,
-          slowestTool,
-          slowestToolMaxMs: slowestMs,
-          peakRssMb: summary.peakRssMb,
-          rssDeltaMb: summary.rssDeltaMb,
-        },
-      },
     );
   }
 }
