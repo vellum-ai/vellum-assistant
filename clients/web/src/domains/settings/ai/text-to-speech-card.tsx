@@ -1,10 +1,15 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
-import { ttsProvidersGetOptions } from "@/generated/daemon/@tanstack/react-query.gen";
+import {
+    configGetOptions,
+    configGetQueryKey,
+    ttsProvidersGetOptions,
+} from "@/generated/daemon/@tanstack/react-query.gen";
 import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
+import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { synthesizeTTS } from "@/lib/tts-synthesize";
@@ -38,6 +43,7 @@ export function TextToSpeechCard() {
   const assistantId = useActiveAssistantId();
   const assistantName = useAssistantIdentityStore.use.name() ?? "your assistant";
   const isOrgReady = useIsOrgReady();
+  const queryClient = useQueryClient();
 
   const { data: catalogData } = useQuery({
     ...ttsProvidersGetOptions({
@@ -48,11 +54,26 @@ export function TextToSpeechCard() {
   });
   const providers = catalogData?.providers ?? TTS_PROVIDERS;
 
+  // Seed the provider from the daemon's live config so a Save doesn't clobber a
+  // provider configured elsewhere (CLI/other client) when localStorage is stale.
+  const { data: daemonConfig } = useQuery({
+    ...configGetOptions({ path: { assistant_id: assistantId } }),
+    enabled: isOrgReady,
+    staleTime: 30_000,
+  });
+  // `services.tts` falls under the ConfigGetResponse index signature (`unknown`),
+  // so narrow it explicitly to read the provider.
+  const daemonTtsProvider = (
+    daemonConfig?.services?.tts as { provider?: string } | undefined
+  )?.provider;
+
   const defaultProviderId = providers[0]?.id ?? "elevenlabs";
-  const [draftProvider, setDraftProvider] = useState<string>(() =>
-    getLocalSetting(LS_TTS_PROVIDER, defaultProviderId),
+  const serverProvider = useMemo(
+    () => daemonTtsProvider ?? getLocalSetting(LS_TTS_PROVIDER, defaultProviderId),
+    [daemonTtsProvider, defaultProviderId],
   );
-  const [initialProvider, setInitialProvider] = useState<string>(draftProvider);
+  const daemonHasProvider = !!daemonTtsProvider;
+  const [draftProvider, setDraftProvider] = useDraftOverride(serverProvider);
   const [apiKeyText, setApiKeyText] = useState("");
   const [voiceIdText, setVoiceIdText] = useState("");
   const [initialVoiceId, setInitialVoiceId] = useState("");
@@ -81,11 +102,11 @@ export function TextToSpeechCard() {
   }, [draftProvider, loadProviderState]);
 
   const hasChanges = useMemo(() => {
-    const providerChanged = draftProvider !== initialProvider;
+    const providerChanged = draftProvider !== serverProvider;
     const hasNewKey = apiKeyText.trim().length > 0;
     const voiceIdChanged = voiceIdText.trim() !== initialVoiceId;
     return providerChanged || hasNewKey || voiceIdChanged;
-  }, [draftProvider, initialProvider, apiKeyText, voiceIdText, initialVoiceId]);
+  }, [draftProvider, serverProvider, apiKeyText, voiceIdText, initialVoiceId]);
 
   const handleSave = useCallback(async () => {
     const trimmedKey = apiKeyText.trim();
@@ -125,32 +146,33 @@ export function TextToSpeechCard() {
           throw new Error(`Failed to store API key (HTTP ${keyRes?.status ?? "?"})`);
         }
       }
-      const { response: cfgRes } = await configPatch({
-        path: { assistant_id: assistantId },
-        body: {
-          services: {
-            tts: {
-              provider: draftProvider,
-              ...(voiceField
-                ? {
-                    providers: {
-                      [draftProvider]: { [voiceField]: trimmedVoiceId },
-                    },
-                  }
-                : {}),
-            },
-          },
-        },
-        throwOnError: false,
-      });
-      if (!cfgRes?.ok) {
-        throw new Error(`Failed to save configuration (HTTP ${cfgRes?.status ?? "?"})`);
+      // Only PATCH the provider when it truly diverges from the persisted
+      // value (or the daemon has none yet); otherwise a re-save with just a new
+      // key/voice would silently switch a provider set elsewhere.
+      const shouldSetProvider = draftProvider !== serverProvider || !daemonHasProvider;
+      const ttsBody = {
+        ...(shouldSetProvider ? { provider: draftProvider } : {}),
+        ...(voiceField
+          ? { providers: { [draftProvider]: { [voiceField]: trimmedVoiceId } } }
+          : {}),
+      };
+      if (Object.keys(ttsBody).length > 0) {
+        const { response: cfgRes } = await configPatch({
+          path: { assistant_id: assistantId },
+          body: { services: { tts: ttsBody } },
+          throwOnError: false,
+        });
+        if (!cfgRes?.ok) {
+          throw new Error(`Failed to save configuration (HTTP ${cfgRes?.status ?? "?"})`);
+        }
       }
 
       setProviderHasKey(effectiveKey.length > 0);
-      setInitialProvider(draftProvider);
       setInitialVoiceId(trimmedVoiceId);
       setApiKeyText("");
+      void queryClient.invalidateQueries({
+        queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
+      });
       toast.success("Text-to-speech settings saved");
     } catch (err) {
       toast.error(
@@ -161,7 +183,16 @@ export function TextToSpeechCard() {
     } finally {
       setSaving(false);
     }
-  }, [assistantId, draftProvider, apiKeyText, voiceIdText, selectedProvider]);
+  }, [
+    assistantId,
+    draftProvider,
+    apiKeyText,
+    voiceIdText,
+    selectedProvider,
+    serverProvider,
+    daemonHasProvider,
+    queryClient,
+  ]);
 
   const handleReset = useCallback(() => {
     setLocalSetting(LS_TTS_API_KEY_PREFIX + draftProvider, "");

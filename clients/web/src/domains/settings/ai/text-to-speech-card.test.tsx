@@ -32,11 +32,22 @@ mock.module("@vellumai/design-library/components/toast", () => ({
 mock.module("@/hooks/use-is-org-ready", () => ({
   useIsOrgReady: () => false,
 }));
+// Controllable daemon config the config-get query resolves to. `initialData`
+// makes it available even though the query is `enabled: isOrgReady` (false),
+// mirroring how the real query would already be cached. Default `{ services: {} }`
+// leaves the daemon with no tts provider, so the happy-path tests still PATCH it.
+let daemonConfigData: { services: Record<string, unknown> } = { services: {} };
 mock.module("@/generated/daemon/@tanstack/react-query.gen", () => ({
   ttsProvidersGetOptions: () => ({
     queryKey: ["tts-providers-test"],
     queryFn: () => Promise.resolve({ providers: [] }),
   }),
+  configGetOptions: () => ({
+    queryKey: ["config-get-test"],
+    queryFn: () => Promise.resolve(daemonConfigData),
+    initialData: daemonConfigData,
+  }),
+  configGetQueryKey: () => ["config-get-test"],
 }));
 
 interface SdkCall {
@@ -89,6 +100,7 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
     localStorage.clear();
     credentialsSetCalls.length = 0;
     configPatchCalls.length = 0;
+    daemonConfigData = { services: {} };
   });
 
   afterEach(() => {
@@ -124,5 +136,25 @@ describe("TextToSpeechCard — daemon provisioning on Save", () => {
         },
       },
     });
+  });
+
+  test("does not clobber a daemon-set provider when only the key changes", async () => {
+    // Daemon already has a provider configured elsewhere (CLI/other client).
+    daemonConfigData = { services: { tts: { provider: "fish-audio" } } };
+    renderCard();
+
+    // Enter ONLY an API key; leave the dropdown on the daemon's provider.
+    fireEvent.change(screen.getByPlaceholderText(/Fish Audio API key/), {
+      target: { value: "fish-secret" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+    await waitFor(() => expect(credentialsSetCalls.length).toBe(1));
+    // The config PATCH (if any) must not carry a `provider` key — re-saving a
+    // key must not switch the live provider.
+    const ttsBody = configPatchCalls[0]?.body as
+      | { services?: { tts?: Record<string, unknown> } }
+      | undefined;
+    expect(ttsBody?.services?.tts ?? {}).not.toHaveProperty("provider");
   });
 });
