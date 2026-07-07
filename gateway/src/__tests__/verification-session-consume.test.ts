@@ -76,9 +76,11 @@ mock.module("../ipc/assistant-client.js", () => ({
   IpcHandlerError: class IpcHandlerError extends Error {},
 }));
 
-// Contact-info reads (daemon-backed) — no known contacts by default.
+// Contact-info reads (daemon-backed) — no known contacts by default; the
+// lookup impl is mutable so a test can induce an assistant-IPC failure.
+let lookupContactChannelIdentityImpl: () => Promise<null> = async () => null;
 mock.module("../ipc/contacts-info-client.js", () => ({
-  lookupContactChannelIdentity: async () => null,
+  lookupContactChannelIdentity: () => lookupContactChannelIdentityImpl(),
   probeContactMirror: async () => ({ exists: false, hasChannels: false }),
 }));
 
@@ -236,6 +238,7 @@ beforeEach(async () => {
   testAssistantDb = new Database(":memory:");
   seedAssistantMirrorTables(testAssistantDb);
   mirrorCalls.length = 0;
+  lookupContactChannelIdentityImpl = async () => null;
 
   resetGatewayDb();
   await initGatewayDb();
@@ -716,12 +719,13 @@ describe("trusted-contact consume — verified channel upsert", () => {
     // Induce an assistant-IPC failure in the upsert's decision path (the
     // trusted-contact side effect spans real IO, so it compensates by
     // restoring the session instead of sharing the consume's transaction).
-    const saved = testAssistantDb;
-    testAssistantDb = null;
+    lookupContactChannelIdentityImpl = async () => {
+      throw new Error("assistant IPC unavailable");
+    };
     await expect(
       validateAndConsumeSession("phone", secret, PHONE, PHONE),
-    ).rejects.toThrow("test assistant DB not initialized");
-    testAssistantDb = saved;
+    ).rejects.toThrow("assistant IPC unavailable");
+    lookupContactChannelIdentityImpl = async () => null;
 
     expect(sessionRow(sessionId)?.status).toBe("awaiting_response");
 

@@ -41,6 +41,24 @@ mock.module("../ipc/assistant-client.js", () => ({
   },
 }));
 
+// The ACL helper resolves the existing mirror channel via the typed identity
+// lookup; mutable so tests can serve a mirror row or simulate a down daemon.
+type IdentityChannel = {
+  id: string;
+  contactId: string;
+  type: string;
+  address: string;
+  externalChatId: string | null;
+  displayName: string | null;
+};
+let identityLookupImpl: () => Promise<IdentityChannel | null> = async () =>
+  null;
+const actualContactsInfoClient = await import("../ipc/contacts-info-client.js");
+mock.module("../ipc/contacts-info-client.js", () => ({
+  ...actualContactsInfoClient,
+  lookupContactChannelIdentity: () => identityLookupImpl(),
+}));
+
 
 await import("./test-preload.js");
 
@@ -73,6 +91,7 @@ beforeEach(() => {
   db.delete(contacts).run();
   assistantDbQueryImpl = async () => [];
   assistantDbRunImpl = async () => {};
+  identityLookupImpl = async () => null;
   ipcCallAssistantCalls = [];
 });
 
@@ -451,7 +470,7 @@ describe("post-claim failure isolation", () => {
   test("assistant mirror IPC down (lookup + writes throw): still redeemed, gateway ACL active", async () => {
     seedContact("c1");
     const inviteId = seedInvite();
-    assistantDbQueryImpl = async () => {
+    identityLookupImpl = async () => {
       throw new Error("assistant IPC unavailable");
     };
     assistantDbRunImpl = async () => {
@@ -473,9 +492,14 @@ describe("post-claim failure isolation", () => {
   test("assistant mirror write fails on an existing mirror row: still redeemed, gateway ACL active", async () => {
     seedContact("c1");
     const inviteId = seedInvite();
-    assistantDbQueryImpl = async () => [
-      { channelId: "mirror-ch-1", contactId: "c1" },
-    ];
+    identityLookupImpl = async () => ({
+      id: "mirror-ch-1",
+      contactId: "c1",
+      type: CHANNEL,
+      address: "U_SENDER",
+      externalChatId: null,
+      displayName: null,
+    });
     assistantDbRunImpl = async () => {
       throw new Error("mirror UPDATE failed");
     };
