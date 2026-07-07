@@ -235,26 +235,25 @@ export function resetLocalEmbeddingFailureState(): void {
  * embed doesn't pay the download cost inline. A no-op when the runtime is
  * already installed. Failures are swallowed with a warning: local embeddings
  * fall back to cloud backends, so a failed download must never block or crash
- * daemon startup. Returns immediately; the download proceeds on its own.
+ * daemon startup. Callers fire-and-forget; the returned promise settles when
+ * the download finishes.
  */
-export function startEmbeddingRuntimeManager(): void {
-  void (async () => {
-    try {
-      const runtimeManager = new EmbeddingRuntimeManager();
-      if (runtimeManager.isReady()) return;
-      log.info("Downloading embedding runtime in background...");
-      await runtimeManager.ensureInstalled();
-      // Reset the sticky local-backend failure flag so auto mode retries local
-      // embeddings without evicting a worker that may already be live.
-      resetLocalEmbeddingFailureState();
-      log.info("Embedding runtime download complete");
-    } catch (err) {
-      log.warn(
-        { err },
-        "Embedding runtime download failed — local embeddings will use cloud fallback",
-      );
-    }
-  })();
+export async function startEmbeddingRuntimeManager(): Promise<void> {
+  try {
+    const runtimeManager = new EmbeddingRuntimeManager();
+    if (runtimeManager.isReady()) return;
+    log.info("Downloading embedding runtime in background...");
+    await runtimeManager.ensureInstalled();
+    // Reset the sticky local-backend failure flag so auto mode retries local
+    // embeddings without evicting a worker that may already be live.
+    resetLocalEmbeddingFailureState();
+    log.info("Embedding runtime download complete");
+  } catch (err) {
+    log.warn(
+      { err },
+      "Embedding runtime download failed — local embeddings will use cloud fallback",
+    );
+  }
 }
 
 function cacheKey(provider: string, model: string, extras?: string[]): string {
