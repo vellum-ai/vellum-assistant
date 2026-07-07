@@ -73,7 +73,11 @@ mock.module("../config/loader.js", () => ({
           },
         },
       },
-      profiles: {},
+      profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed", status: "disabled" },
+        "cost-optimized": { source: "managed", status: "disabled" },
+      },
       callSites: {
         // Resolves a SMALLER window than mainAgent (which inherits
         // llm.default's 100000) — exercised by the maybeCompact gate-sizing

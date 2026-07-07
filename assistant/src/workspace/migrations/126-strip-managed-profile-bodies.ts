@@ -11,10 +11,14 @@ import type { WorkspaceMigration } from "./types.js";
 // overlay fields (`source`, plus `label`/`status`/`topP` by key-presence —
 // the exact whitelist the effective view reads off a managed-source entry).
 //
-// A same-named entry the user owns (`source !== "managed"`) is left fully
-// intact — user profiles shadow the code defaults by design. Rollback to a
-// pre-catalog build is safe: its seeder reconciles full template bodies back
-// onto the stubs on first boot.
+// A same-named entry the user explicitly owns (a non-managed `source` tag)
+// is left fully intact — user profiles shadow the code defaults by design.
+// A SOURCE-LESS entry under a default name is claimed and thinned too: it is
+// legacy seeder/migration output (migration 052 seeds source-less bodies,
+// and on fresh workspaces it runs in the same pass as this migration; the
+// old boot seeder claimed and rewrote such entries on every boot), never a
+// deliberate user shadow. Rollback to a pre-catalog build is safe: its
+// seeder reconciles full template bodies back onto the stubs on first boot.
 
 const DEFAULT_PROFILE_NAMES = [
   "balanced",
@@ -50,7 +54,8 @@ export const stripManagedProfileBodiesMigration: WorkspaceMigration = {
     let changed = false;
     for (const name of DEFAULT_PROFILE_NAMES) {
       const entry = readObject(profiles[name]);
-      if (entry === null || entry.source !== "managed") continue;
+      if (entry === null) continue;
+      if (entry.source !== undefined && entry.source !== "managed") continue;
 
       const stub: Record<string, unknown> = { source: "managed" };
       for (const field of WORKSPACE_OWNED_FIELDS) {

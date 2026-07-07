@@ -914,12 +914,11 @@ function normalizeManagedProfileWrites(patch: unknown): void {
     );
     for (const key of Object.keys(entry)) {
       if (key === "source" || key === "status") continue;
-      if (
-        MANAGED_PROFILE_WORKSPACE_KEYS.has(key) &&
-        current &&
-        key in current
-      ) {
-        // On-disk overlay field: leave for the guard's frozen-field check.
+      if (current && key in current) {
+        // The key exists on disk (a frozen overlay field, or a legacy
+        // full-body entry awaiting migration): leave it for the guard's
+        // frozen-field comparison against the on-disk value. Stripping it
+        // would read as a key removal on a full-entry SET.
         continue;
       }
       if (
@@ -1300,7 +1299,36 @@ async function handleSetConfig({ body }: RouteHandlerArgs) {
   rejectMcpTransportHeaderWrite(patchShape);
 
   const raw = loadRawConfig();
+  // A SET below the entry level (`llm.profiles.<name>.<leaf>`) writes the
+  // primitive leaf directly into `raw`, bypassing the by-reference
+  // normalization above — creating an entry for a managed-owned name would
+  // leave it source-less, and a source-less entry reads as a user shadow
+  // that blocks the catalog body. Stamp the managed marker onto the written
+  // entry when the name was absent or managed-owned before this write.
+  const managedEntryName =
+    pathSegments[0] === "llm" &&
+    pathSegments[1] === "profiles" &&
+    pathSegments.length >= 3 &&
+    MANAGED_PROFILE_NAMES.has(pathSegments[2]!)
+      ? pathSegments[2]!
+      : undefined;
+  const priorManagedEntry = managedEntryName
+    ? readPlainObject(
+        readPlainObject(readPlainObject(raw.llm)?.profiles)?.[managedEntryName],
+      )
+    : undefined;
   setNestedValue(raw, path, value);
+  if (
+    managedEntryName &&
+    (priorManagedEntry == null || priorManagedEntry.source === "managed")
+  ) {
+    const written = readPlainObject(
+      readPlainObject(readPlainObject(raw.llm)?.profiles)?.[managedEntryName],
+    );
+    if (written && written.source === undefined) {
+      written.source = "managed";
+    }
+  }
 
   await commitConfigWrite(raw, "set");
   return { ok: true };

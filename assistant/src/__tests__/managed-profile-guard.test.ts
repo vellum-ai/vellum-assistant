@@ -1176,3 +1176,46 @@ describe("code-owned default profiles — wire view and write normalization", ()
     expect(savedProfile("balanced").model).toBe("gpt-5.4");
   });
 });
+
+describe("code-owned default profiles — leaf SET source stamping", () => {
+  test("a leaf SET creating a managed entry stamps the managed marker", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    const result = await setRoute.handler({
+      body: { path: "llm.profiles.balanced.status", value: "active" },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(savedProfile("balanced")).toEqual({
+      source: "managed",
+      status: "active",
+    });
+  });
+
+  test("a leaf SET on an existing user shadow does not stamp it managed", async () => {
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: { source: "user", provider: "openai", model: "gpt-4o" },
+        },
+      },
+    };
+    const result = await setRoute.handler({
+      body: { path: "llm.profiles.balanced.model", value: "gpt-5.4" },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(savedProfile("balanced")).toEqual({
+      source: "user",
+      provider: "openai",
+      model: "gpt-5.4",
+    });
+  });
+
+  test("a leaf SET writing content to an absent default is rejected", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    await expect(
+      setRoute.handler({
+        body: { path: "llm.profiles.balanced.model", value: "gpt-4o" },
+      }),
+    ).rejects.toThrow(BadRequestError);
+    expectNothingCommitted();
+  });
+});

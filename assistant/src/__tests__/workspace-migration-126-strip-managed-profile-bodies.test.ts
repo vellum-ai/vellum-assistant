@@ -119,6 +119,33 @@ describe("126-strip-managed-profile-bodies", () => {
     expect(profiles["cost-optimized"]).toEqual({ source: "managed" });
   });
 
+  test("claims and thins source-less legacy entries under default names", () => {
+    // Migration 052 seeds source-less bodies, and on fresh workspaces it
+    // runs in the same pass as this migration — those entries are seeder
+    // output, not user shadows.
+    writeConfig({
+      llm: {
+        profiles: {
+          balanced: {
+            provider: "anthropic",
+            model: "claude-opus-4-7",
+            maxTokens: 32000,
+            status: "disabled",
+          },
+        },
+      },
+    });
+
+    stripManagedProfileBodiesMigration.run(workspaceDir);
+
+    const profiles = (readConfig().llm as Record<string, unknown>)
+      .profiles as Record<string, Record<string, unknown>>;
+    expect(profiles.balanced).toEqual({
+      source: "managed",
+      status: "disabled",
+    });
+  });
+
   test("strips a managed os-beta body to a stub", () => {
     writeConfig({
       llm: {
