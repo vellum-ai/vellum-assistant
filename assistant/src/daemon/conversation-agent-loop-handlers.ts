@@ -100,6 +100,7 @@ import type {
   WebSearchMetadata,
   WebSearchResultItem,
 } from "./message-types/web-activity.js";
+import { referenceMediaBlocksForPersist } from "./persist-media-references.js";
 import type { TurnLatencyTracker } from "./turn-latency-tracker.js";
 
 const log = getLogger("agent-loop-handlers");
@@ -1278,8 +1279,17 @@ export async function finalizePendingToolResultRow(
     conversationId,
     metadata,
   );
+  // Materialize nested tool-result media (screenshots, generated images) into
+  // the attachment store as references so the finalized row — and the memory /
+  // lexical indexes built from it below — carry no inline base64. The
+  // on-arrival write above keeps base64 for mid-tool durability; this final
+  // write overwrites it with references. Single-writer here (turn boundary), so
+  // attachments are created exactly once.
   const contentJson = JSON.stringify(
-    buildToolResultBlocks(state.pendingToolResults),
+    referenceMediaBlocksForPersist(
+      rowId,
+      buildToolResultBlocks(state.pendingToolResults) as ContentBlock[],
+    ),
   );
   await persistLoopMessageContent(
     rowId,
@@ -2053,7 +2063,12 @@ export async function handleMessageComplete(
       "handleMessageComplete fired without a prior llm_call_started reserving an assistant row",
     );
   }
-  const contentJson = JSON.stringify(contentForPersistence);
+  // Reference any model-emitted top-level image (image-generation models) into
+  // the attachment store so the persisted row and its indexes carry no inline
+  // base64. No-op for the common text/thinking/tool_use assistant turn.
+  const contentJson = JSON.stringify(
+    referenceMediaBlocksForPersist(assistantMessageId, contentForPersistence),
+  );
   const persisted = await persistLoopMessageContent(
     assistantMessageId,
     contentJson,
