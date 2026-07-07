@@ -5,6 +5,7 @@ import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
+import { getCatalogModelVision } from "../model-catalog.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
@@ -315,7 +316,21 @@ export class OpenAIChatCompletionsProvider implements Provider {
     const coercedObjectKeys = new Map<string, string[]>();
 
     try {
-      const openaiMessages = this.toOpenAIMessages(messages, systemPrompt);
+      // Models the catalog explicitly marks text-only reject the whole
+      // request over a single image block (HTTP 400), so their image blocks
+      // are serialized as text placeholders instead. Image blocks can reach a
+      // text-only model through persisted history — e.g. a compaction-rebuilt
+      // context or a profile switch after images entered the conversation —
+      // where no upstream hook gets another chance to strip them. Models the
+      // catalog doesn't know keep their images (fail open — the provider
+      // decides, and `detectVisionNotSupported` below classifies a rejection).
+      const supportsImageInput =
+        getCatalogModelVision(modelOverride ?? this.model) !== false;
+      const openaiMessages = this.toOpenAIMessages(
+        messages,
+        systemPrompt,
+        supportsImageInput,
+      );
 
       const params: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming =
         {
@@ -804,7 +819,8 @@ export class OpenAIChatCompletionsProvider implements Provider {
   /** Convert neutral messages + system prompt to OpenAI message format. */
   private toOpenAIMessages(
     messages: Message[],
-    systemPrompt?: string,
+    systemPrompt: string | undefined,
+    supportsImageInput: boolean,
   ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
     const result: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
 
@@ -863,7 +879,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
         // message because OpenAI-compatible APIs don't support images in tool messages.
         const userContent = [...otherBlocks, ...toolResultImages];
         if (userContent.length > 0) {
-          result.push(this.toOpenAIUserMessage(userContent));
+          result.push(
+            this.toOpenAIUserMessage(userContent, supportsImageInput),
+          );
         }
       }
     }
@@ -947,6 +965,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
   /** Convert user content blocks (text, image) to an OpenAI user message. */
   private toOpenAIUserMessage(
     blocks: ContentBlock[],
+    supportsImageInput: boolean,
   ): OpenAI.Chat.Completions.ChatCompletionUserMessageParam {
     // If only a single text block, use plain string (simpler, fewer tokens)
     if (blocks.length === 1 && blocks[0].type === "text") {
@@ -960,7 +979,14 @@ export class OpenAIChatCompletionsProvider implements Provider {
           parts.push({ type: "text", text: block.text });
           break;
         case "image":
-          if (!OPENAI_SUPPORTED_IMAGE_TYPES.has(block.source.media_type)) {
+          if (!supportsImageInput) {
+            parts.push({
+              type: "text",
+              text: "[Image omitted: this model does not accept image input]",
+            });
+          } else if (
+            !OPENAI_SUPPORTED_IMAGE_TYPES.has(block.source.media_type)
+          ) {
             parts.push({
               type: "text",
               text: `[Image: ${block.source.media_type} — format not supported by this provider]`,

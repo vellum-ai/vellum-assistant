@@ -19,6 +19,7 @@
 import { getEffectiveProfile } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
 import {
+  getCatalogModelVision,
   getCatalogProviderForModel,
   PROVIDER_CATALOG,
 } from "../providers/model-catalog.js";
@@ -37,23 +38,12 @@ export function doesSupportVision(
   if (typeof modelOrProfile === "string") {
     // Concrete model id first, then fall back to treating it as a profile key.
     return (
-      modelVision(modelOrProfile) ?? profileVision(modelOrProfile) ?? false
+      getCatalogModelVision(modelOrProfile) ??
+      profileVision(modelOrProfile) ??
+      false
     );
   }
   return profileVision(modelOrProfile.key) ?? false;
-}
-
-/**
- * Catalog vision flag for a concrete model id, or `undefined` when the catalog
- * doesn't know the model. The same model id carries the same capability under
- * every provider that offers it, so the first catalog match wins.
- */
-function modelVision(model: string): boolean | undefined {
-  for (const provider of PROVIDER_CATALOG) {
-    const catalogModel = provider.models.find((m) => m.id === model);
-    if (catalogModel != null) return catalogModel.supportsVision ?? false;
-  }
-  return undefined;
 }
 
 /**

@@ -10,10 +10,13 @@
  * known location, caption it via a vision-capable profile, and swap in a
  * `[Image …]` text block.
  *
- * The substitution mutates the blocks in place, so the caption replaces the
- * image everywhere the block is referenced (the provider-bound history and the
- * persisted/displayed copy alike) — a text-only turn does not keep the raw
- * image around.
+ * The substitution mutates the blocks in place, but the hook pipeline hands
+ * each hook a deep clone of its context, so the caption reaches only the
+ * provider-bound history — the persisted/displayed tool result keeps the
+ * original image. Raw images therefore survive in durable history (clients
+ * can still render them) and can re-enter a request through paths that
+ * rebuild context from persistence (e.g. compaction); the chat-completions
+ * provider's own text-only image gate covers those.
  *
  * The caption text states up front that the model can't view images and the
  * image was auto-described to text, so the model treats the block as a derived

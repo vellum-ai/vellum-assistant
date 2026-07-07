@@ -19,6 +19,8 @@
  * `compacted: false` — never silently lose messages.
  */
 import { optimizeImageForTransport } from "../agent/image-optimize.js";
+import { resolveCallSiteConfig } from "../config/llm-resolver.js";
+import { getConfig } from "../config/loader.js";
 import type { CompactionConfig } from "../config/schemas/compaction.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
 import { filterMessagesForUntrustedActor } from "../daemon/message-provenance.js";
@@ -28,6 +30,7 @@ import {
 } from "../persistence/attachments-store.js";
 import { getMessages } from "../persistence/conversation-crud.js";
 import { recordRequestLog } from "../persistence/llm-request-log-store.js";
+import { getCatalogModelVision } from "../providers/model-catalog.js";
 import type {
   ContentBlock,
   ImageContent,
@@ -98,6 +101,32 @@ function recordCompactionRequestLog(
       { err, conversationId },
       "Failed to persist compaction LLM request log (non-fatal)",
     );
+  }
+}
+
+/**
+ * Whether the model the compacted context is rebuilt for accepts image input.
+ *
+ * Resolves `mainAgent` + the conversation's override profile — the same
+ * inputs the compaction `sendMessage` (and the agent's next turn) resolve —
+ * and checks the catalog's vision flag for the resolved model. Only an
+ * explicit catalog `supportsVision: false` disables retention; unknown models
+ * fail open so uncataloged setups keep today's behavior. Resolution errors
+ * also fail open — a config problem surfaces on the provider call itself, not
+ * here.
+ */
+function compactionModelSupportsImages(
+  overrideProfile: string | null | undefined,
+): boolean {
+  try {
+    const resolved = resolveCallSiteConfig(
+      COMPACTION_CALL_SITE,
+      getConfig().llm,
+      overrideProfile ? { overrideProfile } : {},
+    );
+    return getCatalogModelVision(resolved.model) !== false;
+  } catch {
+    return true;
   }
 }
 
@@ -933,15 +962,26 @@ export async function runAssistantDrivenCompaction(
     return emptyResult(args, thresholdTokens, "no messages to compact");
   }
 
+  // Image retention only makes sense when the model consuming the compacted
+  // context accepts image input. Retained images are re-attached as raw image
+  // blocks in the rebuilt history, so a text-only model (e.g. a catalog entry
+  // with `supportsVision: false`) would have its next request rejected
+  // wholesale by the provider — and since the compacted context is persisted,
+  // every subsequent turn on that profile fails the same way. Gate on the same
+  // call-site resolution the summary call below uses.
+  const retainImages = compactionModelSupportsImages(args.overrideProfile);
+
   // Build image manifest from the DB before invoking the model so the
   // instruction message carries a faithful picture of available images.
   // Filtered by actor trust so untrusted turns never see guardian-only
-  // attachments.
-  const manifest = collectImageManifest(
-    args.conversationId,
-    args.actorTrustClass,
-  );
-  const manifestText = renderImageManifest(manifest);
+  // attachments. An empty manifest tells the model there is nothing to
+  // retain, so a text-only pass never invites retention it cannot honor.
+  const manifest = retainImages
+    ? collectImageManifest(args.conversationId, args.actorTrustClass)
+    : [];
+  const manifestText = retainImages
+    ? renderImageManifest(manifest)
+    : "(image retention unavailable: the active model does not accept image input)";
   const instruction = buildInstructionMessage(
     args.compaction.prompt ?? null,
     manifestText,
@@ -1079,11 +1119,23 @@ export async function runAssistantDrivenCompaction(
     content: [{ type: "text", text: finalSummaryText }],
   };
 
+  if (!retainImages && parsed.retainedImageFilenames.length > 0) {
+    // Belt to the empty-manifest suspenders: the model may still emit a
+    // `<retained_images>` block (e.g. hallucinated filenames). Never hydrate
+    // for a text-only model.
+    log.warn(
+      { filenames: parsed.retainedImageFilenames },
+      "Compaction requested image retention but the active model does not accept image input — dropping",
+    );
+  }
   const {
     blocks: retainedImageBlocks,
     resolved,
     missing,
-  } = buildRetainedImageBlocks(parsed.retainedImageFilenames, manifest);
+  } = buildRetainedImageBlocks(
+    retainImages ? parsed.retainedImageFilenames : [],
+    manifest,
+  );
   if (missing.length > 0) {
     log.warn(
       { missing },

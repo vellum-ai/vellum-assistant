@@ -11,8 +11,9 @@
  *
  * Capability is read straight off `ctx.model` — the provider-reported model id
  * for the turn that issued this tool call — so the decision tracks the model
- * that actually ran, including a text-only override. The substitution is in
- * place, so the persisted/displayed tool result carries the caption too.
+ * that actually ran, including a text-only override. The hook receives a deep
+ * clone of the tool result, so the caption reaches the provider-bound history
+ * only — the persisted/displayed tool result keeps the original image.
  */
 
 import {

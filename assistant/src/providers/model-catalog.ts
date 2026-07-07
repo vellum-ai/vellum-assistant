@@ -1463,6 +1463,23 @@ export function getCatalogProviderForModel(
 }
 
 /**
+ * Catalog vision capability for a concrete model id, or `undefined` when no
+ * catalog entry knows the model. A model id carries the same capability under
+ * every provider that offers it, so the first catalog match wins. A known
+ * model without the flag reports `false` — catalog entries declare vision
+ * explicitly.
+ */
+export function getCatalogModelVision(modelId: string): boolean | undefined {
+  for (const provider of PROVIDER_CATALOG) {
+    const model = provider.models.find((m) => m.id === modelId);
+    if (model != null) {
+      return model.supportsVision ?? false;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Whether the given model only supports adaptive (always-on) thinking, driven
  * by the `adaptiveThinkingOnly` capability in the catalog. Matches the model ID
  * across every provider (a model carries the same id under each provider it is
