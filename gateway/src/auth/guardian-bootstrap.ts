@@ -24,6 +24,7 @@ import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { getLogger } from "../logger.js";
 import { deleteContactIfOrphaned } from "../verification/contact-helpers.js";
 
+import { bustGuardianIntegrityCache } from "./guardian-integrity.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { mintToken } from "./token-service.js";
 
@@ -449,6 +450,9 @@ export async function createGuardianBinding(
   const writes = getGatewayDb().transaction(() =>
     applyGuardianBindingGatewayWrites(params),
   );
+
+  // The committed guardian row supersedes any cached missing-guardian state.
+  bustGuardianIntegrityCache();
 
   await mirrorGuardianBinding(writes);
 

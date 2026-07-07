@@ -15565,6 +15565,54 @@ paths:
                     required:
                       - skipped
                     additionalProperties: false
+  /v1/internal/telemetry/watchdog:
+    post:
+      operationId: internal_telemetry_watchdog_post
+      summary: Relay a watchdog telemetry event
+      description:
+        Emits a gateway-origin watchdog telemetry event directly to platform ingest, bypassing the SQLite watchdog
+        buffer, so integrity alarms never depend on the state they report on.
+      tags:
+        - internal
+        - telemetry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                check_name:
+                  type: string
+                  minLength: 1
+                  maxLength: 128
+                detail:
+                  anyOf:
+                    - type: object
+                      propertyNames:
+                        type: string
+                      additionalProperties: {}
+                    - type: "null"
+                value:
+                  anyOf:
+                    - type: number
+                    - type: "null"
+              required:
+                - check_name
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    const: true
+                required:
+                  - ok
+                additionalProperties: false
   /v1/internal/twilio/status:
     post:
       operationId: internal_twilio_status_post
