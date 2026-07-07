@@ -34,7 +34,10 @@ mock.module("../daemon/conversation-plugin-scope.js", () => ({
   resolveConversationPluginScope: (id: string) => resolveScopeMock(id),
 }));
 
-import { collectUserHooks, preImportHooksDir } from "../hooks/hook-loader.js";
+import {
+  collectUserHooks,
+  resetHookCacheForTests,
+} from "../hooks/hook-loader.js";
 import { getHooksFor } from "../hooks/registry.js";
 import {
   registerPlugin,
@@ -138,6 +141,7 @@ describe("collectUserHooks per-chat plugin scope (user-land hooks)", () => {
   let counter = 0;
 
   beforeEach(() => {
+    resetHookCacheForTests();
     root = join(
       tmpdir(),
       `vellum-userhooks-${process.pid}-${Date.now()}-${counter++}`,
@@ -149,9 +153,9 @@ describe("collectUserHooks per-chat plugin scope (user-land hooks)", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  // Hooks enter the dispatch cache at owner activation (preImportHooksDir),
-  // so the fixture activates each plugin the way the orchestrator would.
-  async function pluginDirWithHook(name: string): Promise<string> {
+  // Dispatch hooks import lazily on the first `collectUserHooks` read, so the
+  // fixture only has to lay the files down on disk — the read fills the cache.
+  function pluginDirWithHook(name: string): string {
     const dir = join(root, name);
     const hooksDir = join(dir, "hooks");
     mkdirSync(hooksDir, { recursive: true });
@@ -159,14 +163,13 @@ describe("collectUserHooks per-chat plugin scope (user-land hooks)", () => {
       join(hooksDir, "user-prompt-submit.ts"),
       "export default () => ({});\n",
     );
-    await preImportHooksDir(hooksDir, name);
     return dir;
   }
 
   test("null set runs both user plugins' hooks (unchanged)", async () => {
     const dirs: Array<readonly [string, string]> = [
-      [await pluginDirWithHook("uplug-a"), "uplug-a"],
-      [await pluginDirWithHook("uplug-b"), "uplug-b"],
+      [pluginDirWithHook("uplug-a"), "uplug-a"],
+      [pluginDirWithHook("uplug-b"), "uplug-b"],
     ];
 
     expect(await collectUserHooks("user-prompt-submit", dirs)).toHaveLength(2);
@@ -177,8 +180,8 @@ describe("collectUserHooks per-chat plugin scope (user-land hooks)", () => {
 
   test("a set excluding plugin b drops b's user-land hook", async () => {
     const dirs: Array<readonly [string, string]> = [
-      [await pluginDirWithHook("uplug-a"), "uplug-a"],
-      [await pluginDirWithHook("uplug-b"), "uplug-b"],
+      [pluginDirWithHook("uplug-a"), "uplug-a"],
+      [pluginDirWithHook("uplug-b"), "uplug-b"],
     ];
 
     expect(
