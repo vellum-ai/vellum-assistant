@@ -66,6 +66,8 @@ export interface FileContext {
   toolsDir: string;
   routesDir: string;
   workflowsDir: string;
+  /** Monitoring data dir — sentinel lives here, writes are code-injection risk. */
+  monitoringDir: string;
   actorTokenSigningKeyPath: string;
   skillSourceDirs: string[];
 }

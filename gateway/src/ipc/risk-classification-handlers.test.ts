@@ -337,6 +337,7 @@ describe("file classification", () => {
         toolsDir: "/workspace/tools",
         routesDir: "/workspace/routes",
         workflowsDir: "/workspace/workflows",
+        monitoringDir: "/workspace/data/monitoring",
         actorTokenSigningKeyPath:
           "/workspace/.vellum/protected/actor-token-signing-key",
         skillSourceDirs: ["/workspace/.vellum/skills"],
