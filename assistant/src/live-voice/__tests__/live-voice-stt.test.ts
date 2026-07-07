@@ -467,7 +467,7 @@ describe("LiveVoiceSession STT", () => {
     expect(frames).toHaveLength(1);
     expect(frames[0]).toMatchObject({
       type: "error",
-      code: "invalid_field",
+      code: "credentials_unavailable",
     });
     const [errorFrame] = frames;
     if (errorFrame?.type !== "error") {

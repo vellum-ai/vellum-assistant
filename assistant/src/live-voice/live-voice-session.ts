@@ -25,6 +25,7 @@ import type {
   LiveVoiceAudioArchiveResult,
   LiveVoiceAudioArchiveRole,
 } from "./live-voice-archive.js";
+import type { LiveVoiceCredentialReadiness } from "./live-voice-credential-preflight.js";
 import {
   getLiveVoiceMetricsAggregateFields,
   type LiveVoiceMetricsClock,
@@ -67,6 +68,9 @@ export type LiveVoiceStreamingTranscriberResolver = (
   options: ResolveStreamingTranscriberOptions,
 ) => Promise<StreamingTranscriber | null>;
 
+export type LiveVoiceCredentialReadinessResolver =
+  () => Promise<LiveVoiceCredentialReadiness>;
+
 export type LiveVoiceTurnStarter = (
   options: VoiceTurnOptions,
 ) => Promise<VoiceTurnHandle>;
@@ -95,6 +99,12 @@ export type LiveVoiceSessionAudioArchiver = (
 
 export interface LiveVoiceSessionOptions {
   resolveTranscriber?: LiveVoiceStreamingTranscriberResolver;
+  /**
+   * STT/TTS credential preflight run before any session wiring; a
+   * `not-ready` verdict rejects the start frame with its `userMessage`.
+   * `null` skips the preflight.
+   */
+  resolveCredentialReadiness?: LiveVoiceCredentialReadinessResolver | null;
   startVoiceTurn?: LiveVoiceTurnStarter;
   streamTtsAudio?: LiveVoiceTtsStreamer | null;
   archiveAudio?: LiveVoiceSessionAudioArchiver | null;
@@ -176,6 +186,7 @@ interface ActiveAssistantTurn {
 export class LiveVoiceSession implements LiveVoiceSessionContract {
   private readonly context: LiveVoiceSessionFactoryContext;
   private readonly resolveTranscriber: LiveVoiceStreamingTranscriberResolver;
+  private readonly resolveCredentialReadiness: LiveVoiceCredentialReadinessResolver | null;
   private readonly startVoiceTurn: LiveVoiceTurnStarter | null;
   private readonly streamTtsAudio: LiveVoiceTtsStreamer | null;
   private readonly archiveAudio: LiveVoiceSessionAudioArchiver | null;
@@ -212,6 +223,8 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     this.context = context;
     this.resolveTranscriber =
       options.resolveTranscriber ?? defaultResolveStreamingTranscriber;
+    this.resolveCredentialReadiness =
+      options.resolveCredentialReadiness ?? null;
     this.startVoiceTurn = options.startVoiceTurn ?? null;
     this.streamTtsAudio = options.streamTtsAudio ?? null;
     this.archiveAudio = options.archiveAudio ?? null;
@@ -245,11 +258,25 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
   async start(): Promise<void> {
     if (this.state !== "initializing") return;
 
+    if (this.resolveCredentialReadiness) {
+      const readiness = await this.resolveCredentialReadiness();
+      if (readiness.status === "not-ready") {
+        return await this.failStartup(
+          readiness.userMessage,
+          LiveVoiceProtocolErrorCode.CredentialsUnavailable,
+        );
+      }
+    }
+
     const result = await this.beginUtterance();
     switch (result.status) {
       case "stale":
         return;
       case "unavailable":
+        return await this.failStartup(
+          result.message,
+          LiveVoiceProtocolErrorCode.CredentialsUnavailable,
+        );
       case "error":
         return await this.failStartup(result.message);
       case "started":
@@ -1503,11 +1530,14 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     });
   }
 
-  private async failStartup(message: string): Promise<never> {
+  private async failStartup(
+    message: string,
+    code: LiveVoiceProtocolErrorCode = LiveVoiceProtocolErrorCode.InvalidField,
+  ): Promise<never> {
     this.state = "failed";
     await this.sendFrame({
       type: "error",
-      code: LiveVoiceProtocolErrorCode.InvalidField,
+      code,
       message,
     });
     throw new LiveVoiceSessionStartupError(message);
@@ -1557,6 +1587,10 @@ export function createLiveVoiceSession(
 ): LiveVoiceSession {
   return new LiveVoiceSession(context, {
     ...options,
+    resolveCredentialReadiness:
+      options.resolveCredentialReadiness === undefined
+        ? defaultResolveLiveVoiceCredentialReadiness
+        : options.resolveCredentialReadiness,
     startVoiceTurn: options.startVoiceTurn ?? defaultStartVoiceTurn,
     streamTtsAudio:
       options.streamTtsAudio === undefined
@@ -1576,6 +1610,12 @@ async function defaultResolveStreamingTranscriber(
   const { resolveStreamingTranscriber } =
     await import("../providers/speech-to-text/resolve.js");
   return resolveStreamingTranscriber(options);
+}
+
+async function defaultResolveLiveVoiceCredentialReadiness(): Promise<LiveVoiceCredentialReadiness> {
+  const { resolveLiveVoiceCredentialReadiness } =
+    await import("./live-voice-credential-preflight.js");
+  return resolveLiveVoiceCredentialReadiness();
 }
 
 async function defaultStartVoiceTurn(
