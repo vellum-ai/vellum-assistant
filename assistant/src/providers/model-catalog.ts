@@ -1670,14 +1670,16 @@ export function isModelInCatalog(provider: string, modelId: string): boolean {
   return entry?.models.some((m) => m.id === modelId) ?? false;
 }
 
-/** Return the unique catalog provider that owns a model ID, if known. */
+/**
+ * Return the catalog provider that owns a model ID, if known. When multiple
+ * providers list the same ID (e.g. OpenRouter and the Vercel AI Gateway share
+ * `anthropic/*` IDs), the earliest entry in PROVIDER_CATALOG order wins.
+ */
 export function getCatalogProviderForModel(
   modelId: string,
 ): string | undefined {
-  const matches = PROVIDER_CATALOG.filter((p) =>
-    p.models.some((m) => m.id === modelId),
-  );
-  return matches.length === 1 ? matches[0]?.id : undefined;
+  return PROVIDER_CATALOG.find((p) => p.models.some((m) => m.id === modelId))
+    ?.id;
 }
 
 /**

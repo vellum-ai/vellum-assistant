@@ -390,11 +390,14 @@ export function resolvePricingForUsage(
   model: string,
   usage: PricingUsage,
 ): PricingResult {
-  // Anthropic models routed through OpenRouter: look up against the Anthropic
-  // catalog using the normalized bare slug. OpenRouter bills these calls at
-  // Anthropic's rates and the underlying Messages API response includes
-  // Anthropic's cache- and speed-metadata fields.
-  if (provider === "openrouter" && isAnthropicModelId(model)) {
+  // Anthropic models routed through OpenRouter or the Vercel AI Gateway: look
+  // up against the Anthropic catalog using the normalized bare slug. Both
+  // gateways bill these calls at Anthropic's rates and the underlying Messages
+  // API response includes Anthropic's cache- and speed-metadata fields.
+  if (
+    (provider === "openrouter" || provider === "vercel-ai-gateway") &&
+    isAnthropicModelId(model)
+  ) {
     const pricing = findPricing("anthropic", normalizeAnthropicModelId(model));
     if (pricing) {
       return {
