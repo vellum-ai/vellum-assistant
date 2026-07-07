@@ -69,6 +69,44 @@ export function activationZonePx(viewportWidth: number): number {
   return viewportWidth * ACTIVATION_ZONE_VW_RATIO;
 }
 
+/**
+ * Whether the touched element is (or sits inside) a surface that owns
+ * horizontal drags for its own text interaction — a text field or a
+ * contenteditable region (e.g. the rich-text document editor). A widened-band
+ * swipe beginning here would otherwise hijack caret placement / text selection
+ * and navigate away, so over these surfaces the gesture stays edge-only.
+ */
+export function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+  return (
+    target.closest(
+      'input, textarea, select, [contenteditable]:not([contenteditable="false"])',
+    ) !== null
+  );
+}
+
+/**
+ * Whether a touch at `clientX` may arm the gesture, given the viewport width
+ * and whether it began on an editable surface. Edge touches (within
+ * `EDGE_SWIPE_HIT_ZONE_PX`) always arm, preserving deliberate edge swipe-back
+ * everywhere; the widened band beyond the edge arms only off editable surfaces.
+ */
+export function shouldArmAt(
+  clientX: number,
+  viewportWidth: number,
+  editable: boolean,
+): boolean {
+  if (clientX > activationZonePx(viewportWidth)) {
+    return false;
+  }
+  if (editable && clientX > EDGE_SWIPE_HIT_ZONE_PX) {
+    return false;
+  }
+  return true;
+}
+
 /** Whether vertical travel dominates enough to treat the gesture as a scroll. */
 export function isVerticalEscape(dx: number, dy: number): boolean {
   return Math.abs(dy) > Math.abs(dx) * VERTICAL_ESCAPE_RATIO;
@@ -220,7 +258,15 @@ export function useEdgeSwipe({
       if (event.touches.length !== 1) {return;}
       const touch = event.touches[0];
       if (!touch) {return;}
-      if (touch.clientX > activationZonePx(window.innerWidth)) {return;}
+      if (
+        !shouldArmAt(
+          touch.clientX,
+          window.innerWidth,
+          isEditableTarget(event.target),
+        )
+      ) {
+        return;
+      }
 
       dragRef.current = {
         touchId: touch.identifier,
