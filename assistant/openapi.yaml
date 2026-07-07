@@ -4037,18 +4037,10 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
-                        verifiedVia:
-                          anyOf:
-                            - type: string
-                            - type: "null"
                         memberDisplayName:
                           type: string
                         interactionCount:
                           type: number
-                        lastInteraction:
-                          anyOf:
-                            - type: number
-                            - type: "null"
                         hasInterceptableVerificationSession:
                           type: boolean
                       required:
