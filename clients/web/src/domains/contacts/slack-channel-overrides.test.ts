@@ -10,24 +10,24 @@ import {
 } from "./slack-channel-overrides";
 
 describe("resolveChannelTier", () => {
-  test("no override resolves the room default with no divergence", () => {
+  test("no cell resolves the presentation default, not an override", () => {
     expect(resolveChannelTier(undefined)).toEqual({
       tier: "full_access",
       overridden: false,
     });
   });
 
-  test("a diverging override flags the row as custom", () => {
+  test("a persisted cell flags the row as custom", () => {
     expect(resolveChannelTier("standard")).toEqual({
       tier: "standard",
       overridden: true,
     });
   });
 
-  test("a persisted cell matching the default is not flagged", () => {
+  test("a full_access cell is still an override — it pins the channel above the global cascade", () => {
     expect(resolveChannelTier("full_access")).toEqual({
       tier: "full_access",
-      overridden: false,
+      overridden: true,
     });
   });
 });

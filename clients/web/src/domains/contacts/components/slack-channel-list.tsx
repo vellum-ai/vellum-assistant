@@ -141,6 +141,11 @@ export interface SlackChannelListProps {
    * tier picker disabled so stored overrides can't be misread as defaults.
    */
   tierOverridesLoading?: boolean;
+  /**
+   * True when persisted overrides failed to load. The picker stays disabled
+   * — writing over unknown stored cells could silently clobber them.
+   */
+  tierOverridesError?: boolean;
   /** Channels with a tier write in flight — the row shows a saving hint. */
   pendingChannelIds?: ReadonlySet<string>;
   onTierChange?: (channelId: string, tier: SlackCapabilityTier) => void;
@@ -168,6 +173,7 @@ export function SlackChannelList({
   error = false,
   tierOverrides,
   tierOverridesLoading = false,
+  tierOverridesError = false,
   pendingChannelIds = EMPTY_PENDING_IDS,
   onTierChange,
   onTierReset,
@@ -327,6 +333,7 @@ export function SlackChannelList({
                         open={openIds.has(channel.id)}
                         pending={pendingChannelIds.has(channel.id)}
                         overridesLoading={tierOverridesLoading}
+                        overridesError={tierOverridesError}
                         onToggle={() => toggleRow(channel.id)}
                         tierOverride={tierOverrides?.[channel.id]}
                         onTierChange={(tier) =>
@@ -349,6 +356,7 @@ export function SlackChannelList({
                       open={openIds.has(channel.id)}
                       pending={pendingChannelIds.has(channel.id)}
                       overridesLoading={tierOverridesLoading}
+                      overridesError={tierOverridesError}
                       onToggle={() => toggleRow(channel.id)}
                       tierOverride={tierOverrides?.[channel.id]}
                       onTierChange={(tier) => onTierChange?.(channel.id, tier)}
@@ -384,6 +392,7 @@ function SlackChannelRow({
   open,
   pending,
   overridesLoading,
+  overridesError,
   onToggle,
   tierOverride,
   onTierChange,
@@ -395,6 +404,7 @@ function SlackChannelRow({
   open: boolean;
   pending: boolean;
   overridesLoading: boolean;
+  overridesError: boolean;
   onToggle: () => void;
   tierOverride: SlackCapabilityTier | undefined;
   onTierChange: (tier: SlackCapabilityTier) => void;
@@ -464,6 +474,7 @@ function SlackChannelRow({
             admissionPolicy={admissionPolicy}
             settings={settings}
             loading={overridesLoading}
+            error={overridesError}
             onTierChange={onTierChange}
             onReset={onReset}
           />

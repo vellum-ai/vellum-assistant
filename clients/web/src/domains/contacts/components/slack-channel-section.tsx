@@ -47,6 +47,7 @@ export function SlackChannelSection({
       error={channelsQuery.isError}
       tierOverrides={overrides.tierOverrides}
       tierOverridesLoading={overrides.isLoading}
+      tierOverridesError={overrides.isError}
       pendingChannelIds={overrides.pendingChannelIds}
       onTierChange={overrides.onTierChange}
       onTierReset={overrides.onTierReset}

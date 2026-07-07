@@ -42,20 +42,23 @@ interface CapabilityTierMeta {
 export const CAPABILITY_TIER_META: Record<SlackCapabilityTier, CapabilityTierMeta> = {
   strict: {
     label: presetFromThreshold("none").label,
-    sublabel: "read + reply only",
-    description: "Read and reply only — no tools run from this channel.",
+    sublabel: "ask before every action",
+    description:
+      "Nothing is auto-approved — every tool call from this channel asks first.",
     tone: "negative",
   },
   standard: {
     label: "Standard",
     sublabel: "reply + safe tools",
-    description: "Reply and safe tools. Sensitive tools require approval.",
+    description:
+      "Safe, low-risk tools are auto-approved; anything sensitive still asks.",
     tone: "warning",
   },
   full_access: {
     label: presetFromThreshold("high").label,
     sublabel: "all tools",
-    description: "All tools the assistant has access to, within global gating.",
+    description:
+      "All tools auto-approve in this channel, even when the global setting is stricter. Sensitive-tool protections still apply.",
     tone: "positive",
   },
 };
@@ -139,23 +142,28 @@ export function tierOverridesFromCells(
   return overrides;
 }
 
-/** The row's resolved tier plus whether it diverges from the default. */
+/** The row's resolved tier plus whether a persisted cell backs it. */
 export interface SlackChannelTierSettings {
   tier: SlackCapabilityTier;
+  /**
+   * True when a persisted cell backs the tier. A cell is an override by
+   * existing: it pins the channel above the global auto-approve cascade
+   * even when its tier matches the room default, so it must stay visible
+   * (badge, callout, reset). Without a cell the runtime falls through to
+   * the global setting.
+   */
   overridden: boolean;
 }
 
-/** Every room defaults to full access; anything else is an override. */
+/** Presentation default for rooms with no persisted cell. */
 export const DEFAULT_CHANNEL_TIER: SlackCapabilityTier = "full_access";
 
-/**
- * Applies a persisted tier override (possibly absent) on top of the room
- * default. A tier counts as overridden only when it diverges — a persisted
- * cell that matches the default is not flagged.
- */
+/** Resolves the row's tier from a persisted cell, if any. */
 export function resolveChannelTier(
   override: SlackCapabilityTier | undefined,
 ): SlackChannelTierSettings {
-  const tier = override ?? DEFAULT_CHANNEL_TIER;
-  return { tier, overridden: tier !== DEFAULT_CHANNEL_TIER };
+  return {
+    tier: override ?? DEFAULT_CHANNEL_TIER,
+    overridden: override !== undefined,
+  };
 }
