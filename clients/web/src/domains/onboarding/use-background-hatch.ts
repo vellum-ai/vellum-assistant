@@ -11,7 +11,7 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
-import { probeLocalGatewayReady } from "@/lib/local-mode";
+import { getLockfileAssistant, probeLocalGatewayReady } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
 import { extractErrorMessage } from "@/utils/api-errors";
 
@@ -129,6 +129,28 @@ export function useBackgroundHatch(
     const timedOut = () => Date.now() - startMs >= MAX_HATCH_WAIT_MS;
 
     void (async () => {
+      // 0. Adopt straight from the lockfile when the handed-off id resolves.
+      //
+      // The hatching screen provisioned this assistant in the FOREGROUND and
+      // polled the local gateway's readyz before navigating here, so a live
+      // lockfile entry for the handed-off id means there is nothing left to
+      // discover or wait for — adopt it as ready outright. Re-running
+      // discovery (platform getAssistant + gateway probe) is not just wasted
+      // work: at mount the gateway token / selection may not be observable
+      // yet, in which case getAssistant misses its lockfile short-circuit and
+      // polls the PLATFORM for an assistant that only exists locally,
+      // stranding the flow on the "Waking up" gate until timeout. A stale id
+      // (retired between the handoff and here) has no lockfile entry and
+      // falls through to the discovery + readyz path below.
+      if (adoptExisting && adoptAssistantId) {
+        const adopted = getLockfileAssistant(adoptAssistantId);
+        if (adopted) {
+          setAssistantId(adopted.assistantId);
+          settleReady(adopted.assistantId);
+          return;
+        }
+      }
+
       // 1. Hatch (managed/platform). 201 = newly created, 200 = existing.
       //
       // A local-hosting onboarding skips this: the assistant is provisioned in
