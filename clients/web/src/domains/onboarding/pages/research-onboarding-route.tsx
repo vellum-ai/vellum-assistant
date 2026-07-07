@@ -237,6 +237,13 @@ export function ResearchOnboardingRoute() {
   // param, pinning adoption to that exact one — a stale selection or leftover
   // lockfile entries from previous sessions can't answer for it.
   const adoptAssistantId = searchParams.get("assistant") ?? undefined;
+  // The day-2 check-in offer ("letschat" → "meeting") books through the
+  // platform's managed Google Calendar OAuth. A local-hosting onboarding can
+  // run with no platform session at all (the assistant itself is fully
+  // local), where that connect can only fail — skip the calendar steps
+  // entirely and go straight to the research reveal. Vellum-cloud onboarding
+  // keeps them: a managed hatch implies a platform session.
+  const skipCheckinSteps = adoptExistingAssistant;
   const {
     start: startHatch,
     ready: hatchReady,
@@ -313,11 +320,19 @@ export function ResearchOnboardingRoute() {
           },
           awaitHatchReady,
         );
-      setStep(resolveResumeStep(snapshot));
+      // A snapshot written before the calendar steps were dropped from the
+      // local flow (or by a signed-in web session) may resume onto them —
+      // remap to the research reveal the skip lands on.
+      const resumeStep = resolveResumeStep(snapshot);
+      setStep(
+        skipCheckinSteps && (resumeStep === "letschat" || resumeStep === "meeting")
+          ? "looking"
+          : resumeStep,
+      );
       setForwardStack([]);
     }
     setRestored(true);
-  }, [restored, userId, hydrateResearch, awaitHatchReady]);
+  }, [restored, userId, hydrateResearch, awaitHatchReady, skipCheckinSteps]);
 
   // Persist the journey as it advances so a refresh can resume it. Gated on
   // `restored` so we don't overwrite the snapshot before reading it, and only
@@ -664,7 +679,7 @@ export function ResearchOnboardingRoute() {
         )}
         {step === "integration" && (
           <IntegrationStep
-            onClaim={() => goForwardTo("letschat")}
+            onClaim={() => goForwardTo(skipCheckinSteps ? "looking" : "letschat")}
             onBumpEyes={() => setEyesBump((n) => n + 1)}
             onBack={() =>
               goBackTo(personalityEnabled ? "personality" : "different")
@@ -700,7 +715,7 @@ export function ResearchOnboardingRoute() {
         {step === "looking" && (
           <LookingYouUpStep
             onDone={() => goForwardTo(noClaims ? "suggestions" : "results")}
-            onBack={() => goBackTo("letschat")}
+            onBack={() => goBackTo(skipCheckinSteps ? "integration" : "letschat")}
             onAdvance={(i) => setEdgeAvatars(Math.min(i + 1, 4))}
             onForward={onForward}
             // Gate only on the web-search turn — the personality rewrite runs
