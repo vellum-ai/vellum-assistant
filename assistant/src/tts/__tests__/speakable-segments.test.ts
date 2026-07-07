@@ -274,6 +274,19 @@ describe("extractSpeakableSegments", () => {
       expect(remainder).toBe(" And more after it");
     });
 
+    test("whitespace-padded asterisks do not suppress sentence boundaries", () => {
+      // The sanitizer does not treat `* italic. still*` as an emphasis span
+      // either, so splitting here keeps segment-level and whole-text
+      // sanitization in agreement.
+      const { segments, remainder } = extractSpeakableSegments(
+        "Some * italic. still* done. And the next sentence keeps going",
+        false,
+      );
+
+      expect(segments).toEqual(["Some * italic.", "still* done."]);
+      expect(remainder).toBe(" And the next sentence keeps going");
+    });
+
     test("does not split at a clause boundary inside an open italic span", () => {
       const { segments, remainder } = extractSpeakableSegments(
         "*italic text that keeps going, more* and then.",
