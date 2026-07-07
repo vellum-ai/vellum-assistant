@@ -32,6 +32,12 @@ describe("resolveProfileParamVisibility", () => {
       resolveProfileParamVisibility("fireworks", "accounts/fireworks/models/minimax-m3").topP,
     ).toBe(true);
     expect(resolveProfileParamVisibility("openrouter", "anthropic/claude-fable-5").topP).toBe(true);
+    expect(
+      resolveProfileParamVisibility("vercel-ai-gateway", "anthropic/claude-fable-5").topP,
+    ).toBe(true);
+    // Non-anthropic gateway models ride the OpenAI-compat chat-completions
+    // client, which forwards top_p.
+    expect(resolveProfileParamVisibility("vercel-ai-gateway", "xai/grok-4.3").topP).toBe(true);
     expect(resolveProfileParamVisibility("together", "MiniMaxAI/MiniMax-M3").topP).toBe(true);
     // Custom OpenAI-compatible connections route through the OpenAI adapter,
     // which forwards top_p — so the control must be visible for them too.
@@ -67,11 +73,15 @@ describe("resolveProfileParamVisibility", () => {
     expect(vis.thinking).toBe(false);
   });
 
-  test("vercel-ai-gateway anthropic sonnet/opus enable thinking and effort", () => {
+  test("vercel-ai-gateway anthropic sonnet/opus enable thinking, effort, and temperature", () => {
     for (const model of ["anthropic/claude-sonnet-4.6", "anthropic/claude-opus-4.8"]) {
       const vis = resolveProfileParamVisibility("vercel-ai-gateway", model);
       expect(vis.thinking).toBe(true);
       expect(vis.effort).toBe(true);
+      // anthropic/* gateway models ride the Anthropic Messages wire, which
+      // forwards temperature — same as their openrouter twins.
+      expect(vis.temperature).toBe(true);
+      expect(vis.topP).toBe(true);
     }
   });
 
@@ -87,12 +97,15 @@ describe("resolveProfileParamVisibility", () => {
     expect(vis.thinking).toBe(false);
   });
 
-  test("vercel-ai-gateway non-anthropic catalog reasoning model gets thinking with effort following", () => {
-    // xai/grok-4.3 is supportsThinking in the catalog; effort follows thinking
-    // for non-anthropic gateway models (same rule as openrouter).
+  test("vercel-ai-gateway non-anthropic catalog reasoning model gets effort but no thinking toggle", () => {
+    // xai/grok-4.3 is supportsThinking in the catalog, so effort is exposed
+    // (reasoning_effort works on the OpenAI-compat path) — but the thinking
+    // toggle is hidden because that path has no thinking translation.
     const vis = resolveProfileParamVisibility("vercel-ai-gateway", "xai/grok-4.3");
-    expect(vis.thinking).toBe(true);
+    expect(vis.thinking).toBe(false);
     expect(vis.effort).toBe(true);
+    // Non-anthropic gateway models don't ride the Anthropic wire.
+    expect(vis.temperature).toBe(false);
   });
 
   test("vercel-ai-gateway unknown non-anthropic model gets no thinking or effort", () => {

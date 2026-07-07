@@ -131,29 +131,31 @@ export const ONBOARDING_PROVIDERS: readonly OnboardingProvider[] = [
       "https://vercel.com/d?to=%2F%5Bteam%5D%2F%7E%2Fai-gateway%2Fapi-keys&title=AI+Gateway+API+Keys",
     requiresKey: true,
     defaultModel: "anthropic/claude-sonnet-4.6",
+    // Context windows are capped at 200k (like the OpenRouter entry) so
+    // onboarding never opts new users into Anthropic long-context pricing.
     models: [
       {
         id: "anthropic/claude-sonnet-4.6",
         displayName: "Claude Sonnet 4.6",
-        contextWindowTokens: 1_000_000,
+        contextWindowTokens: 200_000,
         maxOutputTokens: 64_000,
       },
       {
         id: "anthropic/claude-opus-4.8",
         displayName: "Claude Opus 4.8",
-        contextWindowTokens: 1_000_000,
+        contextWindowTokens: 200_000,
         maxOutputTokens: 128_000,
       },
       {
         id: "xai/grok-4.3",
         displayName: "Grok 4.3",
-        contextWindowTokens: 1_000_000,
+        contextWindowTokens: 200_000,
         maxOutputTokens: 16_000,
       },
       {
         id: "deepseek/deepseek-v4-flash",
         displayName: "DeepSeek V4 Flash",
-        contextWindowTokens: 1_048_576,
+        contextWindowTokens: 200_000,
         maxOutputTokens: 384_000,
       },
     ],
