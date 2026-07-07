@@ -96,9 +96,7 @@ export async function resolveTrustVerdict(
           status: gwContactChannels.status,
           policy: gwContactChannels.policy,
           verifiedAt: gwContactChannels.verifiedAt,
-          verifiedVia: gwContactChannels.verifiedVia,
           interactionCount: gwContactChannels.interactionCount,
-          lastInteraction: gwContactChannels.lastInteraction,
           memberDisplayName: gwContacts.displayName,
           memberRole: gwContacts.role,
           memberPrincipalId: gwContacts.principalId,
@@ -244,9 +242,7 @@ export async function resolveTrustVerdict(
     verdict.status = memberRow.status;
     verdict.policy = memberRow.policy;
     verdict.verifiedAt = memberRow.verifiedAt;
-    verdict.verifiedVia = memberRow.verifiedVia;
     verdict.interactionCount = memberRow.interactionCount;
-    verdict.lastInteraction = memberRow.lastInteraction;
     verdict.memberDisplayName = memberRow.memberDisplayName;
   }
 

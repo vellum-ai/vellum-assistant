@@ -75,14 +75,12 @@ export const TrustVerdictSchema = z.object({
   status: z.string().optional(),
   policy: z.string().optional(),
   verifiedAt: z.number().nullable().optional(),
-  verifiedVia: z.string().nullable().optional(),
   memberDisplayName: z.string().optional(),
 
   // Gateway-owned interaction telemetry (a trust signal, not an info field per
   // the 2×2) — carried straight off the member `contact_channels` row.
   // Present only when a member channel resolves; absent for unknown senders.
   interactionCount: z.number().optional(),
-  lastInteraction: z.number().nullable().optional(),
 
   // CHANNEL-scoped session-presence stamp: true ⇒ an interceptable
   // (pending | pending_bootstrap | awaiting_response), non-expired
