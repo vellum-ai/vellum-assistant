@@ -16,8 +16,8 @@ import { sql } from "drizzle-orm";
 // The engine's ACL side effect (upsertVerifiedContactChannel) dual-writes an
 // assistant-DB info mirror over IPC; stub it so tests never touch a socket.
 // The impls are mutable so tests can simulate a down/failing mirror. Spread
-// the actual module so untouched exports (assistantDbExec, assistantDbTransaction)
-// stay importable by later-loaded files when suites share a bun process.
+// the actual module so untouched exports (assistantDbExec) stay importable
+// by later-loaded files when suites share a bun process.
 let assistantDbQueryImpl: () => Promise<unknown[]> = async () => [];
 let assistantDbRunImpl: () => Promise<void> = async () => {};
 const actualAssistantDbProxy = await import("../db/assistant-db-proxy.js");
