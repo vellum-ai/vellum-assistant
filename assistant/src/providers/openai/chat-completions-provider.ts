@@ -325,7 +325,7 @@ export class OpenAIChatCompletionsProvider implements Provider {
       // catalog doesn't know keep their images (fail open — the provider
       // decides, and `detectVisionNotSupported` below classifies a rejection).
       const supportsImageInput =
-        getCatalogModelVision(modelOverride ?? this.model) !== false;
+        getCatalogModelVision(modelOverride ?? this.model, this.name) !== false;
       const openaiMessages = this.toOpenAIMessages(
         messages,
         systemPrompt,

@@ -1464,14 +1464,31 @@ export function getCatalogProviderForModel(
 
 /**
  * Catalog vision capability for a concrete model id, or `undefined` when no
- * catalog entry knows the model. A model id carries the same capability under
- * every provider that offers it, so the first catalog match wins. A known
- * model without the flag reports `false` — catalog entries declare vision
- * explicitly.
+ * catalog entry knows the model. A known model without the flag reports
+ * `false` — catalog entries declare vision explicitly.
+ *
+ * When `provider` is given and that provider's catalog entry lists the model,
+ * the (provider, model) pair is authoritative. Otherwise the lookup falls
+ * back to scanning every provider — callers holding only a bare model id
+ * (e.g. a provider-reported response model) rely on this, and wrapper
+ * providers whose runtime name is not a catalog id degrade to it. The
+ * fallback is only sound while a model id never appears under two providers
+ * with different vision flags; `model-catalog-capability-consistency.test.ts`
+ * enforces that.
  */
-export function getCatalogModelVision(modelId: string): boolean | undefined {
-  for (const provider of PROVIDER_CATALOG) {
-    const model = provider.models.find((m) => m.id === modelId);
+export function getCatalogModelVision(
+  modelId: string,
+  provider?: string,
+): boolean | undefined {
+  if (provider != null) {
+    const entry = PROVIDER_CATALOG.find((p) => p.id === provider);
+    const model = entry?.models.find((m) => m.id === modelId);
+    if (model != null) {
+      return model.supportsVision ?? false;
+    }
+  }
+  for (const entry of PROVIDER_CATALOG) {
+    const model = entry.models.find((m) => m.id === modelId);
     if (model != null) {
       return model.supportsVision ?? false;
     }

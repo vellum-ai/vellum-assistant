@@ -124,7 +124,7 @@ function compactionModelSupportsImages(
       getConfig().llm,
       overrideProfile ? { overrideProfile } : {},
     );
-    return getCatalogModelVision(resolved.model) !== false;
+    return getCatalogModelVision(resolved.model, resolved.provider) !== false;
   } catch {
     return true;
   }
