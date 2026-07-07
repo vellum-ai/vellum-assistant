@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type { SlackChannelConfigResult } from "../daemon/handlers/config-slack-channel.js";
-import type { SecretPromptResult } from "../permissions/secret-prompter.js";
+import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
 
 // ---------------------------------------------------------------------------
 // Mutable mock state (closed over by the mock factories below)

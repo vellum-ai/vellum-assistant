@@ -5,12 +5,8 @@ import {
   coerceStringNumbers,
   validateInputAgainstSchema,
 } from "../../skills/validate-input.js";
-import type {
-  ExecutionTarget,
-  Tool,
-  ToolContext,
-  ToolExecutionResult,
-} from "../types.js";
+import type { ExecutionTarget } from "../tool-types.js";
+import type { Tool, ToolContext, ToolExecutionResult } from "../types.js";
 import { runSkillToolScript } from "./skill-script-runner.js";
 
 const riskMap: Record<SkillToolEntry["risk"], RiskLevel> = {

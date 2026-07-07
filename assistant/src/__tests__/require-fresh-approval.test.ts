@@ -20,10 +20,10 @@ import {
 } from "bun:test";
 
 import { RiskLevel, type ScopeOption } from "../permissions/types.js";
+import type { ToolPermissionPromptEvent } from "../tools/tool-types.js";
 import type {
   ToolExecutionResult,
   ToolLifecycleEvent,
-  ToolPermissionPromptEvent,
 } from "../tools/types.js";
 
 // ---------------------------------------------------------------------------

@@ -21,7 +21,7 @@ import { resolveCapabilities } from "../runtime/capabilities.js";
 import { getLogger } from "../util/logger.js";
 import { buildPolicyContext } from "./policy-context.js";
 import { isSideEffectTool } from "./side-effects.js";
-import type { ExecutionTarget } from "./types.js";
+import type { ExecutionTarget } from "./tool-types.js";
 import type { Tool, ToolContext, ToolLifecycleEvent } from "./types.js";
 
 const log = getLogger("permission-checker");
