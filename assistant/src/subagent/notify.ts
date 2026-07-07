@@ -81,10 +81,10 @@ export function notifyParentFromChild(
   urgency: string,
 ): boolean {
   const child = findConversationOrSubagent(childConversationId);
-  if (!child?.isSubagent || !child.parentConversationId) {
+  const parentConversationId = child?.parentConversationId;
+  if (parentConversationId === undefined) {
     return false;
   }
-  const parentConversationId = child.parentConversationId;
 
   // Cosmetic metadata only — a tampered record can at most mislabel a
   // notification to the child's own (routing is fixed to the live parent above).
