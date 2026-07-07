@@ -27616,6 +27616,47 @@ paths:
                   - ts
                   - channel
                 additionalProperties: false
+  /v1/slack/users:
+    get:
+      operationId: slack_users_get
+      summary: List Slack workspace users
+      description:
+        List human members of the connected Slack workspace for the contact account-linking picker. Deleted users
+        and bots are excluded.
+      tags:
+        - integrations
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        username:
+                          type: string
+                        displayName:
+                          type: string
+                        imageUrl:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                      required:
+                        - id
+                        - username
+                        - displayName
+                        - imageUrl
+                      additionalProperties: false
+                required:
+                  - users
+                additionalProperties: false
   /v1/sounds/available:
     get:
       operationId: sounds_available_get

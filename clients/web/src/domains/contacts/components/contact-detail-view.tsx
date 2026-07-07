@@ -26,6 +26,8 @@ interface ContactDetailViewProps {
   onSetupChannel?: (type: string) => void;
   onVerifyChannel?: (type: string) => void;
   onRevokeChannel?: (channelId: string, type: string) => void;
+  /** Opens the roster picker for a linkable channel row. */
+  onLinkAccount?: (channelId: string) => void;
 }
 
 export function ContactDetailView(props: ContactDetailViewProps) {
@@ -48,6 +50,7 @@ function ContactDetailViewInner({
   onSetupChannel,
   onVerifyChannel,
   onRevokeChannel,
+  onLinkAccount,
 }: ContactDetailViewProps) {
   const isNewContactDraft = contact.displayName === "New Contact";
   const [displayName, setDisplayName] = useState(
@@ -62,7 +65,8 @@ function ContactDetailViewInner({
   const originalNotes = contact.notes ?? "";
   const dirty = trimmedName !== originalName || trimmedNotes !== originalNotes;
 
-  const canSave = trimmedName.length > 0 && dirty && !savePending && !deletePending;
+  const canSave =
+    trimmedName.length > 0 && dirty && !savePending && !deletePending;
   const isEmptyDraft =
     isNewContactDraft &&
     contact.channels.length === 0 &&
@@ -83,7 +87,12 @@ function ContactDetailViewInner({
     <div className="flex flex-col gap-6">
       <DetailCard
         title={headerName}
-        accessory={<ContactTypeBadge role={contact.role} contactType={contact.contactType} />}
+        accessory={
+          <ContactTypeBadge
+            role={contact.role}
+            contactType={contact.contactType}
+          />
+        }
         compactAccessory
         subtitle={interactionLabel}
       >
@@ -158,8 +167,8 @@ function ContactDetailViewInner({
       </DetailCard>
 
       <DetailCard
-        title="Channels"
-        subtitle="Once verified, your assistant will recognize this contact when they message from these channels."
+        title="Linked accounts"
+        subtitle="Where the assistant recognizes this contact. Link accounts you know, invite the ones you don't."
       >
         <ContactChannelsSection
           contactChannels={contact.channels}
@@ -171,6 +180,7 @@ function ContactDetailViewInner({
           onSetupChannel={onSetupChannel}
           onVerifyChannel={onVerifyChannel}
           onRevokeChannel={onRevokeChannel}
+          onLinkAccount={onLinkAccount}
         />
       </DetailCard>
 

@@ -10,7 +10,7 @@ import {
   type ChannelReadinessSnapshot,
   type SetupChannelId,
 } from "@/domains/contacts/types";
-import { memberSlackChannelsQueryKey } from "@/domains/contacts/slack-channels-query";
+import { removeSlackWorkspaceQueries } from "@/domains/contacts/slack-channels-query";
 import {
   channelsReadinessGetOptions,
   channelsReadinessGetQueryKey,
@@ -92,7 +92,8 @@ export function useAssistantChannels({
   const slackConfigQuery = useQuery({
     ...integrationsSlackChannelConfigGetOptions(pathOpts),
     enabled: slackConnected,
-    select: (data: IntegrationsSlackChannelConfigGetResponse) => data.threadMode,
+    select: (data: IntegrationsSlackChannelConfigGetResponse) =>
+      data.threadMode,
   });
 
   // Per-channel trust floors (admission policy), shown inline on each connected
@@ -106,7 +107,10 @@ export function useAssistantChannels({
 
   const disconnectMutation = useMutation({
     mutationFn: async (channelKey: SetupChannelId) => {
-      const opts = { path: { assistant_id: assistantId }, throwOnError: true as const };
+      const opts = {
+        path: { assistant_id: assistantId },
+        throwOnError: true as const,
+      };
       if (channelKey === "slack") {
         await integrationsSlackChannelConfigDelete(opts);
       } else if (channelKey === "telegram") {
@@ -118,12 +122,7 @@ export function useAssistantChannels({
     onSettled: (_data, _error, channelKey) => {
       invalidateReadiness();
       if (channelKey === "slack") {
-        // Drop the channel-list cache with the credentials: a later
-        // reconnect may target a different workspace, and serving the old
-        // workspace's channels from cache would misreport presence.
-        queryClient.removeQueries({
-          queryKey: memberSlackChannelsQueryKey(assistantId),
-        });
+        removeSlackWorkspaceQueries(queryClient, assistantId);
       }
     },
   });
@@ -199,7 +198,7 @@ export function useAssistantChannels({
   return {
     channels,
     pendingChannelKey: disconnectMutation.isPending
-      ? disconnectMutation.variables ?? null
+      ? (disconnectMutation.variables ?? null)
       : null,
     slackThreadMode: slackConfigQuery.data,
     slackThreadModePending: slackThreadModeMutation.isPending,
@@ -222,7 +221,10 @@ export function useAssistantChannels({
 function deriveChannelStates(
   snapshots: ChannelReadinessSnapshot[],
 ): AssistantChannelState[] {
-  const byChannel = new Map<ChannelReadinessSnapshot["channel"], ChannelReadinessSnapshot>();
+  const byChannel = new Map<
+    ChannelReadinessSnapshot["channel"],
+    ChannelReadinessSnapshot
+  >();
   for (const snap of snapshots) {
     byChannel.set(snap.channel, snap);
   }

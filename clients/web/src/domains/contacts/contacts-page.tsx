@@ -5,8 +5,8 @@ import { Navigate, useSearchParams } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import {
-    MobileSidebarDrawer,
-    MobileSidebarTrigger,
+  MobileSidebarDrawer,
+  MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view";
@@ -14,25 +14,27 @@ import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-
 import { ContactsList } from "@/domains/contacts/components/contacts-list";
 import { GenerateInviteLinkDialog } from "@/domains/contacts/components/generate-invite-link-dialog";
 import { GuardianDetailView } from "@/domains/contacts/components/guardian-detail-view";
+import { LinkAccountDialog } from "@/domains/contacts/components/link-account-dialog";
+import { slackRosterOptions } from "@/domains/contacts/slack-users-query";
 import {
-    deleteContact as gatewayDeleteContact,
-    upsertContact,
-    verifyContactChannel,
+  deleteContact as gatewayDeleteContact,
+  upsertContact,
+  verifyContactChannel,
 } from "@/domains/contacts/contacts-gateway";
 import {
-    isSetupChannelId,
-    type ChannelInfo,
-    type ContactChannelPayload,
-    type ContactPayload,
-    type ContactSelection,
+  isSetupChannelId,
+  type ChannelInfo,
+  type ContactChannelPayload,
+  type ContactPayload,
+  type ContactSelection,
 } from "@/domains/contacts/types";
 import {
-    channelsAvailableGetOptions,
-    contactsGetOptions,
-    contactsGetQueryKey,
-    contactsGetSetQueryData,
-    useContactchannelsByContactChannelIdPatchMutation,
-    useContactsMergePostMutation,
+  channelsAvailableGetOptions,
+  contactsGetOptions,
+  contactsGetQueryKey,
+  contactsGetSetQueryData,
+  useContactchannelsByContactChannelIdPatchMutation,
+  useContactsMergePostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { channelsAvailableGet } from "@/generated/daemon/sdk.gen";
 import type { ChannelsAvailableGetResponse } from "@/generated/daemon/types.gen";
@@ -40,6 +42,7 @@ import { assistantDisplayName } from "@/domains/contacts/assistant-display-name"
 import { useAssistantChannels } from "@/domains/contacts/hooks/use-assistant-channels";
 import { useChannelProvenance } from "@/domains/contacts/hooks/use-channel-provenance";
 import { useInviteLinkDialog } from "@/domains/contacts/hooks/use-invite-link-dialog";
+import { useAccountLink } from "@/domains/contacts/hooks/use-account-link";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { toastOnError } from "@/utils/mutation-error";
@@ -160,7 +163,9 @@ export function ContactsPage({
         throwOnError: false,
       });
       if (!response || response.status === 404) {
-        return { channels: DEFAULT_CHANNELS } satisfies ChannelsAvailableGetResponse;
+        return {
+          channels: DEFAULT_CHANNELS,
+        } satisfies ChannelsAvailableGetResponse;
       }
       if (!response.ok) {
         throw error ?? new Error("Failed to fetch channel availability");
@@ -219,9 +224,7 @@ export function ContactsPage({
     },
     onSuccess: (contact) => {
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
-        prev
-          ? { ...prev, contacts: [...prev.contacts, contact] }
-          : undefined,
+        prev ? { ...prev, contacts: [...prev.contacts, contact] } : undefined,
       );
       setSelection({ kind: "contact", contactId: contact.id });
     },
@@ -290,9 +293,7 @@ export function ContactsPage({
                 ...prev,
                 contacts: prev.contacts
                   .filter((c) => c.id !== mergeId)
-                  .map((c) =>
-                    c.id === mergedContact.id ? mergedContact : c,
-                  ),
+                  .map((c) => (c.id === mergedContact.id ? mergedContact : c)),
               }
             : undefined,
         );
@@ -391,6 +392,38 @@ export function ContactsPage({
       verifyChannelMutation.mutate({ channelId: channel.id });
     },
     [selectedContact, verifyChannelMutation],
+  );
+
+  const slackLink = useAccountLink({
+    assistantId,
+    channelType: "slack",
+    contact: selectedContact
+      ? { id: selectedContact.id, displayName: selectedContact.displayName }
+      : null,
+    onLinked: invalidateContacts,
+  });
+
+  // Roster fetch is deferred until the picker opens.
+  const slackRosterQuery = useQuery({
+    ...slackRosterOptions(assistantId),
+    enabled: Boolean(assistantId) && slackLink.dialogOpen,
+    select: (data) => data.users,
+  });
+
+  // Without configured Slack credentials the roster can only 503, so the
+  // Link action is offered only when the Slack connection is ready —
+  // otherwise the row keeps Invite as its sole (working) action.
+  const slackReady = channelsController.channels.some(
+    (channel) => channel.key === "slack" && channel.status === "ready",
+  );
+
+  const handleLinkAccount = useCallback(
+    (channelId: string) => {
+      if (channelId === slackLink.channelType) {
+        slackLink.open();
+      }
+    },
+    [slackLink],
   );
 
   // ---------------------------------------------------------------------------
@@ -502,7 +535,9 @@ export function ContactsPage({
               }}
               onMerge={handleOpenMerge}
               onSetupChannel={
-                onStartSetupConversation ? handleGuardianEnableChannel : undefined
+                onStartSetupConversation
+                  ? handleGuardianEnableChannel
+                  : undefined
               }
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
@@ -534,6 +569,7 @@ export function ContactsPage({
               }
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
+              onLinkAccount={slackReady ? handleLinkAccount : undefined}
             />
           )
         ) : (
@@ -567,6 +603,30 @@ export function ContactsPage({
         />
       ) : null}
 
+      <LinkAccountDialog
+        open={slackLink.dialogOpen}
+        channelLabel="Slack"
+        contactName={selectedContact?.displayName ?? ""}
+        accounts={slackRosterQuery.data}
+        loading={slackRosterQuery.isLoading}
+        errorMessage={
+          slackRosterQuery.isError
+            ? "Couldn’t load the workspace roster. Check the Slack connection and try again."
+            : slackLink.linkErrorMessage
+        }
+        pendingAccountId={slackLink.pendingAccountId}
+        onPick={slackLink.pick}
+        onClose={slackLink.close}
+        onInviteInstead={
+          onStartSetupConversation
+            ? () => {
+                slackLink.close();
+                handleContactSetupChannel(slackLink.channelType);
+              }
+            : undefined
+        }
+      />
+
       <GenerateInviteLinkDialog
         open={inviteDialog.isOpen}
         assistantId={assistantId}
@@ -579,7 +639,10 @@ export function ContactsPage({
 function ContactsEmptyState() {
   return (
     <div className="flex h-full items-center justify-center py-16">
-      <p className="text-body-medium-lighter" style={{ color: "var(--content-tertiary)" }}>
+      <p
+        className="text-body-medium-lighter"
+        style={{ color: "var(--content-tertiary)" }}
+      >
         Select a contact
       </p>
     </div>
