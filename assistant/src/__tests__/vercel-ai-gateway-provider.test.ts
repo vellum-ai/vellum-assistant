@@ -3,10 +3,7 @@ import { describe, expect, test } from "bun:test";
 import type { AnthropicProvider } from "../providers/anthropic/client.js";
 import type { Message } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
-import {
-  toAnthropicMessagesBaseURL,
-  VercelAIGatewayProvider,
-} from "../providers/vercel-ai-gateway/client.js";
+import { VercelAIGatewayProvider } from "../providers/vercel-ai-gateway/client.js";
 import { ProviderError } from "../util/errors.js";
 
 const DEFAULT_BASE_URL = "https://ai-gateway.vercel.sh/v1";
@@ -54,26 +51,6 @@ describe("VercelAIGatewayProvider", () => {
         { baseURL: "   " },
       );
       expect(resolvedBaseURL(provider)).toBe(DEFAULT_BASE_URL);
-    });
-  });
-
-  describe("toAnthropicMessagesBaseURL", () => {
-    test("strips a trailing /v1", () => {
-      expect(toAnthropicMessagesBaseURL("https://ai-gateway.vercel.sh/v1")).toBe(
-        "https://ai-gateway.vercel.sh",
-      );
-    });
-
-    test("strips a trailing /v1/", () => {
-      expect(
-        toAnthropicMessagesBaseURL("https://ai-gateway.vercel.sh/v1/"),
-      ).toBe("https://ai-gateway.vercel.sh");
-    });
-
-    test("leaves URLs without a /v1 suffix untouched", () => {
-      expect(toAnthropicMessagesBaseURL("https://ai-gateway.vercel.sh")).toBe(
-        "https://ai-gateway.vercel.sh",
-      );
     });
   });
 

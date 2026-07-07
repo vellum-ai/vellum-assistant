@@ -1,5 +1,9 @@
-import { ProviderError } from "../../util/errors.js";
 import { AnthropicProvider } from "../anthropic/client.js";
+import {
+  isAnthropicModel,
+  retagDelegateError,
+  toAnthropicMessagesBaseURL,
+} from "../anthropic-gateway-shared.js";
 import {
   clampReasoningEffort,
   EFFORT_TO_REASONING_EFFORT,
@@ -11,10 +15,8 @@ import type {
   ProviderResponse,
   SendMessageOptions,
 } from "../types.js";
-import { ContextOverflowError, isContextOverflowError } from "../types.js";
 
 export interface OpenRouterProviderOptions {
-  apiKey?: string;
   baseURL?: string;
   streamTimeoutMs?: number;
   useNativeWebSearch?: boolean;
@@ -26,22 +28,6 @@ const OPENROUTER_APP_ATTRIBUTION_HEADERS = {
   "X-OpenRouter-Title": "Vellum Assistant",
   "X-OpenRouter-Categories": "personal-agent,cli-agent",
 };
-
-// Models on OpenRouter prefixed `anthropic/` are routed through OpenRouter's
-// Anthropic-compatible Messages API at `<root>/v1/messages` (where `<root>` is
-// the OpenRouter API root, e.g. `https://openrouter.ai/api`) so that
-// Anthropic-native features — extended thinking, prompt caching, cache TTL,
-// output_config — work without lossy translation through the OpenAI chat
-// completions compatibility layer. The Anthropic SDK appends `/v1/messages` to
-// its configured baseURL, so we strip the trailing `/v1` segment from the
-// OpenAI-compat base before handing it to the SDK.
-function isAnthropicModel(model: string): boolean {
-  return model.startsWith("anthropic/");
-}
-
-function toAnthropicMessagesBaseURL(openRouterBaseURL: string): string {
-  return openRouterBaseURL.replace(/\/v1\/?$/, "");
-}
 
 /**
  * Extract the normalized `openrouter.only` list from a per-call config. Returns
@@ -159,26 +145,7 @@ export class OpenRouterProvider extends OpenAIChatCompletionsProvider {
       }
       return await super.sendMessage(messages, options);
     } catch (error) {
-      // Re-tag delegate-thrown ContextOverflowError so the outer provider name
-      // matches the configured provider ("openrouter"). This keeps downstream
-      // error reporting and metrics attribution accurate, while preserving the
-      // actualTokens/maxTokens extracted by the delegate.
-      if (isContextOverflowError(error) && error.provider !== this.name) {
-        throw new ContextOverflowError(error.message, this.name, {
-          actualTokens: error.actualTokens,
-          maxTokens: error.maxTokens,
-          statusCode: error.statusCode,
-          cause: error,
-        });
-      }
-      if (error instanceof ProviderError && error.provider !== this.name) {
-        throw new ProviderError(error.message, this.name, error.statusCode, {
-          cause: error.cause ?? error,
-          retryAfterMs: error.retryAfterMs,
-          abortReason: error.abortReason,
-        });
-      }
-      throw error;
+      retagDelegateError(error, this.name);
     }
   }
 
