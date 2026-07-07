@@ -1020,11 +1020,13 @@ export function ChatMainPanel({
 
   // Mobile-only: while the app overlay is minimized to its bottom strip, the
   // strip covers the bottom of the chat. Reserve its height so the composer
-  // sits above it. The strip peeks `--app-strip-h` above the safe area, and
-  // the chat shell already pads for the safe area itself, so only the strip
-  // height needs reserving.
+  // sits above it. The guard mirrors the strip's mount condition — the strip
+  // renders only while `mainView === "app"`, and navigation can leave
+  // `isAppMinimized`/`openedAppState` set after it unmounts. The strip peeks
+  // `--app-strip-h` above the safe area, and the chat shell already pads for
+  // the safe area itself, so only the strip height needs reserving.
   const appStripBottomInset =
-    isMobile && isAppMinimized && openedAppState
+    isMobile && mainView === "app" && isAppMinimized && openedAppState
       ? "var(--app-strip-h, 64px)"
       : undefined;
 
