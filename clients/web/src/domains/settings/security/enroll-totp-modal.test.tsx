@@ -21,6 +21,7 @@ let enrollCalls = 0;
 let enrollError: unknown = null;
 let verifyCalls: { challenge_id: string; code: string }[] = [];
 let verifyOutcome: { valid?: boolean; error?: unknown } = { valid: true };
+let verifyPending = false;
 let sdkDestroyCalls: string[] = [];
 
 mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
@@ -43,7 +44,7 @@ mock.module("@/generated/api/@tanstack/react-query.gen", () => ({
     onSuccess?: (data: { valid: boolean }) => void;
     onError?: (error: unknown) => void;
   }) => ({
-    isPending: false,
+    isPending: verifyPending,
     mutate: (variables: { body: { challenge_id: string; code: string } }) => {
       verifyCalls.push(variables.body);
       if (verifyOutcome.error) {
@@ -81,6 +82,7 @@ afterEach(() => {
   enrollError = null;
   verifyCalls = [];
   verifyOutcome = { valid: true };
+  verifyPending = false;
   sdkDestroyCalls = [];
 });
 
@@ -147,6 +149,26 @@ describe("EnrollTotpModal", () => {
     await waitFor(() => expect(enrollCalls).toBe(2));
     expect(sdkDestroyCalls).toEqual(["auth_factor_01ABC"]);
     expect(await screen.findByRole("alert")).not.toBeNull();
+  });
+
+  test("cannot be dismissed while verification is in flight", async () => {
+    const user = userEvent.setup();
+    verifyPending = true;
+    let openState = true;
+    renderModal((next) => {
+      openState = next;
+    });
+
+    await screen.findByLabelText("6-digit code");
+    expect(
+      (screen.getByRole("button", { name: "Cancel" }) as HTMLButtonElement)
+        .disabled,
+    ).toBe(true);
+    // Overlay/Esc dismissals also route through onOpenChange; simulate one.
+    await user.keyboard("{Escape}");
+
+    expect(openState).toBe(true);
+    expect(sdkDestroyCalls).toHaveLength(0);
   });
 
   test("discards the unverified factor when the modal is cancelled", async () => {

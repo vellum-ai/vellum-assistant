@@ -125,6 +125,11 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
   }, [open]);
 
   const handleOpenChange = (next: boolean) => {
+    // Closing mid-verify would discard the factor the in-flight request
+    // may be activating; every dismissal path funnels through here.
+    if (!next && verifyMutation.isPending) {
+      return;
+    }
     if (!next && enrollment && !completedRef.current) {
       discardFactor(enrollment.factor_id);
     }
@@ -226,7 +231,11 @@ export function EnrollTotpModal({ open, onOpenChange }: EnrollTotpModalProps) {
           )}
         </Modal.Body>
         <Modal.Footer>
-          <Button variant="outlined" onClick={() => handleOpenChange(false)}>
+          <Button
+            variant="outlined"
+            onClick={() => handleOpenChange(false)}
+            disabled={verifyMutation.isPending}
+          >
             Cancel
           </Button>
           <Button
