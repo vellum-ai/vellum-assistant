@@ -120,7 +120,7 @@ export function trustContextFromVerdict(
  * True when the verdict carries a member identity (contactId or channelId),
  * regardless of whether that member resolves to a usable {@link VerdictMember}.
  */
-export function verdictHasMemberIdentity(verdict: TrustVerdict): boolean {
+function verdictHasMemberIdentity(verdict: TrustVerdict): boolean {
   return !!(verdict.contactId || verdict.channelId);
 }
 
@@ -129,7 +129,7 @@ export function verdictHasMemberIdentity(verdict: TrustVerdict): boolean {
  * resolved (partial/mixed-version verdict). Such a verdict is unusable —
  * consumers fail closed (deny), never falling back to local resolution.
  */
-export function verdictMemberUnresolvable(verdict: TrustVerdict): boolean {
+function verdictMemberUnresolvable(verdict: TrustVerdict): boolean {
   return (
     verdictHasMemberIdentity(verdict) &&
     verdictMemberFromVerdict(verdict) === null

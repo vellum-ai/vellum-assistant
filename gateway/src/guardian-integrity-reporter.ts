@@ -7,14 +7,10 @@
 // directly to platform ingest — bypassing any state owned by the broken trust
 // path so the alarm cannot suppress itself. Rate-limited per check_name per
 // process; a lost event is acceptable for a rare, high-signal check (no
-// retry).
+// retry). Scaffolding: watchdog-reporter.ts.
 
-import { loadConfig } from "./config.js";
-import type { fetchImpl } from "./fetch.js";
-import { postInternalTelemetry } from "./internal-telemetry-client.js";
 import { getLogger } from "./logger.js";
-
-const log = getLogger("guardian-integrity-reporter");
+import { createWatchdogReporter } from "./watchdog-reporter.js";
 
 /**
  * Watchdog `check_name` for the missing-guardian integrity failure. Platform
@@ -30,24 +26,12 @@ export const GUARDIAN_MISSING_CHECK_NAME = "gateway_guardian_missing";
  */
 export const GUARDIAN_MINT_REFUSED_CHECK_NAME = "gateway_guardian_mint_refused";
 
-const ROUTE_PATH = "/v1/internal/telemetry/watchdog";
-const REPORT_INTERVAL_MS = 60 * 60 * 1000;
-
-type ReporterLog = {
-  error: (detail: Record<string, unknown>, msg: string) => void;
-  warn: (detail: Record<string, unknown>, msg: string) => void;
-};
-
-type ReporterOverrides = {
-  fetchImpl?: typeof fetchImpl;
-  mintToken?: () => string;
-  baseUrl?: string;
-  log?: ReporterLog;
-};
-
-let overrides: ReporterOverrides = {};
-const lastReportAtByCheck = new Map<string, number>();
-let pendingRelay: Promise<unknown> = Promise.resolve();
+const reporter = createWatchdogReporter({
+  log: getLogger("guardian-integrity-reporter"),
+  relayFailedMessage: "guardian-integrity telemetry relay failed (non-fatal)",
+  relayRejectedMessage:
+    "guardian-integrity telemetry relay rejected (non-fatal)",
+});
 
 /**
  * Report the missing-guardian state: error log + telemetry relay. Fires on
@@ -87,65 +71,17 @@ function report(
   message: string,
   detail: Record<string, unknown>,
 ): void {
-  const now = Date.now();
-  const lastReportAt =
-    lastReportAtByCheck.get(checkName) ?? Number.NEGATIVE_INFINITY;
-  if (now - lastReportAt < REPORT_INTERVAL_MS) {
-    return;
-  }
-  lastReportAtByCheck.set(checkName, now);
-
-  reporterLog().error(detail, message);
-
-  pendingRelay = relayToDaemon(checkName, detail).catch((err) => {
-    reporterLog().warn(
-      { err, checkName },
-      "guardian-integrity telemetry relay failed (non-fatal)",
-    );
+  reporter.report({
+    key: checkName,
+    checkName,
+    message,
+    detail,
+    warnContext: { checkName },
   });
 }
 
-async function relayToDaemon(
-  checkName: string,
-  detail: Record<string, unknown>,
-): Promise<void> {
-  const resp = await postInternalTelemetry({
-    baseUrl: overrides.baseUrl ?? loadConfig().assistantRuntimeBaseUrl,
-    path: ROUTE_PATH,
-    body: { check_name: checkName, detail },
-    fetchImpl: overrides.fetchImpl,
-    mintToken: overrides.mintToken,
-  });
-  if (!resp.ok) {
-    reporterLog().warn(
-      { status: resp.status, checkName },
-      "guardian-integrity telemetry relay rejected (non-fatal)",
-    );
-  }
-}
-
-function reporterLog(): ReporterLog {
-  return overrides.log ?? log;
-}
-
-/**
- * Test-only: inject fetch/token/baseUrl/log so tests never touch the network
- * or the process logger.
- */
-export function setGuardianIntegrityReporterOverridesForTesting(
-  next: ReporterOverrides,
-): void {
-  overrides = next;
-}
-
-/** Test-only: clear overrides and the rate-limit windows. */
-export function resetGuardianIntegrityReporterForTesting(): void {
-  overrides = {};
-  lastReportAtByCheck.clear();
-  pendingRelay = Promise.resolve();
-}
-
-/** Test-only: await the most recent fire-and-forget relay. */
-export function flushGuardianIntegrityReporterForTesting(): Promise<unknown> {
-  return pendingRelay;
-}
+/** Test-only seams; see {@link createWatchdogReporter}. */
+export const setGuardianIntegrityReporterOverridesForTesting =
+  reporter.setOverridesForTesting;
+export const resetGuardianIntegrityReporterForTesting = reporter.resetForTesting;
+export const flushGuardianIntegrityReporterForTesting = reporter.flushForTesting;
