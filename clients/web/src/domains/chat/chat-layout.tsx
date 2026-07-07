@@ -48,7 +48,7 @@ import {
 import { openCommandPaletteWindow } from "@/runtime/command-palette-window";
 import { isElectron } from "@/runtime/is-electron";
 import { useIsNativePlatform } from "@/runtime/native-auth";
-import { openPopoutWindow } from "@/runtime/popout-window";
+import { isPopoutWindow, openPopoutWindow } from "@/runtime/popout-window";
 import { useVellumCommands } from "@/runtime/vellum-commands";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useOnboardingFocusStore } from "@/stores/onboarding-focus-store";
@@ -125,7 +125,7 @@ export function ChatLayout() {
   // navigations (e.g. conversation switching via Cmd+Up/Down). ChatLayout is a
   // persistent layout route — it stays mounted when child routes change, so
   // this initial value remains stable for the window's lifetime.
-  const [isPopout] = useState(() => location.search.includes("popout=1"));
+  const [isPopout] = useState(() => isPopoutWindow(location.search));
 
   // SPIKE — research-onboarding focused presentation. When set, a full-viewport
   // overlay (rendered below, on top of this layout) covers the chrome so the

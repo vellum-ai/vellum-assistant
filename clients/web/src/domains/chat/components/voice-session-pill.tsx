@@ -20,7 +20,7 @@
 
 import { ArrowUp, Mic, Square, TriangleAlert, X } from "lucide-react";
 
-import { Button, Typography, cn } from "@vellumai/design-library";
+import { Button, Tag, Typography, cn } from "@vellumai/design-library";
 
 import {
   isLiveVoiceMicLive,
@@ -162,39 +162,28 @@ export interface VoiceSessionErrorChipProps {
 /**
  * Compact failed-session chip rendered in the pill's slot when a session
  * fails while no composer (and thus no composer failure `Notice`) is on
- * screen — Home, Library, the inspector, the fullscreen app viewer. Same
- * height budget as the pill (`h-8`, title-bar safe), error tone tokens per
- * the design-library `Notice` error treatment.
+ * screen — Home, Library, the inspector, the fullscreen app viewer. Composes
+ * the design-library `Tag` in its dismissible-chip form (negative tone,
+ * `onRemove`), overriding only what the title-bar slot demands: the pill's
+ * `h-8` height budget, pill radius, a subtle negative border, and the
+ * Electron `no-drag` opt-out.
  */
 export function VoiceSessionErrorChip({
   message,
   onDismiss,
 }: VoiceSessionErrorChipProps) {
   return (
-    <div
+    <Tag
       role="alert"
-      className="flex h-8 max-w-80 items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--system-negative-strong)_25%,transparent)] bg-[var(--system-negative-weak)] py-1 pl-3 pr-1.5 [-webkit-app-region:no-drag]"
+      tone="negative"
+      leftIcon={<TriangleAlert />}
+      onRemove={onDismiss}
+      removeLabel="Dismiss"
+      className="h-8 max-w-80 gap-2 rounded-full border border-[color-mix(in_srgb,var(--system-negative-strong)_25%,transparent)] py-1 pl-3 pr-1.5 [-webkit-app-region:no-drag]"
     >
-      <TriangleAlert
-        aria-hidden
-        className="size-3.5 shrink-0 text-[color:var(--system-negative-strong)]"
-      />
-      <Typography
-        as="p"
-        variant="label-medium-default"
-        className="truncate text-[var(--content-default)]"
-        title={message}
-      >
+      <span className="min-w-0 truncate" title={message}>
         {message}
-      </Typography>
-      <button
-        type="button"
-        onClick={onDismiss}
-        aria-label="Dismiss"
-        className="shrink-0 cursor-pointer rounded-full p-0.5 text-[color:var(--content-secondary)] opacity-70 transition-opacity hover:opacity-100"
-      >
-        <X aria-hidden className="size-3.5" strokeWidth={2} />
-      </button>
-    </div>
+      </span>
+    </Tag>
   );
 }
