@@ -8,17 +8,33 @@
  */
 
 export const DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD = 180;
+export const EAGER_SPEAKABLE_SEGMENT_CHAR_THRESHOLD = 60;
 
 const SENTENCE_ENDING_PUNCTUATION = new Set([".", "!", "?"]);
 const TRAILING_SENTENCE_PUNCTUATION = new Set(['"', "'", ")", "]"]);
+const EAGER_CLAUSE_PUNCTUATION = new Set([",", ";", ":"]);
+// A clause boundary only counts in eager mode once this much text precedes
+// it — "Sure, " alone would be a one-word blip.
+const EAGER_MIN_CLAUSE_PREFIX_CHARS = 24;
 
 export interface ExtractSpeakableSegmentsOptions {
   /**
    * Max characters buffered before a segment is force-split at the last
    * whitespace boundary. Defaults to
-   * {@link DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD}.
+   * {@link DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD}
+   * ({@link EAGER_SPEAKABLE_SEGMENT_CHAR_THRESHOLD} when `eager`).
    */
   charThreshold?: number;
+  /**
+   * Trade segment quality for onset latency: clause punctuation (`,` `;` `:`)
+   * followed by whitespace also ends a segment once at least
+   * ~24 chars precede it, and the default char threshold drops to
+   * {@link EAGER_SPEAKABLE_SEGMENT_CHAR_THRESHOLD}. Applies only until the
+   * first segment of the call is found — later segments keep full-sentence
+   * rules. The caller decides when to stop passing `eager` (typically after
+   * the first segment is enqueued).
+   */
+  eager?: boolean;
 }
 
 export function extractSpeakableSegments(
@@ -26,18 +42,25 @@ export function extractSpeakableSegments(
   force: boolean,
   options?: ExtractSpeakableSegmentsOptions,
 ): { segments: string[]; remainder: string } {
-  const charThreshold =
-    options?.charThreshold ?? DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD;
+  let eager = options?.eager ?? false;
   const segments: string[] = [];
   let remainder = text;
 
   while (remainder.length > 0) {
-    const boundary = findSpeakableBoundary(remainder, charThreshold);
-    if (boundary === null) break;
+    const charThreshold =
+      options?.charThreshold ??
+      (eager
+        ? EAGER_SPEAKABLE_SEGMENT_CHAR_THRESHOLD
+        : DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD);
+    const boundary = findSpeakableBoundary(remainder, charThreshold, eager);
+    if (boundary === null) {
+      break;
+    }
 
     const segment = remainder.slice(0, boundary).trim();
     if (segment.length > 0) {
       segments.push(segment);
+      eager = false;
     }
     remainder = remainder.slice(boundary);
   }
@@ -56,11 +79,29 @@ export function extractSpeakableSegments(
 function findSpeakableBoundary(
   text: string,
   charThreshold: number,
+  eager: boolean,
 ): number | null {
   for (let index = 0; index < text.length; index += 1) {
     const char = text[index];
-    if (char === "\n") return index + 1;
-    if (!char || !SENTENCE_ENDING_PUNCTUATION.has(char)) continue;
+    if (char === "\n") {
+      return index + 1;
+    }
+    if (!char) {
+      continue;
+    }
+
+    if (
+      eager &&
+      EAGER_CLAUSE_PUNCTUATION.has(char) &&
+      index >= EAGER_MIN_CLAUSE_PREFIX_CHARS &&
+      isWhitespace(text[index + 1] ?? "")
+    ) {
+      return index + 1;
+    }
+
+    if (!SENTENCE_ENDING_PUNCTUATION.has(char)) {
+      continue;
+    }
 
     let boundary = index + 1;
     while (
