@@ -17,6 +17,7 @@
  */
 
 import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "@vellumai/design-library/components/toast";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import {
@@ -32,9 +33,11 @@ import {
   oauthCompletionStorageKey,
   type OAuthCompletePayload,
 } from "@/lib/auth/oauth-popup";
+import { resolveLocalAssistantPlatformIdentity } from "@/lib/local-platform-identity";
 import { openUrl, openUrlFinishedListener } from "@/runtime/browser";
 import { useIsNativePlatform } from "@/runtime/native-auth";
 import type { OAuthCompleteDeepLinkPayload } from "@/runtime/native-deep-link";
+import { extractErrorMessage } from "@/utils/api-errors";
 import { wait } from "@/utils/oauth-connection-utils";
 import { routes } from "@/utils/routes";
 
@@ -97,6 +100,13 @@ export function useGoogleCalendarConnect({
 
   const popupRef = useRef<Window | null>(null);
   const pendingRequestRef = useRef<{ requestId: string } | null>(null);
+  // The id the PLATFORM knows this assistant by. A locally-hatched assistant
+  // self-registers with the platform under its own platform UUID — the
+  // assistant-scoped OAuth endpoints 404 for the local id, so every platform
+  // call in this flow must use the resolved id. Kept outside
+  // `pendingRequestRef` because the success path clears the pending request
+  // BEFORE fetching the connection to read its granted scopes.
+  const platformAssistantIdRef = useRef<string | null>(null);
   const popupCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
     null,
   );
@@ -169,9 +179,13 @@ export function useGoogleCalendarConnect({
   const fetchActiveGoogleConnection =
     useCallback(async (): Promise<OAuthConnection | null> => {
       try {
+        // The raw prop id is a fallback for the platform-assistant case,
+        // where the two are identical.
+        const platformAssistantId =
+          platformAssistantIdRef.current ?? assistantId;
         const connections = await queryClient.fetchQuery({
           ...assistantsOauthConnectionsListOptions({
-            path: { assistant_id: assistantId },
+            path: { assistant_id: platformAssistantId },
           }),
           staleTime: 0,
         });
@@ -282,26 +296,76 @@ export function useGoogleCalendarConnect({
     messageListenerRef.current = handleOAuthMessage;
     storageListenerRef.current = handleOAuthStorage;
 
-    if (isNative) {
-      setOAuthInProgress(true);
-      pendingRequestRef.current = { requestId };
+    // Resolve the platform identity, then start the managed OAuth flow. For a
+    // locally-hatched assistant the resolver returns (registering on first
+    // use) the platform UUID the OAuth endpoints are scoped by — passing the
+    // local id 404s, whose onError used to close the just-opened popup after
+    // a single flicker. For platform assistants it resolves to the same id.
+    const startWithResolvedIdentity = async (
+      popup: Window | null,
+      onStartFailed: () => void,
+    ): Promise<void> => {
+      let platformAssistantId: string;
+      try {
+        platformAssistantId =
+          await resolveLocalAssistantPlatformIdentity(assistantId);
+      } catch (error) {
+        onStartFailed();
+        // Surface the reason — a local assistant with no platform link (e.g.
+        // signed out of Vellum) fails resolution before any request is made,
+        // and a silently-closing popup reads as an app bug.
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Failed to start Google Calendar authorization.",
+        );
+        return;
+      }
+      platformAssistantIdRef.current = platformAssistantId;
       startOAuth.mutate(
         {
-          path: { assistant_id: assistantId, provider: GOOGLE_PROVIDER_KEY },
+          path: {
+            assistant_id: platformAssistantId,
+            provider: GOOGLE_PROVIDER_KEY,
+          },
           body: {
             requested_scopes: requestedScopes,
-            redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}&native=1`,
+            redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}${popup ? "" : "&native=1"}`,
           },
         },
         {
           onSuccess(data) {
-            void openUrl(data.connect_url);
+            if (!popup) {
+              void openUrl(data.connect_url);
+              return;
+            }
+            if (!popup.closed) {
+              popup.location.href = data.connect_url;
+            } else if (pendingRequestRef.current) {
+              onStartFailed();
+            }
           },
-          onError() {
-            clearPendingRequest();
+          onError(error) {
+            onStartFailed();
+            toast.error(
+              extractErrorMessage(
+                error,
+                undefined,
+                "Failed to start Google Calendar authorization.",
+              ),
+            );
           },
         },
       );
+    };
+
+    if (isNative) {
+      setOAuthInProgress(true);
+      pendingRequestRef.current = { requestId };
+      void startWithResolvedIdentity(null, () => {
+        clearPendingRequest();
+        removeEventListeners();
+      });
 
       window.addEventListener("message", handleOAuthMessage);
       window.addEventListener("storage", handleOAuthStorage);
@@ -394,31 +458,11 @@ export function useGoogleCalendarConnect({
       }
     }, 100);
 
-    startOAuth.mutate(
-      {
-        path: { assistant_id: assistantId, provider: GOOGLE_PROVIDER_KEY },
-        body: {
-          requested_scopes: requestedScopes,
-          redirect_after_connect: `${routes.account.oauth.popupComplete}?requestId=${requestId}`,
-        },
-      },
-      {
-        onSuccess(data) {
-          if (popupRef.current && !popupRef.current.closed) {
-            popupRef.current.location.href = data.connect_url;
-          } else if (pendingRequestRef.current) {
-            closePopupWindow();
-            clearPendingRequest();
-            removeEventListeners();
-          }
-        },
-        onError() {
-          closePopupWindow();
-          clearPendingRequest();
-          removeEventListeners();
-        },
-      },
-    );
+    void startWithResolvedIdentity(popup, () => {
+      closePopupWindow();
+      clearPendingRequest();
+      removeEventListeners();
+    });
   }, [
     assistantId,
     clearPendingRequest,
