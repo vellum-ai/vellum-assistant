@@ -39,6 +39,7 @@ import { useBackgroundHatch } from "@/domains/onboarding/use-background-hatch";
 import { useResearchRunner } from "@/domains/onboarding/research-runner";
 import { sendResearchCorrection } from "@/domains/onboarding/send-research-correction";
 import { applyPersonality } from "@/domains/onboarding/apply-personality";
+import { buildLetsChatKickoffMessage } from "@/domains/onboarding/lets-chat-kickoff";
 import {
   clearResearchSnapshot,
   readResearchSnapshot,
@@ -81,16 +82,6 @@ import {
   OnboardingStageSizeProvider,
   useElementSize,
 } from "@/domains/onboarding/hooks/use-onboarding-stage-size";
-
-/**
- * Hidden kickoff sent on the user's behalf when they hit "Let's chat" at the
- * end of the personality-onboarding flow. It drives the assistant's first reply
- * but renders no user bubble, so the chat opens with the assistant proactively
- * greeting the user in the persona they just configured.
- */
-const LETS_CHAT_KICKOFF_MESSAGE = `You're about to begin your first conversation.
-Respond with a warm and engaging greeting. Be interesting, be real. This is your chance to get to know and impress the user.
-Keep it short! For this opening greeting only, don't use \`recall\` or read any files — just say hello. (This applies to the greeting alone; use your tools normally for everything the user asks afterward.)`;
 
 /** Build the research subject from the collected form values. */
 function researchSubjectFrom(values: ResearchOnboardingValues): ResearchSubject {
@@ -505,9 +496,12 @@ export function ResearchOnboardingRoute() {
       researchCorrectionRef.current,
       personalityAppliedRef.current,
     ]);
-    enterAssistant(formValues, faceValues, LETS_CHAT_KICKOFF_MESSAGE, {
-      hidden: true,
-    });
+    enterAssistant(
+      formValues,
+      faceValues,
+      buildLetsChatKickoffMessage(faceValues?.name),
+      { hidden: true },
+    );
   }
 
   function handleFormSubmit(values: ResearchOnboardingValues) {
@@ -654,6 +648,7 @@ export function ResearchOnboardingRoute() {
                   awaitAssistantId: awaitHatchReady,
                   values: personalityValues,
                   userName: formValues?.firstName?.trim() || undefined,
+                  assistantName: faceValues?.name?.trim() || undefined,
                 }).finally(() => setPersonalityPending(false));
                 setPersonalityLocked(true);
               }

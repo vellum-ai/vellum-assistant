@@ -49,8 +49,35 @@ const AXIS = {
 /** Poll cadence + ceiling while waiting for the rewrite turn to land. */
 const POLL_INTERVAL_MS = 1500;
 const MAX_POLL_MS = 120_000;
-/** Consecutive identical assistant reads that mark the rewrite turn settled. */
+/**
+ * Consecutive identical assistant reads that mark the rewrite turn settled —
+ * fallback only, for daemons that predate the `processing` flag.
+ */
 const STABLE_READS_TO_SETTLE = 2;
+
+/**
+ * Decide whether the rewrite turn is finished. The daemon's `processing` flag
+ * is authoritative (`true` while the turn is mid-flight), so prefer it: the
+ * rewrite typically emits a "rewriting now…" preamble and then spends most of
+ * the turn on file_write calls, during which the visible text is stable —
+ * text-stability alone settles ~3s into a turn that runs for tens of seconds,
+ * releasing the chat handoff before IDENTITY.md is actually written. The
+ * `hasReply` guard keeps a still-queued turn (`processing` not yet flipped on)
+ * from reading as already finished. Older daemons omit the flag; fall back to
+ * text-stability there.
+ */
+export function shouldSettlePersonalityPoll({
+  processing,
+  hasReply,
+  stableReads,
+}: {
+  processing: boolean | undefined;
+  hasReply: boolean;
+  stableReads: number;
+}): boolean {
+  if (processing !== undefined) return !processing && hasReply;
+  return hasReply && stableReads >= STABLE_READS_TO_SETTLE;
+}
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
@@ -65,6 +92,7 @@ const clamp = (n: number): number => Math.max(0, Math.min(100, Math.round(n)));
 export function buildPersonalityMessage(
   values: Record<string, number>,
   userName?: string,
+  assistantName?: string,
 ): string {
   const v = (id: string): number => clamp(values[id] ?? 50);
   const companionCoworker = v(AXIS.companionCoworker); // 100 = Coworker
@@ -73,6 +101,16 @@ export function buildPersonalityMessage(
   const politeUnfiltered = v(AXIS.politeUnfiltered); // 100 = Unfiltered
 
   const who = userName?.trim() || "The user";
+  // The name instruction must be unambiguous: the rewrite conversation's
+  // system prompt may have been snapshotted before the chosen name landed in
+  // IDENTITY.md, so "keep your existing name" alone would read a placeholder
+  // and invite the model to invent one. When the user picked a name, state it
+  // outright; either way, pin the `- **Name:** …` line format so the
+  // onboarding name-seeder's regex keeps matching on later rewrites.
+  const chosenName = assistantName?.trim();
+  const nameInstruction = chosenName
+    ? `Your name is ${chosenName}. Write exactly \`- **Name:** ${chosenName}\` in IDENTITY.md — do not rename yourself or invent a different name, even if the file currently shows a placeholder or a different name. This changes your personality, not who you are.`
+    : `Keep your existing name exactly as it is — this changes your personality, not who you are. Do not rename yourself, and if your name is already set, carry it through verbatim (don't treat it as a placeholder to fill). Whatever the name ends up being, keep it on IDENTITY.md's \`- **Name:** …\` line.`;
   return `<system-message>
 ${who} wants to customize your personality.
 This is what they want you to be:
@@ -90,7 +128,7 @@ Rewrite your own identity files (IDENTITY.md and SOUL.md) to reflect your new pe
 
 Overwrite each file completely with file_write: write the whole file fresh in one pass. This is a from-scratch rewrite, not an edit — do not append to what's already there, do not patch individual lines, and leave none of the current default wording behind. Fill in every IDENTITY.md placeholder (the _(not yet chosen)_ / _(not yet established)_ fields).
 
-Keep your existing name exactly as it is — this changes your personality, not who you are. Do not rename yourself, and if your name is already set, carry it through verbatim (don't treat it as a placeholder to fill).
+${nameInstruction}
 
 Each rewritten file must still be complete: SOUL.md keeps everything you operate by — how you use memory, your boundaries, your compliance stance — re-expressed in your new voice rather than dropped. When you finish, both files should read top-to-bottom as this new personality, with nothing left in the generic default voice.
 </system-message>`;
@@ -124,6 +162,12 @@ export interface ApplyPersonalityOptions {
   values: Record<string, number>;
   /** The user's name, woven into the system-message. */
   userName?: string;
+  /**
+   * The assistant name picked on the face screen. Passed through so the
+   * rewrite writes the chosen name instead of trusting its (possibly stale)
+   * system-prompt copy of IDENTITY.md.
+   */
+  assistantName?: string;
 }
 
 /**
@@ -134,6 +178,7 @@ export async function applyPersonality({
   awaitAssistantId,
   values,
   userName,
+  assistantName,
 }: ApplyPersonalityOptions): Promise<void> {
   let assistantId: string | undefined;
   let conversationId: string | undefined;
@@ -150,7 +195,7 @@ export async function applyPersonality({
 
     const body: MessagesPostData["body"] = {
       conversationId,
-      content: buildPersonalityMessage(values, userName),
+      content: buildPersonalityMessage(values, userName, assistantName),
       sourceChannel: "vellum",
       interface: "vellum",
       clientMessageId: crypto.randomUUID(),
@@ -163,7 +208,10 @@ export async function applyPersonality({
     if (!posted.response?.ok) return;
 
     // Let the rewrite turn run before hiding the thread — archiving mid-turn
-    // could drop the identity edits. Settle once the reply stops changing.
+    // could drop the identity edits, and the chat handoff awaits this promise
+    // so the first greeting must not start until the identity files are
+    // written. Settle on the daemon's turn-completion flag (see
+    // `shouldSettlePersonalityPoll`).
     const deadline = Date.now() + MAX_POLL_MS;
     let lastText = "";
     let stableReads = 0;
@@ -178,7 +226,15 @@ export async function applyPersonality({
       if (text) {
         stableReads = text === lastText ? stableReads + 1 : 0;
         lastText = text;
-        if (stableReads >= STABLE_READS_TO_SETTLE) break;
+      }
+      if (
+        shouldSettlePersonalityPoll({
+          processing: listed.data?.processing,
+          hasReply: text.length > 0,
+          stableReads,
+        })
+      ) {
+        break;
       }
     }
   } catch (err) {
