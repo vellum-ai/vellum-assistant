@@ -7,11 +7,6 @@ import {
   type ContactRead,
 } from "@vellumai/gateway-client/gateway-ipc-contracts";
 
-import {
-  type SqliteValue,
-  assistantDbQuery,
-  assistantDbRun,
-} from "./assistant-db-proxy.js";
 import { type GatewayDb, getGatewayDb } from "./connection.js";
 import { contacts, contactChannels, ingressInvites } from "./schema.js";
 import {
@@ -1078,23 +1073,23 @@ export class ContactStore {
   }
 
   // ---------------------------------------------------------------------------
-  // Upsert (gateway DB + assistant DB dual-write)
+  // Upsert (gateway DB + typed assistant mirror)
   // ---------------------------------------------------------------------------
 
   /**
-   * Upsert a contact + channels in the gateway DB and dual-write the same
-   * change to the assistant DB (best-effort).
+   * Upsert a contact + channels in the gateway DB and mirror the same change
+   * to the assistant DB via the typed `contacts_mirror_upsert_full` op
+   * (best-effort).
    *
    * Resolution order (mirrors the assistant's upsertContact):
    *  1. Match by `params.id` if provided.
    *  2. Match by (type, address) on a provided channel in the gateway DB.
-   *  3. Create: adopt an existing assistant-DB contact id for the same channel
-   *     (canonical-id heal), else mint a fresh id.
+   *  3. Create: mint a fresh id.
    *
-   * Steps 2 and 3 (channel-match + assistant-id adoption) run on the create
-   * path only — when no explicit `id` is supplied. An explicit id is an update
-   * and keys the gateway row + assistant mirror to that id directly, so an edit
-   * can't retarget another contact's metadata.
+   * Step 2 runs on the create path only — when no explicit `id` is supplied.
+   * An explicit id is an update and keys the gateway row + assistant mirror
+   * to that id directly, so an edit can't retarget another contact's
+   * metadata.
    *
    * Channel sync follows the same no-reassignment path: existing channels
    * on the same contact are updated; conflicting channels on a different
@@ -1103,11 +1098,11 @@ export class ContactStore {
    * The gateway DB is the source of truth for auth/authz fields (id,
    * displayName, role, principalId). The assistant DB receives a mirrored
    * write for the assistant-only columns (notes, userFile, contactType,
-   * assistantContactMetadata) plus a copy of the channel rows. The
-   * assistant-DB dual-write is best-effort: failures are logged but do not
-   * fail the call. The returned `contact` shape is read back from the
-   * assistant DB when available, falling back to a synthetic shape built
-   * from the gateway row on any read-back failure.
+   * assistantContactMetadata) plus a copy of the channel rows. The mirror is
+   * best-effort: failures are logged but do not fail the call. The returned
+   * `contact` shape is read back with the info overlay when available,
+   * falling back to a synthetic shape built from the gateway row on any
+   * read-back failure.
    *
    * SECURITY: `role` and `principalId` are intentionally NOT accepted as
    * inputs. They are auth/authz fields owned by guardian-bootstrap (raw
@@ -1152,8 +1147,8 @@ export class ContactStore {
     let created = false;
 
     // Canonicalize all channel addresses up front so every downstream path
-    // (gateway DB, assistant DB dual-write, conflict checks) uses the
-    // canonical form.
+    // (gateway DB, assistant mirror op, conflict checks) uses the canonical
+    // form.
     const canonicalChannels = params.channels?.map((ch) => ({
       ...ch,
       address: canonicalizeInboundIdentity(ch.type, ch.address) ?? ch.address,
@@ -1249,16 +1244,16 @@ export class ContactStore {
       this.syncChannels(contactId, canonicalChannels, now);
     }
 
-    // ── 5. Dual-write to assistant DB (best-effort) ───────────────────
+    // ── 5. Mirror to assistant DB (best-effort typed op) ──────────────
     const canonicalParams = canonicalChannels
       ? { ...params, channels: canonicalChannels }
       : params;
     try {
-      await this.dualWriteContactToAssistantDb(contactId, canonicalParams, now);
+      await this.mirrorContactToAssistantDb(contactId, canonicalParams);
     } catch (err) {
       log.warn(
         { contactId, err },
-        "upsertContact: assistant DB dual-write failed (best-effort)",
+        "upsertContact: assistant DB mirror failed (best-effort)",
       );
     }
 
@@ -1528,172 +1523,58 @@ export class ContactStore {
   }
 
   // ---------------------------------------------------------------------------
-  // Assistant DB dual-write
+  // Assistant DB identity mirror
   // ---------------------------------------------------------------------------
 
   /**
-   * Mirror the contact + channels write to the assistant DB.
+   * Mirror the contact + channels write to the assistant DB via ONE typed
+   * transactional daemon op (`contacts_mirror_upsert_full`).
    *
-   * - For an existing contact, build a dynamic SET clause that only touches
-   *   fields the caller explicitly provided. Without this guard, a partial
-   *   upsert (e.g. `{displayName: "X"}`) would clobber `notes`, `role`,
-   *   `contact_type`, and `principal_id` to default values — silently losing
-   *   data that the assistant DB may have but the gateway DB doesn't carry.
-   *
-   * - For a new contact, INSERT the full row with a freshly resolved
-   *   `user_file` slug.
-   *
-   * - For each channel: UPDATE if a row already exists on the same contact;
-   *   otherwise INSERT (skipping addresses claimed by a different contact).
+   * The mirror always targets the gateway contactId — the SAME id the gateway
+   * row + channels were written under — so an edit can't retarget another
+   * contact's metadata. Write semantics live daemon-side and match the raw
+   * dual-write this replaced: sparse omit-to-preserve contact update,
+   * slug-resolved `user_file` on create, `assistant_contact_metadata` upsert,
+   * and per-channel conflict-skip sync.
    */
-  private async dualWriteContactToAssistantDb(
+  private async mirrorContactToAssistantDb(
     contactId: string,
     params: Parameters<ContactStore["upsertContact"]>[0],
-    now: number,
   ): Promise<void> {
-    // The mirror always targets the gateway contactId — the SAME id the gateway
-    // row + channels were written under. On create, any assistant-only contact
-    // was already adopted onto this id in upsertContact, so both DBs converge.
-    // On update (explicit id), this matches syncChannels' skip-on-cross-contact
-    // behavior so an edit can't retarget another contact's metadata.
-    const existing = await assistantDbQuery<{ userFile: string | null }>(
-      "SELECT user_file AS userFile FROM contacts WHERE id = ?",
-      [contactId],
-    );
+    const channels = params.channels?.map((ch) => {
+      // Ship the just-written gateway channel id so the mirror adopts it and
+      // both stores share one canonical id for the same logical channel. A
+      // gateway conflict-skip leaves it undefined (the daemon mints one).
+      const gatewayChannel = this.db
+        .select({ id: contactChannels.id })
+        .from(contactChannels)
+        .where(
+          and(
+            eq(contactChannels.contactId, contactId),
+            eq(contactChannels.type, ch.type),
+            sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
+          ),
+        )
+        .get();
+      return {
+        id: gatewayChannel?.id,
+        type: ch.type,
+        address: ch.address,
+        isPrimary: ch.isPrimary,
+        externalChatId: ch.externalChatId,
+      };
+    });
 
-    if (existing.length) {
-      // Dynamic SET clause: only touch fields the caller actually provided.
-      // role / principal_id are intentionally never updated from this path —
-      // they're not in the params surface and the assistant DB already holds
-      // the values written by guardian-bootstrap. display_name is
-      // omit-to-preserve so a sparse upsert can't revert a custom name.
-      const setParts: string[] = ["updated_at = ?"];
-      const setParams: SqliteValue[] = [now];
-
-      if (params.displayName !== undefined) {
-        setParts.push("display_name = ?");
-        setParams.push(params.displayName);
-      }
-      if (params.notes !== undefined) {
-        setParts.push("notes = ?");
-        setParams.push(params.notes ?? null);
-      }
-      if (params.contactType !== undefined) {
-        setParts.push("contact_type = ?");
-        setParams.push(params.contactType);
-      }
-      setParams.push(contactId);
-
-      await assistantDbRun(
-        `UPDATE contacts SET ${setParts.join(", ")} WHERE id = ?`,
-        setParams,
-      );
-    } else {
-      const displayName =
-        params.displayName ?? params.channels?.[0]?.address ?? "Unknown";
-      const userFile = await this.resolveAssistantUserFileSlug(
-        displayName,
-        null,
-      );
-      await assistantDbRun(
-        `INSERT INTO contacts
-           (id, display_name, notes, contact_type,
-            user_file, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [
-          contactId,
-          displayName,
-          params.notes ?? null,
-          params.contactType ?? "human",
-          userFile,
-          now,
-          now,
-        ],
-      );
-    }
-
-    // Assistant contact metadata (assistant-type contacts only).
-    if (params.contactType === "assistant" && params.assistantMetadata) {
-      await assistantDbRun(
-        `INSERT INTO assistant_contact_metadata (contact_id, species, metadata)
-         VALUES (?, ?, ?)
-         ON CONFLICT(contact_id) DO UPDATE SET
-           species  = excluded.species,
-           metadata = excluded.metadata`,
-        [
-          contactId,
-          params.assistantMetadata.species,
-          params.assistantMetadata.metadata != null
-            ? JSON.stringify(params.assistantMetadata.metadata)
-            : null,
-        ],
-      );
-    }
-
-    // Sync channels to the assistant DB.
-    for (const ch of params.channels ?? []) {
-      const existingCh = await assistantDbQuery<{ id: string }>(
-        "SELECT id FROM contact_channels WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE",
-        [contactId, ch.type, ch.address],
-      );
-
-      if (existingCh.length) {
-        // Omit-to-preserve: only overwrite external_chat_id when the caller
-        // supplied one, mirroring syncChannels (gateway DB). A sparse upsert
-        // (no externalChatId) must not clear an existing delivery chat id.
-        const setParts: string[] = ["updated_at = ?"];
-        const setParams: SqliteValue[] = [now];
-        if (ch.externalChatId !== undefined) {
-          setParts.push("external_chat_id = ?");
-          setParams.push(ch.externalChatId);
-        }
-        setParams.push(existingCh[0].id);
-        await assistantDbRun(
-          `UPDATE contact_channels SET ${setParts.join(", ")} WHERE id = ?`,
-          setParams,
-        );
-      } else {
-        // Skip if an address conflict exists on a different contact.
-        const conflict = await assistantDbQuery<{ id: string }>(
-          "SELECT id FROM contact_channels WHERE type = ? AND address = ? COLLATE NOCASE",
-          [ch.type, ch.address],
-        );
-        if (conflict.length) continue;
-
-        // Reuse the gateway channel ID so assistant and gateway channel rows
-        // share the same UUID for the same logical channel.
-        const gatewayChannel = this.db
-          .select({ id: contactChannels.id })
-          .from(contactChannels)
-          .where(
-            and(
-              eq(contactChannels.contactId, contactId),
-              eq(contactChannels.type, ch.type),
-              sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
-            ),
-          )
-          .get();
-        const channelId = gatewayChannel?.id ?? crypto.randomUUID();
-
-        await assistantDbRun(
-          `INSERT INTO contact_channels
-             (id, contact_id, type, address, is_primary,
-              external_chat_id,
-              created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            channelId,
-            contactId,
-            ch.type,
-            ch.address,
-            ch.isPrimary ? 1 : 0,
-            ch.externalChatId ?? null,
-            now,
-            now,
-          ],
-        );
-      }
-    }
+    await ipcCallAssistant("contacts_mirror_upsert_full", {
+      body: {
+        contactId,
+        displayName: params.displayName,
+        contactType: params.contactType,
+        notes: params.notes,
+        assistantMetadata: params.assistantMetadata,
+        channels,
+      },
+    });
   }
 
   /**

@@ -24,9 +24,9 @@ const ALLOWLIST = new Set<string>([
   // The proxy definition itself (calls ipcCallAssistant("db_proxy")).
   "db/assistant-db-proxy.ts",
 
-  // Contact dual-write cluster (dualWriteContactToAssistantDb) — the last raw
-  // writes in the file; the merge mirror is now a typed transactional op.
-  "db/contact-store.ts",
+  // contact-store.ts is drained: its merge + upsert mirrors are typed ops
+  // (`contacts_mirror_merge_contact` / `contacts_mirror_upsert_full`). The
+  // migrations-only banner rewrite lands in the follow-up PR.
 ]);
 
 // Data migrations run one-time backfills through the same proxy and touch

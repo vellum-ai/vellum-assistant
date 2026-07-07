@@ -9,6 +9,7 @@ import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
 const upsertContactChannelCalls: unknown[] = [];
 const upsertContactCalls: unknown[] = [];
+const upsertContactMirrorFullCalls: unknown[] = [];
 const deleteContactCalls: unknown[] = [];
 const mergeContactMirrorCalls: unknown[] = [];
 
@@ -59,6 +60,12 @@ mock.module("../../../contacts/contact-store.js", () => ({
     if (!mockActive) {return realContactStore.deleteContact(...args);}
     deleteContactCalls.push(args[0]);
   },
+  upsertContactMirrorFull: (
+    ...args: Parameters<typeof realContactStore.upsertContactMirrorFull>
+  ) => {
+    if (!mockActive) {return realContactStore.upsertContactMirrorFull(...args);}
+    upsertContactMirrorFullCalls.push(args[0]);
+  },
   mergeContactMirror: (
     ...args: Parameters<typeof realContactStore.mergeContactMirror>
   ) => {
@@ -84,6 +91,7 @@ const {
   CONTACTS_MIRROR_IPC_METHODS,
   handleContactsMirrorUpsertChannel,
   handleContactsMirrorUpsertContact,
+  handleContactsMirrorUpsertFull,
   handleContactsMirrorDeleteContact,
   handleContactsMirrorMergeContact,
   handleContactsMirrorApply,
@@ -97,6 +105,7 @@ const { routeDefinitionsToIpcMethods } = await import("../route-adapter.js");
 const MIRROR_OPERATION_IDS = [
   "contacts_mirror_upsert_channel",
   "contacts_mirror_upsert_contact",
+  "contacts_mirror_upsert_full",
   "contacts_mirror_delete_contact",
   "contacts_mirror_merge_contact",
   "contacts_mirror_apply",
@@ -280,6 +289,50 @@ describe("contacts_mirror_upsert_contact", () => {
   test("rejects a body missing contactId/displayName", () => {
     expect(() =>
       handleContactsMirrorUpsertContact({ body: { contactId: "co-1" } }),
+    ).toThrow();
+  });
+});
+
+describe("contacts_mirror_upsert_full", () => {
+  test("delegates the parsed params to the transactional full-upsert primitive", () => {
+    upsertContactMirrorFullCalls.length = 0;
+    const result = handleContactsMirrorUpsertFull({
+      body: {
+        contactId: "co-full",
+        contactType: "assistant",
+        notes: null,
+        assistantMetadata: { species: "vellum", metadata: { assistantId: "a1" } },
+        channels: [
+          { id: "gw-ch-1", type: "email", address: "a@x.com", isPrimary: true },
+        ],
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(upsertContactMirrorFullCalls).toEqual([
+      {
+        contactId: "co-full",
+        // displayName omitted → sparse update preserves the mirror's name.
+        displayName: undefined,
+        contactType: "assistant",
+        notes: null,
+        assistantMetadata: { species: "vellum", metadata: { assistantId: "a1" } },
+        channels: [
+          {
+            id: "gw-ch-1",
+            type: "email",
+            address: "a@x.com",
+            isPrimary: true,
+            externalChatId: undefined,
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("rejects a body missing contactId", () => {
+    expect(() =>
+      handleContactsMirrorUpsertFull({ body: { displayName: "X" } }),
     ).toThrow();
   });
 });
