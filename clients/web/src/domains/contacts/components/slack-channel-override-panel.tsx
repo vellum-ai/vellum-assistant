@@ -163,7 +163,7 @@ export function SlackChannelOverridePanel({
         variant="body-small-default"
         className="text-[color:var(--content-tertiary)]"
       >
-        {settings.explicit ? (
+        {settings.overridden ? (
           <>
             {tierMeta.label} — {tierMeta.sublabel}. {tierMeta.description}
           </>
