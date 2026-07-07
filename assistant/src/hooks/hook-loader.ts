@@ -279,15 +279,12 @@ export function hasWorkspaceHooks(): boolean {
 }
 
 /**
- * Run the `init` hook for `ownerName` if the owner defines one. Resolves the
- * owner's `shutdown` first — while the directory is still present — so it's
- * cached for teardown even after an uninstall removes the directory, then
- * resolves and runs `init`. `init` can't ride the whole-chain `runHook` the way
- * dispatch hooks do because its context is per-plugin (config, logger, storage
- * dir), so it's dispatched per-owner here. Shared by user plugins and
- * standalone workspace hooks so both get the same init-context shape and
- * per-owner isolation (a thrown `init` is logged and swallowed, never blocking
- * boot).
+ * Run the `init` hook for `ownerName` if the owner defines one. `init` can't
+ * ride the whole-chain `runHook` the way dispatch hooks do because its context
+ * is per-plugin (config, logger, storage dir), so it's dispatched per-owner
+ * here. Shared by user plugins and standalone workspace hooks so both get the
+ * same init-context shape and per-owner isolation (a thrown `init` is logged and
+ * swallowed, never blocking boot).
  *
  * For user plugins, `pluginDir` is the absolute path to the installed plugin
  * directory (`<workspace>/plugins/<name>/`). Config and data now live inside
@@ -312,11 +309,6 @@ export async function runInitHook(
   const kind: HookOwnerKind = pluginDir === null ? "workspace" : "plugin";
   const hooksDir = ownerHooksDir(pluginDir);
 
-  // Resolve `shutdown` now, while the directory is present, so it's cached for
-  // teardown even after an uninstall removes the directory (runShutdownHook
-  // reads the cache, never disk). The result is discarded here — this is a warm.
-  await resolveHook(kind, hooksDir, ownerName, HOOKS.SHUTDOWN);
-
   const initHook = await resolveHook(kind, hooksDir, ownerName, HOOKS.INIT);
   if (initHook === null) {
     return;
@@ -340,13 +332,15 @@ export async function runInitHook(
 }
 
 /**
- * Run one owner's `shutdown` hook from the cache — the targeted single-owner
- * teardown for a runtime uninstall / disable / reload (the whole-chain
- * `runHook(HOOKS.SHUTDOWN)` at process exit runs *every* owner's shutdown; this
- * runs exactly one). The reconcile tears an owner down before evicting it, so
- * the `shutdown` cached at activation is still resident here even when the
- * directory is already gone. Best-effort: a thrown shutdown is logged and
- * swallowed. `reason` is threaded into the log for attribution only.
+ * Run one owner's `shutdown` from the cache if it's already resolved — the
+ * best-effort teardown used on **reload**, where disk already holds the *new*
+ * version so the old one can only come from a prior resolution. When it isn't
+ * cached, this is a no-op: under the no-cross-invocation-state contract (see
+ * {@link ShutdownContext}) the new `init` reconstructs from the filesystem, so a
+ * missed old-`shutdown` is benign. For teardown where the current on-disk
+ * version is the right one to run (uninstall, disable), use
+ * {@link runShutdownHookFromDisk} instead. Best-effort: a thrown shutdown is
+ * logged and swallowed; `reason` is threaded into the log for attribution only.
  */
 export async function runShutdownHook(
   kind: HookOwnerKind,
@@ -354,8 +348,6 @@ export async function runShutdownHook(
   context: ShutdownContext,
   reason: string,
 ): Promise<void> {
-  // Read from the cache (resolved at activation, while the directory existed) —
-  // never re-resolve here, since an uninstall may have already removed it.
   const entry = hookCache.get(hookKey(kind, ownerName, HOOKS.SHUTDOWN));
   if (entry === undefined) {
     return;
@@ -365,6 +357,62 @@ export async function runShutdownHook(
     return;
   }
 
+  await invokeShutdown(shutdown, context, ownerName, reason);
+}
+
+/**
+ * Resolve an owner's `shutdown` fresh from `hooksDir` and run it — the targeted
+ * single-owner teardown for a **managed uninstall** (run before the directory is
+ * removed) or a **disable** (directory still present). Resolves from disk rather
+ * than the cache so it doesn't depend on the daemon having warmed anything, and
+ * so it works in any process — the CLI's uninstall and the daemon's route both
+ * call it (a `shutdown` hook must not assume it runs in the same process as its
+ * `init`; see {@link ShutdownContext}). No-op when the owner defines no
+ * `shutdown`. Best-effort: a thrown or malformed shutdown is logged and
+ * swallowed.
+ */
+export async function runShutdownHookFromDisk(
+  hooksDir: string,
+  ownerName: string,
+  reason: ShutdownContext["reason"],
+): Promise<void> {
+  const file = listSurfaceDir(hooksDir).find((f) => f.name === HOOKS.SHUTDOWN);
+  if (file === undefined) {
+    return;
+  }
+  evictModule(file.path);
+  let shutdown: HookFunction | undefined;
+  try {
+    shutdown = await importWithTimeout<HookFunction>(file.path);
+  } catch (err) {
+    log.warn(
+      { err, plugin: ownerName, path: file.path },
+      "failed to import shutdown hook for teardown (continuing)",
+    );
+    return;
+  }
+  if (typeof shutdown !== "function") {
+    log.error(
+      { plugin: ownerName, path: file.path },
+      `shutdown default export must be a function (got ${typeof shutdown}) — skipping`,
+    );
+    return;
+  }
+  await invokeShutdown(
+    shutdown,
+    { assistantVersion: APP_VERSION, reason },
+    ownerName,
+    reason,
+  );
+}
+
+/** Run a resolved shutdown function, logging and swallowing any throw. */
+async function invokeShutdown(
+  shutdown: HookFunction,
+  context: ShutdownContext,
+  ownerName: string,
+  reason: string,
+): Promise<void> {
   try {
     await shutdown(context);
   } catch (err) {

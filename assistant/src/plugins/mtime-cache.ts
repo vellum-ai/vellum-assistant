@@ -17,11 +17,12 @@
  *   source-versions sentinel published by the resource monitor's watcher.
  *   The dispatch path stats that one file and otherwise runs on memory.
  * - A changed plugin is redeployed in place: the old version's `shutdown`
- *   runs, its hook/tool cache entries and module-registry entries are
- *   swept, and reactivation runs `init`; the next read of each hook re-resolves
- *   it from the swept-clean registry. The whole directory is the reload unit
- *   (every module path is swept) so a re-imported hook can never pair with a
- *   stale cached helper.
+ *   runs best-effort (only if it was already resolved — disk holds the new
+ *   version by then), its hook/tool cache entries and module-registry entries
+ *   are swept, and reactivation runs `init`; the next read of each hook
+ *   re-resolves it from the swept-clean registry. The whole directory is the
+ *   reload unit (every module path is swept) so a re-imported hook can never
+ *   pair with a stale cached helper.
  * - Plugins are never "registered" as a unit — we register their tools into
  *   the global tool registry.
  *
@@ -30,7 +31,13 @@
  * each hook through the hook loader on demand.
  */
 
-import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from "node:fs";
+import {
+  existsSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  statSync,
+} from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -42,6 +49,7 @@ import {
   resetHookCacheForTests,
   runInitHook,
   runShutdownHook,
+  runShutdownHookFromDisk,
   WORKSPACE_HOOKS_OWNER,
 } from "../hooks/hook-loader.js";
 import type { HookFunction, ShutdownReason } from "../plugin-api/types.js";
@@ -307,7 +315,11 @@ async function maybeReconcileFromSentinel(): Promise<void> {
  * symlinked path that looks like it's under the plugins dir but points
  * elsewhere is rejected.
  */
-function isAllowedPluginDir(dir: string, pluginsDir: string, hooksDir: string): boolean {
+function isAllowedPluginDir(
+  dir: string,
+  pluginsDir: string,
+  hooksDir: string,
+): boolean {
   let resolved: string;
   try {
     resolved = realpathSync(dir);
@@ -334,13 +346,15 @@ function isAllowedPluginDir(dir: string, pluginsDir: string, hooksDir: string): 
  * is logged and the next publication retries from the sentinel's truth.
  *
  * Per directory, the transitions are:
- * - present + enabled with a moved fingerprint → in-place redeploy:
- *   `shutdown` (reason `reload`) → sweep hook/tool caches and the module
- *   registry → re-import, re-register tools, `init`. The whole directory is
- *   the reload unit on purpose: partial eviction would let a re-imported
+ * - present + enabled with a moved fingerprint → in-place redeploy: old
+ *   `shutdown` (reason `reload`, best-effort) → sweep hook/tool caches and the
+ *   module registry → re-import, re-register tools, `init`. The whole directory
+ *   is the reload unit on purpose: partial eviction would let a re-imported
  *   hook pair with a stale cached helper, silently mixing versions.
  * - newly present (installed, or `.disabled` removed) → bring up.
- * - gone, or newly disabled → tear down (`uninstall` / `disable`).
+ * - gone → tear down (`uninstall`; `shutdown` already ran at removal time or the
+ *   directory is gone, so none runs here) or newly disabled → tear down
+ *   (`disable`, resolving `shutdown` from the still-present directory).
  * The workspace hooks pseudo-entry gets the same treatment through its own
  * `init`/`shutdown` lifecycle.
  */
@@ -377,7 +391,7 @@ async function applySourceVersions(
       if (activeName !== undefined && !shouldBeUp) {
         const reason: ShutdownReason =
           after === undefined ? "uninstall" : "disable";
-        await deactivatePlugin(activeName, reason);
+        await deactivatePlugin(activeName, dir, reason);
         await evictPlugin(dir, activeName);
         sweepModules(before, after);
         membershipChanged = true;
@@ -398,10 +412,11 @@ async function applySourceVersions(
           { plugin: activeName, dir },
           "plugin source changed — reloading",
         );
-        // Tear the old version down first: `deactivatePlugin` runs the
-        // still-cached `shutdown`, then `evictHooksForOwner` drops the owner's
-        // cached resolutions so the next read re-resolves fresh.
-        await deactivatePlugin(activeName, "reload");
+        // Tear the old version down first: `deactivatePlugin` runs the old
+        // `shutdown` best-effort (disk already holds the new version), then
+        // `evictHooksForOwner` drops the owner's cached resolutions so the next
+        // read re-resolves fresh.
+        await deactivatePlugin(activeName, dir, "reload");
         evictHooksForOwner("plugin", activeName);
         evictToolCacheEntries(activeName);
         sweepModules(before, after);
@@ -684,7 +699,7 @@ async function scanPlugins(): Promise<void> {
       const manifest = await parsePluginManifest(pluginDir);
       const pluginName = manifest?.name ?? entry;
       if (discoveredPluginDirs.has(pluginDir)) {
-        await deactivatePlugin(pluginName, "disable");
+        await deactivatePlugin(pluginName, pluginDir, "disable");
         await evictPlugin(pluginDir, pluginName);
       }
       if (!disabledPluginDirs.has(pluginDir)) {
@@ -717,7 +732,7 @@ async function scanPlugins(): Promise<void> {
   // Deactivate and evict cache entries for deleted plugins.
   for (const [pluginDir, pluginName] of discoveredPluginDirs) {
     if (!currentDirs.has(pluginDir)) {
-      await deactivatePlugin(pluginName, "uninstall");
+      await deactivatePlugin(pluginName, pluginDir, "uninstall");
       await evictPlugin(pluginDir, pluginName);
     }
   }
@@ -879,14 +894,23 @@ async function activatePlugin(
 }
 
 /**
- * Deactivate a plugin whose directory was removed (`uninstall`) or disabled
- * (`disable`) at runtime: unregister its tools and run its `shutdown` hook with
- * the matching {@link ShutdownReason}. Must run *before* `evictPlugin` /
- * `evictHooksForOwner` clear the owner's cache, since the `shutdown` hook is
- * read from it. Idempotent — a plugin that was never activated is a no-op.
+ * Deactivate a plugin that was disabled (`disable`), removed (`uninstall`), or
+ * is being redeployed (`reload`) at runtime: unregister its tools and run its
+ * `shutdown` hook. Must run *before* `evictPlugin` / `evictHooksForOwner` clear
+ * the owner's cache. Idempotent — a plugin that was never activated is a no-op.
+ *
+ * How `shutdown` is resolved depends on the reason:
+ * - `disable` — the directory is still present, so resolve and run the current
+ *   on-disk version ({@link runShutdownHookFromDisk}).
+ * - `reload` — disk already holds the *new* version, so the old one can only
+ *   come from the cache; run it best-effort ({@link runShutdownHook}).
+ * - `uninstall` — a managed uninstall runs `shutdown` from disk *before*
+ *   removing the directory (see `cli/lib/uninstall-plugin.ts`), and an
+ *   out-of-band `rm` leaves nothing to resolve, so there is nothing to run here.
  */
 async function deactivatePlugin(
   pluginName: string,
+  pluginDir: string,
   reason: ShutdownReason,
 ): Promise<void> {
   if (!activatedNames.has(pluginName)) {
@@ -911,12 +935,16 @@ async function deactivatePlugin(
     );
   }
 
-  await runShutdownHook(
-    "plugin",
-    pluginName,
-    { assistantVersion: APP_VERSION, reason },
-    reason,
-  );
+  if (reason === "disable") {
+    await runShutdownHookFromDisk(join(pluginDir, "hooks"), pluginName, reason);
+  } else if (reason === "reload") {
+    await runShutdownHook(
+      "plugin",
+      pluginName,
+      { assistantVersion: APP_VERSION, reason },
+      reason,
+    );
+  }
 }
 
 // ─── Boot population ─────────────────────────────────────────────────────────

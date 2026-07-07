@@ -143,7 +143,7 @@ mock.module("../../../cli/lib/plugin-catalog-cache.js", () => ({
 // Mock uninstallPlugin. The handler's error mapping is the wiring under
 // test — the lib's own behavior is covered separately.
 const uninstallSpy = mock(
-  (_opts: UninstallPluginOptions): UninstallPluginResult => {
+  (_opts: UninstallPluginOptions): Promise<UninstallPluginResult> => {
     throw new Error("uninstallSpy default impl not configured");
   },
 );
@@ -1081,11 +1081,10 @@ describe("GET /v1/plugins/search", () => {
 // DELETE /v1/plugins/:name (uninstall)
 // ---------------------------------------------------------------------------
 
-function invokeUninstall(args: RouteHandlerArgs = {}): {
-  name: string;
-  target: string;
-} {
-  return uninstallHandler(args) as { name: string; target: string };
+async function invokeUninstall(
+  args: RouteHandlerArgs = {},
+): Promise<{ name: string; target: string }> {
+  return (await uninstallHandler(args)) as { name: string; target: string };
 }
 
 describe("DELETE /v1/plugins/:name", () => {
@@ -1094,13 +1093,15 @@ describe("DELETE /v1/plugins/:name", () => {
     broadcastMessageSpy.mockReset();
   });
 
-  test("forwards pathParams.name to uninstallPlugin and returns its result", () => {
-    uninstallSpy.mockImplementation((opts) => ({
+  test("forwards pathParams.name to uninstallPlugin and returns its result", async () => {
+    uninstallSpy.mockImplementation(async (opts) => ({
       name: opts.name,
       target: `/workspace/.vellum/plugins/${opts.name}`,
     }));
 
-    const result = invokeUninstall({ pathParams: { name: "simple-memory" } });
+    const result = await invokeUninstall({
+      pathParams: { name: "simple-memory" },
+    });
 
     expect(uninstallSpy.mock.calls).toHaveLength(1);
     expect(uninstallSpy.mock.calls[0]?.[0]).toEqual({ name: "simple-memory" });
@@ -1110,24 +1111,24 @@ describe("DELETE /v1/plugins/:name", () => {
     });
   });
 
-  test("publishes sync_changed(plugins:list) on a successful uninstall", () => {
-    uninstallSpy.mockImplementation((opts) => ({
+  test("publishes sync_changed(plugins:list) on a successful uninstall", async () => {
+    uninstallSpy.mockImplementation(async (opts) => ({
       name: opts.name,
       target: `/workspace/.vellum/plugins/${opts.name}`,
     }));
 
-    invokeUninstall({ pathParams: { name: "simple-memory" } });
+    await invokeUninstall({ pathParams: { name: "simple-memory" } });
 
     expectPluginsListBroadcast();
   });
 
-  test("threads x-vellum-client-id into the published event's originClientId", () => {
-    uninstallSpy.mockImplementation((opts) => ({
+  test("threads x-vellum-client-id into the published event's originClientId", async () => {
+    uninstallSpy.mockImplementation(async (opts) => ({
       name: opts.name,
       target: `/workspace/.vellum/plugins/${opts.name}`,
     }));
 
-    invokeUninstall({
+    await invokeUninstall({
       pathParams: { name: "simple-memory" },
       headers: { "x-vellum-client-id": "client-abc" },
     });
@@ -1139,7 +1140,7 @@ describe("DELETE /v1/plugins/:name", () => {
     });
   });
 
-  test("missing pathParams.name passes the empty string through to the lib", () => {
+  test("missing pathParams.name passes the empty string through to the lib", async () => {
     // The lib's `sanitizePluginName` is the validator of last resort —
     // the route hands off the raw value without pre-trimming. The lib
     // rejects empty strings, which the handler maps to 400 below.
@@ -1149,21 +1150,21 @@ describe("DELETE /v1/plugins/:name", () => {
       );
     });
 
-    expect(() => invokeUninstall({})).toThrow(BadRequestError);
+    await expect(invokeUninstall({})).rejects.toThrow(BadRequestError);
     expect(uninstallSpy.mock.calls[0]?.[0]).toEqual({ name: "" });
   });
 
-  test("InvalidPluginNameError → BadRequestError (400)", () => {
+  test("InvalidPluginNameError → BadRequestError (400)", async () => {
     uninstallSpy.mockImplementation(() => {
       throw new InvalidPluginNameError("bad name ../escape");
     });
 
-    expect(() =>
+    await expect(
       invokeUninstall({ pathParams: { name: "../escape" } }),
-    ).toThrow(BadRequestError);
+    ).rejects.toThrow(BadRequestError);
   });
 
-  test("PluginNotInstalledError → NotFoundError (404), no broadcast", () => {
+  test("PluginNotInstalledError → NotFoundError (404), no broadcast", async () => {
     uninstallSpy.mockImplementation((opts) => {
       throw new PluginNotInstalledError(
         opts.name,
@@ -1171,36 +1172,34 @@ describe("DELETE /v1/plugins/:name", () => {
       );
     });
 
-    expect(() => invokeUninstall({ pathParams: { name: "ghost" } })).toThrow(
-      NotFoundError,
-    );
+    await expect(
+      invokeUninstall({ pathParams: { name: "ghost" } }),
+    ).rejects.toThrow(NotFoundError);
     // A failed uninstall must not fan out a spurious invalidation.
     expect(broadcastMessageSpy).not.toHaveBeenCalled();
   });
 
-  test("unknown errors → InternalError with original message preserved", () => {
+  test("unknown errors → InternalError with original message preserved", async () => {
     uninstallSpy.mockImplementation(() => {
       throw new Error("EBUSY: resource busy or locked");
     });
 
-    expect(() =>
+    await expect(
       invokeUninstall({ pathParams: { name: "simple-memory" } }),
-    ).toThrow(InternalError);
-    try {
-      invokeUninstall({ pathParams: { name: "simple-memory" } });
-    } catch (err) {
-      expect((err as Error).message).toContain("EBUSY");
-    }
+    ).rejects.toThrow(InternalError);
+    await expect(
+      invokeUninstall({ pathParams: { name: "simple-memory" } }),
+    ).rejects.toThrow("EBUSY");
   });
 
-  test("non-Error throws fall through to InternalError with a default message", () => {
+  test("non-Error throws fall through to InternalError with a default message", async () => {
     uninstallSpy.mockImplementation(() => {
       throw "boom"; // emulates a poorly-typed throwable from the lib chain
     });
 
     let caught: unknown;
     try {
-      invokeUninstall({ pathParams: { name: "simple-memory" } });
+      await invokeUninstall({ pathParams: { name: "simple-memory" } });
     } catch (err) {
       caught = err;
     }

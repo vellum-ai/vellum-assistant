@@ -686,7 +686,11 @@ describe("plugin runtime activation", () => {
     });
   });
 
-  test("removing a plugin directory deactivates it (unregister + shutdown)", async () => {
+  test("an out-of-band directory removal unregisters tools but runs no shutdown", async () => {
+    // A raw `rm` (bypassing the managed uninstall) is only noticed by the
+    // monitor after the files are gone, so there's no `shutdown` to resolve —
+    // the reconcile just evicts. A managed uninstall runs `shutdown` before
+    // removal (see uninstall-plugin.test.ts).
     const dir = freshPluginDir("temp-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "temp-plugin" });
     writeTool(dir, "temp-tool", TOOL_SRC("temp-tool"));
@@ -703,7 +707,7 @@ describe("plugin runtime activation", () => {
     expect(getPluginToolDefinitions().some((t) => t.name === "temp-tool")).toBe(
       false,
     );
-    expect(existsSync(shutdownMarker)).toBe(true);
+    expect(existsSync(shutdownMarker)).toBe(false);
   });
 
   test("a user plugin's shutdown hook is surfaced through the unified hook lookup", async () => {
@@ -725,10 +729,12 @@ describe("plugin runtime activation", () => {
     expect(existsSync(shutdownMarker)).toBe(true);
   });
 
-  test("disabling a plugin at runtime tears down its tools", async () => {
+  test("disabling a plugin at runtime tears down its tools and runs shutdown", async () => {
     const dir = freshPluginDir("disable-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "disable-plugin" });
     writeTool(dir, "disable-tool", TOOL_SRC("disable-tool"));
+    const shutdownMarker = join(ROOT, "disable-shutdown.log");
+    writeMarkerHook(dir, "shutdown", shutdownMarker, "disabled");
 
     await populateCacheAtBoot();
     expect(getToolOwner("disable-tool")?.kind).toBe("plugin");
@@ -737,6 +743,9 @@ describe("plugin runtime activation", () => {
     await publishAndDispatch();
 
     expect(getToolOwner("disable-tool")).toBeUndefined();
+    // Disable keeps the directory, so `shutdown` is resolved from disk and runs
+    // even though it was never pre-warmed.
+    expect(existsSync(shutdownMarker)).toBe(true);
   });
 });
 
@@ -820,7 +829,7 @@ describe("live reload (sentinel-driven redeploy)", () => {
     expect(await dispatchFirst("transitive-reload")).toBe("a:b2");
   });
 
-  test("a reload runs the old shutdown (reason: reload) and the new init", async () => {
+  test("a reload runs the new init; the old shutdown is best-effort and skipped when uncached", async () => {
     const dir = freshPluginDir("lifecycle-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "lifecycle-plugin" });
     const helperPath = writeLibFile(
@@ -847,12 +856,41 @@ describe("live reload (sentinel-driven redeploy)", () => {
     touchFile(helperPath, sentinelTouchSeq + 2);
     await publishAndDispatch();
 
-    // The edit is a redeploy: old version torn down with reason "reload",
-    // new version brought up through the same init path as boot.
+    // The edit is a redeploy: the new version comes up through the same init
+    // path as boot. `shutdown` was never dispatched during the plugin's life,
+    // so nothing is cached and the best-effort old-shutdown doesn't fire.
+    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(2);
+    expect(existsSync(shutdownMarker)).toBe(false);
+  });
+
+  test("a reload runs the old shutdown when it was already resolved", async () => {
+    const dir = freshPluginDir("cached-shutdown-plugin");
+    writePackageJson(dir, { ...SIMPLE_PKG, name: "cached-shutdown-plugin" });
+    const helperPath = writeLibFile(
+      dir,
+      join("lib", "helper.ts"),
+      `export const value = 1;`,
+    );
+    const shutdownMarker = join(ROOT, "cached-shutdown.log");
+    rmSync(shutdownMarker, { force: true });
+    writeHook(
+      dir,
+      "shutdown",
+      `import { appendFileSync } from "node:fs";\nexport default (ctx: { reason: string }) => { appendFileSync(${JSON.stringify(shutdownMarker)}, ctx.reason + "\\n"); };`,
+    );
+
+    await populateCacheAtBoot();
+    // Resolve `shutdown` while the old version is live, so it's cached — the
+    // best-effort reload teardown then has an old version to run.
+    expect(await getUserHooksFor("shutdown")).toHaveLength(1);
+
+    writeFileSync(helperPath, `export const value = 2;`);
+    touchFile(helperPath, sentinelTouchSeq + 2);
+    await publishAndDispatch();
+
     expect(readFileSync(shutdownMarker, "utf8").trim().split("\n")).toEqual([
       "reload",
     ]);
-    expect(readFileSync(initMarker, "utf8").trim().split("\n")).toHaveLength(2);
   });
 
   test("boot adopts a pre-existing sentinel without spurious redeploys", async () => {
@@ -887,9 +925,8 @@ describe("sentinel path validation (ATL-983)", () => {
 
     // Forge a sentinel that claims the evil directory is a plugin.
     const sentinelPath = getSourceVersionsPath();
-    const { snapshotPluginSource } = await import(
-      "../plugins/source-fingerprint.js"
-    );
+    const { snapshotPluginSource } =
+      await import("../plugins/source-fingerprint.js");
     const snapshot = snapshotPluginSource(evilDir);
     writeFileSync(
       sentinelPath,

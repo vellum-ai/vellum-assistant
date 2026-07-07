@@ -939,10 +939,10 @@ interface PluginUninstallResponse {
   target: string;
 }
 
-function handleUninstallPlugin({
+async function handleUninstallPlugin({
   pathParams = {},
   headers,
-}: RouteHandlerArgs): PluginUninstallResponse {
+}: RouteHandlerArgs): Promise<PluginUninstallResponse> {
   // The HTTP router has already URL-decoded `:name` for us; pass it
   // through verbatim — `uninstallPlugin` runs the same
   // `sanitizePluginName` check the CLI uses, so attacker-supplied
@@ -950,7 +950,7 @@ function handleUninstallPlugin({
   const rawName = pathParams.name ?? "";
 
   try {
-    const result = uninstallPlugin({ name: rawName });
+    const result = await uninstallPlugin({ name: rawName });
     publishPluginsChanged(getOriginClientId(headers));
     return { name: result.name, target: result.target };
   } catch (err) {
