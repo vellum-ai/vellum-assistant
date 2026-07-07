@@ -12,6 +12,9 @@ node_modules
 
 # testing
 coverage/
+# Per-file test durations written by scripts/test.sh for longest-first
+# scheduling; produced/consumed in CI, never committed.
+.test-durations
 
 # next.js
 .next/

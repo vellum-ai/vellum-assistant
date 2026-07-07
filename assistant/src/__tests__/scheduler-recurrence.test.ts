@@ -198,7 +198,7 @@ describe("scheduler RRULE execution", () => {
 
     // runScheduleDueWorkOnce() awaits the full tick — including the run_task
     // dynamic import and processMessage — so the schedule run is recorded by the
-    // time it resolves. No fixed timeout / callback race needed.
+    // time it resolves.
     await runScheduleDueWorkOnce();
 
     // runTask renders the template, so processMessage gets the template text
