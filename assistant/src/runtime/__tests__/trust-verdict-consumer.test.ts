@@ -342,7 +342,6 @@ describe("actorTrustContextFromVerdict", () => {
       policy: "allow",
       externalChatId: "chat-1",
       verifiedAt: 1700000000,
-      verifiedVia: "code",
       memberDisplayName: "Dora",
     } satisfies TrustVerdict;
 

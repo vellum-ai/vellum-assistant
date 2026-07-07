@@ -13,12 +13,14 @@
  *   - a guardian's reaction on an approval card is routed through the canonical
  *     guardian decision pipeline (the same path as buttons and text replies).
  *
- * Reactions never drive an agent turn.
+ * The reactor's trust is read solely from the gateway-stamped verdict on
+ * `sourceMetadata`; a missing/failed/contradictory verdict fails closed to
+ * `unknown` (drop). Reactions never drive an agent turn.
  */
-import type { SourceMetadata } from "@vellumai/gateway-client";
+import type { SourceMetadata, TrustVerdict } from "@vellumai/gateway-client";
+import { isTrustClass } from "@vellumai/gateway-client";
 
 import type { ChannelId, InterfaceId } from "../../../channels/types.js";
-import { getGuardianDeliveryFresh } from "../../../contacts/guardian-delivery-reader.js";
 import { getDiskPressureStatus } from "../../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../../daemon/disk-pressure-policy.js";
 import {
@@ -36,8 +38,11 @@ import { upsertBinding } from "../../../persistence/external-conversation-store.
 import { getLogger } from "../../../util/logger.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../../assistant-scope.js";
 import type { ApprovalConversationGenerator } from "../../http-types.js";
-import { setMemberVerdict } from "../../member-verdict-cache.js";
-import { resolveTrustContext } from "../../trust-context-resolver.js";
+import {
+  actorTrustContextFromVerdict,
+  verdictMemberFromVerdict,
+  verdictMemberUnresolvable,
+} from "../../trust-verdict-consumer.js";
 import { handleGuardianReplyIntercept } from "./guardian-reply-intercept.js";
 
 const log = getLogger("runtime-http");
@@ -84,6 +89,25 @@ export function parseSlackReactionCallbackData(
   return { op, emoji };
 }
 
+/**
+ * The gateway-stamped verdict, or `null` when it can't be trusted: missing,
+ * `resolutionFailed`, an unrecognized trust class, a partial member ACL, or a
+ * memberless guardian claim (contradictory — the gateway proves guardian
+ * identity via a same-channel member row). Matches acl-enforcement's
+ * fail-closed posture; the caller treats `null` as `unknown` and drops.
+ */
+function usableReactionVerdict(
+  verdict: TrustVerdict | undefined,
+): TrustVerdict | null {
+  if (!verdict || verdict.resolutionFailed === true) return null;
+  if (!isTrustClass(verdict.trustClass)) return null;
+  if (verdictMemberUnresolvable(verdict)) return null;
+  if (verdict.trustClass === "guardian" && !verdictMemberFromVerdict(verdict)) {
+    return null;
+  }
+  return verdict;
+}
+
 export interface ReactionInterceptParams {
   /** The reaction callbackData (`reaction:<emoji>` / `reaction_removed:<emoji>`). */
   callbackData: string;
@@ -128,39 +152,24 @@ export async function handleSlackReactionIntercept(
     approvalConversationGenerator,
   } = params;
 
-  // Warm the channel-specific guardian-delivery cache before the SYNC trust
-  // resolve below. The sync resolver reads the IO-free cache snapshot; on a
-  // cold process only `vellum` is warmed at startup, so a Slack guardian
-  // reaction would otherwise misclassify as `unknown` and drop. Read fresh:
-  // gateway-side binding writes don't invalidate the daemon cache, so a stale
-  // empty snapshot would otherwise survive the TTL. This await runs in the
-  // already-async intercept, off the sync resolver's hot path.
-  await getGuardianDeliveryFresh({ channelTypes: [sourceChannel] });
+  // Classify the reactor from the gateway-stamped verdict — the same source
+  // acl-enforcement reads. No local resolver, cache warm, or IPC reads; only
+  // the trust class / guardian principal matter for a reaction.
+  const verdict = usableReactionVerdict(sourceMetadata?.trustVerdict);
+  const trustCtx = verdict
+    ? actorTrustContextFromVerdict(verdict, {
+        sourceChannel,
+        conversationExternalId,
+        actorUsername,
+        actorDisplayName,
+      })
+    : null;
 
-  // Reactions carry the gateway-stamped verdict but skip getInboundTrustVerdict,
-  // which warms the member-verdict cache the sync resolver reads. Seed it from
-  // the stamped verdict so an active non-guardian contact's reaction resolves
-  // instead of failing closed to `unknown` on a cold cache.
-  if (sourceMetadata?.trustVerdict) {
-    setMemberVerdict(sourceChannel, rawSenderId, sourceMetadata.trustVerdict);
-  }
-
-  // Classify the reactor. No timezone enrichment — reactions never drive an
-  // agent turn, so only the trust class / guardian principal matter.
-  const trustCtx = resolveTrustContext({
-    assistantId: canonicalAssistantId,
-    sourceChannel,
-    conversationExternalId,
-    actorExternalId: rawSenderId,
-    actorUsername,
-    actorDisplayName,
-  });
-
-  // Drop strangers before any write. `unknown` covers no contact record and
-  // blocked/revoked contacts — a reaction from them is channel noise. Dropping
-  // here (before recordInbound/upsertBinding) means no empty conversation or
-  // binding is created on their behalf.
-  if (trustCtx.trustClass === "unknown") {
+  // Drop strangers before any write. `unknown` covers no contact record,
+  // blocked/revoked contacts, and missing/failed verdicts — a reaction from
+  // them is channel noise. Dropping here (before recordInbound/upsertBinding)
+  // means no empty conversation or binding is created on their behalf.
+  if (!trustCtx || trustCtx.trustClass === "unknown") {
     log.debug(
       { sourceChannel, conversationExternalId },
       "Dropping reaction from unknown actor",
@@ -198,7 +207,7 @@ export async function handleSlackReactionIntercept(
     sourceChannel,
     sourceInterface,
     trustContext: {
-      sourceChannel: trustCtx.sourceChannel,
+      sourceChannel,
       trustClass: trustCtx.trustClass,
     },
   });

@@ -112,7 +112,7 @@ let admissionPolicyReads = 0;
 mock.module("../calls/channel-admission-reader.js", () => ({
   getChannelAdmissionPolicy: async () => {
     admissionPolicyReads++;
-    return mockAdmissionPolicy;
+    return { ok: true as const, policy: mockAdmissionPolicy };
   },
 }));
 

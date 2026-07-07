@@ -146,7 +146,12 @@ describe("invite redeem relay routes", () => {
   test("POST /v1/contacts/invites/redeem — token body relays to the gateway and returns its payload", async () => {
     redeemRelay.result = {
       ok: true,
-      invite: { id: "inv-gw-1", status: "redeemed", useCount: 1 },
+      invite: {
+        id: "inv-gw-1",
+        sourceChannel: "telegram",
+        status: "redeemed",
+        useCount: 1,
+      },
       type: "redeemed",
     };
 

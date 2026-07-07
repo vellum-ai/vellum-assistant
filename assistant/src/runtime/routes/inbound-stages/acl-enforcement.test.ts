@@ -30,14 +30,14 @@ mock.module("../../../contacts/contact-store.js", () => ({
   },
 }));
 
-// resolveGuardianLabel resolves the guardian via the gateway delivery reader.
-let guardianDeliveryList: Array<Record<string, unknown>> = [];
+// Deny copy reads the guardian name from the stamped verdict; this tracker
+// proves no per-deny guardian-delivery IPC fires.
+const guardianDeliveryCalls: unknown[] = [];
 mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
-  getGuardianDelivery: async () => guardianDeliveryList,
-  guardianForChannel: (
-    list: Array<Record<string, unknown>>,
-    channelType: string,
-  ) => list.find((g) => g.channelType === channelType && g.status === "active"),
+  getGuardianDelivery: async () => {
+    guardianDeliveryCalls.push({});
+    return [];
+  },
 }));
 
 mock.module("../../../prompts/user-reference.js", () => ({
@@ -136,7 +136,7 @@ beforeEach(() => {
   accessRequestCalls.length = 0;
   accessRequestDeniedForTest = false;
   approvalHandshakeForTest = false;
-  guardianDeliveryList = [];
+  guardianDeliveryCalls.length = 0;
 });
 
 describe("enforceIngressAcl — verdict-sourced member resolution", () => {
@@ -424,19 +424,32 @@ describe("enforceIngressAcl — fail-closed on resolutionFailed verdict", () => 
   });
 });
 
-describe("enforceIngressAcl — deny copy names the gateway guardian", () => {
-  test("non-member deny reply uses the guardian displayName from the gateway list", async () => {
-    guardianDeliveryList = [
-      {
-        channelType: "vellum",
-        contactId: "c-1",
-        principalId: "p-anchor",
-        displayName: "Alice Guardian",
-        address: "p-anchor",
-        status: "active",
-      },
-    ];
+describe("enforceIngressAcl — deny copy names the guardian from the verdict", () => {
+  test("non-member deny reply uses the verdict's guardianDisplayName with zero guardian-delivery reads", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "stranger-1",
+          guardianDisplayName: "Alice Guardian",
+        }),
+      }),
+    );
 
+    expect(result.earlyResponse!.reason).toBe("not_a_member");
+    const denyReply = deliverReplyCalls.find((c) =>
+      String((c.payload as { text?: string }).text ?? "").includes(
+        "tried talking to me",
+      ),
+    );
+    expect(denyReply).toBeDefined();
+    expect((denyReply!.payload as { text: string }).text).toContain(
+      "Alice Guardian",
+    );
+    expect(guardianDeliveryCalls.length).toBe(0);
+  });
+
+  test("absent guardianDisplayName degrades to the default reference", async () => {
     const result = await enforceIngressAcl(
       makeParams({
         sourceMetadata: withVerdict({
@@ -453,9 +466,33 @@ describe("enforceIngressAcl — deny copy names the gateway guardian", () => {
       ),
     );
     expect(denyReply).toBeDefined();
-    expect((denyReply!.payload as { text: string }).text).toContain(
-      "Alice Guardian",
+    expect((denyReply!.payload as { text: string }).text).toContain("my human");
+    expect(guardianDeliveryCalls.length).toBe(0);
+  });
+
+  test("Slack verification DM uses the verdict's guardianDisplayName", async () => {
+    const result = await enforceIngressAcl(
+      makeParams({
+        sourceChannel: "slack",
+        canonicalSenderId: "U123STRANGER",
+        rawSenderId: "U123STRANGER",
+        sourceMetadata: withVerdict({
+          trustClass: "unknown",
+          canonicalSenderId: "U123STRANGER",
+          guardianDisplayName: "Alice Guardian",
+        }),
+      }),
     );
+
+    expect(result.earlyResponse!.reason).toBe("verification_challenge_sent");
+    const dm = deliverReplyCalls.find((c) =>
+      String((c.payload as { text?: string }).text ?? "").includes(
+        "don't recognize you yet",
+      ),
+    );
+    expect(dm).toBeDefined();
+    expect((dm!.payload as { text: string }).text).toContain("Alice Guardian");
+    expect(guardianDeliveryCalls.length).toBe(0);
   });
 });
 

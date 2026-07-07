@@ -9,6 +9,7 @@
  */
 
 import {
+  INVITES_IPC_METHODS,
   RedeemInviteByTokenRequestSchema,
   RedeemVoiceInviteRequestSchema,
 } from "@vellumai/gateway-client";
@@ -21,6 +22,14 @@ import {
 import { IpcCallError } from "@vellumai/gateway-client/ipc-client";
 import { z } from "zod";
 
+import {
+  createInvite,
+  type InviteWire,
+  listInvites,
+  redeemInviteByToken,
+  redeemInviteByVoiceCode,
+  revokeInvite,
+} from "../../channels/gateway-invites.js";
 import {
   listContacts,
   mergeContacts,
@@ -411,21 +420,20 @@ export async function handleGetContact(contactId: string) {
 // ---------------------------------------------------------------------------
 
 // The gateway owns the canonical invite lifecycle: mint, list, revoke, and
-// redemption. These CLI handlers relay via `ipcCallPersistent`; the daemon
-// then layers the presentation fields (share link, LLM guardian instruction,
-// channel handle) onto the gateway's one-time create payload.
+// redemption. These handlers relay via the typed `channels/gateway-invites`
+// client (schema-validated responses); the daemon then layers the
+// presentation fields (share link, LLM guardian instruction, channel handle)
+// onto the gateway's one-time create payload.
 
 export async function handleListInvites({
   queryParams = {},
 }: RouteHandlerArgs) {
   try {
-    const result = (await ipcCallPersistent("invites_list", {
-      ...(queryParams.sourceChannel
-        ? { sourceChannel: queryParams.sourceChannel }
-        : {}),
-      ...(queryParams.status ? { status: queryParams.status } : {}),
-    })) as { invites: Array<Record<string, unknown>> };
-    return { ok: true, invites: result.invites };
+    const invites = await listInvites({
+      sourceChannel: queryParams.sourceChannel,
+      status: queryParams.status,
+    });
+    return { ok: true, invites };
   } catch (err) {
     rethrowGatewayError(err);
   }
@@ -438,9 +446,9 @@ export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
   // through to the gateway, which stores it and never interprets it.
   const guardianName =
     sourceChannel === "phone" ? resolveInviteGuardianName() : undefined;
-  let result: { invite: Record<string, unknown>; rawToken?: string };
+  let result: { invite: InviteWire; rawToken?: string };
   try {
-    result = (await ipcCallPersistent("invites_create", {
+    result = await createInvite({
       contactId,
       sourceChannel,
       note: body.note as string | undefined,
@@ -453,7 +461,7 @@ export async function handleCreateInvite({ body = {} }: RouteHandlerArgs) {
       ...(typeof body.sourceConversationId === "string"
         ? { sourceConversationId: body.sourceConversationId }
         : {}),
-    })) as { invite: Record<string, unknown>; rawToken?: string };
+    });
   } catch (err) {
     rethrowGatewayError(err);
   }
@@ -473,10 +481,8 @@ export async function handleRevokeInvite({
   pathParams = {},
 }: RouteHandlerArgs) {
   try {
-    const result = (await ipcCallPersistent("invites_revoke", {
-      id: pathParams.id,
-    })) as { invite: Record<string, unknown> };
-    return { ok: true, invite: result.invite };
+    const invite = await revokeInvite(pathParams.id);
+    return { ok: true, invite };
   } catch (err) {
     rethrowGatewayError(err);
   }
@@ -499,12 +505,12 @@ async function handleRedeemVoiceInvite({ body = {} }: RouteHandlerArgs) {
   }
 
   try {
-    return (await ipcCallPersistent("invites_redeem", {
+    return await redeemInviteByVoiceCode({
       ...parsed.data,
       ...(typeof body.assistantId === "string"
         ? { assistantId: body.assistantId }
         : {}),
-    })) as { ok: true; type: string; memberId: string; inviteId?: string };
+    });
   } catch (err) {
     rethrowGatewayError(err);
   }
@@ -540,11 +546,7 @@ async function handleRedeemTokenInvite({ body = {} }: RouteHandlerArgs) {
   try {
     // The `type` is surfaced so callers can tell a real redeem apart from an
     // `already_member` no-op (which consumes no invite use).
-    return (await ipcCallPersistent("invites_redeem", parsed.data)) as {
-      ok: true;
-      invite: Record<string, unknown>;
-      type: string;
-    };
+    return await redeemInviteByToken(parsed.data);
   } catch (err) {
     rethrowGatewayError(err);
   }
@@ -639,8 +641,10 @@ export const ROUTES: RouteDefinition[] = [
   },
 
   // ── contacts/invites (must precede contacts/:id) ────────────────────
+  // The relayed invite routes' operationIds deliberately reuse the gateway
+  // wire method names (single shared map; CLI dispatch uses the same names).
   {
-    operationId: "invites_list",
+    operationId: INVITES_IPC_METHODS.list,
     endpoint: "contacts/invites",
     method: "GET",
     policy: {
@@ -668,7 +672,7 @@ export const ROUTES: RouteDefinition[] = [
     }),
   },
   {
-    operationId: "invites_create",
+    operationId: INVITES_IPC_METHODS.create,
     endpoint: "contacts/invites",
     method: "POST",
     policy: {
@@ -717,7 +721,7 @@ export const ROUTES: RouteDefinition[] = [
     // Relays to the gateway `invites_redeem` IPC: the gateway redemption
     // engine is the single lifecycle authority (validation, atomic claim,
     // ACL upsert). Fail-closed when the gateway is unreachable.
-    operationId: "invites_redeem",
+    operationId: INVITES_IPC_METHODS.redeem,
     endpoint: "contacts/invites/redeem",
     method: "POST",
     policy: {
@@ -773,7 +777,7 @@ export const ROUTES: RouteDefinition[] = [
     },
   },
   {
-    operationId: "invites_revoke",
+    operationId: INVITES_IPC_METHODS.revoke,
     endpoint: "contacts/invites/:id",
     method: "DELETE",
     policy: {

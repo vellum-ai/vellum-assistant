@@ -163,22 +163,36 @@ let mockRouteSetupResult: {
   },
 };
 
+// When set, routeSetup rejects instead — exercising the setup-failure
+// teardown (e.g. the outbound unusable-verdict abort).
+let mockRouteSetupError: Error | null = null;
+
 mock.module("../calls/call-setup-router.js", () => ({
-  routeSetup: jest.fn(() => mockRouteSetupResult),
+  routeSetup: jest.fn(() => {
+    if (mockRouteSetupError) {
+      throw mockRouteSetupError;
+    }
+    return mockRouteSetupResult;
+  }),
 }));
 
 // Mock the channel admission reader. handleStart awaits this before routing;
-// tests override mockAdmissionPolicy to exercise floor enforcement. Returning
-// a resolved promise introduces a microtask hop, so tests await
+// tests override mockAdmissionPolicy to exercise floor enforcement, or set
+// mockAdmissionUnavailable to exercise the fail-closed deny (the reader
+// resolves { ok: false } when the gateway is unreachable). Returning a
+// resolved promise introduces a microtask hop, so tests await
 // session.whenSetupSettled() after sending the start frame.
 let mockAdmissionPolicy: unknown = null;
+let mockAdmissionUnavailable = false;
 // Optional gate: when set, getChannelAdmissionPolicy awaits this promise before
 // resolving, letting a test dispose the session mid-read (simulating a WS close
 // while the admission IPC read is pending).
 let mockAdmissionGate: Promise<void> | null = null;
 const mockGetChannelAdmissionPolicy = jest.fn(async () => {
   if (mockAdmissionGate) {await mockAdmissionGate;}
-  return mockAdmissionPolicy;
+  return mockAdmissionUnavailable
+    ? { ok: false as const }
+    : { ok: true as const, policy: mockAdmissionPolicy };
 });
 mock.module("../calls/channel-admission-reader.js", () => ({
   getChannelAdmissionPolicy: mockGetChannelAdmissionPolicy,
@@ -532,8 +546,10 @@ beforeEach(() => {
   (speakSystemPrompt as jest.Mock).mockClear();
   (postPointerMessageSafe as jest.Mock).mockClear();
   (routeSetup as jest.Mock).mockClear();
+  mockRouteSetupError = null;
   mockGetChannelAdmissionPolicy.mockClear();
   mockAdmissionPolicy = null;
+  mockAdmissionUnavailable = false;
   mockAdmissionGate = null;
   mockGetInboundTrustVerdict.mockClear();
   mockInboundVerdict = null;
@@ -1496,6 +1512,95 @@ describe("media-stream setup outcome scenarios", () => {
       expect(mockStartInitialGreeting).toHaveBeenCalled();
     });
 
+    test("unreachable gateway fails closed — inbound setup denied without routing", async () => {
+      mockAdmissionUnavailable = true;
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-floor-unavail-1", {
+        id: "call-floor-unavail-1",
+        conversationId: "conv-floor-unavail-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+15555550142",
+        toNumber: "+15555550143",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-floor-unavail-1",
+      );
+      session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
+
+      // Fail closed promptly: no routing, no verdict read.
+      expect(routeSetup).not.toHaveBeenCalled();
+      expect(mockGetInboundTrustVerdict).not.toHaveBeenCalled();
+
+      // Standard deny teardown: unavailable copy spoken, session failed,
+      // no controller, finalization ran.
+      expect(speakSystemPrompt).toHaveBeenCalledWith(
+        expect.anything(),
+        "The assistant can't take calls right now. Please try again later.",
+      );
+      expect(updateCallSession).toHaveBeenCalledWith(
+        "call-floor-unavail-1",
+        expect.objectContaining({
+          status: "failed",
+          lastError: "Inbound voice admission floor: gateway unreachable",
+        }),
+      );
+      expect(registerCallController).not.toHaveBeenCalled();
+      expect(mockStartInitialGreeting).not.toHaveBeenCalled();
+      expect(finalizeCall).toHaveBeenCalledWith(
+        "call-floor-unavail-1",
+        "conv-floor-unavail-1",
+      );
+    });
+
+    test("unreachable gateway does not affect an outbound call (admission not consulted)", async () => {
+      mockAdmissionUnavailable = true;
+      mockRouteSetupResult = {
+        outcome: { action: "normal_call", isInbound: false },
+        resolved: {
+          assistantId: "self",
+          isInbound: false,
+          otherPartyNumber: "+15555550144",
+          actorTrust: { trustClass: "guardian", memberRecord: null },
+        },
+      };
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-outbound-unavail-1", {
+        id: "call-outbound-unavail-1",
+        conversationId: "conv-outbound-unavail-1",
+        initiatedFromConversationId: "conv-outbound-unavail-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+15555550143",
+        toNumber: "+15555550144",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-outbound-unavail-1",
+      );
+      session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
+
+      // Outbound routes normally; the failed read degrades to a null policy
+      // (the router ignores admission on outbound).
+      expect(routeSetup).toHaveBeenCalledWith(
+        expect.objectContaining({ admissionPolicy: null }),
+      );
+      expect(registerCallController).toHaveBeenCalledWith(
+        "call-outbound-unavail-1",
+        expect.anything(),
+      );
+      expect(mockStartInitialGreeting).toHaveBeenCalled();
+    });
+
     test("a floor-denied caller's transcript is dropped during setup routing", async () => {
       mockAdmissionPolicy = "guardian_only";
       mockRouteSetupResult = {
@@ -1726,6 +1831,108 @@ describe("media-stream setup outcome scenarios", () => {
       );
       expect(registerCallController).not.toHaveBeenCalled();
       expect(mockStartInitialGreeting).not.toHaveBeenCalled();
+    });
+  });
+
+  // ── Setup routing failure teardown ─────────────────────────────────
+  // routeSetup throws on an outbound unusable verdict (and on gateway
+  // pending-session/invite read failures). The rejection must end the
+  // call — never a live silent line with no flow or controller.
+
+  describe("setup routing failure teardown", () => {
+    test("outbound unusable-verdict abort marks the session failed and ends the call", async () => {
+      mockRouteSetupError = new Error(
+        "Voice setup: caller trust verdict unavailable (missing) — aborting outbound setup",
+      );
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-setup-fail-1", {
+        id: "call-setup-fail-1",
+        conversationId: "conv-setup-fail-1",
+        initiatedFromConversationId: "conv-origin-fail-1",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+15555550143",
+        toNumber: "+15555550144",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-setup-fail-1",
+      );
+      session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
+
+      // Session marked failed with the abort detail, failure event recorded.
+      expect(updateCallSession).toHaveBeenCalledWith(
+        "call-setup-fail-1",
+        expect.objectContaining({
+          status: "failed",
+          lastError: expect.stringContaining("trust verdict unavailable"),
+        }),
+      );
+      expect(recordCallEvent).toHaveBeenCalledWith(
+        "call-setup-fail-1",
+        "call_failed",
+        expect.objectContaining({ reason: "setup_routing_failed" }),
+      );
+
+      // Initiating conversation is told the call failed.
+      expect(postPointerMessageSafe).toHaveBeenCalledWith(
+        "conv-origin-fail-1",
+        "failed",
+        "+15555550144",
+        expect.objectContaining({ reason: "call setup failed" }),
+      );
+
+      // Stream ended, session finalized — no controller, no setup flow.
+      expect(mockWs.closed).toBe(true);
+      expect(finalizeCall).toHaveBeenCalledWith(
+        "call-setup-fail-1",
+        "conv-setup-fail-1",
+      );
+      expect(registerCallController).not.toHaveBeenCalled();
+      expect(session.getController()).toBeNull();
+      expect(session.getSetupFlow()).toBeNull();
+
+      // Subsequent transcripts have nowhere to go and are dropped, not
+      // silently consumed by a half-alive session.
+      expect(mockHandleCallerUtterance).not.toHaveBeenCalled();
+    });
+
+    test("inbound setup-read failure also tears down (no pointer message)", async () => {
+      mockRouteSetupError = new Error("gateway pending-session read failed");
+
+      const mockWs = createMockWs();
+      mockSessions.set("call-setup-fail-2", {
+        id: "call-setup-fail-2",
+        conversationId: "conv-setup-fail-2",
+        status: "initiated",
+        task: null,
+        startedAt: null,
+        fromNumber: "+15555550145",
+        toNumber: "+15555550146",
+      });
+
+      const session = new MediaStreamCallSession(
+        mockWs.ws,
+        "call-setup-fail-2",
+      );
+      session.handleMessage(makeStartMessage());
+      await session.whenSetupSettled();
+
+      expect(updateCallSession).toHaveBeenCalledWith(
+        "call-setup-fail-2",
+        expect.objectContaining({ status: "failed" }),
+      );
+      expect(mockWs.closed).toBe(true);
+      expect(finalizeCall).toHaveBeenCalledWith(
+        "call-setup-fail-2",
+        "conv-setup-fail-2",
+      );
+      expect(postPointerMessageSafe).not.toHaveBeenCalled();
+      expect(registerCallController).not.toHaveBeenCalled();
     });
   });
 });

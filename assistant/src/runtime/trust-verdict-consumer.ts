@@ -135,6 +135,29 @@ export function verdictMemberUnresolvable(verdict: TrustVerdict): boolean {
   );
 }
 
+/**
+ * Classify whether a verdict can serve as a trust source. Unusable when
+ * missing, `resolutionFailed`, or claiming a member whose ACL can't be
+ * reassembled; consumers fail closed on those. A memberless stranger verdict
+ * is usable.
+ */
+export function verdictUsability(
+  verdict: TrustVerdict | null | undefined,
+):
+  | { usable: true; verdict: TrustVerdict }
+  | { usable: false; reason: string } {
+  if (verdict == null) {
+    return { usable: false, reason: "missing" };
+  }
+  if (verdict.resolutionFailed === true) {
+    return { usable: false, reason: "resolution failed" };
+  }
+  if (verdictMemberUnresolvable(verdict)) {
+    return { usable: false, reason: "member unresolvable" };
+  }
+  return { usable: true, verdict };
+}
+
 // Allowed ACL enum values, kept in sync with the ContactChannel union types.
 const CHANNEL_STATUS_VALUES: readonly ChannelStatus[] = [
   "active",
