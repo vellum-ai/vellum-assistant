@@ -381,6 +381,11 @@ export function useLiveVoice(
       const opts = optionsRef.current;
       const client = (opts.createClient ?? (() => new LiveVoiceChannelClient()))();
       const player = (opts.createPlayer ?? (() => new LiveVoiceAudioPlayer()))();
+      // Resume the playback AudioContext now, while we're still in the
+      // mic-button click's gesture. Deferring to the first `tts_audio` frame
+      // (its lazy creation point) lands outside any gesture, so the browser
+      // starts it suspended and the first turn's audio is silently dropped.
+      player.prewarm();
 
       const session: SessionContext = {
         client,
