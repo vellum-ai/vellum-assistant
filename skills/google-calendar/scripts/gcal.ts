@@ -258,9 +258,7 @@ async function rsvp(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   const eventId = requireArg(args, "event-id");
   const responseStatus = requireArg(args, "response") as
-    | "accepted"
-    | "declined"
-    | "tentative";
+    "accepted" | "declined" | "tentative";
   const calendarId = optionalArg(args, "calendar-id") ?? "primary";
   const account = optionalArg(args, "account");
   const skipConfirm = args["skip-confirm"] === true;

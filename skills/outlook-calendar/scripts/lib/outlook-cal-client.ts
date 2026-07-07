@@ -239,12 +239,7 @@ export interface OutlookCalendarEvent {
   isAllDay?: boolean;
   isCancelled?: boolean;
   showAs?:
-    | "free"
-    | "tentative"
-    | "busy"
-    | "oof"
-    | "workingElsewhere"
-    | "unknown";
+    "free" | "tentative" | "busy" | "oof" | "workingElsewhere" | "unknown";
   importance?: "low" | "normal" | "high";
   sensitivity?: "normal" | "personal" | "private" | "confidential";
   webLink?: string;
@@ -268,12 +263,7 @@ export interface OutlookCalendarEventListResponse {
 /** A single schedule item (free/busy block). */
 export interface OutlookScheduleItem {
   status:
-    | "free"
-    | "tentative"
-    | "busy"
-    | "oof"
-    | "workingElsewhere"
-    | "unknown";
+    "free" | "tentative" | "busy" | "oof" | "workingElsewhere" | "unknown";
   start: OutlookDateTimeZone;
   end: OutlookDateTimeZone;
   subject?: string;
