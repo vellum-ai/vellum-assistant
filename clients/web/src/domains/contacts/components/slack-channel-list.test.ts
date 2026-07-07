@@ -2,14 +2,12 @@ import { describe, expect, test } from "bun:test";
 
 import type { ContactPayload, SlackChannel } from "@/domains/contacts/types";
 
-import { presetFromThreshold } from "@/utils/threshold-presets";
-
 import {
   buildVerifiedSlackContactNames,
   classifySlackChannelKind,
   countSlackChannelKinds,
   filterSlackChannels,
-  resolveSlackChannelThreshold,
+  isVerifiedSlackDm,
   slackChannelMetaLabel,
 } from "./slack-channel-list";
 
@@ -168,31 +166,21 @@ describe("buildVerifiedSlackContactNames", () => {
   });
 });
 
-describe("resolveSlackChannelThreshold", () => {
+describe("isVerifiedSlackDm", () => {
   const verified = new Set(["alice"]);
 
-  test("public and private channels resolve the Full access threshold", () => {
-    expect(resolveSlackChannelThreshold(general, new Set())).toBe("high");
-    expect(resolveSlackChannelThreshold(leadership, new Set())).toBe("high");
-    expect(resolveSlackChannelThreshold(groupDm, new Set())).toBe("high");
+  test("true only for DMs whose peer name matches (case-insensitive)", () => {
+    expect(isVerifiedSlackDm(dmAlice, verified)).toBe(true);
+    expect(
+      isVerifiedSlackDm(makeChannel({ id: "D2", name: "ALICE", type: "dm" }), verified),
+    ).toBe(true);
+    expect(
+      isVerifiedSlackDm(makeChannel({ id: "D3", name: "Mallory", type: "dm" }), verified),
+    ).toBe(false);
   });
 
-  test("DMs with verified contacts resolve the Full access threshold", () => {
-    expect(resolveSlackChannelThreshold(dmAlice, verified)).toBe("high");
-  });
-
-  test("DM name matching is case-insensitive", () => {
-    const dm = makeChannel({ id: "D2", name: "ALICE", type: "dm" });
-    expect(resolveSlackChannelThreshold(dm, verified)).toBe("high");
-  });
-
-  test("DMs with unverified contacts resolve the Strict threshold", () => {
-    const dm = makeChannel({ id: "D3", name: "Mallory", type: "dm" });
-    expect(resolveSlackChannelThreshold(dm, verified)).toBe("none");
-  });
-
-  test("resolved thresholds present via the shared preset labels", () => {
-    expect(presetFromThreshold("high").label).toBe("Full access");
-    expect(presetFromThreshold("none").label).toBe("Strict");
+  test("false for channels and group DMs regardless of names", () => {
+    expect(isVerifiedSlackDm(general, verified)).toBe(false);
+    expect(isVerifiedSlackDm(groupDm, verified)).toBe(false);
   });
 });

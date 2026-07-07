@@ -64,6 +64,25 @@ export const Empty: Story = {
   },
 };
 
+/**
+ * `eng-releases` starts overridden to the Standard tier — the row badge
+ * reads "Standard • custom" and expanding it shows the custom-capabilities
+ * callout with Reset to default (mirrors the ticket mockup's `releases`).
+ */
+export const OverriddenChannel: Story = {
+  args: {
+    tierOverrides: { C003: "standard" },
+    onTierChange: () => {},
+    onTierReset: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.click(
+      canvas.getByLabelText("eng-releases — expand channel settings"),
+    );
+  },
+};
+
 /** Search-as-you-type narrows rows by channel name. */
 export const SearchFiltering: Story = {
   play: async ({ canvasElement }) => {
