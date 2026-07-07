@@ -337,12 +337,23 @@ export async function emitNotificationSignal<TEventName extends string>(
       };
     }
 
-    // Step 2.5a2: Access-request signals carry a decisionable canonical
+    // Step 2.5b: Enforce routing intent policy (fire-time guard)
+    const preEnforcementDecision = decision;
+    decision = enforceRoutingIntent(
+      decision,
+      signal.routingIntent,
+      connectedChannels,
+      signal.sourceChannel,
+    );
+
+    // Step 2.5c: Access-request signals carry a decisionable canonical
     // guardian request created before this emit, and that row suppresses
     // re-prompts for the same sender. A suppressed or vellum-less decision
     // would strand the card with no way to re-surface it, so always deliver
     // at least the in-app vellum card (a free local broadcast), whatever
-    // the urgency.
+    // the urgency. Runs after routing-intent enforcement — a
+    // `single_channel` cap must not strip the in-app card — and before the
+    // re-persist below so the stored decision matches what is dispatched.
     if (
       signal.sourceEventName === "ingress.access_request" &&
       (!decision.shouldNotify || !decision.selectedChannels.includes("vellum"))
@@ -356,15 +367,6 @@ export async function emitNotificationSignal<TEventName extends string>(
         reasoningSummary: `${decision.reasoningSummary} (vellum forced: decisionable access request)`,
       };
     }
-
-    // Step 2.5b: Enforce routing intent policy (fire-time guard)
-    const preEnforcementDecision = decision;
-    decision = enforceRoutingIntent(
-      decision,
-      signal.routingIntent,
-      connectedChannels,
-      signal.sourceChannel,
-    );
 
     // Re-persist the decision if routing intent enforcement changed it,
     // so the stored decision row matches what is actually dispatched.
