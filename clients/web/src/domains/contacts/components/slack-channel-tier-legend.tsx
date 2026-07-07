@@ -16,48 +16,60 @@ const TONE_DOT_COLOR: Record<TagTone, string> = {
   positive: "var(--system-positive-strong)",
   negative: "var(--system-negative-strong)",
   warning: "var(--system-mid-strong)",
+  info: "var(--system-info-strong)",
   neutral: "var(--content-secondary)",
 };
 
 /**
  * Per-tier help copy, framed around behavior toward the people in the
- * channel: who the assistant can respond to, and what it may run when
- * responding. Lives here rather than in `CAPABILITY_TIER_META` because it
- * interpolates the assistant's name and (for full access) links out to the
- * Privacy settings page.
+ * channel: what the assistant does on its own when responding, and what
+ * waits for the owner. Lives here rather than in `CAPABILITY_TIER_META`
+ * because it interpolates the assistant's name and (for full access) links
+ * out to the Privacy settings page.
+ *
+ * Grounded in the approval-policy decision order
+ * (`assistant/src/permissions/approval-policy.ts`): a channel cell replaces
+ * the global threshold for this channel, deny trust rules block at every
+ * threshold, and at `none` every tool call prompts (it isn't a tool ban).
  */
 function tierDescription(
   tier: SlackCapabilityTier,
   assistantName: string,
 ): ReactNode {
   switch (tier) {
-    case "strict":
+    case "none":
       return (
         <>
-          {assistantName} can respond to messages in this channel, but won’t
-          run tools or take actions when doing so.
+          {assistantName} replies in this channel, but every action waits for
+          your approval first.
         </>
       );
-    case "standard":
+    case "low":
       return (
         <>
-          {assistantName} can respond to messages in this channel and run
-          safe, read-only tools when doing so. Anything that writes, sends, or
-          spends waits for your approval.
+          {assistantName} replies and runs safe, read-only tools on its own.
+          Anything that writes, sends, or spends asks first.
         </>
       );
-    case "full_access":
+    case "medium":
       return (
         <>
-          {assistantName} can respond to messages in this channel and run any
-          tool it has access to when doing so. Your{" "}
+          {assistantName} also acts in its own workspace, like editing files.
+          Riskier actions still ask first.
+        </>
+      );
+    case "high":
+      return (
+        <>
+          {assistantName} runs any tool it has access to without asking.
+          Anything you’ve blocked in{" "}
           <Link
             to={routes.settings.privacy}
             className="text-[var(--content-link)] underline hover:text-[var(--content-link-hover)]"
           >
-            Trust Rules and Risk Tolerance
+            Trust Rules
           </Link>{" "}
-          still apply.
+          stays blocked.
         </>
       );
   }
@@ -69,9 +81,9 @@ export interface SlackChannelTierLegendProps {
 }
 
 /**
- * One-time Assistant Access legend above the channel rows: all three tiers
- * with their behavior descriptions, so the expanded rows don't repeat the
- * same paragraph per channel.
+ * One-time Assistant Access legend above the channel rows: every tier with
+ * its behavior description, so the expanded rows don't repeat the same
+ * paragraph per channel.
  */
 export function SlackChannelTierLegend({
   assistantName,
@@ -85,7 +97,7 @@ export function SlackChannelTierLegend({
       >
         Assistant Access levels
       </Typography>
-      <div className="grid gap-x-8 gap-y-4 sm:grid-cols-3">
+      <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
         {CAPABILITY_TIER_VALUES.map((tier) => {
           const meta = CAPABILITY_TIER_META[tier];
           return (

@@ -1,13 +1,18 @@
 /**
- * Per-channel capabilities-tier model for the Slack channel list's
- * expandable rows ("Assistant Access" in user-facing copy). The tier is
- * the only per-room knob, and the list is
+ * Per-channel Assistant Access model for the Slack channel list's
+ * expandable rows. The tier is the only per-room knob, and the list is
  * rooms only (channels and group DMs): admission — who can reach the
  * assistant — is a channel-type concern handled by the trust floors, and
  * how the assistant interacts with an individual person is contact-list
  * territory, so 1:1 DMs carry no room settings.
  *
- * Tiers persist as channel-ID-tier cells in the gateway's
+ * The tier axis is not its own vocabulary: a channel tier IS a
+ * {@link RiskThreshold}, the same value the global Assistant Access
+ * presets ({@link THRESHOLD_PRESETS}) read and write, and it carries the
+ * same preset name everywhere it appears. This module adds only the
+ * channel-surface presentation (picker sublabels, badge tones).
+ *
+ * Tiers persist as channel-ID cells in the gateway's
  * `channel_permission_overrides` matrix (one cell per non-guardian
  * contact-type; see {@link CHANNEL_TIER_CONTACT_TYPES}).
  */
@@ -15,23 +20,22 @@ import type { TagTone } from "@vellumai/design-library/components/tag";
 
 import {
   presetFromThreshold,
+  THRESHOLD_PRESETS,
   type RiskThreshold,
 } from "@/utils/threshold-presets";
 
 /**
- * Three-level capabilities tier shown on the row badge and the segmented
- * picker. `strict` and `full_access` carry the same labels as the matching
- * threshold presets; `standard` is the tier axis's intermediate level.
+ * A channel's Assistant Access tier — the persisted risk threshold itself,
+ * not a parallel enum.
  */
-export const CAPABILITY_TIER_VALUES = [
-  "strict",
-  "standard",
-  "full_access",
-] as const;
+export type SlackCapabilityTier = RiskThreshold;
 
-export type SlackCapabilityTier = (typeof CAPABILITY_TIER_VALUES)[number];
+/** Picker/legend order: the global presets' own order (Strict → Full access). */
+export const CAPABILITY_TIER_VALUES: readonly SlackCapabilityTier[] =
+  THRESHOLD_PRESETS.map((preset) => preset.riskThreshold);
 
 interface CapabilityTierMeta {
+  /** Preset name, straight from the matching global Assistant Access preset. */
   label: string;
   /**
    * Short qualifier shown under the label in the tier picker. The full
@@ -44,48 +48,27 @@ interface CapabilityTierMeta {
 }
 
 export const CAPABILITY_TIER_META: Record<SlackCapabilityTier, CapabilityTierMeta> = {
-  strict: {
+  none: {
     label: presetFromThreshold("none").label,
-    sublabel: "read + reply only",
+    sublabel: "ask before every action",
     tone: "negative",
   },
-  standard: {
-    label: "Standard",
+  low: {
+    label: presetFromThreshold("low").label,
     sublabel: "safe actions, ask for the rest",
     tone: "warning",
   },
-  full_access: {
+  medium: {
+    label: presetFromThreshold("medium").label,
+    sublabel: "workspace actions too",
+    tone: "info",
+  },
+  high: {
     label: presetFromThreshold("high").label,
     sublabel: "acts freely",
     tone: "positive",
   },
 };
-
-/** Threshold written to each contact-type cell when a tier is chosen. */
-export const CAPABILITY_TIER_THRESHOLDS: Record<
-  SlackCapabilityTier,
-  RiskThreshold
-> = {
-  strict: "none",
-  standard: "low",
-  full_access: "high",
-};
-
-/**
- * Inverse presentation mapping for cells written elsewhere: "medium"
- * (Relaxed — no tier equivalent) reads as the intermediate tier.
- */
-export function tierFromThreshold(
-  threshold: RiskThreshold,
-): SlackCapabilityTier {
-  if (threshold === "none") {
-    return "strict";
-  }
-  if (threshold === "high") {
-    return "full_access";
-  }
-  return "standard";
-}
 
 /**
  * Contact types a channel-tier write fans out to: everyone except the
@@ -113,7 +96,7 @@ export interface ChannelTierCell {
 }
 
 /**
- * Channel-ID-tier cells → per-channel tier map for one adapter. The
+ * Channel-ID cells → per-channel tier map for one adapter. The
  * trusted_contact cell is the representative when contact-type cells
  * diverge (the write path keeps all non-guardian cells aligned).
  */
@@ -134,7 +117,7 @@ export function tierOverridesFromCells(
       continue;
     }
     if (cell.contactType === "trusted_contact" || !(channelId in overrides)) {
-      overrides[channelId] = tierFromThreshold(cell.threshold);
+      overrides[channelId] = cell.threshold;
     }
   }
   return overrides;
@@ -154,7 +137,7 @@ export interface SlackChannelTierSettings {
 }
 
 /** Presentation default for rooms with no persisted cell. */
-export const DEFAULT_CHANNEL_TIER: SlackCapabilityTier = "full_access";
+export const DEFAULT_CHANNEL_TIER: SlackCapabilityTier = "high";
 
 /** Resolves the row's tier from a persisted cell, if any. */
 export function resolveChannelTier(
