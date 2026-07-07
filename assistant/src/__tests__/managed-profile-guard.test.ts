@@ -1219,3 +1219,53 @@ describe("code-owned default profiles — leaf SET source stamping", () => {
     expectNothingCommitted();
   });
 });
+
+describe("code-owned default profiles — echoes over stale on-disk bodies", () => {
+  // An overlay can persist a managed entry whose content differs from the
+  // catalog; GET serves catalog content, so a client echo carries values
+  // that match neither nothing — they match the wire view. The round-trip
+  // must still be a no-op.
+  const staleBody = {
+    source: "managed",
+    provider: "anthropic",
+    model: "claude-sonnet",
+    maxTokens: 16000,
+  };
+
+  test("GET → PATCH round-trip over a stale managed body is accepted and changes nothing", async () => {
+    rawConfig = { llm: { profiles: { balanced: structuredClone(staleBody) } } };
+    const response = (await getRoute.handler({})) as Record<string, any>;
+    // The wire view serves catalog content, not the stale body.
+    expect(response.llm.profiles.balanced.model).toBe(
+      "accounts/fireworks/models/glm-5p2",
+    );
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: response.llm.profiles } },
+    });
+    expect(result).toHaveProperty("llm");
+    expectOneCommitCycle();
+    expect(savedProfile("balanced")).toEqual(staleBody);
+  });
+
+  test("GET → SET llm round-trip over a stale managed body is accepted and changes nothing", async () => {
+    rawConfig = { llm: { profiles: { balanced: structuredClone(staleBody) } } };
+    const response = (await getRoute.handler({})) as Record<string, any>;
+    const result = await setRoute.handler({
+      body: { path: "llm.profiles", value: response.llm.profiles },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(savedProfile("balanced")).toEqual(staleBody);
+  });
+
+  test("a genuine content edit over a stale managed body is still rejected", async () => {
+    rawConfig = { llm: { profiles: { balanced: structuredClone(staleBody) } } };
+    await expect(
+      patchRoute.handler({
+        body: {
+          llm: { profiles: { balanced: { model: "some-other-model" } } },
+        },
+      }),
+    ).rejects.toThrow(BadRequestError);
+    expectNothingCommitted();
+  });
+});

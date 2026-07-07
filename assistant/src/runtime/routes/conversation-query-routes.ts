@@ -901,19 +901,26 @@ function normalizeManagedProfileWrites(patch: unknown): void {
     );
     for (const key of Object.keys(entry)) {
       if (key === "source" || key === "status") continue;
-      if (current && key in current) {
-        // The key exists on disk (a frozen overlay field, or a legacy
-        // full-body entry awaiting migration): leave it for the guard's
-        // frozen-field comparison against the on-disk value. Stripping it
-        // would read as a key removal on a full-entry SET.
+      const matchesEffective =
+        effective != null &&
+        key in effective &&
+        isDeepStrictEqual(entry[key], effective[key]);
+      if (current == null || !(key in current)) {
+        // Not on disk: a value matching the wire view is a client echo of
+        // catalog content — drop it. Anything else stays for the guard.
+        if (matchesEffective) {
+          delete entry[key];
+        }
         continue;
       }
-      if (
-        effective &&
-        key in effective &&
-        isDeepStrictEqual(entry[key], effective[key])
-      ) {
-        delete entry[key];
+      // The key exists on disk (a frozen overlay field, or stale content an
+      // overlay persisted). Deleting it would read as a key removal on a
+      // full-entry SET, so instead: an echo of the wire value that differs
+      // from disk is pinned back to the on-disk value (no change for the
+      // guard to reject); everything else is left for the guard's
+      // frozen-field comparison.
+      if (matchesEffective && !isDeepStrictEqual(entry[key], current[key])) {
+        entry[key] = current[key];
       }
     }
 
