@@ -199,7 +199,6 @@ describe("disk pressure cleanup tool restrictions", () => {
       "sandbox",
       "low",
       Date.now(),
-      () => undefined,
     );
 
     expect(result.allowed).toBe(false);
@@ -226,7 +225,6 @@ describe("disk pressure cleanup tool restrictions", () => {
       "sandbox",
       "low",
       Date.now(),
-      () => undefined,
     );
 
     expect(result.allowed).toBe(true);

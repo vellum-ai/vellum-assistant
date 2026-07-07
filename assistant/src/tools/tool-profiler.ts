@@ -1,6 +1,4 @@
 import { getLogger } from "../util/logger.js";
-import type { EventBus, Subscription } from "./bus.js";
-import type { AssistantDomainEvents } from "./domain-events.js";
 
 const log = getLogger("tool-profiler");
 
@@ -21,8 +19,10 @@ export interface ToolProfilingSummary {
 }
 
 /**
- * Accumulates per-tool timing and resource stats across a request.
- * Call `startRequest()` at the beginning and `emitSummary()` at the end.
+ * Accumulates per-tool timing and resource stats across a request. The
+ * executor records each tool completion directly via `recordToolCompletion`;
+ * the conversation agent loop calls `startRequest()` at the beginning of a turn
+ * and `emitSummary()` at the end.
  */
 export class ToolProfiler {
   private tools = new Map<string, ToolStats>();
@@ -50,11 +50,17 @@ export class ToolProfiler {
     }
     stats.count++;
     stats.totalMs += durationMs;
-    if (durationMs > stats.maxMs) stats.maxMs = durationMs;
-    if (isError) stats.errors++;
+    if (durationMs > stats.maxMs) {
+      stats.maxMs = durationMs;
+    }
+    if (isError) {
+      stats.errors++;
+    }
 
     const currentRss = process.memoryUsage().rss;
-    if (currentRss > this.peakRssBytes) this.peakRssBytes = currentRss;
+    if (currentRss > this.peakRssBytes) {
+      this.peakRssBytes = currentRss;
+    }
   }
 
   getSummary(): ToolProfilingSummary {
@@ -94,7 +100,9 @@ export class ToolProfiler {
 
   emitSummary(requestId?: string): void {
     const summary = this.getSummary();
-    if (summary.toolCount === 0) return;
+    if (summary.toolCount === 0) {
+      return;
+    }
 
     // Find the slowest individual tool invocation
     let slowestTool = "";
@@ -121,30 +129,4 @@ export class ToolProfiler {
       "Tool execution profiling summary",
     );
   }
-}
-
-export function registerToolProfilingListener(
-  eventBus: EventBus<AssistantDomainEvents>,
-  profiler: ToolProfiler,
-): Subscription {
-  return eventBus.onAny((event) => {
-    switch (event.type) {
-      case "tool.execution.finished":
-        profiler.recordToolCompletion(
-          event.payload.toolName,
-          event.payload.durationMs,
-          event.payload.isError,
-        );
-        return;
-      case "tool.execution.failed":
-        profiler.recordToolCompletion(
-          event.payload.toolName,
-          event.payload.durationMs,
-          true,
-        );
-        return;
-      default:
-        return;
-    }
-  });
 }

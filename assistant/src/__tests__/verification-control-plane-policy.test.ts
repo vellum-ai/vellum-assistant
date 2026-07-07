@@ -8,11 +8,7 @@ import {
   test,
 } from "bun:test";
 
-import type { ToolPermissionDeniedEvent } from "../tools/tool-types.js";
-import type {
-  ToolExecutionResult,
-  ToolLifecycleEvent,
-} from "../tools/types.js";
+import type { ToolExecutionResult } from "../tools/types.js";
 
 // -- Module mocks (must precede real imports) --
 
@@ -86,9 +82,33 @@ mock.module("../telemetry/tool-usage-store.js", () => ({
   rotateToolInvocations: async () => 0,
 }));
 
+// Capture tool-audit terminal calls so the policy-block test can assert on the
+// recorded denial the way it previously asserted on an emitted lifecycle event.
+const auditCalls = {
+  denied: [] as any[],
+  error: [] as any[],
+  executed: [] as any[],
+  prompted: [] as string[],
+};
+mock.module("../telemetry/tool-audit.js", () => ({
+  recordToolDenied: (e: any) => auditCalls.denied.push(e),
+  recordToolError: (e: any) => auditCalls.error.push(e),
+  recordToolExecuted: (e: any) => auditCalls.executed.push(e),
+  recordToolPermissionPrompted: (n: string) => auditCalls.prompted.push(n),
+}));
+
+function resetAuditCalls(): void {
+  auditCalls.denied.length = 0;
+  auditCalls.error.length = 0;
+  auditCalls.executed.length = 0;
+  auditCalls.prompted.length = 0;
+}
+
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => {
-    if (name === "unknown_tool") return undefined;
+    if (name === "unknown_tool") {
+      return undefined;
+    }
     return {
       name,
       description: "test tool",
@@ -142,9 +162,13 @@ mock.module("../tools/verification-control-plane-policy.js", () => {
       "/v1/channel-verification-sessions/revoke",
     ];
     for (const path of VERIFICATION_ENDPOINT_PATHS) {
-      if (normalized.includes(path)) return true;
+      if (normalized.includes(path)) {
+        return true;
+      }
     }
-    if (VERIFICATION_PATH_REGEX.test(normalized)) return true;
+    if (VERIFICATION_PATH_REGEX.test(normalized)) {
+      return true;
+    }
     return false;
   }
 
@@ -159,8 +183,12 @@ mock.module("../tools/verification-control-plane-policy.js", () => {
     if (COMMAND_TOOLS.has(toolName)) {
       const command = input.command;
       if (typeof command === "string") {
-        if (containsVerificationEndpointPath(command)) return true;
-        if (containsVerificationFragments(command)) return true;
+        if (containsVerificationEndpointPath(command)) {
+          return true;
+        }
+        if (containsVerificationFragments(command)) {
+          return true;
+        }
       }
     }
     if (URL_TOOLS.has(toolName)) {
@@ -647,6 +675,7 @@ describe("enforceVerificationControlPlanePolicy", () => {
 describe("ToolExecutor verification control-plane policy gate", () => {
   beforeEach(() => {
     fakeToolResult = { content: "ok", isError: false };
+    resetAuditCalls();
   });
 
   test("non-guardian actor blocked from bash curl to verification sessions", async () => {
@@ -723,8 +752,7 @@ describe("ToolExecutor verification control-plane policy gate", () => {
     expect(result.content).toBe("ok");
   });
 
-  test("permission_denied lifecycle event is emitted on verification policy block", async () => {
-    let capturedEvent: ToolPermissionDeniedEvent | undefined;
+  test("denial is recorded on verification policy block", async () => {
     const executor = new ToolExecutor(makePrompter());
     await executor.execute(
       "bash",
@@ -732,18 +760,13 @@ describe("ToolExecutor verification control-plane policy gate", () => {
         command:
           "curl -X DELETE http://localhost:3000/v1/channel-verification-sessions",
       },
-      makeContext({
-        trustClass: "trusted_contact",
-        onToolLifecycleEvent: (event: ToolLifecycleEvent) => {
-          if (event.type === "permission_denied") {
-            capturedEvent = event as ToolPermissionDeniedEvent;
-          }
-        },
-      }),
+      makeContext({ trustClass: "trusted_contact" }),
     );
-    expect(capturedEvent).toBeDefined();
-    expect(capturedEvent!.decision).toBe("deny");
-    expect(capturedEvent!.reason).toContain("restricted to guardian users");
+    const denied = auditCalls.denied.find((e) =>
+      e.reason?.includes("restricted to guardian users"),
+    );
+    expect(denied).toBeDefined();
+    expect(denied.toolName).toBe("bash");
   });
 
   test("non-guardian blocked from web_fetch to verification endpoint", async () => {

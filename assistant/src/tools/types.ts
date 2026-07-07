@@ -8,15 +8,12 @@ import type { SecretPromptResult } from "../permissions/secret-prompt-types.js";
 import type { ContentBlock } from "../providers/types.js";
 import type { TrustClass } from "../runtime/trust-class.js";
 import type { UsageAttributionSnapshot } from "../usage/attribution.js";
+import type { ToolProfiler } from "./tool-profiler.js";
 import type {
   DiffInfo,
   ExecutionTarget,
   ProxyApprovalCallback,
   SensitiveOutputBinding,
-  ToolExecutionErrorEvent as ContractsToolExecutionErrorEvent,
-  ToolExecutionStartEvent,
-  ToolPermissionDeniedEvent,
-  ToolPermissionPromptEvent,
 } from "./tool-types.js";
 import { RiskLevel } from "./tool-types.js";
 
@@ -40,17 +37,13 @@ export function isDiskPressureCleanupToolName(name: string): boolean {
 //
 // The canonical declarations live in the neutral leaf module `./tool-types.js`.
 // The interfaces below (`Tool`, `ToolContext`, `ToolExecutionResult`,
-// `ToolExecutedEvent`, `ToolLifecycleEvent`, `ToolLifecycleEventHandler`,
 // `ProxyToolResolver`) reference daemon-internal types (CES client, host-proxy
 // classes, `ContentBlock`, `ApprovalRequired`, `TrustClass`, `InterfaceId`,
 // `SecretPromptResult`, `UsageAttributionSnapshot`) that can't move into a
 // neutral package. For those, the contracts version uses opaque placeholders
 // (`unknown`, broadened `string`) and the assistant redeclares the interface
 // here with the concrete types. The two sides are structurally independent —
-// no inheritance, no intersection — which avoids TypeScript's contravariance
-// mismatches on lifecycle-event handlers. `ToolExecutionErrorEvent` is the
-// exception: its contracts fields are all concrete, so the assistant overlay
-// simply extends it with the daemon-internal telemetry fields.
+// no inheritance, no intersection.
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
@@ -141,80 +134,8 @@ export type ProxyToolResolver = (
 ) => Promise<ToolExecutionResult>;
 
 /**
- * Telemetry fields stamped centrally by the executor's `emitLifecycleEvent`
- * on terminal (executed/error) lifecycle events.
- */
-export interface ExecutorTelemetryStamp {
-  /**
-   * Model attribution snapshot for the conversation at invocation time.
-   * Copied from {@link ToolContext.attribution} by the executor; `null` when
-   * resolution failed or no attribution was available.
-   */
-  attribution?: UsageAttributionSnapshot | null;
-  /**
-   * Serialized byte size of the RAW tool input, stamped by the executor
-   * before sensitive-field sanitization rewrites `input`. Only the size
-   * leaves the device, never the payload.
-   */
-  inputBytes?: number | null;
-  /**
-   * Byte size of the RAW tool result content, stamped by the executor
-   * before sensitive-output extraction rewrites `result.content`. Only
-   * stamped on `executed` events: error events carry no executor-side
-   * result — the audit listener sizes the error string it builds itself,
-   * which never goes through sanitization, so it is already raw. Only the
-   * size leaves the device, never the payload.
-   */
-  resultBytes?: number | null;
-}
-
-/**
- * `ToolExecutedEvent` carries a `result: ToolExecutionResult` field, so
- * the assistant re-declares it here to reference the assistant-side
- * `ToolExecutionResult` (which narrows `contentBlocks` to `ContentBlock[]`
- * and `cesApprovalRequired` to `ApprovalRequired`).
- */
-export interface ToolExecutedEvent extends ExecutorTelemetryStamp {
-  type: "executed";
-  toolName: string;
-  input: Record<string, unknown>;
-  workingDir: string;
-  conversationId: string;
-  requestId?: string;
-  executionTarget?: ExecutionTarget;
-  riskLevel: string;
-  /** ID of the trust rule that matched this invocation (if any). */
-  matchedTrustRuleId?: string;
-  /** How the approval decision was reached. Copied from PermissionDecision for analytics consumers. */
-  approvalMode?: string;
-  /** Why the approval decision was reached (stable enum). Copied from PermissionDecision for analytics consumers. */
-  approvalReason?: string;
-  decision: string;
-  durationMs: number;
-  result: ToolExecutionResult;
-}
-
-/**
- * Extends the contracts declaration with the assistant-side telemetry
- * fields stamped centrally by the executor's `emitLifecycleEvent`.
- */
-export interface ToolExecutionErrorEvent
-  extends ContractsToolExecutionErrorEvent, ExecutorTelemetryStamp {}
-
-export type ToolLifecycleEvent =
-  | ToolExecutionStartEvent
-  | ToolPermissionPromptEvent
-  | ToolPermissionDeniedEvent
-  | ToolExecutedEvent
-  | ToolExecutionErrorEvent;
-
-export type ToolLifecycleEventHandler = (
-  event: ToolLifecycleEvent,
-) => void | Promise<void>;
-
-/**
  * Canonical serialization used for tool-input byte sizing. Shared by the
- * executor (raw pre-sanitization sizing) and the audit listener (stored
+ * executor (raw pre-sanitization sizing) and the audit terminals (stored
  * `input` column + fallback sizing) so the two always measure the same
  * serialization.
  */
@@ -283,10 +204,11 @@ export interface ToolContext {
    */
   attribution?: UsageAttributionSnapshot | null;
   /**
-   * Optional callback for tool lifecycle events (start/prompt/deny/execute/error).
+   * Per-turn tool profiler. The executor records each tool completion directly
+   * onto it; the conversation agent loop resets and summarizes it per turn.
    * @legacy
    */
-  onToolLifecycleEvent?: ToolLifecycleEventHandler;
+  profiler?: ToolProfiler;
   /**
    * Optional resolver for proxy tools - delegates execution to an external client.
    * @legacy

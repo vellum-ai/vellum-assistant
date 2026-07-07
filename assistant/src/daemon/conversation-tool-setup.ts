@@ -51,7 +51,6 @@ import {
   isDiskPressureCleanupToolName,
   type ToolContext,
   type ToolExecutionResult,
-  type ToolLifecycleEventHandler,
 } from "../tools/types.js";
 import { loadWorkspaceTools } from "../tools/workspace-tools/loader.js";
 import {
@@ -185,7 +184,6 @@ export function createToolExecutor(
   prompter: PermissionPrompter,
   secretPrompter: SecretPrompter,
   ctx: ToolSetupContext,
-  handleToolLifecycleEvent: ToolLifecycleEventHandler,
 ): (
   name: string,
   input: Record<string, unknown>,
@@ -327,7 +325,7 @@ export function createToolExecutor(
       invokingCallSite: ctx.currentCallSite ?? "mainAgent",
       attribution: resolveConversationAttribution(ctx),
       enabledPluginSet: effectiveEnabledPluginSet,
-      onToolLifecycleEvent: handleToolLifecycleEvent,
+      profiler: ctx.profiler,
       sendToClient: (msg) => {
         // Tool context's sendToClient uses a loose { type: string; [key: string]: unknown }
         // signature, but at runtime these are always ServerMessage instances.

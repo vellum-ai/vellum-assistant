@@ -5,6 +5,7 @@
 
 import type { InterfaceId } from "../channels/types.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
+import type { ToolProfiler } from "../tools/tool-profiler.js";
 import type { ExecutionTarget } from "../tools/tool-types.js";
 import type { SurfaceConversationContext } from "./conversation-surfaces.js";
 import type { TrustContext } from "./trust-context.js";
@@ -77,6 +78,8 @@ export interface ToolSetupContext extends SurfaceConversationContext {
   currentRequestId?: string;
   workingDir: string;
   abortController: AbortController | null;
+  /** Per-turn tool profiler, threaded onto each tool's execution context. */
+  profiler?: ToolProfiler;
   /** When set, only tools in this set may execute during the current turn. */
   allowedToolNames?: Set<string>;
   /**

@@ -20,11 +20,27 @@ import {
 } from "bun:test";
 
 import { RiskLevel, type ScopeOption } from "../permissions/types.js";
-import type { ToolPermissionPromptEvent } from "../tools/tool-types.js";
-import type {
-  ToolExecutionResult,
-  ToolLifecycleEvent,
-} from "../tools/types.js";
+import type { ToolExecutionResult } from "../tools/types.js";
+
+// ---------------------------------------------------------------------------
+// Terminal audit mock — the permission checker / executor call these directly
+// now (in place of the removed emitLifecycleEvent callback). Capture calls so
+// tests can assert a prompt was recorded.
+// ---------------------------------------------------------------------------
+
+const auditCalls = {
+  denied: [] as any[],
+  error: [] as any[],
+  executed: [] as any[],
+  prompted: [] as string[],
+};
+
+mock.module("../telemetry/tool-audit.js", () => ({
+  recordToolDenied: (e: any) => auditCalls.denied.push(e),
+  recordToolError: (e: any) => auditCalls.error.push(e),
+  recordToolExecuted: (e: any) => auditCalls.executed.push(e),
+  recordToolPermissionPrompted: (n: string) => auditCalls.prompted.push(n),
+}));
 
 // ---------------------------------------------------------------------------
 // Mock setup — mirrors tool-executor.test.ts patterns
@@ -107,7 +123,9 @@ mock.module("../permissions/channel-permission-query.js", () => ({
 mock.module("../permissions/checker.js", () => ({
   classifyRisk: async () => ({ level: riskOverride }),
   check: async () => {
-    if (checkResultOverride) return checkResultOverride;
+    if (checkResultOverride) {
+      return checkResultOverride;
+    }
     return { decision: "allow", reason: "allowed" };
   },
   generateAllowlistOptions: () => [
@@ -126,7 +144,9 @@ mock.module("../telemetry/tool-usage-store.js", () => ({
 
 mock.module("../tools/registry.js", () => ({
   getTool: (name: string) => {
-    if (name === "unknown_tool") return undefined;
+    if (name === "unknown_tool") {
+      return undefined;
+    }
     const isGmailTool = name.startsWith("gmail_");
     return {
       name,
@@ -405,6 +425,10 @@ describe("requireFreshApproval: persistent decisions disabled", () => {
     scopeOptionsOverride = undefined;
     riskOverride = "high";
     thresholdOverride = "medium";
+    auditCalls.denied.length = 0;
+    auditCalls.error.length = 0;
+    auditCalls.executed.length = 0;
+    auditCalls.prompted.length = 0;
   });
 
   afterEach(() => {});
@@ -412,7 +436,6 @@ describe("requireFreshApproval: persistent decisions disabled", () => {
   test("manage_secure_command_tool prompt does not offer persistent decisions", async () => {
     checkResultOverride = { decision: "allow", reason: "Matched trust rule" };
 
-    const capturedEvents: ToolLifecycleEvent[] = [];
     let persistentDecisionsPassedToPrompter: boolean | undefined;
 
     const inspectingPrompter = {
@@ -439,22 +462,16 @@ describe("requireFreshApproval: persistent decisions disabled", () => {
     await executor.execute(
       "manage_secure_command_tool",
       { action: "register", toolName: "test-tool" },
-      makeContext({
-        onToolLifecycleEvent: (e) => {
-          capturedEvents.push(e);
-        },
-      }),
+      makeContext(),
     );
+
+    // A permission prompt was emitted for this tool (the terminal records the
+    // tool name; the persistentDecisionsAllowed flag is observed via the
+    // prompter mock's captured argument below).
+    expect(auditCalls.prompted).toContain("manage_secure_command_tool");
 
     // The prompter should have been told persistentDecisions are NOT allowed
     expect(persistentDecisionsPassedToPrompter).toBe(false);
-
-    // The lifecycle event should also reflect this
-    const promptEvent = capturedEvents.find(
-      (e) => e.type === "permission_prompt",
-    ) as ToolPermissionPromptEvent | undefined;
-    expect(promptEvent).toBeDefined();
-    expect(promptEvent!.persistentDecisionsAllowed).toBe(false);
   });
 });
 
