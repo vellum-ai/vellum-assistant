@@ -28,6 +28,15 @@ export interface SecretPromptResult {
    * treating both as an error.
    */
   reason?: "cancelled" | "timed_out" | "superseded";
+  /**
+   * One-time collection URL minted when the channel cannot render the secure
+   * prompt. Set together with `error: "unsupported_channel"` — the caller
+   * relays the link so the user can supply the value out of band; the gateway
+   * stores the submitted value via the credential vault.
+   */
+  collectionUrl?: string;
+  /** Expiry (epoch ms) of {@link SecretPromptResult.collectionUrl}. */
+  collectionExpiresAt?: number;
 }
 
 export interface SecretPrompterChannelContext {

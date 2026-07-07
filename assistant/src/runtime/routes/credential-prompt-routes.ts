@@ -13,7 +13,10 @@ import {
   persistPromptedCredential,
 } from "../../credential-execution/prompted-credential.js";
 import { requestSecretStandalone } from "../../daemon/handlers/shared.js";
-import { assertMetadataWritable } from "../../tools/credentials/metadata-store.js";
+import {
+  assertMetadataWritable,
+  upsertCredentialMetadata,
+} from "../../tools/credentials/metadata-store.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -54,6 +57,14 @@ export type CredentialPromptResult = {
    * and a distinct exit code rather than an error.
    */
   cancelled?: boolean;
+  /**
+   * True when no value was collected yet but a one-time collection link was
+   * minted (channel without secure input). `collectionUrl` carries the link;
+   * the value is stored by the gateway when the recipient submits it.
+   */
+  pending?: boolean;
+  collectionUrl?: string;
+  expiresAt?: number;
   error?: string;
   service?: string;
   field?: string;
@@ -83,6 +94,37 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
 
   if (!result.value) {
     if (result.error === "unsupported_channel") {
+      if (result.collectionUrl) {
+        // The channel cannot render the secure prompt, but a one-time
+        // collection link was minted instead. Attach the policy metadata now —
+        // the gateway submit stores the value via credentials_set, which
+        // leaves these metadata fields untouched.
+        try {
+          upsertCredentialMetadata(validated.service, validated.field, {
+            allowedTools: validated.allowedTools,
+            allowedDomains: validated.allowedDomains,
+            usageDescription: validated.usageDescription,
+            injectionTemplates: validated.injectionTemplates,
+          });
+        } catch {
+          // Best-effort: the submit path still stores the value without it.
+        }
+        const expiresInMinutes = result.collectionExpiresAt
+          ? Math.max(
+              1,
+              Math.round((result.collectionExpiresAt - Date.now()) / 60_000),
+            )
+          : null;
+        return {
+          ok: true,
+          pending: true,
+          collectionUrl: result.collectionUrl,
+          expiresAt: result.collectionExpiresAt,
+          service: validated.service,
+          field: validated.field,
+          message: `This channel does not support secure input. Share this one-time link with the user to collect the credential securely (single-use${expiresInMinutes ? `, expires in ${expiresInMinutes} minutes` : ""}): ${result.collectionUrl}`,
+        };
+      }
       return {
         ok: false,
         error:
@@ -165,6 +207,9 @@ export const ROUTES: RouteDefinition[] = [
     responseBody: z.object({
       ok: z.boolean(),
       cancelled: z.boolean().optional(),
+      pending: z.boolean().optional(),
+      collectionUrl: z.string().optional(),
+      expiresAt: z.number().optional(),
       error: z.string().optional(),
       service: z.string().optional(),
       field: z.string().optional(),

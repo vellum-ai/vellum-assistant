@@ -49,6 +49,16 @@ mock.module("../runtime/pending-interactions.js", () => ({
   clear: () => _piStore.clear(),
 }));
 
+// Controls the gateway mint result for the collection-link fallback.
+let gatewayMintResult: unknown;
+let gatewayMintCalls: Array<{ method: string; params: unknown }> = [];
+mock.module("../ipc/gateway-client.js", () => ({
+  ipcCall: async (method: string, params?: unknown) => {
+    gatewayMintCalls.push({ method, params });
+    return gatewayMintResult;
+  },
+}));
+
 // Controls what the conversation registry returns for the test conversation.
 // The shape only needs the capability fields `conversationSupportsDynamicUi`
 // projects — the real projection is a dependency-free leaf and runs unmocked.
@@ -71,10 +81,13 @@ describe("requestSecretStandalone channel gate", () => {
     broadcastMessages = [];
     _piStore.clear();
     registeredConversation = undefined;
+    gatewayMintResult = undefined;
+    gatewayMintCalls = [];
   });
 
   test("short-circuits with unsupported_channel for a non-dynamic-UI conversation", async () => {
-    // GIVEN the target conversation's channel cannot render dynamic UI
+    // GIVEN the target conversation's channel cannot render dynamic UI and
+    // the gateway cannot mint a collection link (unreachable)
     registeredConversation = {
       channelCapabilities: { supportsDynamicUi: false },
     };
@@ -90,8 +103,70 @@ describe("requestSecretStandalone channel gate", () => {
     // THEN it fails fast without broadcasting or registering anything
     expect(result.value).toBeNull();
     expect(result.error).toBe("unsupported_channel");
+    expect(result.collectionUrl).toBeUndefined();
     expect(broadcastMessages).toHaveLength(0);
     expect(_piStore.size).toBe(0);
+  });
+
+  test("returns a one-time collection link when the gateway can mint one", async () => {
+    // GIVEN a non-dynamic-UI conversation and a gateway that mints links
+    registeredConversation = {
+      channelCapabilities: { supportsDynamicUi: false },
+    };
+    gatewayMintResult = {
+      ok: true,
+      token: "tok",
+      url: "https://x.test/assistant/credentials/enter?token=tok",
+      expiresAt: 1234,
+    };
+
+    // WHEN a standalone prompt is scoped to that conversation
+    const result = await requestSecretStandalone({
+      service: "stripe",
+      field: "api_key",
+      label: "Stripe API Key",
+      conversationId: "conv-1",
+    });
+
+    // THEN the result carries the link (still no broadcast, nothing pending)
+    expect(result.value).toBeNull();
+    expect(result.error).toBe("unsupported_channel");
+    expect(result.collectionUrl).toBe(
+      "https://x.test/assistant/credentials/enter?token=tok",
+    );
+    expect(result.collectionExpiresAt).toBe(1234);
+    expect(broadcastMessages).toHaveLength(0);
+    expect(_piStore.size).toBe(0);
+    expect(gatewayMintCalls).toEqual([
+      {
+        method: "create_credential_request",
+        params: {
+          service: "stripe",
+          field: "api_key",
+          label: "Stripe API Key",
+        },
+      },
+    ]);
+  });
+
+  test("falls back to a plain unsupported_channel when minting is refused", async () => {
+    // GIVEN the gateway refuses to mint (flag off / no public URL)
+    registeredConversation = {
+      channelCapabilities: { supportsDynamicUi: false },
+    };
+    gatewayMintResult = { ok: false, error: "flag_disabled" };
+
+    // WHEN a standalone prompt is scoped to that conversation
+    const result = await requestSecretStandalone({
+      service: "stripe",
+      field: "api_key",
+      label: "Stripe API Key",
+      conversationId: "conv-1",
+    });
+
+    // THEN the plain unsupported_channel failure stands
+    expect(result.error).toBe("unsupported_channel");
+    expect(result.collectionUrl).toBeUndefined();
   });
 
   test("broadcasts for a conversation whose channel supports dynamic UI", async () => {

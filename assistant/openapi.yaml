@@ -9564,6 +9564,12 @@ paths:
                     type: boolean
                   cancelled:
                     type: boolean
+                  pending:
+                    type: boolean
+                  collectionUrl:
+                    type: string
+                  expiresAt:
+                    type: number
                   error:
                     type: string
                   service:

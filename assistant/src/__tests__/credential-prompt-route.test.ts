@@ -457,6 +457,55 @@ describe("credentials/prompt route", () => {
     );
   });
 
+  test("returns a pending collection link for unsupported channels when minted", async () => {
+    /**
+     * When the channel cannot render the secure prompt but the gateway minted
+     * a one-time collection link, the route reports a pending success carrying
+     * the link (the model relays it in-channel) and attaches the policy
+     * metadata immediately — the gateway submit stores the value later.
+     */
+    // GIVEN the prompt short-circuited with a minted collection link
+    secretResult = {
+      value: null,
+      delivery: "store",
+      error: "unsupported_channel",
+      collectionUrl: "https://x.test/assistant/credentials/enter?token=tok",
+      collectionExpiresAt: Date.now() + 30 * 60_000,
+    };
+
+    // WHEN the route handles a prompt carrying policy flags
+    const result = (await promptRoute!.handler({
+      body: {
+        service: "stripe",
+        field: "api_key",
+        label: "Stripe API Key",
+        usageDescription: "Needed for billing lookups",
+        allowedTools: ["make_authenticated_request"],
+      },
+    })) as PromptResponse & { pending?: boolean; collectionUrl?: string };
+
+    // THEN it is a pending success carrying the link
+    expect(result.ok).toBe(true);
+    expect(result.pending).toBe(true);
+    expect(result.collectionUrl).toBe(
+      "https://x.test/assistant/credentials/enter?token=tok",
+    );
+    expect(result.message).toContain(
+      "https://x.test/assistant/credentials/enter?token=tok",
+    );
+
+    // AND the policy metadata is attached up front
+    expect(capturedMetadata?.usageDescription).toBe(
+      "Needed for billing lookups",
+    );
+    expect(capturedMetadata?.allowedTools).toEqual([
+      "make_authenticated_request",
+    ]);
+
+    // AND nothing was written to secure storage yet
+    expect(secureKeyWrites).toEqual([]);
+  });
+
   test("reports a superseded prompt as a failure, not a cancel", async () => {
     /**
      * A newer message in the conversation auto-denies pending prompts. The
