@@ -129,7 +129,11 @@ export function Tag({
             "text-[color:var(--content-secondary)]",
             "transition-colors duration-150",
             "hover:bg-[color-mix(in_srgb,currentColor_15%,transparent)]",
-            "focus-visible:outline-none",
+            // Same keyboard focus affordance as Notice's dismiss button:
+            // suppress the default outline but replace it with the ring, so
+            // keyboard users never lose the focus indicator.
+            "keyboard-focus:outline-none keyboard-focus:ring-2",
+            "keyboard-focus:ring-[var(--ring)]",
           )}
         >
           <X style={iconStyle} aria-hidden="true" />
