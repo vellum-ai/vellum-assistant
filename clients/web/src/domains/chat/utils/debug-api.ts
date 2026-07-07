@@ -59,6 +59,7 @@ import {
 } from "@/domains/chat/turn-store";
 import {
   type UIContext,
+  isAssistantBusy,
   shouldShowThinkingIndicator,
 } from "@/domains/chat/turn-selectors";
 import { useConversationStore } from "@/stores/conversation-store";
@@ -683,26 +684,19 @@ export function createChatDebugApi(refs: ChatDebugRefs): ChatDebugApi {
     const uiContext = refs.getUIContext();
 
     // The ring renders in `ChatAvatar` for custom-image avatars iff
-    // `isStreaming || isProcessing`; mirror both gates so a stuck (or missing)
-    // ring points straight at the latched gate. `isStreaming` is the app's
-    // `isAssistantStreaming` (`showThinking || hasStreamingAssistantMessage`);
-    // `isProcessing` is the coarse `activeConversationIsProcessing` OR-signal.
-    const isStreaming =
-      shouldShowThinkingIndicator(turnState.phase, turnState.activeToolCallCount, uiContext) ||
-      uiContext.hasStreamingAssistantMessage;
-    const isProcessing = uiContext.activeConversationIsProcessing === true;
+    // `isAssistantBusy` — the single shared signal for the spinner and stop
+    // button. Kept as visible/isStreaming/isProcessing for backwards-compat
+    // with existing triage JSON, but all three now derive from one selector.
+    const visible = isAssistantBusy(turnState.phase, uiContext);
     const litBy: string[] = [];
-    if (isStreaming) {
-      litBy.push("isStreaming");
-    }
-    if (isProcessing) {
-      litBy.push("isProcessing");
+    if (visible) {
+      litBy.push("isAssistantBusy");
     }
 
     return {
-      visible: isStreaming || isProcessing,
-      isStreaming,
-      isProcessing,
+      visible,
+      isStreaming: visible,
+      isProcessing: visible,
       litBy,
     };
   }

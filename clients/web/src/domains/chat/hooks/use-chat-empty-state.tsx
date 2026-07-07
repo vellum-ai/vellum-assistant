@@ -42,6 +42,7 @@ export interface UseChatEmptyStateParams {
   /** Opened app state from viewer-store (non-null when editing an app). */
   openedAppState: { name: string; dirName?: string } | null;
   isAssistantStreaming: boolean;
+  isAssistantBusy: boolean;
   activeConversationIsProcessing: boolean;
   onSelectStarter: (starter: ConversationStarter) => void;
   /**
@@ -84,6 +85,7 @@ export function useChatEmptyState({
   mainView,
   openedAppState,
   isAssistantStreaming,
+  isAssistantBusy,
   activeConversationIsProcessing,
   onSelectStarter,
   onSelectSuggestion,
@@ -137,7 +139,7 @@ export function useChatEmptyState({
           customImageUrl={avatarImageUrl}
           size={40}
           interactive
-          isProcessing={activeConversationIsProcessing}
+          isProcessing={isAssistantBusy}
         />
       ) : null,
     greeting: editingApp ? buildEditAppGreeting(editingApp) : emptyStateGreeting,
@@ -183,8 +185,8 @@ export function useChatEmptyState({
               customImageUrl={avatarImageUrl}
               size={56}
               interactive
-              isStreaming={isAssistantStreaming}
-              isProcessing={activeConversationIsProcessing}
+              isStreaming={isAssistantBusy}
+              isProcessing={false}
             />
           )
         : undefined,
@@ -192,8 +194,7 @@ export function useChatEmptyState({
       avatarComponents,
       avatarImageUrl,
       avatarTraits,
-      isAssistantStreaming,
-      activeConversationIsProcessing,
+      isAssistantBusy,
     ],
   );
 

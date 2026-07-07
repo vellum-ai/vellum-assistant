@@ -111,20 +111,45 @@ export function shouldShowThinkingIndicator(
 /**
  * Whether the active assistant turn can be cancelled.
  *
- * Web-originated sends drive `TurnState` directly, but external-channel
- * conversations (Slack, Telegram, phone) can stream into an already-open web
- * tab without the web app ever calling `requestSend()`. In that case the live
- * transcript or conversation processing marker is the only local proof that
- * there is an active turn to stop.
+ * Now delegates to {@link isAssistantBusy} — the stop button and avatar
+ * spinner share the same "is the assistant actively working?" signal, so
+ * they can never disagree. Kept as a named export for test coverage and
+ * semantic readability at call sites.
  */
 export function canStopGeneration(
   phase: TurnPhase,
   ctx: UIContext,
 ): boolean {
-  // Same authoritative close as the thinking indicator: nothing to stop once
-  // the server reports the turn done, even if `phase` is stuck. The
-  // `hasPendingAssistantResponse` guard keeps Stop available in the
-  // just-sent-waiting-for-first-token window.
+  return isAssistantBusy(phase, ctx);
+}
+
+/**
+ * Whether the assistant is actively working (not waiting for user input).
+ *
+ * This is the single source of truth for the avatar loading spinner AND the
+ * stop button visibility. Both used to derive their state from different
+ * subsets of {@link UIContext} with different filtering rules, which produced
+ * contradictory signals when a confirmation/secret prompt was pending: the
+ * spinner stayed lit (via `hasStreamingAssistantMessage` or
+ * `activeConversationIsProcessing`, neither gated by pending prompts) while
+ * the stop button disappeared (`canStopGeneration` suppresses on
+ * `hasPendingConfirmation`). The user saw a spinning avatar with no way to
+ * stop it.
+ *
+ * The rule: when the assistant is waiting for the user to resolve a prompt
+ * (secret, confirmation, question, contact request) or an interactive
+ * surface, it is not busy. The prompt IS the UI — neither a spinner nor a
+ * stop button should be shown.
+ *
+ * Same authoritative close-gate as the other selectors: `snapshotProcessing
+ * === false` means the daemon says the turn is done, even if `phase` is stuck.
+ * The `hasPendingAssistantResponse` guard keeps the window right after a send
+ * (before the first token) covered.
+ */
+export function isAssistantBusy(
+  phase: TurnPhase,
+  ctx: UIContext,
+): boolean {
   if (ctx.snapshotProcessing === false && !ctx.hasPendingAssistantResponse) {
     return false;
   }

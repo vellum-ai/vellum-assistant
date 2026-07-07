@@ -240,6 +240,7 @@ export function ChatMainPanel({
     showThinking,
     isAssistantStreaming,
     canStopGenerating,
+    isAssistantBusy,
     isSendDisabledFromTurn,
     thinkingLabel,
     liveAssistantMessageId,
@@ -845,6 +846,7 @@ export function ChatMainPanel({
     mainView,
     openedAppState,
     isAssistantStreaming,
+    isAssistantBusy,
     activeConversationIsProcessing,
     onSelectStarter: handleSelectStarter,
     onSelectSuggestion: newThreadSuggestionsEnabled

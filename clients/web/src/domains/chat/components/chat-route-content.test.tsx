@@ -160,6 +160,7 @@ function Harness({
     mainView: "chat",
     openedAppState: null,
     isAssistantStreaming: false,
+    isAssistantBusy: false,
     activeConversationIsProcessing: false,
     onSelectStarter: () => {},
     onSelectSuggestion: setSelected,

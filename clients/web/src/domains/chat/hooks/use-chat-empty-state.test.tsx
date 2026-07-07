@@ -76,6 +76,7 @@ function baseParams(
     mainView: "chat",
     openedAppState: null,
     isAssistantStreaming: false,
+    isAssistantBusy: false,
     activeConversationIsProcessing: false,
     onSelectStarter: () => {},
     ...overrides,

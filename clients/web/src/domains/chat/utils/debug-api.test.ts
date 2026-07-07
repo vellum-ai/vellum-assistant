@@ -520,7 +520,7 @@ describe("createChatDebugApi.thinkingIndicator", () => {
 // ---------------------------------------------------------------------------
 
 describe("createChatDebugApi.streamingRing", () => {
-  test("streamingRing is lit by isStreaming while the assistant is thinking", () => {
+  test("streamingRing is lit while the assistant is busy (thinking)", () => {
     const refs = makeRefs({
       turn: {
         ...INITIAL_TURN_STATE,
@@ -533,9 +533,7 @@ describe("createChatDebugApi.streamingRing", () => {
     const ring = api.streamingRing();
 
     expect(ring.visible).toBe(true);
-    expect(ring.isStreaming).toBe(true);
-    expect(ring.isProcessing).toBe(false);
-    expect(ring.litBy).toEqual(["isStreaming"]);
+    expect(ring.litBy).toEqual(["isAssistantBusy"]);
   });
 
   test("streamingRing is hidden once the turn is idle and nothing is processing", () => {
@@ -554,11 +552,11 @@ describe("createChatDebugApi.streamingRing", () => {
     expect(ring.litBy).toEqual([]);
   });
 
-  test("streamingRing stays lit by isProcessing when the cached snapshot is stale after the turn ends", () => {
+  test("streamingRing stays lit when the cached snapshot is stale after the turn ends", () => {
     // The hang case: the local turn is terminal (idle, complete) but the
-    // cached `conversation.isProcessing` snapshot is still true, so the ring's
-    // `isProcessing` gate keeps it visible. `litBy: ["isProcessing"]` plus a
-    // terminal `done` is the signature of a stale-snapshot stuck ring.
+    // cached `conversation.isProcessing` snapshot is still true, so
+    // `isAssistantBusy` keeps the ring visible. A terminal `done` plus a
+    // visible ring is the signature of a stale-snapshot stuck ring.
     const refs = makeRefs({
       turn: {
         ...INITIAL_TURN_STATE,
@@ -574,9 +572,7 @@ describe("createChatDebugApi.streamingRing", () => {
 
     expect(snapshot.done.terminal).toBe(true);
     expect(ring.visible).toBe(true);
-    expect(ring.isStreaming).toBe(false);
-    expect(ring.isProcessing).toBe(true);
-    expect(ring.litBy).toEqual(["isProcessing"]);
+    expect(ring.litBy).toEqual(["isAssistantBusy"]);
   });
 });
 
