@@ -24,6 +24,7 @@ import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { getLogger } from "../logger.js";
 import { deleteContactIfOrphaned } from "../verification/contact-helpers.js";
 
+import { bustGuardianIntegrityCache } from "./guardian-integrity.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { mintToken } from "./token-service.js";
 
@@ -342,6 +343,11 @@ export function applyGuardianBindingGatewayWrites(
       })
       .run();
   }
+
+  // The guardian row just written supersedes any cached missing-guardian
+  // state. Busting here covers every binding-commit path (createGuardianBinding
+  // and the outbound phone rebind in verification/session-service.ts).
+  bustGuardianIntegrityCache();
 
   return {
     contactId,
