@@ -665,6 +665,26 @@ describe("hands-free mode", () => {
     expect(h.player.isPlaying).toBe(true);
     expect(h.view.result.current.state).toBe("speaking");
   });
+
+  test("controls.release is a no-op in hands-free (mic forwarding stays on)", async () => {
+    const h = renderController();
+    await startListening(h, { handsFree: true });
+
+    // The "send now" ↑ is manual-only. In hands-free the server VAD owns
+    // utterance boundaries, so release must not fire ptt_release or drop
+    // forwarding — otherwise the session strands (looks live, drops chunks).
+    act(() => {
+      useLiveVoiceStore.getState().controls?.release();
+    });
+    expect(h.client.pttReleaseCount).toBe(0);
+    expect(h.view.result.current.state).toBe("listening");
+
+    // Forwarding is untouched: the next mic chunk still streams to the server.
+    act(() => {
+      h.getCapture().pushChunk(pcmChunk(20));
+    });
+    expect(h.client.sentAudio).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------
