@@ -1,9 +1,9 @@
 import type { DrizzleDb } from "../persistence/db-connection.js";
+import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../providers/inference/auth.js";
 import {
   createConnection,
   getConnection,
   MANAGED_CONNECTION_NAMES,
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   VELLUM_MANAGED_CONNECTION_NAME,
 } from "../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";

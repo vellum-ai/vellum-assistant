@@ -22,10 +22,10 @@ import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
 import { MANAGED_ROUTABLE_PROVIDERS } from "../vellum-model-routing.js";
+import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "./auth.js";
 import {
   createConnection,
   getConnection,
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   seedCanonicalConnections,
   VELLUM_MANAGED_CONNECTION_NAME,
 } from "./connections.js";

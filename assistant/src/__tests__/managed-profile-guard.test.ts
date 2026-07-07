@@ -122,7 +122,6 @@ mock.module("../providers/inference/connections.js", () => ({
   createConnection: () => ({ ok: false, error: { code: "already_exists" } }),
   getConnection: () => null,
   VELLUM_MANAGED_CONNECTION_NAME: "vellum",
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: new Set(["openai-compatible"]),
 }));
 
 import { ROUTES } from "../runtime/routes/conversation-query-routes.js";
