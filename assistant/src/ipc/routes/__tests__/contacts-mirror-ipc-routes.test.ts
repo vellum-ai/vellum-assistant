@@ -10,6 +10,7 @@ import { describe, expect, mock, test } from "bun:test";
 const upsertContactChannelCalls: unknown[] = [];
 const upsertContactCalls: unknown[] = [];
 const deleteContactCalls: unknown[] = [];
+const mergeContactMirrorCalls: unknown[] = [];
 
 // Spread the real modules so unrelated consumers (contact-routes) keep their
 // exports; override only the primitives the handlers delegate to.
@@ -33,6 +34,9 @@ mock.module("../../../contacts/contact-store.js", () => ({
   deleteContact: (id: unknown) => {
     deleteContactCalls.push(id);
   },
+  mergeContactMirror: (params: unknown) => {
+    mergeContactMirrorCalls.push(params);
+  },
 }));
 
 // The transactional method wraps ops in getDb().transaction(); run the callback
@@ -52,6 +56,7 @@ const {
   handleContactsMirrorUpsertChannel,
   handleContactsMirrorUpsertContact,
   handleContactsMirrorDeleteContact,
+  handleContactsMirrorMergeContact,
   handleContactsMirrorApply,
 } = await import("../contacts-mirror-ipc-routes.js");
 
@@ -64,6 +69,7 @@ const MIRROR_OPERATION_IDS = [
   "contacts_mirror_upsert_channel",
   "contacts_mirror_upsert_contact",
   "contacts_mirror_delete_contact",
+  "contacts_mirror_merge_contact",
   "contacts_mirror_apply",
 ] as const;
 
@@ -263,6 +269,50 @@ describe("contacts_mirror_delete_contact", () => {
   test("rejects a body missing contactId", () => {
     expect(() =>
       handleContactsMirrorDeleteContact({ body: {} }),
+    ).toThrow();
+  });
+});
+
+describe("contacts_mirror_merge_contact", () => {
+  test("delegates the parsed params to the transactional merge primitive", () => {
+    mergeContactMirrorCalls.length = 0;
+    const result = handleContactsMirrorMergeContact({
+      body: {
+        keepContactId: "co-keep",
+        mergeContactId: "co-merge",
+        keepDisplayName: "Keeper",
+        resolvedUserFile: "keeper.md",
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(mergeContactMirrorCalls).toEqual([
+      {
+        keepContactId: "co-keep",
+        mergeContactId: "co-merge",
+        keepDisplayName: "Keeper",
+        resolvedUserFile: "keeper.md",
+      },
+    ]);
+  });
+
+  test("rejects a self-merge", () => {
+    expect(() =>
+      handleContactsMirrorMergeContact({
+        body: {
+          keepContactId: "co-same",
+          mergeContactId: "co-same",
+          keepDisplayName: "Same",
+        },
+      }),
+    ).toThrow(/must differ/);
+  });
+
+  test("rejects a body missing keepDisplayName", () => {
+    expect(() =>
+      handleContactsMirrorMergeContact({
+        body: { keepContactId: "co-keep", mergeContactId: "co-merge" },
+      }),
     ).toThrow();
   });
 });

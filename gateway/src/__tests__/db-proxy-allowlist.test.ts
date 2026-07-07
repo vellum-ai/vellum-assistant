@@ -11,9 +11,9 @@ import { join, sep } from "node:path";
  * surface can only shrink, never grow.
  *
  * The proxy currently serves three groups (the allowlist below):
- *   1. The contact-merge identity-mirror cluster (`contact-store.ts`) — a
- *      notes-only survivor UPDATE and a resolved-slug dual-write INSERT that no
- *      existing typed mirror op expresses; pending a merge-shaped op.
+ *   1. The contact dual-write cluster (`contact-store.ts`,
+ *      `dualWriteContactToAssistantDb`) — pending its typed replacement; the
+ *      merge mirror is already the typed `contacts_mirror_merge_contact` op.
  *   2. Residual raw-SQL contact reads in `verification/contact-helpers.ts` —
  *      deferred cleanup.
  *   3. Data migrations — one-time backfills that legitimately touch the
@@ -30,9 +30,8 @@ const ALLOWLIST = new Set<string>([
   // identity/info reads and mirror writes are already typed IPC.
   "verification/contact-helpers.ts",
 
-  // Contact-merge identity-mirror cluster. Pending a merge-shaped op: a
-  // notes-only survivor UPDATE (must not overwrite the survivor's display
-  // name) and a resolved user_file slug seeded on the dual-write-gap INSERT.
+  // Contact dual-write cluster (dualWriteContactToAssistantDb) — the last raw
+  // writes in the file; the merge mirror is now a typed transactional op.
   "db/contact-store.ts",
 ]);
 

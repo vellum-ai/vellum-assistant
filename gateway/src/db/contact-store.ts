@@ -19,6 +19,7 @@ import {
   emptyContactInfo,
   fetchInfoForContacts,
 } from "./contacts-info-joiner.js";
+import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import {
   fetchContactsInfoBatch,
   lookupContactChannelIdentity,
@@ -291,7 +292,7 @@ export class ContactStore {
   // relay its full contact read responses through the gateway IPC surface.
   // Identity + ACL/channel fields come from the gateway DB (source of truth);
   // info fields (notes, contactType, interactionCount, lastInteraction) come
-  // from the assistant DB via assistantDbQuery. The assistant join is soft:
+  // from the assistant DB via typed daemon IPC. The assistant join is soft:
   // a failed or missing read degrades to gateway-DB-only values + a warning.
   //
   // Guardian display-name override is intentionally NOT applied here — the
@@ -1306,13 +1307,14 @@ export class ContactStore {
 
   /**
    * Merge two contacts: move channels from donor to survivor, delete the
-   * donor. Notes concatenation is best-effort to the assistant DB.
+   * donor. The assistant-DB identity mirror is best-effort.
    *
    * Gateway DB operations (channel move + donor delete) run in a single
-   * transaction. The assistant DB notes concat is best-effort: if it fails,
-   * the ACL state is still consistent (channels moved, donor gone) and the
-   * failure is logged. This is the same soft-fail pattern used for info
-   * reads throughout the contacts gateway.
+   * transaction. The mirror is one transactional daemon op
+   * (`contacts_mirror_merge_contact`: notes concat + channel reparent + donor
+   * delete), so it either fully applies or not at all — a failure is logged
+   * and left to reconciliation, same soft-fail pattern as info reads
+   * throughout the contacts gateway.
    *
    * Returns the survivor contact with channels + info, or throws if either
    * contact is not found in the gateway DB.
@@ -1394,147 +1396,34 @@ export class ContactStore {
       tx.delete(contacts).where(eq(contacts.id, mergeId)).run();
     });
 
-    // Best-effort: mirror the merge in the assistant DB (notes + channels + donor delete).
+    // Best-effort mirror: one transactional daemon op (notes concat + channel
+    // reparent + donor delete), so partial application is impossible and no
+    // compensation is needed — a failed mirror leaves a stale donor for
+    // reconciliation. The user_file slug is resolved here because its
+    // principal-sibling reuse needs the gateway DB; the daemon uses it only
+    // for the dual-write-gap INSERT of a survivor missing from the mirror.
     try {
-      await this.mergeInAssistantDb(
-        keepId,
-        mergeId,
+      const resolvedUserFile = await this.resolveAssistantUserFileSlug(
         keep.displayName,
         keep.principalId,
       );
+      await ipcCallAssistant("contacts_mirror_merge_contact", {
+        body: {
+          keepContactId: keepId,
+          mergeContactId: mergeId,
+          keepDisplayName: keep.displayName,
+          resolvedUserFile,
+        },
+      });
     } catch (err) {
       log.warn(
         { keepId, mergeId, err },
         "mergeContacts: assistant DB mirror failed (best-effort)",
       );
-      // The gateway DB donor is already gone, but if the assistant DB
-      // donor lingers it will reappear in search-style queries (query,
-      // channelAddress, channelType, contactType) that still proxy to
-      // the daemon. Best-effort: move donor channels to survivor, then
-      // delete the donor. Channel move must happen first because the
-      // assistant DB cascades contact_channel deletion on contact delete.
-      // If the reparent fails (e.g. FK violation because the survivor row
-      // is missing from the assistant DB), skip the delete — cascading
-      // would wipe the donor's channels, which is worse than a stale
-      // donor row that reconciliation can clean up later.
-      let reparentOk = false;
-      try {
-        await this.reparentDonorChannelsInAssistantDb(keepId, mergeId);
-        reparentOk = true;
-      } catch (chErr) {
-        log.warn(
-          { keepId, mergeId, chErr },
-          "mergeContacts: compensation channel reparent failed — skipping donor delete to preserve channels",
-        );
-      }
-      if (reparentOk) {
-        try {
-          await assistantDbRun("DELETE FROM contacts WHERE id = ?", [mergeId]);
-        } catch (deleteErr) {
-          log.error(
-            { keepId, mergeId, deleteErr },
-            "mergeContacts: assistant DB donor delete failed — donor may reappear in search results until reconciled",
-          );
-        }
-      }
     }
 
     // Read back the survivor with info join.
     return this.getContactWithInfo(keepId);
-  }
-
-  /**
-   * Mirror the merge in the assistant DB: concatenate notes, move donor
-   * channels to survivor, delete the donor. Best-effort — failures are
-   * logged by the caller.
-   *
-   * Order matters: notes concat → channel move → donor delete. If the
-   * survivor doesn't exist in the assistant DB (dual-write gap), we insert
-   * it with the combined notes so donor notes aren't lost when the donor
-   * row is deleted.
-   */
-  private async mergeInAssistantDb(
-    keepId: string,
-    mergeId: string,
-    keepDisplayName: string,
-    keepPrincipalId: string | null,
-  ): Promise<void> {
-    const now = Date.now();
-
-    // 1. Concatenate notes.
-    const rows = await assistantDbQuery<{ id: string; notes: string | null }>(
-      "SELECT id, notes FROM contacts WHERE id IN (?, ?)",
-      [keepId, mergeId],
-    );
-    const keepNotes = rows.find((r) => r.id === keepId)?.notes ?? null;
-    const mergeNotes = rows.find((r) => r.id === mergeId)?.notes ?? null;
-    const combined = [keepNotes, mergeNotes].filter(Boolean).join("\n") || null;
-
-    // Try UPDATE first. If the survivor row doesn't exist in the assistant
-    // DB (dual-write gap), INSERT it with the combined notes.
-    const updateResult = await assistantDbRun(
-      "UPDATE contacts SET notes = ?, updated_at = ? WHERE id = ?",
-      [combined, String(now), keepId],
-    );
-
-    if (updateResult.changes === 0) {
-      // Survivor row missing from assistant DB — create it with combined notes.
-      const userFile = await this.resolveAssistantUserFileSlug(
-        keepDisplayName,
-        keepPrincipalId,
-      );
-      await assistantDbRun(
-        `INSERT INTO contacts (id, display_name, notes, contact_type, user_file, created_at, updated_at)
-         VALUES (?, ?, ?, 'human', ?, ?, ?)`,
-        [
-          keepId,
-          keepDisplayName,
-          combined,
-          userFile,
-          String(now),
-          String(now),
-        ],
-      );
-    }
-    // 2. Move donor channels to survivor (skip dups by logical key).
-    await this.reparentDonorChannelsInAssistantDb(keepId, mergeId);
-
-    // 3. Delete the donor (cascade removes remaining duplicate channels).
-    await assistantDbRun("DELETE FROM contacts WHERE id = ?", [mergeId]);
-  }
-
-  /**
-   * Move donor channels to survivor in the assistant DB, skipping
-   * duplicates by logical key (type + address COLLATE NOCASE). Used by
-   * both the happy-path mirror and the compensation path after a mirror
-   * failure. Must run before any donor delete to avoid cascade-wiping
-   * channels that haven't been reparented yet.
-   */
-  private async reparentDonorChannelsInAssistantDb(
-    keepId: string,
-    mergeId: string,
-  ): Promise<void> {
-    const now = Date.now();
-    const donorChannels = await assistantDbQuery<{
-      id: string;
-      type: string;
-      address: string;
-    }>("SELECT id, type, address FROM contact_channels WHERE contact_id = ?", [
-      mergeId,
-    ]);
-
-    for (const ch of donorChannels) {
-      const exists = await assistantDbQuery<{ id: string }>(
-        "SELECT id FROM contact_channels WHERE contact_id = ? AND type = ? AND address = ? COLLATE NOCASE",
-        [keepId, ch.type, ch.address],
-      );
-      if (exists.length === 0) {
-        await assistantDbRun(
-          "UPDATE contact_channels SET contact_id = ?, updated_at = ? WHERE id = ?",
-          [keepId, String(now), ch.id],
-        );
-      }
-    }
   }
 
   // ---------------------------------------------------------------------------

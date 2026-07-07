@@ -1,11 +1,11 @@
 /**
  * Tests for ContactStore.mergeContacts — gateway-native contact merge.
  *
- * Focus: the assistant-DB mirror soft-fail path. When mergeInAssistantDb
- * throws, the gateway transaction (channel move + donor delete) has already
- * committed. The catch block must still attempt to delete the donor from the
- * assistant DB so that search-style queries (which proxy to the daemon) don't
- * resurrect the merged-away contact.
+ * The assistant-DB mirror is ONE transactional daemon op
+ * (`contacts_mirror_merge_contact`), so there is no compensation path: these
+ * tests pin that the gateway sends the op with the survivor's identity
+ * (display name + gateway-resolved user_file slug), that a mirror failure is
+ * soft (gateway merge still succeeds), and that no raw db_proxy SQL runs.
  */
 
 import {
@@ -20,155 +20,42 @@ import {
 
 import "./test-preload.js";
 
-// ── Fake assistant DB ──────────────────────────────────────────────────────
+// ── Mocked daemon IPC ────────────────────────────────────────────────────────
 
-type FakeContactRow = {
-  id: string;
-  display_name: string;
-  notes: string | null;
-  role: string | null;
-  contact_type: string | null;
-  principal_id: string | null;
-  user_file: string | null;
-  created_at: number;
-  updated_at: number | null;
-};
+type IpcCall = { method: string; params?: Record<string, unknown> };
 
-type FakeChannelRow = {
-  id: string;
-  contact_id: string;
-  type: string;
-  address: string;
-  is_primary: number;
-  external_user_id: string | null;
-  external_chat_id: string | null;
-  status: string;
-  policy: string;
-  verified_at: number | null;
-  verified_via: string | null;
-  invite_id: string | null;
-  revoked_reason: string | null;
-  blocked_reason: string | null;
-  last_seen_at: number | null;
-  interaction_count: number;
-  last_interaction: number | null;
-  created_at: number;
-  updated_at: number | null;
-};
+const ipcCalls: IpcCall[] = [];
+// Method name → error to throw on the next call to it.
+const ipcThrowOn = new Map<string, Error>();
 
-const fakeAssistantDb = {
-  contacts: new Map<string, FakeContactRow>(),
-  channels: new Map<string, FakeChannelRow>(),
-  runCalls: [] as { sql: string; bind?: unknown[] }[],
-  queryCalls: [] as { sql: string; bind?: unknown[] }[],
-  // When set, the next N assistantDbRun calls throw this error.
-  runThrowQueue: [] as Error[],
-  // When set, the next N assistantDbQuery calls throw this error.
-  queryThrowQueue: [] as Error[],
-  reset(): void {
-    this.contacts.clear();
-    this.channels.clear();
-    this.runCalls = [];
-    this.queryCalls = [];
-    this.runThrowQueue = [];
-    this.queryThrowQueue = [];
-  },
-};
+mock.module("../ipc/assistant-client.js", () => ({
+  ipcCallAssistant: mock(
+    async (method: string, params?: Record<string, unknown>) => {
+      ipcCalls.push({ method, params });
+      const err = ipcThrowOn.get(method);
+      if (err) {
+        ipcThrowOn.delete(method);
+        throw err;
+      }
+      if (method === "contacts_info_batch") return { infos: [] };
+      if (method === "contact_user_file_slugs") return { userFiles: [] };
+      return {};
+    },
+  ),
+}));
 
+// The raw-SQL bridge must stay untouched by merges (no compensation path).
+const dbProxyRunCalls: { sql: string; bind?: unknown[] }[] = [];
 mock.module("../db/assistant-db-proxy.js", () => ({
   assistantDbRun: mock(async (sql: string, bind?: unknown[]) => {
-    fakeAssistantDb.runCalls.push({ sql, bind });
-    if (fakeAssistantDb.runThrowQueue.length > 0) {
-      throw fakeAssistantDb.runThrowQueue.shift()!;
-    }
-    const lower = sql.toLowerCase().trim();
-    if (lower.startsWith("delete from contacts")) {
-      const id = String(bind?.[0] ?? "");
-      fakeAssistantDb.contacts.delete(id);
-      // Cascade: remove channels still pointing at the deleted contact.
-      for (const [chId, ch] of fakeAssistantDb.channels) {
-        if (ch.contact_id === id) {
-          fakeAssistantDb.channels.delete(chId);
-        }
-      }
-      return { changes: 1, lastInsertRowid: 0 };
-    }
-    if (lower.startsWith("delete from contact_channels")) {
-      for (const [id, ch] of fakeAssistantDb.channels) {
-        if (ch.contact_id === String(bind?.[0] ?? "")) {
-          fakeAssistantDb.channels.delete(id);
-        }
-      }
-      return { changes: 1, lastInsertRowid: 0 };
-    }
-    if (lower.startsWith("update contacts")) {
-      return { changes: 1, lastInsertRowid: 0 };
-    }
-    if (lower.startsWith("update contact_channels")) {
-      // Parse: UPDATE contact_channels SET contact_id = ?, updated_at = ? WHERE id = ?
-      if (bind && bind.length >= 3) {
-        const newContactId = String(bind[0]);
-        const channelId = String(bind[2]);
-        const ch = fakeAssistantDb.channels.get(channelId);
-        if (ch) {
-          ch.contact_id = newContactId;
-        }
-      }
-      return { changes: 1, lastInsertRowid: 0 };
-    }
-    if (lower.startsWith("insert into contacts")) {
-      return { changes: 1, lastInsertRowid: 0 };
-    }
+    dbProxyRunCalls.push({ sql, bind });
     return { changes: 0, lastInsertRowid: 0 };
   }),
-  assistantDbQuery: mock(async (sql: string, bind?: unknown[]) => {
-    fakeAssistantDb.queryCalls.push({ sql, bind });
-    if (fakeAssistantDb.queryThrowQueue.length > 0) {
-      throw fakeAssistantDb.queryThrowQueue.shift()!;
-    }
-    const lower = sql.toLowerCase();
-    if (lower.includes("from contacts") && lower.includes("where id in")) {
-      // SELECT id, notes FROM contacts WHERE id IN (?, ?)
-      const ids = bind ?? [];
-      const rows: { id: string; notes: string | null }[] = [];
-      for (const id of ids) {
-        const row = fakeAssistantDb.contacts.get(String(id));
-        if (row) rows.push({ id: row.id, notes: row.notes });
-      }
-      return rows;
-    }
-    if (
-      lower.includes("from contact_channels") &&
-      lower.includes("where contact_id")
-    ) {
-      const cid = String(bind?.[0] ?? "");
-      const rows: { id: string; type: string; address: string }[] = [];
-      for (const ch of fakeAssistantDb.channels.values()) {
-        if (ch.contact_id === cid) {
-          rows.push({ id: ch.id, type: ch.type, address: ch.address });
-        }
-      }
-      return rows;
-    }
-    if (
-      lower.includes("from contact_channels") &&
-      lower.includes("contact_id = ? and type = ? and address")
-    ) {
-      // Duplicate check — return empty so the move always happens.
-      return [];
-    }
-    if (lower.includes("from contacts") && lower.includes("user_file like")) {
-      return [];
-    }
-    if (lower.includes("from contacts") && lower.includes("principal_id")) {
-      return [];
-    }
-    return [];
-  }),
+  assistantDbQuery: mock(async () => []),
   assistantDbExec: mock(async () => undefined),
 }));
 
-// ── Imports ────────────────────────────────────────────────────────────────
+// ── Imports ──────────────────────────────────────────────────────────────────
 
 import { ContactStore } from "../db/contact-store.js";
 import {
@@ -178,7 +65,7 @@ import {
 } from "../db/connection.js";
 import { contacts, contactChannels } from "../db/schema.js";
 
-// ── Setup ──────────────────────────────────────────────────────────────────
+// ── Setup ────────────────────────────────────────────────────────────────────
 
 beforeAll(async () => {
   await initGatewayDb();
@@ -188,7 +75,9 @@ beforeEach(() => {
   const db = getGatewayDb();
   db.delete(contactChannels).run();
   db.delete(contacts).run();
-  fakeAssistantDb.reset();
+  ipcCalls.length = 0;
+  ipcThrowOn.clear();
+  dbProxyRunCalls.length = 0;
 });
 
 afterAll(() => {
@@ -236,100 +125,17 @@ function seedChannel(opts: {
     .run();
 }
 
-function seedAssistantContact(id: string, notes: string | null = null): void {
-  fakeAssistantDb.contacts.set(id, {
-    id,
-    display_name: `name-${id}`,
-    notes,
-    role: "contact",
-    contact_type: "human",
-    principal_id: `prin-${id}`,
-    user_file: null,
-    created_at: 100,
-    updated_at: 100,
-  });
+function mirrorMergeCalls(): IpcCall[] {
+  return ipcCalls.filter((c) => c.method === "contacts_mirror_merge_contact");
 }
 
-function seedAssistantChannel(opts: {
-  id: string;
-  contactId: string;
-  type?: string;
-  address?: string;
-}): void {
-  fakeAssistantDb.channels.set(opts.id, {
-    id: opts.id,
-    contact_id: opts.contactId,
-    type: opts.type ?? "slack",
-    address: opts.address ?? `addr-${opts.id}`,
-    is_primary: 0,
-    external_user_id: null,
-    external_chat_id: null,
-    status: "active",
-    policy: "allow",
-    verified_at: null,
-    verified_via: null,
-    invite_id: null,
-    revoked_reason: null,
-    blocked_reason: null,
-    last_seen_at: null,
-    interaction_count: 0,
-    last_interaction: null,
-    created_at: 100,
-    updated_at: 100,
-  });
-}
+// ── Tests ────────────────────────────────────────────────────────────────────
 
-// ── Tests ──────────────────────────────────────────────────────────────────
-
-describe("ContactStore.mergeContacts — assistant DB mirror soft-fail", () => {
-  test("compensates donor delete when assistant DB mirror throws", async () => {
-    // Gateway DB: two contacts, donor has a channel.
+describe("ContactStore.mergeContacts — typed transactional mirror", () => {
+  test("sends ONE contacts_mirror_merge_contact op with the survivor identity", async () => {
     seedContact("ct_keep", "contact");
     seedContact("ct_merge", "contact");
     seedChannel({ id: "ch_1", contactId: "ct_merge" });
-
-    // Assistant DB: both contacts + donor channel exist.
-    seedAssistantContact("ct_keep", "keep notes");
-    seedAssistantContact("ct_merge", "merge notes");
-    seedAssistantChannel({ id: "ch_1", contactId: "ct_merge" });
-
-    // Make the first assistantDbRun throw — this will cause
-    // mergeInAssistantDb to throw at the notes-concat UPDATE step.
-    fakeAssistantDb.runThrowQueue.push(new Error("assistant DB unavailable"));
-
-    const store = new ContactStore();
-    const result = await store.mergeContacts("ct_keep", "ct_merge");
-
-    // Merge succeeded (gateway DB is source of truth).
-    expect(result).not.toBeNull();
-    expect(result!.id).toBe("ct_keep");
-
-    // The compensation DELETE should have been called for the donor.
-    const deleteCalls = fakeAssistantDb.runCalls.filter((c) =>
-      c.sql.toLowerCase().trim().startsWith("delete from contacts"),
-    );
-    const donorDeleteCalls = deleteCalls.filter(
-      (c) => String(c.bind?.[0]) === "ct_merge",
-    );
-    expect(donorDeleteCalls.length).toBeGreaterThanOrEqual(1);
-
-    // The donor should be gone from the assistant DB fake.
-    expect(fakeAssistantDb.contacts.has("ct_merge")).toBe(false);
-
-    // The donor channel should have been reparented to the survivor
-    // before the delete (not cascade-wiped).
-    const reparented = fakeAssistantDb.channels.get("ch_1");
-    expect(reparented).toBeDefined();
-    expect(reparented!.contact_id).toBe("ct_keep");
-  });
-
-  test("merge succeeds and donor is deleted from assistant DB on happy path", async () => {
-    seedContact("ct_keep", "contact");
-    seedContact("ct_merge", "contact");
-    seedChannel({ id: "ch_1", contactId: "ct_merge" });
-
-    seedAssistantContact("ct_keep", "keep notes");
-    seedAssistantContact("ct_merge", "merge notes");
 
     const store = new ContactStore();
     const result = await store.mergeContacts("ct_keep", "ct_merge");
@@ -337,10 +143,20 @@ describe("ContactStore.mergeContacts — assistant DB mirror soft-fail", () => {
     expect(result).not.toBeNull();
     expect(result!.id).toBe("ct_keep");
 
-    // Donor deleted from assistant DB.
-    expect(fakeAssistantDb.contacts.has("ct_merge")).toBe(false);
-    // Survivor still present.
-    expect(fakeAssistantDb.contacts.has("ct_keep")).toBe(true);
+    const calls = mirrorMergeCalls();
+    expect(calls).toHaveLength(1);
+    expect(calls[0].params).toEqual({
+      body: {
+        keepContactId: "ct_keep",
+        mergeContactId: "ct_merge",
+        keepDisplayName: "name-ct_keep",
+        // Gateway-resolved slug for the dual-write-gap survivor INSERT.
+        resolvedUserFile: "name-ct-keep.md",
+      },
+    });
+
+    // The typed op is the ONLY mirror write — no raw db_proxy SQL.
+    expect(dbProxyRunCalls).toHaveLength(0);
   });
 
   test("returns survivor and moves channel in gateway DB", async () => {
@@ -369,71 +185,68 @@ describe("ContactStore.mergeContacts — assistant DB mirror soft-fail", () => {
     expect(remaining.find((c) => c.id === "ct_keep")).toBeDefined();
   });
 
-  test("compensation delete failure logs error but merge still succeeds", async () => {
+  test("mirror op failure is soft: merge succeeds, NO compensation writes", async () => {
     seedContact("ct_keep", "contact");
     seedContact("ct_merge", "contact");
     seedChannel({ id: "ch_1", contactId: "ct_merge" });
 
-    seedAssistantContact("ct_keep", "keep notes");
-    seedAssistantContact("ct_merge", "merge notes");
-
-    // Queue two errors: first kills mergeInAssistantDb, second kills the
-    // compensation delete. The merge should still succeed (gateway DB).
-    fakeAssistantDb.runThrowQueue.push(new Error("assistant DB unavailable"));
-    fakeAssistantDb.runThrowQueue.push(new Error("assistant DB still down"));
+    ipcThrowOn.set(
+      "contacts_mirror_merge_contact",
+      new Error("daemon unavailable"),
+    );
 
     const store = new ContactStore();
     const result = await store.mergeContacts("ct_keep", "ct_merge");
 
+    // Merge succeeded (gateway DB is source of truth).
     expect(result).not.toBeNull();
     expect(result!.id).toBe("ct_keep");
 
-    // Donor still in assistant DB (both attempts failed) — but gateway is
-    // consistent. The error is logged for reconciliation.
-    expect(fakeAssistantDb.contacts.has("ct_merge")).toBe(true);
+    // The daemon op is transactional, so a failure means NOTHING applied —
+    // there is no compensation: no raw db_proxy SQL, no piecemeal mirror ops.
+    expect(dbProxyRunCalls).toHaveLength(0);
+    const methods = ipcCalls.map((c) => c.method);
+    expect(methods).not.toContain("contacts_mirror_delete_contact");
+    expect(methods).not.toContain("contacts_mirror_upsert_channel");
+    expect(mirrorMergeCalls()).toHaveLength(1);
   });
 
-  test("skips donor delete when compensation reparent fails (preserves channels)", async () => {
+  test("user_file slug resolution failure is soft: merge succeeds, mirror skipped", async () => {
     seedContact("ct_keep", "contact");
     seedContact("ct_merge", "contact");
-    seedChannel({ id: "ch_1", contactId: "ct_merge" });
 
-    seedAssistantContact("ct_keep", "keep notes");
-    seedAssistantContact("ct_merge", "merge notes");
-    seedAssistantChannel({ id: "ch_1", contactId: "ct_merge" });
-
-    // First throw kills mergeInAssistantDb (notes concat step).
-    // Then make the reparent query throw by queueing an error for the
-    // SELECT from contact_channels call.
-    fakeAssistantDb.runThrowQueue.push(new Error("assistant DB unavailable"));
-    // The reparent uses assistantDbQuery (not run), so we need to make
-    // the query throw. We'll use a queryThrowQueue.
-    fakeAssistantDb.queryThrowQueue.push(
-      new Error("FK violation: survivor row missing"),
-    );
+    ipcThrowOn.set("contact_user_file_slugs", new Error("daemon unavailable"));
 
     const store = new ContactStore();
     const result = await store.mergeContacts("ct_keep", "ct_merge");
 
     expect(result).not.toBeNull();
     expect(result!.id).toBe("ct_keep");
+    // Mirror op never sent (resolution failed first), and still no raw SQL.
+    expect(mirrorMergeCalls()).toHaveLength(0);
+    expect(dbProxyRunCalls).toHaveLength(0);
 
-    // Donor should still exist in assistant DB — delete was skipped
-    // because reparent failed.
-    expect(fakeAssistantDb.contacts.has("ct_merge")).toBe(true);
+    // Gateway DB is still consistent: donor gone.
+    const remaining = getGatewayDb().select().from(contacts).all();
+    expect(remaining.find((c) => c.id === "ct_merge")).toBeUndefined();
+  });
 
-    // Donor channel should still exist (not cascade-wiped).
-    const ch = fakeAssistantDb.channels.get("ch_1");
-    expect(ch).toBeDefined();
-    expect(ch!.contact_id).toBe("ct_merge");
+  test("guardian donor is rejected before any DB or mirror write", async () => {
+    seedContact("ct_keep", "contact");
+    seedContact("ct_guardian", "guardian");
 
-    // No DELETE FROM contacts should have been called for the donor
-    // on the compensation path.
-    const donorDeleteCalls = fakeAssistantDb.runCalls.filter(
-      (c) =>
-        c.sql.toLowerCase().trim().startsWith("delete from contacts") &&
-        String(c.bind?.[0]) === "ct_merge",
-    );
-    expect(donorDeleteCalls.length).toBe(0);
+    const store = new ContactStore();
+    await expect(
+      store.mergeContacts("ct_keep", "ct_guardian"),
+    ).rejects.toThrow(/guardian/i);
+
+    expect(mirrorMergeCalls()).toHaveLength(0);
+    expect(
+      getGatewayDb()
+        .select()
+        .from(contacts)
+        .all()
+        .find((c) => c.id === "ct_guardian"),
+    ).toBeDefined();
   });
 });

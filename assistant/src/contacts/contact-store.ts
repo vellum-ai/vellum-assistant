@@ -701,6 +701,93 @@ export function mergeContacts(
 }
 
 /**
+ * Identity-mirror merge for the gateway's `contacts_mirror_merge_contact` op:
+ * concat donor notes onto the survivor (notes-only — never clobbers the
+ * survivor's display name), reparent donor channels by (type, address
+ * NOCASE), delete the donor. One transaction. A donor already gone is a no-op
+ * (idempotent gateway retry); a survivor missing from the mirror (dual-write
+ * gap) is inserted with the combined notes so donor notes survive the delete.
+ */
+export function mergeContactMirror(params: {
+  keepContactId: string;
+  mergeContactId: string;
+  keepDisplayName: string;
+  resolvedUserFile?: string;
+}): void {
+  const db = getDb();
+
+  const applied = db.transaction((tx) => {
+    const donor = tx
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, params.mergeContactId))
+      .get();
+    if (!donor) return false;
+
+    const now = Date.now();
+    const survivor = tx
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, params.keepContactId))
+      .get();
+    const combined =
+      [survivor?.notes ?? null, donor.notes].filter(Boolean).join("\n") ||
+      null;
+
+    if (survivor) {
+      tx.update(contacts)
+        .set({ notes: combined, updatedAt: now })
+        .where(eq(contacts.id, params.keepContactId))
+        .run();
+    } else {
+      tx.insert(contacts)
+        .values({
+          id: params.keepContactId,
+          displayName: params.keepDisplayName,
+          notes: combined,
+          contactType: "human",
+          userFile: params.resolvedUserFile ?? null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+
+    // Move donor channels to the survivor, skipping duplicates by logical key.
+    const donorChannels = tx
+      .select()
+      .from(contactChannels)
+      .where(eq(contactChannels.contactId, params.mergeContactId))
+      .all();
+    for (const ch of donorChannels) {
+      const exists = tx
+        .select()
+        .from(contactChannels)
+        .where(
+          and(
+            eq(contactChannels.contactId, params.keepContactId),
+            eq(contactChannels.type, ch.type),
+            sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
+          ),
+        )
+        .get();
+      if (!exists) {
+        tx.update(contactChannels)
+          .set({ contactId: params.keepContactId, updatedAt: now })
+          .where(eq(contactChannels.id, ch.id))
+          .run();
+      }
+    }
+
+    // Delete the donor (cascade removes remaining duplicate channels).
+    tx.delete(contacts).where(eq(contacts.id, params.mergeContactId)).run();
+    return true;
+  });
+
+  if (applied) notifyContactsChanged();
+}
+
+/**
  * Find a contact by a specific channel address. Returns null if not found.
  * Canonicalizes the address before querying. Uses COLLATE NOCASE to match
  * legacy lowercased rows that migration 290 couldn't restore.
