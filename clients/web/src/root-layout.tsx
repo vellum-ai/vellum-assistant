@@ -296,6 +296,14 @@ export function RootLayout() {
     location.pathname,
     location.search,
   );
+  // The app shell owns the top safe-area inset for the primary web/mobile
+  // surface: whatever renders topmost — the status banner when present, else
+  // the active route's own header — sits directly below the notch. Electron,
+  // popouts, and onboarding manage their own top inset, so the shell defers to
+  // them. This keeps a single owner of the top inset per context and avoids
+  // the banner and a route header both reserving it (a doubled gap).
+  const appShellOwnsTopInset =
+    !electron && !isPopout && !suppressStatusBanner;
 
   return (
     <div
@@ -308,7 +316,11 @@ export function RootLayout() {
             ? `${visibleViewport.height + keyboardOffsetTop}px`
             : "100dvh",
         paddingTop:
-          keyboardOffsetTop > 0 ? `${keyboardOffsetTop}px` : undefined,
+          keyboardOffsetTop > 0
+            ? `${keyboardOffsetTop}px`
+            : appShellOwnsTopInset
+              ? "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))"
+              : undefined,
         paddingBottom: keyboardOpen
           ? "0px"
           : "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
@@ -322,9 +334,7 @@ export function RootLayout() {
       }}
     >
       <UpdateToast />
-      {!electron && !isPopout && !suppressStatusBanner ? (
-        <StatusBanner placement="web" reserveTopSafeArea />
-      ) : null}
+      {appShellOwnsTopInset ? <StatusBanner placement="web" /> : null}
       <div
         className="flex min-w-0 flex-col overflow-hidden w-full"
         style={{ flex: "1 1 0%", minHeight: 0 }}
