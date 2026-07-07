@@ -16,6 +16,7 @@
     "lint": "eslint",
     "audit:cross-domain": "node scripts/audit-cross-domain-imports.mjs",
     "audit:cross-domain:check": "node scripts/audit-cross-domain-imports.mjs --check",
+    "generate:nav-manifest": "bun run scripts/generate-navigation-manifest.ts",
     "pretypecheck": "bun run openapi-ts",
     "typecheck": "bunx tsc --noEmit",
     "postinstall": "test -d src/generated || bun run openapi-ts",

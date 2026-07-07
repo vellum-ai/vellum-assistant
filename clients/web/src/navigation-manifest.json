@@ -1,0 +1,551 @@
+{
+  "version": 1,
+  "pages": [
+    {
+      "key": "assistant",
+      "path": "/assistant",
+      "label": "Chat",
+      "section": "App",
+      "description": "The main chat surface (default/new conversation) where you type a message to your assistant.",
+      "features": [
+        "chat",
+        "new conversation",
+        "ask assistant",
+        "message",
+        "compose"
+      ]
+    },
+    {
+      "key": "channels",
+      "path": "/assistant/channels",
+      "label": "Channels",
+      "section": "About Assistant",
+      "description": "Connect messaging channels (e.g. Slack, Telegram) and invite people to reach the assistant.",
+      "features": [
+        "channels",
+        "slack",
+        "telegram",
+        "connect channel",
+        "invite",
+        "messaging"
+      ]
+    },
+    {
+      "key": "connect",
+      "path": "/assistant/connect",
+      "label": "Connect",
+      "section": "App",
+      "description": "Confirmation page for accepting an assistant-to-assistant invite link, creating a trusted connection (requires ?senderAssistantId= and ?token=).",
+      "features": [
+        "connect assistants",
+        "invite link",
+        "a2a connection",
+        "accept invite"
+      ]
+    },
+    {
+      "key": "contacts.root",
+      "path": "/assistant/contacts",
+      "label": "Contacts",
+      "section": "About Assistant",
+      "description": "Contacts and their connected channels (Slack, Telegram, email), plus invite links to connect people.",
+      "features": [
+        "contacts",
+        "connections",
+        "invite",
+        "address book"
+      ]
+    },
+    {
+      "key": "conversation",
+      "path": "/assistant/conversations/:key",
+      "label": "Conversation",
+      "section": "App",
+      "description": "A single conversation's chat transcript and composer; supports ?message= to scroll to and highlight a message.",
+      "dynamic": true,
+      "features": [
+        "chat",
+        "conversation",
+        "messages",
+        "transcript",
+        "reply",
+        "thread"
+      ]
+    },
+    {
+      "key": "document",
+      "path": "/assistant/documents/:surfaceId",
+      "label": "Document",
+      "section": "App",
+      "description": "Full-page viewer for a single document, with a comments panel, PDF rendering and an edit-in-chat path.",
+      "dynamic": true,
+      "features": [
+        "document",
+        "view document",
+        "comments",
+        "pdf",
+        "edit document"
+      ]
+    },
+    {
+      "key": "home",
+      "path": "/assistant/home",
+      "label": "Activity",
+      "section": "App",
+      "description": "The Activity page opened on the Notifications tab — a feed of recaps and notifications from your assistant; the Schedules tab lives alongside it (path-based, not ?tab=).",
+      "features": [
+        "activity",
+        "notifications",
+        "recap",
+        "feed",
+        "home",
+        "updates"
+      ]
+    },
+    {
+      "key": "identity",
+      "path": "/assistant/identity",
+      "label": "Identity",
+      "section": "About Assistant",
+      "description": "View and edit the assistant's name, avatar, personality and traits.",
+      "features": [
+        "identity",
+        "name",
+        "avatar",
+        "personality",
+        "traits",
+        "rename"
+      ]
+    },
+    {
+      "key": "inspect",
+      "path": "/assistant/conversations/:conversationId/inspect",
+      "label": "Context Inspector",
+      "section": "App",
+      "description": "The LLM context inspector for one conversation, showing the exact context sent to the model with a per-message scope selector and ZIP export.",
+      "dynamic": true,
+      "features": [
+        "llm context",
+        "prompt",
+        "context inspector",
+        "tokens",
+        "export zip",
+        "debug"
+      ]
+    },
+    {
+      "key": "library.app",
+      "path": "/assistant/library/:slug",
+      "label": "App",
+      "section": "App",
+      "description": "Detail view for a single library app, with an Open action.",
+      "dynamic": true,
+      "features": [
+        "app",
+        "open app",
+        "library app",
+        "launch app"
+      ]
+    },
+    {
+      "key": "library.root",
+      "path": "/assistant/library",
+      "label": "Library",
+      "section": "App",
+      "description": "The library of the assistant's apps and documents with search, an Import action, and Pinned and Recents sections.",
+      "features": [
+        "library",
+        "apps",
+        "documents",
+        "pinned",
+        "recents",
+        "import"
+      ]
+    },
+    {
+      "key": "logs.emails",
+      "path": "/assistant/logs/emails",
+      "label": "Emails",
+      "section": "Logs",
+      "description": "Log of emails your assistant sent, with totals and a list of recent emails (platform-hosted only).",
+      "features": [
+        "emails",
+        "sent emails",
+        "email log",
+        "email history"
+      ]
+    },
+    {
+      "key": "logs.root",
+      "path": "/assistant/logs",
+      "label": "Logs",
+      "section": "Logs",
+      "description": "Entry point to Logs & Usage; the index renders the Usage view, with sibling tabs for Emails and System Events.",
+      "features": [
+        "logs",
+        "usage",
+        "cost",
+        "tokens",
+        "analytics",
+        "spend"
+      ]
+    },
+    {
+      "key": "logs.systemEvents",
+      "path": "/assistant/logs/system-events",
+      "label": "System Events",
+      "section": "Logs",
+      "description": "Feed of system events for a platform-hosted assistant (lifecycle and activity audit trail).",
+      "features": [
+        "system events",
+        "events",
+        "activity log",
+        "audit",
+        "history"
+      ]
+    },
+    {
+      "key": "logs.usage",
+      "path": "/assistant/logs/usage",
+      "label": "Usage",
+      "section": "Logs",
+      "description": "Inference usage and cost analytics with totals and a breakdown chart, groupable by schedule and filterable by time range (?range=, ?groupBy=).",
+      "features": [
+        "usage",
+        "inference usage",
+        "cost",
+        "tokens",
+        "breakdown",
+        "spend"
+      ]
+    },
+    {
+      "key": "plugins",
+      "path": "/assistant/plugins",
+      "label": "Plugins",
+      "section": "About Assistant",
+      "description": "Catalog to browse and install plugins that extend the assistant (?plugin= deep-links a plugin's detail).",
+      "features": [
+        "plugins",
+        "install plugin",
+        "plugin catalog",
+        "extensions",
+        "add-ons"
+      ]
+    },
+    {
+      "key": "schedules.detail",
+      "path": "/assistant/schedules/:scheduleId",
+      "label": "Schedule",
+      "section": "App",
+      "description": "The Schedules tab with a specific schedule's drawer focused, for viewing or editing that scheduled task.",
+      "dynamic": true,
+      "features": [
+        "schedule",
+        "scheduled task",
+        "edit schedule",
+        "automation"
+      ]
+    },
+    {
+      "key": "schedules.root",
+      "path": "/assistant/schedules",
+      "label": "Schedules",
+      "section": "App",
+      "description": "The Activity page opened on the Schedules tab, listing the assistant's scheduled and recurring tasks.",
+      "features": [
+        "schedules",
+        "scheduled tasks",
+        "recurring tasks",
+        "automations",
+        "reminders"
+      ]
+    },
+    {
+      "key": "settings.advanced",
+      "path": "/assistant/settings/advanced",
+      "label": "Advanced",
+      "section": "Settings",
+      "description": "Advanced settings for the automatic-update window and the assistant memory toggle (remembering information from past conversations).",
+      "features": [
+        "advanced",
+        "update window",
+        "automatic updates",
+        "memory",
+        "remember conversations"
+      ]
+    },
+    {
+      "key": "settings.ai",
+      "path": "/assistant/settings/ai",
+      "label": "Models & Services",
+      "section": "Settings",
+      "description": "Configure the language model and connected services — web search, web fetch, email, image generation, text-to-speech and speech-to-text (including provider API keys).",
+      "features": [
+        "language model",
+        "model",
+        "web search",
+        "image generation",
+        "text-to-speech",
+        "speech-to-text",
+        "api key"
+      ]
+    },
+    {
+      "key": "settings.archive",
+      "path": "/assistant/settings/archive",
+      "label": "Archive",
+      "section": "Settings",
+      "description": "List of archived conversations with the ability to unarchive them.",
+      "features": [
+        "archive",
+        "archived conversations",
+        "unarchive",
+        "restore conversation"
+      ]
+    },
+    {
+      "key": "settings.billing",
+      "path": "/assistant/settings/billing",
+      "label": "Billing",
+      "section": "Settings",
+      "description": "Billing and subscription management — plan, upgrade, payment methods, usage, and referrals.",
+      "features": [
+        "billing",
+        "plan",
+        "upgrade",
+        "payment methods",
+        "referral",
+        "subscription"
+      ]
+    },
+    {
+      "key": "settings.bookmarks",
+      "path": "/assistant/settings/bookmarks",
+      "label": "Bookmarks",
+      "section": "Settings",
+      "description": "Saved message bookmarks, with an Open link back to the message and a remove action.",
+      "features": [
+        "bookmarks",
+        "saved messages",
+        "remove bookmark",
+        "starred"
+      ]
+    },
+    {
+      "key": "settings.community",
+      "path": "/assistant/settings/community",
+      "label": "Community",
+      "section": "Settings",
+      "description": "Community links — Vellum is open source; join the community hub and follow on X and YouTube.",
+      "features": [
+        "community",
+        "open source",
+        "community hub"
+      ]
+    },
+    {
+      "key": "settings.debug",
+      "path": "/assistant/settings/debug",
+      "label": "Debug",
+      "section": "Settings",
+      "description": "Debug tools across tabs: General (default) with Backups (view/create/restore), Restart Assistant and Recovery Mode; plus Terminal (?tab=terminal) and Doctor (?tab=doctor).",
+      "features": [
+        "backups",
+        "restore backup",
+        "create backup",
+        "restart assistant",
+        "recovery mode",
+        "terminal",
+        "doctor"
+      ],
+      "tabs": [
+        {
+          "id": "terminal",
+          "query": "?tab=terminal"
+        },
+        {
+          "id": "doctor",
+          "query": "?tab=doctor"
+        }
+      ]
+    },
+    {
+      "key": "settings.devices",
+      "path": "/assistant/settings/devices",
+      "label": "Self-Hosted Assistants",
+      "section": "Settings",
+      "description": "Manage self-hosted assistants — the machines/devices running the assistant yourself.",
+      "features": [
+        "self-hosted assistants",
+        "devices",
+        "self hosting",
+        "local assistant"
+      ]
+    },
+    {
+      "key": "settings.general",
+      "path": "/assistant/settings/general",
+      "label": "General",
+      "section": "Settings",
+      "description": "General settings for theme (dark mode), timezone, compute & resources, software updates, sleep policy and retiring the assistant.",
+      "features": [
+        "theme",
+        "dark mode",
+        "timezone",
+        "software updates",
+        "sleep policy",
+        "retire assistant",
+        "compute"
+      ]
+    },
+    {
+      "key": "settings.integrations",
+      "path": "/assistant/settings/integrations",
+      "label": "Integrations",
+      "section": "Settings",
+      "description": "Manage integrations across two tabs: OAuth app connections (default, with filters and search) and MCP servers (?tab=mcp).",
+      "features": [
+        "integrations",
+        "oauth",
+        "connect app",
+        "mcp",
+        "mcp servers",
+        "enable integration"
+      ],
+      "tabs": [
+        {
+          "id": "mcp",
+          "query": "?tab=mcp"
+        }
+      ]
+    },
+    {
+      "key": "settings.keyboardShortcuts",
+      "path": "/assistant/settings/keyboard-shortcuts",
+      "label": "Keyboard Shortcuts",
+      "section": "Settings",
+      "description": "Reference list of keyboard shortcuts for the app.",
+      "features": [
+        "keyboard shortcuts",
+        "hotkeys",
+        "shortcuts",
+        "key bindings"
+      ]
+    },
+    {
+      "key": "settings.notifications",
+      "path": "/assistant/settings/notifications",
+      "label": "Notifications",
+      "section": "Settings",
+      "description": "Notification preferences, including pausing alerts and snoozing with an optional reason.",
+      "features": [
+        "notifications",
+        "pause alerts",
+        "snooze",
+        "do not disturb",
+        "mute notifications"
+      ]
+    },
+    {
+      "key": "settings.privacy",
+      "path": "/assistant/settings/privacy",
+      "label": "Permissions & Privacy",
+      "section": "Settings",
+      "description": "Privacy and permission controls including system permissions, trust rules, risk tolerance, biometrics, and Share Analytics / Share Diagnostics toggles.",
+      "features": [
+        "permissions",
+        "privacy",
+        "trust rules",
+        "risk tolerance",
+        "biometrics",
+        "share analytics",
+        "share diagnostics"
+      ]
+    },
+    {
+      "key": "settings.root",
+      "path": "/assistant/settings",
+      "label": "Settings",
+      "section": "Settings",
+      "description": "Settings overview; the index renders the General panel directly inside the sidebar-based settings shell.",
+      "features": [
+        "settings",
+        "preferences",
+        "configuration",
+        "options"
+      ]
+    },
+    {
+      "key": "settings.security",
+      "path": "/assistant/settings/security",
+      "label": "Security",
+      "section": "Settings",
+      "description": "Account security settings, primarily two-factor authentication (2FA).",
+      "features": [
+        "security",
+        "two-factor authentication",
+        "2fa",
+        "password",
+        "login"
+      ]
+    },
+    {
+      "key": "settings.sounds",
+      "path": "/assistant/settings/sounds",
+      "label": "Sounds",
+      "section": "Settings",
+      "description": "Sound settings to enable sound effects and adjust their volume.",
+      "features": [
+        "sounds",
+        "sound effects",
+        "volume",
+        "mute",
+        "audio"
+      ]
+    },
+    {
+      "key": "settings.voice",
+      "path": "/assistant/settings/voice",
+      "label": "Voice",
+      "section": "Settings",
+      "description": "Voice settings for microphone selection, push-to-talk, and conversation timeout for voice mode.",
+      "features": [
+        "voice",
+        "microphone",
+        "push to talk",
+        "dictation",
+        "speech"
+      ]
+    },
+    {
+      "key": "skills",
+      "path": "/assistant/skills",
+      "label": "Skills",
+      "section": "About Assistant",
+      "description": "Catalog to add, install and remove skills for the assistant (?skill= opens a specific skill).",
+      "features": [
+        "skills",
+        "install skill",
+        "add skill",
+        "remove skill",
+        "skill catalog"
+      ]
+    },
+    {
+      "key": "workspace",
+      "path": "/assistant/workspace",
+      "label": "Workspace",
+      "section": "About Assistant",
+      "description": "File browser for the assistant's workspace files and folders.",
+      "features": [
+        "workspace",
+        "files",
+        "folders",
+        "file browser",
+        "documents",
+        "storage"
+      ]
+    }
+  ]
+}
