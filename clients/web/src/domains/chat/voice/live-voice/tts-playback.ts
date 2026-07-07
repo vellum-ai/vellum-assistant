@@ -89,6 +89,14 @@ export interface AudioContextLike {
   readonly currentTime: number;
   readonly sampleRate: number;
   readonly destination: AudioNode;
+  /**
+   * Playback state. A context created outside a user gesture starts
+   * `"suspended"` under the browser autoplay policy and outputs nothing until
+   * resumed — see {@link LiveVoiceAudioPlayer.prewarm}.
+   */
+  readonly state: AudioContextState;
+  /** Resume a suspended context. Must first be called from a user gesture. */
+  resume(): Promise<void>;
   createBuffer(
     numberOfChannels: number,
     length: number,
@@ -372,6 +380,20 @@ export class LiveVoiceAudioPlayer {
     const context = this.context;
     this.context = null;
     if (context) await context.close();
+  }
+
+  /**
+   * Eagerly create and resume the `AudioContext` from within the user gesture
+   * that starts a session (the mic-button click). Otherwise the context is
+   * created lazily on the first `tts_audio` frame — which arrives seconds later,
+   * outside any gesture — so the browser autoplay policy starts it `"suspended"`
+   * and it never plays; audio only comes through once the context happens to
+   * flip to `"running"`, which is why the first turn(s) drop and later ones
+   * work. Safe to call repeatedly; `resume()` is a no-op once running.
+   */
+  prewarm(): void {
+    const context = this.ensureContext();
+    if (context.state !== "running") void context.resume();
   }
 
   private ensureContext(): AudioContextLike {

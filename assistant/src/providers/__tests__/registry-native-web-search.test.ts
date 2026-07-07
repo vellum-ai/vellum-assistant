@@ -41,6 +41,7 @@ mock.module("../inference/adapter-factory.js", () => ({
 
 import {
   clearConnectionProviderCache,
+  isNativeWebSearchCapableProvider,
   resolveProviderFromConnection,
 } from "../registry.js";
 
@@ -118,5 +119,25 @@ describe("resolveProviderFromConnection native web search selection", () => {
         useNativeWebSearch: true,
       }),
     ]);
+  });
+});
+
+describe("isNativeWebSearchCapableProvider gateway anthropic routing", () => {
+  test("vercel-ai-gateway anthropic/* models are capable", () => {
+    expect(
+      isNativeWebSearchCapableProvider(
+        "vercel-ai-gateway",
+        "anthropic/claude-opus-4-7",
+      ),
+    ).toBe(true);
+  });
+
+  test("vercel-ai-gateway non-Anthropic models are not capable", () => {
+    expect(
+      isNativeWebSearchCapableProvider(
+        "vercel-ai-gateway",
+        "x-ai/grok-4.20-beta",
+      ),
+    ).toBe(false);
   });
 });

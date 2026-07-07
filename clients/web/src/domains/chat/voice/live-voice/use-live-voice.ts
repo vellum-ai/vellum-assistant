@@ -333,6 +333,13 @@ export function useLiveVoice(
   const release = useCallback(() => {
     const session = sessionRef.current;
     if (!session) return;
+    // Hands-free sessions have no manual push-to-talk to release: the server
+    // VAD owns utterance boundaries and mic forwarding stays on for the whole
+    // session. A release here would flip `forwardingAudio` off — which the
+    // hands-free `tts_done`/listening return never re-enables — so every later
+    // mic chunk is dropped and the session strands (looks live, accepts no
+    // turns). No-op instead; the "send now" affordance is manual-mode only.
+    if (session.handsFree) return;
     if (useLiveVoiceStore.getState().state !== "listening") return;
     releasePushToTalk(session);
   }, []);
@@ -374,6 +381,11 @@ export function useLiveVoice(
       const opts = optionsRef.current;
       const client = (opts.createClient ?? (() => new LiveVoiceChannelClient()))();
       const player = (opts.createPlayer ?? (() => new LiveVoiceAudioPlayer()))();
+      // Resume the playback AudioContext now, while we're still in the
+      // mic-button click's gesture. Deferring to the first `tts_audio` frame
+      // (its lazy creation point) lands outside any gesture, so the browser
+      // starts it suspended and the first turn's audio is silently dropped.
+      player.prewarm();
 
       const session: SessionContext = {
         client,

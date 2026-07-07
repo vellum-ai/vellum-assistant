@@ -79,9 +79,9 @@ interface XaiOutputParams {
  *
  * **PCM path** (`outputFormat: "pcm"`):
  *   The media-stream transport needs raw headerless PCM for mu-law transcoding.
- *   We request `codec=pcm&sample_rate=16000` — matching the ElevenLabs /
- *   Deepgram 16 kHz PCM convention and the downstream `audioBufferToFrames`
- *   expectation (16 kHz -> 8 kHz downsample).
+ *   We request `codec=pcm&sample_rate=16000` — matching the shared 16 kHz
+ *   no-hint PCM default across TTS providers and the downstream
+ *   `audioBufferToFrames` expectation (16 kHz -> 8 kHz downsample).
  *
  * **MP3 path** (`config.format === "mp3"`):
  *   Uses the configured sample rate and bit rate.

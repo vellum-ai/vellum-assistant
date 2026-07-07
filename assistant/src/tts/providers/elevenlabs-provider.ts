@@ -14,7 +14,10 @@ import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
-import { readChunkedBody } from "../stream-read.js";
+import {
+  consumeSynthesisResponse,
+  type StreamReadTimeouts,
+} from "../stream-read.js";
 import type {
   TtsProvider,
   TtsProviderCapabilities,
@@ -292,12 +295,6 @@ async function performTtsRequest(
   return { response, contentType };
 }
 
-/** Stream-stall timeouts, injectable for tests. */
-export interface ElevenLabsStreamTimeouts {
-  firstChunkTimeoutMs?: number;
-  idleTimeoutMs?: number;
-}
-
 /**
  * Issue the TTS request and consume the response into a complete result.
  * The streaming path forwards chunks via `onChunk` as they arrive, guarded
@@ -308,40 +305,27 @@ async function performSynthesis(
   options: {
     stream: boolean;
     onChunk?: (chunk: Uint8Array) => void;
-  } & ElevenLabsStreamTimeouts,
+  } & StreamReadTimeouts,
 ): Promise<TtsSynthesisResult> {
   const { response, contentType } = await performTtsRequest(request, {
     stream: options.stream,
   });
 
-  let audio: Buffer;
-  if (options.stream) {
-    if (!response.body) {
-      throw new ElevenLabsTtsError(
+  const audio = await consumeSynthesisResponse(response, {
+    ...options,
+    makeTimeoutError: (timeoutMs) =>
+      new ElevenLabsTtsError(
+        "ELEVENLABS_TTS_STREAM_TIMEOUT",
+        `ElevenLabs streaming TTS read timed out after ${timeoutMs}ms`,
+      ),
+    makeEmptyError: (kind) =>
+      new ElevenLabsTtsError(
         "ELEVENLABS_TTS_EMPTY_RESPONSE",
-        "ElevenLabs streaming TTS returned no response body",
-      );
-    }
-    audio = await readChunkedBody(response.body, {
-      onChunk: options.onChunk,
-      firstChunkTimeoutMs: options.firstChunkTimeoutMs,
-      idleTimeoutMs: options.idleTimeoutMs,
-      makeTimeoutError: (timeoutMs) =>
-        new ElevenLabsTtsError(
-          "ELEVENLABS_TTS_STREAM_TIMEOUT",
-          `ElevenLabs streaming TTS read timed out after ${timeoutMs}ms`,
-        ),
-    });
-  } else {
-    audio = Buffer.from(await response.arrayBuffer());
-  }
-
-  if (audio.byteLength === 0) {
-    throw new ElevenLabsTtsError(
-      "ELEVENLABS_TTS_EMPTY_RESPONSE",
-      "ElevenLabs TTS returned an empty audio response",
-    );
-  }
+        kind === "no-body"
+          ? "ElevenLabs streaming TTS returned no response body"
+          : "ElevenLabs TTS returned an empty audio response",
+      ),
+  });
 
   log.debug(
     { bytes: audio.byteLength, stream: options.stream },
@@ -352,7 +336,7 @@ async function performSynthesis(
 }
 
 export function createElevenLabsProvider(
-  streamTimeouts: ElevenLabsStreamTimeouts = {},
+  streamTimeouts: StreamReadTimeouts = {},
 ): TtsProvider {
   const capabilities: TtsProviderCapabilities = {
     supportsStreaming: true,

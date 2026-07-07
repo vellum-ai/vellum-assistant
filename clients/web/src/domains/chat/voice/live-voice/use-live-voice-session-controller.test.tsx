@@ -96,6 +96,10 @@ async function startListeningViaStarter(
       seq: 1,
       sessionId: "s1",
       conversationId: conversationId ?? "conv-server-assigned",
+      // Echo server_vad so the session stays hands-free (the controller starts
+      // every session hands-free); without the echo the client falls back to
+      // manual single-turn.
+      turnDetection: "server_vad",
     });
     await Promise.resolve();
   });
@@ -134,6 +138,7 @@ describe("starter registration", () => {
     expect(h.lastClient().connectArgs).toEqual({
       assistantId: "assistant-1",
       conversationId: "conv-1",
+      turnDetection: "server_vad",
     });
     expect(useLiveVoiceStore.getState().state).toBe("listening");
     expect(useLiveVoiceStore.getState().conversationId).toBe("conv-1");
@@ -150,6 +155,7 @@ describe("starter registration", () => {
     expect(h.lastClient().connectArgs).toEqual({
       assistantId: "assistant-1",
       conversationId: undefined,
+      turnDetection: "server_vad",
     });
     expect(useLiveVoiceStore.getState().startedConversationId).toBeNull();
   });
