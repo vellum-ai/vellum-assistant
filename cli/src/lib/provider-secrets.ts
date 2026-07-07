@@ -71,6 +71,7 @@ const PROVIDER_LABELS: Record<LlmProviderId, string> = {
   gemini: "Gemini",
   fireworks: "Fireworks",
   openrouter: "OpenRouter",
+  "vercel-ai-gateway": "Vercel AI Gateway",
 };
 
 export function formatProviderName(provider: LlmProviderId): string {

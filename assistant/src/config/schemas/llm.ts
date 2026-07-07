@@ -23,6 +23,7 @@ export const LLMProvider = z
     "ollama",
     "fireworks",
     "openrouter",
+    "vercel-ai-gateway",
     "openai-compatible",
     "minimax",
     "atlascloud",
