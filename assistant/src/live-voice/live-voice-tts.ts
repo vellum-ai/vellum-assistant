@@ -7,6 +7,9 @@ import type {
   TtsSynthesisRequest,
   TtsUseCase,
 } from "../tts/types.js";
+import { getLogger } from "../util/logger.js";
+
+const log = getLogger("live-voice-tts");
 
 export const DEFAULT_LIVE_VOICE_TTS_SAMPLE_RATE = 24_000;
 
@@ -102,6 +105,19 @@ export async function streamLiveVoiceTtsAudio(
   // compressed formats (mp3/wav/opus) are only playable as a whole payload.
   const bufferedAudio: Buffer[] = [];
 
+  // Provider chunks can split a 16-bit PCM sample across chunk boundaries;
+  // a trailing odd byte is carried into the next chunk to keep frames aligned.
+  let pcm16Carry: Buffer | undefined;
+  const alignPcm16 = (audio: Buffer): Buffer => {
+    const combined = pcm16Carry ? Buffer.concat([pcm16Carry, audio]) : audio;
+    const alignedLength = combined.byteLength & ~1;
+    pcm16Carry =
+      alignedLength < combined.byteLength
+        ? combined.subarray(alignedLength)
+        : undefined;
+    return combined.subarray(0, alignedLength);
+  };
+
   try {
     const result = await synthesizeAndEmit({
       provider,
@@ -109,15 +125,28 @@ export async function streamLiveVoiceTtsAudio(
       useCase: options.useCase ?? "phone-call",
       voiceId: options.voiceId,
       outputFormat: options.outputFormat,
+      sampleRateHz: sampleRate,
       signal: options.signal,
       onChunk: (chunk) => {
         if (canStreamChunks) {
-          emitAudioFrame(chunk.contentType || chunkContentType, chunk.audio);
+          emitAudioFrame(
+            chunk.contentType || chunkContentType,
+            alignPcm16(chunk.audio),
+          );
         } else {
           bufferedAudio.push(chunk.audio);
         }
       },
     });
+
+    // A dangling final byte is malformed provider output — drop it rather
+    // than emit a torn sample.
+    if (pcm16Carry) {
+      log.debug(
+        { provider: providerId },
+        "Dropping trailing odd byte from PCM16 TTS stream",
+      );
+    }
     const contentType = result.contentType || chunkContentType;
 
     // An abort mid-stream resolves without throwing; skip the buffered emit
