@@ -21,6 +21,7 @@
 import {
   CreateInviteIpcResponseSchema,
   INVITES_IPC_METHODS,
+  type InvitesIpcMethod,
   type InviteWire,
   ListInvitesIpcResponseSchema,
   type RedeemInviteByTokenRequest,
@@ -31,10 +32,23 @@ import {
   type RedeemVoiceInviteRequest,
   RevokeInviteIpcResponseSchema,
 } from "@vellumai/gateway-client";
+import type { ZodType } from "zod";
 
 import { ipcCallPersistentValidated } from "../ipc/gateway-validated-call.js";
 
 export type { InviteWire } from "@vellumai/gateway-client";
+
+/**
+ * Call a gateway invite route and validate the response against its contract
+ * schema (typed to the invite method union).
+ */
+async function callGateway<T>(
+  method: InvitesIpcMethod,
+  params: Record<string, unknown>,
+  responseSchema: ZodType<T>,
+): Promise<T> {
+  return ipcCallPersistentValidated(method, params, responseSchema);
+}
 
 export interface ListInvitesFilters {
   sourceChannel?: string;
@@ -45,7 +59,7 @@ export interface ListInvitesFilters {
 export async function listInvites(
   filters: ListInvitesFilters = {},
 ): Promise<InviteWire[]> {
-  const response = await ipcCallPersistentValidated(
+  const response = await callGateway(
     INVITES_IPC_METHODS.list,
     {
       ...(filters.sourceChannel
@@ -81,7 +95,7 @@ export interface CreateInviteParams {
 export async function createInvite(
   params: CreateInviteParams,
 ): Promise<{ invite: InviteWire; rawToken?: string }> {
-  return ipcCallPersistentValidated(
+  return callGateway(
     INVITES_IPC_METHODS.create,
     { ...params },
     CreateInviteIpcResponseSchema,
@@ -90,7 +104,7 @@ export async function createInvite(
 
 /** Revoke an invite (idempotent for already-terminal invites). */
 export async function revokeInvite(id: string): Promise<InviteWire> {
-  const response = await ipcCallPersistentValidated(
+  const response = await callGateway(
     INVITES_IPC_METHODS.revoke,
     { id },
     RevokeInviteIpcResponseSchema,
@@ -106,7 +120,7 @@ export async function revokeInvite(id: string): Promise<InviteWire> {
 export async function redeemInviteByToken(
   params: RedeemInviteByTokenRequest,
 ): Promise<RedeemInviteTokenIpcResponse> {
-  return ipcCallPersistentValidated(
+  return callGateway(
     INVITES_IPC_METHODS.redeem,
     params as unknown as Record<string, unknown>,
     RedeemInviteTokenIpcResponseSchema,
@@ -120,7 +134,7 @@ export async function redeemInviteByToken(
 export async function redeemInviteByVoiceCode(
   params: RedeemVoiceInviteRequest & { assistantId?: string },
 ): Promise<RedeemInviteVoiceIpcResponse> {
-  return ipcCallPersistentValidated(
+  return callGateway(
     INVITES_IPC_METHODS.redeem,
     params as unknown as Record<string, unknown>,
     RedeemInviteVoiceIpcResponseSchema,

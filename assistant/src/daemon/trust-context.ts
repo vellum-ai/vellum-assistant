@@ -67,8 +67,9 @@ export interface TrustContext {
  * scheduled tasks) when invoking the agent loop without
  * an inbound actor identity. The assistant is the guardian over its own
  * internal state, so self-maintenance flows clear the side-effect
- * approval gate. Inbound message conversations resolve trust per-actor
- * via `resolveTrustContext()` and must not use this constant.
+ * approval gate. Inbound message conversations derive trust per-actor from
+ * the gateway-stamped verdict (`trustContextFromVerdict()`) and must not
+ * use this constant.
  */
 export const INTERNAL_GUARDIAN_TRUST_CONTEXT = {
   sourceChannel: "vellum",

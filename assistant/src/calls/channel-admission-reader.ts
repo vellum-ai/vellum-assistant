@@ -10,6 +10,10 @@
  * null` is the gateway's explicit "no enforcement configured" answer (still
  * an admit) — distinct from an unreachable gateway.
  *
+ * No production caller on the primary voice path — the combined trust-verdict
+ * read (`inbound-trust-reader.ts`) carries the policy; this reader is the
+ * version-skew fallback + standalone admission surface.
+ *
  * Caches per channelType with a short TTL, mirroring the conversation
  * threshold cache in `../permissions/gateway-threshold-reader.ts`. Only the
  * result of a SUCCESSFUL gateway round-trip is cached (a valid policy, or an

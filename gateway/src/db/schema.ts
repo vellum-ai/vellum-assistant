@@ -388,7 +388,7 @@ export const channelPermissionOverrides = sqliteTable(
 // ---------------------------------------------------------------------------
 //
 // Recreated deliberately after m0011 dropped the old write-only mirror.
-// Column names mirror the assistant table 1:1 so the m0012 backfill can
+// Column names mirror the assistant table 1:1 so the m0013 backfill can
 // copy rows unchanged. Accessed via db/session-store.ts.
 
 export const channelVerificationSessions = sqliteTable(

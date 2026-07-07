@@ -112,7 +112,6 @@ export {
   isInviteCodeRedemptionEnabled,
   isValidE164,
   ListInvitesIpcResponseSchema,
-  RedeemInviteByCodeRequestSchema,
   RedeemInviteByTokenRequestSchema,
   RedeemInviteTokenIpcResponseSchema,
   RedeemInviteVoiceIpcResponseSchema,

@@ -72,7 +72,6 @@ mock.module("../contacts/member-write-relay.js", () => ({
     blockCalls.push(params);
     return blockOutcome;
   },
-  revokeMemberChannel: async () => null,
 }));
 
 // Verification sessions: record mints instead of writing session state. The

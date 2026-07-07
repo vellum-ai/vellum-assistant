@@ -698,8 +698,9 @@ export function mergeContacts(
  * concat donor notes onto the survivor (notes-only — never clobbers the
  * survivor's display name), reparent donor channels by (type, address
  * NOCASE), delete the donor. One transaction. A donor already gone is a no-op
- * (idempotent gateway retry); a survivor missing from the mirror (dual-write
- * gap) is inserted with the combined notes so donor notes survive the delete.
+ * (idempotent gateway retry); a survivor missing from the mirror (mirror
+ * drift) is inserted with the combined notes so donor notes survive the
+ * delete.
  */
 export function mergeContactMirror(params: {
   keepContactId: string;
@@ -886,8 +887,8 @@ export function upsertContactMirrorFull(params: {
         .get();
 
       if (existingCh) {
-        // Omit-to-preserve external_chat_id; is_primary is never rewritten on
-        // an existing channel (matches the raw dual-write this op replaces).
+        // Omit-to-preserve external_chat_id; is_primary is never rewritten
+        // on an existing channel.
         const updateSet: Record<string, unknown> = { updatedAt: now };
         if (ch.externalChatId !== undefined) {
           updateSet.externalChatId = ch.externalChatId;

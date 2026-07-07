@@ -153,11 +153,11 @@ mock.module("../daemon/conversation-process.js", () => ({
   formatCompactResult: () => "",
 }));
 
+const realLocalActorIdentity = await import(
+  "../runtime/local-actor-identity.js"
+);
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalTrustContext: () => ({
-    trustClass: "guardian",
-    sourceChannel: "vellum",
-  }),
+  ...realLocalActorIdentity,
 }));
 
 mock.module("../runtime/trust-context-resolver.js", () => ({
