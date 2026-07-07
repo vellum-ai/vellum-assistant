@@ -68,6 +68,8 @@ afterAll(() => {
 });
 
 import {
+  getEffectiveProfile,
+  getEffectiveProfiles,
   MANAGED_PROFILE_NAMES,
   materializeProfile,
   OS_BETA_PROFILE_TEMPLATE,
@@ -164,6 +166,14 @@ function mergeDefaultConfigAndSeedInferenceProfiles(db?: DrizzleDb): void {
     isHatch: defaultConfigMerge.hadOverlay,
     db,
   });
+}
+
+/**
+ * The exact thin stub `seedInferenceProfiles` writes for a default profile on
+ * a fresh BYOK hatch: no content fields, only the workspace-owned overlays.
+ */
+function managedStub(label: string): Record<string, unknown> {
+  return { source: "managed", status: "disabled", label: `${label} (Managed)` };
 }
 
 function createProviderConnectionsDb(): DrizzleDb {
@@ -562,7 +572,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.dataDir).toBeUndefined();
   });
 
-  test("off-platform hatch seeds both managed and user anthropic profiles", () => {
+  test("off-platform hatch seeds user anthropic profiles and thin managed stubs", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
@@ -592,11 +602,6 @@ describe("loadConfig startup behavior", () => {
     expect(config.llm.profiles["custom-balanced"]?.provider_connection).toBe(
       "anthropic-personal",
     );
-    // Managed profiles exist as well.
-    expect(config.llm.profiles.balanced?.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
-    expect(config.llm.profiles.balanced?.provider_connection).toBe("vellum");
 
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     expect(raw.llm.default).toEqual({
@@ -604,12 +609,17 @@ describe("loadConfig startup behavior", () => {
       model: "claude-opus-4-7",
     });
     expect(raw.llm.activeProfile).toBe("custom-balanced");
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
+    // The managed defaults exist only as thin disabled stubs — their content
+    // is code-owned and never written to the workspace.
+    expect(raw.llm.profiles.balanced).toEqual(managedStub("Balanced"));
+    // Default content resolves from the code catalog via the effective view.
+    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
+    expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(effectiveBalanced?.provider).toBe("fireworks");
+    expect(effectiveBalanced?.provider_connection).toBe("vellum");
   });
 
-  test("on-platform hatch seeds only managed profiles", () => {
+  test("on-platform hatch writes no profile entries; defaults resolve from the catalog", () => {
     process.env.IS_PLATFORM = "true";
 
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
@@ -631,15 +641,18 @@ describe("loadConfig startup behavior", () => {
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
     mergeDefaultConfigAndSeedInferenceProfiles();
-    const config = loadConfig();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(config.llm.activeProfile).toBe("balanced");
-    expect(config.llm.profiles.balanced?.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
-    expect(config.llm.profiles.balanced?.provider_connection).toBe("vellum");
-    // No user profiles created on platform.
-    expect(config.llm.profiles["custom-balanced"]).toBeUndefined();
+    expect(raw.llm.activeProfile).toBe("balanced");
+    expect(raw.llm.advisorProfile).toBe("quality-optimized");
+    // Platform installs materialize no managed entries and no user profiles —
+    // llm.profiles holds only user/custom entries (none here).
+    expect(raw.llm.profiles).toEqual({});
+    // Default content resolves from the code catalog via the effective view.
+    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
+    expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(effectiveBalanced?.provider).toBe("fireworks");
+    expect(effectiveBalanced?.provider_connection).toBe("vellum");
   });
 
   test("re-hatch from openai to anthropic creates user anthropic profiles off-platform", () => {
@@ -678,9 +691,12 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles["custom-balanced"].provider_connection).toBe(
       "anthropic-personal",
     );
-    // Managed balanced profile is seeded for fireworks-managed (GLM 5.2).
-    expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
-    expect(raw.llm.profiles.balanced.provider_connection).toBe("vellum");
+    // The managed defaults get only thin disabled stubs; content stays
+    // code-owned and resolves from the catalog.
+    expect(raw.llm.profiles.balanced).toEqual(managedStub("Balanced"));
+    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
+    expect(effectiveBalanced?.provider).toBe("fireworks");
+    expect(effectiveBalanced?.provider_connection).toBe("vellum");
   });
 
   test("on-platform re-hatch resets active profile to balanced", () => {
@@ -713,8 +729,11 @@ describe("loadConfig startup behavior", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     // On-platform: no user profiles created, active resets to managed balanced.
     expect(raw.llm.activeProfile).toBe("balanced");
-    expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
-    expect(raw.llm.profiles.balanced.provider_connection).toBe("vellum");
+    // No managed entry is materialized; content resolves from the catalog.
+    expect(raw.llm.profiles.balanced).toBeUndefined();
+    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
+    expect(effectiveBalanced?.provider).toBe("fireworks");
+    expect(effectiveBalanced?.provider_connection).toBe("vellum");
     // The old custom-balanced is preserved on disk but no longer active.
     expect(raw.llm.profiles["custom-balanced"].provider).toBe("openai");
   });
@@ -808,7 +827,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.default.model).toBe("codellama");
   });
 
-  test("off-platform hatch with openai seeds user profiles and managed anthropic profiles", () => {
+  test("off-platform hatch with openai seeds user profiles and thin managed stubs", () => {
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
     writeFileSync(
       overlayPath,
@@ -837,139 +856,159 @@ describe("loadConfig startup behavior", () => {
       "gpt-5.4-nano",
     );
 
-    // Managed profiles are also seeded. Balanced now serves GLM 5.2 on
-    // Fireworks (the model Quality used to carry).
-    expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
-    expect(raw.llm.profiles.balanced.provider_connection).toBe("vellum");
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
+    // The managed defaults exist only as thin disabled stubs on a BYOK hatch.
+    expect(raw.llm.profiles.balanced).toEqual(managedStub("Balanced"));
+    expect(raw.llm.profiles["quality-optimized"]).toEqual(
+      managedStub("Quality"),
     );
-    expect(raw.llm.profiles.balanced.effort).toBe("high");
-    expect(raw.llm.profiles.balanced.source).toBe("managed");
+    expect(raw.llm.profiles["cost-optimized"]).toEqual(managedStub("Speed"));
+
+    // Default content resolves from the code catalog via the effective view.
+    // Balanced serves GLM 5.2 on Fireworks.
+    const effective = getEffectiveProfiles(raw.llm.profiles);
+    expect(effective.balanced?.provider).toBe("fireworks");
+    expect(effective.balanced?.provider_connection).toBe("vellum");
+    expect(effective.balanced?.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(effective.balanced?.effort).toBe("high");
+    expect(effective.balanced?.source).toBe("managed");
     // Quality serves Anthropic Fable, the most capable managed profile.
-    expect(raw.llm.profiles["quality-optimized"].provider).toBe("anthropic");
-    expect(raw.llm.profiles["quality-optimized"].model).toBe("claude-fable-5");
+    expect(effective["quality-optimized"]?.provider).toBe("anthropic");
+    expect(effective["quality-optimized"]?.model).toBe("claude-fable-5");
     // Speed is served by DeepSeek V4 Flash on Fireworks.
-    expect(raw.llm.profiles["cost-optimized"].provider).toBe("fireworks");
-    expect(raw.llm.profiles["cost-optimized"].model).toBe(
+    expect(effective["cost-optimized"]?.provider).toBe("fireworks");
+    expect(effective["cost-optimized"]?.model).toBe(
       "accounts/fireworks/models/deepseek-v4-flash",
     );
   });
 
-  test("off-platform managed profiles are overwritten on every boot", () => {
-    // Simulate a previous boot that left managed profiles on disk.
+  test("off-platform boot leaves an existing managed entry byte-identical", () => {
+    // A drifted legacy full-body entry left by a previous release stays
+    // exactly as written — boots never rewrite managed entries. Content is
+    // served from the code catalog at resolution time instead.
+    const drifted = {
+      source: "managed",
+      provider: "anthropic",
+      model: "old-model-from-previous-release",
+      provider_connection: "anthropic-managed",
+    };
     writeConfig({
       llm: {
-        profiles: {
-          balanced: {
-            source: "managed",
-            provider: "anthropic",
-            model: "old-model-from-previous-release",
-            provider_connection: "anthropic-managed",
-          },
-        },
+        profiles: { balanced: drifted },
         activeProfile: "balanced",
       },
     });
 
-    // Non-hatch boot (no overlay). Managed profiles should be overwritten
-    // with the latest templates.
+    // Non-hatch boot (no overlay).
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
-    expect(raw.llm.profiles.balanced.provider_connection).toBe("vellum");
+    expect(raw.llm.profiles.balanced).toEqual(drifted);
     expect(raw.llm.activeProfile).toBe("balanced");
+    // Resolution ignores the drifted body: a managed-source entry contributes
+    // only label/status/topP, everything else comes from the catalog.
+    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
+    expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(effectiveBalanced?.provider_connection).toBe("vellum");
   });
 
-  test("reseed updates a source-less legacy canonical managed profile", () => {
-    // Migration 052 seeded canonical profiles without a `source`. Such a
-    // source-less `quality-optimized` is legacy managed, not user-owned, so it
-    // must still reseed to the latest template (Fable) and be tagged managed.
+  test("boot leaves a source-less legacy canonical profile as a user-owned shadow", () => {
+    // Migration 052 seeded canonical profiles without a `source`. A
+    // source-less entry on a default name is user-owned: boots leave it
+    // byte-identical (never reclaimed or tagged managed), and it shadows the
+    // code catalog in the effective view.
+    const legacy = {
+      provider: "fireworks",
+      model: "accounts/fireworks/models/glm-5p2",
+      provider_connection: "fireworks-managed",
+    };
     writeConfig({
       llm: {
-        profiles: {
-          "quality-optimized": {
-            provider: "fireworks",
-            model: "accounts/fireworks/models/glm-5p2",
-            provider_connection: "fireworks-managed",
-          },
-        },
+        profiles: { "quality-optimized": legacy },
       },
     });
 
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles["quality-optimized"].model).toBe("claude-fable-5");
-    expect(raw.llm.profiles["quality-optimized"].source).toBe("managed");
+    expect(raw.llm.profiles["quality-optimized"]).toEqual(legacy);
+    // The shadow wins over the catalog body (which serves claude-fable-5).
+    const effectiveQuality = getEffectiveProfile(
+      raw.llm.profiles,
+      "quality-optimized",
+    );
+    expect(effectiveQuality?.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(effectiveQuality?.provider_connection).toBe("fireworks-managed");
+    expect(effectiveQuality?.source).toBeUndefined();
   });
 
-  test("seeds the managed Quality profile as the default advisor profile", () => {
+  test("defaults the advisor profile to the managed Quality profile", () => {
     writeConfig({ llm: { default: { provider: "anthropic" } } });
 
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
+    // The strongest active managed default via the effective view. No
+    // workspace entry backs it — the content is code-owned.
     expect(raw.llm.advisorProfile).toBe("quality-optimized");
-    expect(raw.llm.profiles["quality-optimized"].source).toBe("managed");
+    expect(raw.llm.profiles["quality-optimized"]).toBeUndefined();
+    const effectiveQuality = getEffectiveProfile(
+      raw.llm.profiles,
+      "quality-optimized",
+    );
+    expect(effectiveQuality?.source).toBe("managed");
+    expect(effectiveQuality?.model).toBe("claude-fable-5");
   });
 
-  test("on-platform managed profiles reconcile to the code template on every boot", () => {
-    // Headline behavior: on-platform installs now reconcile managed profile
-    // content from the code template on every boot (same as off-platform), so
-    // model/config updates ship in a release without a workspace migration.
+  test("platform boot leaves a drifted managed entry byte-identical; resolution serves catalog content", () => {
+    // Headline behavior: default profile content is code-owned, so model/config
+    // updates ship in a release without any workspace rewrite. Boots never
+    // touch managed entries; the effective view serves the catalog body and
+    // overlays only label/status/topP from the workspace entry.
     process.env.IS_PLATFORM = "true";
 
+    const drifted = {
+      source: "managed",
+      provider: "anthropic",
+      model: "old-model-from-previous-release",
+      maxTokens: 1,
+      provider_connection: "anthropic-managed",
+    };
     writeConfig({
       llm: {
-        profiles: {
-          balanced: {
-            source: "managed",
-            provider: "anthropic",
-            model: "old-model-from-previous-release",
-            maxTokens: 1,
-            provider_connection: "anthropic-managed",
-          },
-        },
+        profiles: { balanced: drifted },
         activeProfile: "balanced",
       },
     });
 
-    // Non-hatch boot (no overlay). Content is refreshed from the template.
+    // Non-hatch boot (no overlay).
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
-    expect(raw.llm.profiles.balanced.maxTokens).toBe(32000);
-    // The template carries no topP, and the previous entry had none, so the
-    // reconciled profile has no topP override.
-    expect("topP" in raw.llm.profiles.balanced).toBe(false);
-    expect(raw.llm.profiles.balanced.provider_connection).toBe("vellum");
+    expect(raw.llm.profiles.balanced).toEqual(drifted);
     expect(raw.llm.activeProfile).toBe("balanced");
+    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
+    expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(effectiveBalanced?.maxTokens).toBe(32000);
+    expect(effectiveBalanced?.provider_connection).toBe("vellum");
+    // The catalog body carries no topP and the entry has none, so the
+    // effective profile has no topP override.
+    expect("topP" in (effectiveBalanced ?? {})).toBe(false);
   });
 
-  test("on-platform reseed preserves user-edited label and status on managed profiles", () => {
-    // The only two fields a user may override on a managed profile — label and
-    // status — survive the on-platform reconcile, exactly as off-platform.
+  test("platform boot preserves user-edited label and status on a managed stub", () => {
+    // The workspace-owned fields a user may set on a managed profile — label
+    // and status — live on the stub, which boots never touch. The effective
+    // view overlays them onto the code-owned body.
     process.env.IS_PLATFORM = "true";
 
+    const edited = {
+      source: "managed",
+      label: "My Default",
+      status: "disabled",
+    };
     writeConfig({
       llm: {
-        profiles: {
-          balanced: {
-            source: "managed",
-            provider: "anthropic",
-            model: "old-model-from-previous-release",
-            provider_connection: "anthropic-managed",
-            label: "My Default",
-            status: "disabled",
-          },
-        },
+        profiles: { balanced: edited },
         activeProfile: "balanced",
       },
     });
@@ -977,29 +1016,22 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    // Content refreshes from the template...
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
-    // ...but the user's label and status overrides are preserved.
-    expect(raw.llm.profiles.balanced.label).toBe("My Default");
-    expect(raw.llm.profiles.balanced.status).toBe("disabled");
+    expect(raw.llm.profiles.balanced).toEqual(edited);
+    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
+    // Content is served from the catalog...
+    expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
+    // ...with the user's label and status overlaid.
+    expect(effectiveBalanced?.label).toBe("My Default");
+    expect(effectiveBalanced?.status).toBe("disabled");
   });
 
-  test("off-platform reseed preserves user-edited label on managed profiles (Codex P1 on PR #30362)", () => {
+  test("off-platform boot preserves a user-edited label on a managed stub (Codex P1 on PR #30362)", () => {
     // Simulate a user who renamed the managed "balanced" profile via
     // PUT /v1/config/llm/profiles/balanced { label: "My Default" }.
+    const stub = { source: "managed", label: "My Default" };
     writeConfig({
       llm: {
-        profiles: {
-          balanced: {
-            source: "managed",
-            provider: "anthropic",
-            model: "old-model-from-previous-release",
-            provider_connection: "anthropic-managed",
-            label: "My Default",
-          },
-        },
+        profiles: { balanced: stub },
         activeProfile: "balanced",
       },
     });
@@ -1007,28 +1039,21 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    // Model still gets the new template value (provider-controlled).
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
-    // But the user's label override is preserved across the reseed.
-    expect(raw.llm.profiles.balanced.label).toBe("My Default");
+    // The stub is untouched, and the user's label rides on top of the
+    // catalog body in the effective view.
+    expect(raw.llm.profiles.balanced).toEqual(stub);
+    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
+    expect(effectiveBalanced?.label).toBe("My Default");
+    expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
   });
 
-  test("off-platform reseed preserves user-toggled status on managed profiles", () => {
+  test("off-platform boot preserves user-toggled status on a managed stub", () => {
     // Simulate a user who disabled the managed "balanced" profile via
     // PUT /v1/config/llm/profiles/balanced { status: "disabled" }.
+    const stub = { source: "managed", status: "disabled" };
     writeConfig({
       llm: {
-        profiles: {
-          balanced: {
-            source: "managed",
-            provider: "anthropic",
-            model: "old-model-from-previous-release",
-            provider_connection: "anthropic-managed",
-            status: "disabled",
-          },
-        },
+        profiles: { balanced: stub },
         activeProfile: "balanced",
       },
     });
@@ -1036,29 +1061,23 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles.balanced.status).toBe("disabled");
-    // Model still refreshes — only label/status are user-owned.
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
+    expect(raw.llm.profiles.balanced).toEqual(stub);
+    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
+    expect(effectiveBalanced?.status).toBe("disabled");
+    // Content still comes from the catalog — only label/status/topP are
+    // workspace-owned.
+    expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
   });
 
-  test("reseed preserves user-edited topP on managed profiles", () => {
+  test("boot preserves a user-edited topP override on a managed stub", () => {
     // Simulate a user who overrode topP on the managed "balanced" profile via
-    // PUT /v1/config/llm/profiles/balanced { topP: 0.5 }. The override must
-    // survive the reconcile instead of being dropped (the template carries no
-    // topP of its own).
+    // PUT /v1/config/llm/profiles/balanced { topP: 0.5 }. The override lives
+    // on the stub, survives boots untouched, and overlays the catalog body
+    // (which carries no topP of its own).
+    const stub = { source: "managed", topP: 0.5 };
     writeConfig({
       llm: {
-        profiles: {
-          balanced: {
-            source: "managed",
-            provider: "anthropic",
-            model: "old-model-from-previous-release",
-            provider_connection: "anthropic-managed",
-            topP: 0.5,
-          },
-        },
+        profiles: { balanced: stub },
         activeProfile: "balanced",
       },
     });
@@ -1066,24 +1085,26 @@ describe("loadConfig startup behavior", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    // The user's topP override is preserved across the reseed (not reverted to
-    // the template default of 0.95).
-    expect(raw.llm.profiles.balanced.topP).toBe(0.5);
-    // Model still refreshes — topP is user-owned, the rest is template-owned.
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
+    expect(raw.llm.profiles.balanced).toEqual(stub);
+    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
+    expect(effectiveBalanced?.topP).toBe(0.5);
+    // Content still comes from the catalog — topP is workspace-owned, the
+    // rest is code-owned.
+    expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
   });
 
-  test("fresh managed balanced profile materializes without a topP override", () => {
-    // No previous on-disk entry → the balanced profile materializes from the
-    // template, which (matching the quality profile) carries no topP.
+  test("effective balanced profile carries no topP override by default", () => {
+    // Boots write no managed entry, and the catalog body (matching the
+    // quality profile) carries no topP — so the effective balanced profile
+    // has none either.
     writeConfig({ llm: {} });
 
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect("topP" in raw.llm.profiles.balanced).toBe(false);
+    expect(raw.llm.profiles.balanced).toBeUndefined();
+    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
+    expect("topP" in (effectiveBalanced ?? {})).toBe(false);
   });
 
   test("off-platform reseed preserves an explicit null label (user cleared it)", () => {
@@ -1111,33 +1132,31 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced.label).toBeNull();
   });
 
-  test("off-platform reseed materializes template defaults with the BYOK label suffix when no user overrides exist", () => {
-    // First boot, no prior config — template defaults must materialize
-    // exactly. Off-platform installs get the " (Managed)" suffix so the
-    // managed profile is distinguishable from the personal "custom-*"
-    // sibling that shares the base label. Guards against accidentally
-    // clobbering template values with `undefined` from a `"label" in
-    // previous` check when previous is an empty shell.
+  test("non-hatch off-platform boot writes no managed entries; defaults resolve bare-labeled from the catalog", () => {
+    // First boot of a config with no prior profiles and no hatch overlay:
+    // nothing is materialized for the default names. The " (Managed)" label
+    // suffix exists only on the thin stubs written at BYOK hatch time; a
+    // plain boot serves the bare catalog labels through the effective view.
     writeConfig({});
 
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(raw.llm.profiles.balanced.label).toBe("Balanced (Managed)");
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
-    // Status is unset by default — must not appear as `undefined`.
-    expect("status" in raw.llm.profiles.balanced).toBe(false);
+    expect(raw.llm.profiles.balanced).toBeUndefined();
+    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
+    expect(effectiveBalanced?.label).toBe("Balanced");
+    expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
+    // Status is unset — the default resolves active.
+    expect("status" in (effectiveBalanced ?? {})).toBe(false);
   });
 
-  test("platform overlay fragment wins its hatch boot, then content reconciles to the code template (label preserved)", () => {
-    // The overlay is authoritative for the boot it is supplied: its `balanced`
-    // fragment lands verbatim and is never polluted by template fields it omits
-    // (no maxTokens/thinking leak in). On the next boot — overlay archived —
-    // managed profile *content* reconciles to the code template, since the
-    // templates are the single source of truth for content. Only the
-    // user/overlay-set `label` survives the reconcile.
+  test("platform overlay fragment stays on disk verbatim; resolution serves catalog content with the overlay label", () => {
+    // The overlay's `balanced` fragment lands verbatim on disk and stays
+    // there across boots — boots never rewrite managed entries. Resolution,
+    // however, always serves default profile CONTENT from the code catalog:
+    // a managed-source workspace entry contributes only label/status/topP,
+    // so the overlay's provider/model never reach the resolver. Only its
+    // `label` shows through the effective view.
     process.env.IS_PLATFORM = "true";
 
     writeConfig({
@@ -1200,10 +1219,9 @@ describe("loadConfig startup behavior", () => {
       model: "gpt-5.4",
       label: "Platform Balanced",
     });
-    // Resolution serves default-profile CONTENT from the code catalog: a
-    // managed-source workspace entry contributes only label/status/topP, so
-    // the overlay's provider/model never reach the resolver — even on the
-    // overlay boot. The overlay-set label is what survives into the
+    // Resolution serves default-profile CONTENT from the code catalog: the
+    // overlay's provider/model never reach the resolver — even on the
+    // overlay boot. The overlay-set label is what shows through the
     // effective view.
     expect(mainAgentConfig.provider).toBe("fireworks");
     expect(mainAgentConfig.model).toBe("accounts/fireworks/models/glm-5p2");
@@ -1218,26 +1236,32 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced.maxTokens).toBeUndefined();
     expect(raw.llm.profiles.balanced.thinking).toBeUndefined();
 
-    // Next boot, no overlay: content reconciles to the fireworks-managed code
-    // template; only the overlay-set label is carried across.
+    // Next boot, no overlay: the entry stays byte-identical on disk, and
+    // resolution keeps serving the fireworks-managed catalog body with the
+    // overlay's label on top.
     mergeDefaultConfigAndSeedInferenceProfiles();
 
     const afterRestart = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     expect(afterRestart.llm.activeProfile).toBe("balanced");
-    expect(afterRestart.llm.profiles.balanced.provider).toBe("fireworks");
-    expect(afterRestart.llm.profiles.balanced.provider_connection).toBe(
-      "vellum",
+    expect(afterRestart.llm.profiles.balanced).toEqual({
+      source: "managed",
+      provider: "openai",
+      model: "gpt-5.4",
+      label: "Platform Balanced",
+    });
+    const effectiveBalanced = getEffectiveProfile(
+      afterRestart.llm.profiles,
+      "balanced",
     );
-    expect(afterRestart.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
-    expect(afterRestart.llm.profiles.balanced.maxTokens).toBe(32000);
-    expect(afterRestart.llm.profiles.balanced.thinking).toEqual({
+    expect(effectiveBalanced?.provider).toBe("fireworks");
+    expect(effectiveBalanced?.provider_connection).toBe("vellum");
+    expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(effectiveBalanced?.maxTokens).toBe(32000);
+    expect(effectiveBalanced?.thinking).toEqual({
       enabled: true,
       streamThinking: true,
     });
-    // The user/overlay-set label is the one field that survives the reconcile.
-    expect(afterRestart.llm.profiles.balanced.label).toBe("Platform Balanced");
+    expect(effectiveBalanced?.label).toBe("Platform Balanced");
   });
 
   test("quarantines corrupt config before merging hatch overlay", () => {
@@ -1273,12 +1297,13 @@ describe("loadConfig startup behavior", () => {
       provider: "anthropic",
       model: "claude-opus-4-7",
     });
-    // Off-platform hatch: user profiles are active.
+    // Off-platform hatch: user profiles are active; the managed defaults get
+    // only thin disabled stubs.
     expect(raw.llm.activeProfile).toBe("custom-balanced");
     expect(raw.llm.profiles["custom-balanced"].provider).toBe("anthropic");
-    expect(raw.llm.profiles.balanced.model).toBe(
-      "accounts/fireworks/models/glm-5p2",
-    );
+    expect(raw.llm.profiles.balanced).toEqual(managedStub("Balanced"));
+    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
+    expect(effectiveBalanced?.model).toBe("accounts/fireworks/models/glm-5p2");
   });
 
   test("still quarantines corrupt JSON", () => {
@@ -1304,14 +1329,14 @@ describe("loadConfig startup behavior", () => {
 
 // ---------------------------------------------------------------------------
 // Tests: BYOK-mode seed behavior (issues #2/#3/#4 of the May 12 provider UX
-// queue). Off-platform managed profiles share base labels with the personal
-// "custom-*" profiles (Balanced / Quality / Speed), so the seed function
-// suffixes managed labels with " (Managed)" to disambiguate. Status is
-// initialized to "disabled" ONLY at hatch on first materialization — a fresh
-// BYOK user has no platform auth, so we don't want managed entries surfacing
-// as enabled in the picker on day one. Post-hatch user toggles persist
-// through every subsequent boot — the "never auto-disable BYOK connections"
-// rule applies to RESTART, not to hatch. On-platform behavior is unchanged.
+// queue). Off-platform managed defaults share base labels with the personal
+// "custom-*" profiles (Balanced / Quality / Speed), so the thin stubs written
+// at BYOK hatch time carry a " (Managed)" label suffix and status "disabled"
+// — a fresh BYOK user has no platform auth, so managed defaults must not
+// surface as enabled in the picker on day one. Boots never touch managed
+// entries, so post-hatch user toggles persist — the "never auto-disable BYOK
+// connections" rule applies to RESTART, not to hatch. On platform, no
+// managed entries are written at all; defaults resolve from the code catalog.
 // ---------------------------------------------------------------------------
 
 describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
@@ -1566,13 +1591,16 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     expect(raw.llm.activeProfile).toBe("balanced");
-    // All managed profiles now share the single `vellum` connection, so
-    // selecting `balanced` at hatch activates that connection for every managed
-    // profile — none are disabled. The default advisor falls to the strongest
+    // The hatch overlay selected a managed profile (all managed profiles
+    // share the single `vellum` connection), so no disabled stubs are
+    // written: the defaults stay absent from llm.profiles and resolve active
+    // from the code catalog. The default advisor falls to the strongest
     // active managed profile, `quality-optimized`.
     expect(raw.llm.advisorProfile).toBe("quality-optimized");
-    expect(raw.llm.profiles.balanced.provider_connection).toBe("vellum");
-    expect("status" in raw.llm.profiles.balanced).toBe(false);
+    expect(raw.llm.profiles.balanced).toBeUndefined();
+    const effectiveBalanced = getEffectiveProfile(raw.llm.profiles, "balanced");
+    expect(effectiveBalanced?.provider_connection).toBe("vellum");
+    expect("status" in (effectiveBalanced ?? {})).toBe(false);
   });
 
   test("off-platform managed-inference hatch respects explicit non-managed active connection", () => {
@@ -1614,20 +1642,19 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(getConnection(db, "gemini-managed")).not.toBeNull();
   });
 
-  test("non-hatch off-platform boot does NOT auto-disable freshly-materialized managed profiles", () => {
-    // Existing installs that upgrade to a version where the managed
-    // profile didn't previously exist (e.g. a new template added later)
-    // must not be auto-disabled on a normal boot. The hatch-time disable
-    // is gated on `isHatch && !previous`; without an overlay there's no
-    // hatch signal, so the seeder leaves status unset (schema default
-    // = "active"). This is the "we never want to auto-disable BYOK
-    // connections on restart" guarantee.
+  test("non-hatch off-platform boot writes no managed entries and never auto-disables the defaults", () => {
+    // Existing installs that upgrade to a version where the workspace
+    // carries no entries for the default names get nothing materialized on
+    // a normal boot — and therefore nothing auto-disabled. The disabled
+    // stubs are written only at BYOK hatch time; without an overlay there
+    // is no hatch signal, and the defaults resolve active from the code
+    // catalog. This is the "we never want to auto-disable BYOK connections
+    // on restart" guarantee.
     writeConfig({
       llm: {
         default: { provider: "anthropic", model: "claude-opus-4-7" },
-        // Note: no `profiles` key — the managed profiles will be freshly
-        // materialized by seedInferenceProfiles. !previous is true for all
-        // three, but isHatch is false, so disable does NOT fire.
+        // Note: no `profiles` key — the default names stay absent from the
+        // workspace after the boot.
       },
     });
 
@@ -1635,12 +1662,16 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     mergeDefaultConfigAndSeedInferenceProfiles();
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect("status" in raw.llm.profiles.balanced).toBe(false);
-    expect("status" in raw.llm.profiles["quality-optimized"]).toBe(false);
-    expect("status" in raw.llm.profiles["cost-optimized"]).toBe(false);
+    expect(raw.llm.profiles.balanced).toBeUndefined();
+    expect(raw.llm.profiles["quality-optimized"]).toBeUndefined();
+    expect(raw.llm.profiles["cost-optimized"]).toBeUndefined();
+    const effective = getEffectiveProfiles(raw.llm.profiles);
+    expect("status" in (effective.balanced ?? {})).toBe(false);
+    expect("status" in (effective["quality-optimized"] ?? {})).toBe(false);
+    expect("status" in (effective["cost-optimized"] ?? {})).toBe(false);
   });
 
-  test("on-platform hatch leaves managed labels untouched", () => {
+  test("on-platform hatch writes no managed stubs; catalog labels stay bare", () => {
     process.env.IS_PLATFORM = "true";
 
     const overlayPath = join(WORKSPACE_DIR, "hatch-overlay.json");
@@ -1652,67 +1683,67 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     process.env.VELLUM_DEFAULT_WORKSPACE_CONFIG_PATH = overlayPath;
 
     mergeDefaultConfigAndSeedInferenceProfiles();
-    const config = loadConfig();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    // No "(Managed)" suffix on platform — the personal profiles don't exist
-    // here so there's nothing to disambiguate from.
-    expect(config.llm.profiles.balanced?.label).toBe("Balanced");
-    expect(config.llm.profiles["quality-optimized"]?.label).toBe("Quality");
-    expect(config.llm.profiles["cost-optimized"]?.label).toBe("Speed");
+    // Platform hatches materialize nothing, and the catalog labels carry no
+    // "(Managed)" suffix — the personal profiles don't exist here so there's
+    // nothing to disambiguate from.
+    expect(raw.llm.profiles).toEqual({});
+    const effective = getEffectiveProfiles(raw.llm.profiles);
+    expect(effective.balanced?.label).toBe("Balanced");
+    expect(effective["quality-optimized"]?.label).toBe("Quality");
+    expect(effective["cost-optimized"]?.label).toBe("Speed");
   });
 
-  test("upgrade boot rewrites legacy bare labels to suffixed form on off-platform", () => {
-    // Existing off-platform install (pre-suffix-PR) has `label: "Balanced"`
-    // on disk. The "label" in previous preservation would normally keep
-    // the bare label and the picker would stay ambiguous forever — so the
-    // seeder runs a one-shot upgrade migration when previous.label exactly
-    // equals the bare template default. User-customized labels and
-    // explicit nulls are NOT rewritten.
+  test("boot leaves legacy bare labels on managed entries untouched", () => {
+    // Existing off-platform install has bare labels (`label: "Balanced"`)
+    // on its managed entries. Boots never rewrite managed entries — there
+    // is no label-suffix upgrade pass — so the entries stay byte-identical
+    // and the bare labels flow through the effective view.
+    const legacyProfiles = {
+      balanced: {
+        source: "managed",
+        provider: "anthropic",
+        provider_connection: "anthropic-managed",
+        model: "claude-sonnet-4-6",
+        label: "Balanced",
+      },
+      "quality-optimized": {
+        source: "managed",
+        provider: "anthropic",
+        provider_connection: "anthropic-managed",
+        label: "Quality",
+      },
+      "cost-optimized": {
+        source: "managed",
+        provider: "anthropic",
+        provider_connection: "anthropic-managed",
+        label: "Speed",
+      },
+    };
     writeConfig({
       llm: {
         default: { provider: "anthropic", model: "claude-opus-4-7" },
-        profiles: {
-          balanced: {
-            source: "managed",
-            provider: "anthropic",
-            provider_connection: "anthropic-managed",
-            model: "claude-sonnet-4-6",
-            label: "Balanced",
-          },
-          "quality-optimized": {
-            source: "managed",
-            provider: "anthropic",
-            provider_connection: "anthropic-managed",
-            label: "Quality",
-          },
-          "cost-optimized": {
-            source: "managed",
-            provider: "anthropic",
-            provider_connection: "anthropic-managed",
-            label: "Speed",
-          },
-        },
+        profiles: legacyProfiles,
         activeProfile: "balanced",
       },
     });
 
-    // No overlay → not a hatch. Still upgrades labels.
+    // No overlay → not a hatch.
     mergeDefaultConfigAndSeedInferenceProfiles();
-    const config = loadConfig();
+    const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
-    expect(config.llm.profiles.balanced?.label).toBe("Balanced (Managed)");
-    expect(config.llm.profiles["quality-optimized"]?.label).toBe(
-      "Quality (Managed)",
-    );
-    expect(config.llm.profiles["cost-optimized"]?.label).toBe(
-      "Speed (Managed)",
-    );
+    expect(raw.llm.profiles).toEqual(legacyProfiles);
+    const effective = getEffectiveProfiles(raw.llm.profiles);
+    expect(effective.balanced?.label).toBe("Balanced");
+    expect(effective["quality-optimized"]?.label).toBe("Quality");
+    expect(effective["cost-optimized"]?.label).toBe("Speed");
   });
 
-  test("upgrade boot preserves user-customized labels and explicit null on off-platform", () => {
-    // A user-set string that differs from the bare default must survive;
-    // an explicit null (user cleared the label) must also survive. Only
-    // exact matches against the bare template label trigger the upgrade.
+  test("boot preserves user-customized labels and explicit null on off-platform", () => {
+    // A user-set string that differs from the bare default survives, as
+    // does an explicit null (user cleared the label) — boots never touch
+    // managed entries, whatever label state they carry.
     writeConfig({
       llm: {
         default: { provider: "anthropic", model: "claude-opus-4-7" },
@@ -1750,9 +1781,9 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     expect(raw.llm.profiles["cost-optimized"].label).toBe("Speed (Managed)");
   });
 
-  test("upgrade boot does NOT rewrite bare labels on platform", () => {
-    // The migration is gated on isByokMode, so an on-platform install with
-    // a bare "Balanced" label preserves it (no suffix on platform).
+  test("platform boot leaves a bare label on a managed entry untouched", () => {
+    // An on-platform install with a bare "Balanced" label keeps it — boots
+    // never rewrite managed entries, and no suffix exists on platform.
     process.env.IS_PLATFORM = "true";
     writeConfig({
       llm: {

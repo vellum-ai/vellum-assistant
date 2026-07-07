@@ -97,6 +97,7 @@ const BASELINE: Record<string, readonly string[]> = {
     "../../../../channels/types.js",
     "../../../../cli/program.js",
     "../../../../config/assistant-feature-flags.js",
+    "../../../../config/default-profile-catalog.js",
     "../../../../config/loader.js",
     "../../../../config/memory-v3-gate.js",
     "../../../../config/schema.js",

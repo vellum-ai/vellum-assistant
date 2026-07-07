@@ -348,7 +348,12 @@ describe("manage_workflows", () => {
     );
     expect(res.isError).toBe(false);
     const parsed = JSON.parse(res.content);
-    expect(parsed.profiles).toEqual(["balanced", "cost-optimized"]);
+    // The effective view always includes the code-catalog defaults.
+    expect(parsed.profiles).toEqual([
+      "balanced",
+      "cost-optimized",
+      "quality-optimized",
+    ]);
     expect(parsed.activeProfile).toBe("balanced");
   });
 

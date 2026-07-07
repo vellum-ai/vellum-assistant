@@ -40,9 +40,14 @@ describe("getEffectiveProfiles", () => {
     }
   });
 
-  test("defaults absent from the workspace do not resolve (seeder still owns materialization)", () => {
-    expect(getEffectiveProfiles(undefined)).toEqual({});
-    expect(getEffectiveProfile({}, "balanced")).toBeUndefined();
+  test("defaults absent from the workspace resolve from the catalog; os-beta stays flag-gated", () => {
+    const effective = getEffectiveProfiles(undefined);
+    expect(Object.keys(effective).sort()).toEqual(
+      [...DEFAULT_PROFILE_KEYS].sort(),
+    );
+    expect(getEffectiveProfile({}, "balanced")?.model).toBe(
+      CODE_DEFAULT_PROFILE_ENTRIES.balanced.model as string,
+    );
     expect(getEffectiveProfile({}, OS_BETA_PROFILE_KEY)).toBeUndefined();
   });
 
@@ -135,6 +140,16 @@ describe("resolver integration", () => {
     expect(resolved.provider_connection).toBe("vellum");
   });
 
+  test("an empty workspace resolves every call-site default from the catalog", () => {
+    const llm = LLMSchema.parse({ activeProfile: "balanced" });
+    for (const [callSite, dflt] of Object.entries(CALL_SITE_DEFAULTS)) {
+      if (dflt.profile == null) continue;
+      const expected = CODE_DEFAULT_PROFILE_ENTRIES[dflt.profile];
+      const resolved = resolveCallSiteConfig(callSite as LLMCallSite, llm);
+      expect(resolved.model).toBe(expected.model as string);
+    }
+  });
+
   test("thin managed stubs and fully seeded bodies resolve identically at every call site", () => {
     const seededProfiles = Object.fromEntries(
       Object.entries(CODE_DEFAULT_PROFILE_ENTRIES).filter(
@@ -175,18 +190,24 @@ describe("resolver integration", () => {
 });
 
 describe("schema validation", () => {
-  test("profile references are valid only when materialized in llm.profiles (parity with the seeder contract)", () => {
-    // A default name is not schema-valid while unmaterialized: the effective
-    // view does not resolve absent defaults, so accepting the reference
-    // would let resolution throw at dispatch instead of failing at load.
-    expect(() => LLMSchema.parse({ activeProfile: "balanced" })).toThrow();
+  test("always-available default names are valid references; os-beta only when materialized", () => {
+    expect(() => LLMSchema.parse({ activeProfile: "balanced" })).not.toThrow();
+    expect(() =>
+      LLMSchema.parse({ advisorProfile: "quality-optimized" }),
+    ).not.toThrow();
+    expect(() =>
+      LLMSchema.parse({
+        callSites: { mainAgent: { profile: "cost-optimized" } },
+      }),
+    ).not.toThrow();
+    // Flag-gated: valid only while its workspace stub exists.
     expect(() =>
       LLMSchema.parse({ activeProfile: OS_BETA_PROFILE_KEY }),
     ).toThrow();
     expect(() =>
       LLMSchema.parse({
-        activeProfile: "balanced",
-        profiles: managedStubs(),
+        activeProfile: OS_BETA_PROFILE_KEY,
+        profiles: { [OS_BETA_PROFILE_KEY]: { source: "managed" } },
       }),
     ).not.toThrow();
     expect(() =>

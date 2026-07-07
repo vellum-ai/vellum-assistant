@@ -1032,3 +1032,147 @@ describe("wire-only profile keys are stripped from writes", () => {
     expect(profile.maxTokens).toBe(2048);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Code-owned default profiles: wire round-trip and shadowing guards
+// ---------------------------------------------------------------------------
+
+const getRoute = ROUTES.find((r) => r.operationId === "config_get")!;
+
+describe("code-owned default profiles — wire view and write normalization", () => {
+  test("GET materializes catalog bodies over thin stubs (wire-only)", async () => {
+    rawConfig = {
+      llm: {
+        profiles: { balanced: { source: "managed", status: "disabled" } },
+      },
+    };
+    const response = (await getRoute.handler({})) as Record<string, any>;
+    const wireBalanced = response.llm.profiles.balanced;
+    expect(wireBalanced.model).toBe("accounts/fireworks/models/glm-5p2");
+    expect(wireBalanced.provider_connection).toBe("vellum");
+    expect(wireBalanced.status).toBe("disabled");
+    expect(wireBalanced.invariant).toBe(true);
+    // Absent defaults are materialized too — the catalog owns their content.
+    expect(response.llm.profiles["quality-optimized"].model).toBeDefined();
+  });
+
+  test("GET → PATCH round-trip of the wire view is accepted and keeps disk stubs thin", async () => {
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: { source: "managed", status: "disabled" },
+          "my-custom": { provider: "openai", model: "gpt-4o", source: "user" },
+        },
+      },
+    };
+    const response = (await getRoute.handler({})) as Record<string, any>;
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: response.llm.profiles } },
+    });
+    expect(result).toHaveProperty("llm");
+    expectOneCommitCycle();
+    expect(savedProfile("balanced")).toEqual({
+      source: "managed",
+      status: "disabled",
+    });
+    // Echoes of absent defaults reduce to a no-op managed stub.
+    expect(savedProfile("quality-optimized")).toEqual({ source: "managed" });
+    expect(savedProfile("my-custom")).toEqual({
+      provider: "openai",
+      model: "gpt-4o",
+      source: "user",
+    });
+  });
+
+  test("creating a new profile under a default name is rejected", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    await expect(
+      patchRoute.handler({
+        body: {
+          llm: {
+            profiles: {
+              balanced: { source: "user", provider: "openai", model: "gpt-4o" },
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'Cannot create profile "balanced" — the name is reserved for a code-defined default profile.',
+    );
+    expectNothingCommitted();
+  });
+
+  test("writing content to an absent default name is rejected", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    await expect(
+      patchRoute.handler({
+        body: {
+          llm: {
+            profiles: {
+              "cost-optimized": { source: "managed", model: "gpt-4o" },
+            },
+          },
+        },
+      }),
+    ).rejects.toThrow(
+      'Cannot edit managed profile "cost-optimized" fields [model].',
+    );
+    expectNothingCommitted();
+  });
+
+  test("disabling an absent default via a generic write is rejected", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    await expect(
+      patchRoute.handler({
+        body: {
+          llm: {
+            profiles: { balanced: { source: "managed", status: "disabled" } },
+          },
+        },
+      }),
+    ).rejects.toThrow('Cannot disable managed profile "balanced".');
+    expectNothingCommitted();
+  });
+
+  test("PUT status re-enable on an absent always-available default creates a thin managed stub", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    const result = await replaceRoute.handler({
+      pathParams: { name: "balanced" },
+      body: { status: "active" },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(savedProfile("balanced")).toEqual({
+      source: "managed",
+      status: "active",
+    });
+  });
+
+  test("PUT on absent flag-gated os-beta is still rejected", async () => {
+    rawConfig = { llm: { profiles: {} } };
+    await expect(
+      replaceRoute.handler({
+        pathParams: { name: "os-beta" },
+        body: { status: "active" },
+      }),
+    ).rejects.toThrow(
+      'Profile "os-beta" is not currently available and cannot be edited.',
+    );
+    expectNothingCommitted();
+  });
+
+  test("an existing user-source shadow of a default name stays editable", async () => {
+    rawConfig = {
+      llm: {
+        profiles: {
+          balanced: { source: "user", provider: "openai", model: "gpt-4o" },
+        },
+      },
+    };
+    const result = await patchRoute.handler({
+      body: { llm: { profiles: { balanced: { model: "gpt-5.4" } } } },
+    });
+    expect(result).toHaveProperty("llm");
+    expectOneCommitCycle();
+    expect(savedProfile("balanced").model).toBe("gpt-5.4");
+  });
+});
