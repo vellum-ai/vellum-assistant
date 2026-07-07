@@ -358,10 +358,14 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
 
   // llm.defaultProvider: guards both the resolved connection name (explicit
   // `connectionName` or the `<provider>-personal` convention) and the case
-  // where that resolved name is dangling but this is the last remaining
+  // where the convention name is dangling but this is the last remaining
   // connection for the default's provider — resolution treats a dangling
   // default as an explainable error; this guard keeps UI deletes from
-  // orphaning it silently.
+  // orphaning it silently. The last-connection fallback only applies to
+  // convention resolution: an explicit `connectionName` pins exactly one row
+  // (protected above), so unrelated same-provider rows stay deletable. Legacy
+  // managed rows are excluded from the count for the same reason the list
+  // route hides them — they aren't user-manageable connections.
   const dp = getDefaultProvider(config);
   if (dp) {
     if (name === resolveDefaultConnectionName(dp)) {
@@ -371,8 +375,11 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
       );
     }
     if (
+      !dp.connectionName &&
       existing.provider === dp.provider &&
-      listConnections(getDb(), { provider: dp.provider }).length === 1
+      listConnections(getDb(), { provider: dp.provider }).filter(
+        (c) => !LEGACY_MANAGED_CONNECTION_NAMES.has(c.name),
+      ).length === 1
     ) {
       throw new ConflictError(
         `Connection "${name}" is the only connection for provider "${dp.provider}", which llm.defaultProvider depends on. Update llm.defaultProvider or add another connection for provider "${dp.provider}" before deleting.`,

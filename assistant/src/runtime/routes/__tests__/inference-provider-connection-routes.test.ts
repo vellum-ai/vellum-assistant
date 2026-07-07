@@ -532,6 +532,56 @@ describe("DELETE guards the llm.defaultProvider reference", () => {
     });
   });
 
+  test("succeeds deleting an unrelated last same-provider connection when the default pins an explicit connectionName", async () => {
+    // The explicit pin is what the default references; "anthropic-work" is
+    // unrelated even though it is the only anthropic row.
+    seedConnection({
+      name: "anthropic-work",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    fakeConfig = {
+      llm: {
+        defaultProvider: {
+          provider: "anthropic",
+          connectionName: "anthropic-personal",
+        },
+      },
+    };
+
+    const result = await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "anthropic-work" } },
+    );
+    expect(result).toEqual({ ok: true });
+  });
+
+  test("throws 409 deleting the last visible connection when a hidden legacy row shares the provider", async () => {
+    // "anthropic-managed" is filtered from the list route and must not count
+    // as a remaining connection for the default provider.
+    seedConnection({
+      name: "anthropic-work",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    seedConnection({
+      name: "anthropic-managed",
+      provider: "anthropic",
+      auth: { type: "platform" },
+    });
+    fakeConfig = { llm: { defaultProvider: { provider: "anthropic" } } };
+
+    const err = await call(
+      findHandler("inference_provider_connections_delete"),
+      { pathParams: { name: "anthropic-work" } },
+    ).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ConflictError);
+    expect((err as ConflictError).details).toEqual({
+      referencedBy: ["llm.defaultProvider"],
+    });
+  });
+
   test("succeeds deleting a non-last connection for the default provider", async () => {
     seedConnection({
       name: "anthropic-personal",
