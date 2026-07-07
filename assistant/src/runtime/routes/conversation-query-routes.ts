@@ -129,7 +129,6 @@ import {
   getEffectiveProfiles,
   INVARIANT_PROFILE_NAMES,
   MANAGED_PROFILE_NAMES,
-  WORKSPACE_OWNED_DEFAULT_FIELDS,
 } from "../../config/default-profile-catalog.js";
 import { DEFAULT_PROFILE_KEYS } from "../../config/default-profile-names.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
@@ -850,18 +849,6 @@ function stripWireOnlyProfileKeys(patch: unknown): void {
     }
   }
 }
-
-/**
- * The per-managed-profile fields the workspace owns; everything else on a
- * managed entry is code-catalog content that exists only on the wire
- * (stamped by {@link overlayEffectiveProfilesForWire}) and must never be
- * persisted. Derived from the effective view's overlay whitelist so the two
- * cannot drift.
- */
-const MANAGED_PROFILE_WORKSPACE_KEYS = new Set<string>([
-  "source",
-  ...WORKSPACE_OWNED_DEFAULT_FIELDS,
-]);
 
 /**
  * Normalize managed default-profile entries in a config-write fragment, in

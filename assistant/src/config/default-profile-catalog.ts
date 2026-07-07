@@ -327,11 +327,7 @@ export const CODE_DEFAULT_PROFILE_ENTRIES: Readonly<
  * Carried by key-presence rather than truthiness so an explicit `null`
  * (cleared field) survives too.
  */
-export const WORKSPACE_OWNED_DEFAULT_FIELDS = [
-  "label",
-  "status",
-  "topP",
-] as const;
+const WORKSPACE_OWNED_DEFAULT_FIELDS = ["label", "status", "topP"] as const;
 
 /**
  * Resolve a single profile name against the effective catalog: code-defined
