@@ -512,7 +512,12 @@ describe("workspace hooks (<workspace>/hooks/)", () => {
   // NB: each test below uses a distinct hook event name so the workspace
   // hook file path is unique and each test stays independent of the cache
   // state its siblings leave behind (the plugin tests get the same isolation
-  // from a fresh plugin directory per test).
+  // from a fresh plugin directory per test). A test that must reuse an event
+  // name another test already imported cannot rely on a boot scan alone:
+  // Bun's module registry serves the previous compile of an already-imported
+  // path, and only the publish path's in-place redeploy sweeps the registry.
+  // Such a test edits the file after boot and publishes, like the ordering
+  // test below.
   test("plugin hooks run before the workspace hook for the same event", async () => {
     const dir = freshPluginDir("ordering-plugin");
     writePackageJson(dir, { ...SIMPLE_PKG, name: "ordering-plugin" });
@@ -521,12 +526,20 @@ describe("workspace hooks (<workspace>/hooks/)", () => {
       "pre-model-call",
       `export default () => ({ tag: "plugin" });`,
     );
+    const hookFile = join(WORKSPACE_HOOKS_DIR, "pre-model-call.ts");
     writeWorkspaceHook(
       "pre-model-call",
-      `export default () => ({ tag: "workspace" });`,
+      `export default () => ({ tag: "stale" });`,
     );
 
     await populateCacheAtBoot();
+
+    // The collision test above already imported this workspace hook path, so
+    // reach the current version through an edit + publish (in-place redeploy
+    // sweeps the module registry) rather than the boot scan.
+    writeFileSync(hookFile, `export default () => ({ tag: "workspace" });`);
+    touchFile(hookFile);
+    publishSourceChanges();
 
     const hooks = await getUserHooksFor("pre-model-call");
     expect(hooks).toHaveLength(2);
@@ -887,9 +900,8 @@ describe("sentinel path validation (ATL-983)", () => {
 
     // Forge a sentinel that claims the evil directory is a plugin.
     const sentinelPath = getSourceVersionsPath();
-    const { snapshotPluginSource } = await import(
-      "../plugins/source-fingerprint.js"
-    );
+    const { snapshotPluginSource } =
+      await import("../plugins/source-fingerprint.js");
     const snapshot = snapshotPluginSource(evilDir);
     writeFileSync(
       sentinelPath,
