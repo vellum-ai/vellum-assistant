@@ -224,4 +224,19 @@ describe("listSkills — origin derivation", () => {
     expect(skill.origin).toBe("custom");
     expect(skill.kind).toBe("installed");
   });
+
+  // An install-meta.json origin outside the known set degrades to "custom", and
+  // every listSkills() entry is a defined response.
+  test("managed skill with an unknown origin degrades to custom, never undefined", () => {
+    mockSummaries = [makeSummary({ id: "weird-origin", source: "managed" })];
+    mockCachedCatalog = [];
+    mockInstallMeta = {
+      origin: "some-unhandled-origin" as never,
+      installedAt: "2026-01-01T00:00:00.000Z",
+    };
+
+    const skills = listSkills();
+    expect(skills.every((s) => s !== undefined)).toBe(true);
+    expect(skills[0].origin).toBe("custom");
+  });
 });

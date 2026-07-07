@@ -403,6 +403,11 @@ function toSlimSkillResponse(
     case "custom":
     case "assistant-memory":
       return { ...base, origin };
+    default:
+      // origin comes from install-meta.json on disk and isn't validated, so it
+      // may hold a value outside the known set. Degrade any such origin to
+      // "custom" — every skill must map to a defined response.
+      return { ...base, origin: "custom" };
   }
 }
 

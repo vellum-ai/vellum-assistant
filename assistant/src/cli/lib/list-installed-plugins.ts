@@ -206,9 +206,7 @@ export function listAllPlugins(
   // ── User plugins ───────────────────────────────────────────────────────
   // Filter out default-plugin stub directories (created by `plugins disable
   // default-<name>`) so they don't show up as duplicate user entries.
-  const defaultNames = new Set(
-    readDefaultPluginManifests().map((m) => m.name),
-  );
+  const defaultNames = new Set(readDefaultPluginManifests().map((m) => m.name));
   const userPlugins: AllPluginInfo[] = listInstalledPlugins(opts)
     .filter((entry) => !defaultNames.has(entry.name))
     .map((entry) => ({
@@ -255,7 +253,12 @@ export function listAllPlugins(
   );
   // enabledDefault and disabledDefault keep repo array order (no sort).
 
-  return [...enabledUser, ...disabledUser, ...enabledDefault, ...disabledDefault];
+  return [
+    ...enabledUser,
+    ...disabledUser,
+    ...enabledDefault,
+    ...disabledDefault,
+  ];
 }
 
 interface DefaultPluginManifest {
@@ -309,7 +312,10 @@ function getPluginInstallDate(plugin: AllPluginInfo): number {
   const metaPath = join(plugin.target, "install-meta.json");
   try {
     if (existsSync(metaPath)) {
-      const raw = JSON.parse(readFileSync(metaPath, "utf8")) as Record<string, unknown>;
+      const raw = JSON.parse(readFileSync(metaPath, "utf8")) as Record<
+        string,
+        unknown
+      >;
       if (typeof raw.installedAt === "string") {
         const ms = Date.parse(raw.installedAt);
         if (Number.isFinite(ms)) return ms;

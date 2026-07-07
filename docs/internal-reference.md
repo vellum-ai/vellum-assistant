@@ -584,7 +584,7 @@ Multiple plans can run in parallel — just specify the plan name to disambiguat
 | Command | Purpose |
 |---------|---------|
 | `/plan-html <topic\|plan-name>` | Create or refresh a rollout plan in `.private/plans/` with both markdown and a polished, review-friendly HTML view (including per-PR file lists). |
-| `/release [version]` | Cut a release: pull main, determine/create version tag, generate release notes, publish GitHub Release, and verify CI trigger. |
+| `/release [bump]` | Cut a release in two steps: dispatch `create-release-branch.yml` (cuts `release/vX.Y.Z` from main → staging bake), then after the bake is green dispatch `release.yml` on the release branch for the full production release. |
 | `/triage [user\|assistant\|device]` | Search Sentry for recent errors and log reports by user, assistant, or device in the `vellum-assistant-brain` project, then cross-reference with Linear issues to produce a triage summary. |
 | `/update` | Pull latest from `main`, kill stale processes, rebuild and launch the macOS app. The app manages its own assistant and gateway lifecycle (hatching on first launch). Prints a startup summary. |
 
@@ -611,16 +611,18 @@ All workflows use squash-merge (no merge commits), worktree isolation for parall
 
 ### Release Management
 
-Releases are cut using the `/release` Claude Code command and follow a fully automated pipeline from tag to client update.
+Releases are cut using the `/release` Claude Code command and follow a two-step pipeline: a branch cut with a staging bake, then a production dispatch on the release branch.
 
 #### Cutting a release
 
-Run `/release [version]` in Claude Code. If no version is provided, the patch version is auto-incremented from the latest git tag (e.g. `v0.1.5` becomes `v0.1.6`). The command:
+Run `/release [patch|minor|major|hotfix]` in Claude Code. The command:
 
-1. Pulls the latest `main` branch
-2. Generates release notes from commits since the last tag, grouped into Features, Fixes, and Infrastructure
-3. Creates a GitHub Release with the corresponding git tag
-4. Confirms the CI build was triggered
+1. Pulls the latest `main` branch and shows the commits the release will carry
+2. Dispatches `create-release-branch.yml` with the bump type. The workflow computes the version from the latest tag, deletes any stale `release/vX.Y.Z` branch, cuts a fresh one from `main` HEAD with the version-bump commit ("Release vX.Y.Z"), and pushes it — which triggers a **staging** `Release` run on the branch (push-triggered and main-dispatched `Release` runs are always staging; the scheduled Tue/Fri 9am ET cut is this same step)
+3. Waits for the staging bake to succeed — it is the CI bake for the exact release payload; a failure means fixing `main` and re-cutting
+4. Dispatches `release.yml` on `release/vX.Y.Z` — "manual dispatch on a release branch" is the **full production release**: tags `vX.Y.Z`, publishes npm packages, builds/signs/notarizes and publishes the macOS DMG, pushes Docker Hub images, uploads iOS to TestFlight, creates the GitHub Release, updates the `vellum-assistant-platform` dependency, and merges the release branch back to `main`
+
+A lingering `release/vX.Y.Z` branch with no matching GitHub Release means a scheduled cut was never promoted to production; re-running step 2 refreshes it from current `main`.
 
 #### What happens after a release is created
 

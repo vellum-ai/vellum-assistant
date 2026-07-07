@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { getCatalogProviderForModel } from "../providers/model-catalog.js";
 import { CALL_SITE_DEFAULTS } from "./call-site-defaults.js";
+import { getEffectiveProfile } from "./default-profile-catalog.js";
 import {
   type LLMCallSite,
   LLMConfigBase,
@@ -66,7 +67,9 @@ import {
  * the same way.
  *
  * `activeProfile` and `overrideProfile` are resolved by name lookup against
- * `llm.profiles`. Missing references silently fall through (no throw) so the
+ * the effective profile catalog (code-defined defaults + workspace
+ * `llm.profiles`; see `getEffectiveProfile`). Missing references silently
+ * fall through (no throw) so the
  * resolver stays pure; schema validation in `LLMSchema.superRefine` catches
  * unknown `activeProfile` references at config-load time.
  *
@@ -302,7 +305,7 @@ function resolveProfileFragment(
   opts: ResolveCallSiteOpts,
 ): ProfileEntry | undefined {
   if (name == null) return undefined;
-  const entry = llm.profiles?.[name];
+  const entry = getEffectiveProfile(llm.profiles, name);
   if (entry?.mix == null) return entry;
 
   // Mix: pick one constituent. Seed by per-conversation seed + the mix's own
@@ -316,7 +319,7 @@ function resolveProfileFragment(
   opts.onMixSelected?.({ mixProfile: name, chosenProfile: chosen.profile });
 
   // The chosen arm must be a standard profile (enforced by superRefine).
-  return llm.profiles?.[chosen.profile];
+  return getEffectiveProfile(llm.profiles, chosen.profile);
 }
 
 /**
@@ -335,7 +338,7 @@ export function resolveDefaultProfileKey(
   llm: z.infer<typeof LLMSchema>,
 ): string | undefined {
   if (callSite === "mainAgent" && llm.activeProfile != null) {
-    const active = llm.profiles?.[llm.activeProfile];
+    const active = getEffectiveProfile(llm.profiles, llm.activeProfile);
     if (active != null && active.status !== "disabled") {
       return llm.activeProfile;
     }
@@ -343,10 +346,10 @@ export function resolveDefaultProfileKey(
 
   const dflt = CALL_SITE_DEFAULTS[callSite];
   if (dflt?.profile == null) return undefined;
-  const target = llm.profiles?.[dflt.profile];
+  const target = getEffectiveProfile(llm.profiles, dflt.profile);
   if (target != null && target.status !== "disabled") return dflt.profile;
   const customKey = `custom-${dflt.profile}`;
-  const customTarget = llm.profiles?.[customKey];
+  const customTarget = getEffectiveProfile(llm.profiles, customKey);
   if (customTarget != null && customTarget.status !== "disabled")
     return customKey;
   return undefined;
@@ -377,14 +380,16 @@ function effectiveDefault(
   const dflt = CALL_SITE_DEFAULTS[callSite];
   if (dflt == null) return undefined;
   const targetProfile =
-    dflt.profile != null ? llm.profiles?.[dflt.profile] : undefined;
+    dflt.profile != null
+      ? getEffectiveProfile(llm.profiles, dflt.profile)
+      : undefined;
   const profileUnavailable =
     dflt.profile != null &&
     (targetProfile == null || targetProfile.status === "disabled");
 
   if (profileUnavailable && !hasOverrideProfile) {
     const customKey = `custom-${dflt.profile}`;
-    const customProfile = llm.profiles?.[customKey];
+    const customProfile = getEffectiveProfile(llm.profiles, customKey);
     if (customProfile != null && customProfile.status !== "disabled") {
       return { ...dflt, profile: customKey };
     }

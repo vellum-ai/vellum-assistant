@@ -243,7 +243,9 @@ export function emitAccessRequestCallbackHandoff(
     ? getCanonicalGuardianRequest(params.accessRequestId)
     : null;
 
-  // Resolve trusted-contact member reference when possible
+  // Resolve trusted-contact member reference when possible. Sync teardown
+  // path: reads the member-verdict cache warmed by this call's setup-time
+  // verdict fetch rather than awaiting a fresh gateway read.
   let requesterMemberId: string | null = null;
   if (fromNumber) {
     try {

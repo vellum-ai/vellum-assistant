@@ -5,8 +5,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AssistantChannelState } from "@/domains/contacts/types";
 import { isSetupChannelId } from "@/domains/contacts/types";
 import {
-  fetchChannelPolicies,
+  assistantChannelAdmissionPolicyListOptions,
+  assistantChannelAdmissionPolicyListQueryKey,
+} from "@/generated/gateway/@tanstack/react-query.gen";
+import {
   setChannelPolicy,
+  toChannelPolicyViews,
 } from "@/lib/channel-admission-policy/api";
 import type { AdmissionPolicy } from "@/lib/channel-admission-policy/types";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
@@ -28,23 +32,28 @@ export interface ChannelTrustFloors {
 }
 
 /**
- * Per-channel admission floor (trust floor) wiring for the Contacts → Channels
- * list. Reads the `channelTrustFloors` flag itself; when off it returns no
- * policies and no `onChange`, which hides the inline control entirely.
+ * Per-channel admission floor (trust floor) wiring for the assistant's
+ * channel list (the Channels tab and the Contacts assistant detail). Reads
+ * the `channelTrustFloors` flag itself; when off it returns no policies and
+ * no `onChange`, which hides the inline control entirely.
  */
 export function useChannelTrustFloors(assistantId: string): ChannelTrustFloors {
   const queryClient = useQueryClient();
   const enabled = useAssistantFeatureFlagStore.use.channelTrustFloors();
 
-  const queryKey = useMemo(
-    () => ["channel-admission-policy", assistantId] as const,
+  const pathOptions = useMemo(
+    () => ({ path: { assistant_id: assistantId } }),
     [assistantId],
+  );
+  const queryKey = useMemo(
+    () => assistantChannelAdmissionPolicyListQueryKey(pathOptions),
+    [pathOptions],
   );
 
   const query = useQuery({
-    queryKey,
-    queryFn: () => fetchChannelPolicies(assistantId),
+    ...assistantChannelAdmissionPolicyListOptions(pathOptions),
     enabled,
+    select: toChannelPolicyViews,
   });
 
   const policies = useMemo(() => {

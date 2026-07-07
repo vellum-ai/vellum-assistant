@@ -110,12 +110,11 @@ mock.module("../config/loader.js", () => ({
   API_KEY_PROVIDERS: [],
 }));
 
+const realLocalActorIdentity = await import(
+  "../runtime/local-actor-identity.js"
+);
 mock.module("../runtime/local-actor-identity.js", () => ({
-  resolveLocalTrustContext: () => ({
-    trustClass: "guardian",
-    sourceChannel: "vellum",
-    guardianPrincipalId: "local-principal",
-  }),
+  ...realLocalActorIdentity,
   resolveLocalAuthContext: () => ({
     scope: "local_v1",
     actorPrincipalId: "local-principal",

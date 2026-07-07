@@ -199,3 +199,23 @@ export async function findPlayableTelephonyTtsFallback(
   }
   return null;
 }
+
+/**
+ * Resolve {@link findPlayableTelephonyTtsFallback} to a registered
+ * provider instance. Returns `null` when no playable fallback exists or
+ * the winning candidate is not registered in the provider registry.
+ * Callers own retry semantics and logging.
+ */
+export async function findPlayableTelephonyTtsFallbackProvider(
+  excludeProviderId?: string,
+): Promise<TtsProvider | null> {
+  const fallbackId = await findPlayableTelephonyTtsFallback(excludeProviderId);
+  if (!fallbackId) {
+    return null;
+  }
+  try {
+    return getTtsProvider(fallbackId);
+  } catch {
+    return null;
+  }
+}

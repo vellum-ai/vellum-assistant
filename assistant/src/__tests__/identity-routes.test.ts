@@ -24,8 +24,9 @@ mock.module("../util/logger.js", () => ({
 
 import {
   resetReadinessForTest,
+  setDbMigrating,
+  setDbMigrationFailed,
   setDbReady,
-  setStartupComplete,
 } from "../daemon/daemon-readiness.js";
 import {
   handleDetailedHealth,
@@ -139,6 +140,8 @@ beforeEach(() => {
   rmSync(getHatchedSidecarPath(), { force: true });
   rmSync(join(getWorkspaceDir(), "IDENTITY.md"), { force: true });
   rmSync(join(getWorkspaceDir(), "SOUL.md"), { force: true });
+  resetReadinessForTest();
+  setDbReady(true);
 });
 
 afterEach(() => {
@@ -195,6 +198,28 @@ describe("identity routes — health endpoint", () => {
 
       expect(body.ces).toBeDefined();
       expect((body.ces as Record<string, unknown>).connected).toBe(false);
+    });
+
+    test("detailed health reports MIGRATING while DB migrations are running", async () => {
+      setDbMigrating();
+      const res = handleDetailedHealth();
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.status).toBe("MIGRATING");
+      expect(body.reason).toBe("db_migrations_running");
+      expect((body.dbMigrations as Record<string, unknown>).state).toBe(
+        "running",
+      );
+    });
+
+    test("simple healthz remains ok while DB migrations are running", async () => {
+      setDbMigrating();
+      const res = handleHealth();
+      expect(res.status).toBe(200);
+
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body).toEqual({ status: "ok", version: APP_VERSION });
     });
   });
 
@@ -434,41 +459,45 @@ describe("identity routes — /readyz readiness gate", () => {
     setCesClient(undefined);
   });
 
-  test("returns 503 with notReady:['startup','db'] before startup", async () => {
+  test("returns 200 before startup and DB readiness", async () => {
     resetReadinessForTest();
+    setDbReady(false);
     const res = handleReadyz();
-    expect(res.status).toBe(503);
+    expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
-    expect(body).toEqual({
-      status: "unready",
-      ready: false,
-      notReady: ["startup", "db"],
-    });
+    expect(body.status).toBe("migrating");
+    expect(body.ready).toBe(false);
+    expect((body.dbMigrations as Record<string, unknown>).state).toBe(
+      "not_started",
+    );
   });
 
-  test("returns 503 with notReady:['startup'] when db is ready but startup isn't", async () => {
-    resetReadinessForTest();
-    setDbReady(true);
+  test("returns 200 with the migrating body while DB migrations are running", async () => {
+    setDbMigrating();
+    const res = handleReadyz();
+    // Status code stays 200 so k8s keeps the pod in service mid-migration;
+    // the body carries the real state for programmatic callers (CLI).
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(body.status).toBe("migrating");
+    expect(body.ready).toBe(false);
+    expect((body.dbMigrations as Record<string, unknown>).state).toBe(
+      "running",
+    );
+  });
+
+  test("returns 503 when DB migrations fail", async () => {
+    setDbMigrationFailed(new Error("migration failed"));
     const res = handleReadyz();
     expect(res.status).toBe(503);
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.ready).toBe(false);
-    expect(body.notReady).toEqual(["startup"]);
+    expect(body.reason).toBe("db_migrations_failed");
+    expect((body.dbMigrations as Record<string, unknown>).state).toBe("failed");
   });
 
-  test("returns 503 with notReady:['db'] when started but db not ready", async () => {
+  test("returns 200 even if CES is down", async () => {
     resetReadinessForTest();
-    setStartupComplete();
-    const res = handleReadyz();
-    expect(res.status).toBe(503);
-    const body = (await res.json()) as Record<string, unknown>;
-    expect(body.ready).toBe(false);
-    expect(body.notReady).toEqual(["db"]);
-  });
-
-  test("returns 200 when started and db ready even if CES is down", async () => {
-    resetReadinessForTest();
-    setStartupComplete();
     setDbReady(true);
     const explodingClient = {
       isReady: () => {
@@ -486,12 +515,11 @@ describe("identity routes — /readyz readiness gate", () => {
 
   test("returns 200 with the ok body when fully ready", async () => {
     resetReadinessForTest();
-    setStartupComplete();
     setDbReady(true);
     const res = handleReadyz();
     expect(res.status).toBe(200);
     const body = (await res.json()) as Record<string, unknown>;
-    expect(body).toEqual({ status: "ok", ready: true, notReady: [] });
+    expect(body).toEqual({ status: "ok", ready: true });
   });
 });
 

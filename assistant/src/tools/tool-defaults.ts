@@ -11,12 +11,8 @@
  */
 
 import { resolveExecutionTarget } from "./execution-target.js";
-import type {
-  RiskLevel,
-  Tool,
-  ToolDefinition,
-  ToolExecutionResult,
-} from "./types.js";
+import type { RiskLevel } from "./tool-types.js";
+import type { Tool, ToolDefinition, ToolExecutionResult } from "./types.js";
 
 /**
  * Default values applied by `finalizeTool` when the author omits a field.

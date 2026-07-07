@@ -2,6 +2,8 @@ import { describe, expect, test, beforeEach } from "bun:test";
 
 import {
   endSseClient,
+  EVENTS_TAIL_CLIENT_ID,
+  ingestReplayedEnvelopes,
   getSseClients,
   getSseEnvelopesSince,
   getSseEvents,
@@ -372,5 +374,62 @@ describe("recordSseTraffic", () => {
     // WHEN traffic is recorded against it
     // THEN it does not throw and records nothing
     expect(() => recordSseTraffic("sse-nonexistent", true)).not.toThrow();
+  });
+});
+
+describe("ingestReplayedEnvelopes", () => {
+  test("bridges an eviction gap so the reseed replay can serve the tail", () => {
+    // GIVEN a live buffer whose oldest retained seq (50) is past the
+    // snapshot anchor (3) — a delivery gap: getSseEnvelopesSince signals
+    // "no safe replay"
+    const ctrl = new AbortController();
+    const id = registerSseClient(ctrl.signal);
+    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a50"), { seq: 50, conversationId: "A" }));
+    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("a60"), { seq: 60, conversationId: "A" }));
+    expect(getSseEnvelopesSince("A", 3)).toBeNull();
+
+    // WHEN the server-fetched tail above the anchor is ingested
+    ingestReplayedEnvelopes([
+      makeEnvelope(makeTextDeltaEvent("a4"), { seq: 4, conversationId: "A" }),
+      makeEnvelope(makeTextDeltaEvent("a20"), { seq: 20, conversationId: "A" }),
+    ]);
+
+    // THEN the replay bridges from the anchor through the live events
+    const tail = getSseEnvelopesSince("A", 3);
+    expect(tail?.map((e) => e.seq)).toEqual([4, 20, 50, 60]);
+    expect(tail?.[0]?.message as AssistantEvent).toEqual(makeTextDeltaEvent("a4"));
+  });
+
+  test("skips envelopes whose seq the ring already retains", () => {
+    // GIVEN a live buffer holding seq 5
+    const ctrl = new AbortController();
+    const id = registerSseClient(ctrl.signal);
+    pushSseEvent(id, makeEnvelope(makeTextDeltaEvent("live-5"), { seq: 5, conversationId: "A" }));
+
+    // WHEN a tail overlapping that seq is ingested
+    ingestReplayedEnvelopes([
+      makeEnvelope(makeTextDeltaEvent("tail-5"), { seq: 5, conversationId: "A" }),
+      makeEnvelope(makeTextDeltaEvent("tail-6"), { seq: 6, conversationId: "A" }),
+    ]);
+
+    // THEN the overlap is deduplicated and the live copy kept
+    const tail = getSseEnvelopesSince("A", 4);
+    expect(tail?.map((e) => e.seq)).toEqual([5, 6]);
+    expect(tail?.[0]?.message as AssistantEvent).toEqual(
+      makeTextDeltaEvent("live-5"),
+    );
+  });
+
+  test("ingested entries carry the events-tail sentinel client id", () => {
+    ingestReplayedEnvelopes([
+      makeEnvelope(makeTextDeltaEvent("t1"), { seq: 1, conversationId: "A" }),
+    ]);
+    const [entry] = getSseEvents(1);
+    expect(entry.clientId).toBe(EVENTS_TAIL_CLIENT_ID);
+  });
+
+  test("empty input is a no-op", () => {
+    expect(() => ingestReplayedEnvelopes([])).not.toThrow();
+    expect(getSseEvents().length).toBe(0);
   });
 });

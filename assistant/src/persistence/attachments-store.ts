@@ -827,7 +827,7 @@ export function attachInlineAttachmentToMessage(
      */
     normalizeImage?: boolean;
   },
-): StoredAttachment {
+): StoredAttachment & { filePath: string } {
   if (options?.normalizeImage) {
     ({ filename, mimeType, dataBase64 } = normalizeUploadedImageBase64(
       filename,
@@ -891,6 +891,7 @@ export function attachInlineAttachmentToMessage(
     kind,
     thumbnailBase64: null,
     createdAt: now,
+    filePath: targetPath,
   };
 }
 

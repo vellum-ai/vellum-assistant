@@ -25,6 +25,11 @@ const ALLOWED_PREFIXES = {
     // deps) — status prints it to surface CLI-vs-runtime version drift.
     "../../version",
     "../../../version",
+    // Robust stdin reader (leaf module; only node:fs, no daemon deps) —
+    // commands that accept piped payloads read fd 0 through it at depth-1
+    // and depth-2.
+    "../../util/read-stdin",
+    "../../../util/read-stdin",
     // Logger / output at depth-1 and depth-2.
     "../logger",
     "../output",

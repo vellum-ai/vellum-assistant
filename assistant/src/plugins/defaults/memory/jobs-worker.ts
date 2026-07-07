@@ -38,7 +38,6 @@ import {
   enqueuePruneOldConversationsJob,
   enqueuePruneOldLlmRequestLogsJob,
   enqueuePruneOldToolInvocationsJob,
-  enqueuePruneOldTraceEventsJob,
   failMemoryJob,
   failStalledJobs,
   hasActiveJobOfType,
@@ -152,8 +151,9 @@ let instance: MemoryJobsWorker | null = null;
  * supervisor owns the synchronous in-process runner and reconciles to
  * `memory.worker.enabled` on every poll, re-reading the flag from disk so a
  * runtime change takes effect without a restart:
- *   - flag off (default): drain the queue in-process (the synchronous runner).
- *   - flag on: stand down (the out-of-process worker owns the queue).
+ *   - flag off: drain the queue in-process (the synchronous runner).
+ *   - flag on (the default): stand down (the out-of-process worker owns the
+ *     queue).
  * Gating on the flag — rather than on the worker process actually being present
  * — keeps exactly one drainer active and avoids a boot race: when the flag is
  * on the supervisor never processes, so it can't claim jobs that the spawning
@@ -681,10 +681,6 @@ function maybeEnqueueScheduledCleanupJobs(
     cleanup.llmRequestLogRetentionMs !== null
       ? enqueuePruneOldLlmRequestLogsJob(cleanup.llmRequestLogRetentionMs)
       : null;
-  const pruneTraceEventsJobId =
-    cleanup.traceEventRetentionDays > 0
-      ? enqueuePruneOldTraceEventsJob(cleanup.traceEventRetentionDays)
-      : null;
   // Audit-log (tool_invocations) retention is configured separately under
   // `auditLog.retentionDays`, but rides this same cleanup cadence for now.
   const pruneToolInvocationsJobId =
@@ -696,12 +692,10 @@ function maybeEnqueueScheduledCleanupJobs(
     {
       pruneConversationsJobId,
       pruneLlmRequestLogsJobId,
-      pruneTraceEventsJobId,
       pruneToolInvocationsJobId,
       enqueueIntervalMs: cleanup.enqueueIntervalMs,
       conversationRetentionDays: cleanup.conversationRetentionDays,
       llmRequestLogRetentionMs: cleanup.llmRequestLogRetentionMs,
-      traceEventRetentionDays: cleanup.traceEventRetentionDays,
       auditLogRetentionDays: config.auditLog.retentionDays,
     },
     "Enqueued scheduled memory cleanup jobs",

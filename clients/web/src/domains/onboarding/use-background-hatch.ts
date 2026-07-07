@@ -11,6 +11,7 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
+import { getLockfileAssistant, probeLocalGatewayReady } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
 import { extractErrorMessage } from "@/utils/api-errors";
 
@@ -44,6 +45,29 @@ export interface UseBackgroundHatch {
   awaitReady: () => Promise<string>;
 }
 
+export interface UseBackgroundHatchOptions {
+  /**
+   * Adopt an assistant that was ALREADY provisioned in the foreground (the
+   * local-hosting path: hosting pick → hatching screen → local daemon), instead
+   * of running the managed `hatchAssistant()` here. When true we skip step 1 and
+   * discover that live assistant via `getAssistant()`.
+   *
+   * This must NOT be conflated with `isLocalMode()` (a build-time value): the
+   * desktop app runs in local mode but can still onboard a Vellum-Cloud
+   * (managed) assistant, which needs the managed hatch. Derive this from the
+   * chosen HOSTING, not the build (see the research route's `?hosting` read).
+   */
+  adoptExisting?: boolean;
+  /**
+   * The id of the assistant to adopt (the one the hatching screen just
+   * provisioned), carried through the research redirect. Pins discovery to
+   * that exact assistant so a stale selection or leftover lockfile entries
+   * from previous sessions can't answer for it. When omitted (or the id turns
+   * out stale), discovery falls back to the selected/active assistant.
+   */
+  adoptAssistantId?: string;
+}
+
 /**
  * Background-hatch primitive for the research-onboarding flow.
  *
@@ -54,11 +78,16 @@ export interface UseBackgroundHatch {
  * is reachable. `ready` only flips after the health check passes — never on
  * the hatch return.
  *
+ * When `adoptExisting` is set (a local-hosting onboarding), the managed hatch is
+ * skipped and we adopt the already-live assistant instead.
+ *
  * Terminal failures (platform-hosted disabled, non-recoverable hatch errors,
  * lifecycle errors, timeout) set `error` and reject `awaitReady()`.
  * Recoverable failures (5xx / network) keep polling.
  */
-export function useBackgroundHatch(): UseBackgroundHatch {
+export function useBackgroundHatch(
+  { adoptExisting = false, adoptAssistantId }: UseBackgroundHatchOptions = {},
+): UseBackgroundHatch {
   const [ready, setReady] = useState(false);
   const [assistantId, setAssistantId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -100,29 +129,68 @@ export function useBackgroundHatch(): UseBackgroundHatch {
     const timedOut = () => Date.now() - startMs >= MAX_HATCH_WAIT_MS;
 
     void (async () => {
-      // 1. Hatch (managed/platform). 201 = newly created, 200 = existing.
-      let hatchedAssistantId: string | undefined;
-      try {
-        const result = await hatchAssistant();
-        if (result.ok) {
-          hatchedAssistantId = result.data.id;
-          setAssistantId(result.data.id);
-        } else {
-          if (isPlatformHostedDisabled(result.status, result.error)) {
-            settleError(PLATFORM_HOSTED_DISABLED_MESSAGE);
-            return;
-          }
-          if (!shouldRecoverFromHatchFailure(result.status)) {
-            settleError(
-              extractErrorMessage(result.error, undefined, GENERIC_HATCH_ERROR),
-            );
-            return;
-          }
-          // Recoverable — fall through to polling for an existing/active one.
+      // 0. Adopt straight from the lockfile when the handed-off id resolves.
+      //
+      // The hatching screen provisioned this assistant in the FOREGROUND and
+      // polled the local gateway's readyz before navigating here, so a live
+      // lockfile entry for the handed-off id means there is nothing left to
+      // discover or wait for — adopt it as ready outright. Re-running
+      // discovery (platform getAssistant + gateway probe) is not just wasted
+      // work: at mount the gateway token / selection may not be observable
+      // yet, in which case getAssistant misses its lockfile short-circuit and
+      // polls the PLATFORM for an assistant that only exists locally,
+      // stranding the flow on the "Waking up" gate until timeout. A stale id
+      // (retired between the handoff and here) has no lockfile entry and
+      // falls through to the discovery + readyz path below.
+      if (adoptExisting && adoptAssistantId) {
+        const adopted = getLockfileAssistant(adoptAssistantId);
+        if (adopted) {
+          setAssistantId(adopted.assistantId);
+          settleReady(adopted.assistantId);
+          return;
         }
-      } catch (err) {
-        // Transient/transport failure — recover via polling.
-        captureError(err, { context: "research_background_hatch" });
+      }
+
+      // 1. Hatch (managed/platform). 201 = newly created, 200 = existing.
+      //
+      // A local-hosting onboarding skips this: the assistant is provisioned in
+      // the FOREGROUND by the hatching screen (hosting pick → local daemon)
+      // BEFORE the research flow mounts, so there's nothing to hatch here. We
+      // fall straight through to step 2, which discovers that already-active
+      // assistant via getAssistant(). Running the managed `hatchAssistant()`
+      // there would provision a SECOND (managed) assistant. Vellum-Cloud
+      // onboarding (adoptExisting=false) still runs the managed hatch, even
+      // though the desktop build reports `isLocalMode()` — that's why this keys
+      // on the chosen hosting, not the build.
+      // When adopting, seed discovery with the id the hatching screen handed
+      // off, so step 2 resolves that exact assistant (a stale id falls back to
+      // list-based discovery via the 404 net below).
+      let hatchedAssistantId: string | undefined = adoptExisting
+        ? adoptAssistantId
+        : undefined;
+      if (!adoptExisting) {
+        try {
+          const result = await hatchAssistant();
+          if (result.ok) {
+            hatchedAssistantId = result.data.id;
+            setAssistantId(result.data.id);
+          } else {
+            if (isPlatformHostedDisabled(result.status, result.error)) {
+              settleError(PLATFORM_HOSTED_DISABLED_MESSAGE);
+              return;
+            }
+            if (!shouldRecoverFromHatchFailure(result.status)) {
+              settleError(
+                extractErrorMessage(result.error, undefined, GENERIC_HATCH_ERROR),
+              );
+              return;
+            }
+            // Recoverable — fall through to polling for an existing/active one.
+          }
+        } catch (err) {
+          // Transient/transport failure — recover via polling.
+          captureError(err, { context: "research_background_hatch" });
+        }
       }
 
       // 2. Poll until the assistant reports `active`.
@@ -155,24 +223,45 @@ export function useBackgroundHatch(): UseBackgroundHatch {
         await sleep(POLL_INTERVAL_MS);
       }
 
-      // 3. Poll healthz until the daemon is reachable, then mark ready.
-      while (true) {
-        try {
-          const health = await getAssistantHealthz(activeAssistantId);
-          if (health.ok) break;
-        } catch {
-          // Daemon not reachable yet.
+      // 3. Poll until the assistant's runtime is reachable, then mark ready.
+      //
+      // Adopting a local assistant checks the LOCAL gateway's `/readyz`
+      // (gateway + upstream daemon) — the assistant-scoped
+      // `getAssistantHealthz()` SDK call doesn't resolve against a local
+      // gateway (it needs a guardian-token-authed
+      // `/v1/assistants/{id}/healthz`), so it would spin to the timeout on a
+      // healthy assistant. The readyz check matters even though the hatching
+      // screen polls it before handing off: an adopt can also start from a
+      // session-based fallback (refresh / direct visit with no query string),
+      // where a cached gateway token proves nothing about the gateway process
+      // still being alive.
+      if (adoptExisting) {
+        while (!(await probeLocalGatewayReady())) {
+          if (timedOut()) {
+            settleError(TIMEOUT_ERROR);
+            return;
+          }
+          await sleep(POLL_INTERVAL_MS);
         }
-        if (timedOut()) {
-          settleError(TIMEOUT_ERROR);
-          return;
+      } else {
+        while (true) {
+          try {
+            const health = await getAssistantHealthz(activeAssistantId);
+            if (health.ok) break;
+          } catch {
+            // Daemon not reachable yet.
+          }
+          if (timedOut()) {
+            settleError(TIMEOUT_ERROR);
+            return;
+          }
+          await sleep(POLL_INTERVAL_MS);
         }
-        await sleep(POLL_INTERVAL_MS);
       }
 
       settleReady(activeAssistantId);
     })();
-  }, [settleError, settleReady]);
+  }, [settleError, settleReady, adoptExisting, adoptAssistantId]);
 
   const awaitReady = useCallback((): Promise<string> => {
     const settled = settledRef.current;

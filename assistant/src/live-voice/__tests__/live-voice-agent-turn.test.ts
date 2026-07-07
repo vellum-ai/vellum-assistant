@@ -333,6 +333,32 @@ describe("LiveVoiceSession assistant turn", () => {
     });
   });
 
+  test("rejects audio while an assistant turn is in flight", async () => {
+    const startVoiceTurn = mock(async (_options: VoiceTurnOptions) => ({
+      turnId: "bridge-turn-1",
+      abort: mock(),
+    }));
+    const { frames, session } = createSessionHarness({ startVoiceTurn });
+
+    await session.start();
+    await session.handleClientFrame({ type: "ptt_release" });
+    await waitForFrameCount(frames, 3);
+    expect(frames.map((frame) => frame.type)).toEqual([
+      "ready",
+      "stt_final",
+      "thinking",
+    ]);
+
+    await session.handleBinaryAudio(new Uint8Array([7]));
+
+    expect(startVoiceTurn).toHaveBeenCalledTimes(1);
+    expect(frames.at(-1)).toMatchObject({
+      type: "error",
+      code: "invalid_audio_payload",
+      message: "Live voice audio received after push-to-talk release.",
+    });
+  });
+
   test("interrupt aborts the in-flight turn and ignores late bridge events", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     let signal: AbortSignal | undefined;

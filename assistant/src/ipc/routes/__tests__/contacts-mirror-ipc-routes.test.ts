@@ -5,53 +5,95 @@
  * the `contact-store` primitives; the gateway DB stays the ACL source of truth.
  */
 
-import { describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, mock, test } from "bun:test";
 
 const upsertContactChannelCalls: unknown[] = [];
 const upsertContactCalls: unknown[] = [];
+const upsertContactMirrorFullCalls: unknown[] = [];
 const deleteContactCalls: unknown[] = [];
+const mergeContactMirrorCalls: unknown[] = [];
 
-// Spread the real modules so unrelated consumers (contact-routes) keep their
-// exports; override only the primitives the handlers delegate to.
-const realContactsWrite = await import("../../../contacts/contacts-write.js");
-const realContactStore = await import("../../../contacts/contact-store.js");
+// `mock.module` is process-global; every stub below DELEGATES to the real
+// implementation unless this file's tests are running, so the mocks cannot
+// leak into sibling suites (e.g. the real-DB merge suite's initializeDb()).
+let mockActive = false;
+beforeAll(() => {
+  mockActive = true;
+});
+afterAll(() => {
+  mockActive = false;
+});
+
+// Snapshot-spread the real modules BEFORE mock.module patches their namespaces
+// in place — delegating through the live namespace would re-enter the mock.
+// Spreading also keeps unrelated exports intact for other consumers.
+const realContactsWrite = {
+  ...(await import("../../../contacts/contacts-write.js")),
+};
+const realContactStore = {
+  ...(await import("../../../contacts/contact-store.js")),
+};
 
 mock.module("../../../contacts/contacts-write.js", () => ({
   ...realContactsWrite,
-  upsertContactChannel: (params: unknown) => {
-    upsertContactChannelCalls.push(params);
+  upsertContactChannel: (
+    ...args: Parameters<typeof realContactsWrite.upsertContactChannel>
+  ) => {
+    if (!mockActive) {return realContactsWrite.upsertContactChannel(...args);}
+    upsertContactChannelCalls.push(args[0]);
     return null;
   },
 }));
 
 mock.module("../../../contacts/contact-store.js", () => ({
   ...realContactStore,
-  upsertContact: (params: unknown) => {
-    upsertContactCalls.push(params);
+  upsertContact: (
+    ...args: Parameters<typeof realContactStore.upsertContact>
+  ) => {
+    if (!mockActive) {return realContactStore.upsertContact(...args);}
+    upsertContactCalls.push(args[0]);
     return { created: true };
   },
-  deleteContact: (id: unknown) => {
-    deleteContactCalls.push(id);
+  deleteContact: (
+    ...args: Parameters<typeof realContactStore.deleteContact>
+  ) => {
+    if (!mockActive) {return realContactStore.deleteContact(...args);}
+    deleteContactCalls.push(args[0]);
+  },
+  upsertContactMirrorFull: (
+    ...args: Parameters<typeof realContactStore.upsertContactMirrorFull>
+  ) => {
+    if (!mockActive) {return realContactStore.upsertContactMirrorFull(...args);}
+    upsertContactMirrorFullCalls.push(args[0]);
+  },
+  mergeContactMirror: (
+    ...args: Parameters<typeof realContactStore.mergeContactMirror>
+  ) => {
+    if (!mockActive) {return realContactStore.mergeContactMirror(...args);}
+    mergeContactMirrorCalls.push(args[0]);
   },
 }));
 
 // The transactional method wraps ops in getDb().transaction(); run the callback
 // inline so op dispatch is observable against the mocked primitives above.
-// Spread the real module so unrelated exports stay intact if suites ever share
-// a process.
-const realDbConnection = await import(
-  "../../../persistence/db-connection.js"
-);
+const realDbConnection = {
+  ...(await import("../../../persistence/db-connection.js")),
+};
 mock.module("../../../persistence/db-connection.js", () => ({
   ...realDbConnection,
-  getDb: () => ({ transaction: (fn: () => void) => fn() }),
+  getDb: () =>
+    mockActive
+      ? { transaction: (fn: () => void) => fn() }
+      : realDbConnection.getDb(),
 }));
 
 const {
   CONTACTS_MIRROR_IPC_METHODS,
   handleContactsMirrorUpsertChannel,
   handleContactsMirrorUpsertContact,
+  handleContactsMirrorUpsertFull,
   handleContactsMirrorDeleteContact,
+  handleContactsMirrorMergeContact,
   handleContactsMirrorApply,
 } = await import("../contacts-mirror-ipc-routes.js");
 
@@ -63,7 +105,9 @@ const { routeDefinitionsToIpcMethods } = await import("../route-adapter.js");
 const MIRROR_OPERATION_IDS = [
   "contacts_mirror_upsert_channel",
   "contacts_mirror_upsert_contact",
+  "contacts_mirror_upsert_full",
   "contacts_mirror_delete_contact",
+  "contacts_mirror_merge_contact",
   "contacts_mirror_apply",
 ] as const;
 
@@ -249,6 +293,50 @@ describe("contacts_mirror_upsert_contact", () => {
   });
 });
 
+describe("contacts_mirror_upsert_full", () => {
+  test("delegates the parsed params to the transactional full-upsert primitive", () => {
+    upsertContactMirrorFullCalls.length = 0;
+    const result = handleContactsMirrorUpsertFull({
+      body: {
+        contactId: "co-full",
+        contactType: "assistant",
+        notes: null,
+        assistantMetadata: { species: "vellum", metadata: { assistantId: "a1" } },
+        channels: [
+          { id: "gw-ch-1", type: "email", address: "a@x.com", isPrimary: true },
+        ],
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(upsertContactMirrorFullCalls).toEqual([
+      {
+        contactId: "co-full",
+        // displayName omitted → sparse update preserves the mirror's name.
+        displayName: undefined,
+        contactType: "assistant",
+        notes: null,
+        assistantMetadata: { species: "vellum", metadata: { assistantId: "a1" } },
+        channels: [
+          {
+            id: "gw-ch-1",
+            type: "email",
+            address: "a@x.com",
+            isPrimary: true,
+            externalChatId: undefined,
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("rejects a body missing contactId", () => {
+    expect(() =>
+      handleContactsMirrorUpsertFull({ body: { displayName: "X" } }),
+    ).toThrow();
+  });
+});
+
 describe("contacts_mirror_delete_contact", () => {
   test("deletes the mirror contact row by id", () => {
     deleteContactCalls.length = 0;
@@ -263,6 +351,50 @@ describe("contacts_mirror_delete_contact", () => {
   test("rejects a body missing contactId", () => {
     expect(() =>
       handleContactsMirrorDeleteContact({ body: {} }),
+    ).toThrow();
+  });
+});
+
+describe("contacts_mirror_merge_contact", () => {
+  test("delegates the parsed params to the transactional merge primitive", () => {
+    mergeContactMirrorCalls.length = 0;
+    const result = handleContactsMirrorMergeContact({
+      body: {
+        keepContactId: "co-keep",
+        mergeContactId: "co-merge",
+        keepDisplayName: "Keeper",
+        resolvedUserFile: "keeper.md",
+      },
+    });
+
+    expect(result).toEqual({ ok: true });
+    expect(mergeContactMirrorCalls).toEqual([
+      {
+        keepContactId: "co-keep",
+        mergeContactId: "co-merge",
+        keepDisplayName: "Keeper",
+        resolvedUserFile: "keeper.md",
+      },
+    ]);
+  });
+
+  test("rejects a self-merge", () => {
+    expect(() =>
+      handleContactsMirrorMergeContact({
+        body: {
+          keepContactId: "co-same",
+          mergeContactId: "co-same",
+          keepDisplayName: "Same",
+        },
+      }),
+    ).toThrow(/must differ/);
+  });
+
+  test("rejects a body missing keepDisplayName", () => {
+    expect(() =>
+      handleContactsMirrorMergeContact({
+        body: { keepContactId: "co-keep", mergeContactId: "co-merge" },
+      }),
     ).toThrow();
   });
 });

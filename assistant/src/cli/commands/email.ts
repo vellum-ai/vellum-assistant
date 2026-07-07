@@ -14,6 +14,7 @@ import {
   cliIpcCallStream,
   exitFromIpcResult,
 } from "../../ipc/cli-client.js";
+import { readStdinSync } from "../../util/read-stdin.js";
 import { registerCommand } from "../lib/register-command.js";
 import { getCliLogger } from "../logger.js";
 import { shouldOutputJson, writeOutput } from "../output.js";
@@ -513,7 +514,7 @@ Examples:
             }
             if (!text && !process.stdin.isTTY) {
               try {
-                text = readFileSync("/dev/stdin", "utf-8");
+                text = readStdinSync();
               } catch (err) {
                 log.error(
                   `Failed to read body from stdin: ${err instanceof Error ? err.message : String(err)}`,

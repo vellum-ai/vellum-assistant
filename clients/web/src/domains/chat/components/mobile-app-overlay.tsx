@@ -1,4 +1,5 @@
 import { AppViewerContainer } from "@/components/app-viewer-container";
+import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewport-style";
 import type { OpenedAppState } from "@/stores/viewer-store";
 
 interface MobileAppOverlayProps {
@@ -50,16 +51,17 @@ export function MobileAppOverlay({
   route,
   onAction,
 }: MobileAppOverlayProps) {
-  if (!openedAppState) return null;
+  const shellStyle = useMobileOverlayViewportStyle();
+
+  if (!openedAppState) {
+    return null;
+  }
 
   return (
     <div
-      className="fixed inset-x-0 bottom-0 z-30 h-[100dvh] transition-transform duration-300 ease-out"
+      className="fixed inset-x-0 z-30 transition-transform duration-300 ease-out"
       style={{
-        paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-        paddingBottom: "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
-        paddingLeft: "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
-        paddingRight: "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
+        ...shellStyle,
         transform: isAppMinimized
           ? "translateY(calc(100% - var(--app-strip-h, 56px) - var(--safe-area-inset-top, env(safe-area-inset-top, 0px))))"
           : "translateY(0)",

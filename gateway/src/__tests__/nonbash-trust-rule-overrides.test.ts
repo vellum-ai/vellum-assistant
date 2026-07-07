@@ -28,6 +28,7 @@ const dummyFileContext: FileClassificationContext = {
   toolsDir: "/tmp/test-tools",
   routesDir: "/tmp/test-routes",
   workflowsDir: "/tmp/test-workflows",
+  monitoringDir: "/tmp/test-monitoring",
   skillSourceDirs: [],
 };
 

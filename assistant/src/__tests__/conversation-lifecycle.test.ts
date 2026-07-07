@@ -128,7 +128,10 @@ mock.module("../plugins/defaults/memory/v3/ever-injected-store.js", () => ({
       : realEverInjectedStore.getPrunedSlugs(conversationId),
 }));
 
-import { Conversation } from "../daemon/conversation.js";
+import {
+  Conversation,
+  type ConversationConstructorOptions,
+} from "../daemon/conversation.js";
 
 beforeEach(() => {
   lifecycleStoreMockActive = true;
@@ -139,7 +142,9 @@ afterAll(() => {
   lifecycleStoreMockActive = false;
 });
 
-function makeConversation(): Conversation {
+function makeConversation(
+  options: ConversationConstructorOptions = { maxTokens: 4096 },
+): Conversation {
   const provider = {
     name: "mock",
     sendMessage: async () => ({
@@ -155,7 +160,7 @@ function makeConversation(): Conversation {
     "system prompt",
     () => {},
     "/tmp",
-    { maxTokens: 4096 },
+    options,
   );
   // Default to guardian trust so tests load all messages.
   conv.setTrustContext({ trustClass: "guardian", sourceChannel: "vellum" });
@@ -172,6 +177,23 @@ function defaultConv() {
     totalEstimatedCost: 0,
   };
 }
+
+describe("Conversation — subagent identity", () => {
+  test("is not a subagent by default", () => {
+    const conv = makeConversation();
+    expect(conv.parentConversationId).toBeUndefined();
+    expect(conv.isSubagent).toBe(false);
+  });
+
+  test("derives isSubagent from the constructor parentConversationId", () => {
+    const conv = makeConversation({
+      maxTokens: 4096,
+      parentConversationId: "parent-1",
+    });
+    expect(conv.parentConversationId).toBe("parent-1");
+    expect(conv.isSubagent).toBe(true);
+  });
+});
 
 describe("loadFromDb metadata injection rehydration", () => {
   beforeEach(() => {

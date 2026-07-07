@@ -15,7 +15,8 @@
  * legacy deterministic channel gate keeps enforcing them.
  *
  * The skill config is left untouched: it remains the live source for the
- * legacy gate until the per-tool-call evaluator reads these cells.
+ * legacy per-tool gate (blockedTools / allowedToolCategories), which the
+ * matrix intentionally does not represent.
  *
  * Idempotent: seeds via ON CONFLICT DO NOTHING, so guardian-configured
  * cells are never overwritten. Safe to re-run.

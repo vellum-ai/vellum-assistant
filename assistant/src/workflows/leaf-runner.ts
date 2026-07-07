@@ -42,6 +42,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import { type AgentEvent, AgentLoop } from "../agent/loop.js";
+import { getEffectiveProfile } from "../config/default-profile-catalog.js";
 import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import {
@@ -317,7 +318,7 @@ function validateProfile(profile: string): string {
 }
 
 function profileExists(profile: string): boolean {
-  return profile in (getConfig().llm.profiles ?? {});
+  return getEffectiveProfile(getConfig().llm.profiles, profile) != null;
 }
 
 /**

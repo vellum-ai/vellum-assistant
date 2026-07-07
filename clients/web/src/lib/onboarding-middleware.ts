@@ -50,6 +50,9 @@ export const onboardingCompletedMiddleware: MiddlewareFunction = async (
     buildNavigationState({ sessionSettled: true, isAuthenticated: true }),
     { kind: "route-guard", pathname: url.pathname },
   );
+  // A "wait" decision (still-hydrating state) falls through to next(): the
+  // parent auth middleware owns hydration waits, so rendering is the safe
+  // fallback here.
   if (decision.action === "redirect") throw redirect(decision.to);
   return next();
 };

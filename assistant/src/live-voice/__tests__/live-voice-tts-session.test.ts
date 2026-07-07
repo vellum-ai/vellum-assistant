@@ -205,6 +205,50 @@ describe("LiveVoiceSession TTS", () => {
     });
   });
 
+  test("flushes the first segment of a turn eagerly at a clause boundary", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const ttsTexts: string[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      ttsTexts.push(options.text);
+      options.onAudioChunk(makeTtsChunk(`audio:${options.text}`));
+      return makeTtsResult(options.text);
+    });
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(
+      makeTextDelta("Sure, I can help with that, and here is more text to say."),
+    );
+    await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
+
+    // The opening clause flushes at the comma past the prefix floor instead
+    // of waiting for the sentence; the remainder follows sentence rules.
+    expect(ttsTexts).toEqual([
+      "Sure, I can help with that,",
+      "and here is more text to say.",
+    ]);
+
+    // Subsequent text in the same turn is not eagerly clause-split.
+    callbacks?.assistant_text_delta?.(
+      makeTextDelta(" Later we can dig into the details, if you want more"),
+    );
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsTexts).toEqual([
+      "Sure, I can help with that,",
+      "and here is more text to say.",
+      "Later we can dig into the details, if you want more",
+    ]);
+  });
+
   test("forwards non-PCM TTS chunk content type unchanged", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
@@ -231,7 +275,7 @@ describe("LiveVoiceSession TTS", () => {
     });
   });
 
-  test("flushes long assistant text as a conservative TTS segment before completion", async () => {
+  test("flushes long unpunctuated assistant text before completion at the eager threshold", async () => {
     let callbacks: VoiceTurnCallbacks | undefined;
     const ttsTexts: string[] = [];
     const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
@@ -252,9 +296,11 @@ describe("LiveVoiceSession TTS", () => {
     callbacks?.assistant_text_delta?.(makeTextDelta("steady ".repeat(32)));
     await waitFor(() => frames.some((frame) => frame.type === "tts_audio"));
 
+    // The turn's first segment splits at the eager threshold; the rest stays
+    // buffered under sentence rules until more text or completion arrives.
     expect(ttsTexts).toHaveLength(1);
-    expect(ttsTexts[0]?.length).toBeGreaterThan(100);
-    expect(ttsTexts[0]?.length).toBeLessThanOrEqual(181);
+    expect(ttsTexts[0]?.length).toBeGreaterThan(30);
+    expect(ttsTexts[0]?.length).toBeLessThanOrEqual(60);
     expect(frames.some((frame) => frame.type === "tts_done")).toBe(false);
   });
 
@@ -290,7 +336,67 @@ describe("LiveVoiceSession TTS", () => {
     expect(frames.find((frame) => frame.type === "error")).toMatchObject({
       type: "error",
       message: expect.stringContaining("provider unavailable"),
+      recoverable: true,
     });
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
+    });
+  });
+
+  test("sanitizes markdown spanning deltas before TTS while deltas stay raw", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const ttsTexts: string[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      ttsTexts.push(options.text);
+      options.onAudioChunk(makeTtsChunk(`audio:${options.text}`));
+      return makeTtsResult(options.text);
+    });
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta("Use **bo"));
+    callbacks?.assistant_text_delta?.(makeTextDelta("ld** and `code` now. 🎉"));
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsTexts).toEqual(["Use bold and code now."]);
+    expect(
+      frames.flatMap((frame) =>
+        frame.type === "assistant_text_delta" ? [frame.text] : [],
+      ),
+    ).toEqual(["Use **bo", "ld** and `code` now. 🎉"]);
+  });
+
+  test("skips synthesis entirely for segments that sanitize to nothing", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk(`audio:${options.text}`));
+      return makeTtsResult(options.text);
+    });
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta("### 🎉👍"));
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(streamTtsAudio).not.toHaveBeenCalled();
+    expect(frames.some((frame) => frame.type === "tts_audio")).toBe(false);
     expect(frames.at(-1)).toMatchObject({
       type: "tts_done",
       turnId: "live-turn-1",

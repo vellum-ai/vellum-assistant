@@ -31,7 +31,8 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import { clearAllConversationIds } from "../home/feed-writer.js";
 import type { ConversationDeletedInputContext } from "../hooks/types.js";
 import { HOOKS } from "../plugin-api/constants.js";
-import { memoryPersistenceHooks } from "../plugins/defaults/memory/persistence-hooks.js";
+import { forkConversationMemory } from "../plugins/defaults/memory/fork-conversation-memory.js";
+import { indexMessageNow } from "../plugins/defaults/memory/indexer.js";
 import { runHook } from "../plugins/pipeline.js";
 import { getCurrentSeq } from "../runtime/assistant-stream-state.js";
 import { publishSyncInvalidation } from "../runtime/sync/sync-publisher.js";
@@ -163,13 +164,18 @@ export const messageMetadataSchema = z
     userMessageInterface: interfaceIdSchema.optional(),
     assistantMessageInterface: interfaceIdSchema.optional(),
     /**
-     * Optional client-side metadata bag attached to user messages by HTTP
-     * header middleware (reads `x-vellum-browser-family`,
-     * `x-vellum-browser-version`, `x-vellum-client-os`,
-     * `x-vellum-interface-version`). Forwarded verbatim onto
-     * `TurnTelemetryEvent.client` for downstream analytics. Kept as a
-     * permissive `record` so adding a new client field doesn't require a
-     * migration -- dbt can unpack later via JSON_VALUE.
+     * Optional client-side metadata bag attached to user messages at persist
+     * time. `os` carries the client-reported OS surface ("web" | "ios" |
+     * "macos" | "android") from the request body's `clientOs` field, stamped
+     * by `persistQueuedMessageBody` — the transport `userMessageInterface` is
+     * "web" for the web, iOS, and macOS apps alike, so this is the only
+     * per-platform attribution. `browser_family` / `browser_version` /
+     * `interface_version` (and an `os` override) come from the sanitized
+     * `x-vellum-*` client-metadata headers read by `handleSendMessage`
+     * (see `@vellumai/service-contracts/client-metadata`). Forwarded
+     * verbatim onto `TurnTelemetryEvent.client` for downstream analytics.
+     * Kept as a permissive `record` so adding a new client field doesn't
+     * require a migration -- dbt can unpack later via JSON_VALUE.
      */
     client: z.record(z.string(), z.unknown()).optional(),
     subagentNotification: subagentNotificationSchema.optional(),
@@ -204,6 +210,13 @@ export const messageMetadataSchema = z
     forkSourceMessageId: z.string().optional(),
     /** Image source paths from desktop attachments, keyed by filename. */
     imageSourcePaths: z.record(z.string(), z.string()).optional(),
+    /**
+     * Resolved paths of the canonical attachment copies in the conversation's
+     * attachments/ directory (name collisions get a -2/-3 suffix), keyed by
+     * `${position}:${filename}`. Written after the attachments are linked;
+     * reinjected into LLM-facing content on history reload.
+     */
+    attachmentStoredPaths: z.record(z.string(), z.string()).optional(),
     memoryInjectedBlock: z.string().optional(),
     /** Memory-v3 frozen net-new card block (unwrapped) — the v3 counterpart
      *  of `memoryInjectedBlock`. A row carries at most one of the two. The key
@@ -326,6 +339,23 @@ export function extractImageSourcePaths(
     const a = attachments[i];
     if (a.filePath && a.mimeType.toLowerCase().startsWith("image/")) {
       paths[`${i}:${a.filename}`] = a.filePath;
+    }
+  }
+  return Object.keys(paths).length > 0 ? paths : undefined;
+}
+
+/** Extract resolved stored paths from linked attachments for message metadata. */
+export function extractAttachmentStoredPaths(
+  attachments: ReadonlyArray<{
+    filename: string;
+    storedPath?: string;
+  }>,
+): Record<string, string> | undefined {
+  const paths: Record<string, string> = {};
+  for (let i = 0; i < attachments.length; i++) {
+    const a = attachments[i];
+    if (a.storedPath) {
+      paths[`${i}:${a.filename}`] = a.storedPath;
     }
   }
   return Object.keys(paths).length > 0 ? paths : undefined;
@@ -1198,7 +1228,7 @@ function populateForkContentsInProcess(args: PopulateForkContentsArgs): void {
   // Carry the parent's per-conversation memory state into the child (activation
   // and injection logs, graph state, retrospective state). Runs synchronously
   // inside the fork transaction; a no-op when memory is absent or disabled.
-  memoryPersistenceHooks.onConversationForked({
+  forkConversationMemory({
     db,
     sourceConversationId,
     forkId: fork.id,
@@ -1700,11 +1730,13 @@ export async function addMessage(
   // Hidden rows are machine signals suppressed from the transcript — they
   // must not surface as search excerpts or be embedded into memory either.
   if (!skipIndexing && !isHiddenMessageMetadata(metadata)) {
-    // Message-content lexical indexing is host infrastructure, invoked
-    // directly (not through the memory hook seam, whose active side effects go
-    // inert while the memory plugin is disabled — search indexing must not).
-    // The direct write seams (streaming finalize, import, edit) enqueue for
-    // themselves; this covers the plain addMessage path.
+    // Message-content lexical indexing is host infrastructure and must run
+    // even while the memory plugin is disabled (search indexing is not a
+    // memory-feature side effect), so it is enqueued unconditionally. The
+    // memory segment indexing below is the memory feature's own write path and
+    // self-gates on the memory config. The direct write seams (streaming
+    // finalize, import, edit) run both for themselves; this covers the plain
+    // addMessage path.
     enqueueLexicalIndexForMessage(message.id);
     try {
       const parsed = metadata
@@ -1714,15 +1746,19 @@ export async function addMessage(
         ? parsed.data.provenanceTrustClass
         : undefined;
       const automated = parsed?.success ? parsed.data.automated : undefined;
-      await memoryPersistenceHooks.onMessagePersisted({
-        messageId: message.id,
-        conversationId: message.conversationId,
-        role: message.role,
-        content: message.content,
-        createdAt: message.createdAt,
-        provenanceTrustClass,
-        automated,
-      });
+      await indexMessageNow(
+        {
+          messageId: message.id,
+          conversationId: message.conversationId,
+          role: message.role,
+          content: message.content,
+          createdAt: message.createdAt,
+          scopeId: "default",
+          provenanceTrustClass,
+          automated,
+        },
+        getConfig().memory,
+      );
     } catch (err) {
       log.warn(
         { err, conversationId, messageId: message.id },

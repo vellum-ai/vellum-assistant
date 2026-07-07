@@ -648,7 +648,6 @@ export function cleanupSettingsChanged(
   return (
     prev.llmRequestLogRetentionMs !== next.llmRequestLogRetentionMs ||
     prev.conversationRetentionDays !== next.conversationRetentionDays ||
-    prev.traceEventRetentionDays !== next.traceEventRetentionDays ||
     prev.enabled !== next.enabled
   );
 }

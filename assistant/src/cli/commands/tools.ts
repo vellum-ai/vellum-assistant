@@ -58,6 +58,8 @@ Examples:
   $ assistant tools ls
   $ assistant tools list --json
   $ assistant tools list --conversation conv_abc123
+  $ assistant tools list --agent researcher
+  $ assistant tools list --agent subagent_abc123 --json
   $ assistant tools run web_fetch --input '{"url":"https://example.com"}'
   $ assistant tools run file_read --input-file args.json
   $ echo '{"path":"."}' | assistant tools run list_dir --input-file -`,
@@ -74,13 +76,27 @@ Examples:
           "--conversation <id>",
           "Scope to one conversation's tools as of its most recent turn — run 'assistant conversations list' to find the id",
         )
-        .action(async (opts: { json?: boolean; conversation?: string }) => {
-          const response = await cliIpcCall<ToolsGetResponse>(
-            "tools_get",
-            opts.conversation
-              ? { queryParams: { conversationId: opts.conversation } }
-              : undefined,
-          );
+        .option(
+          "--agent <role|subagent-id>",
+          "Show tools available to a subagent role (general, researcher, coder, planner, investigator, advisor) or a live subagent by its id. Simulates the subagent tool projection: role allowlist + subagent-only gating.",
+        )
+        .action(
+          async (opts: {
+            json?: boolean;
+            conversation?: string;
+            agent?: string;
+          }) => {
+            const response = await cliIpcCall<ToolsGetResponse>(
+              "tools_get",
+              {
+                queryParams: {
+                  ...(opts.conversation
+                    ? { conversationId: opts.conversation }
+                    : {}),
+                  ...(opts.agent ? { agent: opts.agent } : {}),
+                },
+              },
+            );
           if (!response.ok) {
             return exitFromIpcResult(response);
           }

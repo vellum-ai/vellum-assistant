@@ -20,24 +20,24 @@ afterEach(() => {
 });
 
 // Exhaustive semver truth-table lives in `utils.test.ts`. Here we verify the
-// boundary on each side of MIN_VERSION (0.10.7 — the manage-plugins surface is
-// held back until it is ready) plus the conservative-on-unknown policy,
+// boundary on each side of MIN_VERSION (0.11.0 — the release that ships the
+// manage-plugins surface) plus the conservative-on-unknown policy,
 // exercised through the public hook.
 describe("useSupportsInchatPluginEdit", () => {
   test("reads false when the version is unknown", () => {
     expect(readGate(null)).toBe(false);
   });
 
-  test("reads false below 0.10.7 (incl. 0.10.5, 0.10.6)", () => {
+  test("reads false below 0.11.0 (incl. 0.10.7, 0.10.9)", () => {
+    expect(readGate("0.10.9")).toBe(false);
+    expect(readGate("0.10.7")).toBe(false);
     expect(readGate("0.10.6")).toBe(false);
-    expect(readGate("0.10.5")).toBe(false);
-    expect(readGate("0.10.4")).toBe(false);
     expect(readGate("0.9.0")).toBe(false);
   });
 
-  test("reads true for assistants on 0.10.7+", () => {
-    expect(readGate("0.10.7")).toBe(true);
+  test("reads true for assistants on 0.11.0+", () => {
     expect(readGate("0.11.0")).toBe(true);
+    expect(readGate("0.11.1")).toBe(true);
     expect(readGate("1.0.0")).toBe(true);
   });
 

@@ -315,7 +315,6 @@ describe("CallSetupFlow verification sub-flows", () => {
 
       expect(attemptCalls).toHaveLength(1);
       expect(attemptCalls[0]).toMatchObject({
-        verificationAssistantId: "self",
         verificationFromNumber: PHONE_NUMBER,
         enteredCode: CORRECT_CODE,
         isOutbound: false,

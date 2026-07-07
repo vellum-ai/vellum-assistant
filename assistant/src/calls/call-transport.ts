@@ -60,4 +60,15 @@ export interface CallTransport {
    * synthesis. Transports that don't buffer text may omit this.
    */
   discardPendingText?(): void;
+
+  /**
+   * Cancel queued and in-flight speech playback held by the transport,
+   * including any audio already buffered downstream (e.g. by Twilio).
+   *
+   * Called by the controller when it aborts an in-flight turn so speech
+   * the aborted turn queued for synthesis or playback never plays over
+   * the next turn. Transports that emit speech synchronously may omit
+   * this.
+   */
+  cancelPendingSpeech?(): void;
 }

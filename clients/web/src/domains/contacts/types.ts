@@ -2,6 +2,7 @@ import type {
   ChannelsAvailableGetResponse,
   ChannelsReadinessGetResponse,
   ContactsGetResponse,
+  SlackChannelsGetResponse,
 } from "@/generated/daemon/types.gen";
 import type { SetupChannelId } from "@/types/channel-types";
 
@@ -16,6 +17,8 @@ export type ContactPayload = ContactsGetResponse["contacts"][number];
 export type ContactChannelPayload = ContactPayload["channels"][number];
 
 export type ChannelInfo = ChannelsAvailableGetResponse["channels"][number];
+
+export type SlackChannel = SlackChannelsGetResponse["channels"][number];
 
 type ReadinessSnapshot = ChannelsReadinessGetResponse["snapshots"][number];
 export type ChannelReadinessSnapshot = ReadinessSnapshot;

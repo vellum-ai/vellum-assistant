@@ -39,14 +39,15 @@ import {
 import { dirname, join, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 
+import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import { ensureBun } from "../../util/bun-runtime.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
+import type { FetchLike } from "./fetch-like.js";
 import {
   computeContentHash,
   computeFingerprint,
   type Fingerprint,
   parseFingerprint,
-  PRESERVED_ENTRIES,
 } from "./plugin-fingerprint.js";
 import {
   fetchMarketplaceEntries,
@@ -79,18 +80,6 @@ interface GitHubContentEntry {
   readonly size: number;
   readonly download_url: string | null;
 }
-
-/**
- * Minimal `fetch` shape used by this module.
- *
- * Narrower than `typeof fetch` because Bun's `fetch` carries a `preconnect`
- * static that this module does not need — pinning to the wider type would
- * force every caller to construct a fully-featured Bun fetch.
- */
-export type FetchLike = (
-  input: RequestInfo | URL,
-  init?: RequestInit,
-) => Promise<Response>;
 
 /**
  * Runs a `git` subcommand in `cwd` and resolves its stdout. Injected so tests
@@ -246,7 +235,9 @@ export class PluginSourceUnavailableError extends Error {
  * a 403 without it is a genuine authorization failure and stays hard.
  */
 function isTransientUpstreamStatus(res: Response): boolean {
-  if (res.status === 429 || res.status >= 500) return true;
+  if (res.status === 429 || res.status >= 500) {
+    return true;
+  }
   if (res.status === 403) {
     return res.headers.get("x-ratelimit-remaining") === "0";
   }
@@ -302,7 +293,9 @@ async function resolvePluginSource(
     throw err;
   }
 
-  if (!resolved) return null;
+  if (!resolved) {
+    return null;
+  }
 
   return {
     owner: resolved.owner,
@@ -548,9 +541,13 @@ export function finalizeStagedInstall(
   // user config and runtime data.
   if (existsSync(target)) {
     for (const entry of PRESERVED_ENTRIES) {
-      if (entry === INSTALL_META_FILENAME) continue; // sidecar is rewritten above
+      if (entry === INSTALL_META_FILENAME) {
+        continue;
+      } // sidecar is rewritten above
       const src = join(target, entry);
-      if (!existsSync(src)) continue;
+      if (!existsSync(src)) {
+        continue;
+      }
       const dest = join(stagingDir, entry);
       const stat = statSync(src);
       if (stat.isDirectory()) {
@@ -755,8 +752,9 @@ async function copyExternalViaGit(
       // A missing repo/ref (or a private one we can't reach) is a hard
       // not-found, surfaced as zero files. Anything else — network loss, a
       // transient GitHub outage — is retryable, so map it to a 503.
-      if (isGitRefNotFound(err))
+      if (isGitRefNotFound(err)) {
         return { fileCount: 0, commit: null, committedAt: null };
+      }
       throw new PluginSourceUnavailableError(
         `git clone failed for ${sourceLabel(source)} @ ${source.ref}: ${subprocessErrorText(err)}`,
         503,
@@ -865,10 +863,14 @@ async function applyAdapterStub(
     stagingDir,
     deps.fetch,
   );
-  if (stubFileCount === 0) return false;
+  if (stubFileCount === 0) {
+    return false;
+  }
 
   const script = resolvePostinstallScript(name, stagingDir);
-  if (script === null) return false;
+  if (script === null) {
+    return false;
+  }
 
   const run = deps.runPostinstall ?? defaultPostinstallRunner;
   try {
@@ -891,7 +893,9 @@ type PackageManifest = Record<string, unknown>;
 
 /** Parse the `package.json` at `path`, or null if it's absent or unparseable. */
 function readPackageJson(path: string): PackageManifest | null {
-  if (!existsSync(path)) return null;
+  if (!existsSync(path)) {
+    return null;
+  }
   try {
     const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
     return typeof parsed === "object" &&
@@ -976,7 +980,9 @@ function resolvePostinstallScript(
   stagingDir: string,
 ): string | null {
   const pkgPath = join(stagingDir, "package.json");
-  if (!existsSync(pkgPath)) return null;
+  if (!existsSync(pkgPath)) {
+    return null;
+  }
 
   let parsed: unknown;
   try {
@@ -993,7 +999,9 @@ function resolvePostinstallScript(
     typeof scripts === "object" && scripts !== null && "postinstall" in scripts
       ? (scripts as { postinstall?: unknown }).postinstall
       : undefined;
-  if (typeof command !== "string" || command.trim() === "") return null;
+  if (typeof command !== "string" || command.trim() === "") {
+    return null;
+  }
 
   const match = /^bun\s+(\S+)$/.exec(command.trim());
   if (!match) {
@@ -1005,7 +1013,9 @@ function resolvePostinstallScript(
   }
 
   let rel = match[1]!;
-  if (rel.startsWith("./")) rel = rel.slice(2);
+  if (rel.startsWith("./")) {
+    rel = rel.slice(2);
+  }
   if (!/\.(?:ts|mts|cts|mjs|cjs|js)$/.test(rel)) {
     throw new PluginPostinstallError(
       name,
@@ -1074,7 +1084,9 @@ function pluginPostinstallEnv(bun: string): NodeJS.ProcessEnv {
       .filter(Boolean)
       .join(":"),
   };
-  if (process.env.HOME) env.HOME = process.env.HOME;
+  if (process.env.HOME) {
+    env.HOME = process.env.HOME;
+  }
   return env;
 }
 
@@ -1090,7 +1102,9 @@ function copyTreeSkippingGit(srcRoot: string, destDir: string): number {
     for (const entry of readdirSync(absDir, { withFileTypes: true })) {
       // Drop git metadata and symlinks: the loader follows neither, and a
       // symlink could otherwise point outside the staging tree.
-      if (relDir === "" && entry.name === ".git") continue;
+      if (relDir === "" && entry.name === ".git") {
+        continue;
+      }
       // Drop a top-level `bunfig.toml`. The adapter postinstall runs `bun` with
       // its cwd at the staged root, and Bun auto-loads `$cwd/bunfig.toml` as
       // project config — including a `preload` list it executes before the
@@ -1101,15 +1115,21 @@ function copyTreeSkippingGit(srcRoot: string, destDir: string): number {
       // consumes `bunfig.toml`. Match case-insensitively because the macOS
       // install target's filesystem is case-insensitive, where Bun would still
       // open a clone-supplied `BUNFIG.TOML`.
-      if (relDir === "" && entry.name.toLowerCase() === "bunfig.toml") continue;
-      if (entry.isSymbolicLink()) continue;
+      if (relDir === "" && entry.name.toLowerCase() === "bunfig.toml") {
+        continue;
+      }
+      if (entry.isSymbolicLink()) {
+        continue;
+      }
 
       const rel = relDir ? join(relDir, entry.name) : entry.name;
       if (entry.isDirectory()) {
         walk(rel);
         continue;
       }
-      if (!entry.isFile()) continue;
+      if (!entry.isFile()) {
+        continue;
+      }
 
       const dest = join(destDir, rel);
       mkdirSync(dirname(dest), { recursive: true });
@@ -1168,7 +1188,9 @@ export const defaultGitRunner: GitRunner = async (args, opts) => {
 function pluginGitEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (value !== undefined && !key.startsWith("GIT_")) env[key] = value;
+    if (value !== undefined && !key.startsWith("GIT_")) {
+      env[key] = value;
+    }
   }
   env.GIT_TERMINAL_PROMPT = "0";
   const extraPaths = ["/opt/homebrew/bin", "/usr/local/bin"];
@@ -1199,12 +1221,16 @@ interface WriteInstallMetaParams {
  */
 function readStagedPackageVersion(stagingDir: string): string | undefined {
   const pkgPath = join(stagingDir, "package.json");
-  if (!existsSync(pkgPath)) return undefined;
+  if (!existsSync(pkgPath)) {
+    return undefined;
+  }
   try {
     const parsed: unknown = JSON.parse(readFileSync(pkgPath, "utf8"));
     if (typeof parsed === "object" && parsed !== null) {
       const version = (parsed as Record<string, unknown>).version;
-      if (typeof version === "string" && version.length > 0) return version;
+      if (typeof version === "string" && version.length > 0) {
+        return version;
+      }
     }
   } catch {
     // fall through to undefined
@@ -1267,7 +1293,9 @@ function writeInstallMeta(
  */
 export function readInstallMeta(pluginDir: string): InstallMeta | null {
   const metaPath = join(pluginDir, INSTALL_META_FILENAME);
-  if (!existsSync(metaPath)) return null;
+  if (!existsSync(metaPath)) {
+    return null;
+  }
 
   let parsed: unknown;
   try {
@@ -1343,12 +1371,16 @@ async function copyDir(
   fetchFn: FetchLike,
 ): Promise<number> {
   const entries = await listDir(owner, repo, apiPath, ref, fetchFn);
-  if (entries === null) return 0;
+  if (entries === null) {
+    return 0;
+  }
 
   let count = 0;
   for (const entry of entries) {
     // The daemon loader follows neither symlinks nor submodules; skip them.
-    if (entry.type === "symlink" || entry.type === "submodule") continue;
+    if (entry.type === "symlink" || entry.type === "submodule") {
+      continue;
+    }
     assertSafeFilename("entry name", entry.name);
 
     if (entry.type === "dir") {
@@ -1402,7 +1434,9 @@ async function listDir(
     `/contents/${encodeURIComponent(apiPath).replaceAll("%2F", "/")}?ref=${encodeURIComponent(ref)}`;
 
   const res = await githubFetch(url, "application/vnd.github+json", fetchFn);
-  if (res.status === 404) return null;
+  if (res.status === 404) {
+    return null;
+  }
   if (!res.ok) {
     const label = `GitHub contents listing failed for ${apiPath} @ ${ref}: HTTP ${res.status}`;
     if (isTransientUpstreamStatus(res)) {

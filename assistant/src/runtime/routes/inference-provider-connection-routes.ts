@@ -10,6 +10,7 @@
 
 import { z } from "zod";
 
+import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
 import { getIsPlatform } from "../../config/env-registry.js";
 import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../persistence/db-connection.js";
@@ -19,15 +20,16 @@ import {
   ConnectionModelSchema,
   ConnectionProviderSchema,
   ProviderConnectionSchema,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   VALID_CONNECTION_PROVIDERS,
 } from "../../providers/inference/auth.js";
 import {
   createConnection,
   deleteConnection,
   getConnection,
+  LEGACY_MANAGED_CONNECTION_NAMES,
   listConnections,
   MANAGED_CONNECTION_NAMES,
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   updateConnection,
 } from "../../providers/inference/connections.js";
 import {
@@ -162,7 +164,7 @@ function handleListConnections({ queryParams = {} }: RouteHandlerArgs) {
   const connections = listConnections(
     getDb(),
     provider ? { provider } : undefined,
-  );
+  ).filter((c) => !LEGACY_MANAGED_CONNECTION_NAMES.has(c.name));
   return { connections };
 }
 
@@ -351,7 +353,7 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   }
 
   // llm.profiles.*: only ProfileEntry has provider_connection.
-  const profiles = config.llm?.profiles ?? {};
+  const profiles = getEffectiveProfiles(config.llm?.profiles);
   const referencingProfiles = Object.entries(profiles)
     .filter(
       ([, p]) => (p as Record<string, unknown>).provider_connection === name,
@@ -461,7 +463,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Update a provider connection",
     description:
-      "Update an existing connection. Cannot rename or change the provider. For managed connections (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label remains editable.",
+      "Update an existing connection. Cannot rename or change the provider. For the Vellum-managed connection (vellum) the auth is locked to platform; label remains editable.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Connection name" }],
     requestBody: z.object({
@@ -490,7 +492,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "Delete a provider connection",
     description:
-      "Delete a provider connection. Fails with 400 for managed connections (anthropic-managed, openai-managed, gemini-managed) which are re-seeded on boot. Fails with 409 if any profile or call-site references the connection.",
+      "Delete a provider connection. Fails with 400 for the Vellum-managed connection (vellum) which is re-seeded on boot. Fails with 409 if any profile or call-site references the connection.",
     tags: ["inference"],
     pathParams: [{ name: "name", description: "Connection name" }],
     responseBody: z.object({ ok: z.literal(true) }),

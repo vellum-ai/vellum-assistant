@@ -38,6 +38,10 @@ function ollamaConfig(webSearch: {
         provider: "ollama" as const,
         model: "claude-opus-4-6",
       },
+      profiles: {
+        // Disable the catalog default so resolution lands on llm.default.
+        balanced: { source: "managed" as const, status: "disabled" as const },
+      },
     },
   };
 }

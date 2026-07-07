@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import type { Command } from "commander";
 
 import { cliIpcCall, exitFromIpcResult } from "../../../ipc/cli-client.js";
+import { readStdinSync } from "../../../util/read-stdin.js";
 import { shouldOutputJson, writeOutput } from "../../output.js";
 
 // ---------------------------------------------------------------------------
@@ -55,7 +56,7 @@ function tryJsonParse(raw: string): unknown {
  */
 function readBodyData(data: string): unknown {
   if (data === "@-") {
-    const raw = readFileSync("/dev/stdin", "utf-8");
+    const raw = readStdinSync();
     return tryJsonParse(raw);
   }
 
@@ -109,9 +110,14 @@ the token (using \`assistant oauth token\`) and making the request directly.
 This command resolves the OAuth connection automatically (regardless of whether
 the provider's mode is set to "managed" or "your-own") and injects tokens transparently.
 
-URL can be absolute (https://api.twitter.com/2/tweets) or relative (/2/tweets).
-Absolute URLs have their host extracted as a baseUrl override; relative paths
-use the provider's configured default.
+URL can be absolute (https://api.x.com/2/tweets) or relative (/2/tweets).
+An absolute URL sets the host and full path explicitly. A relative path is
+joined onto the provider's configured default base URL — the base URL shown by
+'assistant oauth providers get <provider>'. For providers whose default base
+URL points at one specific service, a relative path for a different service on
+the same provider will resolve against the wrong host or path and fail (often
+with an opaque HTML 404). When in doubt, pass an absolute URL: it is the safe
+form for any service other than the provider's default.
 
 Note: The Authorization header is set automatically. User-supplied
 -H "Authorization: ..." will be overridden by the OAuth bearer token.
@@ -120,7 +126,7 @@ Examples:
   $ assistant oauth request --provider twitter https://api.x.com/2/tweets
   $ assistant oauth request --provider google /gmail/v1/users/me/messages -G
   $ assistant oauth request --provider twitter -X POST -d '{"text":"Hello"}' https://api.x.com/2/tweets
-  $ assistant oauth request --provider google -d @body.json https://www.googleapis.com/calendar/v3/calendars
+  $ assistant oauth request --provider google https://www.googleapis.com/calendar/v3/calendars/primary/events
   $ assistant oauth request --provider slack -H "Content-Type: application/json" -d '{"channel":"C123"}' /api/chat.postMessage --json`,
     )
     .action(
@@ -216,6 +222,8 @@ Examples:
             headers: Record<string, string>;
             body: unknown;
             hint?: string;
+            account?: string | null;
+            accountWarning?: string;
           }>("oauth_request", { body });
 
           if (!r.ok) return exitFromIpcResult(r);
@@ -225,6 +233,14 @@ Examples:
           // Non-2xx exit code
           if (result.status < 200 || result.status >= 300) {
             process.exitCode = 1;
+          }
+
+          // Which account served the request, and any multi-account ambiguity.
+          if (result.account) {
+            writeInfo(`* Account: ${result.account}`);
+          }
+          if (result.accountWarning) {
+            writeInfo(result.accountWarning);
           }
 
           // Auth hint

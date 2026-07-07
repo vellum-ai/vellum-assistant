@@ -1,6 +1,6 @@
 import { startCall } from "../../calls/call-domain.js";
+import { findActiveSession } from "../../channels/gateway-verification-sessions.js";
 import { getConfig } from "../../config/loader.js";
-import { findActiveSession } from "../../runtime/channel-verification-service.js";
 import { normalizePhoneNumber } from "../../util/phone.js";
 import type { ToolContext, ToolExecutionResult } from "../types.js";
 
@@ -21,7 +21,7 @@ export async function executeCallStart(
       ? normalizePhoneNumber(input.phone_number)
       : null;
   if (requestedPhone) {
-    const activeVoiceVerification = findActiveSession("phone");
+    const activeVoiceVerification = await findActiveSession("phone");
     const verificationDestination =
       activeVoiceVerification?.destinationAddress ??
       activeVoiceVerification?.expectedPhoneE164;

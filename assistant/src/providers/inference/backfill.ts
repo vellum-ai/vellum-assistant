@@ -21,17 +21,16 @@ import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import type { DrizzleDb } from "../../persistence/db-connection.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getLogger } from "../../util/logger.js";
+import { MANAGED_ROUTABLE_PROVIDERS } from "../vellum-model-routing.js";
+import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "./auth.js";
 import {
   createConnection,
   getConnection,
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   seedCanonicalConnections,
+  VELLUM_MANAGED_CONNECTION_NAME,
 } from "./connections.js";
 
 const log = getLogger("provider-connections-backfill");
-
-// Providers that support the managed (platform) auth type.
-const MANAGED_PROVIDERS = new Set(["anthropic", "openai", "gemini"]);
 
 /**
  * Seed canonical provider_connections and backfill any legacy config locations
@@ -168,8 +167,11 @@ function ensureProviderConnection(
 
   let connectionName: string;
 
-  if (globalMode === "managed" && MANAGED_PROVIDERS.has(provider)) {
-    connectionName = `${provider}-managed`;
+  if (globalMode === "managed" && MANAGED_ROUTABLE_PROVIDERS.has(provider)) {
+    // All managed-routable providers share the single provider-agnostic
+    // `vellum` connection; the upstream is recovered per-request from the
+    // profile's `provider` field.
+    connectionName = VELLUM_MANAGED_CONNECTION_NAME;
   } else {
     // "your-own" path (or provider not managed-supported): ensure a
     // personal connection exists. Ollama is keyless, so it gets

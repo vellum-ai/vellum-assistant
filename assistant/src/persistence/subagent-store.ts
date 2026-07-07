@@ -7,7 +7,7 @@
  * layer decoupled from the subagent domain types.
  */
 
-import { rawAll, rawRun } from "./raw-query.js";
+import { rawAll, rawGet, rawRun } from "./raw-query.js";
 
 /** A durable subagent lifecycle record (camelCase mirror of the row). */
 export interface SubagentRecord {
@@ -117,6 +117,24 @@ export function loadAllSubagentRecords(): SubagentRecord[] {
   return rawAll<SubagentRow>("subagent:loadAll", `SELECT * FROM subagents`).map(
     rowToRecord,
   );
+}
+
+/**
+ * Look up the subagent record whose child conversation is `conversationId`,
+ * or `undefined` when the conversation is not a subagent. `conversation_id` is
+ * the child's own id, so this resolves the child → parent relation (and the
+ * current lifecycle status) from durable storage without consulting the live
+ * SubagentManager.
+ */
+export function getSubagentRecordByConversationId(
+  conversationId: string,
+): SubagentRecord | undefined {
+  const row = rawGet<SubagentRow>(
+    "subagent:getByConversationId",
+    `SELECT * FROM subagents WHERE conversation_id = ?`,
+    conversationId,
+  );
+  return row ? rowToRecord(row) : undefined;
 }
 
 /** Delete a subagent record once the manager is fully done with it. */

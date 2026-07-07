@@ -317,16 +317,17 @@ describe("resolveSlash /model — inference profile switcher", () => {
     expect(result.message).toBe("Already using profile `balanced` (Balanced).");
   });
 
-  test("`/model` with no profiles defined points at Settings", async () => {
+  test("`/model` with no workspace profiles lists the code-catalog defaults", async () => {
     writeFixtureConfig({
       llm: { profiles: {}, profileOrder: [] },
     });
     const result = await resolveSlash("/model");
     expect(result.kind).toBe("unknown");
     if (result.kind !== "unknown") throw new Error("expected unknown kind");
-    expect(result.message).toBe(
-      "No inference profiles are defined. Use **Settings → Models & Services** to create one.",
-    );
+    expect(result.message).toContain("Inference profiles:");
+    expect(result.message).toContain("`balanced`");
+    expect(result.message).toContain("`quality-optimized`");
+    expect(result.message).toContain("`cost-optimized`");
   });
 
   test("`/model <name>` trims surrounding whitespace from the argument", async () => {

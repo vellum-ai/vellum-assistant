@@ -228,10 +228,13 @@ mock.module("@/utils/onboarding-cleanup", () => ({
   DIAGNOSTICS_CONSENT_VERSION: "2026-06-08",
 }));
 
+const setTosAcceptedMock = mock((_value: boolean) => {});
+const setPrivacyConsentMock = mock((_value: boolean) => {});
 const setAnalyticsConsentCurrentMock = mock((_value: boolean) => {});
 const setDiagnosticsConsentCurrentMock = mock((_value: boolean) => {});
 const setShareAnalyticsMock = mock((_value: boolean) => {});
 const setShareDiagnosticsMock = mock((_value: boolean) => {});
+const setConsentHydratedMock = mock((_value: boolean) => {});
 // Mirror the store's device-initialized share values; the backfill reads these
 // to send the device opt-out value alongside the accepted version.
 let mockStoreShareAnalytics = true;
@@ -240,12 +243,13 @@ let mockStoreShareDiagnostics = true;
 mock.module("@/domains/onboarding/onboarding-store", () => ({
   useOnboardingStore: {
     getState: () => ({
-      setTosAccepted: () => {},
-      setPrivacyConsent: () => {},
+      setTosAccepted: setTosAcceptedMock,
+      setPrivacyConsent: setPrivacyConsentMock,
       setShareAnalytics: setShareAnalyticsMock,
       setShareDiagnostics: setShareDiagnosticsMock,
       setAnalyticsConsentCurrent: setAnalyticsConsentCurrentMock,
       setDiagnosticsConsentCurrent: setDiagnosticsConsentCurrentMock,
+      setConsentHydrated: setConsentHydratedMock,
       shareAnalytics: mockStoreShareAnalytics,
       shareDiagnostics: mockStoreShareDiagnostics,
     }),
@@ -361,10 +365,13 @@ beforeEach(() => {
   persistConsentForUserMock.mockClear();
   persistToggleConsentMock.mockClear();
   resolveServerConsentMock.mockClear();
+  setTosAcceptedMock.mockClear();
+  setPrivacyConsentMock.mockClear();
   setAnalyticsConsentCurrentMock.mockClear();
   setDiagnosticsConsentCurrentMock.mockClear();
   setShareAnalyticsMock.mockClear();
   setShareDiagnosticsMock.mockClear();
+  setConsentHydratedMock.mockClear();
   mockStoreShareAnalytics = true;
   mockStoreShareDiagnostics = true;
   fetchConsentMock.mockClear();
@@ -690,10 +697,11 @@ describe("auth store onboarding flag reconciliation", () => {
     mockStoreShareDiagnostics = true;
   });
 
-  test("stale-but-real record keeps server share values and skips the device fallback", async () => {
+  test("stale-but-real record keeps server share values authoritative", async () => {
     // hasServerRecord=true but legal consent is stale (tos=false). The server's
-    // share opt-out is authoritative and must be applied; the device fallback
-    // must NOT run (its values are not authoritative for a real record).
+    // share opt-out is authoritative and must be applied. The device keys are
+    // consulted for the stale version flags, but attest nothing here, so the
+    // stale flags stand and no backfill fires.
     sessionUser = { id: "user-1", email: "user@example.com" };
     resolveServerConsentMock.mockReturnValueOnce({
       tos: false,
@@ -708,7 +716,166 @@ describe("auth store onboarding flag reconciliation", () => {
     await useAuthStore.getState().initSession();
 
     expect(setShareAnalyticsMock).toHaveBeenCalledWith(false);
+    expect(restoreConsentForUserMock).toHaveBeenCalledWith("user-1");
+    expect(setTosAcceptedMock).toHaveBeenCalledWith(false);
+    expect(setPrivacyConsentMock).toHaveBeenCalledWith(false);
+    expect(patchConsentMock).not.toHaveBeenCalled();
+  });
+
+  test("a fully current server record does not consult the device keys", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      shareAnalytics: true,
+      shareDiagnostics: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      hasServerRecord: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
     expect(restoreConsentForUserMock).not.toHaveBeenCalled();
+  });
+
+  test("a stale server record is overridden by current-version device acks, and the backfill re-fires", async () => {
+    // The device ack keys are version-stamped, so a true key attests
+    // acceptance of the CURRENT terms — the stale server record just means
+    // the fire-and-forget backfill write never landed. The in-memory flags
+    // must stay true (no bounce into onboarding/review-terms) and the
+    // backfill must be re-sent.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: false,
+      privacy: false,
+      shareAnalytics: true,
+      shareDiagnostics: true,
+      analyticsCurrent: false,
+      diagnosticsCurrent: false,
+      hasServerRecord: true,
+    });
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setTosAcceptedMock).toHaveBeenCalledWith(true);
+    expect(setPrivacyConsentMock).toHaveBeenCalledWith(true);
+    expect(setAnalyticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    expect(setDiagnosticsConsentCurrentMock).toHaveBeenCalledWith(true);
+    expect(persistConsentForUserMock).toHaveBeenLastCalledWith(
+      "user-1",
+      true,
+      true,
+    );
+    // The backfill stamps every stale-but-attested version…
+    expect(patchConsentMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        tos_accepted_version: expect.any(String),
+        privacy_policy_accepted_version: expect.any(String),
+        ai_data_sharing_accepted_version: expect.any(String),
+        share_analytics_accepted_version: expect.any(String),
+        share_diagnostics_accepted_version: expect.any(String),
+      }),
+    );
+    // …but never the share booleans: a real record's values are authoritative.
+    const body = patchConsentMock.mock.calls[0]![0] as Record<string, unknown>;
+    expect(body).not.toContainKey("share_analytics");
+    expect(body).not.toContainKey("share_diagnostics");
+  });
+
+  test("device acks override only the stale axes of a partially stale record", async () => {
+    // ToS is current on the server; only privacy is stale. The device attests
+    // privacy, so the backfill patches the privacy artifacts alone.
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: true,
+      privacy: false,
+      shareAnalytics: true,
+      shareDiagnostics: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+      hasServerRecord: true,
+    });
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: true,
+      privacy: true,
+      analyticsCurrent: true,
+      diagnosticsCurrent: true,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setTosAcceptedMock).toHaveBeenCalledWith(true);
+    expect(setPrivacyConsentMock).toHaveBeenCalledWith(true);
+    const body = patchConsentMock.mock.calls[0]![0] as Record<string, unknown>;
+    expect(body).toContainKey("privacy_policy_accepted_version");
+    expect(body).toContainKey("ai_data_sharing_accepted_version");
+    expect(body).not.toContainKey("tos_accepted_version");
+    expect(body).not.toContainKey("share_analytics_accepted_version");
+    expect(body).not.toContainKey("share_diagnostics_accepted_version");
+  });
+
+  test("stale axes without device attestation stay stale (no override, no backfill)", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    resolveServerConsentMock.mockReturnValueOnce({
+      tos: false,
+      privacy: false,
+      shareAnalytics: true,
+      shareDiagnostics: true,
+      analyticsCurrent: false,
+      diagnosticsCurrent: false,
+      hasServerRecord: true,
+    });
+    restoreConsentForUserMock.mockReturnValueOnce({
+      tos: false,
+      privacy: false,
+      analyticsCurrent: false,
+      diagnosticsCurrent: false,
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(setTosAcceptedMock).toHaveBeenCalledWith(false);
+    expect(setPrivacyConsentMock).toHaveBeenCalledWith(false);
+    expect(patchConsentMock).not.toHaveBeenCalled();
+  });
+
+  test("syncUserScopedState marks consent hydrated on every settle path", async () => {
+    // Success path (server record).
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    await useAuthStore.getState().initSession();
+    expect(setConsentHydratedMock).toHaveBeenCalledWith(true);
+
+    // Server-fetch-failure fallback path.
+    setConsentHydratedMock.mockClear();
+    mockFetchConsentError = new Error("Network error");
+    await useAuthStore.getState().refreshSession();
+    expect(setConsentHydratedMock).toHaveBeenCalledWith(true);
+
+    // Null-user path (settled unauthenticated).
+    setConsentHydratedMock.mockClear();
+    mockFetchConsentError = null;
+    sessionUser = null;
+    await useAuthStore.getState().initSession();
+    expect(setConsentHydratedMock).toHaveBeenCalledWith(true);
+  });
+
+  test("initSession marks the assistants list hydrated even when the platform fetch fails", async () => {
+    sessionUser = { id: "user-1", email: "user@example.com" };
+    useResolvedAssistantsStore.setState({ assistantsHydrated: false });
+    listAssistantsMock.mockImplementationOnce(async () => {
+      throw new Error("Network error");
+    });
+
+    await useAuthStore.getState().initSession();
+
+    expect(useResolvedAssistantsStore.getState().assistantsHydrated).toBe(true);
   });
 
   test("initSession falls back to device keys when fetchConsent fails", async () => {

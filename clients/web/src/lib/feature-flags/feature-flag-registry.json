@@ -63,7 +63,7 @@
       "scope": "assistant",
       "key": "trace-collection",
       "label": "Trace Collection",
-      "description": "Gate per-turn conversation trace (user/assistant/tool-call/tool-response) collection. The daemon attaches a trace to its turn telemetry only when this flag AND the owner's share_diagnostics consent are both on. Defaults off (fail-closed) — the live value is delivered from LaunchDarkly.",
+      "description": "Gate per-turn conversation trace (user/assistant/tool-call/tool-response) collection. The daemon attaches a trace to its turn telemetry only when this flag AND the owner's share_diagnostics consent are both on. Defaults off (fail-closed) \u2014 the live value is delivered from LaunchDarkly.",
       "defaultEnabled": false
     },
     {
@@ -144,14 +144,6 @@
       "key": "expand-completed-steps",
       "label": "Expand Completed Steps",
       "description": "Auto-expand completed tool call step groups instead of showing them collapsed",
-      "defaultEnabled": false
-    },
-    {
-      "id": "message-tts",
-      "scope": "assistant",
-      "key": "message-tts",
-      "label": "Message Text-to-Speech",
-      "description": "Show a speaker button on assistant messages to generate and play the message as audio via Fish Audio TTS",
       "defaultEnabled": false
     },
     {
@@ -374,17 +366,17 @@
       "id": "research-onboarding",
       "scope": "client",
       "key": "research-onboarding",
-      "label": "Research onboarding",
-      "description": "Replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including the \"Create my personality\" step and a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. On by default (GA); after consent, new web users (non-native, non-local-mode) are routed into this flow instead of the standard hatching path.",
-      "defaultEnabled": true
+      "label": "Research onboarding (spike)",
+      "description": "Spike: replace pre-chat onboarding with a web-research \"here's what I know about you\" flow, including a Google Calendar \"Let's chat tomorrow\" step shown over the streaming research. Gates the /assistant/onboarding/research route and the research mock harness. Off by default; enable locally via the feature-flags panel.",
+      "defaultEnabled": false
     },
     {
       "id": "personality-onboarding",
       "scope": "client",
       "key": "personality-onboarding",
-      "label": "Personality onboarding step",
-      "description": "Show the \"Create my personality\" trait-slider step in the research-onboarding flow (between the pitch and the integration step). On continue it applies the sliders to the assistant's persona on a throwaway side conversation. When off, the step is skipped entirely. On by default (GA); only takes effect where the research-onboarding flow itself is enabled.",
-      "defaultEnabled": true
+      "label": "Personality onboarding step (spike)",
+      "description": "Spike: show the \"Create my personality\" trait-slider step in the research-onboarding flow (between the pitch and the integration step). On continue it applies the sliders to the assistant's persona on a throwaway side conversation. When off, the step is skipped entirely. Off by default; enable locally via the feature-flags panel.",
+      "defaultEnabled": false
     },
     {
       "id": "channel-trust-floors",
@@ -416,6 +408,14 @@
       "key": "new-thread-suggestions",
       "label": "New-thread suggestions library",
       "description": "Replace the empty-state conversation-starter chips with the scrollable, categorized suggestions library and detail drawer (currently mocked data).",
+      "defaultEnabled": false
+    },
+    {
+      "id": "account-mfa",
+      "scope": "client",
+      "key": "account-mfa",
+      "label": "Account MFA",
+      "description": "Surface the Security settings page where users enroll and manage TOTP two-factor authentication for their Vellum (WorkOS) account. Applies to email/password sign-in only.",
       "defaultEnabled": false
     }
   ]

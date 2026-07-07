@@ -955,9 +955,6 @@ export interface SurfaceConversationContext {
     channel: string;
     supportsDynamicUi: boolean;
   };
-  readonly traceEmitter: {
-    emit(type: string, message: string, meta?: Record<string, unknown>): void;
-  };
   sendToClient(msg: ServerMessage): void;
   pendingSurfaceActions: Map<string, { surfaceType: SurfaceType }>;
   lastSurfaceAction: Map<
@@ -2148,12 +2145,6 @@ export async function handleSurfaceAction(
     const onEvent = (msg: ServerMessage) =>
       broadcastMessage(msg, ctx.conversationId);
 
-    ctx.traceEmitter.emit("request_received", "Surface action received", {
-      requestId,
-      status: "info",
-      attributes: { source: "surface_action", surfaceId, actionId },
-    });
-
     const result = ctx.enqueueMessage({
       content,
       attachments,
@@ -2381,12 +2372,6 @@ export async function handleSurfaceAction(
   const onEvent = (msg: ServerMessage) =>
     broadcastMessage(msg, ctx.conversationId);
 
-  ctx.traceEmitter.emit("request_received", "Surface action received", {
-    requestId,
-    status: "info",
-    attributes: { source: "surface_action", surfaceId, actionId },
-  });
-
   log.info(
     {
       surfaceId,
@@ -2474,15 +2459,6 @@ export async function handleSurfaceAction(
     log.info(
       { surfaceId, actionId, requestId },
       "Surface action queued (conversation busy)",
-    );
-    ctx.traceEmitter.emit(
-      "request_queued",
-      `Surface action queued at position ${position}`,
-      {
-        requestId,
-        status: "info",
-        attributes: { position },
-      },
     );
     onEvent({
       type: "message_queued",

@@ -20,10 +20,13 @@ import {
   type ChatEntry,
   hasPendingApproval,
   hasPendingBackup,
+  latestReplayableDoctorSourceEventId,
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
+  replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
+  type DoctorMessageWithSourceEventId,
 } from "@/domains/settings/components/panels/doctor-history";
 import { useDoctorPanelStore } from "@/domains/settings/components/panels/doctor-panel-store";
 import {
@@ -178,21 +181,46 @@ export function DoctorPanel() {
   // This is NOT "copying server state to client state" — it's seeding the store
   // with the initial entries before SSE takes over appending new ones.
   useEffect(() => {
-    if (historyDismissed) return;
-    if (sessionId !== null) return;
-    if (storeEntries.length > 0) return;
-    if (!historyDetail || !latestHistorySessionId) return;
-    if (historyStatus !== "active") return;
+    if (historyDismissed) {
+      return;
+    }
+    if (sessionId !== null) {
+      return;
+    }
+    if (storeEntries.length > 0) {
+      return;
+    }
+    if (!historyDetail || !latestHistorySessionId) {
+      return;
+    }
+    if (historyStatus !== "active") {
+      return;
+    }
 
     const store = useDoctorPanelStore.getState();
-    const resumedEntries = mapPersistedMessagesToEntries(historyDetail.messages ?? []);
+    const messages = (historyDetail.messages ??
+      []) as DoctorMessageWithSourceEventId[];
+    const resumedEntries = mapPersistedMessagesToEntries(messages);
     store.setEntries(resumedEntries);
     store.setPendingApproval(hasPendingApproval(resumedEntries));
     store.setPendingBackup(hasPendingBackup(resumedEntries));
+    store.seedReplayState(
+      replayableDoctorSourceEventIds(messages),
+      latestReplayableDoctorSourceEventId(messages),
+    );
     store.setSessionId(latestHistorySessionId);
     store.setSessionStatus("active");
     connectSSE(assistantId, latestHistorySessionId);
-  }, [historyDismissed, sessionId, storeEntries.length, historyDetail, historyStatus, latestHistorySessionId, assistantId, connectSSE]);
+  }, [
+    historyDismissed,
+    sessionId,
+    storeEntries.length,
+    historyDetail,
+    historyStatus,
+    latestHistorySessionId,
+    assistantId,
+    connectSSE,
+  ]);
 
   // Capture query errors for observability
   useEffect(() => {
@@ -233,6 +261,7 @@ export function DoctorPanel() {
     },
     onSuccess(data) {
       const store = useDoctorPanelStore.getState();
+      store.resetReplayState();
       store.setSessionId(data.session_id);
       store.setSessionStatus("active");
       store.setEntries([
@@ -286,7 +315,9 @@ export function DoctorPanel() {
 
   const handleSend = (content: string) => {
     const text = content.trim();
-    if (!text || !sessionId) return;
+    if (!text || !sessionId) {
+      return;
+    }
     // Re-pin to the latest so the outgoing message and the streamed
     // response are in view, even if the user had scrolled up to read
     // earlier content before sending.
@@ -336,12 +367,9 @@ export function DoctorPanel() {
   const { scrollContainerRef, showScrollToLatest, scrollToLatest } =
     useDoctorAutoScroll(entries);
 
-  // Recover from stale state on same-assistant remount.
-  // The module-level store survives unmount, but useDoctorSSE's AbortController
-  // does not — it's a React ref that dies with the hook instance. If the store
-  // still shows an active session, the SSE stream is gone with no way to resume
-  // it from the old controller. Full-reset so the history queries can re-discover
-  // and reconnect to the still-active server session.
+  // Recover the stream on same-assistant remount. The module-level store
+  // preserves the active session and replay cursor, while useDoctorSSE's
+  // AbortController is owned by the mounted hook instance.
   useEffect(() => {
     const store = useDoctorPanelStore.getState();
     if (
@@ -349,7 +377,7 @@ export function DoctorPanel() {
       store.sessionStatus === "active" &&
       store.sessionId
     ) {
-      store.reset();
+      connectSSE(assistantId, store.sessionId);
     }
     // Clear historyDismissed on remount so history queries re-discover new
     // sessions that may have completed while the panel was unmounted.
@@ -362,7 +390,9 @@ export function DoctorPanel() {
   // Reset all doctor state when active assistant changes.
   useEffect(() => {
     const store = useDoctorPanelStore.getState();
-    if (store.lastAssistantId === assistantId) return;
+    if (store.lastAssistantId === assistantId) {
+      return;
+    }
     const oldAssistantId = store.lastAssistantId;
     const oldSessionId = store.sessionId;
 
@@ -601,9 +631,15 @@ export function DoctorPanel() {
                   e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
                 }}
                 onKeyDown={(e) => {
-                  if (e.key !== "Enter" || e.shiftKey) return;
-                  if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-                  if (isPointerCoarse()) return;
+                  if (e.key !== "Enter" || e.shiftKey) {
+                    return;
+                  }
+                  if (e.nativeEvent.isComposing || e.keyCode === 229) {
+                    return;
+                  }
+                  if (isPointerCoarse()) {
+                    return;
+                  }
                   e.preventDefault();
                   if (inputValue.trim() && !sending) {
                     handleSend(inputValue);

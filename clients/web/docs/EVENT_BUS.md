@@ -57,6 +57,7 @@ Every event name in `BusEventMap` has a typed payload. Producers:
 - `runtime/event-sources/*` for host-environment signals (`app.*`, `power.*`, `deeplink.*`).
 - `assistant/sse-service.ts` for SSE-derived signals (`sse.*`).
 - `use-event-stream.ts`'s burst-limited reachability retry for `reachability.retry-requested`.
+- `hooks/use-notification-tap-navigation.ts` and `runtime/push-registration.ts` for notification-tap `deeplink.openThread`.
 
 | Event | Payload | Produced when |
 |---|---|---|
@@ -73,9 +74,9 @@ Every event name in `BusEventMap` has a typed payload. Producers:
 | `power.lock` | `{}` | Electron host: screen locked. No bus-owned action today. Off Electron never fires. |
 | `power.unlock` | `{}` | Electron host: screen unlocked. Bus bounces its SSE (same shape as `power.resume`). Off Electron never fires. |
 | `power.active` | `{}` | Electron host: `user-did-become-active` after idle. No bus-owned action today; future ticket may nudge stale state. Off Electron never fires. |
-| `deeplink.send` | `{ message }` | Electron host: inbound `vellum://send?message=…` URL routed by Launch Services. Chat domain consumes to pre-fill the composer. |
-| `deeplink.openThread` | `{ threadId }` | Electron host: inbound `vellum://thread/<id>` URL. Chat domain consumes to navigate. |
-| `deeplink.unknown` | `{ url }` | Parser fallback for foreign schemes / malformed URLs. Consumers typically log + drop; exists so the bridge surface is exhaustive. |
+| `deeplink.send` | `{ message }` | Electron host only: inbound `vellum://send?message=…` URL routed by Launch Services. Chat domain consumes to pre-fill the composer. |
+| `deeplink.openThread` | `{ threadId }` | Electron host: inbound `vellum://thread/<id>` URL. Also published by the notification-tap handler (`hooks/use-notification-tap-navigation.ts`) on every platform — Capacitor local notifications, Electron notification actions, browser `Notification.onclick` — and by APNs remote-push taps on Capacitor iOS (`runtime/push-registration.ts`). Chat domain consumes to navigate. |
+| `deeplink.unknown` | `{ url }` | Parser fallback for foreign schemes / malformed URLs — from the Electron deep-link path and from Capacitor iOS `App.appUrlOpen` URLs no handler claims (`runtime/event-sources/capacitor-deep-links.ts`). Consumers typically log + drop; exists so the bridge surface is exhaustive. |
 
 ## Subscribing
 
@@ -110,8 +111,11 @@ const unsubscribeResume = subscribe("app.resume", () => {
 
 Publishing is reserved for the bus's owner files (`sseService`,
 `runtime/event-sources/*`) and the narrow surfaces that need to ask
-the bus to do something — today only `reachability.retry-requested`.
-Don't add new producers without a documented reason.
+the bus to do something — today `reachability.retry-requested` and
+the notification-tap `deeplink.openThread` publishers
+(`hooks/use-notification-tap-navigation.ts`,
+`runtime/push-registration.ts`). Don't add new producers without a
+documented reason.
 
 ```ts
 import { publish } from "@/lib/event-bus";
