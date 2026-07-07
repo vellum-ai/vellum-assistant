@@ -788,6 +788,156 @@ export function mergeContactMirror(params: {
 }
 
 /**
+ * Full identity-mirror upsert for the gateway's `contacts_mirror_upsert_full`
+ * op — the typed replacement for the gateway's raw dual-write SQL. One
+ * transaction; semantics are byte-faithful to the raw writes it replaces:
+ *
+ * - Existing contact: sparse omit-to-preserve UPDATE — only provided fields
+ *   change (a partial upsert can't clobber notes/contact_type or revert a
+ *   curated display name).
+ * - Missing contact: INSERT with a generated collision-free user_file slug
+ *   (display name falls back to the first channel address, then "Unknown").
+ * - `assistant_contact_metadata` is upserted only for assistant-type contacts.
+ * - Channels: an existing (type, address NOCASE) row on this contact gets an
+ *   omit-to-preserve external_chat_id refresh; an address owned by ANOTHER
+ *   contact is skipped (never stolen); a new row adopts the gateway-minted
+ *   channel id so both stores share one canonical id.
+ */
+export function upsertContactMirrorFull(params: {
+  contactId: string;
+  displayName?: string;
+  notes?: string | null;
+  contactType?: ContactType;
+  assistantMetadata?: {
+    species: string;
+    metadata?: Record<string, unknown> | null;
+  };
+  channels?: {
+    id?: string;
+    type: string;
+    address: string;
+    isPrimary?: boolean;
+    externalChatId?: string | null;
+  }[];
+}): void {
+  const db = getDb();
+
+  db.transaction((tx) => {
+    const now = Date.now();
+    const existing = tx
+      .select()
+      .from(contacts)
+      .where(eq(contacts.id, params.contactId))
+      .get();
+
+    if (existing) {
+      const updateSet: Record<string, unknown> = { updatedAt: now };
+      if (params.displayName !== undefined) {
+        updateSet.displayName = params.displayName;
+      }
+      if (params.notes !== undefined) updateSet.notes = params.notes;
+      if (params.contactType !== undefined) {
+        updateSet.contactType = params.contactType;
+      }
+      tx.update(contacts)
+        .set(updateSet)
+        .where(eq(contacts.id, params.contactId))
+        .run();
+    } else {
+      const displayName =
+        params.displayName ?? params.channels?.[0]?.address ?? "Unknown";
+      tx.insert(contacts)
+        .values({
+          id: params.contactId,
+          displayName,
+          notes: params.notes ?? null,
+          contactType: params.contactType ?? "human",
+          userFile: generateUserFileSlug(displayName),
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+
+    if (params.contactType === "assistant" && params.assistantMetadata) {
+      const metadataJson =
+        params.assistantMetadata.metadata != null
+          ? JSON.stringify(params.assistantMetadata.metadata)
+          : null;
+      tx.insert(assistantContactMetadata)
+        .values({
+          contactId: params.contactId,
+          species: params.assistantMetadata.species,
+          metadata: metadataJson,
+        })
+        .onConflictDoUpdate({
+          target: assistantContactMetadata.contactId,
+          set: {
+            species: params.assistantMetadata.species,
+            metadata: metadataJson,
+          },
+        })
+        .run();
+    }
+
+    for (const ch of params.channels ?? []) {
+      const existingCh = tx
+        .select()
+        .from(contactChannels)
+        .where(
+          and(
+            eq(contactChannels.contactId, params.contactId),
+            eq(contactChannels.type, ch.type),
+            sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
+          ),
+        )
+        .get();
+
+      if (existingCh) {
+        // Omit-to-preserve external_chat_id; is_primary is never rewritten on
+        // an existing channel (matches the raw dual-write this op replaces).
+        const updateSet: Record<string, unknown> = { updatedAt: now };
+        if (ch.externalChatId !== undefined) {
+          updateSet.externalChatId = ch.externalChatId;
+        }
+        tx.update(contactChannels)
+          .set(updateSet)
+          .where(eq(contactChannels.id, existingCh.id))
+          .run();
+        continue;
+      }
+
+      const conflict = tx
+        .select({ id: contactChannels.id })
+        .from(contactChannels)
+        .where(
+          and(
+            eq(contactChannels.type, ch.type),
+            sql`${contactChannels.address} = ${ch.address} COLLATE NOCASE`,
+          ),
+        )
+        .get();
+      if (conflict) continue;
+
+      tx.insert(contactChannels)
+        .values({
+          id: ch.id ?? uuid(),
+          contactId: params.contactId,
+          type: ch.type,
+          address: ch.address,
+          isPrimary: ch.isPrimary ?? false,
+          externalChatId: ch.externalChatId ?? null,
+          createdAt: now,
+          updatedAt: now,
+        })
+        .run();
+    }
+  });
+
+  notifyContactsChanged();
+}
+
+/**
  * Find a contact by a specific channel address. Returns null if not found.
  * Canonicalizes the address before querying. Uses COLLATE NOCASE to match
  * legacy lowercased rows that migration 290 couldn't restore.

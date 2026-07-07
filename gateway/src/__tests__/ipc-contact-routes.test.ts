@@ -343,9 +343,9 @@ describe("IPC contact routes", () => {
   // create_contact (gateway DB source of truth via ContactStore.upsertContact)
   // -------------------------------------------------------------------------
   //
-  // No assistant daemon runs in these tests, so the best-effort assistant-DB
-  // dual-write inside upsertContact soft-fails. The gateway write still
-  // succeeds and { contactId, channelId } is returned regardless.
+  // No assistant daemon runs in these tests: the best-effort typed mirror op
+  // inside upsertContact resolves against the mocked IPC client. The gateway
+  // write succeeds and { contactId, channelId } is returned regardless.
 
   test("create_contact writes the gateway DB contacts + contact_channels rows", async () => {
     await startServerAndConnect();
@@ -592,10 +592,11 @@ describe("IPC contact routes", () => {
     expect(store.getContact("rename-c1")!.displayName).toBe("New Name");
   });
 
-  test("create_contact retry does not overwrite the assistant-DB display_name when omitted", async () => {
-    // Gap A: the gateway row exists with a stale name; the assistant DB holds
-    // the user's current (different) name. A retry WITHOUT displayName must
-    // leave the assistant-DB name untouched — the UPDATE must omit display_name.
+  test("create_contact retry omits displayName from the mirror op when not supplied", async () => {
+    // Gap A: the gateway row exists with a stale name; the assistant mirror
+    // may hold the user's current (different) name. A retry WITHOUT
+    // displayName must keep the mirror op sparse — no displayName key — so
+    // the daemon-side omit-to-preserve update can't revert the mirror's name.
     const db = getGatewayDb();
     const now = Date.now();
     db.insert(contacts)
@@ -622,17 +623,13 @@ describe("IPC contact routes", () => {
       })
       .run();
 
-    // Assistant DB has the contact (so the mirror takes the UPDATE branch).
-    assistantDbQueryMock = mock(async (sql: string) => {
-      if (sql.includes("FROM contacts WHERE id = ?")) {
-        return [{ userFile: "current-name.md" }];
-      }
-      return [];
-    });
-    const runCalls: { sql: string; bind?: unknown[] }[] = [];
-    assistantDbRunMock = mock(async (sql: string, bind?: unknown[]) => {
-      runCalls.push({ sql, bind });
-      return { changes: 1, lastInsertRowid: 0 };
+    const ipcCalls: { method: string; body?: Record<string, unknown> }[] = [];
+    ipcCallAssistantMock = mock(async (method, params) => {
+      ipcCalls.push({
+        method,
+        body: params?.body as Record<string, unknown> | undefined,
+      });
+      return {};
     });
 
     await startServerAndConnect();
@@ -643,13 +640,16 @@ describe("IPC contact routes", () => {
 
     expect(res.error).toBeUndefined();
 
-    // The assistant-DB contact UPDATE must NOT touch display_name.
-    const contactUpdate = runCalls.find(
-      (c) =>
-        c.sql.includes("UPDATE contacts") && c.sql.includes("WHERE id = ?"),
+    const mirror = ipcCalls.filter(
+      (c) => c.method === "contacts_mirror_upsert_full",
     );
-    expect(contactUpdate).toBeDefined();
-    expect(contactUpdate!.sql).not.toContain("display_name");
+    expect(mirror).toHaveLength(1);
+    // undefined = omitted: JSON serialization drops it on the wire, and the
+    // daemon's sparse update only applies fields that are !== undefined.
+    expect(mirror[0].body!.displayName).toBeUndefined();
+    // The existing gateway channel id ships for daemon-side id alignment.
+    const channels = mirror[0].body!.channels as { id?: string }[];
+    expect(channels[0].id).toBe("stale-ch1");
 
     // The gateway row's stale name is likewise preserved (omit-to-preserve).
     expect(new ContactStore(db).getContact("stale-c1")!.displayName).toBe(
@@ -657,11 +657,12 @@ describe("IPC contact routes", () => {
     );
   });
 
-  test("upsertContact with an explicit id does NOT retarget another contact's metadata", async () => {
-    // Update path (Problem 2): an edit carries a channel whose (type,address)
-    // is owned by a DIFFERENT assistant contact. The assistant mirror must
-    // target the provided id — never the other contact — matching the gateway
-    // syncChannels skip-on-cross-contact behavior.
+  test("upsertContact with an explicit id keys the mirror op to that id (no retargeting)", async () => {
+    // Update path (Problem 2): the mirror op must always target the provided
+    // gateway id — never another contact — matching the gateway syncChannels
+    // skip-on-cross-contact behavior. The daemon-side conflict-skip for a
+    // channel owned by a different mirror contact is pinned in the daemon's
+    // contacts-mirror-upsert-full suite.
     const db = getGatewayDb();
     const now = Date.now();
     db.insert(contacts)
@@ -675,25 +676,13 @@ describe("IPC contact routes", () => {
       })
       .run();
 
-    // The assistant DB reports the channel is owned by "other-contact" and the
-    // edited contact already exists by id.
-    assistantDbQueryMock = mock(async (sql: string, bind?: unknown[]) => {
-      if (
-        sql.includes("FROM contact_channels cc") &&
-        sql.includes("WHERE cc.type = ?")
-      ) {
-        return [{ contactId: "other-contact", displayName: "Other" }];
-      }
-      if (sql.includes("FROM contacts WHERE id = ?")) {
-        if (bind?.[0] === "edit-me") return [{ userFile: "edit-me.md" }];
-        return [];
-      }
-      return [];
-    });
-    const runCalls: { sql: string; bind?: unknown[] }[] = [];
-    assistantDbRunMock = mock(async (sql: string, bind?: unknown[]) => {
-      runCalls.push({ sql, bind });
-      return { changes: 1, lastInsertRowid: 0 };
+    const ipcCalls: { method: string; body?: Record<string, unknown> }[] = [];
+    ipcCallAssistantMock = mock(async (method, params) => {
+      ipcCalls.push({
+        method,
+        body: params?.body as Record<string, unknown> | undefined,
+      });
+      return {};
     });
 
     const store = new ContactStore(db);
@@ -703,14 +692,13 @@ describe("IPC contact routes", () => {
       channels: [{ type: "email", address: "shared@example.com" }],
     });
 
-    // The assistant contact UPDATE targets the provided id, never "other-contact".
-    const contactUpdate = runCalls.find(
-      (c) =>
-        c.sql.includes("UPDATE contacts") && c.sql.includes("WHERE id = ?"),
+    const mirror = ipcCalls.filter(
+      (c) => c.method === "contacts_mirror_upsert_full",
     );
-    expect(contactUpdate).toBeDefined();
-    expect(contactUpdate!.bind?.at(-1)).toBe("edit-me");
-    expect(runCalls.some((c) => c.bind?.includes("other-contact"))).toBe(false);
+    expect(mirror).toHaveLength(1);
+    expect(mirror[0].body!.contactId).toBe("edit-me");
+    expect(mirror[0].body!.displayName).toBe("New Name");
+    expect(JSON.stringify(mirror[0].body)).not.toContain("other-contact");
   });
 
   test("upsertContact read-back sources ACL from the gateway DB, not assistant defaults", async () => {

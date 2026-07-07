@@ -1018,10 +1018,10 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
     /**
      * POST /v1/contacts — gateway-native contact upsert.
      *
-     * Writes to BOTH the gateway DB (auth/authz fields: id, displayName, role,
-     * principalId + channels) and the assistant DB (all fields including notes,
-     * userFile, contactType) so the daemon stays in sync during the migration
-     * transition period.
+     * Writes the gateway DB (auth/authz fields: id, displayName, role,
+     * principalId + channels) and mirrors the identity/info fields (notes,
+     * userFile, contactType, assistantMetadata) to the assistant DB via the
+     * typed `contacts_mirror_upsert_full` op (best-effort).
      *
      * Resolution order mirrors the assistant's upsertContact:
      *  1. Match by `body.id` if provided.
@@ -1207,7 +1207,7 @@ export function createContactsControlPlaneProxyHandler(config: GatewayConfig) {
         }
       }
 
-      // ── Service-layer write (gateway DB + assistant DB dual-write) ───
+      // ── Service-layer write (gateway DB + typed assistant mirror) ────
       //
       // SECURITY: `role` and `principalId` are auth/authz fields. They are
       // NEVER read from the request body. The route is protected by generic

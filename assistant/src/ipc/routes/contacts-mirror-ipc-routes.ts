@@ -17,6 +17,7 @@ import {
   deleteContact,
   mergeContactMirror,
   upsertContact,
+  upsertContactMirrorFull,
 } from "../../contacts/contact-store.js";
 import { upsertContactChannel } from "../../contacts/contacts-write.js";
 import { getDb } from "../../persistence/db-connection.js";
@@ -148,6 +149,48 @@ function applyDeleteContact(
   deleteContact(params.contactId);
 }
 
+const UpsertFullChannelSchema = z.object({
+  // Gateway-minted channel id, adopted on INSERT so both stores share one
+  // canonical id for the same logical channel; omit to mint one.
+  id: z.string().min(1).optional(),
+  type: z.string().min(1),
+  address: z.string().min(1),
+  isPrimary: z.boolean().optional(),
+  // Omit to preserve an existing channel's external_chat_id; explicit null
+  // clears it; a new channel defaults to null.
+  externalChatId: z.string().nullable().optional(),
+});
+
+const UpsertFullParamsSchema = z.object({
+  contactId: z.string().min(1),
+  // Sparse: omitted on update preserves the mirror's name; a create falls
+  // back to the first channel address, then "Unknown".
+  displayName: z.string().optional(),
+  contactType: ContactTypeSchema.optional(),
+  notes: z.string().nullable().optional(),
+  assistantMetadata: z
+    .object({
+      species: z.string().min(1),
+      metadata: z.record(z.string(), z.unknown()).nullable().optional(),
+    })
+    .optional(),
+  channels: z.array(UpsertFullChannelSchema).optional(),
+});
+
+/**
+ * Full contact + channels identity-mirror upsert — the typed replacement for
+ * the gateway's raw dual-write (`dualWriteContactToAssistantDb`). One daemon
+ * transaction; sparse omit-to-preserve update, slug-resolved user_file on
+ * create, assistant_contact_metadata upsert, and channel conflict-skip /
+ * gateway-id-adoption sync (see `upsertContactMirrorFull`).
+ */
+export function handleContactsMirrorUpsertFull({
+  body = {},
+}: RouteHandlerArgs) {
+  upsertContactMirrorFull(UpsertFullParamsSchema.parse(body));
+  return { ok: true };
+}
+
 const MergeContactParamsSchema = z.object({
   keepContactId: z.string().min(1),
   mergeContactId: z.string().min(1),
@@ -230,6 +273,7 @@ export const CONTACTS_MIRROR_IPC_METHODS: Record<
 > = {
   contacts_mirror_upsert_channel: handleContactsMirrorUpsertChannel,
   contacts_mirror_upsert_contact: handleContactsMirrorUpsertContact,
+  contacts_mirror_upsert_full: handleContactsMirrorUpsertFull,
   contacts_mirror_delete_contact: handleContactsMirrorDeleteContact,
   contacts_mirror_merge_contact: handleContactsMirrorMergeContact,
   contacts_mirror_apply: handleContactsMirrorApply,
