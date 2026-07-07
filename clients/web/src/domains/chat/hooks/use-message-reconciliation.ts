@@ -19,6 +19,8 @@ import {
   serverSnapshotHasNewContent,
 } from "@/domains/chat/utils/reconcile-detection";
 import { isSending, useTurnStore } from "@/domains/chat/turn-store";
+import { ingestServerEventsTail } from "@/domains/chat/api/events-tail";
+import { supportsEventsTail } from "@/lib/backwards-compat/events-tail";
 import {
   fetchConversationMessages,
   RECONCILE_LATEST_PAGE_LIMIT,
@@ -336,11 +338,23 @@ export function useMessageReconciliation({
         fetchConversationMessages(ctx.assistantId, ctx.conversationId, {
           latestPageLimit: RECONCILE_LATEST_PAGE_LIMIT,
         })
-          .then((snapshot) => {
+          .then(async (snapshot) => {
             if (epoch !== useStreamStore.getState().streamEpoch) return;
             const serverMessages = snapshot?.messages ?? [];
             const serverSeq = snapshot?.seq ?? null;
             const serverProcessing = snapshot?.processing;
+            // Pair the snapshot with the daemon's buffered event tail above
+            // its anchor BEFORE reconciling: the reconcile invalidates
+            // history, and the reseed replay reads the client event ring —
+            // priming it first lets the reseed fold events the live
+            // connection never delivered (snapshot at anchor + log from
+            // anchor), instead of trusting the snapshot alone.
+            await ingestServerEventsTail(
+              ctx.assistantId,
+              ctx.conversationId,
+              serverSeq,
+            );
+            if (epoch !== useStreamStore.getState().streamEpoch) return;
             recordDiagnostic("reconciliation_fetch", {
               assistantId: ctx.assistantId,
               conversationId: ctx.conversationId,
@@ -357,6 +371,24 @@ export function useMessageReconciliation({
               serverSeq,
               serverProcessing,
             );
+
+            // On daemons that serve `/events/tail`, the reconcile above
+            // paired the snapshot with the event tail from its anchor —
+            // one pass is complete by construction, so there is nothing
+            // to poll for. The multi-tick poll-until-stable below exists
+            // only to wait out the partial-persist debounce on older
+            // daemons, and is deleted with them once the assistant
+            // version floor passes the tail endpoint.
+            if (supportsEventsTail()) {
+              recordDiagnostic("reconciliation_loop_finish", {
+                epoch,
+                reason: "single_pass_complete",
+                stableCount,
+                elapsedMs: Date.now() - startTime,
+              });
+              return;
+            }
+
             if (changed) {
               stableCount = 0;
             } else {
@@ -443,6 +475,15 @@ export function useMessageReconciliation({
         if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
         // If the epoch changed during the fetch (e.g. page went hidden
         // and back), this reconciliation is stale — bail out.
+        if (useStreamStore.getState().streamEpoch !== snapshotEpoch) return empty;
+        // Pair the snapshot with the daemon's buffered event tail above its
+        // anchor BEFORE reconciling — see the loop tick for the rationale.
+        await ingestServerEventsTail(
+          ctx.assistantId,
+          ctx.conversationId,
+          serverSeq,
+        );
+        if (useConversationStore.getState().activeConversationId !== ctx.conversationId) return empty;
         if (useStreamStore.getState().streamEpoch !== snapshotEpoch) return empty;
         recordDiagnostic("reconciliation_active_fetch", {
           assistantId: ctx.assistantId,
