@@ -43,11 +43,11 @@ import {
 } from "../tools/skills/execute.js";
 import { resolveToolInvocationAlias } from "../tools/tool-name-aliases.js";
 import type {
+  ExecutionTarget,
   ProxyApprovalCallback,
   ProxyApprovalRequest,
 } from "../tools/tool-types.js";
 import {
-  type ExecutionTarget,
   isDiskPressureCleanupToolName,
   type ToolContext,
   type ToolExecutionResult,
@@ -427,11 +427,14 @@ export function createToolExecutor(
         return pluginRejection;
       }
 
-      // skill_execute dispatches to an inner tool the wrapper's snapshot entry
-      // doesn't describe; re-target the context to the inner tool (skill tools
-      // are absent from the wire snapshot, so this resolves to sandbox).
+      // skill_execute dispatches to an inner tool, not the wrapper — re-target
+      // the context. The turn snapshot carries projected skill tools, but fall
+      // back to the registered tool's manifest target (host skill tools must
+      // audit/route as host even without a `host_` name) before the name
+      // heuristic.
       toolContext.executionTarget =
         ctx.currentTurnToolExecutionTargets?.get(toolName) ??
+        getTool(toolName)?.executionTarget ??
         resolveExecutionTarget({ name: toolName });
 
       const rawResult = await executor.execute(
@@ -973,10 +976,14 @@ export function createResolveToolsCallback(
     ctx.lastResolvedToolNames = turnAllowed;
     // Snapshot each resolved tool's execution target so the executor callback
     // routes by the target the model was shown this turn, not a live re-lookup.
-    // Skill-projected + skill_execute-inner tools are absent here and fall back
-    // to `resolveExecutionTarget` (sandbox) downstream.
+    // Skill-projected tools are included with their manifest target (a host
+    // skill tool without a `host_` name must still audit/route as host); their
+    // defs carry `executionTarget` from the skill tool factory.
     ctx.currentTurnToolExecutionTargets = new Map(
-      allBaseDefs.map((d) => [d.name, resolveExecutionTarget(d)]),
+      [...allBaseDefs, ...projection.toolDefinitions].map((d) => [
+        d.name,
+        resolveExecutionTarget(d),
+      ]),
     );
     if (ctx.diskPressureCleanupModeActive === true) {
       const cleanupDefs = allBaseDefs.filter((d) =>
