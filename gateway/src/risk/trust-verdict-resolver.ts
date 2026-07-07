@@ -1,15 +1,17 @@
 /**
- * Gateway-side per-actor trust verdict resolver.
+ * Gateway-side per-actor trust verdict resolver — the canonical `TrustClass`
+ * classifier. The daemon consumes the stamped verdict
+ * (`assistant/src/runtime/trust-verdict-consumer.ts`); its residual sync view
+ * (`actor-trust-resolver.ts`) classifies guardian-or-unknown only.
  *
  * Reads ONLY the gateway DB (ACL tables + verification session presence) to
- * produce a {@link TrustVerdict} for an inbound actor. Mirrors the daemon's
- * classification precedence (`actor-trust-resolver.ts`) and resolves channels
+ * produce a {@link TrustVerdict} for an inbound actor, resolving channels
  * by `(type,address)` COLLATE NOCASE. Read-only — no writes, no assistant DB,
  * no IPC.
  *
- * Blocked/revoked member channels classify as `unknown` (mirroring the
- * daemon), while their raw `status`/`policy` are surfaced verbatim so the
- * consumer enforces the member_blocked / member_revoked hard-deny.
+ * Blocked/revoked member channels classify as `unknown`, while their raw
+ * `status`/`policy` are surfaced verbatim so the consumer enforces the
+ * member_blocked / member_revoked hard-deny.
  */
 
 import type { TrustClass, TrustVerdict } from "@vellumai/gateway-client";

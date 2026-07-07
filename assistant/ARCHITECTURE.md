@@ -499,7 +499,7 @@ Voice invites use a short numeric code (6 digits) instead of a URL token. The gu
 
 **Call-time redemption subflow (`invite_redemption`):**
 
-1. Unknown caller dials in. The media-stream server resolves trust (gateway trust verdict first, `resolveActorTrust` fallback inside `routeSetup`). Caller is `unknown`, no pending guardian challenge.
+1. Unknown caller dials in. The media-stream server resolves trust from the gateway trust verdict (a missing/failed verdict denies fail-closed). Caller is `unknown`, no pending guardian challenge.
 2. `routeSetup` asks the gateway for the active voice invite bound to the caller's phone number (`get_active_voice_invite` IPC via `calls/gateway-invite-reader.ts`; fail-soft — any gateway failure falls through to the unverified path).
 3. If an active, non-expired invite exists, the `CallSetupFlow` runs the `invite_redemption` sub-flow (collecting the code via DTMF or spoken digits) and prompts the caller with personalized copy: `Welcome <friend-name>. Please enter the 6-digit code that <guardian-name> provided you to verify your identity.`
 4. The gateway's `redeem_voice_invite` engine validates: identity match, code hash match, expiry, use count. On success, the phone channel is activated in the gateway ACL and the call transitions to the normal call flow.
@@ -536,7 +536,7 @@ The voice inbound security model determines how unknown callers are handled when
 Unknown caller dials in
         |
         v
-resolveActorTrust() → trustClass
+gateway trust verdict → trustClass
         |
         ├── guardian / trusted_contact → normal call flow
         ├── blocked → immediate denial + disconnect
@@ -592,7 +592,7 @@ All guardian decisions for voice access requests flow through:
 | `src/runtime/access-request-helper.ts`         | Creates canonical access request and notifies guardian                                 |
 | `src/approvals/guardian-decision-primitive.ts` | `applyCanonicalGuardianDecision` — unified decision primitive                          |
 | `src/approvals/guardian-request-resolvers.ts`  | `access_request` resolver — voice direct activation, text-channel verification session |
-| `src/runtime/actor-trust-resolver.ts`          | `resolveActorTrust` — caller trust classification                                      |
+| `src/runtime/trust-verdict-consumer.ts`        | Gateway verdict → caller trust classification (`actorTrustContextFromVerdict`)        |
 | `src/contacts/canonical-guardian-store.ts`     | Canonical request persistence and CAS resolution                                       |
 
 ### Speech-to-Text (STT) Boundaries
