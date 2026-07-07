@@ -6,6 +6,7 @@ import {
   createChannelPermissionOverrideDeleteHandler,
   createChannelPermissionOverridesListHandler,
   createChannelPermissionOverrideSetHandler,
+  createChannelPermissionResolveHandler,
 } from "../http/routes/channel-permission-overrides.js";
 import "./test-preload.js";
 
@@ -175,6 +176,97 @@ describe("PUT /v1/channel-permission-overrides", () => {
       }),
     );
     expect(res.status).toBe(400);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /v1/channel-permission-overrides/resolve
+// ---------------------------------------------------------------------------
+
+describe("POST /v1/channel-permission-overrides/resolve", () => {
+  const RESOLVE_URL =
+    "http://localhost/v1/channel-permission-overrides/resolve";
+
+  test("returns the winning cell, most specific scope first", async () => {
+    store.set({
+      selector: { scope: "adapter", adapter: "slack" },
+      contactType: "trusted_contact",
+      threshold: "medium",
+    });
+    store.set(SLACK_CHANNEL_CELL); // channel scope, threshold none
+
+    const handler = createChannelPermissionResolveHandler();
+    const res = await handler(
+      jsonRequest(RESOLVE_URL, "POST", {
+        adapter: "slack",
+        channelExternalId: "C123",
+        contactType: "trusted_contact",
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      resolved: { threshold: string; scope: string } | null;
+    };
+    expect(body.resolved).toEqual({ threshold: "none", scope: "channel" });
+  });
+
+  test("omitted optional keys shrink the walk — no channelExternalId skips channel cells", async () => {
+    store.set(SLACK_CHANNEL_CELL);
+    store.set({
+      selector: { scope: "adapter", adapter: "slack" },
+      contactType: "trusted_contact",
+      threshold: "medium",
+    });
+
+    const handler = createChannelPermissionResolveHandler();
+    const res = await handler(
+      jsonRequest(RESOLVE_URL, "POST", {
+        adapter: "slack",
+        contactType: "trusted_contact",
+      }),
+    );
+    const body = (await res.json()) as {
+      resolved: { threshold: string; scope: string } | null;
+    };
+    expect(body.resolved).toEqual({ threshold: "medium", scope: "adapter" });
+  });
+
+  test("resolves null when no cell matches — caller falls through to global", async () => {
+    const handler = createChannelPermissionResolveHandler();
+    const res = await handler(
+      jsonRequest(RESOLVE_URL, "POST", {
+        adapter: "slack",
+        channelType: "public",
+        contactType: "trusted_contact",
+      }),
+    );
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { resolved: unknown };
+    expect(body.resolved).toBeNull();
+  });
+
+  test("rejects an unknown adapter with 400", async () => {
+    const handler = createChannelPermissionResolveHandler();
+    const res = await handler(
+      jsonRequest(RESOLVE_URL, "POST", {
+        adapter: "carrier-pigeon",
+        contactType: "trusted_contact",
+      }),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("rejects an invalid body with 400 and zod issues", async () => {
+    const handler = createChannelPermissionResolveHandler();
+    const res = await handler(
+      jsonRequest(RESOLVE_URL, "POST", {
+        adapter: "slack",
+        contactType: "somebody",
+      }),
+    );
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { issues?: unknown[] };
+    expect(Array.isArray(body.issues)).toBe(true);
   });
 });
 
