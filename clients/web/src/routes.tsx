@@ -280,7 +280,6 @@ export const routeTree = [
               lazy: { Component: () => import("@/domains/logs/logs-layout").then((m) => m.LogsLayout) },
               children: [
                 { index: true, lazy: { Component: () => import("@/domains/logs/pages/usage-page").then((m) => m.UsagePage) } },
-                { path: "trace", lazy: { Component: () => import("@/domains/logs/pages/trace-page").then((m) => m.TracePage) } },
                 { path: "usage", lazy: { Component: () => import("@/domains/logs/pages/usage-page").then((m) => m.UsagePage) } },
                 { path: "system-events", lazy: { Component: () => import("@/domains/logs/pages/system-events-page").then((m) => m.SystemEventsPage) } },
                 { path: "emails", lazy: { Component: () => import("@/domains/logs/pages/emails-page").then((m) => m.EmailsPage) } },
