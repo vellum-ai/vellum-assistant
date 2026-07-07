@@ -65,7 +65,12 @@ export const backfillDefaultProviderMigration: WorkspaceMigration = {
     if (llm === null) {
       return;
     }
-    if (readObject(llm.defaultProvider) !== null) {
+    // Validity check, not shape check: LLMSchema's `.catch(undefined)` drops
+    // an invalid persisted object at parse, so no reader ever saw it —
+    // overwriting one is repair. Mirrors DefaultProviderSchema (frozen, like
+    // the provider list above); extra keys stay valid because zod strips
+    // unknown object keys at parse.
+    if (isValidDefaultProvider(llm.defaultProvider)) {
       return;
     }
 
@@ -82,6 +87,24 @@ export const backfillDefaultProviderMigration: WorkspaceMigration = {
     // Forward-only.
   },
 };
+
+function isValidDefaultProvider(value: unknown): boolean {
+  const obj = readObject(value);
+  if (obj === null) {
+    return false;
+  }
+  if (
+    typeof obj.provider !== "string" ||
+    !isDefaultProfileProvider(obj.provider)
+  ) {
+    return false;
+  }
+  const connectionName = obj.connectionName;
+  return (
+    connectionName === undefined ||
+    (typeof connectionName === "string" && connectionName.length > 0)
+  );
+}
 
 // Frozen copy of config/env-registry.ts's IS_PLATFORM read — migration
 // modules must not import from config modules (workspace/migrations/AGENTS.md).

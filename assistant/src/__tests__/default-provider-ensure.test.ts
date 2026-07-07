@@ -161,6 +161,48 @@ describe("ensureDefaultProvider", () => {
     expect(llm().defaultProvider).toEqual({ provider: "anthropic" });
   });
 
+  test("repairs an invalid defaultProvider object", async () => {
+    writeConfig({
+      llm: {
+        default: { provider: "gemini" },
+        defaultProvider: { provider: "not-a-provider" },
+      },
+    });
+
+    await ensureDefaultProvider(workspaceDir);
+
+    expect(llm().defaultProvider).toEqual({ provider: "gemini" });
+  });
+
+  test("repairs an empty connectionName via the resolution chain", async () => {
+    process.env.IS_PLATFORM = "1";
+    writeConfig({
+      llm: { defaultProvider: { provider: "anthropic", connectionName: "" } },
+    });
+
+    await ensureDefaultProvider(workspaceDir);
+
+    expect(llm().defaultProvider).toEqual({ provider: "vellum" });
+  });
+
+  test("a valid object with a connectionName is left untouched", async () => {
+    writeConfig({
+      llm: {
+        defaultProvider: {
+          provider: "openai",
+          connectionName: "openai-personal",
+        },
+      },
+    });
+
+    await ensureDefaultProvider(workspaceDir);
+
+    expect(llm().defaultProvider).toEqual({
+      provider: "openai",
+      connectionName: "openai-personal",
+    });
+  });
+
   test("never overwrites an existing defaultProvider value", async () => {
     process.env.IS_PLATFORM = "true";
     writeConfig({

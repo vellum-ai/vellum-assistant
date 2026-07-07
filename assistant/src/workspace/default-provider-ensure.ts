@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { DEFAULT_PROFILE_PROVIDERS } from "../config/default-profile-names.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { invalidateConfigCache } from "../config/loader.js";
+import { DefaultProviderSchema } from "../config/schemas/llm.js";
 import { hasManagedProxyPrereqs } from "../providers/platform-proxy/context.js";
 
 // Ensures `llm.defaultProvider` is populated on every boot.
@@ -24,8 +25,10 @@ import { hasManagedProxyPrereqs } from "../providers/platform-proxy/context.js";
 //     also repairs hand-deleted fields and configs restored from backups
 //     that predate the field.
 //
-// Idempotent: never overwrites an existing `llm.defaultProvider` value, and
-// never writes `connectionName` — convention resolution
+// Idempotent: never overwrites an existing *valid* `llm.defaultProvider`
+// value (an invalid persisted object is dropped by LLMSchema's catch at
+// parse, so replacing it is repair, not overwrite), and never writes
+// `connectionName` — convention resolution
 // (`resolveDefaultConnectionName`) owns the name.
 
 const CUSTOM_PROFILE_ORDER = [
@@ -54,7 +57,14 @@ export async function ensureDefaultProvider(
   }
 
   const llm = readObject(config.llm) ?? {};
-  if (readObject(llm.defaultProvider) !== null) {
+  // Schema-validate rather than shape-check: LLMSchema's `.catch(undefined)`
+  // drops an invalid persisted object at parse, so readers see no default
+  // provider. Skipping on any object shape would leave such a workspace
+  // permanently unrepaired. Replacing an invalid object is repair, not
+  // overwrite — no reader ever saw it. An invalid object is not trusted as
+  // a signal (no provider salvage); resolution below matches what a fresh
+  // install would get.
+  if (DefaultProviderSchema.safeParse(llm.defaultProvider).success) {
     return;
   }
 

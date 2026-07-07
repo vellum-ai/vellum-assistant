@@ -155,6 +155,51 @@ describe("127-backfill-default-provider", () => {
     expect(defaultProvider()).toEqual({ provider: "anthropic" });
   });
 
+  test("repairs an invalid defaultProvider object from signals", () => {
+    writeConfig({
+      llm: {
+        default: { provider: "gemini" },
+        defaultProvider: { provider: "not-a-provider" },
+      },
+    });
+
+    backfillDefaultProviderMigration.run(workspaceDir);
+
+    expect(defaultProvider()).toEqual({ provider: "gemini" });
+  });
+
+  test("an empty connectionName invalidates the persisted object", () => {
+    process.env.IS_PLATFORM = "1";
+    writeConfig({
+      llm: {
+        defaultProvider: { provider: "anthropic", connectionName: "" },
+      },
+    });
+
+    backfillDefaultProviderMigration.run(workspaceDir);
+
+    expect(defaultProvider()).toEqual({ provider: "vellum" });
+  });
+
+  test("a valid object with a connectionName is left untouched", () => {
+    writeConfig({
+      llm: {
+        default: { provider: "gemini" },
+        defaultProvider: {
+          provider: "openai",
+          connectionName: "openai-personal",
+        },
+      },
+    });
+
+    backfillDefaultProviderMigration.run(workspaceDir);
+
+    expect(defaultProvider()).toEqual({
+      provider: "openai",
+      connectionName: "openai-personal",
+    });
+  });
+
   test("tolerates malformed config shapes without throwing", () => {
     expect(() =>
       backfillDefaultProviderMigration.run(workspaceDir),
