@@ -848,6 +848,9 @@ export async function handleChannelInbound({
               }
             : {}),
           messagePreview: truncate(trimmedContent, MESSAGE_PREVIEW_MAX_LENGTH),
+          ...(typeof sourceMetadata?.isBot === "boolean"
+            ? { isBot: sourceMetadata.isBot }
+            : {}),
           ...(typeof sourceMetadata?.isStranger === "boolean"
             ? { isStranger: sourceMetadata.isStranger }
             : {}),
