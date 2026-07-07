@@ -3,7 +3,6 @@ import { useCallback, useMemo } from "react";
 
 import type { SlackThreadMode } from "@/components/slack-setup-wizard";
 import type { AssistantChannelsListProps } from "@/domains/contacts/components/assistant-channels-list";
-import { buildVerifiedSlackContactNames } from "@/domains/contacts/components/slack-channel-list";
 import { useChannelTrustFloors } from "@/domains/contacts/hooks/use-channel-trust-floors";
 import {
   SETUP_CHANNEL_IDS,
@@ -11,11 +10,10 @@ import {
   type ChannelReadinessSnapshot,
   type SetupChannelId,
 } from "@/domains/contacts/types";
-import { memberSlackChannelsOptions, memberSlackChannelsQueryKey } from "@/domains/contacts/slack-channels-query";
+import { memberSlackChannelsQueryKey } from "@/domains/contacts/slack-channels-query";
 import {
   channelsReadinessGetOptions,
   channelsReadinessGetQueryKey,
-  contactsGetOptions,
   integrationsSlackChannelConfigGetOptions,
   integrationsSlackChannelConfigGetQueryKey,
   integrationsSlackChannelConfigPatchMutation,
@@ -47,11 +45,12 @@ export interface UseAssistantChannelsOptions {
 /**
  * Everything `AssistantChannelsList` needs except the page-specific bits —
  * spread the controller straight into the component. Derived from the list's
- * own props so the two can't drift.
+ * own props so the two can't drift. The Slack sub-tab's channel list owns
+ * its own data (`SlackChannelSection`), so nothing list-related lives here.
  */
 export type AssistantChannelsController = Omit<
   AssistantChannelsListProps,
-  "assistantName" | "initialChannel"
+  "assistantId" | "assistantName" | "initialChannel"
 >;
 
 /**
@@ -94,21 +93,6 @@ export function useAssistantChannels({
     ...integrationsSlackChannelConfigGetOptions(pathOpts),
     enabled: slackConnected,
     select: (data: IntegrationsSlackChannelConfigGetResponse) => data.threadMode,
-  });
-
-  // Presence-only channel list for the Slack sub-tab.
-  const slackChannelsQuery = useQuery({
-    ...memberSlackChannelsOptions(assistantId),
-    enabled: slackConnected,
-    select: (data) => data.channels,
-  });
-
-  // Verified-contact lookup behind the DM rows' resolved-access badges.
-  // Shares the contacts cache with the Contacts page (same key, own select).
-  const verifiedSlackContactsQuery = useQuery({
-    ...contactsGetOptions(pathOpts),
-    enabled: slackConnected,
-    select: (data) => buildVerifiedSlackContactNames(data.contacts),
   });
 
   // Per-channel trust floors (admission policy), shown inline on each connected
@@ -219,10 +203,6 @@ export function useAssistantChannels({
       : null,
     slackThreadMode: slackConfigQuery.data,
     slackThreadModePending: slackThreadModeMutation.isPending,
-    slackChannels: slackChannelsQuery.data,
-    slackChannelsLoading: slackChannelsQuery.isPending,
-    slackChannelsError: slackChannelsQuery.isError,
-    slackVerifiedDmContactNames: verifiedSlackContactsQuery.data,
     channelPolicies: channelTrustFloors.policies,
     policySavingKey: channelTrustFloors.savingKey,
     policiesLoading: channelTrustFloors.isLoading,

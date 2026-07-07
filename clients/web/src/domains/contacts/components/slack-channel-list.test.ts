@@ -1,15 +1,12 @@
 import { describe, expect, test } from "bun:test";
 
-import type { ContactPayload, SlackChannel } from "@/domains/contacts/types";
-
-import { presetFromThreshold } from "@/utils/threshold-presets";
+import type { SlackChannel } from "@/domains/contacts/types";
 
 import {
-  buildVerifiedSlackContactNames,
   classifySlackChannelKind,
   countSlackChannelKinds,
   filterSlackChannels,
-  resolveSlackChannelThreshold,
+  roomsOnly,
   slackChannelMetaLabel,
 } from "./slack-channel-list";
 
@@ -27,33 +24,6 @@ function makeChannel(
   };
 }
 
-function makeContact(
-  displayName: string,
-  channels: Partial<ContactPayload["channels"][number]>[],
-): ContactPayload {
-  return {
-    id: `contact-${displayName}`,
-    displayName,
-    role: "contact",
-    contactType: "human",
-    interactionCount: 0,
-    createdAt: 0,
-    updatedAt: 0,
-    channels: channels.map((overrides, index) => ({
-      id: `ch-${displayName}-${index}`,
-      contactId: `contact-${displayName}`,
-      type: "slack",
-      address: `U${index}`,
-      isPrimary: index === 0,
-      externalUserId: null,
-      lastSeenAt: null,
-      interactionCount: null,
-      lastInteraction: null,
-      ...overrides,
-    })),
-  };
-}
-
 const general = makeChannel({ id: "C1", name: "general" });
 const leadership = makeChannel({ id: "C2", name: "leadership", isPrivate: true });
 const dmAlice = makeChannel({ id: "D1", name: "Alice", type: "dm" });
@@ -63,7 +33,7 @@ const groupDm = makeChannel({
   type: "group",
   isPrivate: true,
 });
-const CHANNELS = [leadership, dmAlice, general, groupDm];
+const ROOMS = [leadership, general, groupDm];
 
 describe("classifySlackChannelKind", () => {
   test("public channels", () => {
@@ -83,10 +53,18 @@ describe("classifySlackChannelKind", () => {
   });
 });
 
+describe("roomsOnly", () => {
+  test("keeps channels and group DMs, drops 1:1 DMs", () => {
+    expect(roomsOnly([general, dmAlice, groupDm]).map((c) => c.id)).toEqual([
+      "C1",
+      "G1",
+    ]);
+  });
+});
+
 describe("filterSlackChannels", () => {
   test("no filters returns everything sorted by name", () => {
-    expect(filterSlackChannels(CHANNELS, "", null).map((c) => c.id)).toEqual([
-      "D1",
+    expect(filterSlackChannels(ROOMS, "", null).map((c) => c.id)).toEqual([
       "G1",
       "C1",
       "C2",
@@ -95,32 +73,32 @@ describe("filterSlackChannels", () => {
 
   test("kind filter narrows to one category", () => {
     expect(
-      filterSlackChannels(CHANNELS, "", "private").map((c) => c.id),
+      filterSlackChannels(ROOMS, "", "private").map((c) => c.id),
     ).toEqual(["G1", "C2"]);
-    expect(filterSlackChannels(CHANNELS, "", "dm").map((c) => c.id)).toEqual([
-      "D1",
+    expect(filterSlackChannels(ROOMS, "", "public").map((c) => c.id)).toEqual([
+      "C1",
     ]);
   });
 
   test("search is case-insensitive and trims whitespace", () => {
     expect(
-      filterSlackChannels(CHANNELS, "  LEAD ", null).map((c) => c.id),
+      filterSlackChannels(ROOMS, "  LEAD ", null).map((c) => c.id),
     ).toEqual(["C2"]);
   });
 
   test("search and kind filter compose", () => {
     expect(
-      filterSlackChannels(CHANNELS, "alice", "private").map((c) => c.id),
+      filterSlackChannels(ROOMS, "alice", "private").map((c) => c.id),
     ).toEqual(["G1"]);
   });
 });
 
 describe("countSlackChannelKinds", () => {
-  test("counts every kind, independent of search", () => {
-    expect(countSlackChannelKinds(CHANNELS)).toEqual({
+  test("counts every room kind, independent of search", () => {
+    expect(countSlackChannelKinds(ROOMS)).toEqual({
       public: 1,
       private: 2,
-      dm: 1,
+      dm: 0,
     });
   });
 
@@ -130,11 +108,7 @@ describe("countSlackChannelKinds", () => {
 });
 
 describe("slackChannelMetaLabel", () => {
-  test("DMs read as direct messages", () => {
-    expect(slackChannelMetaLabel(dmAlice)).toBe("Direct message");
-  });
-
-  test("channels show a pluralized member count", () => {
+  test("rooms show a pluralized member count", () => {
     expect(
       slackChannelMetaLabel(makeChannel({ id: "C9", name: "x", memberCount: 24 })),
     ).toBe("24 members");
@@ -145,54 +119,5 @@ describe("slackChannelMetaLabel", () => {
 
   test("no member count yields no label", () => {
     expect(slackChannelMetaLabel(general)).toBeNull();
-  });
-});
-
-describe("buildVerifiedSlackContactNames", () => {
-  test("collects normalized names of contacts with a verified Slack channel", () => {
-    const contacts = [
-      makeContact("  Alice ", [{ status: "verified" }]),
-      makeContact("Bob", [{ status: "active", verifiedAt: 123 }]),
-      makeContact("Mallory", [{ status: "active" }]),
-    ];
-    expect(buildVerifiedSlackContactNames(contacts)).toEqual(
-      new Set(["alice", "bob"]),
-    );
-  });
-
-  test("ignores verified channels of other types", () => {
-    const contacts = [
-      makeContact("Carol", [{ type: "telegram", status: "verified" }]),
-    ];
-    expect(buildVerifiedSlackContactNames(contacts)).toEqual(new Set());
-  });
-});
-
-describe("resolveSlackChannelThreshold", () => {
-  const verified = new Set(["alice"]);
-
-  test("public and private channels resolve the Full access threshold", () => {
-    expect(resolveSlackChannelThreshold(general, new Set())).toBe("high");
-    expect(resolveSlackChannelThreshold(leadership, new Set())).toBe("high");
-    expect(resolveSlackChannelThreshold(groupDm, new Set())).toBe("high");
-  });
-
-  test("DMs with verified contacts resolve the Full access threshold", () => {
-    expect(resolveSlackChannelThreshold(dmAlice, verified)).toBe("high");
-  });
-
-  test("DM name matching is case-insensitive", () => {
-    const dm = makeChannel({ id: "D2", name: "ALICE", type: "dm" });
-    expect(resolveSlackChannelThreshold(dm, verified)).toBe("high");
-  });
-
-  test("DMs with unverified contacts resolve the Strict threshold", () => {
-    const dm = makeChannel({ id: "D3", name: "Mallory", type: "dm" });
-    expect(resolveSlackChannelThreshold(dm, verified)).toBe("none");
-  });
-
-  test("resolved thresholds present via the shared preset labels", () => {
-    expect(presetFromThreshold("high").label).toBe("Full access");
-    expect(presetFromThreshold("none").label).toBe("Strict");
   });
 });

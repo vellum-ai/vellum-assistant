@@ -13,9 +13,9 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { EmptyState } from "@/components/empty-state";
 import { assistantDisplayName as toAssistantDisplayName } from "@/domains/contacts/assistant-display-name";
 import { SlackChannelCard } from "@/domains/contacts/components/slack-channel-card";
-import { SlackChannelList } from "@/domains/contacts/components/slack-channel-list";
+import { SlackChannelSection } from "@/domains/contacts/components/slack-channel-section";
 import { SlackSetupWizard, type SlackThreadMode, type MutationStatus } from "@/components/slack-setup-wizard";
-import type { AssistantChannelState, SetupChannelId, SlackChannel } from "@/domains/contacts/types";
+import type { AssistantChannelState, SetupChannelId } from "@/domains/contacts/types";
 import {
   ADMISSION_POLICY_DEFAULT,
   ADMISSION_POLICY_VALUES,
@@ -63,20 +63,13 @@ const POLICY_CONFIRMATIONS: Partial<
 };
 
 export interface AssistantChannelsListProps {
+  /** Needed by the Slack sub-tab's channel list, which owns its own data. */
+  assistantId: string;
   assistantName: string;
   channels: AssistantChannelState[];
   pendingChannelKey?: ChannelKey | null;
   slackThreadMode?: SlackThreadMode;
   slackThreadModePending?: boolean;
-  /** Member-only Slack channel list for the Slack sub-tab's presence list. */
-  slackChannels?: SlackChannel[];
-  slackChannelsLoading?: boolean;
-  slackChannelsError?: boolean;
-  /**
-   * Verified-contact lookup for the Slack DM rows' resolved-access badges
-   * (see `buildVerifiedSlackContactNames`).
-   */
-  slackVerifiedDmContactNames?: ReadonlySet<string>;
   /**
    * Per-channel admission floor, keyed by channel. Omit (or pass no
    * `onChannelPolicyChange`) to hide the trust-floor control entirely — used
@@ -145,15 +138,12 @@ const CHANNEL_META: Record<
  * for disconnected channels, off → the accordion rows.
  */
 export function AssistantChannelsList({
+  assistantId,
   assistantName,
   channels,
   pendingChannelKey = null,
   slackThreadMode,
   slackThreadModePending = false,
-  slackChannels,
-  slackChannelsLoading = false,
-  slackChannelsError = false,
-  slackVerifiedDmContactNames,
   channelPolicies,
   policySavingKey = null,
   policiesLoading = false,
@@ -248,6 +238,7 @@ export function AssistantChannelsList({
             <Tabs.Panel key={channel.key} value={channel.key} className="pt-4">
               <ChannelPanel
                 channel={channel}
+                assistantId={assistantId}
                 assistantName={assistantName}
                 assistantDisplayName={displayName}
                 pending={pendingChannelKey === channel.key}
@@ -263,10 +254,6 @@ export function AssistantChannelsList({
                 slackThreadMode={slackThreadMode}
                 slackThreadModePending={slackThreadModePending}
                 onSlackThreadModeChange={onSlackThreadModeChange}
-                slackChannels={slackChannels}
-                slackChannelsLoading={slackChannelsLoading}
-                slackChannelsError={slackChannelsError}
-                slackVerifiedDmContactNames={slackVerifiedDmContactNames}
                 onSaveTwilioCredentials={onSaveTwilioCredentials}
                 policy={channelPolicies?.[channel.key]}
                 policySaving={policySavingKey === channel.key}
@@ -375,6 +362,7 @@ export function AssistantChannelsList({
 
 interface ChannelPanelProps {
   channel: AssistantChannelState;
+  assistantId: string;
   assistantName: string;
   /** Trimmed assistant name with a "your assistant" fallback, for copy. */
   assistantDisplayName: string;
@@ -394,10 +382,6 @@ interface ChannelPanelProps {
   slackThreadMode?: SlackThreadMode;
   slackThreadModePending?: boolean;
   onSlackThreadModeChange?: (mode: SlackThreadMode) => void;
-  slackChannels?: SlackChannel[];
-  slackChannelsLoading?: boolean;
-  slackChannelsError?: boolean;
-  slackVerifiedDmContactNames?: ReadonlySet<string>;
   onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
   policy?: AdmissionPolicy;
   policySaving?: boolean;
@@ -408,6 +392,7 @@ interface ChannelPanelProps {
 
 function ChannelPanel({
   channel,
+  assistantId,
   assistantName,
   assistantDisplayName,
   pending,
@@ -421,10 +406,6 @@ function ChannelPanel({
   slackThreadMode,
   slackThreadModePending = false,
   onSlackThreadModeChange,
-  slackChannels,
-  slackChannelsLoading = false,
-  slackChannelsError = false,
-  slackVerifiedDmContactNames,
   onSaveTwilioCredentials,
   policy,
   policySaving = false,
@@ -527,13 +508,11 @@ function ChannelPanel({
       ) : null}
 
       {channel.key === "slack" && connected ? (
-        <SlackChannelList
+        <SlackChannelSection
+          assistantId={assistantId}
           assistantDisplayName={assistantDisplayName}
           slackHandle={channel.address}
-          channels={slackChannels}
-          loading={slackChannelsLoading}
-          error={slackChannelsError}
-          verifiedDmContactNames={slackVerifiedDmContactNames}
+          admissionPolicy={policy}
         />
       ) : null}
 

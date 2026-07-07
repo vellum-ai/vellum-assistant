@@ -1,7 +1,8 @@
-import { Hash, Lock, Search, User } from "lucide-react";
+import { ChevronDown, Hash, Lock, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { cn } from "@vellumai/design-library";
+import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { Input } from "@vellumai/design-library/components/input";
 import { ListRow } from "@vellumai/design-library/components/list-row";
@@ -9,15 +10,15 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { VirtualList } from "@vellumai/design-library/components/virtual-list";
 
-import type { TagTone } from "@vellumai/design-library/components/tag";
-
 import { EmptyState } from "@/components/empty-state";
-import { isVerifiedContactChannel } from "@/domains/contacts/components/contact-channels-section";
-import type { ContactPayload, SlackChannel } from "@/domains/contacts/types";
+import { SlackChannelOverridePanel } from "@/domains/contacts/components/slack-channel-override-panel";
 import {
-  presetFromThreshold,
-  type RiskThreshold,
-} from "@/utils/threshold-presets";
+  CAPABILITY_TIER_META,
+  resolveChannelTier,
+  type SlackCapabilityTier,
+} from "@/domains/contacts/slack-channel-overrides";
+import type { SlackChannel } from "@/domains/contacts/types";
+import type { AdmissionPolicy } from "@/lib/channel-admission-policy/types";
 
 /**
  * How a channel presents in the filter chips. Mirrors the conversation-type
@@ -33,6 +34,20 @@ export function classifySlackChannelKind(channel: SlackChannel): SlackChannelKin
     return "dm";
   }
   return channel.isPrivate ? "private" : "public";
+}
+
+/** Room kinds the presence list renders — 1:1 DMs are person-scoped, not rooms. */
+export type SlackRoomKind = Exclude<SlackChannelKind, "dm">;
+
+/**
+ * The presence list is rooms only: channels and group DMs. 1:1 DMs are
+ * person-scoped — how the assistant interacts with a person lives on their
+ * contact, not on a room row.
+ */
+export function roomsOnly(channels: SlackChannel[]): SlackChannel[] {
+  return channels.filter(
+    (channel) => classifySlackChannelKind(channel) !== "dm",
+  );
 }
 
 /**
@@ -69,14 +84,8 @@ export function countSlackChannelKinds(
   return counts;
 }
 
-/**
- * Right-aligned row metadata: DMs read "Direct message", everything else
- * shows its member count when Slack reports one.
- */
+/** Right-aligned row metadata: the member count, when Slack reports one. */
 export function slackChannelMetaLabel(channel: SlackChannel): string | null {
-  if (classifySlackChannelKind(channel) === "dm") {
-    return "Direct message";
-  }
   if (channel.memberCount == null) {
     return null;
   }
@@ -85,73 +94,22 @@ export function slackChannelMetaLabel(channel: SlackChannel): string | null {
     : `${channel.memberCount} members`;
 }
 
-function normalizeSlackDmName(name: string): string {
-  return name.trim().toLowerCase();
-}
-
-/**
- * Normalized display names of contacts with a verified Slack channel — the
- * lookup behind the DM rows' resolved-access badges. Matching is by display
- * name because the channel list exposes each DM peer's Slack display name
- * but not their Slack user id.
- */
-export function buildVerifiedSlackContactNames(
-  contacts: ContactPayload[],
-): Set<string> {
-  const names = new Set<string>();
-  for (const contact of contacts) {
-    const hasVerifiedSlack = contact.channels.some(
-      (channel) => channel.type === "slack" && isVerifiedContactChannel(channel),
-    );
-    if (hasVerifiedSlack) {
-      names.add(normalizeSlackDmName(contact.displayName));
-    }
-  }
-  return names;
-}
-
-/**
- * The Slack adapter's per-row resolved auto-approve threshold, rendered via
- * the shared threshold presets ("high" → Full access, "none" → Strict).
- * Derived from channel type + contact trust class: public/private channels
- * and group DMs resolve "high"; 1:1 DMs resolve "high" only when the peer is
- * a verified contact. Resolved matrix cells (`channel_permission_overrides`)
- * are not consulted.
- */
-export function resolveSlackChannelThreshold(
-  channel: SlackChannel,
-  verifiedDmContactNames: ReadonlySet<string>,
-): RiskThreshold {
-  if (classifySlackChannelKind(channel) !== "dm") {
-    return "high";
-  }
-  return verifiedDmContactNames.has(normalizeSlackDmName(channel.name))
-    ? "high"
-    : "none";
-}
-
-/** Badge tone per resolved threshold: permissive reads green, locked-down red. */
-const THRESHOLD_TAG_TONES: Record<RiskThreshold, TagTone> = {
-  none: "negative",
-  low: "warning",
-  medium: "warning",
-  high: "positive",
-};
+/** Shared timing for the accordion region and the caret rotation. */
+const ACCORDION_TRANSITION =
+  "duration-[280ms] ease-[cubic-bezier(0.32,0.72,0,1)]";
 
 const CHANNEL_KIND_FILTERS: {
-  value: SlackChannelKind | null;
+  value: SlackRoomKind | null;
   label: string;
 }[] = [
   { value: null, label: "All" },
   { value: "public", label: "Public" },
   { value: "private", label: "Private" },
-  { value: "dm", label: "DMs" },
 ];
 
-const CHANNEL_KIND_ICONS: Record<SlackChannelKind, typeof Hash> = {
+const CHANNEL_KIND_ICONS: Record<SlackRoomKind, typeof Hash> = {
   public: Hash,
   private: Lock,
-  dm: User,
 };
 
 /**
@@ -173,20 +131,34 @@ export interface SlackChannelListProps {
   loading?: boolean;
   error?: boolean;
   /**
-   * Lookup for the DM rows' resolved-access badges (see
-   * {@link buildVerifiedSlackContactNames}). DMs resolve strict while it is
-   * absent (contacts still loading).
+   * Persisted capabilities-tier override per channel id (from the gateway's
+   * channel-permission cells). Channels absent from the map use the
+   * channel-type default.
    */
-  verifiedDmContactNames?: ReadonlySet<string>;
+  tierOverrides?: Record<string, SlackCapabilityTier>;
+  /**
+   * True until persisted overrides have loaded — expanded rows hold their
+   * tier picker disabled so stored overrides can't be misread as defaults.
+   */
+  tierOverridesLoading?: boolean;
+  /** Channels with a tier write in flight — the row shows a saving hint. */
+  pendingChannelIds?: ReadonlySet<string>;
+  onTierChange?: (channelId: string, tier: SlackCapabilityTier) => void;
+  /** Deletes the channel's persisted cells so the default wins again. */
+  onTierReset?: (channelId: string) => void;
+  /** Slack trust floor, shown read-only in expanded rows. */
+  admissionPolicy?: AdmissionPolicy;
 }
 
-const EMPTY_VERIFIED_NAMES: ReadonlySet<string> = new Set();
+const EMPTY_PENDING_IDS: ReadonlySet<string> = new Set();
 
 /**
  * Presence channel list for the Slack sub-tab: every Slack channel the
- * assistant is a member of, with a per-row resolved-access badge. Search and
- * the kind chips narrow the list client-side; the membership filter itself
- * is server-side (`?memberOnly=true`) with no toggle.
+ * assistant is a member of, with a per-row resolved-access badge. Rows
+ * expand inline (single-open accordion; "Expand all" switches to multi-open)
+ * to configure the channel's two override axes. Search and the kind chips
+ * narrow the list client-side; the membership filter itself is server-side
+ * (`?memberOnly=true`) with no toggle.
  */
 export function SlackChannelList({
   assistantDisplayName,
@@ -194,19 +166,51 @@ export function SlackChannelList({
   channels,
   loading = false,
   error = false,
-  verifiedDmContactNames = EMPTY_VERIFIED_NAMES,
+  tierOverrides,
+  tierOverridesLoading = false,
+  pendingChannelIds = EMPTY_PENDING_IDS,
+  onTierChange,
+  onTierReset,
+  admissionPolicy,
 }: SlackChannelListProps) {
   const [search, setSearch] = useState("");
-  const [kindFilter, setKindFilter] = useState<SlackChannelKind | null>(null);
+  const [kindFilter, setKindFilter] = useState<SlackRoomKind | null>(null);
+  const [openIds, setOpenIds] = useState<ReadonlySet<string>>(new Set());
+  const [multiOpen, setMultiOpen] = useState(false);
 
-  const allChannels = channels ?? [];
+  const toggleRow = (id: string) => {
+    setOpenIds((prev) => {
+      if (multiOpen) {
+        const next = new Set(prev);
+        if (next.has(id)) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+        return next;
+      }
+      return prev.has(id) ? new Set() : new Set([id]);
+    });
+  };
+
+  const toggleExpandAll = () => {
+    if (multiOpen) {
+      setMultiOpen(false);
+      setOpenIds(new Set());
+    } else {
+      setMultiOpen(true);
+      setOpenIds(new Set(allChannels.map((channel) => channel.id)));
+    }
+  };
+
+  const allChannels = useMemo(() => roomsOnly(channels ?? []), [channels]);
   const visibleChannels = useMemo(
-    () => filterSlackChannels(channels ?? [], search, kindFilter),
-    [channels, search, kindFilter],
+    () => filterSlackChannels(allChannels, search, kindFilter),
+    [allChannels, search, kindFilter],
   );
   const kindCounts = useMemo(
-    () => countSlackChannelKinds(channels ?? []),
-    [channels],
+    () => countSlackChannelKinds(allChannels),
+    [allChannels],
   );
 
   const handle = slackHandle ?? `@${assistantDisplayName}`;
@@ -298,6 +302,9 @@ export function SlackChannelList({
                     );
                   })}
                 </div>
+                <Button type="button" variant="outlined" onClick={toggleExpandAll}>
+                  {multiOpen ? "Collapse all" : "Expand all"}
+                </Button>
               </div>
               {visibleChannels.length === 0 ? (
                 <Typography
@@ -317,7 +324,17 @@ export function SlackChannelList({
                     itemContent={(_, channel) => (
                       <SlackChannelRow
                         channel={channel}
-                        verifiedDmContactNames={verifiedDmContactNames}
+                        open={openIds.has(channel.id)}
+                        pending={pendingChannelIds.has(channel.id)}
+                        overridesLoading={tierOverridesLoading}
+                        onToggle={() => toggleRow(channel.id)}
+                        tierOverride={tierOverrides?.[channel.id]}
+                        onTierChange={(tier) =>
+                          onTierChange?.(channel.id, tier)
+                        }
+                        onReset={() => onTierReset?.(channel.id)}
+                        assistantDisplayName={assistantDisplayName}
+                        admissionPolicy={admissionPolicy}
                       />
                     )}
                     className="h-full"
@@ -329,7 +346,15 @@ export function SlackChannelList({
                     <SlackChannelRow
                       key={channel.id}
                       channel={channel}
-                      verifiedDmContactNames={verifiedDmContactNames}
+                      open={openIds.has(channel.id)}
+                      pending={pendingChannelIds.has(channel.id)}
+                      overridesLoading={tierOverridesLoading}
+                      onToggle={() => toggleRow(channel.id)}
+                      tierOverride={tierOverrides?.[channel.id]}
+                      onTierChange={(tier) => onTierChange?.(channel.id, tier)}
+                      onReset={() => onTierReset?.(channel.id)}
+                      assistantDisplayName={assistantDisplayName}
+                      admissionPolicy={admissionPolicy}
                     />
                   ))}
                 </div>
@@ -356,31 +381,94 @@ export function SlackChannelList({
 
 function SlackChannelRow({
   channel,
-  verifiedDmContactNames,
+  open,
+  pending,
+  overridesLoading,
+  onToggle,
+  tierOverride,
+  onTierChange,
+  onReset,
+  assistantDisplayName,
+  admissionPolicy,
 }: {
   channel: SlackChannel;
-  verifiedDmContactNames: ReadonlySet<string>;
+  open: boolean;
+  pending: boolean;
+  overridesLoading: boolean;
+  onToggle: () => void;
+  tierOverride: SlackCapabilityTier | undefined;
+  onTierChange: (tier: SlackCapabilityTier) => void;
+  onReset: () => void;
+  assistantDisplayName: string;
+  admissionPolicy: AdmissionPolicy | undefined;
 }) {
   const kind = classifySlackChannelKind(channel);
+  // Rows are rooms only ({@link roomsOnly}); a 1:1 DM row is unreachable.
+  if (kind === "dm") {
+    return null;
+  }
   const Icon = CHANNEL_KIND_ICONS[kind];
-  const threshold = resolveSlackChannelThreshold(channel, verifiedDmContactNames);
   const metaLabel = slackChannelMetaLabel(channel);
+  const settings = resolveChannelTier(tierOverride);
+  const tierMeta = CAPABILITY_TIER_META[settings.tier];
   return (
-    <ListRow
-      leading={<Icon className="h-4 w-4 text-[var(--content-tertiary)]" />}
-      title={channel.name}
-      trailing={
-        <>
-          {metaLabel != null ? (
-            <span className="text-body-small-default text-[color:var(--content-tertiary)]">
-              {metaLabel}
-            </span>
-          ) : null}
-          <Tag tone={THRESHOLD_TAG_TONES[threshold]}>
-            {presetFromThreshold(threshold).label}
-          </Tag>
-        </>
-      }
-    />
+    <div className="[&+&]:border-t [&+&]:border-[var(--border-base)]">
+      <ListRow
+        leading={<Icon className="h-4 w-4 text-[var(--content-tertiary)]" />}
+        title={channel.name}
+        onClick={onToggle}
+        contentAriaLabel={`${channel.name} — ${open ? "collapse" : "expand"} channel settings`}
+        showChevron={false}
+        selected={open}
+        className={
+          open ? "shadow-[inset_3px_0_0_0_var(--content-default)]" : undefined
+        }
+        trailing={
+          <>
+            {pending ? (
+              <span className="text-body-small-default text-[color:var(--content-tertiary)]">
+                Saving…
+              </span>
+            ) : metaLabel != null ? (
+              <span className="text-body-small-default text-[color:var(--content-tertiary)]">
+                {metaLabel}
+              </span>
+            ) : null}
+            <Tag tone={tierMeta.tone}>
+              {tierMeta.label}
+              {settings.overridden ? " • custom" : ""}
+            </Tag>
+            <ChevronDown
+              aria-hidden="true"
+              className={cn(
+                "h-4 w-4 text-[var(--content-tertiary)] transition-transform",
+                ACCORDION_TRANSITION,
+                open && "rotate-180",
+              )}
+            />
+          </>
+        }
+      />
+      <div
+        className={cn(
+          "grid transition-[grid-template-rows]",
+          ACCORDION_TRANSITION,
+          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+        )}
+      >
+        <div className="min-h-0 overflow-hidden" inert={!open}>
+          <SlackChannelOverridePanel
+            channelName={channel.name}
+            kindLabel={kind}
+            assistantDisplayName={assistantDisplayName}
+            admissionPolicy={admissionPolicy}
+            settings={settings}
+            loading={overridesLoading}
+            onTierChange={onTierChange}
+            onReset={onReset}
+          />
+        </div>
+      </div>
+    </div>
   );
 }

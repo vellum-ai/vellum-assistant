@@ -52,6 +52,7 @@ export function ChannelsPage({
 
       <DetailCard>
         <AssistantChannelsList
+          assistantId={assistantId}
           assistantName={displayName}
           initialChannel={setupChannel}
           {...channelsController}

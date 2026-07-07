@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
@@ -21,6 +22,27 @@ function setTabbedLayout(enabled: boolean) {
     channelTrustFloors: enabled,
     hasHydrated: true,
   });
+}
+
+
+// The tabbed layout's Slack panel owns its own queries
+// (`SlackChannelSection`), so list renders need a QueryClient. Queries fail
+// fast (retry off, no server) and the panel shows its error state, which
+// these layout assertions don't depend on.
+function renderList(extraProps: { initialChannel?: "slack" | "telegram" | "phone" } = {}) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <AssistantChannelsList
+        assistantId="assistant-1"
+        assistantName="Vex"
+        channels={CHANNELS}
+        {...extraProps}
+      />
+    </QueryClientProvider>,
+  );
 }
 
 beforeEach(() => {
@@ -102,7 +124,7 @@ describe("assistant channels surfaces", () => {
   });
 
   test("the bare channel list (standalone Channels tab) has no identity card", () => {
-    render(<AssistantChannelsList assistantName="Vex" channels={CHANNELS} />);
+    renderList();
     expect(document.body.textContent).not.toContain("Vex (Your Assistant)");
     expect(document.body.textContent).toContain("Slack");
     expect(document.body.textContent).toContain("Telegram");
@@ -110,7 +132,7 @@ describe("assistant channels surfaces", () => {
 
   test("channel-trust-floors off renders the accordion rows", () => {
     setTabbedLayout(false);
-    render(<AssistantChannelsList assistantName="Vex" channels={CHANNELS} />);
+    renderList();
     expect(document.body.textContent).toContain("Phone Calling");
     // Accordion rows surface per-channel Set up buttons inline.
     expect(document.body.textContent).toContain("Set up");
@@ -119,7 +141,7 @@ describe("assistant channels surfaces", () => {
 
   test("channel-trust-floors on renders the adapter sub-tabs", () => {
     setTabbedLayout(true);
-    render(<AssistantChannelsList assistantName="Vex" channels={CHANNELS} />);
+    renderList();
     expect(document.querySelector('[data-slot="tabs"]')).not.toBeNull();
     expect(document.body.textContent).toContain("Phone");
     expect(document.body.textContent).not.toContain("Phone Calling");
@@ -133,7 +155,7 @@ describe("assistant channels surfaces", () => {
       channelTrustFloors: false,
       hasHydrated: false,
     });
-    render(<AssistantChannelsList assistantName="Vex" channels={CHANNELS} />);
+    renderList();
     expect(document.body.textContent).toContain("Loading…");
     expect(document.body.textContent).not.toContain("Slack");
   });
@@ -143,13 +165,13 @@ describe("assistant channels surfaces", () => {
       channelTrustFloors: true,
       hasHydrated: false,
     });
-    render(<AssistantChannelsList assistantName="Vex" channels={CHANNELS} />);
+    renderList();
     expect(document.querySelector('[data-slot="tabs"]')).not.toBeNull();
   });
 
   test("disconnected tab swaps the empty state for the manual form on request", () => {
     setTabbedLayout(true);
-    render(<AssistantChannelsList assistantName="Vex" channels={CHANNELS} />);
+    renderList();
 
     const telegramTab = Array.from(
       document.querySelectorAll('[data-slot="tabs-trigger"]'),
@@ -176,13 +198,7 @@ describe("assistant channels surfaces", () => {
     // continue credential entry here — it must land on the form, not the
     // empty state whose Set up button would start another conversation.
     setTabbedLayout(true);
-    render(
-      <AssistantChannelsList
-        assistantName="Vex"
-        channels={CHANNELS}
-        initialChannel="telegram"
-      />,
-    );
+    renderList({ initialChannel: "telegram" });
     expect(document.body.textContent).toContain("Bot Token");
     expect(document.body.textContent).not.toContain("Telegram isn't connected");
   });
