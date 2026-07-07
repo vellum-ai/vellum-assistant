@@ -66,6 +66,7 @@
     "@vellumai/design-library": "workspace:*",
     "@vellumai/ipc-contract": "workspace:*",
     "@vellumai/local-mode": "workspace:*",
+    "@vellumai/service-contracts": "workspace:*",
     "capacitor-plugin-safe-area": "5.0.0",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",

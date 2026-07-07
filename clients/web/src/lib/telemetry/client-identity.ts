@@ -1,3 +1,13 @@
+import {
+  CLIENT_METADATA_HEADERS,
+  sanitizeClientMetadataValue,
+} from "@vellumai/service-contracts/client-metadata";
+
+import {
+  detectBrowserInfo,
+  detectClientOs,
+} from "@/runtime/platform-detection";
+
 let cached: string | null = null;
 
 /**
@@ -17,6 +27,42 @@ export function getClientId(): string {
   if (cached) return cached;
   cached = crypto.randomUUID();
   return cached;
+}
+
+let cachedMetadataHeaders: Record<string, string> | null = null;
+
+/**
+ * Sanitized client-metadata headers persisted by the daemon under
+ * `metadata.client` for turn analytics. All inputs (browser, OS surface,
+ * build version) are constant for the lifetime of the page, so the result
+ * is computed once and cached in module memory.
+ *
+ * These are analytics-only: unlike `X-Vellum-Interface-Id`, none of them
+ * feed subscriber capability resolution.
+ */
+function getClientMetadataHeaders(): Record<string, string> {
+  if (cachedMetadataHeaders) {
+    return cachedMetadataHeaders;
+  }
+  const browser = detectBrowserInfo();
+  const candidates: Array<[string, string | undefined]> = [
+    [CLIENT_METADATA_HEADERS.browser_family, browser.family],
+    [CLIENT_METADATA_HEADERS.browser_version, browser.version],
+    [CLIENT_METADATA_HEADERS.os, detectClientOs()],
+    [
+      CLIENT_METADATA_HEADERS.interface_version,
+      import.meta.env.VITE_APP_VERSION,
+    ],
+  ];
+  const headers: Record<string, string> = {};
+  for (const [name, raw] of candidates) {
+    const value = sanitizeClientMetadataValue(raw);
+    if (value) {
+      headers[name] = value;
+    }
+  }
+  cachedMetadataHeaders = headers;
+  return headers;
 }
 
 /**
@@ -52,5 +98,9 @@ export function getClientRegistrationHeaders(): Record<string, string> {
     // feeds the per-turn `client_os` context and has no bearing on subscriber
     // capabilities.
     "X-Vellum-Interface-Id": "web",
+    // Analytics-only client metadata (browser family/version, OS surface,
+    // build version), persisted under `metadata.client` on user messages.
+    // Values are sanitized and bounded; none affect capability resolution.
+    ...getClientMetadataHeaders(),
   };
 }
