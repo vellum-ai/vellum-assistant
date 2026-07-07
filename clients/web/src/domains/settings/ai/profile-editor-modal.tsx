@@ -49,6 +49,7 @@ import type {
 import { ProviderCreateForm } from "@/domains/settings/ai/provider-create-form";
 import { useLabelKeySync } from "@/domains/settings/ai/use-label-key-sync";
 import { useActiveAssistantIsSelfHosted } from "@/hooks/use-platform-gate";
+import { useIsMobile } from "@/hooks/use-is-mobile";
 
 // Sentinel value for the "+ Create new provider" option in the create-mode
 // Provider dropdown. Picking it mounts the inline ProviderCreateForm instead
@@ -205,6 +206,7 @@ function ProfileEditorModalInner({
   // daemon rejects for managed profiles.
   const isReadOnly = effectiveMode === "view" || isInvariant;
   const activeAssistantIsSelfHosted = useActiveAssistantIsSelfHosted();
+  const isMobile = useIsMobile();
 
   // Baseline for `hasViewModeChanges`: the enable flip is the only edit
   // read-only mode permits.
@@ -726,6 +728,7 @@ function ProfileEditorModalInner({
         checked={status === "active"}
         onChange={(v) => setStatus(v ? "active" : "disabled")}
         label="Active"
+        className="touch-mobile:mt-2 touch-mobile:[&_button]:h-7 touch-mobile:[&_button]:w-10 touch-mobile:[&_button>span]:h-6 touch-mobile:[&_button>span]:w-6"
       />
     ) : null;
 
@@ -818,7 +821,7 @@ function ProfileEditorModalInner({
           >
             Provider
           </label>
-          {providerMissing && !creatingProvider ? (
+          {providerMissing && !creatingProvider && !isMobile ? (
             <span className="rounded-full bg-[var(--surface-warning-subtle)] px-2 py-0.5 text-body-small-default text-[var(--content-warning)]">
               Pick a provider
             </span>
@@ -970,6 +973,7 @@ function ProfileEditorModalInner({
           <>
             <Button
               variant="outlined"
+              className="touch-mobile:h-10"
               onClick={onCancel}
               disabled={saving}
               data-testid="modal-cancel-btn"
@@ -978,6 +982,7 @@ function ProfileEditorModalInner({
             </Button>
             <Button
               variant="outlined"
+              className="touch-mobile:h-10"
               onClick={() => {
                 setEffectiveMode("create");
                 setKey("");
@@ -992,6 +997,7 @@ function ProfileEditorModalInner({
                 session can't round-trip a no-op write. */}
             <Button
               variant="primary"
+              className="touch-mobile:h-10"
               onClick={() => void handleSave()}
               disabled={!hasViewModeChanges || saving}
               data-testid="modal-save-btn"
@@ -1003,6 +1009,7 @@ function ProfileEditorModalInner({
           <>
             <Button
               variant="outlined"
+              className="touch-mobile:h-10"
               onClick={onCancel}
               disabled={saving}
               data-testid="modal-cancel-btn"
@@ -1011,6 +1018,7 @@ function ProfileEditorModalInner({
             </Button>
             <Button
               variant="primary"
+              className="touch-mobile:h-10"
               onClick={() => void handleSave()}
               disabled={isInvalid || saving}
               data-testid="modal-save-btn"
