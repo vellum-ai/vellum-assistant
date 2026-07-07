@@ -28541,7 +28541,8 @@ paths:
         skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests are present
         but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result to the tools
         available to that conversation as of its most recent turn (including skill/MCP tools registered over its
-        lifecycle); 404 if no such conversation is active."
+        lifecycle); 404 if no such conversation is active. With `agent`, simulates the subagent tool projection for a
+        given role or resolves a live subagent's conversation."
       tags:
         - tools
       parameters:
@@ -28551,6 +28552,14 @@ paths:
           schema:
             type: string
           description: When set, scope the tool inventory to this conversation's most recent turn instead of the global registry.
+        - name: agent
+          in: query
+          required: false
+          schema:
+            type: string
+          description:
+            A subagent role name (general, researcher, coder, planner, investigator, advisor) or a live subagent id.
+            Simulates the subagent tool projection for that role or resolves the live subagent's conversation.
       responses:
         "200":
           description: Successful response

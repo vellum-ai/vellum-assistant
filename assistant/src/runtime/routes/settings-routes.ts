@@ -13,10 +13,13 @@ import {
   getPlatformBaseUrl,
   setIngressPublicBaseUrl,
 } from "../../config/env.js";
-import { loadRawConfig, saveRawConfig } from "../../config/loader.js";
+import { getConfig, loadRawConfig, saveRawConfig } from "../../config/loader.js";
 import { loadSkillCatalog } from "../../config/skills.js";
 import { getGuardianDelivery } from "../../contacts/guardian-delivery-reader.js";
 import { findConversation } from "../../daemon/conversation-registry.js";
+import {
+  isToolActiveForContext,
+} from "../../daemon/conversation-tool-setup.js";
 import {
   computeGatewayTarget,
   getIngressConfigResult,
@@ -39,6 +42,11 @@ import { resolveGuardianPersonaPath } from "../../prompts/persona-resolver.js";
 import type { ToolDefinition } from "../../providers/types.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { parseToolManifestFile } from "../../skills/tool-manifest.js";
+import { getSubagentManager } from "../../subagent/index.js";
+import {
+  SUBAGENT_ROLE_REGISTRY,
+  type SubagentRole,
+} from "../../subagent/types.js";
 import {
   type ManifestOverride,
   resolveExecutionTarget,
@@ -46,8 +54,11 @@ import {
 import {
   getAllTools,
   getEnabledTools,
+  getMcpToolDefinitions,
+  getPluginToolDefinitions,
   getTool,
   getToolOwner,
+  getWorkspaceToolDefinitions,
 } from "../../tools/registry.js";
 import {
   ACTIVITY_SKIP_SET,
@@ -113,7 +124,7 @@ async function handleGenerateAvatar({ body = {}, headers }: RouteHandlerArgs) {
     return { ok: true, avatarPath };
   } catch (err) {
     if (err instanceof InternalError || err instanceof BadRequestError)
-      throw err;
+      {throw err;}
     const message = err instanceof Error ? err.message : String(err);
     log.error({ error: message }, "Avatar generation failed unexpectedly");
     throw new InternalError(message);
@@ -230,7 +241,7 @@ async function handleOAuthConnectStart({ body = {} }: RouteHandlerArgs) {
         let accountInfo = deferredResult.accountInfo;
         try {
           const conn = getConnectionByProvider(service);
-          if (conn?.accountInfo) accountInfo = conn.accountInfo;
+          if (conn?.accountInfo) {accountInfo = conn.accountInfo;}
         } catch {
           // DB not ready — use orchestrator value
         }
@@ -285,7 +296,7 @@ async function handleOAuthConnectStart({ body = {} }: RouteHandlerArgs) {
     let responseAccountInfo = result.accountInfo;
     try {
       const conn = getConnectionByProvider(service);
-      if (conn?.accountInfo) responseAccountInfo = conn.accountInfo;
+      if (conn?.accountInfo) {responseAccountInfo = conn.accountInfo;}
     } catch {
       // DB not ready — use orchestrator value
     }
@@ -298,7 +309,7 @@ async function handleOAuthConnectStart({ body = {} }: RouteHandlerArgs) {
     };
   } catch (err) {
     if (err instanceof InternalError || err instanceof BadRequestError)
-      throw err;
+      {throw err;}
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, service }, "OAuth connect flow failed");
     throw new InternalError(sanitizeOAuthError(message));
@@ -351,7 +362,7 @@ function handleWorkspaceFileRead({ queryParams = {} }: RouteHandlerArgs) {
     return { path: filePath, content };
   } catch (err) {
     if (err instanceof NotFoundError || err instanceof BadRequestError)
-      throw err;
+      {throw err;}
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err, path: filePath }, "Failed to read workspace file");
     throw new InternalError(message);
@@ -365,11 +376,11 @@ function handleWorkspaceFileRead({ queryParams = {} }: RouteHandlerArgs) {
 function resolveManifestOverride(
   toolName: string,
 ): ManifestOverride | undefined {
-  if (getTool(toolName)) return undefined;
+  if (getTool(toolName)) {return undefined;}
   try {
     const catalog = loadSkillCatalog();
     for (const skill of catalog) {
-      if (!skill.toolManifest?.present || !skill.toolManifest.valid) continue;
+      if (!skill.toolManifest?.present || !skill.toolManifest.valid) {continue;}
       try {
         const manifest = parseToolManifestFile(
           join(skill.directoryPath, "TOOLS.json"),
@@ -409,7 +420,13 @@ interface ToolNamesListResponse {
  * scopes the inventory to the tools available to that conversation as of
  * its most recent turn — see {@link handleConversationToolList}.
  */
-function handleToolNamesList(conversationId?: string): ToolNamesListResponse {
+function handleToolNamesList(
+  conversationId?: string,
+  agent?: string,
+): ToolNamesListResponse {
+  if (agent) {
+    return handleAgentToolList(agent);
+  }
   if (conversationId) {
     return handleConversationToolList(conversationId);
   }
@@ -428,13 +445,13 @@ function handleToolNamesList(conversationId?: string): ToolNamesListResponse {
   try {
     const catalog = loadSkillCatalog();
     for (const skill of catalog) {
-      if (!skill.toolManifest?.present || !skill.toolManifest.valid) continue;
+      if (!skill.toolManifest?.present || !skill.toolManifest.valid) {continue;}
       try {
         const manifest = parseToolManifestFile(
           join(skill.directoryPath, "TOOLS.json"),
         );
         for (const entry of manifest.tools) {
-          if (nameSet.has(entry.name)) continue;
+          if (nameSet.has(entry.name)) {continue;}
           nameSet.add(entry.name);
           schemas[entry.name] = entry.input_schema as unknown as SchemaShape;
         }
@@ -448,6 +465,104 @@ function handleToolNamesList(conversationId?: string): ToolNamesListResponse {
 
   const names = Array.from(nameSet).sort((a, b) => a.localeCompare(b));
   return { names, schemas, tools: buildRegisteredToolEntries() };
+}
+
+/**
+ * Simulate the tool surface a subagent would receive, identified either by a
+ * role name (e.g. "researcher") or a live subagent id.
+ *
+ * For a role name: build a minimal {@link SkillProjectionContext} with
+ * `isSubagent: true` and the role's allowedTools, then filter the global
+ * registry through `isToolActiveForContext` + the wire allowlist — mirroring
+ * the projection in `createResolveToolsCallback` without needing a live
+ * conversation.
+ *
+ * For a subagent id: resolve it via the SubagentManager to its conversationId,
+ * then delegate to {@link handleConversationToolList} for the live snapshot.
+ */
+function handleAgentToolList(agent: string): ToolNamesListResponse {
+  // Try subagent id first — if the manager has it, use the live conversation.
+  const state = getSubagentManager().getState(agent);
+  if (state?.conversationId) {
+    return handleConversationToolList(state.conversationId);
+  }
+
+  // Otherwise, treat as a role name.
+  const role = agent as SubagentRole;
+  const roleConfig = SUBAGENT_ROLE_REGISTRY[role];
+  if (!roleConfig) {
+    throw new NotFoundError(
+      `Unknown agent "${agent}". Expected a subagent role ` +
+        `(general, researcher, coder, planner, investigator, advisor) ` +
+        `or a live subagent id.`,
+    );
+  }
+
+  // Gather all tool definitions from every source the daemon reads per turn.
+  const allDefs = [
+    ...getEnabledTools(),
+    ...getPluginToolDefinitions(),
+    ...getMcpToolDefinitions(),
+    ...getWorkspaceToolDefinitions(),
+  ];
+
+  // Deduplicate by name (a tool may appear in multiple sources).
+  const seen = new Set<string>();
+  const dedupedDefs = allDefs.filter((d) => {
+    if (seen.has(d.name)) {return false;}
+    seen.add(d.name);
+    return true;
+  });
+
+  // Build the minimal context that `isToolActiveForContext` needs for the
+  // subagent path. Subagents have no direct client, no channel capabilities,
+  // and default ("wire") gate mode.
+  const coreToolNames = new Set(getEnabledTools().map((t) => t.name));
+  const ctx = {
+    isSubagent: true,
+    subagentAllowedTools: roleConfig.allowedTools
+      ? new Set(roleConfig.allowedTools)
+      : undefined,
+    subagentToolGateMode: undefined,
+    toolsDisabledDepth: 0,
+    diskPressureCleanupModeActive: false,
+    skillProjectionState: new Map<string, string>(),
+    skillProjectionCache: {},
+    coreToolNames,
+    hasNoClient: true,
+  };
+
+  // Filter through the subagent-only gate (isToolActiveForContext) and the
+  // wire allowlist, mirroring createResolveToolsCallback's two-stage filter.
+  const filtered = dedupedDefs.filter((d) => isToolActiveForContext(d.name, ctx));
+  const wireAllowlist = roleConfig.allowedTools
+    ? new Set(roleConfig.allowedTools)
+    : undefined;
+  const scoped = wireAllowlist
+    ? filtered.filter((d) => wireAllowlist.has(d.name))
+    : filtered;
+
+  // Exclude tools in the user's config exclude list.
+  const excluded = new Set(getConfig().tools.exclude);
+  const finalDefs = scoped.filter((d) => !excluded.has(d.name));
+
+  const names = finalDefs.map((d) => d.name).sort((a, b) => a.localeCompare(b));
+  const schemaByName = new Map<string, SchemaShape>(
+    injectActivityField(getAllTools(), ACTIVITY_SKIP_SET).map((d) => [
+      d.name,
+      d.input_schema as SchemaShape,
+    ]),
+  );
+
+  const schemas: Record<string, SchemaShape> = {};
+  const tools: ToolListEntry[] = [];
+  for (const name of names) {
+    const schema = schemaByName.get(name);
+    if (schema) {schemas[name] = schema;}
+    tools.push(toolEntryForName(name));
+  }
+
+  return { names, schemas, tools };
 }
 
 /**
@@ -483,7 +598,7 @@ function handleConversationToolList(
   const tools: ToolListEntry[] = [];
   for (const name of names) {
     const schema = schemaByName.get(name);
-    if (schema) schemas[name] = schema;
+    if (schema) {schemas[name] = schema;}
     tools.push(toolEntryForName(name));
   }
 
@@ -620,7 +735,7 @@ async function handleToolPermissionSimulate({ body = {} }: RouteHandlerArgs) {
       promptPayload,
     };
   } catch (err) {
-    if (err instanceof BadRequestError) throw err;
+    if (err instanceof BadRequestError) {throw err;}
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to simulate tool permission");
     throw new InternalError(message);
@@ -740,7 +855,7 @@ function handleUpdateIngressConfig({ body = {} }: RouteHandlerArgs) {
       success: true,
     };
   } catch (err) {
-    if (err instanceof InternalError) throw err;
+    if (err instanceof InternalError) {throw err;}
     const message = err instanceof Error ? err.message : String(err);
     log.error({ err }, "Failed to update ingress config");
     throw new InternalError(message);
@@ -880,7 +995,7 @@ export const ROUTES: RouteDefinition[] = [
     },
     summary: "List registered tools with metadata and schemas",
     description:
-      "Return registered tools. Without `conversationId`, returns every tool in the global registry; `tools` carries per-tool metadata (description, author-asserted risk level, category, and contributing source: core, skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests are present but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result to the tools available to that conversation as of its most recent turn (including skill/MCP tools registered over its lifecycle); 404 if no such conversation is active.",
+      "Return registered tools. Without `conversationId`, returns every tool in the global registry; `tools` carries per-tool metadata (description, author-asserted risk level, category, and contributing source: core, skill, plugin, or MCP server) and `names`/`schemas` additionally cover skill tools whose manifests are present but not yet loaded, for the permission-simulator catalog. With `conversationId`, scopes the result to the tools available to that conversation as of its most recent turn (including skill/MCP tools registered over its lifecycle); 404 if no such conversation is active. With `agent`, simulates the subagent tool projection for a given role or resolves a live subagent's conversation.",
     tags: ["tools"],
     queryParams: [
       {
@@ -889,6 +1004,13 @@ export const ROUTES: RouteDefinition[] = [
         required: false,
         description:
           "When set, scope the tool inventory to this conversation's most recent turn instead of the global registry.",
+      },
+      {
+        name: "agent",
+        type: "string",
+        required: false,
+        description:
+          "A subagent role name (general, researcher, coder, planner, investigator, advisor) or a live subagent id. Simulates the subagent tool projection for that role or resolves the live subagent's conversation.",
       },
     ],
     responseBody: z.object({
@@ -909,7 +1031,10 @@ export const ROUTES: RouteDefinition[] = [
       ),
     }),
     handler: ({ queryParams }) =>
-      handleToolNamesList(queryParams?.conversationId),
+      handleToolNamesList(
+        queryParams?.conversationId,
+        queryParams?.agent,
+      ),
   },
   {
     operationId: "tools_simulate_permission_post",
