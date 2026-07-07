@@ -1,8 +1,11 @@
-import { Database } from "bun:sqlite";
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 
 import type {
   ContentBlock,
+  ConversationDeletedContext,
   ImageContent,
   Message,
   ModelProfileInfo,
@@ -50,25 +53,27 @@ mock.module("../src/image-persist.js", () => ({
   persistImage: () => mockPersistPath,
 }));
 
-// Back the caption cache's durable layer with an in-memory DB so tests stay
-// hermetic. The migration runs through the mocked connection below.
-const testSqlite = new Database(":memory:");
-mock.module("../../../../persistence/db-connection.js", () => ({
-  getDb: () => ({}),
-  getSqliteFrom: () => testSqlite,
-}));
-
 // ─── Imports (after mocks are registered) ───────────────────────────────────
 
 const userPromptSubmit = (await import("../hooks/user-prompt-submit.js"))
   .default;
 const postToolUse = (await import("../hooks/post-tool-use.js")).default;
 const postCompact = (await import("../hooks/post-compact.js")).default;
+const conversationDeleted = (await import("../hooks/conversation-deleted.js"))
+  .default;
 const { findVisionProfile } = await import("../src/vision-caption.js");
-const { resetCaptionCacheForTests } = await import("../src/caption-cache.js");
-const { migrateCreateImageCaptionCache } =
-  await import("../../../../persistence/migrations/321-create-image-caption-cache.js");
-migrateCreateImageCaptionCache({} as never);
+const { closeCaptionStore, initCaptionStore, resetCaptionCacheForTests } =
+  await import("../src/caption-cache.js");
+
+// Back the caption cache's durable layer with a per-file temp store, the way
+// the plugin's `init` hook opens it in production.
+const STORAGE_DIR = mkdtempSync(join(tmpdir(), "image-fallback-test-"));
+initCaptionStore(STORAGE_DIR);
+
+afterAll(() => {
+  closeCaptionStore();
+  rmSync(STORAGE_DIR, { recursive: true, force: true });
+});
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -596,5 +601,117 @@ describe("image-fallback post-compact hook", () => {
     expect((ctx.history[0].content[0] as { text: string }).text).toContain(
       "no vision-capable model",
     );
+  });
+});
+
+describe("image-fallback conversation-deleted hook", () => {
+  function makeDeletedCtx(conversationId: string): ConversationDeletedContext {
+    return {
+      conversationId,
+      logger,
+    } as unknown as ConversationDeletedContext;
+  }
+
+  test("a deleted conversation's captions no longer serve cache hits", async () => {
+    let callCount = 0;
+    const trackingProvider = {
+      name: "mock-vision-provider",
+      async sendMessage() {
+        callCount++;
+        return sendMessageResponse;
+      },
+    };
+    mock.module("@vellumai/plugin-api", () => ({
+      doesSupportVision: (arg: ModelProfileInfo | string) =>
+        typeof arg === "string"
+          ? visionModels.has(arg)
+          : visionProfiles.has(arg.key),
+      getModelProfiles: () => mockProfiles,
+      getConfiguredProvider: async () => trackingProvider,
+    }));
+
+    // Caption an image in the doomed conversation.
+    const ctx1 = makeCtx({
+      conversationId: "conv-doomed",
+      latestMessages: [imageMsg("doomed-image")],
+    });
+    await userPromptSubmit(ctx1);
+    expect(callCount).toBe(1);
+
+    await conversationDeleted(makeDeletedCtx("conv-doomed"));
+
+    // The same image in another conversation must re-caption: the derived
+    // text did not outlive the conversation that produced it.
+    const ctx2 = makeCtx({
+      conversationId: "conv-other",
+      latestMessages: [imageMsg("doomed-image")],
+    });
+    await userPromptSubmit(ctx2);
+    expect(callCount).toBe(2);
+
+    // Restore the original mock for other tests.
+    mock.module("@vellumai/plugin-api", () => ({
+      doesSupportVision: (arg: ModelProfileInfo | string) =>
+        typeof arg === "string"
+          ? visionModels.has(arg)
+          : visionProfiles.has(arg.key),
+      getModelProfiles: () => mockProfiles,
+      getConfiguredProvider: async () =>
+        providerResolves ? fakeProvider : null,
+    }));
+  });
+
+  test("captions shared with a surviving conversation keep serving hits", async () => {
+    let callCount = 0;
+    const trackingProvider = {
+      name: "mock-vision-provider",
+      async sendMessage() {
+        callCount++;
+        return sendMessageResponse;
+      },
+    };
+    mock.module("@vellumai/plugin-api", () => ({
+      doesSupportVision: (arg: ModelProfileInfo | string) =>
+        typeof arg === "string"
+          ? visionModels.has(arg)
+          : visionProfiles.has(arg.key),
+      getModelProfiles: () => mockProfiles,
+      getConfiguredProvider: async () => trackingProvider,
+    }));
+
+    // The same image is captioned in one conversation and cache-hit in a
+    // second, which records the second conversation's association.
+    const ctxA = makeCtx({
+      conversationId: "conv-a",
+      latestMessages: [imageMsg("shared-image")],
+    });
+    await userPromptSubmit(ctxA);
+    const ctxB = makeCtx({
+      conversationId: "conv-b",
+      latestMessages: [imageMsg("shared-image")],
+    });
+    await userPromptSubmit(ctxB);
+    expect(callCount).toBe(1);
+
+    await conversationDeleted(makeDeletedCtx("conv-a"));
+
+    // conv-b still references the image, so its caption survives.
+    const ctxB2 = makeCtx({
+      conversationId: "conv-b",
+      latestMessages: [imageMsg("shared-image")],
+    });
+    await userPromptSubmit(ctxB2);
+    expect(callCount).toBe(1);
+
+    // Restore the original mock for other tests.
+    mock.module("@vellumai/plugin-api", () => ({
+      doesSupportVision: (arg: ModelProfileInfo | string) =>
+        typeof arg === "string"
+          ? visionModels.has(arg)
+          : visionProfiles.has(arg.key),
+      getModelProfiles: () => mockProfiles,
+      getConfiguredProvider: async () =>
+        providerResolves ? fakeProvider : null,
+    }));
   });
 });

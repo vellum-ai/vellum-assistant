@@ -36,6 +36,7 @@ const postCompact: HookFunction<PostCompactContext> = async (ctx) => {
 
   const imageCount = await captionImagesInMessages(
     ctx.history,
+    ctx.conversationId,
     visionProfileKey,
     ctx.logger,
   );

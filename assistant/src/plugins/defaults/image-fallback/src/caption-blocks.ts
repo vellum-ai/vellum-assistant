@@ -62,6 +62,9 @@ export function needsImageFallback(modelProfileKey: string): boolean {
  * number of image blocks replaced.
  *
  * @param blocks            Content-block array to scan and mutate in place.
+ * @param conversationId    Conversation the blocks belong to, recorded on the
+ *                          caption-cache rows so `conversation-deleted`
+ *                          cleanup stays accurate.
  * @param visionProfileKey  Key of a vision-capable profile for captioning, or
  *                          `null` when none is configured (fail-open
  *                          placeholder).
@@ -69,6 +72,7 @@ export function needsImageFallback(modelProfileKey: string): boolean {
  */
 export async function captionImageBlocks(
   blocks: ContentBlock[],
+  conversationId: string,
   visionProfileKey: string | null,
   logger: PluginLogger,
 ): Promise<number> {
@@ -86,7 +90,12 @@ export async function captionImageBlocks(
     persistImage(image.source.data, image.source.media_type);
 
     if (visionProfileKey != null) {
-      const caption = await captionImage(image, visionProfileKey, logger);
+      const caption = await captionImage(
+        image,
+        conversationId,
+        visionProfileKey,
+        logger,
+      );
       blocks[i] = {
         type: "text",
         text:
@@ -116,6 +125,7 @@ export async function captionImageBlocks(
  */
 export async function captionImagesInMessages(
   messages: Message[],
+  conversationId: string,
   visionProfileKey: string | null,
   logger: PluginLogger,
 ): Promise<number> {
@@ -124,6 +134,7 @@ export async function captionImagesInMessages(
   for (const message of messages) {
     imageCount += await captionImageBlocks(
       message.content,
+      conversationId,
       visionProfileKey,
       logger,
     );
@@ -131,6 +142,7 @@ export async function captionImagesInMessages(
       if (block.type === "tool_result" && block.contentBlocks != null) {
         imageCount += await captionImageBlocks(
           block.contentBlocks,
+          conversationId,
           visionProfileKey,
           logger,
         );

@@ -40,6 +40,7 @@ const postToolUse: HookFunction<PostToolUseContext> = async (ctx) => {
 
   const imageCount = await captionImageBlocks(
     blocks,
+    ctx.conversationId,
     visionProfileKey,
     ctx.logger,
   );

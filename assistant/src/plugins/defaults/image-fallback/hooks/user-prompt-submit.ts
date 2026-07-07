@@ -44,6 +44,7 @@ const userPromptSubmit: HookFunction<UserPromptSubmitContext> = async (ctx) => {
   // Scan all messages for image blocks and replace them with captions.
   const imageCount = await captionImagesInMessages(
     ctx.latestMessages,
+    ctx.conversationId,
     visionProfileKey,
     ctx.logger,
   );
