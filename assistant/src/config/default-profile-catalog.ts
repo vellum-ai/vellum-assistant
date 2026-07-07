@@ -4,7 +4,9 @@ import type { ModelIntent } from "../providers/types.js";
 import { VELLUM_MANAGED_CONNECTION_NAME } from "../providers/vellum-model-routing.js";
 import {
   DEFAULT_PROFILE_KEYS,
+  DEFAULT_PROFILE_PROVIDERS,
   type DefaultProfileKey,
+  type DefaultProfileProvider,
   OS_BETA_PROFILE_KEY,
 } from "./default-profile-names.js";
 import {
@@ -49,20 +51,13 @@ export type DefaultProfileTemplate = Omit<
 };
 
 /**
- * Providers that can serve the default profiles. `vellum` is the
- * platform-managed column (routed through the single `vellum` connection to
- * an underlying provider per profile); the rest are BYOK columns whose
- * models resolve per provider via `resolveModelIntent`.
+ * Re-exported for backward compatibility — `DEFAULT_PROFILE_PROVIDERS` is
+ * defined in `default-profile-names.js` (an import-free module) so
+ * `schemas/llm.ts` can validate `llm.defaultProvider` against it without a
+ * circular import.
  */
-export const DEFAULT_PROFILE_PROVIDERS = [
-  "anthropic",
-  "openai",
-  "gemini",
-  "fireworks",
-  "openrouter",
-  "vellum",
-] as const;
-export type DefaultProfileProvider = (typeof DEFAULT_PROFILE_PROVIDERS)[number];
+export { DEFAULT_PROFILE_PROVIDERS };
+export type { DefaultProfileProvider };
 
 /**
  * The `vellum` column: platform-managed implementations. Overwritten in

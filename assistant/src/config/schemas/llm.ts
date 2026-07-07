@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { DEFAULT_PROFILE_KEYS } from "../default-profile-names.js";
+import {
+  DEFAULT_PROFILE_KEYS,
+  DEFAULT_PROFILE_PROVIDERS,
+} from "../default-profile-names.js";
 
 /**
  * Unified LLM configuration schema.
@@ -30,6 +33,13 @@ export const LLMProvider = z
   ])
   .meta({ id: "LLMProvider" });
 type LLMProvider = z.infer<typeof LLMProvider>;
+
+/**
+ * Provider enum for `llm.defaultProvider` — restricted to
+ * `DEFAULT_PROFILE_PROVIDERS` (the providers that can serve the code-defined
+ * default profile catalog), which is a strict subset of `LLMProvider`.
+ */
+const DefaultProviderEnum = z.enum(DEFAULT_PROFILE_PROVIDERS);
 
 // ---------------------------------------------------------------------------
 // Call-site enum
@@ -466,6 +476,29 @@ const LLMCallSiteConfig = LLMConfigFragment.extend({
 type LLMCallSiteConfig = z.infer<typeof LLMCallSiteConfig>;
 
 // ---------------------------------------------------------------------------
+// Default provider
+// ---------------------------------------------------------------------------
+
+/**
+ * Pins which provider backs the workspace's "default" inference identity
+ * (INERT in this PR — nothing reads this field for resolution yet; see
+ * Milestone 6). `connectionName` optionally pins a specific
+ * `provider_connections` row; when absent, the resolving convention lives in
+ * `resolveDefaultConnectionName` (`../default-provider.js`).
+ *
+ * Deliberately has no cross-field validation here: schema validation is
+ * pure/sync and cannot see the sqlite `provider_connections` table, so a
+ * `connectionName` that doesn't (yet) exist is allowed by design — a dangling
+ * reference is reported as an explainable resolution error at read time
+ * (Milestone 6), not rejected at write time.
+ */
+export const DefaultProviderSchema = z.object({
+  provider: DefaultProviderEnum,
+  connectionName: z.string().min(1).optional(),
+});
+export type DefaultProviderConfig = z.infer<typeof DefaultProviderSchema>;
+
+// ---------------------------------------------------------------------------
 // Top-level LLM schema
 // ---------------------------------------------------------------------------
 
@@ -488,6 +521,9 @@ export const LLMSchema = z
     // under Models & Services). It is excluded from the chat-profile pickers so
     // it can't be selected as the assistant's chat model.
     advisorProfile: z.string().min(1).optional(),
+    // Optional and additive: absent on existing configs (a later PR backfills
+    // it). See `DefaultProviderSchema` above for the field contract.
+    defaultProvider: DefaultProviderSchema.optional(),
     // TTL bounds for inference profile sessions. `defaultTtlSeconds` is read by
     // the CLI to apply when `--ttl` is omitted; the daemon handler itself only
     // reads `maxTtlSeconds` (to clamp caller-supplied values).
