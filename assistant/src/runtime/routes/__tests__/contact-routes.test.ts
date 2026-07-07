@@ -81,13 +81,12 @@ const { handleListContacts, handleGetContact, ROUTES } =
 
 // Daemon-native contact: INFO is hydrated locally; channel-level ACL fields
 // (status/policy/verification) are gateway-owned and absent on native reads.
-// The fixture's `role` is ignored — the serve layer derives role from the
-// gateway guardian id set.
+// `role` is likewise absent — the serve layer derives it from the gateway
+// guardian id set.
 const nativeContact = {
   id: "ct_2",
   displayName: "Bob",
   notes: null,
-  role: "contact",
   contactType: "human",
   lastInteraction: 4200,
   interactionCount: 4,

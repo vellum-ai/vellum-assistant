@@ -6,10 +6,9 @@
  * (`getGuardianDelivery`/`guardianForChannel`) supplies the authoritative
  * principal, the local-mirror heal target is resolved via
  * `findContactByAddress` (keyed on the gateway guardian's channel address) and
- * written via `updateContactPrincipalAndChannel` (the real
- * `healGuardianBindingDrift` drives this), and the local trust resolver
- * (`resolveTrustContext`) closes the loop. Heal invocations are observed via
- * the contact-store write mock.
+ * written via `repairChannelAddress` (the real `healGuardianBindingDrift`
+ * drives this), and the local trust resolver (`resolveTrustContext`) closes
+ * the loop. Heal invocations are observed via the contact-store write mock.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
@@ -30,7 +29,7 @@ mock.module("../../contacts/guardian-delivery-reader.js", () => ({
 
 // Local mirror the real heal repairs. `findContactByAddress` returns the local
 // contact (with its vellum channel) the heal writes to;
-// `updateContactPrincipalAndChannel` records heal writes.
+// `repairChannelAddress` records heal writes.
 let mockLocalContact: {
   id: string;
   channels: Array<{ id: string; type: string }>;
@@ -39,11 +38,7 @@ const healWrites: Array<{ principalId: string }> = [];
 
 mock.module("../../contacts/contact-store.js", () => ({
   findContactByAddress: () => mockLocalContact,
-  updateContactPrincipalAndChannel: (
-    _contactId: string,
-    _channelId: string,
-    principalId: string,
-  ) => {
+  repairChannelAddress: (_channelId: string, principalId: string) => {
     healWrites.push({ principalId });
     return true;
   },

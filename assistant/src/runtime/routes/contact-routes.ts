@@ -87,7 +87,7 @@ function withGuardianNameOverride<
 
 /**
  * Stamp `role` from the gateway guardian id set on DAEMON-NATIVE reads, whose
- * `role` is the neutral `"contact"` default (search / contactType-filtered).
+ * local contact shape carries no role (search / contactType-filtered).
  * Fail-soft: empty set → everyone is `"contact"`.
  *
  * NOT applied to gateway-relayed reads (`contacts_list_rich`/`_get_rich`),
@@ -95,10 +95,10 @@ function withGuardianNameOverride<
  * stale/empty 30s id-set cache DOWNGRADE a freshly-rebound guardian to
  * `"contact"` during a rebind.
  */
-function withGatewayRole<T extends { id: string; role: string }>(
+function withGatewayRole<T extends { id: string }>(
   contact: T,
   guardianIds: ReadonlySet<string>,
-): T {
+): T & { role: ContactRole } {
   return {
     ...contact,
     role: guardianIds.has(contact.id) ? "guardian" : "contact",
@@ -118,6 +118,13 @@ function withChannelCompat<T extends { channels: { address: string }[] }>(
   };
 }
 
+interface PreparableContact {
+  id: string;
+  displayName: string;
+  contactType?: string | null;
+  channels: { address: string }[];
+}
+
 /** Compose the response transforms, then apply the guardian display-name
  * override (keyed off the role that's correct for this path) and the channel
  * compat field. Also coerces nullable gateway-sourced fields to their DB
@@ -128,25 +135,27 @@ function withChannelCompat<T extends { channels: { address: string }[] }>(
  *   - omitted (gateway-relayed reads): TRUST the gateway-sourced `role` already
  *     on the `ContactRead`. Never re-derive — a stale/empty id-set cache must
  *     not downgrade a relayed guardian to `"contact"`.
- *   - provided (daemon-native reads): role is the neutral `"contact"` default,
+ *   - provided (daemon-native reads): the local contact shape carries no role,
  *     so derive it from the gateway guardian id set.
  */
-function prepareContactResponse<
-  T extends {
-    id: string;
-    role: string;
-    displayName: string;
-    contactType?: string | null;
-    channels: { address: string }[];
-  },
->(contact: T, guardianIds?: ReadonlySet<string>): T {
+function prepareContactResponse<T extends PreparableContact & { role: string }>(
+  contact: T,
+): T;
+function prepareContactResponse<T extends PreparableContact>(
+  contact: T,
+  guardianIds: ReadonlySet<string>,
+): T & { role: ContactRole };
+function prepareContactResponse(
+  contact: PreparableContact & { role?: string },
+  guardianIds?: ReadonlySet<string>,
+) {
   const coerced =
     contact.contactType == null
-      ? { ...contact, contactType: "human" as T["contactType"] }
+      ? { ...contact, contactType: "human" }
       : contact;
   const withRole = guardianIds
     ? withGatewayRole(coerced, guardianIds)
-    : coerced;
+    : (coerced as PreparableContact & { role: string });
   return withChannelCompat(withGuardianNameOverride(withRole));
 }
 
