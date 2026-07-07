@@ -5,7 +5,7 @@ import { useIsMobile } from "@/hooks/use-is-mobile";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 import { haptic } from "@/utils/haptics";
-import { routes } from "@/utils/routes";
+import { isConversationChatPath, routes } from "@/utils/routes";
 
 /**
  * Open an app in the viewer panel from inside the chat surface — sidebar
@@ -28,10 +28,10 @@ import { routes } from "@/utils/routes";
  */
 /**
  * Decide the route to navigate to before opening an app from the sidebar.
- * The viewer panel only renders under `ChatPage` (mounted at `/assistant`
- * index + `/assistant/conversations/:id`). From any other route (home,
- * library, identity, inspector, …) the viewer-store mutation would have
- * no surface to display against, so we have to navigate first.
+ * The viewer panel only renders under `ChatPage` (the routes matched by
+ * `isConversationChatPath`). From any other route (home, library, identity,
+ * inspector, …) the viewer-store mutation would have no surface to display
+ * against, so we have to navigate first.
  *
  * Returns `null` when the caller is already on a route that mounts the
  * viewer — no navigation needed.
@@ -43,12 +43,7 @@ export function chooseSidebarOpenAppDestination(
   pathname: string,
   activeConversationId: string | null,
 ): string | null {
-  const onChatRoute =
-    pathname === routes.assistant ||
-    pathname === `${routes.assistant}/` ||
-    (pathname.startsWith("/assistant/conversations/") &&
-      !pathname.endsWith("/inspect"));
-  if (onChatRoute) return null;
+  if (isConversationChatPath(pathname)) return null;
   return activeConversationId
     ? routes.conversation(activeConversationId)
     : routes.assistant;
