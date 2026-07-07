@@ -15,7 +15,10 @@ import {
   materializeProfile,
   USER_PROFILE_TEMPLATES,
 } from "./default-profile-catalog.js";
-import { DEFAULT_PROFILE_KEYS } from "./default-profile-names.js";
+import {
+  DEFAULT_PROFILE_KEYS,
+  DEFAULT_PROFILE_PROVIDERS,
+} from "./default-profile-names.js";
 import { loadRawConfig, saveRawConfig } from "./loader.js";
 import { isDispatchableProfile } from "./profile-dispatchability.js";
 import type { ProfileEntry } from "./schemas/llm.js";
@@ -45,7 +48,7 @@ export type SeedInferenceProfilesOptions = {
  * Runs on every daemon startup. Default profile CONTENT is code-owned
  * (`default-profile-catalog.ts`) and resolves through the effective view
  * whether or not `llm.profiles` carries an entry, so nothing here writes
- * default bodies. Two responsibilities remain:
+ * default bodies. Three responsibilities remain:
  *
  * 1. **BYOK hatch stubs**: a fresh off-platform install cannot use the
  *    platform-auth vellum route, so the default profiles get a thin
@@ -59,6 +62,9 @@ export type SeedInferenceProfilesOptions = {
  *    off-platform installations. Each points at a personal provider
  *    connection backed by the user's API key in CES. Subsequent boots
  *    leave these untouched — the user owns them.
+ *
+ * 3. **`llm.defaultProvider`**: written once at hatch time, mirroring the
+ *    platform/managed/BYOK decisions above, and never overwritten afterward.
  */
 export function seedInferenceProfiles(
   options: SeedInferenceProfilesOptions = {},
@@ -119,6 +125,7 @@ export function seedInferenceProfiles(
 
   // 2. User profiles — only at hatch time for off-platform installations.
   let userConnectionName: string | undefined;
+  let usableHatchProvider: string | undefined;
   if (options.isHatch && !isPlatform) {
     const hatchProvider = readString(readObject(llm.default)?.provider);
     if (
@@ -126,6 +133,7 @@ export function seedInferenceProfiles(
       hatchProvider !== "ollama" &&
       !PROVIDERS_REQUIRING_BASE_URL_AND_MODELS.has(hatchProvider)
     ) {
+      usableHatchProvider = hatchProvider;
       userConnectionName = `${hatchProvider}-personal`;
 
       if (options.db) {
@@ -156,6 +164,19 @@ export function seedInferenceProfiles(
         );
       }
     }
+  }
+
+  // 3. Default provider — hatch only, never overwritten once set. Always
+  //    populated — even dangling, so later resolution can prompt the user
+  //    for a key explainably rather than hitting an unset branch.
+  if (options.isHatch && readObject(llm.defaultProvider) === null) {
+    llm.defaultProvider = {
+      provider: resolveHatchDefaultProvider(
+        isPlatform,
+        hatchSelectedManagedConnection !== undefined,
+        usableHatchProvider,
+      ),
+    };
   }
 
   pruneNonDispatchableProfiles(llm, profiles);
@@ -255,6 +276,25 @@ export function readObject(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function resolveHatchDefaultProvider(
+  isPlatform: boolean,
+  selectedManagedConnection: boolean,
+  hatchProvider: string | undefined,
+): string {
+  // Platform mode and an explicit managed-connection selection both route
+  // through vellum.
+  if (isPlatform || selectedManagedConnection) {
+    return "vellum";
+  }
+  if (
+    hatchProvider !== undefined &&
+    (DEFAULT_PROFILE_PROVIDERS as readonly string[]).includes(hatchProvider)
+  ) {
+    return hatchProvider;
+  }
+  return "anthropic";
 }
 
 function pruneNonDispatchableProfiles(

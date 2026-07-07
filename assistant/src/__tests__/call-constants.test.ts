@@ -45,6 +45,6 @@ describe("isDeniedNumber", () => {
 
 describe("getEndCallListenWindowMs", () => {
   test("leaves a brief response window before task-complete hangup", () => {
-    expect(getEndCallListenWindowMs()).toBe(15_000);
+    expect(getEndCallListenWindowMs()).toBe(2_000);
   });
 });

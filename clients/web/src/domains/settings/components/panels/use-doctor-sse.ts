@@ -19,7 +19,6 @@ import {
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
   replayableDoctorSourceEventIds,
-  type DoctorMessageWithSourceEventId,
 } from "@/domains/settings/components/panels/doctor-history";
 import {
   type DoctorEvent,
@@ -40,6 +39,7 @@ import {
   assistantsDoctorHistoryRetrieve,
   assistantsDoctorSessionsEventsRetrieve,
 } from "@/generated/api";
+import type { DoctorMessage } from "@/generated/api/types.gen";
 import { captureError } from "@/lib/sentry/capture-error";
 import { createStreamWatchdog } from "@/lib/streaming/stream-watchdog";
 import { getClientRegistrationHeaders } from "@/lib/telemetry/client-identity";
@@ -105,7 +105,7 @@ function getSseEventId(event: unknown): string | null {
 
 function seedDoctorPanelFromPersistedMessages(
   status: Parameters<typeof mapPersistedStatusToPanelStatus>[0],
-  messages: DoctorMessageWithSourceEventId[],
+  messages: DoctorMessage[],
 ): ReturnType<typeof mapPersistedStatusToPanelStatus> {
   const entries = mapPersistedMessagesToEntries(messages);
   const panelStatus = mapPersistedStatusToPanelStatus(status);
@@ -140,7 +140,7 @@ async function refreshPersistedDoctorSession(
 
   const panelStatus = seedDoctorPanelFromPersistedMessages(
     result.data.status,
-    (result.data.messages ?? []) as DoctorMessageWithSourceEventId[],
+    result.data.messages ?? [],
   );
 
   if (panelStatus === "active") {

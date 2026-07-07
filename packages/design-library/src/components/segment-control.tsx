@@ -6,6 +6,8 @@ import { cn } from "../utils/cn";
 export interface SegmentControlItem<T extends string> {
   value: T;
   label: string;
+  /** Optional second line under the label (ignored in `iconOnly` mode). */
+  sublabel?: string;
   icon?: ReactNode;
   disabled?: boolean;
 }
@@ -154,7 +156,17 @@ export function SegmentControl<T extends string>({
             )}
           >
             {item.icon}
-            {!iconOnly && item.label}
+            {!iconOnly &&
+              (item.sublabel != null ? (
+                <span className="flex flex-col items-center gap-0.5">
+                  <span>{item.label}</span>
+                  <span className="text-body-small-default text-[var(--content-tertiary)]">
+                    {item.sublabel}
+                  </span>
+                </span>
+              ) : (
+                item.label
+              ))}
           </Button>
         );
       })}

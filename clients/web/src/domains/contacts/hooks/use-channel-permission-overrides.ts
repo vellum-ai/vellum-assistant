@@ -3,7 +3,6 @@ import { useMemo } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
-  CAPABILITY_TIER_THRESHOLDS,
   CHANNEL_TIER_CONTACT_TYPES,
   tierOverridesFromCells,
   type SlackCapabilityTier,
@@ -47,7 +46,7 @@ function cellsForTier(
   return CHANNEL_TIER_CONTACT_TYPES.map((contactType) => ({
     selector: { scope: "channel" as const, adapter, channelExternalId },
     contactType,
-    threshold: CAPABILITY_TIER_THRESHOLDS[tier],
+    threshold: tier,
   }));
 }
 
