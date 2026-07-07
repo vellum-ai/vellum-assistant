@@ -50,6 +50,9 @@ export interface SynthesisEmitOptions {
   /** Output-encoding hint forwarded on the provider request (e.g. `"pcm"`). */
   outputFormat?: TtsSynthesisRequest["outputFormat"];
 
+  /** Preferred PCM sample rate in Hz, forwarded on the provider request. */
+  sampleRateHz?: number;
+
   /** Abort signal forwarded to the provider and checked before each emit. */
   signal?: AbortSignal;
 
@@ -99,6 +102,7 @@ export async function synthesizeAndEmit(
     useCase: options.useCase,
     voiceId: options.voiceId,
     outputFormat: options.outputFormat,
+    sampleRateHz: options.sampleRateHz,
     signal,
   };
 

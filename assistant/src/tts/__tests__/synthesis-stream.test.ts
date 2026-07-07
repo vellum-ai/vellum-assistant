@@ -503,7 +503,7 @@ describe("synthesizeAndEmit (streaming)", () => {
     ]);
   });
 
-  test("passes text/useCase/voiceId/outputFormat/signal through on the request", async () => {
+  test("passes text/useCase/voiceId/outputFormat/sampleRateHz/signal through on the request", async () => {
     const provider = makeStreamingProvider([bytes("a")]);
     const abortController = new AbortController();
 
@@ -513,6 +513,7 @@ describe("synthesizeAndEmit (streaming)", () => {
       useCase: "message-playback",
       voiceId: "voice-123",
       outputFormat: "pcm",
+      sampleRateHz: 24000,
       signal: abortController.signal,
       onChunk: () => {},
     });
@@ -523,6 +524,7 @@ describe("synthesizeAndEmit (streaming)", () => {
       useCase: "message-playback",
       voiceId: "voice-123",
       outputFormat: "pcm",
+      sampleRateHz: 24000,
       signal: abortController.signal,
     });
   });
@@ -637,6 +639,7 @@ describe("synthesizeAndEmit (buffer)", () => {
       text: "hello",
       useCase: "phone-call",
       voiceId: "voice-123",
+      sampleRateHz: 16000,
       onChunk: () => {},
     });
 
@@ -645,6 +648,7 @@ describe("synthesizeAndEmit (buffer)", () => {
       useCase: "phone-call",
       voiceId: "voice-123",
       outputFormat: undefined,
+      sampleRateHz: 16000,
       signal: undefined,
     });
   });
