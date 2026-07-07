@@ -14,6 +14,7 @@ import {
   type ConnectionProvider,
   ConnectionProviderSchema,
   type ProviderConnection,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   VALID_CONNECTION_PROVIDERS,
 } from "./auth.js";
 
@@ -32,9 +33,6 @@ function parseModelsColumn(raw: string | null): ConnectionModel[] | null {
     return null;
   }
 }
-
-export const PROVIDERS_REQUIRING_BASE_URL_AND_MODELS: ReadonlySet<string> =
-  new Set(["openai-compatible"]);
 
 // ---------------------------------------------------------------------------
 // Read

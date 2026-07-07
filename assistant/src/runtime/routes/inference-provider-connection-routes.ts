@@ -19,6 +19,7 @@ import {
   ConnectionModelSchema,
   ConnectionProviderSchema,
   ProviderConnectionSchema,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   VALID_CONNECTION_PROVIDERS,
 } from "../../providers/inference/auth.js";
 import {
@@ -28,7 +29,6 @@ import {
   LEGACY_MANAGED_CONNECTION_NAMES,
   listConnections,
   MANAGED_CONNECTION_NAMES,
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   updateConnection,
 } from "../../providers/inference/connections.js";
 import {

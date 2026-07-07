@@ -82,12 +82,12 @@ import { getMemoryRecallLogByMessageIds } from "../../plugins/defaults/memory/me
 import { getMemoryV2ActivationLogByMessageIds } from "../../plugins/defaults/memory/memory-v2-activation-log-store.js";
 import { MEMORY_V2_CONSOLIDATION_SOURCE } from "../../plugins/defaults/memory/v2/constants.js";
 import { getMemoryV3SelectionForInspectorByMessageIds } from "../../plugins/defaults/memory/v3/selection-log-store.js";
+import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../../providers/inference/auth.js";
 import {
   createConnection,
   getConnection,
   LEGACY_MANAGED_CONNECTION_NAMES,
   listConnections,
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
   VELLUM_MANAGED_CONNECTION_NAME,
 } from "../../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../../providers/model-catalog.js";
