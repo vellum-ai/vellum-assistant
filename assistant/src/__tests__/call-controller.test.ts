@@ -3055,7 +3055,10 @@ describe("call-controller", () => {
   // ── Incremental per-segment synthesis (synthesized-play path) ───────
 
   function registerFishAudioSegmentRecorder(opts?: {
-    onSynthesizeStream?: (text: string) => Promise<void>;
+    onSynthesizeStream?: (
+      text: string,
+      request: import("../tts/types.js").TtsSynthesisRequest,
+    ) => Promise<void>;
   }): { synthesizedTexts: string[] } {
     const cfg = loadConfig();
     cfg.services.tts.provider = "fish-audio";
@@ -3074,7 +3077,7 @@ describe("call-controller", () => {
       },
       async synthesizeStream(request, onChunk) {
         synthesizedTexts.push(request.text);
-        await opts?.onSynthesizeStream?.(request.text);
+        await opts?.onSynthesizeStream?.(request.text, request);
         onChunk(Buffer.from(`audio:${request.text}`));
         return {
           audio: Buffer.from(`audio:${request.text}`),
@@ -3203,6 +3206,86 @@ describe("call-controller", () => {
     // Queued segments never synthesize after the barge-in, and the aborted
     // first segment's late audio never reaches the caller.
     expect(synthesizedTexts).toEqual(["One is done."]);
+    expect(relay.sentPlayUrls.length).toBe(0);
+
+    controller.destroy();
+  });
+
+  test("synthesized provider: a late-finishing stale segment neither clobbers the new turn's abort handle nor emits audio", async () => {
+    let releaseStale: (() => void) | undefined;
+    const staleGate = new Promise<void>((r) => {
+      releaseStale = r;
+    });
+    let newTurnAborted = false;
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder({
+      onSynthesizeStream: async (text, request) => {
+        if (text.startsWith("Old")) {
+          // Stale turn's provider ignores the abort and finishes late.
+          await staleGate;
+          return;
+        }
+        // New turn's provider hangs until its own abort signal fires.
+        await new Promise<void>((resolve) => {
+          request.signal?.addEventListener(
+            "abort",
+            () => {
+              newTurnAborted = true;
+              resolve();
+            },
+            { once: true },
+          );
+        });
+        const err = new Error("aborted");
+        err.name = "AbortError";
+        throw err;
+      },
+    });
+    let voiceTurnCalls = 0;
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: { onTextDelta: (t: string) => void }) => {
+        voiceTurnCalls++;
+        opts.onTextDelta(
+          voiceTurnCalls === 1 ? "Old news here. " : "New reply here. ",
+        );
+        // Hold the turn open; barge-in resolves it via the abort listener.
+        return { turnId: `run-clobber-${voiceTurnCalls}`, abort: () => {} };
+      },
+    );
+    const { relay, controller } = setupController();
+
+    const turn1 = controller.handleCallerUtterance("Hi");
+    let turn1Settled = false;
+    void turn1.finally(() => {
+      turn1Settled = true;
+    });
+    await pollUntil(() => synthesizedTexts.length === 1);
+
+    // Barge-in while the first segment's synthesis is still in flight.
+    controller.handleInterrupt();
+
+    // The stale run drains its chain before settling, so the interrupted
+    // turn stays pending until its hung segment resolves.
+    await new Promise((r) => setTimeout(r, 10));
+    expect(turn1Settled).toBe(false);
+
+    // Start the next turn while the stale segment is still in flight.
+    const turn2 = controller.handleUserInstruction("follow up");
+    await pollUntil(() => synthesizedTexts.length === 2);
+
+    // The stale segment finishes late — after the new turn registered its
+    // own abort handle.
+    releaseStale?.();
+    await turn1;
+
+    // A barge-in on the NEW turn must still abort its in-flight synthesis:
+    // the stale segment's completion must not have cleared the handle.
+    controller.handleInterrupt();
+    await pollUntil(() => newTurnAborted);
+    await turn2;
+
+    expect(synthesizedTexts).toEqual(["Old news here.", "New reply here."]);
+    // Neither the stale segment's late chunk nor the aborted new segment
+    // ever reaches the caller.
     expect(relay.sentPlayUrls.length).toBe(0);
 
     controller.destroy();

@@ -819,7 +819,13 @@ export class CallController {
     // The await below still re-throws, caught by the outer try-catch.
     turnComplete.catch(() => {});
     await turnComplete;
-    if (!this.isCurrentRun(runVersion)) return fullResponseText;
+    if (!this.isCurrentRun(runVersion)) {
+      // Superseded mid-stream (barge-in): drain the segment chain — queued
+      // links short-circuit on staleness — so this turn's synthesis fully
+      // settles instead of racing the next turn.
+      await synthesisChain.catch(() => {});
+      return fullResponseText;
+    }
 
     // Final sweep: strip any remaining control markers from the buffer
     ttsBuffer = stripInternalSpeechMarkers(ttsBuffer);
@@ -976,7 +982,11 @@ export class CallController {
         return true;
       }
     } finally {
-      this.activeSynthesisAbort = null;
+      // Identity-guarded: a late-finishing stale segment must not clear a
+      // newer turn's abort handle.
+      if (this.activeSynthesisAbort === abortController) {
+        this.activeSynthesisAbort = null;
+      }
       sink?.finalize();
     }
     return false;
