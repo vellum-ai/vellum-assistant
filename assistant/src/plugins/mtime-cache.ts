@@ -38,6 +38,7 @@ import {
   collectUserHookEntries,
   evictHooksForOwner,
   hasWorkspaceHooks,
+  type HookOwnerKind,
   resetHookCacheForTests,
   runInitHook,
   runShutdownHook,
@@ -444,7 +445,7 @@ async function reconcileWorkspaceHooks(
   }
   const reason: ShutdownReason = after === undefined ? "uninstall" : "reload";
   const activeIdx = activatedPlugins.findIndex(
-    (p) => p.name === WORKSPACE_HOOKS_OWNER,
+    (p) => p.kind === "workspace" && p.name === WORKSPACE_HOOKS_OWNER,
   );
   if (activeIdx >= 0) {
     await runShutdownHook(
@@ -459,7 +460,7 @@ async function reconcileWorkspaceHooks(
   sweepModules(before, after);
   if (after !== undefined) {
     await runInitHook(WORKSPACE_HOOKS_OWNER);
-    activatedPlugins.push({ name: WORKSPACE_HOOKS_OWNER });
+    activatedPlugins.push({ kind: "workspace", name: WORKSPACE_HOOKS_OWNER });
     log.info("workspace hooks reloaded");
   }
 }
@@ -762,8 +763,13 @@ async function evictAll(): Promise<void> {
  * runtime uninstall/disable tears a single entry down via
  * {@link deactivatePlugin}; at daemon shutdown the owners' `shutdown` hooks
  * fire through the unified `runHook(HOOKS.SHUTDOWN)` pipeline.
+ *
+ * Entries carry their owner {@link HookOwnerKind} so lookups are scoped by
+ * `(kind, name)`: a plugin and the workspace pseudo-owner can share a name
+ * (a hand-installed plugin named {@link WORKSPACE_HOOKS_OWNER}), and matching on
+ * name alone would splice the wrong record.
  */
-const activatedPlugins: Array<{ name: string }> = [];
+const activatedPlugins: Array<{ kind: HookOwnerKind; name: string }> = [];
 
 /**
  * Names in {@link activatedPlugins}, kept as a set for O(1) membership and —
@@ -822,7 +828,7 @@ async function activatePlugin(
   // Run the `init` hook if present.
   await runInitHook(pluginName, pluginDir);
 
-  activatedPlugins.push({ name: pluginName });
+  activatedPlugins.push({ kind: "plugin", name: pluginName });
 }
 
 /**
@@ -840,7 +846,9 @@ async function deactivatePlugin(
     return;
   }
   activatedNames.delete(pluginName);
-  const idx = activatedPlugins.findIndex((p) => p.name === pluginName);
+  const idx = activatedPlugins.findIndex(
+    (p) => p.kind === "plugin" && p.name === pluginName,
+  );
   if (idx >= 0) {
     activatedPlugins.splice(idx, 1);
   }
@@ -902,7 +910,7 @@ export async function populateCacheAtBoot(
   // an empty/absent directory adds no shutdown work.
   if (hasWorkspaceHooks()) {
     await runInitHook(WORKSPACE_HOOKS_OWNER);
-    activatedPlugins.push({ name: WORKSPACE_HOOKS_OWNER });
+    activatedPlugins.push({ kind: "workspace", name: WORKSPACE_HOOKS_OWNER });
   }
 
   // Boot is self-sufficient (the scan above never waits on the monitor);

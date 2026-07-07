@@ -56,6 +56,7 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 
+import type { HookEventOwner } from "../api/events/hook-event.js";
 import { getConfig } from "../config/loader.js";
 import { HOOKS } from "../plugin-api/constants.js";
 import type {
@@ -84,11 +85,13 @@ const log = getLogger("hook-loader");
 export const WORKSPACE_HOOKS_OWNER = "__workspace__";
 
 /**
- * Whether a hook's owner is a user plugin or the standalone workspace surface.
- * Threaded into the cache key so the two owner namespaces can't collide even if
- * a plugin's manifest name happens to equal {@link WORKSPACE_HOOKS_OWNER}.
+ * Whether a hook's owner is a user plugin or the standalone workspace surface —
+ * the `kind` of a {@link HookEventOwner}, reused so this stays a single source
+ * of truth. Threaded into the cache key so the two owner namespaces can't
+ * collide even if a plugin's manifest name happens to equal
+ * {@link WORKSPACE_HOOKS_OWNER}.
  */
-type HookOwnerKind = "plugin" | "workspace";
+export type HookOwnerKind = HookEventOwner["kind"];
 
 /**
  * Per-hook resolution memo keyed by `${kind}:${ownerName}/${hookName}`. The key
