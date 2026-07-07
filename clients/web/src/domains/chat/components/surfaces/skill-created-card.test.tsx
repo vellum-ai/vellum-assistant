@@ -60,11 +60,13 @@ describe("SkillCreatedCard", () => {
       getByText("Compile the weekly report from the usual sources."),
     ).toBeTruthy();
     expect(getByText("📊")).toBeTruthy();
-    expect(getByRole("button", { name: "View" })).toBeTruthy();
+    expect(
+      getByRole("button", { name: "View Weekly report digest" }),
+    ).toBeTruthy();
   });
 
   test("renders multiple skills as stacked rows in a single card", () => {
-    const { container, getByText, getAllByRole } = renderCard(
+    const { container, getByText, getByRole } = renderCard(
       makeSurface({
         data: {
           skills: [
@@ -77,13 +79,15 @@ describe("SkillCreatedCard", () => {
 
     expect(getByText("Skill one")).toBeTruthy();
     expect(getByText("Skill two")).toBeTruthy();
-    expect(getAllByRole("button", { name: "View" })).toHaveLength(2);
+    // Each row's action carries a skill-specific accessible name.
+    expect(getByRole("button", { name: "View Skill one" })).toBeTruthy();
+    expect(getByRole("button", { name: "View Skill two" })).toBeTruthy();
     // One card (SurfaceContainer), not one per skill.
     expect(container.querySelectorAll(".rounded-lg")).toHaveLength(1);
   });
 
   test("View navigates to the Skills tab deep-link for the clicked skill", () => {
-    const { getAllByRole, getByTestId } = renderCard(
+    const { getByRole, getByTestId } = renderCard(
       makeSurface({
         data: {
           skills: [
@@ -94,7 +98,7 @@ describe("SkillCreatedCard", () => {
       }),
     );
 
-    fireEvent.click(getAllByRole("button", { name: "View" })[1]!);
+    fireEvent.click(getByRole("button", { name: "View Skill two" }));
 
     expect(getByTestId("location").textContent).toBe(
       "/assistant/skills?skill=skill-2",
@@ -143,7 +147,7 @@ describe("SkillCreatedCard", () => {
 
     expect(getByText("Valid skill")).toBeTruthy();
     expect(queryByText("Missing id")).toBeNull();
-    expect(getAllByRole("button", { name: "View" })).toHaveLength(1);
+    expect(getAllByRole("button", { name: /^View / })).toHaveLength(1);
   });
 });
 

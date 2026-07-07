@@ -67,8 +67,7 @@ export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
   const navigate = useNavigate();
   const skills = parseSkills(surface.data.skills);
 
-  // Single navigation target for every row so a later change (e.g. an
-  // in-chat skill detail sidepanel) rewires the card in one place.
+  // Every row deep-links to the Skills tab with the clicked skill selected.
   const handleView = (skillId: string) => {
     navigate(`${routes.skills}?skill=${encodeURIComponent(skillId)}`);
   };
@@ -110,6 +109,7 @@ export function SkillCreatedCard({ surface, onAction }: SkillCreatedCardProps) {
             <Button
               variant="outlined"
               size="compact"
+              aria-label={`View ${skill.name}`}
               onClick={() => handleView(skill.skillId)}
             >
               View
