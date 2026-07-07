@@ -218,6 +218,7 @@ function Toaster() {
     <div data-slot="toaster">
       <SonnerToaster
         position="bottom-center"
+        offset="24px"
         toastOptions={{
           unstyled: true,
           style: { width: "356px" },
