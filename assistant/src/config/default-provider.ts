@@ -14,8 +14,8 @@ import type { AssistantConfig } from "./types.js";
  * config to stay pure (callers that already hold a config avoid a redundant
  * disk read); otherwise falls back to `getConfigReadOnly()`.
  *
- * INERT accessor — nothing in this PR resolves a call site's provider from
- * this value. Resolution lands in Milestone 6.
+ * No call-site resolution consumes this value; it is state for the default
+ * inference identity (see `DefaultProviderSchema`).
  */
 export function getDefaultProvider(
   config?: AssistantConfig,

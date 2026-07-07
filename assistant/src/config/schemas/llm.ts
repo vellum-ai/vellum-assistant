@@ -480,23 +480,48 @@ type LLMCallSiteConfig = z.infer<typeof LLMCallSiteConfig>;
 // ---------------------------------------------------------------------------
 
 /**
- * Pins which provider backs the workspace's "default" inference identity
- * (INERT in this PR — nothing reads this field for resolution yet; see
- * Milestone 6). `connectionName` optionally pins a specific
- * `provider_connections` row; when absent, the resolving convention lives in
+ * Pins which provider backs the workspace's "default" inference identity.
+ * `connectionName` optionally pins a specific `provider_connections` row;
+ * when absent, the resolving convention lives in
  * `resolveDefaultConnectionName` (`../default-provider.js`).
  *
  * Deliberately has no cross-field validation here: schema validation is
  * pure/sync and cannot see the sqlite `provider_connections` table, so a
  * `connectionName` that doesn't (yet) exist is allowed by design — a dangling
- * reference is reported as an explainable resolution error at read time
- * (Milestone 6), not rejected at write time.
+ * reference is surfaced as an explainable resolution error at read time, not
+ * rejected at write time.
  */
 export const DefaultProviderSchema = z.object({
   provider: DefaultProviderEnum,
   connectionName: z.string().min(1).optional(),
 });
 export type DefaultProviderConfig = z.infer<typeof DefaultProviderSchema>;
+
+/**
+ * `DefaultProviderSchema` wrapped so validation failures are reported as a
+ * single issue at the `defaultProvider` path itself, never at a nested leaf.
+ *
+ * The config loader's recovery pass deletes the exact key at each issue path
+ * and re-parses. With a plain nested object schema, an invalid `provider`
+ * alongside a valid `connectionName` would recover to
+ * `{ connectionName: ... }` — which fails the re-parse (missing `provider`)
+ * and escalates a one-field typo into a full config-defaults fallback.
+ * Failing atomically makes recovery drop the whole `defaultProvider` object
+ * and leave the rest of `llm` intact.
+ */
+const DefaultProviderField = z.unknown().transform((val, ctx) => {
+  const parsed = DefaultProviderSchema.safeParse(val);
+  if (!parsed.success) {
+    ctx.addIssue({
+      code: "custom",
+      message: `Invalid defaultProvider (${parsed.error.issues
+        .map((i) => `${i.path.join(".") || "value"}: ${i.message}`)
+        .join("; ")})`,
+    });
+    return z.NEVER;
+  }
+  return parsed.data;
+});
 
 // ---------------------------------------------------------------------------
 // Top-level LLM schema
@@ -523,7 +548,7 @@ export const LLMSchema = z
     advisorProfile: z.string().min(1).optional(),
     // Optional and additive: absent on existing configs (a later PR backfills
     // it). See `DefaultProviderSchema` above for the field contract.
-    defaultProvider: DefaultProviderSchema.optional(),
+    defaultProvider: DefaultProviderField.optional(),
     // TTL bounds for inference profile sessions. `defaultTtlSeconds` is read by
     // the CLI to apply when `--ttl` is omitted; the daemon handler itself only
     // reads `maxTtlSeconds` (to clamp caller-supplied values).

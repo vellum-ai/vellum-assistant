@@ -106,6 +106,43 @@ describe("LLMSchema.defaultProvider", () => {
     const parsed = LLMSchema.parse({});
     expect(parsed.defaultProvider).toBeUndefined();
   });
+
+  // The loader's recovery pass deletes the key at each issue path and
+  // re-parses. Every defaultProvider failure must therefore be reported at
+  // the `defaultProvider` path itself (never a nested leaf), so recovery
+  // drops the whole object instead of leaving a fragment like
+  // `{ connectionName }` that fails the re-parse and escalates to a full
+  // config-defaults fallback.
+  test("reports failures atomically at the defaultProvider path", () => {
+    const result = LLMSchema.safeParse({
+      profiles: {},
+      defaultProvider: { provider: "not-a-provider", connectionName: "x" },
+    });
+    expect(result.success).toBe(false);
+    if (result.success) {
+      return;
+    }
+    const dpIssues = result.error.issues.filter(
+      (i) => i.path[0] === "defaultProvider",
+    );
+    expect(dpIssues.length).toBeGreaterThan(0);
+    for (const issue of dpIssues) {
+      expect(issue.path).toEqual(["defaultProvider"]);
+    }
+  });
+
+  test("recovery deleting defaultProvider yields a valid config", () => {
+    const raw: Record<string, unknown> = {
+      activeProfile: undefined,
+      defaultProvider: { provider: "not-a-provider", connectionName: "x" },
+    };
+    const first = LLMSchema.safeParse(raw);
+    expect(first.success).toBe(false);
+    // Simulate the loader: delete the exact key at the issue path.
+    delete raw.defaultProvider;
+    const second = LLMSchema.safeParse(raw);
+    expect(second.success).toBe(true);
+  });
 });
 
 describe("resolveDefaultConnectionName", () => {
