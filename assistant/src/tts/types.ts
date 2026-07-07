@@ -104,6 +104,14 @@ export interface TtsSynthesisRequest {
    * actual format of the returned audio.
    */
   outputFormat?: "pcm";
+
+  /**
+   * Optional preferred output sample rate in Hz, meaningful with
+   * `outputFormat: "pcm"`. Providers pick the nearest rate they support;
+   * callers must not assume the hint was honoured exactly and should rely
+   * on provider-documented behavior (see each provider's format mapping).
+   */
+  sampleRateHz?: number;
 }
 
 /** Output of a completed TTS synthesis call. */
