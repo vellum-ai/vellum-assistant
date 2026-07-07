@@ -35,6 +35,8 @@ export interface SlackChannelOverridePanelProps {
    * so a stored tier can't be misread (and overwritten) as the default.
    */
   loading?: boolean;
+  /** True when overrides failed to load; the picker stays disabled. */
+  error?: boolean;
   onTierChange: (tier: SlackCapabilityTier) => void;
   onReset: () => void;
 }
@@ -52,13 +54,15 @@ export function SlackChannelOverridePanel({
   admissionPolicy,
   settings,
   loading = false,
+  error = false,
   onTierChange,
   onReset,
 }: SlackChannelOverridePanelProps) {
+  const unavailable = loading || error;
   const tierItems = CAPABILITY_TIER_VALUES.map((tier) => ({
     value: tier,
     label: CAPABILITY_TIER_META[tier].label,
-    disabled: loading,
+    disabled: unavailable,
   }));
   const tierMeta = CAPABILITY_TIER_META[settings.tier];
 
@@ -122,6 +126,14 @@ export function SlackChannelOverridePanel({
             className="text-[color:var(--content-tertiary)]"
           >
             Loading…
+          </Typography>
+        ) : error ? (
+          <Typography
+            as="span"
+            variant="body-small-default"
+            className="text-[color:var(--content-negative)]"
+          >
+            Couldn’t load — try reopening this page
           </Typography>
         ) : settings.overridden ? (
           <Tag tone="warning">overridden</Tag>

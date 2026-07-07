@@ -43,19 +43,22 @@ export const CAPABILITY_TIER_META: Record<SlackCapabilityTier, CapabilityTierMet
   strict: {
     label: presetFromThreshold("none").label,
     sublabel: "read + reply only",
-    description: "Read and reply only — no tools run from this channel.",
+    description:
+      "Nothing is auto-approved — every tool call from this channel asks first.",
     tone: "negative",
   },
   standard: {
     label: "Standard",
     sublabel: "reply + safe tools",
-    description: "Reply and safe tools. Sensitive tools require approval.",
+    description:
+      "Safe, low-risk tools are auto-approved; anything sensitive still asks.",
     tone: "warning",
   },
   full_access: {
     label: presetFromThreshold("high").label,
     sublabel: "all tools",
-    description: "All tools the assistant has access to, within global gating.",
+    description:
+      "All tools auto-approve in this channel, even when the global setting is stricter. Sensitive-tool protections still apply.",
     tone: "positive",
   },
 };
