@@ -12,6 +12,7 @@ import type { TtsXaiProviderConfig } from "../../config/schemas/tts.js";
 import { credentialKey } from "../../security/credential-key.js";
 import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
+import { resolvePcmOutputSampleRateHz } from "../pcm-sample-rates.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
 import type {
   TtsProvider,
@@ -50,6 +51,16 @@ export class XaiTtsError extends Error {
 
 const XAI_API_BASE = "https://api.x.ai";
 
+/**
+ * Sample rates xAI TTS accepts (both REST and WS). Per
+ * https://docs.x.ai/developers/model-capabilities/audio/text-to-speech these
+ * are 8/16/22.05/24/44.1/48 kHz; the list intentionally matches the
+ * `services.tts.providers.xai.sampleRate` config validation.
+ */
+const SUPPORTED_PCM_SAMPLE_RATES_HZ = [
+  8_000, 16_000, 22_050, 24_000, 44_100, 48_000,
+] as const;
+
 /** Map from xAI codec names to MIME content types. */
 const FORMAT_CONTENT_TYPE: Record<string, string> = {
   mp3: "audio/mpeg",
@@ -73,15 +84,19 @@ interface XaiOutputParams {
   contentTypeKey: string;
 }
 
+/** PCM rate resolver bound to the xAI-supported rate list (e.g. 96 kHz → 48 kHz). */
+const resolveXaiPcmSampleRateHz = (request: TtsSynthesisRequest) =>
+  resolvePcmOutputSampleRateHz(request, SUPPORTED_PCM_SAMPLE_RATES_HZ);
+
 /**
  * Resolve the xAI output codec, sample rate, and bit rate based on the
  * synthesis request and provider config.
  *
  * **PCM path** (`outputFormat: "pcm"`):
  *   The media-stream transport needs raw headerless PCM for mu-law transcoding.
- *   We request `codec=pcm&sample_rate=16000` — matching the shared 16 kHz
- *   no-hint PCM default across TTS providers and the downstream
- *   `audioBufferToFrames` expectation (16 kHz -> 8 kHz downsample).
+ *   We request `codec=pcm` at the request's `sampleRateHz` hint clamped to the
+ *   nearest xAI-supported rate, defaulting to 16 kHz when no hint is given
+ *   (the shared no-hint convention across TTS providers).
  *
  * **MP3 path** (`config.format === "mp3"`):
  *   Uses the configured sample rate and bit rate.
@@ -93,10 +108,11 @@ function resolveOutputParams(
   request: TtsSynthesisRequest,
   config: TtsXaiProviderConfig,
 ): XaiOutputParams {
-  if (request.outputFormat === "pcm") {
+  const pcmSampleRateHz = resolveXaiPcmSampleRateHz(request);
+  if (pcmSampleRateHz != null) {
     return {
       codec: "pcm",
-      sample_rate: 16_000,
+      sample_rate: pcmSampleRateHz,
       contentTypeKey: "pcm",
     };
   }
@@ -134,6 +150,7 @@ export function createXaiProvider(): TtsProvider {
   return {
     id: "xai",
     capabilities,
+    resolveOutputSampleRateHz: resolveXaiPcmSampleRateHz,
 
     async synthesize(
       request: TtsSynthesisRequest,
