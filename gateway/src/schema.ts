@@ -3349,6 +3349,70 @@ export function buildSchema(): Record<string, unknown> {
           },
         },
       },
+      "/v1/channel-permission-overrides": {
+        get: {
+          summary: "List channel-permission matrix cells",
+          description:
+            "Authenticated gateway endpoint that lists every persisted channel-permission cell (cascade selector × contact-type → RiskThreshold) from the SQLite-backed store. Unset cells fall through the cascade, so the list contains only explicit overrides.",
+          operationId: "channelPermissionOverridesGet",
+          security: [{ BearerAuth: [] }],
+          responses: {
+            "200": { description: "Channel permission cells returned" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+        put: {
+          summary: "Upsert a channel-permission matrix cell",
+          description:
+            "Authenticated gateway endpoint that upserts one channel-permission cell, identified by the selector × contact-type in the body. The selector's adapter must be a known channel id.",
+          operationId: "channelPermissionOverridePut",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel permission cell upserted" },
+            "400": { description: "Invalid request payload or adapter" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
+      "/v1/channel-permission-overrides/delete": {
+        post: {
+          summary: "Delete a channel-permission matrix cell",
+          description:
+            "Authenticated gateway endpoint that removes one channel-permission cell by its composite key (selector × contact-type), letting the next cascade tier up win. A POST verb path because cells have no row id and DELETE request bodies are unreliable through proxies.",
+          operationId: "channelPermissionOverrideDelete",
+          security: [{ BearerAuth: [] }],
+          requestBody: {
+            required: true,
+            content: {
+              "application/json": {
+                schema: { type: "object", additionalProperties: true },
+              },
+            },
+          },
+          responses: {
+            "200": { description: "Channel permission cell removal reported" },
+            "400": { description: "Invalid request payload or adapter" },
+            "401": {
+              description: "Unauthorized — missing or invalid bearer token",
+            },
+            "500": { description: "Internal server error" },
+          },
+        },
+      },
       "/integrations/status": {
         get: {
           summary: "Integration status",

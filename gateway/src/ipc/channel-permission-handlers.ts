@@ -7,21 +7,14 @@
  * per-tool-call evaluator.
  */
 
-import { z } from "zod";
-
 import {
+  ChannelPermissionCellKeySchema,
   ChannelPermissionCellSchema,
-  ChannelPermissionSelectorSchema,
   ResolveChannelPermissionRequestSchema,
 } from "@vellumai/gateway-client";
 import { ChannelPermissionStore } from "../db/channel-permission-store.js";
 import { isChannelId } from "../channels/types.js";
 import type { IpcRoute } from "./server.js";
-
-const DeleteCellSchema = z.object({
-  selector: ChannelPermissionSelectorSchema,
-  contactType: ChannelPermissionCellSchema.shape.contactType,
-});
 
 /**
  * Selectors carry the adapter as free text in the shared contract (the
@@ -65,9 +58,9 @@ export const channelPermissionRoutes: IpcRoute[] = [
   },
   {
     method: "delete_channel_permission_override",
-    schema: DeleteCellSchema,
+    schema: ChannelPermissionCellKeySchema,
     handler: (params?: Record<string, unknown>) => {
-      const parsed = DeleteCellSchema.parse(params ?? {});
+      const parsed = ChannelPermissionCellKeySchema.parse(params ?? {});
       const store = new ChannelPermissionStore();
       return { removed: store.remove(parsed.selector, parsed.contactType) };
     },

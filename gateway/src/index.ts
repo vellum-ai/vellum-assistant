@@ -132,6 +132,11 @@ import {
   createChannelAdmissionPolicySetHandler,
   createChannelAdmissionPolicyDeleteHandler,
 } from "./http/routes/channel-admission-policy.js";
+import {
+  createChannelPermissionOverridesListHandler,
+  createChannelPermissionOverrideSetHandler,
+  createChannelPermissionOverrideDeleteHandler,
+} from "./http/routes/channel-permission-overrides.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
 import {
@@ -540,6 +545,12 @@ async function main() {
     createChannelAdmissionPolicySetHandler();
   const handleChannelAdmissionPolicyDelete =
     createChannelAdmissionPolicyDeleteHandler();
+  const handleChannelPermissionOverridesList =
+    createChannelPermissionOverridesListHandler();
+  const handleChannelPermissionOverrideSet =
+    createChannelPermissionOverrideSetHandler();
+  const handleChannelPermissionOverrideDelete =
+    createChannelPermissionOverrideDeleteHandler();
 
   const handleAgentCard = createAgentCardHandler(configFileCache);
 
@@ -1576,6 +1587,59 @@ async function main() {
       scope: "settings.write",
       handler: (req, params) =>
         handleChannelAdmissionPolicyDelete(req, params[0]),
+    },
+
+    // ── Channel permission overrides (matrix cells) — flat routes ──
+    // HTTP mirror of the channel-permission IPC surface so configuration
+    // clients can read/write cascade cells. Gateway-owned storage; same
+    // platform-proxy path shape as channel-admission-policy above. The
+    // delete is a POST verb path because cells are keyed by a composite
+    // (selector × contact-type), not a row id.
+    {
+      path: /^\/v1\/channel-permission-overrides\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelPermissionOverridesList(req),
+    },
+    {
+      path: /^\/v1\/channel-permission-overrides\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleChannelPermissionOverrideSet(req),
+    },
+    {
+      path: /^\/v1\/channel-permission-overrides\/delete\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleChannelPermissionOverrideDelete(req),
+    },
+
+    // ── Channel permission overrides — assistant-scoped variants ──
+    // Matrix cells are gateway-global, so the assistant id is matched and
+    // discarded — same precedent as channel-admission-policy above.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-permission-overrides\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelPermissionOverridesList(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-permission-overrides\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleChannelPermissionOverrideSet(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-permission-overrides\/delete\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleChannelPermissionOverrideDelete(req),
     },
 
     // ── Trust rules v3 — assistant-scoped variants ──
