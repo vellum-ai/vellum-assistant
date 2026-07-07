@@ -28558,8 +28558,8 @@ paths:
           schema:
             type: string
           description:
-            A subagent role name (general, researcher, coder, planner, investigator, advisor) or a live subagent id.
-            Simulates the subagent tool projection for that role or resolves the live subagent's conversation.
+            A subagent role name or a live subagent id. Simulates the subagent tool projection for that role or
+            resolves the live subagent's conversation.
       responses:
         "200":
           description: Successful response
