@@ -15,7 +15,7 @@
  *   via `sendPlayUrl()`.
  */
 
-import { getCatalogProvider, getTtsProvider } from "../tts/provider-catalog.js";
+import { getCatalogProvider } from "../tts/provider-catalog.js";
 import {
   type AudioStoreSink,
   createAudioStoreSink,
@@ -25,7 +25,7 @@ import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import type { CallTransport } from "./call-transport.js";
 import {
-  findPlayableTelephonyTtsFallback,
+  findPlayableTelephonyTtsFallbackProvider,
   resolveCallTtsProvider,
 } from "./resolve-call-tts-provider.js";
 
@@ -182,12 +182,9 @@ async function synthesizeAndPlay(
       // back through the same synthesis path, so retry once with a
       // playable fallback provider before degrading to end-of-turn only.
       if (!isFallbackRetry) {
-        const fallbackId = await findPlayableTelephonyTtsFallback(
-          provider.id as TtsProviderId,
+        const fallbackProvider = await findPlayableTelephonyTtsFallbackProvider(
+          provider.id,
         );
-        const fallbackProvider = fallbackId
-          ? lookupRegisteredProvider(fallbackId)
-          : null;
         if (fallbackProvider) {
           log.warn(
             {
@@ -253,14 +250,5 @@ async function synthesizeAndPlay(
     relay.sendTextToken(text, true);
   } finally {
     sink?.finalize();
-  }
-}
-
-/** Look up a registered provider, returning null instead of throwing. */
-function lookupRegisteredProvider(id: string): TtsProvider | null {
-  try {
-    return getTtsProvider(id);
-  } catch {
-    return null;
   }
 }

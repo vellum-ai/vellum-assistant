@@ -19,7 +19,7 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
-import { getCatalogProvider, getTtsProvider } from "../tts/provider-catalog.js";
+import { getCatalogProvider } from "../tts/provider-catalog.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import {
   type AudioStoreSink,
@@ -57,7 +57,7 @@ import { finalizeCall } from "./finalize-call.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
 import {
-  findPlayableTelephonyTtsFallback,
+  findPlayableTelephonyTtsFallbackProvider,
   resolveCallTtsProvider,
 } from "./resolve-call-tts-provider.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
@@ -79,16 +79,13 @@ import {
 
 const log = getLogger("call-controller");
 
-/** Look up a registered provider, returning null instead of throwing. */
-function lookupRegisteredTtsProvider(id: string): TtsProvider | null {
-  try {
-    return getTtsProvider(id);
-  } catch {
-    return null;
-  }
-}
-
 type ControllerState = "idle" | "processing" | "speaking";
+
+/** Outcome of one segment's synthesis attempt. */
+type SegmentSynthesisStatus =
+  | "ok"
+  | "failed-before-audio"
+  | "failed-after-audio";
 
 /**
  * Tracks a pending guardian input request independently of the controller's
@@ -702,11 +699,8 @@ export class CallController {
       segment: string,
     ): Promise<void> => {
       if (wavFallbackProvider === undefined) {
-        const fallbackId =
-          await findPlayableTelephonyTtsFallback(failedProviderId);
-        wavFallbackProvider = fallbackId
-          ? lookupRegisteredTtsProvider(fallbackId)
-          : null;
+        wavFallbackProvider =
+          await findPlayableTelephonyTtsFallbackProvider(failedProviderId);
         if (wavFallbackProvider) {
           log.warn(
             {
@@ -722,14 +716,16 @@ export class CallController {
           );
         }
       }
-      if (!wavFallbackProvider || !this.isCurrentRun(runVersion)) return;
-      const fallbackFailed = await this.synthesizeAndStreamAudio(
+      if (!wavFallbackProvider || !this.isCurrentRun(runVersion)) {
+        return;
+      }
+      const fallbackStatus = await this.synthesizeAndStreamAudio(
         wavFallbackProvider,
         segment,
         runVersion,
         audioFormat,
       );
-      if (fallbackFailed) {
+      if (fallbackStatus !== "ok") {
         // The fallback provider is failing too — stop retrying.
         wavFallbackProvider = null;
       }
@@ -744,15 +740,27 @@ export class CallController {
           if (!this.isCurrentRun(runVersion) || synthesisFailure) return;
           try {
             if (!synthesisFellBack) {
-              synthesisFellBack = await this.synthesizeAndStreamAudio(
+              const status = await this.synthesizeAndStreamAudio(
                 ttsProvider,
                 segment,
                 runVersion,
                 audioFormat,
               );
-              if (!synthesisFellBack || !this.transport.requiresWavAudio) {
-                // Success, abort, or the failed segment's text already
-                // went out as native tokens inside synthesizeAndStreamAudio.
+              if (status === "ok") {
+                return;
+              }
+              synthesisFellBack = true;
+              if (!this.transport.requiresWavAudio) {
+                // synthesizeAndStreamAudio already handled the failed
+                // segment: its text went out as native tokens, or its
+                // partially-played audio stands.
+                return;
+              }
+              if (status === "failed-after-audio") {
+                // The segment's play URL already reached the caller, so
+                // the truncated audio stands — a fallback re-synthesis
+                // would speak the whole segment a second time. Later
+                // segments still route through the fallback provider.
                 return;
               }
             } else if (!this.transport.requiresWavAudio) {
@@ -943,22 +951,24 @@ export class CallController {
    * Synthesize text via a streaming TTS provider and forward audio chunks
    * to Twilio through the audio store / play-URL mechanism.
    *
-   * @returns `true` when provider synthesis failed on a provider whose
-   *   catalog entry allows fallback. On transports that accept text
-   *   tokens the failed text has already been sent natively (unless its
-   *   play URL was already delivered); on WAV-requiring transports
-   *   nothing was sent — the caller owns the fallback-provider retry.
-   *   Callers keep subsequent segments off the failed provider so text
-   *   is never spoken out of order. `false` on success or abort.
-   *   Rethrows when the provider's catalog entry has
-   *   `allowNativeFallback: false`.
+   * @returns `"ok"` on success or abort. On a handled provider failure,
+   *   `"failed-before-audio"` when the segment's play URL never went out:
+   *   on transports that accept text tokens the failed text has already
+   *   been sent natively; on WAV-requiring transports nothing was sent —
+   *   the caller owns the fallback-provider retry. `"failed-after-audio"`
+   *   when the provider failed mid-stream after the play URL was
+   *   delivered: the caller hears the truncated audio and nothing more is
+   *   sent for this segment on either transport — re-speaking it would
+   *   duplicate what already played. Callers keep subsequent segments off
+   *   the failed provider so text is never spoken out of order. Rethrows
+   *   when the provider's catalog entry has `allowNativeFallback: false`.
    */
   private async synthesizeAndStreamAudio(
     provider: TtsProvider,
     text: string,
     runVersion: number,
     format: "mp3" | "wav" | "opus" = "mp3",
-  ): Promise<boolean> {
+  ): Promise<SegmentSynthesisStatus> {
     let sink: AudioStoreSink | null = null;
     let playUrlSent = false;
     const abortController = new AbortController();
@@ -1008,7 +1018,7 @@ export class CallController {
           { provider: provider.id },
           "TTS synthesis aborted (barge-in)",
         );
-        return false;
+        return "ok";
       } else {
         // Extract error class and code for diagnosable log entries.
         const errName = err instanceof Error ? err.name : String(err);
@@ -1053,7 +1063,7 @@ export class CallController {
           // the segment was trimmed at extraction.
           this.transport.sendTextToken(`${text} `, false);
         }
-        return true;
+        return playUrlSent ? "failed-after-audio" : "failed-before-audio";
       }
     } finally {
       // Identity-guarded: a late-finishing stale segment must not clear a
@@ -1063,7 +1073,7 @@ export class CallController {
       }
       sink?.finalize();
     }
-    return false;
+    return "ok";
   }
 
   /**

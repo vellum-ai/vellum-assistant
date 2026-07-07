@@ -3074,6 +3074,7 @@ describe("call-controller", () => {
     onSynthesizeStream?: (
       text: string,
       request: import("../tts/types.js").TtsSynthesisRequest,
+      onChunk: (chunk: Buffer) => void,
     ) => Promise<void>;
   }): { synthesizedTexts: string[] } {
     const cfg = loadConfig();
@@ -3093,7 +3094,7 @@ describe("call-controller", () => {
       },
       async synthesizeStream(request, onChunk) {
         synthesizedTexts.push(request.text);
-        await opts?.onSynthesizeStream?.(request.text, request);
+        await opts?.onSynthesizeStream?.(request.text, request, onChunk);
         onChunk(Buffer.from(`audio:${request.text}`));
         return {
           audio: Buffer.from(`audio:${request.text}`),
@@ -3341,14 +3342,50 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("synthesized provider: a mid-stream failure after the play URL went out is not re-sent natively; later segments take the native route", async () => {
+    const { synthesizedTexts } = registerFishAudioSegmentRecorder({
+      onSynthesizeStream: async (_text, _request, onChunk) => {
+        onChunk(Buffer.from("partial-audio"));
+        // Let the queued emit flush so the play URL goes out before the
+        // failure lands (mirrors a real mid-stream stall).
+        await new Promise((r) => setTimeout(r, 0));
+        throw new Error("fish-audio mid-stream failure");
+      },
+    });
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["First part is done. ", "Second part is done."]),
+    );
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    // The failed segment's truncated audio already played, so its text is
+    // never re-sent as native tokens; later segments still take the
+    // native route.
+    expect(synthesizedTexts).toEqual(["First part is done."]);
+    expect(relay.sentPlayUrls.length).toBe(1);
+    const tokenTexts = relay.sentTokens
+      .filter((t) => t.token.length > 0)
+      .map((t) => t.token);
+    expect(tokenTexts).toEqual(["Second part is done. "]);
+    const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
+    expect(lastToken).toEqual({ token: "", last: true });
+
+    controller.destroy();
+  });
+
   // ── Per-segment fallback on WAV-requiring transports ────────────────
 
   /**
    * Register a failing fish-audio primary and a recording elevenlabs
    * fallback, with fish-audio configured as the active provider. Used by
-   * the WAV-transport segment-fallback tests.
+   * the WAV-transport segment-fallback tests. With
+   * `fishEmitsChunkBeforeFailing`, the primary emits one audio chunk (so
+   * the play URL reaches the transport) before failing mid-stream.
    */
-  function registerWavFallbackProviders(): {
+  function registerWavFallbackProviders(opts?: {
+    fishEmitsChunkBeforeFailing?: boolean;
+  }): {
     fishTexts: string[];
     fallbackTexts: string[];
   } {
@@ -3384,8 +3421,15 @@ describe("call-controller", () => {
       async synthesize() {
         throw new Error("fish-audio synth failure");
       },
-      async synthesizeStream(request) {
+      async synthesizeStream(request, onChunk) {
         fishTexts.push(request.text);
+        if (opts?.fishEmitsChunkBeforeFailing) {
+          onChunk(Buffer.from("partial-fish-audio"));
+          // Let the queued emit flush so the play URL reaches the
+          // transport before the failure lands (mirrors a real
+          // mid-stream stall).
+          await new Promise((r) => setTimeout(r, 0));
+        }
         throw new Error("fish-audio stream failure");
       },
     };
@@ -3415,6 +3459,33 @@ describe("call-controller", () => {
     ]);
     expect(relay.sentPlayUrls.length).toBe(2);
     // No text routes through native tokens on a WAV transport.
+    expect(relay.sentTokens.filter((t) => t.token.length > 0)).toEqual([]);
+    const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
+    expect(lastToken).toEqual({ token: "", last: true });
+
+    controller.destroy();
+  });
+
+  test("WAV transport: a mid-stream failure after audio reached the caller is not re-spoken, but later segments use the fallback", async () => {
+    const { fishTexts, fallbackTexts } = registerWavFallbackProviders({
+      fishEmitsChunkBeforeFailing: true,
+    });
+    mockStartVoiceTurn.mockImplementation(
+      createMockVoiceTurn(["First part is done. ", "Second part is done."]),
+    );
+    const { relay, controller } = setupController(undefined, {
+      requiresWavAudio: true,
+    });
+
+    await controller.handleCallerUtterance("Hi");
+
+    // The failed segment's play URL already went out — the caller heard
+    // its truncated audio, so a fallback re-synthesis would speak the
+    // whole segment a second time. Only later segments route through
+    // the fallback provider.
+    expect(fishTexts).toEqual(["First part is done."]);
+    expect(fallbackTexts).toEqual(["Second part is done."]);
+    expect(relay.sentPlayUrls.length).toBe(2);
     expect(relay.sentTokens.filter((t) => t.token.length > 0)).toEqual([]);
     const lastToken = relay.sentTokens[relay.sentTokens.length - 1];
     expect(lastToken).toEqual({ token: "", last: true });
