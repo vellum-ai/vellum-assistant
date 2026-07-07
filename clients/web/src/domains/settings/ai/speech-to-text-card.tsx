@@ -2,10 +2,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { TriangleAlert } from "lucide-react";
 
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
+import {
+    configGetOptions,
+    configGetQueryKey,
+} from "@/generated/daemon/@tanstack/react-query.gen";
+import { configPatch, credentialsSetPost } from "@/generated/daemon/sdk.gen";
+import { useDraftOverride } from "@/domains/settings/ai/use-draft-override";
+import { useIsOrgReady } from "@/hooks/use-is-org-ready";
 import { isNativeDictationSupported } from "@/runtime/native-dictation-partials";
 import { getLocalSetting, setLocalSetting } from "@/utils/local-settings";
 import { Dropdown } from "@vellumai/design-library/components/dropdown";
 import { Input } from "@vellumai/design-library/components/input";
+import { toast } from "@vellumai/design-library/components/toast";
 
 import {
     ByoServiceCard,
@@ -16,7 +27,36 @@ import {
 import { LS_STT_API_KEY_PREFIX, LS_STT_PROVIDER } from "@/domains/settings/ai/local-storage-keys";
 import { MACOS_NATIVE_STT_PROVIDER_ID, STT_PROVIDERS } from "@/domains/settings/ai/provider-catalogs";
 
+/**
+ * How the daemon addresses each card provider: `provider` is the
+ * `services.stt.provider` value (the card id and daemon id differ for
+ * Whisper), and `credentialService` is the CES namespace for its key.
+ * Client-only providers (macOS native dictation) are absent — they never
+ * touch the daemon.
+ */
+const STT_DAEMON_PROVIDER: Record<
+  string,
+  { provider: string; credentialService: string }
+> = {
+  deepgram: { provider: "deepgram", credentialService: "deepgram" },
+  openai: { provider: "openai-whisper", credentialService: "openai" },
+};
+
+/**
+ * Reverse of `STT_DAEMON_PROVIDER.provider`: maps a `services.stt.provider`
+ * daemon id back to the card id used by the dropdown. Only representable
+ * daemon providers appear here; ones the static dropdown can't show
+ * (e.g. google-gemini/xai) are intentionally absent so we never coerce them.
+ */
+const CARD_ID_BY_DAEMON_PROVIDER: Record<string, string> = {
+  deepgram: "deepgram",
+  "openai-whisper": "openai",
+};
+
 export function SpeechToTextCard() {
+  const assistantId = useActiveAssistantId();
+  const isOrgReady = useIsOrgReady();
+  const queryClient = useQueryClient();
   // Capability is fixed for the renderer's lifetime, so compute the offered
   // list once: the native provider only exists inside the macOS Electron
   // shell, where the helper's SFSpeechRecognizer bridge is wired.
@@ -26,16 +66,37 @@ export function SpeechToTextCard() {
     ),
   );
   const defaultProviderId = providers[0]?.id ?? "deepgram";
-  const [draftProvider, setDraftProvider] = useState<string>(() => {
-    const stored = getLocalSetting(LS_STT_PROVIDER, defaultProviderId);
-    // A stored choice this build can't honor (e.g. the native provider
-    // outside the Electron shell) falls back to the default instead of
-    // rendering an empty dropdown.
-    return providers.some((p) => p.id === stored) ? stored : defaultProviderId;
+
+  // Seed the provider from the daemon's live config so a Save doesn't clobber a
+  // provider configured elsewhere (CLI/other client) when localStorage is stale
+  // — including daemon providers the static dropdown can't represent.
+  const { data: daemonConfig } = useQuery({
+    ...configGetOptions({ path: { assistant_id: assistantId } }),
+    enabled: isOrgReady,
+    staleTime: 30_000,
   });
-  const [initialProvider, setInitialProvider] = useState<string>(draftProvider);
+  // `services.stt` falls under the ConfigGetResponse index signature
+  // (`unknown`), so narrow it explicitly to read the provider.
+  const daemonSttProvider = (
+    daemonConfig?.services?.stt as { provider?: string } | undefined
+  )?.provider;
+
+  const serverProvider = useMemo(() => {
+    const mapped = daemonSttProvider
+      ? CARD_ID_BY_DAEMON_PROVIDER[daemonSttProvider]
+      : undefined;
+    // Keep the dropdown on a representable value even when the daemon uses one
+    // the card can't show, so we never coerce or clobber it.
+    if (mapped && providers.some((p) => p.id === mapped)) {return mapped;}
+    const stored = getLocalSetting(LS_STT_PROVIDER, defaultProviderId);
+    return providers.some((p) => p.id === stored) ? stored : defaultProviderId;
+  }, [daemonSttProvider, providers, defaultProviderId]);
+  const daemonHasProvider = !!daemonSttProvider;
+
+  const [draftProvider, setDraftProvider] = useDraftOverride(serverProvider);
   const [apiKeyText, setApiKeyText] = useState("");
   const [providerHasKey, setProviderHasKey] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   // Self-heal a stored native choice this build can't honor: the visual
   // fallback alone would leave localStorage pointing at a provider the
@@ -70,21 +131,94 @@ export function SpeechToTextCard() {
   }, [draftProvider]);
 
   const hasChanges = useMemo(() => {
-    const providerChanged = draftProvider !== initialProvider;
+    const providerChanged = draftProvider !== serverProvider;
     const hasNewKey = apiKeyText.trim().length > 0;
     return providerChanged || hasNewKey;
-  }, [draftProvider, initialProvider, apiKeyText]);
+  }, [draftProvider, serverProvider, apiKeyText]);
 
-  const handleSave = useCallback(() => {
-    setLocalSetting(LS_STT_PROVIDER, draftProvider);
+  const handleSave = useCallback(async () => {
     const trimmedKey = apiKeyText.trim();
+
+    // Local settings back the client-side voice path; keep them in sync.
+    setLocalSetting(LS_STT_PROVIDER, draftProvider);
     if (trimmedKey.length > 0) {
       setLocalSetting(LS_STT_API_KEY_PREFIX + draftProvider, trimmedKey);
-      setProviderHasKey(true);
     }
-    setInitialProvider(draftProvider);
-    setApiKeyText("");
-  }, [draftProvider, apiKeyText]);
+
+    // Provision the daemon too: the server-side live-voice session reads the
+    // credential store (CES) and `services.stt` config, never localStorage.
+    // macOS native dictation is client-only and has no daemon mapping.
+    const daemon = STT_DAEMON_PROVIDER[draftProvider];
+
+    setSaving(true);
+    try {
+      if (daemon) {
+        // Push the effective key (freshly typed, else the one already stored
+        // locally) so re-saving wires CES even when the masked field is left
+        // untouched.
+        const effectiveKey =
+          trimmedKey.length > 0
+            ? trimmedKey
+            : getLocalSetting(LS_STT_API_KEY_PREFIX + draftProvider, "");
+        if (effectiveKey.length > 0) {
+          const { response: keyRes } = await credentialsSetPost({
+            path: { assistant_id: assistantId },
+            body: {
+              service: daemon.credentialService,
+              field: "api_key",
+              value: effectiveKey,
+              label: `${selectedProvider.displayName} API Key`,
+            },
+            throwOnError: false,
+          });
+          if (!keyRes?.ok) {
+            throw new Error(`Failed to store API key (HTTP ${keyRes?.status ?? "?"})`);
+          }
+        }
+        // Only PATCH the provider when it truly diverges from the persisted
+        // value (or the daemon has none yet); otherwise a re-save with just a
+        // new key would silently switch a provider set elsewhere — including
+        // one the dropdown can't represent.
+        const shouldSetProvider =
+          draftProvider !== serverProvider || !daemonHasProvider;
+        if (shouldSetProvider) {
+          const { response: cfgRes } = await configPatch({
+            path: { assistant_id: assistantId },
+            body: { services: { stt: { provider: daemon.provider } } },
+            throwOnError: false,
+          });
+          if (!cfgRes?.ok) {
+            throw new Error(`Failed to save configuration (HTTP ${cfgRes?.status ?? "?"})`);
+          }
+        }
+      }
+
+      if (trimmedKey.length > 0) {
+        setProviderHasKey(true);
+      }
+      setApiKeyText("");
+      void queryClient.invalidateQueries({
+        queryKey: configGetQueryKey({ path: { assistant_id: assistantId } }),
+      });
+      toast.success("Speech-to-text settings saved");
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Failed to save speech-to-text settings",
+      );
+    } finally {
+      setSaving(false);
+    }
+  }, [
+    assistantId,
+    draftProvider,
+    apiKeyText,
+    selectedProvider,
+    serverProvider,
+    daemonHasProvider,
+    queryClient,
+  ]);
 
   const handleReset = useCallback(() => {
     setLocalSetting(LS_STT_API_KEY_PREFIX + draftProvider, "");
@@ -144,7 +278,7 @@ export function SpeechToTextCard() {
         )}
 
         <div className="flex items-center justify-end gap-2">
-          <SaveButton onClick={handleSave} disabled={!hasChanges} />
+          <SaveButton onClick={handleSave} disabled={!hasChanges || saving} />
           {providerHasKey && <ResetButton onClick={handleReset} />}
         </div>
       </div>
