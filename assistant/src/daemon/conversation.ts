@@ -246,7 +246,8 @@ export type {
   QueueDrainReason,
   QueuePolicy,
 } from "./conversation-queue-manager.js";
-import { isPersonalMemoryAllowed, type TrustContext } from "./trust-context.js";
+import { isPersonalMemoryAllowed } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 export interface ConversationConstructorOptions {
   maxTokens?: number;

@@ -5,7 +5,7 @@
 
 import type { ChannelId } from "../channels/types.js";
 import { getGuardianDelivery } from "../contacts/guardian-delivery-reader.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import { canonicalizeInboundIdentity } from "../util/canonicalize-identity.js";
 
 export interface ResolveLocalPrincipalTrustInput {

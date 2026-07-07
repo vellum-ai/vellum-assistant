@@ -13,7 +13,7 @@
  */
 
 import type { CanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   recordApprovalCardDelivery,
   recordGuardianRequestDeliveries,

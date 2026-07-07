@@ -19,7 +19,7 @@ import { getLogger } from "../../util/logger.js";
 import { joinWithSpacing } from "../../util/text-spacing.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
 import type { ConversationTransportMetadata } from "../message-protocol.js";
-import type { TrustContext } from "../trust-context.js";
+import type { TrustContext } from "../trust-context-types.js";
 
 const log = getLogger("handlers");
 

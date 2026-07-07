@@ -129,7 +129,7 @@ import {
 } from "../daemon/conversation-runtime-assembly.js";
 import type { SurfaceData, SurfaceType } from "../daemon/message-protocol.js";
 import { buildPkbReminder } from "../daemon/pkb-reminder-builder.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 import {
   type SlackMessageMetadata,
   writeSlackMetadata,

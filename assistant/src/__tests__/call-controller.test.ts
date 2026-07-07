@@ -407,7 +407,7 @@ function setupController(
   task?: string,
   opts?: {
     assistantId?: string;
-    trustContext?: import("../daemon/trust-context.js").TrustContext;
+    trustContext?: import("../daemon/trust-context-types.js").TrustContext;
     /** Simulate the media-stream transport's WAV requirement. */
     requiresWavAudio?: boolean;
   },

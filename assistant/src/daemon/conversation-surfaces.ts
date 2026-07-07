@@ -74,7 +74,7 @@ import type {
 import { INTERACTIVE_SURFACE_TYPES } from "./message-protocol.js";
 import type { HostAppControlInput } from "./message-types/host-app-control.js";
 import type { UserMessageAttachment } from "./message-types/shared.js";
-import type { TrustContext } from "./trust-context.js";
+import type { TrustContext } from "./trust-context-types.js";
 
 const log = getLogger("conversation-surfaces");
 

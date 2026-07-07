@@ -20,7 +20,7 @@ import {
   warmGuardianBindings,
 } from "../daemon/conversation-initial-prompt.js";
 import type { ConversationCreateOptions } from "../daemon/handlers/shared.js";
-import type { TrustContext } from "../daemon/trust-context.js";
+import type { TrustContext } from "../daemon/trust-context-types.js";
 
 function spyDeps() {
   const calls: string[] = [];
