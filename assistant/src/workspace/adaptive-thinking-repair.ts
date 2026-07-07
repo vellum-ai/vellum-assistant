@@ -32,7 +32,7 @@ import { getCatalogProviderForModel } from "../providers/model-catalog.js";
 //   - Resolve to a non-Anthropic provider (adaptive thinking is
 //     Anthropic-specific). Effective provider is the profile's explicit
 //     `provider`; otherwise the provider implied by a known catalog `model`
-//     (mirroring the resolver's withImpliedProviderForKnownModel); otherwise
+//     (mirroring the resolver's withImpliedProviders); otherwise
 //     llm.default.provider — with a completely absent llm.default.provider
 //     treated as Anthropic, matching migration 052's own `?? "anthropic"`
 //     default. This keeps the legacy non-Anthropic empty `{}` shells seeded by

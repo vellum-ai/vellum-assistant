@@ -1,4 +1,5 @@
 import type { ModelPricingOverride } from "../config/schema.js";
+import { isAnthropicDelegatingGateway } from "../providers/anthropic-gateway-shared.js";
 import type {
   CatalogModel,
   CatalogModelPricing,
@@ -150,14 +151,10 @@ export function usesAnthropicPricingRules(
   provider: string,
   model: string,
 ): boolean {
-  if (provider === "anthropic") return true;
-  if (
-    (provider === "openrouter" || provider === "vercel-ai-gateway") &&
-    isAnthropicModelId(model)
-  ) {
+  if (provider === "anthropic") {
     return true;
   }
-  return false;
+  return isAnthropicDelegatingGateway(provider) && isAnthropicModelId(model);
 }
 
 /**
@@ -394,10 +391,7 @@ export function resolvePricingForUsage(
   // up against the Anthropic catalog using the normalized bare slug. Both
   // gateways bill these calls at Anthropic's rates and the underlying Messages
   // API response includes Anthropic's cache- and speed-metadata fields.
-  if (
-    (provider === "openrouter" || provider === "vercel-ai-gateway") &&
-    isAnthropicModelId(model)
-  ) {
+  if (isAnthropicDelegatingGateway(provider) && isAnthropicModelId(model)) {
     const pricing = findPricing("anthropic", normalizeAnthropicModelId(model));
     if (pricing) {
       return {
