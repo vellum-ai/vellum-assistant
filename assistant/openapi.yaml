@@ -16277,6 +16277,40 @@ paths:
                 additionalProperties: false
         "409":
           description: Another memory item with this content already exists
+  /v1/memory/delete:
+    post:
+      operationId: memory_delete_post
+      summary: Delete a memory node by content match
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                content:
+                  type: string
+                  minLength: 1
+              required:
+                - content
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                required:
+                  - success
+                  - message
+                additionalProperties: false
   /v1/memory/eval/run:
     post:
       operationId: memory_eval_run_post
@@ -16526,6 +16560,99 @@ paths:
                   - gate
                   - confident
                   - notes
+                additionalProperties: false
+  /v1/memory/list:
+    get:
+      operationId: memory_list_get
+      summary: List active memory nodes
+      tags:
+        - memory
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Substring filter on content
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+          description: Max results (default 50, max 200)
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  nodes:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id:
+                          type: string
+                        content:
+                          type: string
+                        type:
+                          type: string
+                        fidelity:
+                          type: string
+                        created:
+                          type: number
+                      required:
+                        - id
+                        - content
+                        - type
+                        - fidelity
+                        - created
+                      additionalProperties: false
+                  total:
+                    type: number
+                required:
+                  - nodes
+                  - total
+                additionalProperties: false
+  /v1/memory/update:
+    post:
+      operationId: memory_update_post
+      summary: Update a memory node in place
+      tags:
+        - memory
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                old_content:
+                  type: string
+                  minLength: 1
+                new_content:
+                  type: string
+                  minLength: 1
+              required:
+                - old_content
+                - new_content
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                  message:
+                    type: string
+                required:
+                  - success
+                  - message
                 additionalProperties: false
   /v1/memory/v2/backfill:
     post:

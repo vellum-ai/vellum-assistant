@@ -8,6 +8,7 @@
  * into this shared array.
  */
 
+import { ROUTES as MEMORY_CLI_ROUTES } from "../../plugins/defaults/memory/routes/memory-cli-routes.js";
 import { ROUTES as MEMORY_EVAL_ROUTES } from "../../plugins/defaults/memory/routes/memory-eval-routes.js";
 import { ROUTES as MEMORY_ITEM_ROUTES } from "../../plugins/defaults/memory/routes/memory-item-routes.js";
 import { ROUTES as MEMORY_V2_ROUTES } from "../../plugins/defaults/memory/routes/memory-v2-routes.js";
@@ -227,6 +228,7 @@ export const ROUTES: RouteDefinition[] = [
   ...INTERNAL_TWILIO_ROUTES,
   ...LOG_EXPORT_ROUTES,
   ...LLM_CALL_SITES_ROUTES,
+  ...MEMORY_CLI_ROUTES,
   ...MEMORY_EVAL_ROUTES,
   ...MEMORY_ITEM_ROUTES,
   ...MEMORY_V2_ROUTES,

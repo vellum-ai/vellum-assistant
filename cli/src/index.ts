@@ -20,6 +20,7 @@ import { gateway } from "./commands/gateway";
 import { hatch } from "./commands/hatch";
 import { login, logout, whoami } from "./commands/login";
 import { logs } from "./commands/logs";
+import { memory } from "./commands/memory";
 import { message } from "./commands/message";
 import { nginxIngress } from "./commands/nginx-ingress";
 import { pair } from "./commands/pair";
@@ -60,6 +61,7 @@ const commands = {
   login,
   logout,
   logs,
+  memory,
   message,
   "nginx-ingress": nginxIngress,
   pair,
@@ -109,6 +111,7 @@ function printHelp(): void {
     "  nginx-ingress  Manage the nginx proxy fronting the gateway for web access [beta]",
   );
   console.log("  logs     View logs from an assistant instance");
+  console.log("  memory   Manage the assistant's long-term memory graph");
   console.log("  login    Log in to the Vellum platform");
   console.log("  logout   Log out of the Vellum platform");
   console.log("  message  Send a message to a running assistant");

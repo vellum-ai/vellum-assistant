@@ -10,10 +10,12 @@ import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import type { AssistantConfig } from "../../../../config/types.js";
+import { enqueueMemoryJob } from "../../../../persistence/jobs-store.js";
 import { getLogger } from "../../../../util/logger.js";
 import { getWorkspaceDir } from "../../../../util/platform.js";
 import { enqueuePkbIndexJob } from "../jobs/embed-pkb-file.js";
 import { PKB_WORKSPACE_SCOPE } from "../pkb/types.js";
+import { deleteNode, queryNodes, recordNodeEdit, updateNode } from "./store.js";
 
 const log = getLogger("graph-tool-handlers");
 
@@ -192,4 +194,234 @@ function enqueuePkbReindex(pkbRoot: string, absPath: string): void {
   } catch (err) {
     log.warn({ err, absPath }, "Failed to enqueue PKB re-index job");
   }
+}
+
+// ---------------------------------------------------------------------------
+// Shared helpers for delete / update / list
+// ---------------------------------------------------------------------------
+
+const MEMORY_SCOPE_DEFAULT = "default";
+const SNIPPET_LENGTH = 80;
+
+// ---------------------------------------------------------------------------
+// handleDeleteMemory
+// ---------------------------------------------------------------------------
+
+export interface DeleteMemoryInput {
+  content: string;
+}
+
+export interface DeleteMemoryResult {
+  success: boolean;
+  message: string;
+}
+
+export function handleDeleteMemory(
+  input: DeleteMemoryInput,
+  config: AssistantConfig,
+): DeleteMemoryResult {
+  if (!input.content?.trim()) {
+    return { success: false, message: "content is required" };
+  }
+
+  if (!config.memory.v2.enabled) {
+    return {
+      success: false,
+      message:
+        "delete requires memory v2. Use remember() to record a correction instead.",
+    };
+  }
+
+  const search = input.content.trim().toLowerCase();
+  const nodes = queryNodes({
+    scopeId: MEMORY_SCOPE_DEFAULT,
+    fidelityNot: ["gone"],
+  });
+
+  const exactMatches = nodes.filter(
+    (n) => n.content.trim().toLowerCase() === search,
+  );
+  const candidates =
+    exactMatches.length > 0
+      ? exactMatches
+      : nodes.filter((n) => n.content.toLowerCase().includes(search));
+
+  if (candidates.length === 0) {
+    return {
+      success: false,
+      message:
+        "No memory found matching that content. Use `vellum memory list` to find the exact text first.",
+    };
+  }
+
+  if (candidates.length > 1) {
+    const list = candidates
+      .slice(0, 5)
+      .map((n) => `- ${n.content.slice(0, SNIPPET_LENGTH)}`)
+      .join("\n");
+    return {
+      success: false,
+      message: `Multiple memories match — be more specific:\n${list}`,
+    };
+  }
+
+  const target = candidates[0]!;
+  deleteNode(target.id);
+  return {
+    success: true,
+    message: `Deleted: "${target.content.slice(0, SNIPPET_LENGTH)}"`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleUpdateMemory
+// ---------------------------------------------------------------------------
+
+export interface UpdateMemoryInput {
+  old_content: string;
+  new_content: string;
+}
+
+export interface UpdateMemoryResult {
+  success: boolean;
+  message: string;
+}
+
+export function handleUpdateMemory(
+  input: UpdateMemoryInput,
+  conversationId: string,
+  config: AssistantConfig,
+): UpdateMemoryResult {
+  if (!input.old_content?.trim() || !input.new_content?.trim()) {
+    return {
+      success: false,
+      message: "old_content and new_content are both required",
+    };
+  }
+
+  if (!config.memory.v2.enabled) {
+    return {
+      success: false,
+      message:
+        "update requires memory v2. Use remember() to record a correction instead.",
+    };
+  }
+
+  const search = input.old_content.trim().toLowerCase();
+  const newContent = input.new_content.trim();
+  const nodes = queryNodes({
+    scopeId: MEMORY_SCOPE_DEFAULT,
+    fidelityNot: ["gone"],
+  });
+
+  const exactMatches = nodes.filter(
+    (n) => n.content.trim().toLowerCase() === search,
+  );
+  const candidates =
+    exactMatches.length > 0
+      ? exactMatches
+      : nodes.filter((n) => n.content.toLowerCase().includes(search));
+
+  if (candidates.length === 0) {
+    return {
+      success: false,
+      message:
+        "No memory found matching old_content. Use `vellum memory list` to find the exact text first.",
+    };
+  }
+
+  if (candidates.length > 1) {
+    const list = candidates
+      .slice(0, 5)
+      .map((n) => `- ${n.content.slice(0, SNIPPET_LENGTH)}`)
+      .join("\n");
+    return {
+      success: false,
+      message: `Multiple memories match old_content — be more specific:\n${list}`,
+    };
+  }
+
+  const target = candidates[0]!;
+  recordNodeEdit({
+    nodeId: target.id,
+    previousContent: target.content,
+    newContent,
+    source: "manual",
+    conversationId,
+  });
+  updateNode(target.id, { content: newContent });
+  enqueueMemoryJob("embed_graph_node", { nodeId: target.id });
+
+  return {
+    success: true,
+    message: `Updated: "${target.content.slice(0, SNIPPET_LENGTH)}" → "${newContent.slice(0, SNIPPET_LENGTH)}"`,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// handleListMemory
+// ---------------------------------------------------------------------------
+
+export interface ListMemoryInput {
+  search?: string;
+  limit?: number;
+}
+
+export interface ListMemoryItem {
+  id: string;
+  content: string;
+  type: string;
+  fidelity: string;
+  created: number;
+}
+
+export interface ListMemoryResult {
+  success: boolean;
+  message: string;
+  nodes: ListMemoryItem[];
+  total: number;
+}
+
+export function handleListMemory(
+  input: ListMemoryInput,
+  config: AssistantConfig,
+): ListMemoryResult {
+  if (!config.memory.v2.enabled) {
+    return {
+      success: false,
+      message: "list requires memory v2.",
+      nodes: [],
+      total: 0,
+    };
+  }
+
+  const limit = Math.min(Math.max(1, input.limit ?? 50), 200);
+  const search = input.search?.trim().toLowerCase();
+
+  // Fetch with a generous cap when searching (we filter after); otherwise use limit directly.
+  const fetchLimit = search ? 500 : limit;
+  const allNodes = queryNodes({
+    scopeId: MEMORY_SCOPE_DEFAULT,
+    fidelityNot: ["gone"],
+    limit: fetchLimit,
+  });
+
+  const filtered = search
+    ? allNodes
+        .filter((n) => n.content.toLowerCase().includes(search))
+        .slice(0, limit)
+    : allNodes.slice(0, limit);
+
+  return {
+    success: true,
+    message: `${filtered.length} memor${filtered.length === 1 ? "y" : "ies"} found.`,
+    nodes: filtered.map((n) => ({
+      id: n.id,
+      content: n.content,
+      type: n.type,
+      fidelity: n.fidelity,
+      created: n.created,
+    })),
+    total: filtered.length,
+  };
 }
