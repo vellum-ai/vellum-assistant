@@ -43,10 +43,8 @@ const log = getLogger("guardian-vellum-migration");
  *
  * Returns true if healing occurred, false otherwise.
  *
- * The gateway binding supplies the authoritative principal; the local
- * assistant-mirror row is repaired to match the JWT principal because the
- * /v1/messages trust path still resolves against the local mirror in this
- * plan. A stale mirror must be repaired or valid guardians stay `unknown`.
+ * Repairs only the local assistant-mirror row; the gateway-owned binding —
+ * which trust classification actually reads — is untouched.
  */
 export async function healGuardianBindingDrift(
   incomingPrincipalId: string,
@@ -101,8 +99,12 @@ export async function healGuardianBindingDrift(
 }
 
 /**
- * Re-resolve trust from the local mirror only for the narrow vellum-principal
- * reset-drift case; null when it isn't drift (caller keeps the gateway verdict).
+ * Detect the narrow vellum-principal reset-drift case, repair the local
+ * mirror to the incoming principal, and re-resolve trust; null when it isn't
+ * drift (caller keeps the gateway verdict). Re-resolution classifies against
+ * the gateway-owned guardian binding, so it recovers guardian trust only when
+ * that binding matches the incoming principal; gateway-side binding repair is
+ * deferred work.
  */
 export async function reResolveTrustOnResetDrift(
   incomingPrincipalId: string,

@@ -53,8 +53,9 @@ export async function readInboundTrust(input: {
       return { ok: false };
     }
 
-    // Single choke point: warm the member-verdict cache so the sync trust
-    // fallback resolves the member without a local ACL read.
+    // Single choke point: warm the member-verdict cache so sync call-path
+    // readers (access-request callback handoff) can resolve the member later
+    // without a gateway read.
     setMemberVerdict(input.channelType, input.actorExternalId, parsed.data.verdict);
     return {
       ok: true,

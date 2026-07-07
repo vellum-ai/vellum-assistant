@@ -102,7 +102,7 @@ Only the **assistant-scoped** routes (`/v1/assistants/:id/channel-admission-poli
 **Split enforcement** (locked decision):
 
 - **Gateway kill switch** — `handle-inbound.ts` enforces the `no_one` floor before forwarding. Zero contact-table lookups, zero daemon I/O, true kill.
-- **Runtime floor** — every other policy flows through the gateway unchanged; the runtime evaluates rank-vs-floor inside `admission-policy.ts`. This keeps the canonical `actor-trust-resolver.ts:280` classifier as the single source of `TrustClass` truth (no fork).
+- **Runtime floor** — every other policy flows through the gateway unchanged; the runtime evaluates rank-vs-floor inside `admission-policy.ts`. This keeps the canonical gateway classifier (`gateway/src/risk/trust-verdict-resolver.ts`) as the single source of `TrustClass` truth (no fork): the runtime consumes the stamped verdict; the daemon's `actor-trust-resolver.ts` is only a residual sync guardian-or-unknown view for the vellum reset-drift path.
 - **Gateway vs runtime reciprocity** — the gateway section in `gateway/CLAUDE.md` records _which channels the gateway enforces_; the assistant section records _how the runtime classifies_. Either side getting out of sync is a bug, not an over-defended boundary.
 
 **Adding a new policy**: extend the `AdmissionPolicy` union in `packages/gateway-client/src/admission-policy-contract.ts`, add its floor in `ADMISSION_FLOOR`, update the openapi schema, and update `gateway/src/__tests__/channel-admission-policy-routes.test.ts` + `assistant/src/runtime/routes/inbound-stages/admission-policy.test.ts`. Do not add a 6th floor without also bumping the `TRUST_CLASS_RANK` ceiling to match.
