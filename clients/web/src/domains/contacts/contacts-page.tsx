@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Navigate, useSearchParams } from "react-router";
 
 import { toast } from "@vellumai/design-library/components/toast";
 
@@ -19,6 +20,7 @@ import {
     verifyContactChannel,
 } from "@/domains/contacts/contacts-gateway";
 import {
+    isSetupChannelId,
     type ChannelInfo,
     type ContactChannelPayload,
     type ContactPayload,
@@ -38,10 +40,10 @@ import { assistantDisplayName } from "@/domains/contacts/assistant-display-name"
 import { useAssistantChannels } from "@/domains/contacts/hooks/use-assistant-channels";
 import { useChannelProvenance } from "@/domains/contacts/hooks/use-channel-provenance";
 import { useInviteLinkDialog } from "@/domains/contacts/hooks/use-invite-link-dialog";
-import { useSetupChannelParam } from "@/domains/contacts/hooks/use-setup-channel-param";
 import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 import { useAssistantIdentityStore } from "@/stores/assistant-identity-store";
 import { toastOnError } from "@/utils/mutation-error";
+import { routes } from "@/utils/routes";
 
 /**
  * Hardcoded fallback for assistants that don't expose
@@ -104,7 +106,14 @@ export function ContactsPage({
   const a2aChannel = useAssistantFeatureFlagStore.use.a2aChannel();
   const identityName = useAssistantIdentityStore.use.name();
   const queryClient = useQueryClient();
-  const setupChannel = useSetupChannelParam();
+  // Legacy `?setup=<channel>` deep link. Setup used to continue on this
+  // page's assistant detail card; the credential forms now live only on the
+  // Channels tab, so the param is forwarded there (see the redirect below)
+  // instead of being consumed via `useSetupChannelParam`.
+  const [searchParams] = useSearchParams();
+  const rawSetupParam = searchParams.get("setup");
+  const setupChannel =
+    rawSetupParam && isSetupChannelId(rawSetupParam) ? rawSetupParam : null;
 
   const [selection, setSelection] = useState<ContactSelection>({
     kind: "assistant",
@@ -411,6 +420,14 @@ export function ContactsPage({
   // Render
   // ---------------------------------------------------------------------------
 
+  // Old builds' mobile chat handoff (and saved links) deep-linked channel
+  // setup to this page. The forms it targeted moved to the Channels tab,
+  // so forward the link there rather than stranding it on the assistant
+  // card's plain connect/disconnect list.
+  if (setupChannel) {
+    return <Navigate to={`${routes.channels}?setup=${setupChannel}`} replace />;
+  }
+
   const contactsListProps = {
     loading: contactsQuery.isLoading,
     assistantName: assistantName,
@@ -462,9 +479,10 @@ export function ContactsPage({
           selection.contactId === deletingContactId) ? (
           <AssistantChannelsDetail
             assistantName={assistantName}
-            onGenerateInviteLink={a2aChannel ? inviteDialog.open : undefined}
-            initialChannel={setupChannel}
-            {...channelsController}
+            channels={channelsController.channels}
+            pendingChannelKey={channelsController.pendingChannelKey}
+            onConnect={channelsController.onSetup}
+            onDisconnect={channelsController.onDisconnect}
           />
         ) : optimisticContact ? (
           optimisticContact.role === "guardian" ? (

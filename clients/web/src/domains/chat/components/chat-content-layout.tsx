@@ -193,7 +193,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
 
   // -------------------------------------------------------------------------
   // Mobile fallback: side-drawer panels don't render on narrow viewports, so
-  // redirect to the Contacts page with the Slack channel pre-expanded.
+  // redirect to the Channels tab with the channel's setup form pre-opened.
   // -------------------------------------------------------------------------
 
   useEffect(() => {
@@ -201,7 +201,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     if (mainView !== "channel-setup" || !activeChannelSetup) return;
     const channel = activeChannelSetup.channel;
     // This close is a hand-off, not a dismissal: setup continues on the
-    // Contacts page, which runs standalone and cannot auto-notify on
+    // Channels page, which runs standalone and cannot auto-notify on
     // completion. Signal the hand-off so the assistant switches to the
     // "tell me when you're done" flow instead of waiting for a
     // wizard-closed notification that will never come. Fired before the
@@ -209,7 +209,7 @@ export function ChatContentLayout(props: ChatMainPanelProps) {
     // viewports) can never race it.
     void notifyChannelSetupHandedOff(activeChannelSetup);
     useViewerStore.getState().closeChannelSetup();
-    navigate(`${routes.contacts.root}?setup=${channel}`);
+    navigate(`${routes.channels}?setup=${channel}`);
   }, [isMobile, mainView, activeChannelSetup, navigate]);
 
   // -------------------------------------------------------------------------

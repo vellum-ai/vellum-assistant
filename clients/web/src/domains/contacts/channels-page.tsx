@@ -19,9 +19,9 @@ export interface ChannelsPageProps {
  * manages how and where the assistant can be reached. Rendered as its own tab
  * in the About Assistant nav (`/assistant/channels`): a page-level subtitle
  * above the tabbed content (the nav's tab already reads "Channels", so the
- * page repeats no heading). The Contacts page's assistant detail renders the
- * same tabs boxed as a card (`AssistantChannelsDetail`); both compose
- * `useAssistantChannels`.
+ * page repeats no heading). The Contacts page's assistant detail
+ * (`AssistantChannelsDetail`) shows only a connect/disconnect summary of the
+ * same channels; management stays here.
  */
 export function ChannelsPage({
   assistantId,
