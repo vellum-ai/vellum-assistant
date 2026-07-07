@@ -44,10 +44,14 @@ export async function readInboundTrust(input: {
       input,
       TRUST_IPC_TIMEOUT_MS,
     );
-    if (!result) return { ok: false };
+    if (!result) {
+      return { ok: false };
+    }
 
     const parsed = ResolveInboundTrustResponseSchema.safeParse(result);
-    if (!parsed.success) return { ok: false };
+    if (!parsed.success) {
+      return { ok: false };
+    }
 
     // Single choke point: warm the member-verdict cache so the sync trust
     // fallback resolves the member without a local ACL read.
