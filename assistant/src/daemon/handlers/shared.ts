@@ -18,6 +18,8 @@ import { unwrapExternalContentForDisplay } from "../../security/untrusted-conten
 import { getLogger } from "../../util/logger.js";
 import { joinWithSpacing } from "../../util/text-spacing.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
+import { conversationSupportsDynamicUi } from "../channel-ui-capability.js";
+import { findConversation } from "../conversation-registry.js";
 import type { ConversationTransportMetadata } from "../message-protocol.js";
 import type { TrustContext } from "../trust-context.js";
 
@@ -693,7 +695,9 @@ export function renderHistoryContent(
  * resolves the prompt generically. When a `conversationId` is supplied (the CLI
  * `credentials prompt` command forwards `__CONVERSATION_ID`), the broadcast is
  * scoped to that conversation so clients deliver it; otherwise it is
- * conversation-less.
+ * conversation-less. When that conversation's channel cannot render dynamic UI
+ * (e.g. slack, telegram), resolves immediately with `unsupported_channel`
+ * instead of broadcasting a request that can only time out.
  */
 export function requestSecretStandalone(params: {
   service: string;
@@ -706,6 +710,14 @@ export function requestSecretStandalone(params: {
   allowedDomains?: string[];
   conversationId?: string;
 }): Promise<SecretPromptResult> {
+  const conversation = findConversation(params.conversationId);
+  if (conversation && !conversationSupportsDynamicUi(conversation)) {
+    return Promise.resolve({
+      value: null,
+      delivery: "store",
+      error: "unsupported_channel",
+    });
+  }
   const requestId = uuid();
   const config = getConfig();
   return new Promise((resolve) => {

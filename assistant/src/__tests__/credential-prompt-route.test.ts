@@ -453,7 +453,29 @@ describe("credentials/prompt route", () => {
     expect(result.ok).toBe(false);
     expect(result.cancelled).toBeUndefined();
     expect(result.error).toBe(
-      "No connected client supports secure credential entry",
+      "This conversation's channel does not support secure credential entry",
+    );
+  });
+
+  test("reports a superseded prompt as a failure, not a cancel", async () => {
+    /**
+     * A newer message in the conversation auto-denies pending prompts. The
+     * user never answered the prompt, so this must not read as a deliberate
+     * cancel — the CLI keeps the error exit code and an honest message.
+     */
+    // GIVEN the prompt resolves with no value because it was superseded
+    secretResult = { value: null, delivery: "store", reason: "superseded" };
+
+    // WHEN the route handles the prompt
+    const result = (await promptRoute!.handler({
+      body: { service: "stripe", field: "api_key", label: "Stripe API Key" },
+    })) as PromptResponse;
+
+    // THEN it is a plain failure with no cancel flag
+    expect(result.ok).toBe(false);
+    expect(result.cancelled).toBeUndefined();
+    expect(result.error).toBe(
+      "The credential prompt was superseded by a new message",
     );
   });
 

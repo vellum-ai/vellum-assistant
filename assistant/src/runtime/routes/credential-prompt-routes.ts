@@ -85,14 +85,22 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
     if (result.error === "unsupported_channel") {
       return {
         ok: false,
-        error: "No connected client supports secure credential entry",
+        error:
+          "This conversation's channel does not support secure credential entry",
       };
     }
     // An explicit user cancel is a valid flow, not a failure. Keep it distinct
-    // from a timeout (no response in the permission window) so the CLI can exit
-    // with the user-interrupt convention instead of a generic error.
+    // from a timeout (no response in the permission window) and a supersession
+    // (a newer message auto-denied the pending prompt) so the CLI exits with
+    // the user-interrupt convention only for real cancels.
     if (result.reason === "timed_out") {
       return { ok: false, error: "The credential prompt timed out" };
+    }
+    if (result.reason === "superseded") {
+      return {
+        ok: false,
+        error: "The credential prompt was superseded by a new message",
+      };
     }
     return { ok: false, cancelled: true, error: "Cancelled by the user" };
   }
