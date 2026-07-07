@@ -284,7 +284,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-06T23:36:17.000Z"
+      "updatedAt": "2026-07-07T04:41:23.000Z"
     },
     {
       "id": "google-calendar",
@@ -305,7 +305,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-07T04:37:57.000Z"
+      "updatedAt": "2026-07-07T04:41:13.000Z"
     },
     {
       "id": "guardian-verify-setup",
@@ -626,7 +626,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-07T04:37:57.000Z"
+      "updatedAt": "2026-07-07T04:41:13.000Z"
     },
     {
       "id": "plugin-builder",
@@ -653,7 +653,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-06T18:12:30.000Z"
+      "updatedAt": "2026-07-07T12:56:19.000Z"
     },
     {
       "id": "public-ingress",
