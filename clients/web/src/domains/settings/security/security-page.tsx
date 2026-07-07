@@ -29,7 +29,7 @@ export function SecurityPage() {
     <div className="space-y-4">
       <DetailCard
         title="Two-Factor Authentication"
-        subtitle="Require a code from an authenticator app when you sign in with email and password."
+        subtitle="Require a code from an authenticator app when you sign in."
       >
         {platformGate === "disabled" ? (
           <PlatformLoginNotice>
