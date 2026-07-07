@@ -105,6 +105,25 @@ body {
   animation: busy-pulse 1s ease-in-out infinite;
 }
 
+/* Live-voice transcript caret — a thin bar blinking like a text caret at the
+ * end of the streaming speech transcript in the composer (Light 55). The
+ * component also holds it static via useReducedMotion; the media query is
+ * defense-in-depth matching .avatar-streaming-ring below. */
+@keyframes voice-caret-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+.voice-caret-blink {
+  animation: voice-caret-blink 1.1s step-end infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-caret-blink {
+    animation: none;
+  }
+}
+
 /* Deep-link message highlight — a one-shot background flash applied when the
  * transcript scrolls to a message (e.g. opening a saved bookmark). Fades from
  * the active-surface tint back to transparent over 2s. */

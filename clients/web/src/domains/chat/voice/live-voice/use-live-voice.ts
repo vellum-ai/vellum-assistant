@@ -62,6 +62,7 @@ import {
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import {
+  isLiveVoiceSessionActive,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -102,13 +103,13 @@ const STUCK_TURN_TIMEOUT_MS = 15_000;
 export interface UseLiveVoiceResult {
   /** Current session phase. */
   state: LiveVoiceSessionState;
-  /** In-flight partial user transcript. */
+  /** In-flight partial user transcript. Pinned at `""` when the consumer opted out via {@link UseLiveVoiceOptions.observeAudioState}. */
   partialTranscript: string;
-  /** Last finalized user transcript. */
+  /** Last finalized user transcript. Pinned at `""` when `observeAudioState` is false. */
   finalTranscript: string;
-  /** Accumulated assistant response text for the current turn. */
+  /** Accumulated assistant response text for the current turn. Pinned at `""` when `observeAudioState` is false. */
   assistantTranscript: string;
-  /** Smoothed mic amplitude in [0, 1]. */
+  /** Smoothed mic amplitude in [0, 1]. Pinned at `0` when `observeAudioState` is false. */
   inputAmplitude: number;
   /**
    * Machine reason from the last server `turn_cancelled` frame (e.g.
@@ -140,6 +141,22 @@ export interface UseLiveVoiceOptions {
   createPlayer?: () => LiveVoiceAudioPlayer;
   /** Override the stuck-turn backstop timeout (tests). */
   stuckTurnTimeoutMs?: number;
+  /**
+   * When `false`, this hook instance does not subscribe to the high-frequency
+   * audio/transcript store fields — `inputAmplitude` (updated on every mic
+   * amplitude sample), `partialTranscript`, `finalTranscript`, and
+   * `assistantTranscript` — so those updates never re-render the consumer. The
+   * corresponding returned fields are pinned at their idle defaults (`0` /
+   * `""`); read them via `useLiveVoiceStore` (selectors or `getState()`)
+   * instead. The low-frequency `state`/`error` fields and the actions are
+   * unaffected.
+   *
+   * For consumers that only need the session phase + actions — e.g. the
+   * composer, whose voice bar polls amplitude with `getState()` inside its
+   * canvas draw loop. Must be stable for the lifetime of the hook instance.
+   * Defaults to `true` (subscribe to everything, the original behavior).
+   */
+  observeAudioState?: boolean;
 }
 
 /**
@@ -204,15 +221,44 @@ function chunkDurationMs(buf: ArrayBuffer): number {
 export function useLiveVoice(
   options: UseLiveVoiceOptions = {},
 ): UseLiveVoiceResult {
+  const observeAudioState = options.observeAudioState ?? true;
   const state = useLiveVoiceStore.use.state();
-  const partialTranscript = useLiveVoiceStore.use.partialTranscript();
-  const finalTranscript = useLiveVoiceStore.use.finalTranscript();
-  const assistantTranscript = useLiveVoiceStore.use.assistantTranscript();
-  const inputAmplitude = useLiveVoiceStore.use.inputAmplitude();
+  // High-frequency / transcript fields are read through conditional selectors:
+  // when the consumer opted out, the selector returns the idle default, so the
+  // subscription exists but never produces a changed value — i.e. amplitude
+  // ticks and transcript deltas cannot re-render the consumer.
+  const partialTranscript = useLiveVoiceStore((s) =>
+    observeAudioState ? s.partialTranscript : "",
+  );
+  const finalTranscript = useLiveVoiceStore((s) =>
+    observeAudioState ? s.finalTranscript : "",
+  );
+  const assistantTranscript = useLiveVoiceStore((s) =>
+    observeAudioState ? s.assistantTranscript : "",
+  );
+  const inputAmplitude = useLiveVoiceStore((s) =>
+    observeAudioState ? s.inputAmplitude : 0,
+  );
   const turnCancelledReason = useLiveVoiceStore.use.turnCancelledReason();
   const error = useLiveVoiceStore.use.error();
 
   const sessionRef = useRef<SessionContext | null>(null);
+
+  // Monotonic count of `start()` calls for this hook instance. `stop()`
+  // captures it before its awaits and skips its trailing store reset when a
+  // newer session started in the meantime — the per-session `generation`
+  // can't cover this because `stop()` nulls `sessionRef` synchronously, so
+  // the racing session is a different context object entirely.
+  //
+  // Considered and rejected: guarding the trailing reset with
+  // `if (sessionRef.current !== null)` instead. That is behaviorally
+  // equivalent *today* only because `start()` assigns `sessionRef`
+  // synchronously; a refactor that introduces an await before that
+  // assignment would silently reopen the race — the null-check would see no
+  // session yet and wrongly reset the newer session's store state. The
+  // counter increments synchronously at `start()`'s entry, so it stays
+  // correct regardless of where awaits land later.
+  const startGenerationRef = useRef(0);
 
   // Keep the factories in a ref so start()/stop() stay stable across renders
   // even if callers pass inline option objects. The ref is updated in an effect
@@ -256,6 +302,7 @@ export function useLiveVoice(
       useLiveVoiceStore.getState().reset();
       return;
     }
+    const startGeneration = startGenerationRef.current;
     sessionRef.current = null;
     session.generation += 1;
     clearTurnBackstop(session);
@@ -266,7 +313,35 @@ export function useLiveVoice(
     // Release the AudioContext, not just the scheduled sources (see teardown).
     await session.player.dispose();
     await session.capture.shutdown();
+    // A start() that raced the awaits owns the store now (e.g. a second ✕
+    // click resets `ending` → idle mid-await, unblocking start()); wiping it
+    // here would leave that session's mic hot behind idle UI.
+    if (startGenerationRef.current !== startGeneration) return;
     useLiveVoiceStore.getState().reset();
+  }, []);
+
+  /**
+   * Manual push-to-talk release — same internal path as the automatic silence
+   * release. Guarded to `listening` so a stray click (or the store-registered
+   * control firing late) can't disturb another phase.
+   */
+  const release = useCallback(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    if (useLiveVoiceStore.getState().state !== "listening") return;
+    releasePushToTalk(session);
+  }, []);
+
+  /**
+   * Stop in-flight assistant playback — the barge-in interrupt path without
+   * the amplitude gate. `interruptIfSpeaking` itself guards to `speaking`.
+   * Turn-scoped: the server confirms with `interrupted` and the session
+   * resumes `listening` on the same socket.
+   */
+  const interrupt = useCallback(() => {
+    const session = sessionRef.current;
+    if (!session) return;
+    interruptIfSpeaking(session);
   }, []);
 
   const start = useCallback(
@@ -275,15 +350,23 @@ export function useLiveVoice(
       conversationId?: string,
       mode?: LiveVoiceSessionMode,
     ) => {
-      const current = sessionRef.current;
-      // A live session (anything but idle/failed) blocks a new start.
-      const phase = useLiveVoiceStore.getState().state;
-      if (current && phase !== "idle" && phase !== "failed") return;
-      if (current) teardown();
+      // A live session (anything but idle/failed) blocks a new start. Keyed
+      // on the store phase alone — NOT on `sessionRef` — because during
+      // `ending` stop() has already nulled the ref while its async teardown
+      // is still in flight; a start() admitted in that window would be wiped
+      // by stop()'s trailing reset (hot mic behind idle UI).
+      if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) return;
+      if (sessionRef.current) teardown();
+      startGenerationRef.current += 1;
 
       const store = useLiveVoiceStore.getState();
       store.reset();
       store.setState("connecting");
+      store.setSessionContext(assistantId, conversationId ?? null);
+      // Registered here (not on `ready`) so a globally mounted surface can
+      // drive the session from the moment it exists; cleared by the store
+      // reset in teardown()/stop().
+      store.setControls({ stop: () => void stop(), release, interrupt });
 
       const opts = optionsRef.current;
       const client = (opts.createClient ?? (() => new LiveVoiceChannelClient()))();
@@ -320,8 +403,16 @@ export function useLiveVoice(
         sessionRef.current === session && session.generation === generation;
 
       session.unsubscribes.push(
-        client.on("ready", () => {
+        client.on("ready", (frame) => {
           if (!live()) return;
+          // When started from a new/empty conversation, `conversationId` was
+          // undefined at start() and the store published `null`. The server
+          // assigns (or confirms) the attached conversation on `ready`, so
+          // republish the authoritative id. `setConversationId` (not
+          // `setSessionContext`) so `startedConversationId` keeps its
+          // start-time value — session ownership for a draft-started session
+          // hinges on it (see `isLiveVoiceSessionOwnedBy`).
+          useLiveVoiceStore.getState().setConversationId(frame.conversationId);
           void startCapture(session, teardown);
         }),
         client.on("sttPartial", (frame) => {
@@ -472,7 +563,7 @@ export function useLiveVoice(
         ...(mode ? { mode } : {}),
       });
     },
-    [teardown],
+    [teardown, stop, release, interrupt],
   );
 
   // Release everything if the consumer unmounts mid-session. teardown() also

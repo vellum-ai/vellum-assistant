@@ -33,6 +33,7 @@ import { QuoteReplyBubble } from "@/domains/chat/components/quote-reply-bubble";
 import { TextSelectionPopover } from "@/domains/chat/components/text-selection-popover";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
+import { isPopoutWindow } from "@/runtime/popout-window";
 
 import { useChatSessionStore } from "@/domains/chat/chat-session-store";
 import { useChatAttachmentDropZone } from "@/domains/chat/components/chat-attachments/use-chat-attachment-drop-zone";
@@ -225,7 +226,7 @@ export function ChatMainPanel({
 }: ChatMainPanelProps) {
   const location = useLocation();
   const navigate = useNavigate();
-  const statusBannerVisible = !location.search.includes("popout=1");
+  const statusBannerVisible = !isPopoutWindow(location.search);
 
   // -------------------------------------------------------------------------
   // Derived UI state (provides assistantId, activeConversationId,
@@ -927,7 +928,12 @@ export function ChatMainPanel({
       onStopGenerating={handleStopGenerating}
       canStopGenerating={canStopGenerating}
       assistantId={assistantId}
-      conversationId={activeConversation?.conversationId}
+      // Routing-truth id (NOT `activeConversation?.conversationId`, which is
+      // transiently undefined until the row loads and always undefined for
+      // drafts): live-voice session ownership compares against this, and the
+      // session should attach to the thread the user is looking at — draft
+      // ids included (the runtime accepts client-generated conversation ids).
+      conversationId={activeConversationId}
       onRecallLastMessage={isIdle && isNativeConversation ? handleRecallLastMessage : undefined}
       onCancelEdit={isEditing ? handleCancelEdit : undefined}
       textareaMaxHeightPx={isEmptyConversation ? 320 : undefined}
