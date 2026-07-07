@@ -8,8 +8,8 @@
  * `../hooks/hook-loader.ts`. This module is the boot orchestrator: it scans the
  * plugins directory, registers tools, and drives each owner's `init` / `shutdown`
  * lifecycle by handing the discovered directories to the hook loader. Dispatch
- * hooks are not imported here — the hook loader fills its own cache lazily on
- * the first read that needs an owner.
+ * hooks are not imported here — the hook loader resolves each one on demand on
+ * the first read that needs it.
  *
  * - Boot does one full discovery scan; after that, every change (plugin
  *   installed, removed, disabled, or any source file inside a plugin edited
@@ -18,15 +18,16 @@
  *   The dispatch path stats that one file and otherwise runs on memory.
  * - A changed plugin is redeployed in place: the old version's `shutdown`
  *   runs, its hook/tool cache entries and module-registry entries are
- *   swept, and reactivation runs `init`, which lazily re-imports the owner's
- *   hooks from the swept-clean registry. The whole directory is the reload
- *   unit so a re-imported hook can never pair with a stale cached helper.
+ *   swept, and reactivation runs `init`; the next read of each hook re-resolves
+ *   it from the swept-clean registry. The whole directory is the reload unit
+ *   (every module path is swept) so a re-imported hook can never pair with a
+ *   stale cached helper.
  * - Plugins are never "registered" as a unit — we register their tools into
  *   the global tool registry.
  *
  * Tools are populated at boot by `loadUserPlugins()`; `getHooksFor` reads
- * hooks on every dispatch via {@link getUserHookEntriesFor}, which fills the
- * hook loader's cache on demand.
+ * hooks on every dispatch via {@link getUserHookEntriesFor}, which resolves
+ * each hook through the hook loader on demand.
  */
 
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
@@ -351,7 +352,7 @@ async function applySourceVersions(
         );
         // Tear the old version down first: `deactivatePlugin` runs the
         // still-cached `shutdown`, then `evictHooksForOwner` drops the owner's
-        // cache entries and load memo so reactivation re-imports fresh.
+        // cached resolutions so the next read re-resolves fresh.
         await deactivatePlugin(activeName, "reload");
         evictHooksForOwner(activeName);
         evictToolCacheEntries(activeName);
@@ -432,7 +433,7 @@ function sweepModules(
  * Reconcile the standalone workspace hooks pseudo-entry: same
  * shutdown → evict → sweep → init cycle a plugin gets, through the workspace
  * owner's lifecycle. Dispatch hooks are not re-imported here; the eviction
- * clears the loaded mark so the next read re-imports them fresh.
+ * drops the owner's cached resolutions so the next read re-resolves them fresh.
  */
 async function reconcileWorkspaceHooks(
   before: PluginSourceVersion | undefined,
@@ -774,12 +775,12 @@ const activatedNames = new Set<string>();
 
 /**
  * Activate a single discovered plugin: register its tools into the global tool
- * registry and run its `init` hook. Running `init` lazily imports the owner's
- * hooks (warming the cache the same way a dispatch read would), so no separate
- * pre-import step is needed. Idempotent — a plugin already activated (or
- * mid-activation) is skipped. Never throws; per-surface failures are logged and
- * the plugin still counts as activated so the shutdown teardown handles
- * whatever came up (mirrors boot semantics).
+ * registry and run its `init` hook. Running `init` also resolves the owner's
+ * `shutdown` (caching it for teardown), so no separate pre-import step is
+ * needed; dispatch hooks resolve on their first read. Idempotent — a plugin
+ * already activated (or mid-activation) is skipped. Never throws; per-surface
+ * failures are logged and the plugin still counts as activated so the shutdown
+ * teardown handles whatever came up (mirrors boot semantics).
  *
  * Called from `scanPlugins`, which runs both at boot and on every subsequent
  * scan — so a plugin whose files appear at runtime (installed via the CLI or
@@ -893,10 +894,10 @@ export async function populateCacheAtBoot(
 
   // Activate standalone workspace hooks under `<workspace>/hooks/`. These
   // carry no package.json, no tools, and no install-date ordering — just hook
-  // files. Running their `init` hook lazily imports the workspace hooks, so a
-  // workspace-wide `init`/`shutdown` lifecycle works the same way a plugin's
-  // does. Only register for teardown when at least one hook file is actually
-  // present, so an empty/absent directory adds no shutdown work.
+  // files. Running their `init` hook resolves the workspace `init`/`shutdown`,
+  // so a workspace-wide lifecycle works the same way a plugin's does. Only
+  // register for teardown when at least one hook file is actually present, so
+  // an empty/absent directory adds no shutdown work.
   if (hasWorkspaceHooks()) {
     await runInitHook(WORKSPACE_HOOKS_OWNER);
     activatedPlugins.push({ name: WORKSPACE_HOOKS_OWNER });
