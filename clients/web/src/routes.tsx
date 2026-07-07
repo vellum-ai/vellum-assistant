@@ -128,6 +128,13 @@ export const routeTree = [
     // its job is to obtain the first in-memory gateway access token.
     { path: "/assistant/pair", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/remote-web/pairing-page").then((m) => m.RemoteWebPairingPage) } },
 
+    // One-time credential entry — public page opened from a single-use
+    // credential-request link. Kept OUTSIDE the auth-protected tree (same
+    // sibling pattern as /assistant/pair) because the recipient of the link
+    // may have no Vellum session at all; the single-use token, sent in the
+    // request body, is the only authorization the gateway needs.
+    { path: "/assistant/credentials/enter", ErrorBoundary: RouteErrorBoundary, HydrateFallback: RootHydrateFallback, lazy: { Component: () => import("@/domains/credential-requests/credential-entry-page").then((m) => m.CredentialEntryPage) } },
+
     // Quick Input — lightweight input panel rendered inside the Electron
     // quick input BrowserWindow (a frameless, always-on-top panel invoked
     // via Cmd+Shift+/). Same pattern as About: sibling of `/assistant`,

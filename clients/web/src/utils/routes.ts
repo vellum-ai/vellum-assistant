@@ -48,6 +48,14 @@ export const routes = {
    */
   bundleConfirm: r("/assistant/bundle/confirm"),
   remotePair: r("/assistant/pair"),
+  /**
+   * Public one-time credential entry page, opened from a single-use
+   * credential-request link (`?token=` carries the secret-request token).
+   * Same standalone pattern as `remotePair`: lives under `/assistant/*` for
+   * the Vite SPA fallback but is declared OUTSIDE the auth-protected tree in
+   * `routes.tsx` — the person opening the link may have no Vellum session.
+   */
+  credentialEntry: r("/assistant/credentials/enter"),
   quickInput: r("/assistant/quick-input"),
   conversations: r("/assistant/conversations"),
   conversation: (key: string) => dyn(r("/assistant/conversations"), key),

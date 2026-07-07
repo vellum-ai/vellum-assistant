@@ -85,6 +85,10 @@ import {
   handleRevokeDevice,
 } from "./http/routes/devices.js";
 import { handlePair } from "./http/routes/pair.js";
+import {
+  handleCredentialRequestPeek,
+  handleCredentialRequestSubmit,
+} from "./http/routes/credential-requests.js";
 import { handleCreateRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-challenge.js";
 import { handleRemoteWebPairingToken } from "./http/routes/remote-web-pairing-token.js";
 import { handleVerifyRemoteWebPairingChallenge } from "./http/routes/remote-web-pairing-verification.js";
@@ -187,6 +191,7 @@ import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
 import { trustVerdictRoutes } from "./ipc/trust-verdict-handlers.js";
 import { guardianDeliveryRoutes } from "./ipc/guardian-delivery-handlers.js";
 import { createLogTailRoutes } from "./ipc/log-tail-handlers.js";
+import { createCredentialRequestIpcRoutes } from "./ipc/credential-request-handlers.js";
 import { slackThreadRoutes } from "./ipc/slack-thread-handlers.js";
 import { thresholdRoutes } from "./ipc/threshold-handlers.js";
 import { trustRulesRoutes } from "./ipc/trust-rules-handlers.js";
@@ -878,6 +883,23 @@ async function main() {
       method: "POST",
       auth: "none",
       handler: (req) => handleRemoteWebPairingToken(req),
+    },
+    // ── Credential requests (one-time credential-collection links) ──
+    // Unauthenticated by design: the single-use token in the request BODY is
+    // the credential to act. Invalid tokens count as auth failures.
+    {
+      path: "/v1/credential-requests/peek",
+      method: "POST",
+      auth: "track-failures",
+      trackFailureStatuses: [404],
+      handler: (req) => handleCredentialRequestPeek(req),
+    },
+    {
+      path: "/v1/credential-requests/submit",
+      method: "POST",
+      auth: "track-failures",
+      trackFailureStatuses: [404],
+      handler: (req) => handleCredentialRequestSubmit(req),
     },
     // ── Device management (localhost-only, auth: none; self-guards loopback) ──
     {
@@ -2500,6 +2522,7 @@ async function main() {
     ...createLogTailRoutes(config),
     ...trustRulesRoutes,
     ...createVelayRoutes(velayTunnelClient),
+    ...createCredentialRequestIpcRoutes(configFileCache),
   ]);
   ipcServer.start();
 

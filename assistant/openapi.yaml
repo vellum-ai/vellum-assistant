@@ -9313,6 +9313,54 @@ paths:
                   - invoked
                   - producedToolCalls
                 additionalProperties: false
+  /v1/credential-requests:
+    post:
+      operationId: credentialrequests_post
+      summary: Mint a one-time credential-collection link
+      description:
+        Create a single-use tokenized URL that collects one credential value via the public credential-entry page.
+        Link state lives in the gateway; the value is stored via the credential vault on submission.
+      tags:
+        - credentials
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                service:
+                  type: string
+                  minLength: 1
+                field:
+                  type: string
+                  minLength: 1
+                label:
+                  type: string
+              required:
+                - service
+                - field
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  url:
+                    type: string
+                  token:
+                    type: string
+                  expiresAt:
+                    type: number
+                  error:
+                    type: string
+                required:
+                  - ok
+                additionalProperties: false
   /v1/credentials/delete:
     post:
       operationId: credentials_delete_post

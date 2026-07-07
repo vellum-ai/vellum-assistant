@@ -21,6 +21,7 @@ import type { GatewayRouteDefinition } from "../src/http/routes/types.js";
 
 // Import ROUTES from each route module that declares schemas.
 // Add new route modules here as they adopt zod-openapi schemas.
+import { ROUTES as credentialRequestRoutes } from "../src/http/routes/credential-requests.js";
 import { ROUTES as featureFlagRoutes } from "../src/http/routes/feature-flags.js";
 
 const ROOT = resolve(import.meta.dir, "..");
@@ -28,7 +29,10 @@ const OUTPUT_PATH = resolve(ROOT, "openapi.json");
 const PKG_PATH = resolve(ROOT, "package.json");
 
 // Collect all route definitions
-const ALL_ROUTES: GatewayRouteDefinition[] = [...featureFlagRoutes];
+const ALL_ROUTES: GatewayRouteDefinition[] = [
+  ...credentialRequestRoutes,
+  ...featureFlagRoutes,
+];
 
 // ---------------------------------------------------------------------------
 // Spec builder

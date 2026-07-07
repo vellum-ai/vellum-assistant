@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { KeyRound, Loader2, Plus, Trash2 } from "lucide-react";
+import { Copy, KeyRound, Link2, Loader2, Plus, Trash2 } from "lucide-react";
 import { useState } from "react";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -16,7 +16,13 @@ import { Button } from "@vellumai/design-library/components/button";
 import { Card } from "@vellumai/design-library/components/card";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 import { Input } from "@vellumai/design-library/components/input";
+import { Modal } from "@vellumai/design-library/components/modal";
 import { toast } from "@vellumai/design-library/components/toast";
+
+import {
+  createCredentialRequest,
+  credentialRequestExpiryToEpochMs,
+} from "./credential-requests-api";
 
 /**
  * A locally stored credential row from `POST /v1/credentials/list`. The route's
@@ -40,6 +46,15 @@ interface ManagedCredentialRow {
   provider: string;
   accountInfo: string | null;
   status: string;
+}
+
+/** A freshly minted one-time credential-request link, shown in a modal. */
+interface GeneratedLink {
+  /** `service:field` of the credential the link fills. */
+  name: string;
+  url: string;
+  /** Epoch (seconds or ms) the link expires at, when the daemon reports it. */
+  expiresAt: number | null;
 }
 
 function credentialsListQueryKey(assistantId: string) {
@@ -77,6 +92,8 @@ function CredentialsPageInner() {
   const assistantId = useActiveAssistantId();
   const queryClient = useQueryClient();
   const isOrgReady = useIsOrgReady();
+  const credentialRequestsEnabled =
+    useAssistantFeatureFlagStore.use.credentialRequests();
 
   const listQueryKey = credentialsListQueryKey(assistantId);
   const listQuery = useQuery({
@@ -123,6 +140,12 @@ function CredentialsPageInner() {
   const [value, setValue] = useState("");
   const [label, setLabel] = useState("");
   const [pendingDeletion, setPendingDeletion] = useState<CredentialRow | null>(
+    null,
+  );
+  const [generatedLink, setGeneratedLink] = useState<GeneratedLink | null>(
+    null,
+  );
+  const [generatingLinkName, setGeneratingLinkName] = useState<string | null>(
     null,
   );
 
@@ -180,6 +203,46 @@ function CredentialsPageInner() {
     );
   };
 
+  const handleGenerateLink = async (credential: CredentialRow) => {
+    const name = `${credential.service}:${credential.field}`;
+    setGeneratingLinkName(name);
+    try {
+      const result = await createCredentialRequest(assistantId, {
+        service: credential.service,
+        field: credential.field,
+        label: credential.alias ?? undefined,
+      });
+      if (result.ok && result.url) {
+        setGeneratedLink({
+          name,
+          url: result.url,
+          expiresAt: result.expiresAt ?? null,
+        });
+      } else {
+        toast.error(result.error || "Failed to generate a one-time link");
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof Error
+          ? err.message
+          : "Failed to generate a one-time link",
+      );
+    } finally {
+      setGeneratingLinkName(null);
+    }
+  };
+
+  const handleCopyGeneratedLink = () => {
+    const url = generatedLink?.url;
+    if (!url) {
+      return;
+    }
+    void navigator.clipboard.writeText(url).then(
+      () => toast.success("Link copied to clipboard."),
+      () => toast.error("Couldn't copy the link — select it and copy manually."),
+    );
+  };
+
   // --- Render ---
 
   if (listQuery.isLoading) {
@@ -226,6 +289,24 @@ function CredentialsPageInner() {
                         : ""}
                     </p>
                   </div>
+                  {credentialRequestsEnabled ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="compact"
+                      onClick={() => void handleGenerateLink(credential)}
+                      disabled={generatingLinkName === name}
+                      aria-label={`Generate one-time link for ${name}`}
+                      title="Generate one-time link"
+                      iconOnly={
+                        generatingLinkName === name ? (
+                          <Loader2 className="animate-spin" aria-hidden />
+                        ) : (
+                          <Link2 aria-hidden />
+                        )
+                      }
+                    />
+                  ) : null}
                   <Button
                     type="button"
                     variant="ghost"
@@ -378,6 +459,54 @@ function CredentialsPageInner() {
         onConfirm={confirmDelete}
         onCancel={() => setPendingDeletion(null)}
       />
+
+      <Modal.Root
+        open={generatedLink !== null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setGeneratedLink(null);
+          }
+        }}
+      >
+        <Modal.Content size="sm">
+          <Modal.Header>
+            <Modal.Title icon={Link2}>One-time credential link</Modal.Title>
+            <Modal.Description>
+              {generatedLink
+                ? `Send this link to whoever should provide ${generatedLink.name}. It works exactly once${
+                    generatedLink.expiresAt !== null
+                      ? ` and expires ${new Date(
+                          credentialRequestExpiryToEpochMs(
+                            generatedLink.expiresAt,
+                          ),
+                        ).toLocaleString()}`
+                      : ""
+                  }. Anyone with the link can set this credential, so share it over a trusted channel.`
+                : ""}
+            </Modal.Description>
+          </Modal.Header>
+          <Modal.Body>
+            <Input
+              label="Link"
+              type="text"
+              readOnly
+              value={generatedLink?.url ?? ""}
+              onFocus={(e) => e.currentTarget.select()}
+              fullWidth
+            />
+          </Modal.Body>
+          <Modal.Footer>
+            <Button
+              type="button"
+              size="compact"
+              onClick={handleCopyGeneratedLink}
+              leftIcon={<Copy aria-hidden />}
+            >
+              Copy link
+            </Button>
+          </Modal.Footer>
+        </Modal.Content>
+      </Modal.Root>
     </div>
   );
 }
