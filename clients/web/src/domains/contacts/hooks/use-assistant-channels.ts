@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo } from "react";
 
-import type { SlackThreadMode } from "@/components/slack-setup-wizard";
 import type { AssistantChannelsListProps } from "@/domains/contacts/components/assistant-channels-list";
+import type { SlackThreadMode } from "@/domains/contacts/components/slack-thread-behavior";
 import { useChannelTrustFloors } from "@/domains/contacts/hooks/use-channel-trust-floors";
 import {
   SETUP_CHANNEL_IDS,
