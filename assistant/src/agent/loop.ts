@@ -1,5 +1,3 @@
-import * as Sentry from "@sentry/node";
-
 import { getConfig } from "../config/loader.js";
 import { isMemoryV3Live } from "../config/memory-v3-gate.js";
 import type { LLMCallSite } from "../config/schemas/llm.js";
@@ -52,7 +50,6 @@ import {
 } from "../tools/sensitive-output-placeholders.js";
 import { ProviderError } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
-import { isRetryableNetworkError } from "../util/retry.js";
 import { CompactionCircuit } from "./compaction-circuit.js";
 
 const log = getLogger("agent-loop");
@@ -337,8 +334,8 @@ export type AgentEvent =
        * has the same `provider` column value as a successful `usage` row.
        *
        * Re-thrown by the inner LLM-call try/catch after emission so the
-       * outer agent-loop catch still handles abort, Sentry capture, the
-       * existing `error` event, and the loop break.
+       * outer agent-loop catch still handles abort, the existing `error`
+       * event, and the loop break.
        */
       type: "provider_error";
       rawRequest: unknown;
@@ -519,42 +516,6 @@ function hasVisibleText(content: ReadonlyArray<ContentBlock>): boolean {
   return content.some(
     (block) => block.type === "text" && block.text.trim().length > 0,
   );
-}
-
-/**
- * User-config HTTP status codes that should never page the on-call: billing
- * exhaustion (402), invalid credentials (401), and forbidden/plan-gated (403).
- * The user-facing error path already surfaces an actionable message (e.g.
- * credits_exhausted); a Sentry issue adds noise without engineering signal.
- */
-const USER_CONFIG_STATUS_CODES = new Set([401, 402, 403]);
-
-/**
- * Whether an agent-loop error should be reported to Sentry. Suppresses:
- *
- *  - `ProviderError` carrying a user-config status code (401/402/403) — these
- *    are bad API keys, exhausted billing, or plan gates, not engineering bugs.
- *  - Retry-exhausted transient network errors (`retriesExhausted === true` +
- *    still categorized as retryable network) — the retry loop already tried
- *    its best; the user's network was flaky, not our code.
- *
- * Everything else (5xx with no retry-exhaustion tag, surprise errors, tool
- * failures, etc.) still pages.
- */
-export function shouldCaptureAgentLoopError(err: Error): boolean {
-  if (
-    err instanceof ProviderError &&
-    err.statusCode !== undefined &&
-    USER_CONFIG_STATUS_CODES.has(err.statusCode)
-  ) {
-    return false;
-  }
-  const exhausted = (err as Error & { retriesExhausted?: boolean })
-    .retriesExhausted;
-  if (exhausted === true && isRetryableNetworkError(err)) {
-    return false;
-  }
-  return true;
 }
 
 type AgentLoopContextWindowResolver = () => {
@@ -1719,8 +1680,8 @@ export class AgentLoop {
         // provider rejections. On provider failure we emit `provider_error`
         // with the loop-level raw request so consumers can persist it as an
         // `llm_request_logs` row, then re-throw so the existing outer catch
-        // continues to handle abort sync, Sentry capture, the `error` event,
-        // and the loop break unchanged.
+        // continues to handle abort sync, the `error` event, and the loop
+        // break unchanged.
         // Latency: the request is about to leave for the provider. The span
         // from here to the first streamed token is time-to-first-token.
         latencyTracker?.mark("request_sent");
@@ -2499,9 +2460,6 @@ export class AgentLoop {
           { err, turn: toolUseTurns, messageCount: history.length },
           "Agent loop error during turn processing",
         );
-        if (shouldCaptureAgentLoopError(err)) {
-          Sentry.captureException(err);
-        }
         onEvent({ type: "error", error: err });
         // Catch-block fallback. A break site that stamped a more specific
         // reason before unwinding here keeps it; the guard makes this a no-op.

@@ -20,13 +20,6 @@ mock.module("../util/logger.js", () => ({
     new Proxy({} as Record<string, unknown>, { get: () => () => {} }),
 }));
 
-// Sentry is a side-effecting no-op in tests.
-mock.module("@sentry/node", () => ({
-  withScope: (fn: (scope: unknown) => void) =>
-    fn({ setLevel() {}, setTag() {}, setContext() {} }),
-  captureMessage: () => {},
-}));
-
 // Capture direct emits instead of POSTing them.
 const emitCalls: Array<{ checkName: string; detail: Record<string, unknown> }> =
   [];
