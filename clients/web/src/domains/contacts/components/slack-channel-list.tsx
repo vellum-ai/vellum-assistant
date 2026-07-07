@@ -12,6 +12,7 @@ import { VirtualList } from "@vellumai/design-library/components/virtual-list";
 
 import { EmptyState } from "@/components/empty-state";
 import { SlackChannelOverridePanel } from "@/domains/contacts/components/slack-channel-override-panel";
+import { SlackChannelTierLegend } from "@/domains/contacts/components/slack-channel-tier-legend";
 import {
   CAPABILITY_TIER_META,
   resolveChannelTier,
@@ -308,6 +309,7 @@ export function SlackChannelList({
                   {multiOpen ? "Collapse all" : "Expand all"}
                 </Button>
               </div>
+              <SlackChannelTierLegend assistantName={assistantDisplayName} />
               {visibleChannels.length === 0 ? (
                 <Typography
                   as="span"

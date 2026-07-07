@@ -1,6 +1,7 @@
 /**
  * Per-channel capabilities-tier model for the Slack channel list's
- * expandable rows. Capabilities is the only per-room knob, and the list is
+ * expandable rows ("Assistant Access" in user-facing copy). The tier is
+ * the only per-room knob, and the list is
  * rooms only (channels and group DMs): admission — who can reach the
  * assistant — is a channel-type concern handled by the trust floors, and
  * how the assistant interacts with an individual person is contact-list
@@ -32,33 +33,30 @@ export type SlackCapabilityTier = (typeof CAPABILITY_TIER_VALUES)[number];
 
 interface CapabilityTierMeta {
   label: string;
-  /** Short qualifier shown with the tier in pickers and help copy. */
+  /**
+   * Short qualifier shown under the label in the tier picker. The full
+   * per-tier description lives in the one-time legend
+   * (`SlackChannelTierLegend`) — it needs the assistant name and a settings
+   * link, so it can't be a static string here.
+   */
   sublabel: string;
-  /** One-line help text for the selected tier. */
-  description: string;
   tone: TagTone;
 }
 
 export const CAPABILITY_TIER_META: Record<SlackCapabilityTier, CapabilityTierMeta> = {
   strict: {
     label: presetFromThreshold("none").label,
-    sublabel: "ask before every action",
-    description:
-      "Nothing is auto-approved — every tool call from this channel asks first.",
+    sublabel: "read + reply only",
     tone: "negative",
   },
   standard: {
     label: "Standard",
-    sublabel: "reply + safe tools",
-    description:
-      "Safe, low-risk tools are auto-approved; anything sensitive still asks.",
+    sublabel: "safe actions, ask for the rest",
     tone: "warning",
   },
   full_access: {
     label: presetFromThreshold("high").label,
-    sublabel: "all tools",
-    description:
-      "All tools auto-approve in this channel, even when the global setting is stricter. Sensitive-tool protections still apply.",
+    sublabel: "acts freely",
     tone: "positive",
   },
 };

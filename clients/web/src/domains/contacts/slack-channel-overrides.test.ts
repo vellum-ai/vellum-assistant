@@ -117,4 +117,12 @@ describe("CAPABILITY_TIER_META", () => {
     expect(CAPABILITY_TIER_META.standard.tone).toBe("warning");
     expect(CAPABILITY_TIER_META.full_access.tone).toBe("positive");
   });
+
+  test("sublabels use the behavior framing, not tool inventory", () => {
+    expect(CAPABILITY_TIER_META.strict.sublabel).toBe("read + reply only");
+    expect(CAPABILITY_TIER_META.standard.sublabel).toBe(
+      "safe actions, ask for the rest",
+    );
+    expect(CAPABILITY_TIER_META.full_access.sublabel).toBe("acts freely");
+  });
 });

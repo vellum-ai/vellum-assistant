@@ -66,7 +66,7 @@ export const Empty: Story = {
 
 /**
  * `eng-releases` starts overridden to the Standard tier — the row badge
- * reads "Standard • custom" and expanding it shows the custom-capabilities
+ * reads "Standard • custom" and expanding it shows the custom-access
  * callout with Reset to default (mirrors the ticket mockup's `releases`).
  */
 export const OverriddenChannel: Story = {

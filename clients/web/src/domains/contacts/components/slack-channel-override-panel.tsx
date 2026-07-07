@@ -14,7 +14,7 @@ import {
 export interface SlackChannelOverridePanelProps {
   /** Row's channel name, for accessible control labels. */
   channelName: string;
-  /** Lowercase room-type word for the custom-capabilities callout copy. */
+  /** Lowercase room-type word for the custom-access callout copy. */
   kindLabel: "public" | "private";
   settings: SlackChannelTierSettings;
   /**
@@ -29,11 +29,12 @@ export interface SlackChannelOverridePanelProps {
 }
 
 /**
- * Expanded-row settings for one Slack channel: the capabilities tier
+ * Expanded-row settings for one Slack channel: the Assistant Access tier
  * (the only per-room knob — reach is baked into the channel type, with no
- * per-room control), with a custom-capabilities callout + reset when the
- * tier diverges from the channel-type default. Persists as channel-ID
- * cells via the gateway SDK.
+ * per-room control), with a custom-access callout + reset when the tier
+ * diverges from the channel-type default. Per-tier descriptions live in
+ * the list's one-time legend ({@link SlackChannelTierLegend}), not here.
+ * Persists as channel-ID cells via the gateway SDK.
  */
 export function SlackChannelOverridePanel({
   channelName,
@@ -48,16 +49,16 @@ export function SlackChannelOverridePanel({
   const tierItems = CAPABILITY_TIER_VALUES.map((tier) => ({
     value: tier,
     label: CAPABILITY_TIER_META[tier].label,
+    sublabel: CAPABILITY_TIER_META[tier].sublabel,
     disabled: unavailable,
   }));
-  const tierMeta = CAPABILITY_TIER_META[settings.tier];
 
   return (
     <div className="flex flex-col gap-3 px-2 pt-1 pb-4">
       {settings.overridden ? (
         <Notice
           tone="warning"
-          title="Custom capabilities."
+          title="Custom access."
           className="border-dashed"
           actions={
             <Button
@@ -79,7 +80,7 @@ export function SlackChannelOverridePanel({
           variant="body-small-emphasised"
           className="text-[color:var(--content-secondary)]"
         >
-          Capabilities
+          Assistant Access
         </Typography>
         {loading ? (
           <Typography
@@ -113,26 +114,8 @@ export function SlackChannelOverridePanel({
         items={tierItems}
         value={settings.tier}
         onChange={onTierChange}
-        ariaLabel={`Capabilities in ${channelName}`}
+        ariaLabel={`Assistant Access in ${channelName}`}
       />
-      <Typography
-        as="p"
-        variant="body-small-default"
-        className="text-[color:var(--content-tertiary)]"
-      >
-        {settings.overridden ? (
-          <>
-            {tierMeta.label} — {tierMeta.sublabel}. {tierMeta.description}
-          </>
-        ) : (
-          // Without a persisted cell the runtime falls through to the
-          // global auto-approve setting; the tier copy would overclaim.
-          <>
-            No channel override — this channel follows your global
-            auto-approve setting. Pick a tier to set one.
-          </>
-        )}
-      </Typography>
     </div>
   );
 }
