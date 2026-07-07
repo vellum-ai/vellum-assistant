@@ -70,9 +70,27 @@ class MyViewController: CAPBridgeViewController {
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
         installTextSelectionHandler()
+        installQuoteReplyCapabilityMarker()
     }
 
     // MARK: - Quote-and-reply edit menu
+
+    /// Advertise to the web layer that this shell hosts the quote-and-reply
+    /// action in the OS text-selection menu, so the web floating chip can
+    /// suppress itself. Injected only on OS versions where `buildMenu` can add
+    /// the item; the web bundle is loaded live, so older App Store installs
+    /// (and unsupported OS versions) omit the marker and keep the web chip.
+    private func installQuoteReplyCapabilityMarker() {
+        guard #available(iOS 16.0, *),
+              let contentController = webView?.configuration.userContentController
+        else { return }
+        let script = WKUserScript(
+            source: "window.__vellumNativeQuoteReplyMenu = true;",
+            injectionTime: .atDocumentStart,
+            forMainFrameOnly: true
+        )
+        contentController.addUserScript(script)
+    }
 
     /// Register the script-message handler the web layer posts `{ canReply }`
     /// to. A weak proxy breaks the retain cycle that a direct `add(self:)`

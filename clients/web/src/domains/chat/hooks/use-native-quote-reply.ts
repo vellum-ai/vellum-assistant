@@ -30,6 +30,13 @@ const NATIVE_SELECTION_HANDLER = "vellumTextSelection";
 declare global {
   interface Window {
     __vellumQuoteReplyFromSelection?: () => void;
+    /**
+     * Set to `true` by the native iOS shell (only on OS versions that can
+     * render the native edit-menu "Reply" item) to advertise that it hosts
+     * quote-and-reply natively. Absent on older App Store installs and on OS
+     * versions where the native menu is unavailable.
+     */
+    __vellumNativeQuoteReplyMenu?: boolean;
     webkit?: {
       messageHandlers?: Record<
         string,
@@ -37,6 +44,19 @@ declare global {
       >;
     };
   }
+}
+
+/**
+ * Whether the surrounding native shell hosts the quote-and-reply action in the
+ * OS text-selection menu. Only then should the web floating chip be suppressed
+ * — otherwise (older shells, unsupported OS versions, plain mobile browsers)
+ * the chip remains the sole reply affordance.
+ */
+export function hasNativeQuoteReplyMenu(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.__vellumNativeQuoteReplyMenu === true
+  );
 }
 
 export function useNativeQuoteReply(

@@ -13,7 +13,7 @@ import { Button, Popover } from "@vellumai/design-library";
 
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { resolveAssistantSelection } from "@/domains/chat/resolve-assistant-selection";
-import { isNativePlatform } from "@/runtime/native-auth";
+import { hasNativeQuoteReplyMenu } from "@/domains/chat/hooks/use-native-quote-reply";
 import { isPointerCoarse } from "@/utils/pointer";
 
 const COARSE_SELECTION_SETTLE_MS = 120;
@@ -52,10 +52,11 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
   }, []);
 
   const updatePopoverFromSelection = useCallback(() => {
-    // Inside the Capacitor iOS shell the OS text-selection edit menu hosts
-    // the "Reply" action natively (see `useNativeQuoteReply`), so the web
-    // floating chip stays suppressed to avoid a competing affordance.
-    if (isNativePlatform()) {
+    // When the native shell hosts "Reply" in the OS text-selection edit menu
+    // (see `useNativeQuoteReply`), the web floating chip stays suppressed to
+    // avoid a competing affordance. Older shells and unsupported OS versions
+    // lack the native item, so the chip remains their only reply affordance.
+    if (hasNativeQuoteReplyMenu()) {
       return;
     }
     const coarsePointer = isPointerCoarse();
