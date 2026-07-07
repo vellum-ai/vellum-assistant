@@ -1,6 +1,9 @@
 import { z } from "zod";
 
-import { DEFAULT_PROFILE_KEYS } from "../default-profile-names.js";
+import {
+  DEFAULT_PROFILE_KEYS,
+  DEFAULT_PROFILE_PROVIDERS,
+} from "../default-profile-names.js";
 
 /**
  * Unified LLM configuration schema.
@@ -30,6 +33,10 @@ export const LLMProvider = z
   ])
   .meta({ id: "LLMProvider" });
 type LLMProvider = z.infer<typeof LLMProvider>;
+
+// Deliberately narrower than `LLMProvider`: only providers that can serve
+// the code-defined default profile catalog.
+const DefaultProviderEnum = z.enum(DEFAULT_PROFILE_PROVIDERS);
 
 // ---------------------------------------------------------------------------
 // Call-site enum
@@ -466,6 +473,38 @@ const LLMCallSiteConfig = LLMConfigFragment.extend({
 type LLMCallSiteConfig = z.infer<typeof LLMCallSiteConfig>;
 
 // ---------------------------------------------------------------------------
+// Default provider
+// ---------------------------------------------------------------------------
+
+/**
+ * Pins which provider backs the workspace's default inference identity.
+ * When `connectionName` is absent, `resolveDefaultConnectionName`
+ * (`../default-provider.js`) supplies the convention.
+ *
+ * No connection-existence validation on purpose: schema validation is
+ * pure/sync and cannot see the sqlite `provider_connections` table, so a
+ * dangling `connectionName` is allowed here and surfaced as an explainable
+ * resolution error at read time.
+ */
+export const DefaultProviderSchema = z.object({
+  provider: DefaultProviderEnum,
+  connectionName: z.string().min(1).optional(),
+});
+export type DefaultProviderConfig = z.infer<typeof DefaultProviderSchema>;
+
+/**
+ * The `.catch(undefined)` drops an invalid value atomically at parse time.
+ * Without it, the loader's recovery pass (which deletes the exact key at each
+ * issue path) could strand a fragment like `{ connectionName }` that fails
+ * the re-parse and escalates a one-field typo into a full config-defaults
+ * fallback. A `z.unknown().transform(...)` wrapper would also fix that, but
+ * hides the object shape from `getSchemaAtPath` / `z.toJSONSchema`; the catch
+ * value must be static because `z.toJSONSchema` rejects callbacks.
+ * Writes stay loud: `setDefaultProvider` parses the strict schema directly.
+ */
+const DefaultProviderField = DefaultProviderSchema.optional().catch(undefined);
+
+// ---------------------------------------------------------------------------
 // Top-level LLM schema
 // ---------------------------------------------------------------------------
 
@@ -488,6 +527,7 @@ export const LLMSchema = z
     // under Models & Services). It is excluded from the chat-profile pickers so
     // it can't be selected as the assistant's chat model.
     advisorProfile: z.string().min(1).optional(),
+    defaultProvider: DefaultProviderField,
     // TTL bounds for inference profile sessions. `defaultTtlSeconds` is read by
     // the CLI to apply when `--ttl` is omitted; the daemon handler itself only
     // reads `maxTtlSeconds` (to clamp caller-supplied values).
