@@ -57,6 +57,14 @@ export interface UseBackgroundHatchOptions {
    * chosen HOSTING, not the build (see the research route's `?hosting` read).
    */
   adoptExisting?: boolean;
+  /**
+   * The id of the assistant to adopt (the one the hatching screen just
+   * provisioned), carried through the research redirect. Pins discovery to
+   * that exact assistant so a stale selection or leftover lockfile entries
+   * from previous sessions can't answer for it. When omitted (or the id turns
+   * out stale), discovery falls back to the selected/active assistant.
+   */
+  adoptAssistantId?: string;
 }
 
 /**
@@ -77,7 +85,7 @@ export interface UseBackgroundHatchOptions {
  * Recoverable failures (5xx / network) keep polling.
  */
 export function useBackgroundHatch(
-  { adoptExisting = false }: UseBackgroundHatchOptions = {},
+  { adoptExisting = false, adoptAssistantId }: UseBackgroundHatchOptions = {},
 ): UseBackgroundHatch {
   const [ready, setReady] = useState(false);
   const [assistantId, setAssistantId] = useState<string | null>(null);
@@ -131,7 +139,12 @@ export function useBackgroundHatch(
       // onboarding (adoptExisting=false) still runs the managed hatch, even
       // though the desktop build reports `isLocalMode()` — that's why this keys
       // on the chosen hosting, not the build.
-      let hatchedAssistantId: string | undefined;
+      // When adopting, seed discovery with the id the hatching screen handed
+      // off, so step 2 resolves that exact assistant (a stale id falls back to
+      // list-based discovery via the 404 net below).
+      let hatchedAssistantId: string | undefined = adoptExisting
+        ? adoptAssistantId
+        : undefined;
       if (!adoptExisting) {
         try {
           const result = await hatchAssistant();
@@ -213,7 +226,7 @@ export function useBackgroundHatch(
 
       settleReady(activeAssistantId);
     })();
-  }, [settleError, settleReady, adoptExisting]);
+  }, [settleError, settleReady, adoptExisting, adoptAssistantId]);
 
   const awaitReady = useCallback((): Promise<string> => {
     const settled = settledRef.current;

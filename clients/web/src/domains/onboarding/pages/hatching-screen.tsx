@@ -199,7 +199,7 @@ export function HatchingScreen() {
 
     const pinnedVersion = readSelectedVersion();
 
-    const handleHatchReady = () => {
+    const handleHatchReady = (readyAssistantId?: string) => {
       try {
         writeSelectedVersion("");
       } catch (err) {
@@ -240,13 +240,21 @@ export function HatchingScreen() {
           if (useLocalHatch) {
             // Carry the hosting choice through so the research route's
             // background hatch ADOPTS this just-hatched local assistant instead
-            // of running a managed hatch (see `adoptExisting` there).
-            const researchQs = hostingParam
-              ? `?hosting=${encodeURIComponent(hostingParam)}`
-              : "";
-            void navigate(`${routes.onboarding.research}${researchQs}`, {
-              replace: true,
-            });
+            // of running a managed hatch (see `adoptExisting` there), and the
+            // assistant id so it adopts exactly this one — not whatever a stale
+            // selection or leftover lockfile entry resolves to.
+            const researchParams = new URLSearchParams();
+            if (hostingParam) {
+              researchParams.set("hosting", hostingParam);
+            }
+            if (readyAssistantId) {
+              researchParams.set("assistant", readyAssistantId);
+            }
+            const researchQs = researchParams.toString();
+            void navigate(
+              `${routes.onboarding.research}${researchQs ? `?${researchQs}` : ""}`,
+              { replace: true },
+            );
             return;
           }
           void navigate(
@@ -416,7 +424,7 @@ export function HatchingScreen() {
             void persistHatchAvatar(result.assistantId);
           }
 
-          handleHatchReady();
+          handleHatchReady(result.assistantId);
         } catch {
           releaseHatchGuards();
           if (cancelled) return;

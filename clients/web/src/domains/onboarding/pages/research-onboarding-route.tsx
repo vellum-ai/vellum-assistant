@@ -228,13 +228,20 @@ export function ResearchOnboardingRoute() {
   const hostingParam = searchParams.get("hosting");
   const adoptExistingAssistant =
     isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+  // The hatching screen names the assistant it provisioned in the `assistant`
+  // param, pinning adoption to that exact one — a stale selection or leftover
+  // lockfile entries from previous sessions can't answer for it.
+  const adoptAssistantId = searchParams.get("assistant") ?? undefined;
   const {
     start: startHatch,
     ready: hatchReady,
     assistantId: hatchedAssistantId,
     error: hatchError,
     awaitReady: awaitHatchReady,
-  } = useBackgroundHatch({ adoptExisting: adoptExistingAssistant });
+  } = useBackgroundHatch({
+    adoptExisting: adoptExistingAssistant,
+    adoptAssistantId,
+  });
   const research = useResearchRunner();
   // Stable across renders (useCallback in the runner); safe as effect deps.
   const { start: startResearch, hydrate: hydrateResearch } = research;
