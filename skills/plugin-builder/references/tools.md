@@ -80,25 +80,19 @@ The result is what the model sees back:
 
 ## Persisting data from a tool
 
-`ToolContext` does **not** include `pluginStorageDir`. That field is only passed to the `init` hook (`InitContext`). A tool that reads `ctx.pluginStorageDir` inside `execute` crashes at call time with `The "paths[0]" property must be of type string, got undefined`, and if the read is wrapped in a broad `try/catch`, the crash silently degrades into an empty result, which is worse.
-
-A tool that needs durable storage should derive the directory from `workingDir`, which matches where the host provisions plugin storage (`<workspaceDir>/plugins-data/<plugin-name>/`):
+A tool that needs durable storage should derive the directory from the workspace root, which matches where the host provisions plugin storage (`<workspaceDir>/plugins/<plugin-name>/data`):
 
 ```ts
 execute: async (input, ctx) => {
   const fs = await import("node:fs/promises");
   const path = await import("node:path");
-  const storageDir =
-    (ctx as { pluginStorageDir?: string }).pluginStorageDir ??
-    path.join(ctx.workingDir ?? process.cwd(), "plugins-data", "my-plugin-name");
+  const storageDir = path.join(process.env.VELLUM_WORKSPACE_DIR, "plugins", "my-plugin-name", "data");
   await fs.mkdir(storageDir, { recursive: true });
   // read/write files under storageDir
 },
 ```
 
-The optional-field spread keeps the tool forward-compatible: if a future host version starts injecting `pluginStorageDir` into `ToolContext`, the tool picks it up automatically.
-
-**Hot-reload caveat.** Bun caches `import()` by resolved file path and does not bust on content changes, so an edit to an *existing* tool file is only picked up after a daemon restart. Added and removed tool files are picked up live (discovery is by directory listing). When iterating on a tool's implementation, restart the daemon (or rename the file) to see the change.
+Note that `pluginStorageDir` is only available on `InitContext` (the `init` hook), not on `ToolContext`, so a tool cannot read it inside `execute`.
 
 ## Resolution order
 
@@ -161,3 +155,4 @@ export default {
 ```
 
 Types come from [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api), the only supported contract.
+
