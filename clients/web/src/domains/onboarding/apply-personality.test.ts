@@ -109,6 +109,7 @@ describe("shouldSettlePersonalityPoll", () => {
     expect(
       shouldSettlePersonalityPoll({
         processing: true,
+        sawProcessing: true,
         hasReply: true,
         stableReads: 5,
       }),
@@ -119,18 +120,35 @@ describe("shouldSettlePersonalityPoll", () => {
     expect(
       shouldSettlePersonalityPoll({
         processing: false,
+        sawProcessing: false,
         hasReply: true,
         stableReads: 0,
       }),
     ).toBe(true);
   });
 
-  test("does not settle on processing:false before the turn has produced a reply", () => {
+  test("settles a turn that ran but finished without visible text", () => {
+    // A rewrite turn can end on a tool call with no trailing text reply.
+    // Catching `processing: true` on an earlier read is proof the turn ran, so
+    // `processing: false` alone marks it finished — without this the poll
+    // would spin to the deadline on a successful rewrite.
+    expect(
+      shouldSettlePersonalityPoll({
+        processing: false,
+        sawProcessing: true,
+        hasReply: false,
+        stableReads: 0,
+      }),
+    ).toBe(true);
+  });
+
+  test("does not settle on processing:false before the turn shows evidence of running", () => {
     // A just-posted message can still be queued — `processing` is false until
     // the turn actually starts, so the flag alone would settle instantly.
     expect(
       shouldSettlePersonalityPoll({
         processing: false,
+        sawProcessing: false,
         hasReply: false,
         stableReads: 0,
       }),
@@ -141,6 +159,7 @@ describe("shouldSettlePersonalityPoll", () => {
     expect(
       shouldSettlePersonalityPoll({
         processing: undefined,
+        sawProcessing: false,
         hasReply: true,
         stableReads: 2,
       }),
@@ -148,6 +167,7 @@ describe("shouldSettlePersonalityPoll", () => {
     expect(
       shouldSettlePersonalityPoll({
         processing: undefined,
+        sawProcessing: false,
         hasReply: true,
         stableReads: 1,
       }),
@@ -155,6 +175,7 @@ describe("shouldSettlePersonalityPoll", () => {
     expect(
       shouldSettlePersonalityPoll({
         processing: undefined,
+        sawProcessing: false,
         hasReply: false,
         stableReads: 2,
       }),

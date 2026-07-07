@@ -61,21 +61,28 @@ const STABLE_READS_TO_SETTLE = 2;
  * rewrite typically emits a "rewriting now…" preamble and then spends most of
  * the turn on file_write calls, during which the visible text is stable —
  * text-stability alone settles ~3s into a turn that runs for tens of seconds,
- * releasing the chat handoff before IDENTITY.md is actually written. The
- * `hasReply` guard keeps a still-queued turn (`processing` not yet flipped on)
- * from reading as already finished. Older daemons omit the flag; fall back to
- * text-stability there.
+ * releasing the chat handoff before IDENTITY.md is actually written. A turn
+ * counts as finished once `processing` is false AND it has produced evidence
+ * of running at all — a visible reply, or an earlier read that caught
+ * `processing: true` (`sawProcessing`, which covers a turn whose final
+ * message is all tool calls with no text). Requiring that evidence keeps a
+ * still-queued turn (`processing` not yet flipped on) from reading as already
+ * finished. Daemons that omit the flag settle on text-stability instead.
  */
 export function shouldSettlePersonalityPoll({
   processing,
+  sawProcessing,
   hasReply,
   stableReads,
 }: {
   processing: boolean | undefined;
+  sawProcessing: boolean;
   hasReply: boolean;
   stableReads: number;
 }): boolean {
-  if (processing !== undefined) return !processing && hasReply;
+  if (processing !== undefined) {
+    return !processing && (hasReply || sawProcessing);
+  }
   return hasReply && stableReads >= STABLE_READS_TO_SETTLE;
 }
 
@@ -215,6 +222,7 @@ export async function applyPersonality({
     const deadline = Date.now() + MAX_POLL_MS;
     let lastText = "";
     let stableReads = 0;
+    let sawProcessing = false;
     while (Date.now() < deadline) {
       await sleep(POLL_INTERVAL_MS);
       const listed = await messagesGet({
@@ -227,9 +235,13 @@ export async function applyPersonality({
         stableReads = text === lastText ? stableReads + 1 : 0;
         lastText = text;
       }
+      if (listed.data?.processing === true) {
+        sawProcessing = true;
+      }
       if (
         shouldSettlePersonalityPoll({
           processing: listed.data?.processing,
+          sawProcessing,
           hasReply: text.length > 0,
           stableReads,
         })
