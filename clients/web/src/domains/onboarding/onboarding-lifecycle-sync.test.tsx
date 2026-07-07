@@ -223,6 +223,28 @@ mock.module("@/lib/local-mode", () => ({
   primeLocalGatewayConnection: async () => {},
   primeLocalGatewayConnectionWithRepair: async () => {},
   getLocalGatewayUrl: () => localGatewayUrlValue,
+  // Mirrors the real probe against the mocked gateway URL, so tests that stub
+  // `globalThis.fetch` keep driving the readyz loop the same way.
+  probeLocalGatewayReady: async () => {
+    if (!localGatewayUrlValue) {
+      return false;
+    }
+    try {
+      const res = await fetch(`${localGatewayUrlValue}/readyz`);
+      if (!res.ok) {
+        return false;
+      }
+      const body: unknown = await res.json();
+      return (
+        body !== null &&
+        typeof body === "object" &&
+        "status" in body &&
+        (body as { status?: unknown }).status === "ok"
+      );
+    } catch {
+      return false;
+    }
+  },
 }));
 
 mock.module("@/runtime/local-mode-host", () => ({

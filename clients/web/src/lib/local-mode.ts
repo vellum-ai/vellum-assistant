@@ -469,6 +469,34 @@ export function getLocalGatewayUrl(
   return gatewayProxyUrl(gatewayPort);
 }
 
+/**
+ * One-shot probe of the local gateway's `/readyz` (which reports gateway AND
+ * upstream daemon readiness). True only when the gateway answers
+ * `{ status: "ok" }`; false when the gateway URL is unresolvable, the request
+ * fails, or the gateway is up but not yet ready.
+ */
+export async function probeLocalGatewayReady(): Promise<boolean> {
+  const gatewayUrl = getLocalGatewayUrl();
+  if (!gatewayUrl) {
+    return false;
+  }
+  try {
+    const res = await fetch(`${gatewayUrl}/readyz`);
+    if (!res.ok) {
+      return false;
+    }
+    const body: unknown = await res.json();
+    return (
+      body !== null &&
+      typeof body === "object" &&
+      "status" in body &&
+      body.status === "ok"
+    );
+  } catch {
+    return false;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Gateway connection setup
 // ---------------------------------------------------------------------------
