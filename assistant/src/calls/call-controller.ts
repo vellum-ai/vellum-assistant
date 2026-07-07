@@ -469,10 +469,7 @@ export class CallController {
     this.endCallListenTimer = null;
     this.llmRunVersion++;
     this.abortCurrentTurn();
-    if (this.activeSynthesisAbort) {
-      this.activeSynthesisAbort.abort();
-      this.activeSynthesisAbort = null;
-    }
+    this.abortActiveSynthesis();
     this.currentTurnPromise = null;
     unregisterCallController(this.callSessionId);
 
@@ -522,16 +519,21 @@ export class CallController {
     this.abortController = new AbortController();
     // Abort any in-flight synthesized-TTS playback too, so a superseded or
     // torn-down turn's audio isn't streamed to the caller after they move on.
-    if (this.activeSynthesisAbort) {
-      this.activeSynthesisAbort.abort();
-      this.activeSynthesisAbort = null;
-    }
+    this.abortActiveSynthesis();
     // Drop the aborted turn's unsent buffered text and cancel its queued /
     // in-flight speech on transports that hold either (media-stream), so
     // the aborted turn neither leaks text into the next turn's synthesis
     // nor plays stale audio over it.
     this.transport.discardPendingText?.();
     this.transport.cancelPendingSpeech?.();
+  }
+
+  /** Abort and clear the in-flight synthesized-TTS segment, if any. */
+  private abortActiveSynthesis(): void {
+    if (this.activeSynthesisAbort) {
+      this.activeSynthesisAbort.abort();
+      this.activeSynthesisAbort = null;
+    }
   }
 
   private formatCallerUtterance(
@@ -690,6 +692,9 @@ export class CallController {
     // remaining segments are skipped and the error rethrows after the
     // chain drains so the outer handler speaks the generic recovery copy.
     let synthesisFailure: { err: unknown } | undefined;
+    // Turn errored while still current — isCurrentRun can't catch this, so
+    // chain links check it to keep stale speech off the recovery prompt.
+    let synthesisCancelled = false;
 
     // WAV-requiring transports re-synthesize native tokens through the
     // same failing provider path, so a failed segment (and the rest of
@@ -716,7 +721,11 @@ export class CallController {
           );
         }
       }
-      if (!wavFallbackProvider || !this.isCurrentRun(runVersion)) {
+      if (
+        !wavFallbackProvider ||
+        synthesisCancelled ||
+        !this.isCurrentRun(runVersion)
+      ) {
         return;
       }
       const fallbackStatus = await this.synthesizeAndStreamAudio(
@@ -743,7 +752,13 @@ export class CallController {
           continue;
         }
         synthesisChain = synthesisChain.then(async () => {
-          if (!this.isCurrentRun(runVersion) || synthesisFailure) return;
+          if (
+            !this.isCurrentRun(runVersion) ||
+            synthesisFailure ||
+            synthesisCancelled
+          ) {
+            return;
+          }
           try {
             if (!synthesisFellBack) {
               const status = await this.synthesizeAndStreamAudio(
@@ -902,7 +917,20 @@ export class CallController {
     // inside the Promise constructor before this await adds its handler.
     // The await below still re-throws, caught by the outer try-catch.
     turnComplete.catch(() => {});
-    await turnComplete;
+    try {
+      await turnComplete;
+    } catch (err) {
+      // Cancel and settle this turn's synthesis before the error reaches
+      // the outer handler, so no straggling segment plays the partial
+      // answer over the recovery prompt. While this run is current no
+      // newer run's synthesis can be in flight, so the abort is safe.
+      if (this.isCurrentRun(runVersion)) {
+        synthesisCancelled = true;
+        this.abortActiveSynthesis();
+      }
+      await synthesisChain.catch(() => {});
+      throw err;
+    }
     if (!this.isCurrentRun(runVersion)) {
       // Superseded mid-stream (barge-in): drain the segment chain — queued
       // links short-circuit on staleness — so this turn's synthesis fully

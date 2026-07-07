@@ -2965,6 +2965,108 @@ describe("call-controller", () => {
     controller.destroy();
   });
 
+  test("synthesized provider: a turn error cancels the queued synthesis chain so no stale speech follows the recovery prompt", async () => {
+    const cfg = loadConfig();
+    cfg.services.tts.provider = "fish-audio";
+    cfg.services.tts.providers["fish-audio"].referenceId = "fish-ref-123";
+
+    _resetTtsProviderOverridesForTests();
+    // elevenlabs present so a native fallback route exists for fish-audio.
+    const elevenlabs: TtsProvider = {
+      id: "elevenlabs",
+      capabilities: { supportsStreaming: false, supportedFormats: ["mp3"] },
+      async synthesize() {
+        return { audio: Buffer.from(""), contentType: "audio/mpeg" };
+      },
+    };
+    _setTtsProviderForTests(elevenlabs);
+
+    // Slow provider: blocks until the test releases it, but honors the
+    // abort signal like real providers do.
+    let releaseSynth: (() => void) | undefined;
+    const synthGate = new Promise<void>((resolve) => {
+      releaseSynth = resolve;
+    });
+    let synthStartedResolve: (() => void) | undefined;
+    const synthStarted = new Promise<void>((resolve) => {
+      synthStartedResolve = resolve;
+    });
+    let providerSawAbort = false;
+    const fishAudioSlow: TtsProvider = {
+      id: "fish-audio",
+      capabilities: {
+        supportsStreaming: true,
+        supportedFormats: ["mp3", "wav", "opus"],
+      },
+      async synthesize() {
+        return { audio: Buffer.from("x"), contentType: "audio/mpeg" };
+      },
+      async synthesizeStream(request, onChunk) {
+        synthStartedResolve?.();
+        await new Promise<void>((resolve, reject) => {
+          const abortErr = new Error("aborted");
+          abortErr.name = "AbortError";
+          if (request.signal?.aborted) {
+            providerSawAbort = true;
+            reject(abortErr);
+            return;
+          }
+          request.signal?.addEventListener(
+            "abort",
+            () => {
+              providerSawAbort = true;
+              reject(abortErr);
+            },
+            { once: true },
+          );
+          void synthGate.then(resolve);
+        });
+        onChunk(Buffer.from("stale-partial-answer-audio"));
+        return {
+          audio: Buffer.from("stale-partial-answer-audio"),
+          contentType: "audio/mpeg",
+        };
+      },
+    };
+    _setTtsProviderForTests(fishAudioSlow);
+
+    // Emit a speakable segment, then error the turn once that segment's
+    // synthesis is in flight — the run is never superseded, so only the
+    // turn-error cancellation keeps the chain from speaking.
+    mockStartVoiceTurn.mockImplementation(
+      async (opts: {
+        onTextDelta: (text: string) => void;
+        onError: (msg: string) => void;
+      }) => {
+        opts.onTextDelta("Partial answer for the caller. And more");
+        void synthStarted.then(() => {
+          opts.onError("voice pipeline failure");
+        });
+        return { turnId: "run-err-synth", abort: () => {} };
+      },
+    );
+
+    const { relay, controller } = setupController();
+
+    await controller.handleCallerUtterance("Hi");
+
+    // The in-flight segment was aborted and the recovery message spoken.
+    expect(providerSawAbort).toBe(true);
+    const spoken = relay.sentTokens.map((t) => t.token).join("");
+    expect(spoken).toContain("technical issue");
+    expect(controller.getState()).toBe("idle");
+
+    // Releasing the slow provider must not surface the cancelled chain's
+    // play URL or native-fallback text after the recovery prompt.
+    releaseSynth?.();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(relay.sentPlayUrls.length).toBe(0);
+    const allText = relay.sentTokens.map((t) => t.token).join("");
+    expect(allText).not.toContain("Partial answer for the caller");
+
+    controller.destroy();
+  });
+
   test("Deepgram selected path resolves useSynthesizedPath to true", async () => {
     const cfg = loadConfig();
     cfg.services.tts.provider = "deepgram";
