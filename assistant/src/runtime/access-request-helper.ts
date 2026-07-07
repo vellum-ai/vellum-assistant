@@ -27,7 +27,11 @@ import type { GuardianResolutionSource } from "../notifications/signal.js";
 import { getLogger } from "../util/logger.js";
 import { resolveAnchoredGuardian } from "./anchored-guardian.js";
 import { CHALLENGE_TTL_MS } from "./channel-verification-service.js";
-import { serializeRequesterSignals } from "./introduction-policy.js";
+import {
+  type AccessRequestTrigger,
+  introductionMode,
+  serializeRequesterSignals,
+} from "./introduction-policy.js";
 import { GUARDIAN_APPROVAL_TTL_MS } from "./routes/channel-route-shared.js";
 
 const log = getLogger("access-request-helper");
@@ -36,15 +40,7 @@ const log = getLogger("access-request-helper");
 // Types
 // ---------------------------------------------------------------------------
 
-/**
- * What prompted the introduction card. `denied` — the sender was refused
- * (ACL or admission floor) and the guardian decides whether to let them in.
- * `admitted` — the sender cleared the admission floor without ever being
- * classified, and the guardian is nudged to set their trust level while the
- * conversation proceeds. Copy branches on this; decision semantics and the
- * offered actions are identical.
- */
-export type AccessRequestTrigger = "denied" | "admitted";
+export type { AccessRequestTrigger } from "./introduction-policy.js";
 
 export interface AccessRequestParams {
   canonicalAssistantId: string;
@@ -316,10 +312,7 @@ export async function notifyGuardianOfAccessRequest(
     guardianExternalUserId: guardianExternalUserId ?? undefined,
     guardianPrincipalId: guardianPrincipalId ?? undefined,
     toolName: "ingress_access_request",
-    questionText:
-      trigger === "admitted"
-        ? `${senderIdentifier} messaged the assistant and was admitted — set their trust level`
-        : `${senderIdentifier} is requesting access to the assistant`,
+    questionText: introductionMode(trigger).questionText(senderIdentifier),
     requesterSignals: serializeRequesterSignals({
       isBot,
       isStranger,
@@ -358,7 +351,7 @@ export async function notifyGuardianOfAccessRequest(
       requiresAction: true,
       // An admitted sender is already conversing — the guardian should
       // classify them eventually, but nothing is blocked on the decision.
-      urgency: trigger === "admitted" ? "medium" : "high",
+      urgency: introductionMode(trigger).urgency,
       isAsyncBackground: false,
       visibleInSourceNow: false,
     },

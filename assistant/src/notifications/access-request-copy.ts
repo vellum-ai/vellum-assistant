@@ -11,6 +11,7 @@ import {
   buildIntroductionActions,
   coerceSignalBoolean,
   type IntroductionActionOption,
+  introductionMode,
   isHandshakeOffered,
 } from "../runtime/introduction-policy.js";
 import {
@@ -79,7 +80,7 @@ export function isAdmittedIntroduction(p: { trigger?: unknown }): boolean {
 
 /** Card/notification title, shared by every render surface. */
 export function accessRequestCardTitle(admitted: boolean): string {
-  return admitted ? "New Contact" : "Access Request";
+  return introductionMode(admitted ? "admitted" : "denied").cardTitle;
 }
 
 /**
@@ -87,9 +88,7 @@ export function accessRequestCardTitle(admitted: boolean): string {
  * every render surface.
  */
 export function accessRequestCardSubtitle(admitted: boolean): string {
-  return admitted
-    ? "Messaged your assistant — set their trust level"
-    : "Requesting access to the assistant";
+  return introductionMode(admitted ? "admitted" : "denied").cardSubtitle;
 }
 
 // ── Warnings ────────────────────────────────────────────────────────────────
@@ -214,9 +213,7 @@ function buildIdentityLineFromParsed(p: ParsedAccessRequestPayload): string {
     parts.push(`via ${p.sourceChannel}`);
   }
 
-  return isAdmittedIntroduction(p)
-    ? `${parts.join(" ")} messaged the assistant and was admitted under the channel's access setting — decide how much to trust them.`
-    : `${parts.join(" ")} is requesting access to the assistant.`;
+  return introductionMode(p.trigger).identityLine(parts.join(" "));
 }
 
 export function buildAccessRequestIdentityLine(

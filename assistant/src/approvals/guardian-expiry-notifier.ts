@@ -25,6 +25,7 @@
 import type { CanonicalGuardianRequest } from "../contacts/canonical-guardian-store.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
+import { introductionMode } from "../runtime/introduction-policy.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { getLogger } from "../util/logger.js";
 import { resolveDeliverCallbackUrlForChannel } from "./guardian-channel-delivery.js";
@@ -46,7 +47,7 @@ export async function notifyExpiredGuardianRequest(
       case "access_request":
         // Admitted-mode nudges expire silently for the requester — the
         // sender made no request and keeps whatever access the floor grants.
-        if (request.trigger === "admitted") {
+        if (!introductionMode(request.trigger).notifyRequesterOnExpiry) {
           break;
         }
         await notifyRequesterOfExpiry(

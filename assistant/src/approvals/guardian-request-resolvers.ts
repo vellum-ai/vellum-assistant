@@ -43,6 +43,7 @@ import {
 } from "../runtime/channel-approval-types.js";
 import { deliverChannelReply } from "../runtime/gateway-client.js";
 import {
+  introductionMode,
   parseRequesterSignals,
   resolveTrustBinding,
 } from "../runtime/introduction-policy.js";
@@ -722,9 +723,9 @@ const accessRequestResolver: GuardianRequestResolver = {
       decidedByContactResult?.contact.displayName ?? null;
 
     const signals = parseRequesterSignals(request.requesterSignals);
-    // Admitted-mode nudges (sender cleared the admission floor) never send
-    // requester-facing lifecycle notices — the sender made no request.
-    const admittedNudge = request.trigger === "admitted";
+    // Requester-facing lifecycle notices are mode-gated: an admitted-mode
+    // nudge's sender made no request. See introductionMode().
+    const mode = introductionMode(request.trigger);
     let outcome: IntroductionOutcome = OUTCOME_BY_ACTION[decision.action];
 
     // A bot cannot return a verification code, so a handshake approval on a
@@ -785,7 +786,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         deniedPayload,
         requestId: request.id,
         conversationId: request.conversationId,
-        suppressRequesterNotice: admittedNudge,
+        suppressRequesterNotice: !mode.notifyRequesterOnDeny,
       });
 
       return {
@@ -796,9 +797,8 @@ const accessRequestResolver: GuardianRequestResolver = {
         // admitted sender keeps whatever access the floor grants.
         ...(ctx.actor.channel === "vellum"
           ? {
-              guardianReplyText: admittedNudge
-                ? `${requesterLabel} will stay unverified.`
-                : `${requesterLabel} will stay unverified. They won't be able to message the assistant.`,
+              guardianReplyText:
+                mode.leaveUnverifiedGuardianReply(requesterLabel),
             }
           : {}),
       };
@@ -843,7 +843,7 @@ const accessRequestResolver: GuardianRequestResolver = {
         deniedPayload,
         requestId: request.id,
         conversationId: request.conversationId,
-        suppressRequesterNotice: admittedNudge,
+        suppressRequesterNotice: !mode.notifyRequesterOnDeny,
       });
 
       return {
@@ -976,7 +976,7 @@ const accessRequestResolver: GuardianRequestResolver = {
 
       // Notify the requester they're in. Admitted-mode nudges skip this —
       // the sender was already conversing and made no request.
-      if (!admittedNudge) {
+      if (mode.notifyRequesterOnTrust) {
         await deliverRequesterNotice({
           channel,
           requesterChatId,
