@@ -1,36 +1,11 @@
 import { useEffect, useLayoutEffect, useRef, type RefObject } from "react";
 
-import { haptic } from "@/utils/haptics";
-import { isPointerCoarse } from "@/utils/pointer";
+import { computeVisualOffset, useEdgeSwipe } from "@/hooks/use-edge-swipe";
+import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/** Horizontal zone from the left edge (px) where a touch is eligible. */
-const EDGE_ZONE_PX = 20;
-
-/** Minimum horizontal travel (px) to commit the swipe. */
-const COMMIT_THRESHOLD_PX = 100;
-
-/**
- * Alternative commit threshold expressed as a fraction of viewport width —
- * whichever of `COMMIT_THRESHOLD_PX` and `viewportWidth * this` is smaller
- * wins, so narrow viewports commit sooner (see `commitThresholdPx`).
- */
-const COMMIT_THRESHOLD_VW_RATIO = 0.3;
-
-/**
- * If vertical travel exceeds this ratio of horizontal travel, the gesture is
- * treated as a scroll, not a swipe.
- */
-const VERTICAL_ESCAPE_RATIO = 0.7;
-
-/** Minimum travel (px) on either axis before the gesture direction is decided. */
-const DEADZONE_PX = 10;
-
-/** Damping applied to drag distance past the commit threshold. */
-const OVERDRAG_DAMPING = 0.3;
 
 /** Duration (ms) for the cancel/snap-back animation. */
 const CANCEL_ANIMATION_MS = 200;
@@ -46,51 +21,6 @@ const ENTRANCE_OFFSET_RATIO = 0.25;
 
 /** Slack (ms) added to animation durations for the safety-fallback timers. */
 const ANIMATION_FALLBACK_SLACK_MS = 50;
-
-// ---------------------------------------------------------------------------
-// Pure geometry helpers (framework-agnostic, unit-tested in isolation)
-// ---------------------------------------------------------------------------
-
-/**
- * The commit threshold in px: the smaller of the fixed `COMMIT_THRESHOLD_PX`
- * and a fraction of the viewport width, so narrow viewports commit sooner.
- */
-export function commitThresholdPx(viewportWidth: number): number {
-  return Math.min(
-    COMMIT_THRESHOLD_PX,
-    viewportWidth * COMMIT_THRESHOLD_VW_RATIO,
-  );
-}
-
-/** Whether vertical travel dominates enough to treat the gesture as a scroll. */
-export function isVerticalEscape(dx: number, dy: number): boolean {
-  return Math.abs(dy) > Math.abs(dx) * VERTICAL_ESCAPE_RATIO;
-}
-
-export type DirectionDecision = "pending" | "cancel" | "confirm";
-
-/**
- * Classify a not-yet-confirmed gesture from its deltas since touch start:
- * still inside the deadzone (`"pending"`), a scroll or wrong-direction
- * gesture to abandon (`"cancel"`), or a left-edge back-swipe (`"confirm"`).
- */
-export function decideDirection(dx: number, dy: number): DirectionDecision {
-  if (Math.abs(dx) < DEADZONE_PX && Math.abs(dy) < DEADZONE_PX) return "pending";
-  if (isVerticalEscape(dx, dy)) return "cancel";
-  if (dx <= 0) return "cancel";
-  return "confirm";
-}
-
-/** Visual translateX for a horizontal delta, damped once past the threshold. */
-export function computeVisualOffset(dx: number, threshold: number): number {
-  if (dx <= threshold) return dx;
-  return threshold + (dx - threshold) * OVERDRAG_DAMPING;
-}
-
-/** Whether a finished gesture traveled far enough to commit the back-nav. */
-export function isCommitted(finalDx: number, threshold: number): boolean {
-  return finalDx >= threshold;
-}
 
 /** Clear the four inline styles this hook owns, returning the element to rest. */
 function resetTransientStyles(el: HTMLElement): void {
@@ -121,33 +51,23 @@ export interface UseEdgeSwipeBackArgs {
   navKey: string;
 }
 
-interface DragState {
-  touchId: number;
-  startX: number;
-  startY: number;
-  /** Whether the gesture has been confirmed as horizontal (past deadzone). */
-  confirmed: boolean;
-  hasFiredHaptic: boolean;
-}
-
 /**
- * Detects left-edge swipe gestures and triggers a back-navigation callback.
+ * Left-edge swipe-to-go-back for mobile pushed/detail pages.
  *
- * Touch listeners are attached to `document` so the full viewport edge is
- * reachable regardless of CSS padding on ancestor elements. The container
- * ref is used only for applying the visual transform.
+ * Gesture *detection* is delegated to the shared `useEdgeSwipe` engine; this
+ * hook owns the *visuals*: it drags the container's `translateX` with the
+ * finger, slides the outgoing page off-screen on commit, and reveals the
+ * incoming page once the route swap lands.
  *
- * The hook imperatively owns the `transform`, `opacity`, `transition`, and
+ * It imperatively owns the `transform`, `opacity`, `transition`, and
  * `willChange` inline styles of the container element — driving them through
  * React state would be too slow for a 60fps drag. The element's other inline
  * styles (e.g. padding) are React-managed and left untouched; callers must
  * not also write these four properties to the same element.
  *
- * The effect is intentionally keyed on `containerRef` only, NOT `enabled` —
- * the gesture is gated per-touch via `enabledRef`. Committing a swipe
- * navigates, which flips `enabled` to false; if the effect were keyed on
- * `enabled` that teardown would fire mid-commit and cancel the in-flight
- * slide-off animation (the page would snap off with no transition).
+ * While `enabled`, the hook registers as a back-swipe owner in the
+ * edge-swipe arbiter so a swipe-to-open-menu gesture on an ancestor layout
+ * yields the left edge to back-navigation (see `edge-swipe-arbiter-store`).
  *
  * The incoming-page entrance runs in a separate layout effect keyed on
  * `navKey`, so it fires only once the new route has committed to the DOM —
@@ -159,234 +79,142 @@ export function useEdgeSwipeBack({
   enabled,
   navKey,
 }: UseEdgeSwipeBackArgs): void {
-  const dragRef = useRef<DragState | null>(null);
   const onBackRef = useRef(onBack);
-  const enabledRef = useRef(enabled);
+  useLayoutEffect(() => {
+    onBackRef.current = onBack;
+  }, [onBack]);
+
   // Set true the instant a swipe commits; the entrance layout effect consumes
   // it on the next `navKey` change so the reveal is synced to the route swap.
   const pendingRevealRef = useRef(false);
-  useLayoutEffect(() => {
-    onBackRef.current = onBack;
-    enabledRef.current = enabled;
-  }, [onBack, enabled]);
+  // Timers are tracked so an unmount mid-animation cancels them, and
+  // `cancelledRef` short-circuits any already-scheduled callback so nothing
+  // mutates a detached node after teardown.
+  const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
+  const cancelledRef = useRef(false);
+
+  const registerBackOwner = useEdgeSwipeArbiterStore.use.registerBackOwner();
+  const unregisterBackOwner =
+    useEdgeSwipeArbiterStore.use.unregisterBackOwner();
+  useEffect(() => {
+    if (!enabled) {return;}
+    registerBackOwner();
+    return unregisterBackOwner;
+  }, [enabled, registerBackOwner, unregisterBackOwner]);
 
   useEffect(() => {
-    if (!isPointerCoarse()) return;
-
-    const el = containerRef.current;
-    if (!el) return;
-
-    // Cleanup only runs on unmount (the effect is not keyed on `enabled`), so
-    // an in-flight commit slide-off survives the navigation that disables the
-    // gesture. Every timer is tracked and cancelled on unmount, and
-    // `cancelled` short-circuits any already-scheduled callback, so nothing
-    // mutates a detached node after teardown.
-    const timers = new Set<ReturnType<typeof setTimeout>>();
-    let cancelled = false;
-
-    const scheduleTimeout = (fn: () => void, ms: number) => {
-      const id = setTimeout(() => {
-        timers.delete(id);
-        if (!cancelled) fn();
-      }, ms);
-      timers.add(id);
-    };
-
-    const clearTransientStyles = () => resetTransientStyles(el);
-
-    const commitThreshold = () => commitThresholdPx(window.innerWidth);
-
-    const applyOffset = (px: number) => {
-      el.style.transform = px === 0 ? "" : `translateX(${px}px)`;
-    };
-
-    const findTouch = (list: TouchList, id: number): Touch | null => {
-      for (let i = 0; i < list.length; i += 1) {
-        const t = list[i];
-        if (t && t.identifier === id) return t;
-      }
-      return null;
-    };
-
-    const reset = (animate: boolean) => {
-      dragRef.current = null;
-      if (animate) {
-        el.style.transition = `transform ${CANCEL_ANIMATION_MS}ms ease-out`;
-        applyOffset(0);
-        const onEnd = () => {
-          el.removeEventListener("transitionend", onEnd);
-          clearTransientStyles();
-        };
-        el.addEventListener("transitionend", onEnd, { once: true });
-        // Safety fallback if transitionend doesn't fire.
-        scheduleTimeout(
-          clearTransientStyles,
-          CANCEL_ANIMATION_MS + ANIMATION_FALLBACK_SLACK_MS,
-        );
-      } else {
-        clearTransientStyles();
-      }
-    };
-
-    const runCommitAnimation = () => {
-      // Slide the outgoing page off to the right.
-      el.style.transition = `transform ${COMMIT_ANIMATION_MS}ms ease-in`;
-      applyOffset(window.innerWidth);
-      let didFinish = false;
-      const finish = () => {
-        if (didFinish || cancelled) return;
-        didFinish = true;
-        el.removeEventListener("transitionend", finish);
-
-        // Hold the page at the entrance start (off to the left, hidden) and
-        // navigate. The reveal is NOT animated here — it's handed off to the
-        // `navKey` layout effect, which fires only once the route swap has
-        // committed. Animating on a timer would start fading the *outgoing*
-        // page back in before the new content mounts (the flash). Forcing a
-        // reflow commits this start state as the transition origin.
-        const entranceOffset = -(window.innerWidth * ENTRANCE_OFFSET_RATIO);
-        el.style.transition = "none";
-        el.style.transform = `translateX(${entranceOffset}px)`;
-        el.style.opacity = "0";
-        void el.offsetWidth;
-        pendingRevealRef.current = true;
-        onBackRef.current();
-
-        // Safety net: if the navigation never commits (navKey never changes),
-        // don't leave the page stuck hidden — fall back to resting state.
-        scheduleTimeout(() => {
-          if (pendingRevealRef.current) {
-            pendingRevealRef.current = false;
-            clearTransientStyles();
-          }
-        }, ENTRANCE_ANIMATION_MS * 2);
-      };
-      el.addEventListener("transitionend", finish, { once: true });
-      scheduleTimeout(finish, COMMIT_ANIMATION_MS + ANIMATION_FALLBACK_SLACK_MS);
-    };
-
-    // Listen on document so touches at the viewport edge are captured even
-    // when the container is inset by parent padding.
-    const handleTouchStart = (event: TouchEvent) => {
-      if (!enabledRef.current) return;
-      if (dragRef.current) return;
-      if (event.touches.length !== 1) return;
-      const touch = event.touches[0];
-      if (!touch) return;
-
-      if (touch.clientX > EDGE_ZONE_PX) return;
-
-      dragRef.current = {
-        touchId: touch.identifier,
-        startX: touch.clientX,
-        startY: touch.clientY,
-        confirmed: false,
-        hasFiredHaptic: false,
-      };
-    };
-
-    const handleTouchMove = (event: TouchEvent) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-      if (event.touches.length > 1) {
-        reset(false);
-        return;
-      }
-
-      const touch = findTouch(event.touches, drag.touchId);
-      if (!touch) return;
-
-      const dx = touch.clientX - drag.startX;
-      const dy = touch.clientY - drag.startY;
-
-      if (!drag.confirmed) {
-        const decision = decideDirection(dx, dy);
-        if (decision === "pending") return;
-        if (decision === "cancel") {
-          reset(false);
-          return;
-        }
-        drag.confirmed = true;
-        el.style.transition = "none";
-        el.style.willChange = "transform";
-      }
-
-      const threshold = commitThreshold();
-
-      // Cancel if vertical travel becomes excessive mid-gesture.
-      if (isVerticalEscape(dx, dy) && dx < threshold) {
-        reset(true);
-        return;
-      }
-
-      const visualOffset = computeVisualOffset(dx, threshold);
-
-      // Haptic at threshold crossing.
-      if (dx >= threshold && !drag.hasFiredHaptic) {
-        drag.hasFiredHaptic = true;
-        void haptic.light();
-      }
-
-      applyOffset(visualOffset);
-    };
-
-    const handleTouchEnd = (event: TouchEvent) => {
-      const drag = dragRef.current;
-      if (!drag) return;
-
-      const touch = findTouch(event.changedTouches, drag.touchId);
-      const finalDx = touch ? touch.clientX - drag.startX : 0;
-
-      const committed =
-        drag.confirmed && isCommitted(finalDx, commitThreshold());
-
-      if (committed) {
-        dragRef.current = null;
-        runCommitAnimation();
-      } else if (drag.confirmed) {
-        // Animate back to resting position.
-        reset(true);
-      } else {
-        // Gesture never confirmed — clean up silently.
-        reset(false);
-      }
-    };
-
-    const handleTouchCancel = () => {
-      if (dragRef.current?.confirmed) {
-        reset(true);
-      } else {
-        reset(false);
-      }
-    };
-
-    // Passive listeners: the gesture is a purely visual overlay and never
-    // calls preventDefault(), so `passive: true` keeps scrolling smooth. The
-    // tradeoff is we can't suppress native scroll/selection under the moving
-    // shell — `isVerticalEscape` is the mitigation, abandoning the gesture as
-    // soon as vertical travel dominates. (In the iOS WKWebView shell there is
-    // no browser back-gesture to conflict with.)
-    document.addEventListener("touchstart", handleTouchStart, {
-      passive: true,
-    });
-    document.addEventListener("touchmove", handleTouchMove, { passive: true });
-    document.addEventListener("touchend", handleTouchEnd, { passive: true });
-    document.addEventListener("touchcancel", handleTouchCancel, {
-      passive: true,
-    });
-
+    cancelledRef.current = false;
+    const timers = timersRef.current;
     return () => {
-      cancelled = true;
-      for (const id of timers) clearTimeout(id);
+      cancelledRef.current = true;
+      for (const id of timers) {clearTimeout(id);}
       timers.clear();
-      dragRef.current = null;
-      document.removeEventListener("touchstart", handleTouchStart);
-      document.removeEventListener("touchmove", handleTouchMove);
-      document.removeEventListener("touchend", handleTouchEnd);
-      document.removeEventListener("touchcancel", handleTouchCancel);
-      clearTransientStyles();
+      const el = containerRef.current;
+      if (el) {resetTransientStyles(el);}
     };
   }, [containerRef]);
+
+  const scheduleTimeout = (fn: () => void, ms: number) => {
+    const id = setTimeout(() => {
+      timersRef.current.delete(id);
+      if (!cancelledRef.current) {fn();}
+    }, ms);
+    timersRef.current.add(id);
+  };
+
+  const applyOffset = (el: HTMLElement, px: number) => {
+    el.style.transform = px === 0 ? "" : `translateX(${px}px)`;
+  };
+
+  const snapBack = (el: HTMLElement) => {
+    el.style.transition = `transform ${CANCEL_ANIMATION_MS}ms ease-out`;
+    applyOffset(el, 0);
+    const onEnd = () => {
+      el.removeEventListener("transitionend", onEnd);
+      resetTransientStyles(el);
+    };
+    el.addEventListener("transitionend", onEnd, { once: true });
+    // Safety fallback if transitionend doesn't fire.
+    scheduleTimeout(
+      () => resetTransientStyles(el),
+      CANCEL_ANIMATION_MS + ANIMATION_FALLBACK_SLACK_MS,
+    );
+  };
+
+  const runCommitAnimation = (el: HTMLElement) => {
+    // Slide the outgoing page off to the right.
+    el.style.transition = `transform ${COMMIT_ANIMATION_MS}ms ease-in`;
+    applyOffset(el, window.innerWidth);
+    let didFinish = false;
+    const finish = () => {
+      if (didFinish || cancelledRef.current) {return;}
+      didFinish = true;
+      el.removeEventListener("transitionend", finish);
+
+      // Hold the page at the entrance start (off to the left, hidden) and
+      // navigate. The reveal is NOT animated here — it's handed off to the
+      // `navKey` layout effect, which fires only once the route swap has
+      // committed. Animating on a timer would start fading the *outgoing*
+      // page back in before the new content mounts (the flash). Forcing a
+      // reflow commits this start state as the transition origin.
+      const entranceOffset = -(window.innerWidth * ENTRANCE_OFFSET_RATIO);
+      el.style.transition = "none";
+      el.style.transform = `translateX(${entranceOffset}px)`;
+      el.style.opacity = "0";
+      void el.offsetWidth;
+      pendingRevealRef.current = true;
+      onBackRef.current();
+
+      // Safety net: if the navigation never commits (navKey never changes),
+      // don't leave the page stuck hidden — fall back to resting state.
+      scheduleTimeout(() => {
+        if (pendingRevealRef.current) {
+          pendingRevealRef.current = false;
+          resetTransientStyles(el);
+        }
+      }, ENTRANCE_ANIMATION_MS * 2);
+    };
+    el.addEventListener("transitionend", finish, { once: true });
+    scheduleTimeout(finish, COMMIT_ANIMATION_MS + ANIMATION_FALLBACK_SLACK_MS);
+  };
+
+  useEdgeSwipe({
+    enabled,
+    onConfirm: () => {
+      const el = containerRef.current;
+      if (!el) {return;}
+      el.style.transition = "none";
+      el.style.willChange = "transform";
+    },
+    onMove: (dx, threshold) => {
+      const el = containerRef.current;
+      if (!el) {return;}
+      applyOffset(el, computeVisualOffset(dx, threshold));
+    },
+    onCommit: () => {
+      const el = containerRef.current;
+      if (!el) {
+        // The gesture committed before the container mounted (a detail page
+        // still on its loading/error branch). There's nothing to slide off,
+        // but the arbiter has suppressed the drawer for this owner, so
+        // dropping the commit would strand the swipe as a no-op. Navigate
+        // back immediately so a committed edge-swipe always resolves to one
+        // action.
+        onBackRef.current();
+        return;
+      }
+      runCommitAnimation(el);
+    },
+    onCancel: (animate) => {
+      const el = containerRef.current;
+      if (!el) {return;}
+      if (animate) {
+        snapBack(el);
+      } else {
+        resetTransientStyles(el);
+      }
+    },
+  });
 
   // Incoming-page entrance. Fires only after a committed swipe (pendingReveal)
   // AND the route swap has committed (navKey changed). The commit handler left
@@ -394,14 +222,14 @@ export function useEdgeSwipeBack({
   // so here we just transition it to rest — the outgoing page is already gone,
   // so nothing stale is ever revealed.
   useLayoutEffect(() => {
-    if (!pendingRevealRef.current) return;
+    if (!pendingRevealRef.current) {return;}
     pendingRevealRef.current = false;
     const el = containerRef.current;
-    if (!el) return;
+    if (!el) {return;}
 
     let settled = false;
     const settle = () => {
-      if (settled) return;
+      if (settled) {return;}
       settled = true;
       el.removeEventListener("transitionend", settle);
       resetTransientStyles(el);
