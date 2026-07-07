@@ -23,8 +23,8 @@
  * (→ idle), and the user starts a fresh one for the next turn. Barge-in is the
  * one case that reconnects automatically (see below).
  *
- * **Hands-free (`handsFree` start option, gated on the `voice-mode-hands-free`
- * flag)** — the session connects with `turnDetection: "server_vad"` and runs
+ * **Hands-free (`handsFree` start option — how the voice button always starts
+ * sessions)** — the session connects with `turnDetection: "server_vad"` and runs
  * many turns on one socket. Mic audio is forwarded for the entire session
  * (full duplex; echo cancellation is requested on capture) and the *server*
  * owns utterance boundaries and barge-in: `speech_started` flushes local TTS
