@@ -609,7 +609,9 @@ export async function runPublish(
     }
     return false;
   }
-} /**
+}
+
+/**
  * Format a publish result for terminal output.
  */
 export function formatPublishResult(result: PublishResult): string {
