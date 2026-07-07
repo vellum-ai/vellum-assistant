@@ -157,6 +157,16 @@ export function readDiagnosticsConsentCurrent(): boolean {
 }
 
 /**
+ * SSR-safe, non-hook read of whether the consent flags reflect a completed
+ * session sync (or an explicit user acceptance). Used by the navigation guard
+ * to defer consent-based redirects until the flags are trustworthy — the
+ * flags boot `false` and only reflect reality once hydration lands.
+ */
+export function readConsentHydrated(): boolean {
+  return useOnboardingStore.getState().consentHydrated;
+}
+
+/**
  * SSR-safe, non-hook read for telemetry emitters.
  *
  * Unlike the onboarding UI, this treats an absent preference as no consent:

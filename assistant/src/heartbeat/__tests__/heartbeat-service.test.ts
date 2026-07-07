@@ -29,8 +29,14 @@ mock.module("../../runtime/assistant-event-hub.js", () => ({
 // Stub workspace prompt reads so the heartbeat service doesn't try to
 // read real workspace files. Use a fallback for early module-load calls
 // (e.g. AuthSessionCache constructor) before beforeEach sets workspaceDir.
+// The mock spreads the real module so exports it doesn't override (imported
+// by transitive dependencies of the service under test) keep their real,
+// preload-temp-dir-scoped implementations instead of vanishing — a missing
+// export is an import-time SyntaxError for the whole test file.
+const realPlatform = await import("../../util/platform.js");
 const fallbackDir = join(tmpdir(), "vellum-hb-svc-fallback");
 mock.module("../../util/platform.js", () => ({
+  ...realPlatform,
   getWorkspaceDir: () => workspaceDir ?? fallbackDir,
   getWorkspacePromptPath: (name: string) =>
     join(workspaceDir ?? fallbackDir, name),

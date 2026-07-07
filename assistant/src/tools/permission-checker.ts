@@ -1,5 +1,6 @@
 import { getIsContainerized } from "../config/env-registry.js";
 import { mapApprovalProvenance } from "../permissions/approval-provenance.js";
+import { buildChannelPermissionCellQuery } from "../permissions/channel-permission-query.js";
 import {
   check,
   classifyRisk,
@@ -158,11 +159,19 @@ export class PermissionChecker {
       // riskMeta is absent (non-classifier tools like MCP don't populate it).
       const matchedTrustRuleId = result.matchedRule?.id;
 
+      // Every threshold read for this invocation must consult the same
+      // channel-permission cell that check() used — otherwise a follow-up
+      // read of a looser global (the provenance snapshot below, the
+      // non-interactive guardian auto-approve further down) would override a
+      // stricter cell verdict. Derived once, from the same PolicyContext.
+      const cellQuery = buildChannelPermissionCellQuery(policyContext);
+
       // Resolved threshold snapshot for provenance. getAutoApproveThreshold
       // returns from cache (populated by check() above), so this is free.
       const conversationThreshold = await getAutoApproveThreshold(
         policyContext.conversationId,
         policyContext.executionContext,
+        cellQuery,
       );
       const riskThreshold = conversationThreshold as RiskThreshold;
 
@@ -281,10 +290,13 @@ export class PermissionChecker {
         ) {
           // getAutoApproveThreshold returns from cache (populated by check() above).
           // Deferred inside the non-interactive branch so interactive prompts
-          // don't pay the gateway I/O cost.
+          // don't pay the gateway I/O cost. The cell query is threaded through
+          // so a strict channel cell governs this auto-approve too — without
+          // it, a looser background global would silently bypass the cell.
           const bgThreshold = await getAutoApproveThreshold(
             context.conversationId,
             "background",
+            cellQuery,
           );
           const thresholdOrdinal: Record<string, number> = {
             none: -1,

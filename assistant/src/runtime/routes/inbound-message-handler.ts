@@ -16,7 +16,6 @@ import {
   attachmentsToContentBlocks,
   type MessageAttachmentInput,
 } from "../../agent/attachments.js";
-import { getChannelPermissionProfile } from "../../channels/permission-profiles.js";
 import {
   CHANNEL_IDS,
   INTERFACE_IDS,
@@ -38,7 +37,10 @@ import {
 import { getDiskPressureStatus } from "../../daemon/disk-pressure-guard.js";
 import { classifyDiskPressureTurnPolicy } from "../../daemon/disk-pressure-policy.js";
 import { processMessage } from "../../daemon/process-message.js";
-import type { TrustContext } from "../../daemon/trust-context.js";
+import {
+  mapChatTypeToConversationType,
+  type TrustContext,
+} from "../../daemon/trust-context.js";
 import { HeartbeatService } from "../../heartbeat/heartbeat-service.js";
 import type { Message as ProviderMessage } from "../../messaging/provider-types.js";
 import {
@@ -762,15 +764,16 @@ export async function handleChannelInbound({
   // inside `enforceAdmissionPolicy` — defense in depth alongside the
   // gateway's exempt-channel skip and the PUT-handler's 403.
   //
-  // Bootstrap deep-link: when ACL flagged a validated pending_bootstrap
+  // Bootstrap deep-link: when ACL resolved a validated pending_bootstrap
   // session, skip the floor entirely. The bootstrap intercept stage below
-  // handles identity binding and emits its own reply; the sender has not
-  // yet acquired a trust class and should not be denied here.
+  // reuses that session (no second gateway lookup), handles identity
+  // binding, and emits its own reply; the sender has not yet acquired a
+  // trust class and should not be denied here.
   // Gated by `channel-trust-floors`: when off, skip the floor entirely (admit)
   // so inbound falls back to ACL-only behavior. The gateway also omits the
   // floor when off, so the ACL above already saw the default permissive policy.
   const admissionResult =
-    !channelTrustFloorsEnabled || aclResult.isValidatedBootstrap
+    !channelTrustFloorsEnabled || aclResult.validatedBootstrapSession != null
       ? ({ admitted: true } as const)
       : enforceAdmissionPolicy({
           sourceChannel,
@@ -997,28 +1000,6 @@ export async function handleChannelInbound({
       )
     : [];
 
-  // Inject channel-scoped permission hints for Slack channel messages
-  if (sourceChannel === "slack") {
-    const channelProfile = getChannelPermissionProfile(conversationExternalId);
-    if (channelProfile) {
-      if (channelProfile.blockedTools?.length) {
-        metadataHints.push(
-          `Channel policy: the following tools are blocked in this channel: ${channelProfile.blockedTools.join(", ")}`,
-        );
-      }
-      if (channelProfile.allowedToolCategories?.length) {
-        metadataHints.push(
-          `Channel policy: only these tool categories are allowed in this channel: ${channelProfile.allowedToolCategories.join(", ")}`,
-        );
-      }
-      if (channelProfile.trustLevel === "restricted") {
-        metadataHints.push(
-          "Channel policy: this channel has restricted trust level. Exercise caution with tool usage.",
-        );
-      }
-    }
-  }
-
   const metadataUxBrief =
     typeof sourceMetadata?.uxBrief === "string" &&
     sourceMetadata.uxBrief.trim().length > 0
@@ -1040,6 +1021,7 @@ export async function handleChannelInbound({
     sourceMetadata.chatType.trim().length > 0
       ? sourceMetadata.chatType.trim()
       : undefined;
+  trustCtx.conversationType = mapChatTypeToConversationType(sourceChatType);
 
   // Preserve locale from sourceMetadata so the model can greet in the user's language
   const sourceLanguageCode =
@@ -1057,6 +1039,7 @@ export async function handleChannelInbound({
     sourceChannel,
     conversationExternalId,
     eventId: result.eventId,
+    validatedBootstrapSession: aclResult.validatedBootstrapSession,
   });
   if (bootstrapResponse) return bootstrapResponse;
 

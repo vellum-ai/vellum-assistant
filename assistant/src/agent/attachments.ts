@@ -8,6 +8,13 @@ export interface MessageAttachmentInput {
   data: string;
   extractedText?: string;
   filePath?: string;
+  /**
+   * Path of the canonical copy in the conversation's attachments/ directory,
+   * known once the attachment is linked to a message. Name collisions are
+   * resolved with a -2/-3 suffix, so this may differ from `filename` — and
+   * from `filePath`, which is where the upload originally came from.
+   */
+  storedPath?: string;
 }
 
 export function attachmentsToContentBlocks(
@@ -44,26 +51,61 @@ export function attachmentsToContentBlocks(
 }
 
 /**
- * Return a copy of the message with text annotations for image source paths.
- * The annotations are appended as a text content block so the LLM knows where
- * the images came from on disk. The caller should persist the ORIGINAL message
- * (without annotations) so the UI stays clean.
+ * Annotation line for where an attached image originally came from (e.g. a
+ * desktop client path). Shared with the history-reload reinjection so the
+ * reloaded content block stays byte-identical to the one built at persist
+ * time (prefix-cache parity).
+ */
+export function formatImageSourceAnnotation(filePath: string): string {
+  return `[Attached image source: ${filePath}]`;
+}
+
+/**
+ * Annotation line binding an attachment's user-facing filename to its
+ * canonical on-disk copy. The stored path is the one the model must use to
+ * read the attachment — the plain filename in the attachments/ directory may
+ * belong to an older upload with the same name. Shared with the
+ * history-reload reinjection (prefix-cache parity).
+ */
+export function formatStoredPathAnnotation(
+  filename: string,
+  storedPath: string,
+): string {
+  return `[Attachment "${filename}" is stored at: ${storedPath}]`;
+}
+
+/**
+ * Return a copy of the message with text annotations for attachment paths:
+ * source paths for images (where the file came from) and stored paths for
+ * any attachment whose canonical copy in the conversation's attachments/
+ * directory is known. The annotations are appended as a text content block
+ * so the LLM knows where to find the files on disk. The caller should
+ * persist the ORIGINAL message (without annotations) so the UI stays clean.
  */
 export function enrichMessageWithSourcePaths(
   message: Message,
   attachments: MessageAttachmentInput[],
 ): Message {
-  const imageAttachments = attachments.filter(
-    (a) => a.mimeType.toLowerCase().startsWith("image/") && a.filePath,
-  );
-  if (imageAttachments.length === 0) return message;
-
-  const annotation = imageAttachments
-    .map((a) => `[Attached image source: ${a.filePath}]`)
-    .join("\n");
+  const lines: string[] = [];
+  for (const a of attachments) {
+    if (a.mimeType.toLowerCase().startsWith("image/") && a.filePath) {
+      lines.push(formatImageSourceAnnotation(a.filePath));
+    }
+  }
+  for (const a of attachments) {
+    if (a.storedPath) {
+      lines.push(formatStoredPathAnnotation(a.filename, a.storedPath));
+    }
+  }
+  if (lines.length === 0) {
+    return message;
+  }
 
   return {
     ...message,
-    content: [...message.content, { type: "text" as const, text: annotation }],
+    content: [
+      ...message.content,
+      { type: "text" as const, text: lines.join("\n") },
+    ],
   };
 }

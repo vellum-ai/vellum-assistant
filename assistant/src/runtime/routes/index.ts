@@ -84,6 +84,7 @@ import { ROUTES as INFERENCE_PROVIDER_CONNECTION_ROUTES } from "./inference-prov
 import { ROUTES as INFERENCE_SEND_ROUTES } from "./inference-send-routes.js";
 import { ROUTES as A2A_ROUTES } from "./integrations/a2a.js";
 import { ROUTES as SLACK_CHANNEL_CONFIG_ROUTES } from "./integrations/slack/channel.js";
+import { ROUTES as SLACK_CHANNELS_ROUTES } from "./integrations/slack/channels.js";
 import { ROUTES as SLACK_SHARE_ROUTES } from "./integrations/slack/share.js";
 import { ROUTES as TELEGRAM_ROUTES } from "./integrations/telegram.js";
 import { ROUTES as TWILIO_ROUTES } from "./integrations/twilio.js";
@@ -132,7 +133,6 @@ import { ROUTES as SURFACE_ACTION_ROUTES } from "./surface-action-routes.js";
 import { ROUTES as SURFACE_CONTENT_ROUTES } from "./surface-content-routes.js";
 import { ROUTES as TASK_ROUTES } from "./task-routes.js";
 import { ROUTES as TELEMETRY_ROUTES } from "./telemetry-routes.js";
-import { ROUTES as TRACE_EVENT_ROUTES } from "./trace-event-routes.js";
 import { ROUTES as TRUST_RULES_ROUTES } from "./trust-rules-routes.js";
 import { ROUTES as TTS_ROUTES } from "./tts-routes.js";
 import type { RouteDefinition } from "./types.js";
@@ -262,6 +262,7 @@ export const ROUTES: RouteDefinition[] = [
   ...A2A_ROUTES,
   ...SLACK_CHANNEL_CONFIG_ROUTES,
   ...SLACK_CHANNEL_RESOLVE_ROUTES,
+  ...SLACK_CHANNELS_ROUTES,
   ...SLACK_SHARE_ROUTES,
   ...STT_ROUTES,
   ...SUGGEST_TRUST_RULE_ROUTES,
@@ -272,7 +273,6 @@ export const ROUTES: RouteDefinition[] = [
   ...TWILIO_ROUTES,
   ...TASK_ROUTES,
   ...TELEMETRY_ROUTES,
-  ...TRACE_EVENT_ROUTES,
   ...TRUST_RULES_ROUTES,
   ...TTS_ROUTES,
   ...UI_REQUEST_ROUTES,

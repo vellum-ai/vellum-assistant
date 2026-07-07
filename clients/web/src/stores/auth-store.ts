@@ -56,7 +56,11 @@ import { listAssistants } from "@/assistant/api";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { deleteBiometricToken } from "@/runtime/native-biometric";
 import { unregisterFromRemotePush } from "@/runtime/push-registration";
-import { fetchConsent, patchConsent } from "@/domains/account/profile";
+import {
+  fetchConsent,
+  patchConsent,
+  type ConsentPatch,
+} from "@/domains/account/profile";
 import {
   restoreConsentForUser,
   persistConsentForUser,
@@ -272,6 +276,50 @@ function broadcastAuthChange(): void {
   broadcastChannel?.postMessage("auth-changed");
 }
 
+/**
+ * Payload for the fire-and-forget server backfill of device-attested consent.
+ * Each axis contributes its current version stamp only when the device ack
+ * attests it (device ack keys are version-stamped, so a true key proves
+ * acceptance of the CURRENT version). Share boolean values ride along only
+ * when `shareValues` is passed — appropriate for a truly empty server record,
+ * where the API default would otherwise overwrite a device opt-out on the
+ * next fetch. A real server record's share booleans are authoritative and
+ * must not be patched from the device.
+ */
+function buildDeviceConsentBackfill(axes: {
+  tos: boolean;
+  privacy: boolean;
+  analytics: boolean;
+  diagnostics: boolean;
+  shareValues?: { analytics: boolean; diagnostics: boolean };
+}): ConsentPatch {
+  return {
+    ...(axes.tos ? { tos_accepted_version: TOS_CONSENT_VERSION } : {}),
+    ...(axes.privacy
+      ? {
+          privacy_policy_accepted_version: PRIVACY_CONSENT_VERSION,
+          ai_data_sharing_accepted_version: PRIVACY_CONSENT_VERSION,
+        }
+      : {}),
+    ...(axes.analytics
+      ? {
+          share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
+          ...(axes.shareValues
+            ? { share_analytics: axes.shareValues.analytics }
+            : {}),
+        }
+      : {}),
+    ...(axes.diagnostics
+      ? {
+          share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
+          ...(axes.shareValues
+            ? { share_diagnostics: axes.shareValues.diagnostics }
+            : {}),
+        }
+      : {}),
+  };
+}
+
 async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   if (nextUserId) {
     try {
@@ -311,9 +359,9 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
       let analyticsCurrent = resolved.analyticsCurrent;
       let diagnosticsCurrent = resolved.diagnosticsCurrent;
 
-      // Only fall back to device keys for a TRULY empty record. A stale-but-real
-      // record's server values are authoritative and must not be overwritten;
-      // the nav layer routes the user to review-terms for the stale legal consent.
+      // Fall back to device keys for a TRULY empty record: the device ack
+      // keys are the only consent evidence, so they drive all four axes and
+      // seed the server via the backfill.
       if (!resolved.hasServerRecord) {
         const deviceConsent = restoreConsentForUser(nextUserId);
         analyticsCurrent = deviceConsent.analyticsCurrent;
@@ -332,23 +380,71 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
           // Backfill the server from the device acks. Stamp any toggle version
           // whose device ack is current AND send the device share value so the
           // next fetch can't overwrite a device opt-out with the API default.
-          void patchConsent({
-            tos_accepted_version: TOS_CONSENT_VERSION,
-            privacy_policy_accepted_version: PRIVACY_CONSENT_VERSION,
-            ai_data_sharing_accepted_version: PRIVACY_CONSENT_VERSION,
-            ...(analyticsCurrent
-              ? {
-                  share_analytics_accepted_version: ANALYTICS_CONSENT_VERSION,
-                  share_analytics: store.shareAnalytics,
-                }
-              : {}),
-            ...(diagnosticsCurrent
-              ? {
-                  share_diagnostics_accepted_version: DIAGNOSTICS_CONSENT_VERSION,
-                  share_diagnostics: store.shareDiagnostics,
-                }
-              : {}),
-          }).catch(() => {});
+          void patchConsent(
+            buildDeviceConsentBackfill({
+              tos: true,
+              privacy: true,
+              analytics: analyticsCurrent,
+              diagnostics: diagnosticsCurrent,
+              shareValues: {
+                analytics: store.shareAnalytics,
+                diagnostics: store.shareDiagnostics,
+              },
+            }),
+          ).catch(() => {});
+        }
+      } else if (!tos || !privacy || !analyticsCurrent || !diagnosticsCurrent) {
+        // A real record with stale/false version-derived flags. The device ack
+        // keys are version-stamped, so a true key attests acceptance of the
+        // CURRENT version — a stale server version alongside a current device
+        // ack means only the fire-and-forget backfill write hasn't landed.
+        // Prefer the device attestation for those axes and re-send the
+        // backfill, so an established user isn't bounced into onboarding by a
+        // record their own acceptance is still in flight to. Axes the server
+        // records as current stay server-authoritative, as do the share
+        // boolean values (adopted above).
+        const deviceConsent = restoreConsentForUser(nextUserId);
+        const tosFromDevice = !tos && deviceConsent.tos;
+        const privacyFromDevice = !privacy && deviceConsent.privacy;
+        const analyticsFromDevice =
+          !analyticsCurrent && deviceConsent.analyticsCurrent;
+        const diagnosticsFromDevice =
+          !diagnosticsCurrent && deviceConsent.diagnosticsCurrent;
+        if (tosFromDevice) {
+          tos = true;
+        }
+        if (privacyFromDevice) {
+          privacy = true;
+        }
+        if (analyticsFromDevice) {
+          analyticsCurrent = true;
+        }
+        if (diagnosticsFromDevice) {
+          diagnosticsCurrent = true;
+          // Diagnostics currency comes from the device ack, so reopen the
+          // reporting gate the chokepoint closed for the stale server version
+          // — same `preference && currency` rule as the no-record branch.
+          // Re-read the preference: the server's authoritative share value
+          // was written to the store above.
+          setDiagnosticsReportingGate(
+            useOnboardingStore.getState().shareDiagnostics &&
+              diagnosticsCurrent,
+          );
+        }
+        if (
+          tosFromDevice ||
+          privacyFromDevice ||
+          analyticsFromDevice ||
+          diagnosticsFromDevice
+        ) {
+          void patchConsent(
+            buildDeviceConsentBackfill({
+              tos: tosFromDevice,
+              privacy: privacyFromDevice,
+              analytics: analyticsFromDevice,
+              diagnostics: diagnosticsFromDevice,
+            }),
+          ).catch(() => {});
         }
       }
 
@@ -362,6 +458,7 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
         diagnosticsCurrent,
       });
       syncOrganizationState(nextUserId);
+      store.setConsentHydrated(true);
       return;
     } catch {
       // Server fetch failed — fall through to device keys
@@ -375,6 +472,7 @@ async function syncUserScopedState(nextUserId: string | null): Promise<void> {
   store.setAnalyticsConsentCurrent(consent.analyticsCurrent);
   store.setDiagnosticsConsentCurrent(consent.diagnosticsCurrent);
   syncOrganizationState(nextUserId);
+  store.setConsentHydrated(true);
 }
 
 // Monotonic id stamped on each platform-session probe. Probes can overlap
@@ -653,9 +751,14 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
             useResolvedAssistantsStore
               .getState()
               .setFromApi(apiAssistants.data);
+          } else {
+            useResolvedAssistantsStore.getState().markHydrated();
           }
         } catch {
-          /* best effort */
+          // Best effort — but the route guard gates on hydration, so a failed
+          // fetch must still mark the list settled or navigation would stall
+          // against its hydration timeout on every route change.
+          useResolvedAssistantsStore.getState().markHydrated();
         }
         set(authenticatedPlatformUser(user));
         return;
@@ -691,9 +794,13 @@ const useAuthStoreBase = create<AuthStore>()((set, get) => ({
                 useResolvedAssistantsStore
                   .getState()
                   .setFromApi(apiAssistants.data);
+              } else {
+                useResolvedAssistantsStore.getState().markHydrated();
               }
             } catch {
-              /* best effort */
+              // Best effort — a failed fetch still marks the list settled so
+              // the route guard's hydration wait can't stall navigation.
+              useResolvedAssistantsStore.getState().markHydrated();
             }
             set(authenticatedPlatformUser(user));
             return;

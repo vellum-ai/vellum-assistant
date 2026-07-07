@@ -84,7 +84,6 @@ function makeDeps(): EventHandlerDeps {
     ctx: {
       conversationId: "test-conv",
       provider: { name: "anthropic" },
-      traceEmitter: { emit: () => {} },
       streamThinking: false,
       emitActivityState: () => {},
       markWorkspaceTopLevelDirty: () => {},

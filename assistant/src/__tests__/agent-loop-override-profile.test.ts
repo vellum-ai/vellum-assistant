@@ -203,7 +203,7 @@ const capturedRunAgentLoopOptions: CapturedRunAgentLoopOptions[] = [];
 class FakeConversation {
   constructor() {}
   updateClient() {}
-  setIsSubagent() {}
+
   setTrustContext() {}
   setAuthContext() {}
   getAuthContext() {

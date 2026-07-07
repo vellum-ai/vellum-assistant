@@ -13,30 +13,28 @@ interface SlackChannelCardProps {
 
 export function SlackChannelCard({ assistantName, connected = false, children }: SlackChannelCardProps) {
   return (
-    <div className="pl-7">
-      <Card.Root>
-        <Card.Header>
-          <div className="flex items-center gap-3">
-            <img
-              src={publicAsset("/images/integrations/slack.svg")}
-              alt=""
-              className="size-8 rounded-lg bg-[var(--surface-sunken)] p-1"
-            />
-            <div className="flex flex-col">
-              <Typography as="span" variant="body-medium-default">
-                {connected ? "Slack settings" : "Slack setup"}
-              </Typography>
-              {connected ? (
-                <span className="flex items-center gap-1.5 text-body-small-default text-[var(--content-secondary)]">
-                  <span className="size-2 rounded-full bg-[var(--system-positive-strong)]" />
-                  Connected as {assistantName}
-                </span>
-              ) : null}
-            </div>
+    <Card.Root>
+      <Card.Header>
+        <div className="flex items-center gap-3">
+          <img
+            src={publicAsset("/images/integrations/slack.svg")}
+            alt=""
+            className="size-8 rounded-lg bg-[var(--surface-sunken)] p-1"
+          />
+          <div className="flex flex-col">
+            <Typography as="span" variant="body-medium-default">
+              {connected ? "Slack settings" : "Slack setup"}
+            </Typography>
+            {connected ? (
+              <span className="flex items-center gap-1.5 text-body-small-default text-[var(--content-secondary)]">
+                <span className="size-2 rounded-full bg-[var(--system-positive-strong)]" />
+                Connected as {assistantName}
+              </span>
+            ) : null}
           </div>
-        </Card.Header>
-        <Card.Body>{children}</Card.Body>
-      </Card.Root>
-    </div>
+        </div>
+      </Card.Header>
+      <Card.Body>{children}</Card.Body>
+    </Card.Root>
   );
 }

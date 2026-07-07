@@ -10,7 +10,7 @@
     "resolveJsonModule": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["bun-types"]
+    "types": ["bun"]
   },
   "include": ["src/**/*", "src/**/*.tsx"],
   "exclude": ["node_modules"]

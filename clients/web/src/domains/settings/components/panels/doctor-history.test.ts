@@ -5,8 +5,11 @@ import type { DoctorMessage } from "@/generated/api/types.gen";
 import {
   hasPendingApproval,
   hasPendingBackup,
+  isReplayableDoctorSourceEventId,
+  latestReplayableDoctorSourceEventId,
   mapPersistedMessagesToEntries,
   mapPersistedStatusToPanelStatus,
+  replayableDoctorSourceEventIds,
   selectLatestHistorySession,
   serializeSessionToText,
 } from "@/domains/settings/components/panels/doctor-history";
@@ -67,7 +70,9 @@ describe("mapPersistedMessagesToEntries", () => {
     expect(entries).toHaveLength(1);
     const entry = entries[0]!;
     expect(entry.kind).toBe("tool_call");
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("run_diagnostics");
     expect(entry.meta.input).toEqual({ flag: true });
     expect(entry.meta.toolCallId).toBe("tc-1");
@@ -79,7 +84,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "tool_call", content: "fallback_name", metadata: {} }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("fallback_name");
     expect(entry.content).toBe("fallback_name");
   });
@@ -89,7 +96,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ id: "msg-tc", kind: "tool_call", content: "tool", metadata: { toolName: "tool" } }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolCallId).toBe("msg-tc");
   });
 
@@ -110,7 +119,9 @@ describe("mapPersistedMessagesToEntries", () => {
     ]);
     expect(entries).toHaveLength(1);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.result).toBe("result data");
     expect(entry.meta.isError).toBe(false);
     expect(entry.meta.status).toBe("completed");
@@ -132,7 +143,9 @@ describe("mapPersistedMessagesToEntries", () => {
       }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.isError).toBe(true);
     expect(entry.meta.status).toBe("error");
   });
@@ -163,7 +176,9 @@ describe("mapPersistedMessagesToEntries", () => {
     ]);
     expect(entries).toHaveLength(1);
     const entry = entries[0]!;
-    if (entry.kind !== "approval") throw new Error("unreachable");
+    if (entry.kind !== "approval") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("exec_command");
     expect(entry.meta.toolCallId).toBe("ap-1");
     expect(entry.meta.description).toBe("Run ls in /tmp");
@@ -174,7 +189,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "approval", content: "exec", metadata: { toolName: "exec" } }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "approval") throw new Error("unreachable");
+    if (entry.kind !== "approval") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.description).toBe("");
   });
 
@@ -225,7 +242,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "tool_call", content: "tool", metadata: "not an object" }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("tool");
     expect(entry.meta.input).toEqual({});
   });
@@ -235,7 +254,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "tool_call", content: "tool", metadata: null }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("tool");
   });
 
@@ -244,7 +265,9 @@ describe("mapPersistedMessagesToEntries", () => {
       msg({ kind: "tool_call", content: "tool", metadata: [1, 2, 3] }),
     ]);
     const entry = entries[0]!;
-    if (entry.kind !== "tool_call") throw new Error("unreachable");
+    if (entry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(entry.meta.toolName).toBe("tool");
     expect(entry.meta.input).toEqual({});
   });
@@ -270,7 +293,9 @@ describe("mapPersistedMessagesToEntries", () => {
     expect(entries).toHaveLength(4);
     expect(entries.map((e) => e.kind)).toEqual(["user", "assistant", "tool_call", "status"]);
     const toolEntry = entries[2]!;
-    if (toolEntry.kind !== "tool_call") throw new Error("unreachable");
+    if (toolEntry.kind !== "tool_call") {
+      throw new Error("unreachable");
+    }
     expect(toolEntry.meta.status).toBe("completed");
   });
 
@@ -292,6 +317,51 @@ describe("mapPersistedStatusToPanelStatus", () => {
   });
   test("maps error", () => {
     expect(mapPersistedStatusToPanelStatus("error")).toBe("error");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// replayable Doctor source event IDs
+// ---------------------------------------------------------------------------
+
+describe("Doctor source event ID helpers", () => {
+  test("accepts Redis stream IDs and rejects legacy or malformed values", () => {
+    expect(isReplayableDoctorSourceEventId("123-0")).toBe(true);
+    expect(isReplayableDoctorSourceEventId("123")).toBe(false);
+    expect(isReplayableDoctorSourceEventId("evt-123")).toBe(false);
+    expect(isReplayableDoctorSourceEventId(null)).toBe(false);
+    expect(isReplayableDoctorSourceEventId(undefined)).toBe(false);
+  });
+
+  test("extracts replayable IDs in persisted message order", () => {
+    const messages = [
+      { source_event_id: null },
+      { source_event_id: "1-0" },
+      { source_event_id: "legacy-event" },
+      { source_event_id: "2-0" },
+    ];
+
+    expect(replayableDoctorSourceEventIds(messages)).toEqual(["1-0", "2-0"]);
+  });
+
+  test("returns the latest replayable ID from persisted history", () => {
+    const messages = [
+      { source_event_id: "1-0" },
+      { source_event_id: undefined },
+      { source_event_id: "2-0" },
+      { source_event_id: "legacy-event" },
+    ];
+
+    expect(latestReplayableDoctorSourceEventId(messages)).toBe("2-0");
+  });
+
+  test("returns null when persisted history has no replayable IDs", () => {
+    expect(
+      latestReplayableDoctorSourceEventId([
+        { source_event_id: null },
+        { source_event_id: "legacy-event" },
+      ]),
+    ).toBeNull();
   });
 });
 

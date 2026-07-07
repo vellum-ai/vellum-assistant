@@ -4,19 +4,44 @@
  *
  * A "hook" is a named lifecycle event (`init`, `shutdown`, `user-prompt-submit`,
  * `post-tool-use`, `stop`, ...) handled by a default export. Hooks come from
- * two surfaces, both cached here keyed by their source file's mtime:
+ * two surfaces:
  *
  * - **Plugin hooks** — `<workspace>/plugins/<name>/hooks/<event>.{ts,js}`,
  *   discovered alongside the owning plugin's tools.
  * - **Workspace hooks** — `<workspace>/hooks/<event>.{ts,js}`, standalone
  *   files not tied to any plugin (no `package.json`, no tools — just hooks).
  *
- * This module owns the hook cache and every hook operation (collect, init,
- * shutdown, eviction). Plugin *discovery* (which plugin directories exist, in
- * what order) lives in `../plugins/mtime-cache.ts`; the orchestrator there
- * passes the discovered directories into {@link collectUserHooks} and drives
- * pre-import / init / shutdown at boot. Keeping discovery out of this module
- * lets it sit below the plugin cache with no import cycle.
+ * The filesystem is the source of truth for which hooks exist. The single
+ * cache here ({@link hookCache}) only saves repeat filesystem/import work — it
+ * is an index over what's on disk, never the source of truth.
+ *
+ * An owner's hooks are imported **lazily as a unit**, the first time anything
+ * reads that owner, keyed in {@link ownerLoads} by a memoized load promise.
+ * Importing the whole `hooks/` directory at once means a hook the owner doesn't
+ * define is a negative cache hit (an absent key), not a per-dispatch re-stat;
+ * memoizing the promise means concurrent first-readers share one import instead
+ * of racing. Every hook — dispatch (`user-prompt-submit`, `post-tool-use`, …)
+ * *and* lifecycle (`init`, `shutdown`) — is served from this one cache:
+ *
+ * - **Dispatch hooks** run on the hot per-turn path via
+ *   {@link collectUserHookEntries}; repeat reads are pure map lookups.
+ * - **Lifecycle hooks** run once per activation / teardown. {@link runInitHook}
+ *   triggers the lazy load (so activation warms the cache the same way a read
+ *   would) and runs `init` with the owner's per-plugin context;
+ *   {@link runShutdownHook} reads the same cached `shutdown`. Because the
+ *   reconcile always tears an owner down *before* evicting it, the cached
+ *   `shutdown` is still resident at teardown even when an uninstall has already
+ *   removed the directory — no separate capture is needed.
+ *
+ * Source changes reach the cache through the source-versions reconcile in
+ * `../plugins/mtime-cache.ts`: it evicts the owner ({@link evictHooksForOwner}
+ * clears the cache entries and the load memo) and sweeps the module registry,
+ * so the next read re-imports fresh.
+ *
+ * Plugin *discovery* (which plugin directories exist, in what order) lives in
+ * `../plugins/mtime-cache.ts`; the orchestrator there passes the discovered
+ * directories into {@link collectUserHooks}. Keeping discovery out of this
+ * module lets it sit below the plugin cache with no import cycle.
  */
 
 import {
@@ -37,11 +62,7 @@ import type {
   ShutdownContext,
 } from "../plugin-api/types.js";
 import { listSurfaceDir } from "../plugins/external-plugin-loader.js";
-import {
-  evictModule,
-  getMtime,
-  importWithTimeout,
-} from "../plugins/surface-import.js";
+import { evictModule, importWithTimeout } from "../plugins/surface-import.js";
 import type { HookEntry } from "../plugins/types.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceDir, getWorkspaceHooksDir } from "../util/platform.js";
@@ -60,22 +81,28 @@ const log = getLogger("hook-loader");
  */
 export const WORKSPACE_HOOKS_OWNER = "__workspace__";
 
-/**
- * A cached hook function plus the mtime of its source file. When the on-disk
- * mtime changes, the hook is re-imported and the entry is replaced.
- */
+/** A cached, imported hook function. */
 interface CachedHook {
   readonly hook: HookFunction;
-  /** mtimeMs of the source file this hook was imported from. */
-  readonly sourceMtime: number;
 }
 
 /**
- * Cached hooks keyed by `${ownerName}/${hookName}`. The key includes the
- * owner (plugin name, or {@link WORKSPACE_HOOKS_OWNER}) so hooks from
- * different owners don't collide.
+ * Lazily-imported hooks keyed by `${ownerName}/${hookName}`. The key includes
+ * the owner (plugin name, or {@link WORKSPACE_HOOKS_OWNER}) so hooks from
+ * different owners don't collide. Populated per-owner on first read; an index
+ * over the filesystem, never the source of truth.
  */
 const hookCache = new Map<string, CachedHook>();
+
+/**
+ * Per-owner load memo: maps an owner to the promise that imports its whole
+ * `hooks/` directory into {@link hookCache}. Presence means "loaded or
+ * loading" — distinguishing "this owner defines no `<hookName>`" (loaded,
+ * absent — a negative cache hit) from "not imported yet". Storing the promise
+ * (not just a boolean) means concurrent first-readers await the same import
+ * rather than one racing ahead and reading a half-filled cache.
+ */
+const ownerLoads = new Map<string, Promise<void>>();
 
 /** Cache key for a hook: `${ownerName}/${hookName}`. */
 function hookKey(ownerName: string, hookName: string): string {
@@ -83,92 +110,57 @@ function hookKey(ownerName: string, hookName: string): string {
 }
 
 /**
- * Resolve a single hook file through the mtime cache: return the cached hook
- * when its source mtime is unchanged, otherwise re-import and refresh the
- * entry. Returns `undefined` when the file was deleted (evicting any stale
- * entry) or the import failed / produced a non-function default export.
- *
- * `ownerName` is the cache-key prefix and the attribution label in logs (a
- * plugin name, or {@link WORKSPACE_HOOKS_OWNER}).
+ * The hooks directory for an owner: `<pluginDir>/hooks` for a plugin, or the
+ * standalone workspace hooks directory for {@link WORKSPACE_HOOKS_OWNER}
+ * (whose `pluginDir` is `null`).
  */
-async function resolveCachedHook<TCtx>(
-  ownerName: string,
-  hookName: string,
-  filePath: string,
-): Promise<HookFunction<TCtx> | undefined> {
-  const key = hookKey(ownerName, hookName);
-  const currentMtime = getMtime(filePath);
-
-  // Cache hit — same mtime.
-  const cached = hookCache.get(key);
-  if (
-    cached !== undefined &&
-    cached.sourceMtime === currentMtime &&
-    currentMtime > 0
-  ) {
-    return cached.hook as HookFunction<TCtx>;
-  }
-
-  // Cache miss — re-import.
-  if (currentMtime === 0) {
-    // File was deleted between listing and stat — evict the cache entry.
-    hookCache.delete(key);
-    return undefined;
-  }
-
-  // The file is new, recreated, or edited since it was last imported. Evict
-  // it from the runtime module registry first: without this, the import
-  // below would return the module Bun cached at the old content and the
-  // edit would never take effect. No-op for a first-ever load.
-  //
-  // Note the reload swaps only the exported function for future dispatches.
-  // The hook file's top-level code runs again on re-import, and nothing
-  // tears down the previous instance — so hook files must keep long-lived
-  // side effects (timers, listeners) in the owner's `init`/`shutdown`
-  // lifecycle, not at module top level.
-  evictModule(filePath);
-
-  try {
-    const hook = await importWithTimeout<HookFunction>(filePath);
-    if (hook === undefined || typeof hook !== "function") {
-      log.error(
-        { plugin: ownerName, hook: hookName, path: filePath },
-        `hook ${hookName} default export must be a function (got ${typeof hook}) — skipping`,
-      );
-      return undefined;
-    }
-    hookCache.set(key, { hook, sourceMtime: currentMtime });
-    return hook as HookFunction<TCtx>;
-  } catch (err) {
-    log.error(
-      { err, plugin: ownerName, hook: hookName, path: filePath },
-      `Failed to import hook ${hookName} from ${filePath}`,
-    );
-    return undefined;
-  }
+function ownerHooksDir(pluginDir: string | null): string {
+  return pluginDir === null ? getWorkspaceHooksDir() : join(pluginDir, "hooks");
 }
 
 /**
- * Collect every hook for a given event name across all surfaces, re-importing
- * any whose source file's mtime changed since the cache was populated.
+ * Ensure an owner's hooks are imported into {@link hookCache}, importing its
+ * whole `hooks/` directory once (so absent hooks become negative cache hits).
+ * The load promise is memoized in {@link ownerLoads}: the first caller starts
+ * the import, concurrent callers await the same promise, and later callers are
+ * no-ops until the owner is evicted. This is the single lazy fill behind both
+ * dispatch reads ({@link collectUserHookEntries}) and lifecycle runs
+ * ({@link runInitHook}).
+ */
+function ensureOwnerHooksLoaded(
+  hooksDir: string,
+  ownerName: string,
+): Promise<void> {
+  let load = ownerLoads.get(ownerName);
+  if (load === undefined) {
+    load = preImportHooksDir(hooksDir, ownerName);
+    ownerLoads.set(ownerName, load);
+  }
+  return load;
+}
+
+/**
+ * Collect every hook for a given event name across all surfaces, importing
+ * each owner's dispatch hooks lazily on first read (see
+ * {@link ensureOwnerHooksLoaded}). The first read of an owner does one
+ * directory import; every read after that — until the owner is evicted — is a
+ * pure map lookup.
  *
  * `pluginDirs` is the orchestrator's discovered `[dir, ownerName]` set (in
  * install-date order). Each plugin's hook runs first, then the standalone
- * workspace hook under `<workspace>/hooks/<hookName>.{ts,js}` runs last — so
- * a plugin can shape the threaded context before a workspace-wide hook
- * observes or finalizes it.
+ * workspace hook runs last — so a plugin can shape the threaded context
+ * before a workspace-wide hook observes or finalizes it.
  *
- * Added, removed, and edited hook files are all picked up live: discovery is
- * by directory listing, and a changed source mtime evicts the module from
- * the runtime registry before re-import, so the edited hook takes effect on
- * the next dispatch without a daemon restart. Eviction is per-file — an edit
- * to a helper module a hook imports is not detected (the hook file's own
- * mtime is what's watched) and still needs a restart.
+ * The cache holds exactly what each owner's last import saw on disk; added,
+ * removed, and edited hook files (including helper modules they import) land
+ * when the source-versions reconcile evicts the owner and the next read
+ * re-imports.
  *
  * `effectiveEnabledPlugins` carries the per-chat plugin scope: when non-null, a
  * plugin whose name is not in the set is skipped (its hooks do not run for this
- * conversation). The standalone workspace hook is not owned by a plugin, so it
- * always runs. `null`/omitted means no per-chat restriction.
+ * conversation, and its hooks are not imported). The standalone workspace hook
+ * is not owned by a plugin, so it always runs. `null`/omitted means no per-chat
+ * restriction.
  */
 export async function collectUserHookEntries<TCtx = unknown>(
   hookName: string,
@@ -184,40 +176,25 @@ export async function collectUserHookEntries<TCtx = unknown>(
     ) {
       continue;
     }
-    const hookFile = listSurfaceDir(join(pluginDir, "hooks")).find(
-      (f) => f.name === hookName,
-    );
-    if (hookFile === undefined) {
-      continue;
-    }
-
-    const hook = await resolveCachedHook<TCtx>(
-      pluginName,
-      hookName,
-      hookFile.path,
-    );
-    if (hook !== undefined) {
-      out.push({ fn: hook, owner: { kind: "plugin", id: pluginName } });
+    await ensureOwnerHooksLoaded(ownerHooksDir(pluginDir), pluginName);
+    const cached = hookCache.get(hookKey(pluginName, hookName));
+    if (cached !== undefined) {
+      out.push({
+        fn: cached.hook as HookFunction<TCtx>,
+        owner: { kind: "plugin", id: pluginName },
+      });
     }
   }
 
   // Standalone workspace hooks: files directly under `<workspace>/hooks/`
   // that are not part of any plugin (no package.json, no tools — just hooks).
-  const wsHookFile = listSurfaceDir(getWorkspaceHooksDir()).find(
-    (f) => f.name === hookName,
-  );
-  if (wsHookFile !== undefined) {
-    const hook = await resolveCachedHook<TCtx>(
-      WORKSPACE_HOOKS_OWNER,
-      hookName,
-      wsHookFile.path,
-    );
-    if (hook !== undefined) {
-      out.push({
-        fn: hook,
-        owner: { kind: "workspace", id: WORKSPACE_HOOKS_OWNER },
-      });
-    }
+  await ensureOwnerHooksLoaded(ownerHooksDir(null), WORKSPACE_HOOKS_OWNER);
+  const wsCached = hookCache.get(hookKey(WORKSPACE_HOOKS_OWNER, hookName));
+  if (wsCached !== undefined) {
+    out.push({
+      fn: wsCached.hook as HookFunction<TCtx>,
+      owner: { kind: "workspace", id: WORKSPACE_HOOKS_OWNER },
+    });
   }
 
   return out;
@@ -242,10 +219,13 @@ export async function collectUserHooks<TCtx = unknown>(
 }
 
 /**
- * Pre-import every hook file under `hooksDir` and cache it keyed by
- * `${ownerName}/${hookName}`, so the first turn doesn't pay the import cost.
- * Best-effort per file: a failing import is logged and skipped. A missing
- * directory yields no files (handled by {@link listSurfaceDir}).
+ * Import every hook file under `hooksDir` into the cache, keyed by
+ * `${ownerName}/${hookName}`. This is the single point where hook code
+ * enters the process: it runs at owner (re)activation, and what it caches
+ * is exactly what dispatch serves until the owner is next redeployed.
+ * Best-effort per file: a failing or non-function import is logged and
+ * skipped (the owner's other hooks still load). A missing directory yields
+ * no files (handled by {@link listSurfaceDir}).
  */
 export async function preImportHooksDir(
   hooksDir: string,
@@ -253,21 +233,23 @@ export async function preImportHooksDir(
 ): Promise<void> {
   for (const file of listSurfaceDir(hooksDir)) {
     const key = hookKey(ownerName, file.name);
-    const currentMtime = getMtime(file.path);
-    if (currentMtime === 0) {
-      continue;
-    }
 
-    // A plugin directory can be removed and reinstalled while the daemon
-    // runs; evict any module cached from the prior install so the
-    // pre-import reflects what's on disk now. No-op at boot.
+    // The same path may hold different content than when it was last
+    // imported (edit, reinstall at the same path); evict so the import
+    // below re-evaluates from disk instead of serving Bun's cached module.
+    // No-op for a first-ever load.
     evictModule(file.path);
 
     try {
       const hook = await importWithTimeout<HookFunction>(file.path);
-      if (hook !== undefined && typeof hook === "function") {
-        hookCache.set(key, { hook, sourceMtime: currentMtime });
+      if (hook === undefined || typeof hook !== "function") {
+        log.error(
+          { plugin: ownerName, hook: file.name, path: file.path },
+          `hook ${file.name} default export must be a function (got ${typeof hook}) — skipping`,
+        );
+        continue;
       }
+      hookCache.set(key, { hook });
     } catch (err) {
       log.error(
         { err, plugin: ownerName, hook: file.name, path: file.path },
@@ -287,16 +269,12 @@ export function hasWorkspaceHooks(): boolean {
 }
 
 /**
- * Pre-import the standalone workspace hooks under {@link WORKSPACE_HOOKS_OWNER}.
- * Convenience wrapper over {@link preImportHooksDir} that keeps the workspace
- * hooks directory path inside this module.
- */
-export async function preImportWorkspaceHooks(): Promise<void> {
-  await preImportHooksDir(getWorkspaceHooksDir(), WORKSPACE_HOOKS_OWNER);
-}
-
-/**
- * Run the `init` hook for `ownerName` if one was pre-imported into the cache.
+ * Run the `init` hook for `ownerName` if the owner defines one. Triggers the
+ * owner's lazy load first (the same memoized import a dispatch read would), so
+ * activation warms the cache — including the `shutdown` teardown will later
+ * read — instead of a separate pre-import step. `init` can't ride the
+ * whole-chain `runHook` the way dispatch hooks do because its context is
+ * per-plugin (config, logger, storage dir), so it's dispatched per-owner here.
  * Shared by user plugins and standalone workspace hooks so both get the same
  * init-context shape and per-owner isolation (a thrown `init` is logged and
  * swallowed, never blocking boot).
@@ -320,6 +298,11 @@ export async function runInitHook(
   ownerName: string,
   pluginDir: string | null = null,
 ): Promise<void> {
+  // Lazily import the owner's hooks (idempotent — a later dispatch read shares
+  // this same memoized load). This is what warms the cache at activation, so
+  // the owner's `shutdown` is resident for teardown even after an uninstall.
+  await ensureOwnerHooksLoaded(ownerHooksDir(pluginDir), ownerName);
+
   const initHookEntry = hookCache.get(hookKey(ownerName, HOOKS.INIT));
   if (initHookEntry === undefined) {
     return;
@@ -343,9 +326,13 @@ export async function runInitHook(
 }
 
 /**
- * Run the `shutdown` hook for `ownerName` if one is cached. Best-effort: a
- * thrown shutdown is logged and swallowed. `reason` is threaded into the log
- * for attribution only.
+ * Run one owner's `shutdown` hook from the cache — the targeted single-owner
+ * teardown for a runtime uninstall / disable / reload (the whole-chain
+ * `runHook(HOOKS.SHUTDOWN)` at process exit runs *every* owner's shutdown; this
+ * runs exactly one). The reconcile tears an owner down before evicting it, so
+ * the `shutdown` cached at activation is still resident here even when the
+ * directory is already gone. Best-effort: a thrown shutdown is logged and
+ * swallowed. `reason` is threaded into the log for attribution only.
  */
 export async function runShutdownHook(
   ownerName: string,
@@ -368,8 +355,9 @@ export async function runShutdownHook(
 }
 
 /**
- * Evict every cached hook owned by `ownerName` (e.g. when a plugin directory
- * is removed). No-op when the owner has no cached hooks.
+ * Evict every cached hook owned by `ownerName` and drop its load memo, so the
+ * next read re-imports fresh. Called by the reconcile after the owner's
+ * `shutdown` has already run. No-op when the owner has no cached state.
  */
 export function evictHooksForOwner(ownerName: string): void {
   const prefix = `${ownerName}/`;
@@ -378,17 +366,23 @@ export function evictHooksForOwner(ownerName: string): void {
       hookCache.delete(key);
     }
   }
+  ownerLoads.delete(ownerName);
 }
 
 /**
- * Evict all plugin-owned hooks while preserving standalone workspace hooks.
- * Called when the plugins directory is gone entirely: workspace hooks live
- * outside it, so the absence of any plugin must not evict them.
+ * Evict all plugin-owned hook state while preserving standalone workspace
+ * hooks. Called when the plugins directory is gone entirely: workspace hooks
+ * live outside it, so the absence of any plugin must not evict them.
  */
 export function clearPluginHooks(): void {
   for (const key of hookCache.keys()) {
     if (!key.startsWith(`${WORKSPACE_HOOKS_OWNER}/`)) {
       hookCache.delete(key);
+    }
+  }
+  for (const owner of ownerLoads.keys()) {
+    if (owner !== WORKSPACE_HOOKS_OWNER) {
+      ownerLoads.delete(owner);
     }
   }
 }
@@ -515,7 +509,7 @@ function ensureLegacyStorageDir(ownerName: string): string {
 
 // ─── Test hooks ──────────────────────────────────────────────────────────────
 
-/** Clear the hook cache. Test-only. */
+/** Clear the hook cache and per-owner load memo. Test-only. */
 export function resetHookCacheForTests(): void {
   const isTest =
     process.env.BUN_TEST === "1" || process.env.NODE_ENV === "test";
@@ -525,13 +519,11 @@ export function resetHookCacheForTests(): void {
     );
   }
   hookCache.clear();
+  ownerLoads.clear();
 }
 
-/** Test-only: inspect the hook cache. */
-export function _inspectHookCacheForTests(): Array<{
-  key: string;
-  sourceMtime: number;
-}> {
+/** Test-only: inspect the hook cache's keys. */
+export function _inspectHookCacheForTests(): string[] {
   const isTest =
     process.env.BUN_TEST === "1" || process.env.NODE_ENV === "test";
   if (!isTest) {
@@ -539,8 +531,5 @@ export function _inspectHookCacheForTests(): Array<{
       "_inspectHookCacheForTests may only be called in test environments",
     );
   }
-  return Array.from(hookCache.entries()).map(([key, c]) => ({
-    key,
-    sourceMtime: c.sourceMtime,
-  }));
+  return Array.from(hookCache.keys());
 }

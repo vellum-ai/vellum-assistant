@@ -1,9 +1,10 @@
 import type { DrizzleDb } from "../persistence/db-connection.js";
+import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "../providers/inference/auth.js";
 import {
   createConnection,
   getConnection,
   MANAGED_CONNECTION_NAMES,
-  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+  VELLUM_MANAGED_CONNECTION_NAME,
 } from "../providers/inference/connections.js";
 import { PROVIDER_CATALOG } from "../providers/model-catalog.js";
 import { resolveModelIntent } from "../providers/model-intents.js";
@@ -49,7 +50,7 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   balanced: {
     model: "accounts/fireworks/models/glm-5p2",
     provider: "fireworks",
-    connectionName: "fireworks-managed",
+    connectionName: VELLUM_MANAGED_CONNECTION_NAME,
     source: "managed",
     label: "Balanced",
     description: "Good balance of quality, cost, and speed",
@@ -64,7 +65,7 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   "quality-optimized": {
     intent: "quality-optimized",
     provider: "anthropic",
-    connectionName: "anthropic-managed",
+    connectionName: VELLUM_MANAGED_CONNECTION_NAME,
     source: "managed",
     label: "Quality",
     description: "High-quality results with the most capable model",
@@ -85,7 +86,7 @@ const MANAGED_PROFILE_TEMPLATES: Record<string, ManagedProfileTemplate> = {
   "cost-optimized": {
     model: "accounts/fireworks/models/deepseek-v4-flash",
     provider: "fireworks",
-    connectionName: "fireworks-managed",
+    connectionName: VELLUM_MANAGED_CONNECTION_NAME,
     source: "managed",
     label: "Speed",
     description: "Fastest responses at lower cost (DeepSeek V4 Flash)",
@@ -154,7 +155,7 @@ export const OS_BETA_FEATURE_FLAG_KEY = "os-beta";
 export const OS_BETA_PROFILE_TEMPLATE: ManagedProfileTemplate = {
   intent: "balanced",
   provider: "together",
-  connectionName: "together-managed",
+  connectionName: VELLUM_MANAGED_CONNECTION_NAME,
   source: "managed",
   label: "OS Beta",
   description: "Good balance of quality, cost, and speed, in beta",

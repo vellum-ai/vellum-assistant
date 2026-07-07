@@ -2,6 +2,7 @@ import { lazy } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 
 import { LazyBoundary } from "@/components/lazy-boundary";
+import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewport-style";
 import type { WorkflowEntry } from "@/domains/chat/workflow-store";
 
 const WorkflowDetailPanel = lazy(() =>
@@ -34,19 +35,15 @@ export function MobileWorkflowDetailOverlay({
   onRequestJournal,
 }: MobileWorkflowDetailOverlayProps) {
   const reduce = useReducedMotion();
+  const shellStyle = useMobileOverlayViewportStyle();
 
   return (
     <AnimatePresence>
       {entry && (
         <motion.div
           key="mobile-detail-overlay"
-          className="fixed inset-x-0 bottom-0 z-30 h-[100dvh]"
-          style={{
-            paddingTop: "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))",
-            paddingBottom: "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
-            paddingLeft: "var(--safe-area-inset-left, env(safe-area-inset-left, 0px))",
-            paddingRight: "var(--safe-area-inset-right, env(safe-area-inset-right, 0px))",
-          }}
+          className="fixed inset-x-0 z-30"
+          style={shellStyle}
           initial={{ y: "100%", opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: "100%", opacity: 0 }}

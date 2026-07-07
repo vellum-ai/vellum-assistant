@@ -611,3 +611,32 @@ export interface PostModelCallInputContext {
  */
 export interface PostModelCallContext
   extends PostModelCallInputContext, BaseHookContext {}
+
+// ─── Conversation-deleted hook context ───────────────────────────────────────
+
+/**
+ * Context passed to the `conversation-deleted` hook. Fires once per deleted
+ * conversation — from the shared delete primitives, so every delete caller
+ * (route, retrospective cleanup, GC) dispatches it — after the conversation's
+ * rows are removed.
+ *
+ * The dispatch is fire-and-forget: the delete primitives are synchronous and
+ * do not wait for the chain, so hooks run concurrently with whatever the
+ * caller does after the delete and must not assume any ordering relative to
+ * it. By the time a hook runs, the conversation's rows (messages, segments,
+ * attachments, the conversation itself) are gone — a hook can only key its
+ * cleanup on the id. The default memory plugin contributes a hook here that
+ * fails its own still-pending background jobs referencing the conversation.
+ */
+export interface ConversationDeletedInputContext {
+  /** ID of the conversation that was deleted. */
+  readonly conversationId: string;
+}
+
+/**
+ * The full `conversation-deleted` context a hook receives — the dispatching
+ * call site's {@link ConversationDeletedInputContext} plus the
+ * pipeline-stamped {@link BaseHookContext} capabilities.
+ */
+export interface ConversationDeletedContext
+  extends ConversationDeletedInputContext, BaseHookContext {}

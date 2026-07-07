@@ -33,16 +33,17 @@ import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 import {
-  createOutboundSession,
-  validateAndConsumeVerification,
-} from "../runtime/channel-verification-service.js";
-import {
   __resetMemberVerdictCacheForTest,
   setMemberVerdict,
 } from "../runtime/member-verdict-cache.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 import { deriveGuardianForChannel } from "./helpers/derive-guardian-delivery.js";
 import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
+import {
+  createOutboundSession,
+  resetVerificationSessionsSim,
+  validateAndConsumeVerification,
+} from "./helpers/verification-sessions-ipc-sim.js";
 
 await initializeDb();
 
@@ -51,9 +52,8 @@ await initializeDb();
 // ---------------------------------------------------------------------------
 
 function resetTables(): void {
+  resetVerificationSessionsSim();
   const db = getDb();
-  db.run("DELETE FROM channel_verification_sessions");
-  db.run("DELETE FROM channel_guardian_rate_limits");
   db.run("DELETE FROM contact_channels");
   db.run("DELETE FROM contacts");
   resetGatewayAclStore();
@@ -106,8 +106,6 @@ describe("trusted contact verification → member activation", () => {
       session.secret,
       "requester-user-123",
       "requester-chat-123",
-      "requester_username",
-      "Requester Name",
     );
 
     expect(result.success).toBe(true);
@@ -400,7 +398,7 @@ describe("trusted contact verification → member activation", () => {
     // Create an inbound challenge (no expected identity — guardian flow)
 
     const { createInboundVerificationSession } =
-      await import("../runtime/channel-verification-service.js");
+      await import("./helpers/verification-sessions-ipc-sim.js");
     const { secret } = createInboundVerificationSession("telegram");
 
     const result = validateAndConsumeVerification(

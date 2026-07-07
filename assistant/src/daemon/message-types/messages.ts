@@ -18,10 +18,6 @@ import type { ToolOutputChunkEvent } from "../../api/events/tool-output-chunk.js
 import type { ToolResultEvent } from "../../api/events/tool-result.js";
 import type { ToolUsePreviewStartEvent } from "../../api/events/tool-use-preview-start.js";
 import type { ToolUseStartEvent } from "../../api/events/tool-use-start.js";
-import type {
-  TraceEvent,
-  TraceEventKind,
-} from "../../api/events/trace-event.js";
 import type { UserMessageEchoEvent } from "../../api/events/user-message-echo.js";
 import type { ChannelId, InterfaceId } from "../../channels/types.js";
 import type { CommandIntent, UserMessageAttachment } from "./shared.js";
@@ -135,8 +131,6 @@ export interface ConversationInferenceProfileUpdated {
   expiresAt?: number | null;
 }
 
-export type { TraceEvent, TraceEventKind };
-
 // --- Domain-level union aliases (consumed by the barrel file) ---
 
 export type _MessagesClientMessages =
@@ -166,7 +160,6 @@ export type _MessagesServerMessages =
   | MessageQueuedDeletedEvent
   | MessageSteered
   | SuggestionResponse
-  | TraceEvent
   | ConfirmationStateChanged
   | AssistantActivityStateEvent
   | ConversationInferenceProfileUpdated

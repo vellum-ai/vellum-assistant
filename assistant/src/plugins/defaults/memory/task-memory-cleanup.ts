@@ -105,19 +105,28 @@ export function invalidateAssistantInferredItemsForConversation(
 }
 
 /**
- * Fail every pending/running memory job keyed to the given conversation
- * (`json_extract(payload, '$.conversationId')` — e.g. `graph_extract`,
- * `build_conversation_summary`, `conversation_analyze`). Fired from the
- * shared delete primitive via `onConversationDeleted`, so the worker does
- * not burn cycles (and error noise) on jobs whose conversation no longer
- * exists. Deliberately conversationId-keyed only: it runs after the
- * conversation's rows are deleted, and jobs for surviving multi-sourced
- * graph nodes must stay runnable.
+ * Fail every pending/running job of one of `types` keyed to the given
+ * conversation (`json_extract(payload, '$.conversationId')` — e.g.
+ * `graph_extract`, `memory_retrospective`). Fired from the
+ * `conversation-deleted` hook, so the worker does not burn cycles (and error
+ * noise) on jobs whose conversation no longer exists.
+ *
+ * Two deliberate scope limits:
+ * - conversationId-keyed only — it runs after the conversation's rows are
+ *   deleted, and jobs for surviving multi-sourced graph nodes must stay
+ *   runnable;
+ * - restricted to the caller's own job types — the hook dispatch is
+ *   fire-and-forget, so the sweep runs concurrently with the host cleanup
+ *   jobs the delete primitive enqueues (the lexical purge is itself a
+ *   `conversationId`-keyed pending job) and must not be able to fail them.
  */
 export function cancelPendingJobsForConversation(
   conversationId: string,
+  types: readonly string[],
   reason: string = "conversation_deleted",
 ): number {
+  if (types.length === 0) return 0;
+  const placeholders = types.map(() => "?").join(", ");
   const cancelled = rawMemoryRun(
     "taskMemory:cancelJobs:byConversation",
     `UPDATE memory_jobs
@@ -125,9 +134,11 @@ export function cancelPendingJobsForConversation(
             last_error = ?,
             updated_at = ?
       WHERE status IN ('pending', 'running')
+        AND type IN (${placeholders})
         AND json_extract(payload, '$.conversationId') = ?`,
     reason,
     Date.now(),
+    ...types,
     conversationId,
   );
 

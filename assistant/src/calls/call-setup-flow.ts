@@ -826,7 +826,6 @@ export class CallSetupFlow {
     const fromNumber = this.verificationFromNumber;
 
     const result = await vdeps.attemptVerificationCode({
-      verificationAssistantId: assistantId,
       verificationFromNumber: fromNumber,
       enteredCode,
       isOutbound,

@@ -23,7 +23,10 @@ import { buildHatchConfigValues, writeInitialConfig } from "./config-utils";
 import { buildServiceRunArgs } from "./statefulset.js";
 import type { Species } from "./constants";
 import { getOrCreateHostDeviceId } from "./device-id.js";
-import { ASSISTANT_INTERNAL_PORT, getDefaultPorts } from "./environments/paths.js";
+import {
+  ASSISTANT_INTERNAL_PORT,
+  getDefaultPorts,
+} from "./environments/paths.js";
 import { getCurrentEnvironment } from "./environments/resolve.js";
 import { leaseGuardianToken } from "./guardian-token";
 import { logHatchNextSteps } from "./hatch-next-steps.js";
@@ -68,6 +71,7 @@ export {
   ASSISTANT_INTERNAL_PORT,
   GATEWAY_INTERNAL_PORT,
 } from "./environments/paths.js";
+import { classifyReadyzResponse } from "./http-client.js";
 import { loopbackSafeFetch } from "./loopback-fetch.js";
 
 /** Max time to wait for the assistant container to emit the readiness sentinel. */
@@ -953,7 +957,8 @@ function startFileWatcher(opts: {
   netnsContainer?: string;
   assistantCaCertPath?: string;
 }): () => void {
-  const { gatewayPort, assistantPort, imageTags, instanceName, repoRoot, res } = opts;
+  const { gatewayPort, assistantPort, imageTags, instanceName, repoRoot, res } =
+    opts;
 
   const { dirs: watchDirs, files: watchFiles } = collectWatchTargets(repoRoot);
 
@@ -1487,19 +1492,24 @@ export async function hatchDocker(params: HatchDockerParams): Promise<void> {
 
     emitProgress(6, 6, "Waiting for services...");
     const waitDetached = watch ? false : detached;
-    const { ready, guardianAccessToken } = await waitForGatewayAndLease({
-      bootstrapSecret: ownSecret,
-      containerName: res.assistantContainer,
-      detached: waitDetached,
-      instanceName,
-      logFd,
-      runtimeUrl,
-      containersUpAt,
-      analyze: params.analyze ?? false,
-    });
+    const { ready, guardianAccessToken, notReadyReason } =
+      await waitForGatewayAndLease({
+        bootstrapSecret: ownSecret,
+        containerName: res.assistantContainer,
+        detached: waitDetached,
+        instanceName,
+        logFd,
+        runtimeUrl,
+        containersUpAt,
+        analyze: params.analyze ?? false,
+      });
 
     if (!ready && !(watch && repoRoot)) {
-      throw new Error("Timed out waiting for assistant to become ready");
+      throw new Error(
+        notReadyReason === "migrations_failed"
+          ? "Assistant database migrations failed — the container is running but DB-backed routes are unavailable; check its logs and restore a backup or retry the migration"
+          : "Timed out waiting for assistant to become ready",
+      );
     }
 
     if (ready) {
@@ -1601,7 +1611,13 @@ async function waitForGatewayAndLease(opts: {
   runtimeUrl: string;
   containersUpAt: number;
   analyze: boolean;
-}): Promise<{ ready: boolean; guardianAccessToken?: string }> {
+}): Promise<{
+  ready: boolean;
+  guardianAccessToken?: string;
+  /** Present when readiness was not reached because migrations terminally
+   * failed (returned in seconds, unlike an actual timeout). */
+  notReadyReason?: "migrations_failed";
+}> {
   const {
     bootstrapSecret,
     containerName,
@@ -1675,24 +1691,34 @@ async function waitForGatewayAndLease(opts: {
   const readyUrl = `${runtimeUrl}/readyz`;
   const start = containersUpAt;
   let ready = false;
+  let migrationsFailed = false;
 
+  // Readiness is classified from the /readyz BODY: the assistant returns 200
+  // with `ready: false` while DB migrations run (the k8s keep-the-pod
+  // contract), so `resp.ok` alone would declare readiness mid-migration and
+  // the guardian token lease below would burn its shared budget against the
+  // gateway's still-closed traffic gate.
   while (Date.now() - start < DOCKER_READY_TIMEOUT_MS) {
     try {
       const resp = await loopbackSafeFetch(readyUrl, {
         signal: AbortSignal.timeout(5000),
       });
-      if (resp.ok) {
+      const body = (await resp.json().catch(() => null)) as {
+        status?: string;
+        upstream?: number;
+      } | null;
+      const readiness = classifyReadyzResponse(resp.ok, body);
+      if (readiness === "ready") {
         ready = true;
         break;
       }
-      const body = await resp.text();
-      let detail = "";
-      try {
-        const json = JSON.parse(body);
-        const parts = [json.status];
-        if (json.upstream != null) parts.push(`upstream=${json.upstream}`);
-        detail = ` — ${parts.join(", ")}`;
-      } catch {}
+      if (readiness === "failed") {
+        migrationsFailed = true;
+        break;
+      }
+      const parts = [body?.status].filter(Boolean);
+      if (body?.upstream != null) parts.push(`upstream=${body.upstream}`);
+      const detail = parts.length > 0 ? ` — ${parts.join(", ")}` : "";
       log(`Readiness check: ${resp.status}${detail} (retrying...)`);
     } catch {
       // Connection refused / timeout — not up yet
@@ -1702,11 +1728,20 @@ async function waitForGatewayAndLease(opts: {
 
   if (!ready) {
     log("");
-    log(`   \u26a0\ufe0f  Timed out waiting for assistant to become ready.`);
+    if (migrationsFailed) {
+      log(`   \u26a0\ufe0f  Assistant database migrations FAILED.`);
+    } else {
+      log(`   \u26a0\ufe0f  Timed out waiting for assistant to become ready.`);
+    }
     log(`   The container is still running.`);
     log(`   Check logs with: docker logs -f ${containerName}`);
     log("");
-    return { ready: false };
+    return {
+      ready: false,
+      ...(migrationsFailed
+        ? { notReadyReason: "migrations_failed" as const }
+        : {}),
+    };
   }
 
   const readyAt = Date.now();

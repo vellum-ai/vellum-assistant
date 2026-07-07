@@ -7,13 +7,13 @@
 
 import type { ConfirmationDecision } from "@/types/event-types";
 import type { QuestionSubmission } from "@/domains/chat/api/event-types";
-import { client } from "@/generated/api/client.gen";
 import {
   confirmPost,
   pendinginteractionsGet,
   questionresponsePost,
   secretPost,
 } from "@/generated/daemon/sdk.gen";
+import { assistantContactsPromptSubmit } from "@/generated/gateway/sdk.gen";
 import type {
   PendinginteractionsGetResponse,
   QuestionresponsePostData,
@@ -183,8 +183,7 @@ export async function submitContactPrompt(
   displayName?: string,
 ): Promise<SubmitSecretResponseResult> {
   try {
-    const { error, response } = await client.post<unknown, unknown>({
-      url: "/v1/assistants/{assistant_id}/contacts/prompt/submit/",
+    const { error, response } = await assistantContactsPromptSubmit({
       path: { assistant_id: assistantId },
       body: { requestId, address, channelType, role, displayName },
       throwOnError: false,
@@ -269,29 +268,3 @@ export async function submitQuestionResponse(
   }
 }
 
-export async function submitTrustRule(
-  assistantId: string,
-  requestId: string,
-  rule: Record<string, unknown>,
-): Promise<SubmitSecretResponseResult> {
-  try {
-    const { error, response } = await client.post<unknown, unknown>({
-      url: "/v1/assistants/{assistant_id}/trust-rules/",
-      path: { assistant_id: assistantId },
-      body: { requestId, ...rule },
-      throwOnError: false,
-    });
-    assertHasResponse(response, error, "Failed to submit trust rule");
-    if (!response.ok) {
-      const msg = extractErrorMessage(error, response);
-      return { ok: false, status: response.status, error: msg };
-    }
-    return { ok: true };
-  } catch (err) {
-    return {
-      ok: false,
-      status: 500,
-      error: err instanceof Error ? err.message : "Something went wrong.",
-    };
-  }
-}

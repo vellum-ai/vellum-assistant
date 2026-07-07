@@ -62,15 +62,18 @@ mock.module("../../logger.js", () => ({
 mock.module("node:fs", () => ({
   existsSync: () => true,
   mkdirSync: () => {},
-  readFileSync: (path: string) => {
-    if (path === "/dev/stdin") {
-      if (stdinReturnsText) return "piped text";
-      throw new Error("stdin unavailable");
-    }
-    throw new Error("unexpected readFileSync call");
-  },
   writeFileSync: (path: string, data: Buffer) => {
     writeFileCalls.push({ path, data });
+  },
+}));
+
+// Stdin is read via fd 0 through the shared helper, never by reopening
+// "/dev/stdin" (which fails ENXIO for pipe read-ends).
+mock.module("../../../util/read-stdin.js", () => ({
+  STDIN_FD: 0,
+  readStdinSync: () => {
+    if (stdinReturnsText) return "piped text";
+    throw new Error("stdin unavailable");
   },
 }));
 
@@ -140,7 +143,11 @@ async function runCommand(
   const exitCode = process.exitCode ?? 0;
   process.exitCode = 0;
 
-  return { exitCode, stdout: localStdout.join(""), stderr: localStderr.join("") };
+  return {
+    exitCode,
+    stdout: localStdout.join(""),
+    stderr: localStderr.join(""),
+  };
 }
 
 // ---------------------------------------------------------------------------

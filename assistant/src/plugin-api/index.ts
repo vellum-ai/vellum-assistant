@@ -101,6 +101,7 @@ export type {
 export type { LLMCallSite } from "../config/schemas/llm.js";
 export type {
   AgentLoopExitReason,
+  ConversationDeletedContext,
   HookBroadcast,
   HookFunction,
   InitContext,

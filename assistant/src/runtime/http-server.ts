@@ -22,6 +22,10 @@ import {
 } from "../config/env.js";
 import { getIsPlatform } from "../config/env-registry.js";
 import { getConfig } from "../config/loader.js";
+import {
+  getDbMigrationReadiness,
+  isDbMigrationGateBypassed,
+} from "../daemon/daemon-readiness.js";
 import { processMessage } from "../daemon/process-message.js";
 import { createLiveVoiceSession } from "../live-voice/live-voice-session.js";
 import { LiveVoiceSessionManager } from "../live-voice/live-voice-session-manager.js";
@@ -76,7 +80,11 @@ import {
   stopCanonicalGuardianExpirySweep,
 } from "./routes/canonical-guardian-expiry-sweep.js";
 import { RouteError } from "./routes/errors.js";
-import { handleHealth, handleReadyz } from "./routes/identity-routes.js";
+import {
+  dbMigrationUnavailableResponse,
+  handleHealth,
+  handleReadyz,
+} from "./routes/identity-routes.js";
 import {
   startInferenceProfileSessionReaper,
   stopInferenceProfileSessionReaper,
@@ -95,6 +103,20 @@ const DEFAULT_HOSTNAME = "127.0.0.1";
 
 /** Global hard cap on request body size (512 MB — accommodates large .vbundle backup imports). */
 const MAX_REQUEST_BODY_BYTES = 512 * 1024 * 1024;
+
+function dbMigrationUnavailableForEndpoint(endpoint: string): Response | null {
+  if (isDbMigrationGateBypassed(endpoint)) return null;
+  return dbMigrationUnavailableResponse();
+}
+
+function dbMigrationUnavailableForPath(path: string): Response | null {
+  if (path.startsWith("/v1/")) {
+    const endpoint = path.slice("/v1/".length).replace(/\/$/, "");
+    return dbMigrationUnavailableForEndpoint(endpoint);
+  }
+
+  return dbMigrationUnavailableResponse();
+}
 
 /**
  * WebSocket data attached to `/v1/calls/media-stream` connections.
@@ -148,6 +170,7 @@ export class RuntimeHttpServer {
 
   private retrySweepTimer: ReturnType<typeof setInterval> | null = null;
   private sweepInProgress = false;
+  private sweepsStarted = false;
 
   private readonly liveVoiceSessionManager: LiveVoiceSessionManager;
   private router: HttpRouter;
@@ -396,7 +419,13 @@ export class RuntimeHttpServer {
       },
     });
 
-    this.startBackgroundSweeps();
+    // Background sweeps are intentionally NOT started here. The HTTP server
+    // binds early in startup (so /healthz answers ASAP) — before DB migrations
+    // run. The sweeps touch the ORM (retry sweep → processMessage, guardian
+    // expiry, profile reaper), so starting them now would race async migrations
+    // and hit "no such table". The daemon calls
+    // startRuntimeHttpServerBackgroundSweeps() only after migrations settle
+    // (success or failed degraded mode). See daemon/lifecycle.ts.
 
     log.info(
       "Running in gateway-only ingress mode. Direct webhook routes disabled.",
@@ -431,16 +460,33 @@ export class RuntimeHttpServer {
   /**
    * Start background sweep timers: retry sweep for failed channel events,
    * guardian approval/action expiry sweeps, and canonical guardian expiry.
-   * Extracted from start() to allow future callers to defer sweep startup.
+   *
+   * These all touch the ORM, so the daemon defers this until DB migrations
+   * have settled — successfully or in the failed degraded mode, where the DB
+   * is open and the expiry/reaper maintenance still applies (see
+   * daemon/lifecycle.ts). Idempotent — safe to call once per settle; repeat
+   * calls are no-ops.
    */
-  private startBackgroundSweeps(): void {
+  startBackgroundSweeps(): void {
+    if (this.sweepsStarted) return;
+    this.sweepsStarted = true;
     if (!this.retrySweepTimer) {
       this.retrySweepTimer = setInterval(() => {
         if (this.sweepInProgress) return;
+        // Replays route through processMessage, which refuses turns while
+        // migration readiness is unready — and each refused replay would count
+        // toward the event's dead-letter budget. Skip the cycle instead so
+        // events queued before a failed migration survive until a restart
+        // repairs the schema.
+        if (!getDbMigrationReadiness().ready) return;
         this.sweepInProgress = true;
-        sweepFailedEvents(processMessage).finally(() => {
-          this.sweepInProgress = false;
-        });
+        void sweepFailedEvents(processMessage)
+          .catch((err) => {
+            log.error({ err }, "Failed channel event retry sweep failed");
+          })
+          .finally(() => {
+            this.sweepInProgress = false;
+          });
       }, 30_000);
     }
 
@@ -525,6 +571,9 @@ export class RuntimeHttpServer {
     if (path === "/readyz" && req.method === "GET") {
       return handleReadyz();
     }
+
+    const migrationResponse = dbMigrationUnavailableForPath(path);
+    if (migrationResponse) return migrationResponse;
 
     // WebSocket upgrade for Twilio Media Streams — before auth check because
     // Twilio WebSocket connections don't use bearer tokens; restricted to
@@ -1066,6 +1115,19 @@ export async function startRuntimeHttpServer(): Promise<void> {
     );
     instance = null;
   }
+}
+
+/**
+ * Start the runtime HTTP server's ORM-touching background sweeps. Called by the
+ * daemon once DB migrations have settled — on success, or in the failed
+ * degraded mode where the DB opened and maintenance (guardian approval/action
+ * expiry, profile reaping) must still run; the retry sweep additionally skips
+ * its cycles while readiness is unready. Never called before migrations settle,
+ * so the sweeps can't race a schema mid-migration. No-op if the HTTP server
+ * failed to bind (IPC-only mode) or sweeps already started.
+ */
+export function startRuntimeHttpServerBackgroundSweeps(): void {
+  instance?.startBackgroundSweeps();
 }
 
 /** Stop the runtime HTTP server singleton if one is running; no-op otherwise. */

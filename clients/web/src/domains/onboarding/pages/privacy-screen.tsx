@@ -38,7 +38,6 @@ export function PrivacyScreen() {
   const isNative = useIsNativePlatform();
   const preChatExperimentArm =
     useClientFeatureFlagStore.use.stringFlags().preChatOnboardingExperiment20260606 ?? "control";
-  const researchOnboardingEnabled = useClientFeatureFlagStore.use.researchOnboarding();
   const preferredFunnelVariant =
     onboardingFunnelVariantFromExperiment(preChatExperimentArm);
   const [shareAnalytics, setShareAnalyticsReal] = useShareAnalytics();
@@ -83,10 +82,15 @@ export function PrivacyScreen() {
     const params = new URLSearchParams();
     if (hostingParam) params.set("hosting", hostingParam);
     const qs = params.toString();
+    // A local-hosting onboarding (hosting=local/docker in a local-mode build)
+    // must run the foreground local hatch first, so it goes to `hatching`, which
+    // then redirects into the research flow. Vellum-Cloud goes straight to
+    // research (managed background hatch).
+    const isLocalHatch =
+      isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
     const destination = onboardingDestinationAfterConsent({
-      researchOnboardingEnabled,
       isNative,
-      isLocalMode: isLocalMode(),
+      isLocalHatch,
     });
     void navigate(`${destination}${qs ? `?${qs}` : ""}`);
   }, [
@@ -96,7 +100,6 @@ export function PrivacyScreen() {
     isPreview,
     navigate,
     preferredFunnelVariant,
-    researchOnboardingEnabled,
     searchParams,
     shareAnalytics,
     shareDiagnostics,

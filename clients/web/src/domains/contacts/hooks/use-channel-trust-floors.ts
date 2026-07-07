@@ -28,9 +28,10 @@ export interface ChannelTrustFloors {
 }
 
 /**
- * Per-channel admission floor (trust floor) wiring for the Contacts → Channels
- * list. Reads the `channelTrustFloors` flag itself; when off it returns no
- * policies and no `onChange`, which hides the inline control entirely.
+ * Per-channel admission floor (trust floor) wiring for the assistant's
+ * channel list (the Channels tab and the Contacts assistant detail). Reads
+ * the `channelTrustFloors` flag itself; when off it returns no policies and
+ * no `onChange`, which hides the inline control entirely.
  */
 export function useChannelTrustFloors(assistantId: string): ChannelTrustFloors {
   const queryClient = useQueryClient();

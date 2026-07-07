@@ -37,7 +37,14 @@ mock.module("../util/logger.js", () => ({
   truncateForLog: (value: string) => value,
 }));
 
+// Replace `publishSchedulesChanged` while keeping the rest of the module REAL
+// — a partial mock that drops the other exports breaks any transitively loaded
+// module that imports them (the conversation write paths reach this module
+// through the hook pipeline).
+const actualSyncEvents =
+  await import("../runtime/sync/resource-sync-events.js");
 mock.module("../runtime/sync/resource-sync-events.js", () => ({
+  ...actualSyncEvents,
   publishSchedulesChanged: () => {},
 }));
 

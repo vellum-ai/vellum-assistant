@@ -303,9 +303,9 @@ describe("Slack edit propagation", () => {
 
   test("a content-changing edit enqueues a lexical reindex for the message", async () => {
     // Regression: channel edits update the row in-place via
-    // updateMessageContentAndMetadata / updateMessageContent, bypassing
-    // onMessagePersisted. The lexical index must be refreshed so the old Qdrant
-    // point does not go stale against the edited (FTS-updated) content.
+    // updateMessageContentAndMetadata / updateMessageContent, bypassing the
+    // addMessage persist path. The lexical index must be refreshed so the old
+    // Qdrant point does not go stale against the edited (FTS-updated) content.
     const seeded = await seedSlackMessage({
       conversationExternalId: "C0123CHANNEL",
       channelTs: "1234.5678",

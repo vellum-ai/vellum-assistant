@@ -86,61 +86,6 @@ SELECT changes();`,
 }
 
 /**
- * Delete trace events older than the configured retention period.
- * Processes in batches to avoid long DB locks and excessive WAL growth.
- * Re-enqueues itself if more rows remain.
- *
- * Same async dispatch + integer inlining shape as
- * {@link pruneOldLlmRequestLogsJob}.
- */
-export async function pruneOldTraceEventsJob(
-  job: MemoryJob,
-  config: AssistantConfig,
-): Promise<void> {
-  const rawRetention = job.payload.retentionDays;
-  const retentionDays =
-    typeof rawRetention === "number" &&
-    Number.isFinite(rawRetention) &&
-    rawRetention >= 0
-      ? rawRetention
-      : config.memory.cleanup.traceEventRetentionDays;
-
-  // 0 means disabled
-  if (retentionDays === 0) return;
-
-  const cutoffMs = Math.floor(Date.now() - retentionDays * 86_400_000);
-  if (!Number.isFinite(cutoffMs)) return;
-
-  const result = await runAsyncSqlite(
-    `DELETE FROM trace_events WHERE rowid IN (SELECT rowid FROM trace_events WHERE created_at < ${cutoffMs} LIMIT ${PRUNE_LOG_BATCH_LIMIT});
-SELECT changes();`,
-    "cleanup:prune-trace-events",
-  );
-  if (!result.ok) {
-    log.warn(
-      { error: result.error, backend: result.backend },
-      "pruneOldTraceEventsJob: DELETE failed",
-    );
-    return;
-  }
-
-  const deleted = parseDeletedCount(result.stdout);
-
-  if (deleted >= PRUNE_LOG_BATCH_LIMIT) {
-    enqueueMemoryJob("prune_old_trace_events", { retentionDays });
-  }
-
-  log.info(
-    {
-      deleted,
-      retentionDays,
-      cutoffMs,
-    },
-    "Pruned old trace events",
-  );
-}
-
-/**
  * Delete audit-log (`tool_invocations`) entries older than the configured
  * retention window. Retention comes from `auditLog.retentionDays` (0 = keep
  * forever). The DELETE itself lives in {@link rotateToolInvocations}; this

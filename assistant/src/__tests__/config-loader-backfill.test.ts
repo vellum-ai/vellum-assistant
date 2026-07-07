@@ -596,9 +596,7 @@ describe("loadConfig startup behavior", () => {
     expect(config.llm.profiles.balanced?.model).toBe(
       "accounts/fireworks/models/glm-5p2",
     );
-    expect(config.llm.profiles.balanced?.provider_connection).toBe(
-      "fireworks-managed",
-    );
+    expect(config.llm.profiles.balanced?.provider_connection).toBe("vellum");
 
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
     expect(raw.llm.default).toEqual({
@@ -639,9 +637,7 @@ describe("loadConfig startup behavior", () => {
     expect(config.llm.profiles.balanced?.model).toBe(
       "accounts/fireworks/models/glm-5p2",
     );
-    expect(config.llm.profiles.balanced?.provider_connection).toBe(
-      "fireworks-managed",
-    );
+    expect(config.llm.profiles.balanced?.provider_connection).toBe("vellum");
     // No user profiles created on platform.
     expect(config.llm.profiles["custom-balanced"]).toBeUndefined();
   });
@@ -684,9 +680,7 @@ describe("loadConfig startup behavior", () => {
     );
     // Managed balanced profile is seeded for fireworks-managed (GLM 5.2).
     expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
-    expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "fireworks-managed",
-    );
+    expect(raw.llm.profiles.balanced.provider_connection).toBe("vellum");
   });
 
   test("on-platform re-hatch resets active profile to balanced", () => {
@@ -720,9 +714,7 @@ describe("loadConfig startup behavior", () => {
     // On-platform: no user profiles created, active resets to managed balanced.
     expect(raw.llm.activeProfile).toBe("balanced");
     expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
-    expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "fireworks-managed",
-    );
+    expect(raw.llm.profiles.balanced.provider_connection).toBe("vellum");
     // The old custom-balanced is preserved on disk but no longer active.
     expect(raw.llm.profiles["custom-balanced"].provider).toBe("openai");
   });
@@ -848,9 +840,7 @@ describe("loadConfig startup behavior", () => {
     // Managed profiles are also seeded. Balanced now serves GLM 5.2 on
     // Fireworks (the model Quality used to carry).
     expect(raw.llm.profiles.balanced.provider).toBe("fireworks");
-    expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "fireworks-managed",
-    );
+    expect(raw.llm.profiles.balanced.provider_connection).toBe("vellum");
     expect(raw.llm.profiles.balanced.model).toBe(
       "accounts/fireworks/models/glm-5p2",
     );
@@ -890,9 +880,7 @@ describe("loadConfig startup behavior", () => {
     expect(raw.llm.profiles.balanced.model).toBe(
       "accounts/fireworks/models/glm-5p2",
     );
-    expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "fireworks-managed",
-    );
+    expect(raw.llm.profiles.balanced.provider_connection).toBe("vellum");
     expect(raw.llm.activeProfile).toBe("balanced");
   });
 
@@ -961,9 +949,7 @@ describe("loadConfig startup behavior", () => {
     // The template carries no topP, and the previous entry had none, so the
     // reconciled profile has no topP override.
     expect("topP" in raw.llm.profiles.balanced).toBe(false);
-    expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "fireworks-managed",
-    );
+    expect(raw.llm.profiles.balanced.provider_connection).toBe("vellum");
     expect(raw.llm.activeProfile).toBe("balanced");
   });
 
@@ -1234,7 +1220,7 @@ describe("loadConfig startup behavior", () => {
     expect(afterRestart.llm.activeProfile).toBe("balanced");
     expect(afterRestart.llm.profiles.balanced.provider).toBe("fireworks");
     expect(afterRestart.llm.profiles.balanced.provider_connection).toBe(
-      "fireworks-managed",
+      "vellum",
     );
     expect(afterRestart.llm.profiles.balanced.model).toBe(
       "accounts/fireworks/models/glm-5p2",
@@ -1574,19 +1560,13 @@ describe("seedInferenceProfiles BYOK-mode managed profile labels", () => {
     const raw = JSON.parse(readFileSync(CONFIG_PATH, "utf-8"));
 
     expect(raw.llm.activeProfile).toBe("balanced");
-    // Balanced lives on `fireworks-managed`; `quality-optimized` (Fable on
-    // `anthropic-managed`) is on a different connection, so selecting balanced at
-    // hatch disables it. The default advisor falls to the only active managed
-    // profile, `balanced`.
-    expect(raw.llm.advisorProfile).toBe("balanced");
-    expect(raw.llm.profiles.balanced.provider_connection).toBe(
-      "fireworks-managed",
-    );
+    // All managed profiles now share the single `vellum` connection, so
+    // selecting `balanced` at hatch activates that connection for every managed
+    // profile — none are disabled. The default advisor falls to the strongest
+    // active managed profile, `quality-optimized`.
+    expect(raw.llm.advisorProfile).toBe("quality-optimized");
+    expect(raw.llm.profiles.balanced.provider_connection).toBe("vellum");
     expect("status" in raw.llm.profiles.balanced).toBe(false);
-    // Connections exist (status is no longer a connection-level concept).
-    expect(getConnection(db, "anthropic-managed")).not.toBeNull();
-    expect(getConnection(db, "openai-managed")).not.toBeNull();
-    expect(getConnection(db, "gemini-managed")).not.toBeNull();
   });
 
   test("off-platform managed-inference hatch respects explicit non-managed active connection", () => {
@@ -1883,11 +1863,11 @@ describe("OS Beta managed profile template", () => {
     const entry = materializeProfile(
       OS_BETA_PROFILE_TEMPLATE,
       "together",
-      "together-managed",
+      "vellum",
     );
 
     expect(entry.model).toBe("MiniMaxAI/MiniMax-M3");
-    expect(entry.provider_connection).toBe("together-managed");
+    expect(entry.provider_connection).toBe("vellum");
     expect(entry.provider).toBe("together");
     expect(entry.label).toBe("OS Beta");
     expect(entry.source).toBe("managed");

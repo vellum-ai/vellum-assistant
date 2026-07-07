@@ -1,36 +1,36 @@
 /**
- * End-to-end coverage for hook live-reload through the hook loader: an
- * edited hook file takes effect on the next dispatch, without a daemon
- * restart.
+ * Pins the eviction primitives hook live-reload is built on, driven through
+ * the production import machinery (`preImportHooksDir` →
+ * `collectUserHookEntries`), one layer below the sentinel-driven reconcile
+ * that orchestrates them in production (see `../../plugins/mtime-cache.ts`
+ * and its end-to-end suite).
  *
- * The loader keys each hook on its source file's mtime; when the mtime
- * moves it evicts the module from the runtime registry (`evictModule` in
- * `../../plugins/surface-import.ts`) and re-imports, so the fresh content is
- * what dispatches. These tests drive the public collection API against real
- * hook files on disk, which also makes them the regression guard for the
- * Bun behavior the eviction is built on — `require.cache` deletion
- * invalidating dynamic `import()` is intended per
- * github.com/oven-sh/bun/discussions/10162 but not spec-guaranteed, and a
- * Bun upgrade that breaks it must fail here rather than silently degrade
- * hook edits back to restart-required.
+ * Two invariants live here:
+ *
+ * 1. **The Bun primitive.** Deleting a file's `require.cache` entry makes
+ *    the next dynamic `import()` re-evaluate it from disk. This is
+ *    Node-compat surface, intended per
+ *    github.com/oven-sh/bun/discussions/10162 but not spec-guaranteed — a
+ *    Bun upgrade that breaks it must fail here rather than silently degrade
+ *    hook edits back to restart-required.
+ *
+ * 2. **Whole-owner eviction.** Evicting only a hook's own module re-binds
+ *    the re-imported hook to its stale cached helpers. The reconcile sweeps
+ *    every path in the plugin for exactly this reason, and this suite pins
+ *    the failure mode that rule prevents.
  */
 
-import {
-  mkdirSync,
-  mkdtempSync,
-  rmSync,
-  unlinkSync,
-  utimesSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 
+import { evictModule } from "../../plugins/surface-import.js";
 import type { HookEntry } from "../../plugins/types.js";
-import { getWorkspaceHooksDir } from "../../util/platform.js";
 import {
   collectUserHookEntries,
+  evictHooksForOwner,
+  preImportHooksDir,
   resetHookCacheForTests,
 } from "../hook-loader.js";
 
@@ -46,108 +46,142 @@ beforeEach(() => {
   resetHookCacheForTests();
 });
 
-/**
- * Each write gets an explicitly bumped, strictly increasing mtime: two
- * writes can land inside the same filesystem-timestamp granule, which the
- * loader's mtime check would read as "unchanged". Real edits arrive seconds
- * apart; the tests must not race that granularity.
- */
-let mtimeSeq = 1_750_000_000;
-function writeHookFile(hooksDir: string, marker: string): string {
-  const path = join(hooksDir, `${HOOK_NAME}.ts`);
-  writeFileSync(path, `export default () => ${JSON.stringify(marker)};\n`);
-  const stamp = new Date(++mtimeSeq * 1000);
-  utimesSync(path, stamp, stamp);
-  return path;
-}
-
 /** Fresh plugin fixture: `<root>/<name>/hooks/`, unique name per call. */
 let pluginSeq = 0;
 function makePlugin(): { dir: string; hooksDir: string; name: string } {
   const name = `reload-plugin-${++pluginSeq}`;
   const dir = join(root, name);
   const hooksDir = join(dir, "hooks");
+  mkdirSync(join(dir, "lib"), { recursive: true });
   mkdirSync(hooksDir, { recursive: true });
   return { dir, hooksDir, name };
 }
 
-/** Collect the hook chain for a plugin, exactly as dispatch does. */
-async function collect(
-  pluginDir: string,
-  pluginName: string,
-): Promise<HookEntry[]> {
-  return collectUserHookEntries(HOOK_NAME, [[pluginDir, pluginName]]);
+/**
+ * Redeploy an owner's hooks the way the reconcile does: drop its cache
+ * entries, sweep the given module paths, and re-import from disk.
+ */
+async function redeploy(
+  plugin: { hooksDir: string; name: string },
+  modulePaths: string[],
+): Promise<void> {
+  evictHooksForOwner(plugin.name);
+  for (const path of modulePaths) {
+    evictModule(path);
+  }
+  await preImportHooksDir(plugin.hooksDir, plugin.name);
 }
 
-/** Run the single expected hook in the chain and return its result. */
-async function dispatchOne(
-  pluginDir: string,
-  pluginName: string,
-): Promise<unknown> {
-  const entries = await collect(pluginDir, pluginName);
+/** Collect and run the single expected hook, returning its result. */
+async function dispatchOne(plugin: {
+  dir: string;
+  name: string;
+}): Promise<unknown> {
+  const entries: HookEntry[] = await collectUserHookEntries(HOOK_NAME, [
+    [plugin.dir, plugin.name],
+  ]);
   expect(entries).toHaveLength(1);
   return (entries[0]!.fn as () => unknown)();
 }
 
-describe("hook live-reload", () => {
-  test("an edited hook file takes effect on the next dispatch, repeatably", async () => {
+describe("hook reload primitives", () => {
+  test("evict + re-import serves fresh hook code, repeatably", async () => {
     const plugin = makePlugin();
-    writeHookFile(plugin.hooksDir, "v1");
-    expect(await dispatchOne(plugin.dir, plugin.name)).toBe("v1");
+    const hookPath = join(plugin.hooksDir, `${HOOK_NAME}.ts`);
+    writeFileSync(hookPath, `export default () => "v1";\n`);
+    await preImportHooksDir(plugin.hooksDir, plugin.name);
+    expect(await dispatchOne(plugin)).toBe("v1");
 
-    // Two edit → dispatch cycles: the first proves reload works at all, the
-    // second proves a reloaded hook is itself reloadable (edits keep landing
-    // turn after turn, not just once).
+    // Two edit → redeploy cycles: the first proves the primitive, the
+    // second proves a re-imported module is itself evictable again.
     for (const marker of ["v2", "v3"]) {
-      writeHookFile(plugin.hooksDir, marker);
-      expect(await dispatchOne(plugin.dir, plugin.name)).toBe(marker);
+      writeFileSync(
+        hookPath,
+        `export default () => ${JSON.stringify(marker)};\n`,
+      );
+      await redeploy(plugin, [hookPath]);
+      expect(await dispatchOne(plugin)).toBe(marker);
     }
   });
 
-  test("an unchanged hook file is served from the cache, not re-imported", async () => {
+  test("dispatch serves the same cached function until an eviction", async () => {
     const plugin = makePlugin();
-    writeHookFile(plugin.hooksDir, "stable");
+    writeFileSync(
+      join(plugin.hooksDir, `${HOOK_NAME}.ts`),
+      `export default () => "stable";\n`,
+    );
+    await preImportHooksDir(plugin.hooksDir, plugin.name);
 
-    const first = await collect(plugin.dir, plugin.name);
-    const second = await collect(plugin.dir, plugin.name);
+    const first = await collectUserHookEntries(HOOK_NAME, [
+      [plugin.dir, plugin.name],
+    ]);
+    const second = await collectUserHookEntries(HOOK_NAME, [
+      [plugin.dir, plugin.name],
+    ]);
 
-    // Same function instance means the cache hit — dispatch after dispatch
-    // costs a stat, not an import.
+    // Same function instance: dispatch is a map lookup, not an import.
     expect(second[0]!.fn).toBe(first[0]!.fn);
   });
 
-  test("a deleted hook stops dispatching; recreating it serves the new content", async () => {
+  test("evicting only the hook re-binds it to a stale helper; the full sweep does not", async () => {
     const plugin = makePlugin();
-    const path = writeHookFile(plugin.hooksDir, "original");
-    expect(await dispatchOne(plugin.dir, plugin.name)).toBe("original");
+    const helperPath = join(plugin.dir, "lib", "helper.ts");
+    const hookPath = join(plugin.hooksDir, `${HOOK_NAME}.ts`);
+    writeFileSync(helperPath, `export const value = "h1";\n`);
+    writeFileSync(
+      hookPath,
+      `import { value } from "../lib/helper.ts";\nexport default () => value;\n`,
+    );
+    await preImportHooksDir(plugin.hooksDir, plugin.name);
+    expect(await dispatchOne(plugin)).toBe("h1");
 
-    unlinkSync(path);
-    expect(await collect(plugin.dir, plugin.name)).toHaveLength(0);
+    writeFileSync(helperPath, `export const value = "h2";\n`);
 
-    // The recreated file must dispatch its own content, not the module the
-    // registry cached for the deleted original.
-    writeHookFile(plugin.hooksDir, "recreated");
-    expect(await dispatchOne(plugin.dir, plugin.name)).toBe("recreated");
+    // Partial eviction — the hook file only. The re-evaluated hook binds to
+    // the helper module still cached at h1: the version-skew failure mode
+    // whole-plugin sweeping exists to prevent.
+    await redeploy(plugin, [hookPath]);
+    expect(await dispatchOne(plugin)).toBe("h1");
+
+    // The full sweep (hook + helper, as the reconcile's eviction list would
+    // carry) brings the edit through.
+    await redeploy(plugin, [hookPath, helperPath]);
+    expect(await dispatchOne(plugin)).toBe("h2");
   });
 
-  test("standalone workspace hooks reload the same way", async () => {
-    const wsHooksDir = getWorkspaceHooksDir();
-    mkdirSync(wsHooksDir, { recursive: true });
-    const path = writeHookFile(wsHooksDir, "ws-v1");
+  test("concurrent first reads of an owner share one load, not an empty cache", async () => {
+    const plugin = makePlugin();
+    writeFileSync(
+      join(plugin.hooksDir, `${HOOK_NAME}.ts`),
+      `export default () => "shared";\n`,
+    );
 
-    try {
-      const before = await collectUserHookEntries(HOOK_NAME, []);
-      expect(before).toHaveLength(1);
-      expect(before[0]!.owner.kind).toBe("workspace");
-      expect((before[0]!.fn as () => unknown)()).toBe("ws-v1");
+    // Two reads race before the owner is loaded. The load memo must make the
+    // second await the first's import instead of seeing "loaded" and reading a
+    // half-filled cache — otherwise the second read returns zero hooks.
+    const [first, second] = await Promise.all([
+      collectUserHookEntries(HOOK_NAME, [[plugin.dir, plugin.name]]),
+      collectUserHookEntries(HOOK_NAME, [[plugin.dir, plugin.name]]),
+    ]);
 
-      writeHookFile(wsHooksDir, "ws-v2");
-      const after = await collectUserHookEntries(HOOK_NAME, []);
-      expect((after[0]!.fn as () => unknown)()).toBe("ws-v2");
-    } finally {
-      // The workspace hooks dir is shared per-process test state — leave it
-      // the way this test found it.
-      unlinkSync(path);
-    }
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(second[0]!.fn).toBe(first[0]!.fn);
+  });
+
+  test("re-import after owner eviction drops hooks whose files are gone", async () => {
+    const plugin = makePlugin();
+    const hookPath = join(plugin.hooksDir, `${HOOK_NAME}.ts`);
+    writeFileSync(hookPath, `export default () => "here";\n`);
+    await preImportHooksDir(plugin.hooksDir, plugin.name);
+    expect(await dispatchOne(plugin)).toBe("here");
+
+    rmSync(hookPath);
+    await redeploy(plugin, [hookPath]);
+
+    const entries = await collectUserHookEntries(HOOK_NAME, [
+      [plugin.dir, plugin.name],
+    ]);
+    expect(entries).toHaveLength(0);
   });
 });

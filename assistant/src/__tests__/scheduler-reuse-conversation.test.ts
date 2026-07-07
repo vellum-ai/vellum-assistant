@@ -104,6 +104,7 @@ mock.module("../daemon/process-message.js", () => ({
     processMessageImpl(conversationId, message),
 }));
 
+import { loadRawConfig, saveRawConfig } from "../config/loader.js";
 import { deleteConversation } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -112,6 +113,13 @@ import { createSchedule, getScheduleRuns } from "../schedule/schedule-store.js";
 import { startScheduler } from "../schedule/scheduler.js";
 
 await initializeDb();
+
+// The schedule worker is on by default, which stands the daemon's in-process
+// scheduler down. These tests exercise that in-process execution path directly,
+// so pin the worker flag off for this test process.
+const rawConfig = loadRawConfig();
+rawConfig.schedules = { worker: { enabled: false } };
+saveRawConfig(rawConfig);
 
 /** Access the underlying bun:sqlite Database for raw parameterized queries. */
 function getRawDb(): import("bun:sqlite").Database {

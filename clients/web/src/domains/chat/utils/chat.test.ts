@@ -45,6 +45,14 @@ describe("chat utilities", () => {
     test("ordinary conversation events stay scoped", () => {
       expect(scoped("tool_output_chunk")).toBe(true);
     });
+
+    test("open_url stays conversation-scoped (conversationless CLI emits are owned by useOpenUrlDirectives)", () => {
+      // Making open_url global would let a background turn's browser
+      // hand-off fire over an unrelated conversation. The conversationless
+      // CLI variant is handled by the always-mounted root subscriber, not
+      // by exempting the type here.
+      expect(scoped("open_url")).toBe(true);
+    });
   });
 
   describe("hasAssistantMessage", () => {

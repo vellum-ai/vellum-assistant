@@ -7,6 +7,7 @@ import { MemoryRouter } from "react-router";
 import type { SidebarItem } from "@/components/sidebar-tree";
 
 let assistantFlags: Record<string, boolean> = {};
+let clientFlags: Record<string, boolean> = {};
 
 mock.module("@/stores/assistant-feature-flag-store", () => {
   const store = () => null;
@@ -19,8 +20,9 @@ mock.module("@/stores/assistant-feature-flag-store", () => {
 mock.module("@/stores/client-feature-flag-store", () => {
   const store = () => null;
   store.use = {
-    platformNotifications: () => false,
-    bookmarks: () => false,
+    platformNotifications: () => clientFlags.platformNotifications ?? false,
+    bookmarks: () => clientFlags.bookmarks ?? false,
+    accountMfa: () => clientFlags.accountMfa ?? false,
   };
   return { useClientFeatureFlagStore: store };
 });
@@ -71,6 +73,7 @@ const { SettingsLayout } = await import("./settings-layout");
 afterEach(() => {
   cleanup();
   assistantFlags = {};
+  clientFlags = {};
 });
 
 describe("SettingsLayout", () => {
@@ -83,5 +86,26 @@ describe("SettingsLayout", () => {
 
     expect(screen.queryByRole("link", { name: "MCP" })).toBeNull();
     expect(screen.getByRole("link", { name: "Integrations" })).not.toBeNull();
+  });
+
+  test("hides the Security entry when the account-mfa flag is off", () => {
+    render(
+      <MemoryRouter initialEntries={["/assistant/settings"]}>
+        <SettingsLayout />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByRole("link", { name: "Security" })).toBeNull();
+  });
+
+  test("shows the Security entry when the account-mfa flag is on", () => {
+    clientFlags = { accountMfa: true };
+    render(
+      <MemoryRouter initialEntries={["/assistant/settings"]}>
+        <SettingsLayout />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByRole("link", { name: "Security" })).not.toBeNull();
   });
 });

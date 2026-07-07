@@ -34,7 +34,10 @@ mock.module("../daemon/conversation-plugin-scope.js", () => ({
   resolveConversationPluginScope: (id: string) => resolveScopeMock(id),
 }));
 
-import { collectUserHooks } from "../hooks/hook-loader.js";
+import {
+  collectUserHooks,
+  resetHookCacheForTests,
+} from "../hooks/hook-loader.js";
 import { getHooksFor } from "../hooks/registry.js";
 import {
   registerPlugin,
@@ -138,6 +141,7 @@ describe("collectUserHooks per-chat plugin scope (user-land hooks)", () => {
   let counter = 0;
 
   beforeEach(() => {
+    resetHookCacheForTests();
     root = join(
       tmpdir(),
       `vellum-userhooks-${process.pid}-${Date.now()}-${counter++}`,
@@ -149,6 +153,8 @@ describe("collectUserHooks per-chat plugin scope (user-land hooks)", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
+  // Dispatch hooks import lazily on the first `collectUserHooks` read, so the
+  // fixture only has to lay the files down on disk — the read fills the cache.
   function pluginDirWithHook(name: string): string {
     const dir = join(root, name);
     const hooksDir = join(dir, "hooks");

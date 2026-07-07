@@ -10,7 +10,10 @@
  * so a future gateway regression can't leak them into the UI.
  */
 
-import { client } from "@/generated/api/client.gen";
+import {
+  assistantChannelAdmissionPolicyList,
+  assistantChannelAdmissionPolicySet,
+} from "@/generated/gateway/sdk.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -26,14 +29,6 @@ import {
 } from "./types";
 
 export { ApiError };
-
-interface ListResponse {
-  policies: ChannelPolicyView[];
-}
-
-interface SingleResponse {
-  policy: ChannelPolicyView;
-}
 
 function isAdmissionPolicy(value: unknown): value is AdmissionPolicy {
   return (
@@ -56,8 +51,7 @@ export function isInternalChannel(channelType: string): boolean {
 export async function fetchChannelPolicies(
   assistantId: string,
 ): Promise<ChannelPolicyView[]> {
-  const { data, error, response } = await client.get<ListResponse, unknown>({
-    url: "/v1/assistants/{assistant_id}/channel-admission-policy/",
+  const { data, error, response } = await assistantChannelAdmissionPolicyList({
     path: { assistant_id: assistantId },
     throwOnError: false,
   });
@@ -95,11 +89,9 @@ export async function setChannelPolicy(
       `Channel "${channelType}" is internal and is not user-configurable.`,
     );
   }
-  const { data, error, response } = await client.put<SingleResponse, unknown>({
-    url: "/v1/assistants/{assistant_id}/channel-admission-policy/{channel_type}",
+  const { data, error, response } = await assistantChannelAdmissionPolicySet({
     path: { assistant_id: assistantId, channel_type: channelType },
     body: { policy, note: note ?? null },
-    headers: { "Content-Type": "application/json" },
     throwOnError: false,
   });
   assertHasResponse(response, error, "Failed to save channel policy.");

@@ -3,7 +3,7 @@
 openapi: 3.1.0
 info:
   title: Vellum Assistant API
-  version: 0.10.5
+  version: 0.10.6
   description: Auto-generated OpenAPI specification for the Vellum Assistant runtime HTTP server.
 servers:
   - url: http://127.0.0.1:7821
@@ -49,9 +49,9 @@ paths:
       operationId: readyz_get
       summary: Readiness probe
       description:
-        Strict readiness probe. Returns 503 with { status, ready, notReady } until the daemon's synchronous startup
-        latches (isStartupComplete() && isDbReady()) are set, then a stable 200. notReady lists the gates still failing
-        ("startup", "db"). CES is informational and never gates readiness.
+        "Readiness probe. Returns 200 while DB migrations are running (body { status: 'migrating', ready: false,
+        dbMigrations }) so orchestrators keep the pod in service, then a stable 200 { status: 'ok', ready: true } once
+        migrations complete. Returns 503 only when migrations failed. CES is informational and never gates readiness."
       responses:
         "200":
           description: Successful response
@@ -64,17 +64,34 @@ paths:
                     type: string
                   ready:
                     type: boolean
-                  notReady:
-                    type: array
-                    items:
-                      type: string
+                  reason:
+                    type: string
+                  dbMigrations:
+                    type: object
+                    properties:
+                      ready:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - not_started
+                          - running
+                          - failed
+                          - ready
+                      reason:
+                        type: string
+                      error:
+                        type: string
+                    required:
+                      - ready
+                      - state
+                    additionalProperties: false
                 required:
                   - status
                   - ready
-                  - notReady
                 additionalProperties: false
         "503":
-          description: Not ready — startup incomplete or database not ready.
+          description: DB migrations failed — daemon requires a restart.
           content:
             application/json:
               schema:
@@ -84,14 +101,31 @@ paths:
                     type: string
                   ready:
                     type: boolean
-                  notReady:
-                    type: array
-                    items:
-                      type: string
+                  reason:
+                    type: string
+                  dbMigrations:
+                    type: object
+                    properties:
+                      ready:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - not_started
+                          - running
+                          - failed
+                          - ready
+                      reason:
+                        type: string
+                      error:
+                        type: string
+                    required:
+                      - ready
+                      - state
+                    additionalProperties: false
                 required:
                   - status
                   - ready
-                  - notReady
                 additionalProperties: false
   /v1/acp/{id}/cancel:
     post:
@@ -4015,6 +4049,8 @@ paths:
                           anyOf:
                             - type: number
                             - type: "null"
+                        hasInterceptableVerificationSession:
+                          type: boolean
                       required:
                         - trustClass
                         - canonicalSenderId
@@ -11885,6 +11921,28 @@ paths:
                       - budget
                       - lastCompletedRun
                     additionalProperties: false
+                  reason:
+                    type: string
+                  dbMigrations:
+                    type: object
+                    properties:
+                      ready:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - not_started
+                          - running
+                          - failed
+                          - ready
+                      reason:
+                        type: string
+                      error:
+                        type: string
+                    required:
+                      - ready
+                      - state
+                    additionalProperties: false
                 required:
                   - status
                   - timestamp
@@ -12061,6 +12119,28 @@ paths:
                       - artifactCount
                       - budget
                       - lastCompletedRun
+                    additionalProperties: false
+                  reason:
+                    type: string
+                  dbMigrations:
+                    type: object
+                    properties:
+                      ready:
+                        type: boolean
+                      state:
+                        type: string
+                        enum:
+                          - not_started
+                          - running
+                          - failed
+                          - ready
+                      reason:
+                        type: string
+                      error:
+                        type: string
+                    required:
+                      - ready
+                      - state
                     additionalProperties: false
                 required:
                   - status
@@ -13810,9 +13890,8 @@ paths:
       operationId: inference_providerconnections_by_name_delete
       summary: Delete a provider connection
       description:
-        Delete a provider connection. Fails with 400 for managed connections (anthropic-managed, openai-managed,
-        gemini-managed) which are re-seeded on boot. Fails with 409 if any profile or call-site references the
-        connection.
+        Delete a provider connection. Fails with 400 for the Vellum-managed connection (vellum) which is re-seeded
+        on boot. Fails with 409 if any profile or call-site references the connection.
       tags:
         - inference
       parameters:
@@ -13866,8 +13945,8 @@ paths:
       operationId: inference_providerconnections_by_name_patch
       summary: Update a provider connection
       description:
-        Update an existing connection. Cannot rename or change the provider. For managed connections
-        (anthropic-managed, openai-managed, gemini-managed) the auth is locked to platform; label remains editable.
+        Update an existing connection. Cannot rename or change the provider. For the Vellum-managed connection
+        (vellum) the auth is locked to platform; label remains editable.
       tags:
         - inference
       parameters:
@@ -18795,28 +18874,6 @@ paths:
                   - memoryRecall
                   - memoryV2Activation
                 additionalProperties: false
-  /v1/messages/{messageId}/tts:
-    post:
-      operationId: messages_by_messageId_tts_post
-      summary: Synthesize message to speech
-      description: Synthesize a message's text content to audio using the configured TTS provider.
-      tags:
-        - messages
-      parameters:
-        - name: messageId
-          in: path
-          required: true
-          schema:
-            type: string
-        - name: conversationId
-          in: query
-          required: false
-          schema:
-            type: string
-          description: Conversation that contains the message
-      responses:
-        "200":
-          description: Successful response
   /v1/messages/lexical/backfill:
     post:
       operationId: messages_lexical_backfill_post
@@ -21079,6 +21136,44 @@ paths:
                     type: string
                   showPlatformLogin:
                     type: boolean
+                additionalProperties: false
+  /v1/platform/credits:
+    get:
+      operationId: platform_credits_get
+      summary: Get the organization's remaining credit balance
+      description:
+        Fetches the org's settled, pending, and effective (remaining) credit balance in USD from the platform
+        billing summary.
+      tags:
+        - platform
+      responses:
+        "200":
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  remaining:
+                    type: number
+                  settled:
+                    type: number
+                  pending:
+                    type: number
+                  unit:
+                    type: string
+                    const: USD
+                  stale:
+                    type: boolean
+                  as_of:
+                    type: string
+                required:
+                  - remaining
+                  - settled
+                  - pending
+                  - unit
+                  - stale
+                  - as_of
                 additionalProperties: false
   /v1/platform/disconnect:
     post:
@@ -27268,6 +27363,18 @@ paths:
       description: List Slack channels, groups, and DMs for the channel picker.
       tags:
         - integrations
+      parameters:
+        - name: memberOnly
+          in: query
+          required: false
+          schema:
+            type: string
+            enum:
+              - "true"
+              - "false"
+          description:
+            "When 'true', only return conversations the connected identity is in: channels/groups with is_member, plus
+            all DMs and group DMs"
       responses:
         "200":
           description: Successful response
@@ -27293,11 +27400,29 @@ paths:
                             - dm
                         isPrivate:
                           type: boolean
+                        isMember:
+                          type: boolean
+                        memberCount:
+                          anyOf:
+                            - type: number
+                            - type: "null"
+                        topic:
+                          anyOf:
+                            - type: string
+                            - type: "null"
+                        imageUrl:
+                          anyOf:
+                            - type: string
+                            - type: "null"
                       required:
                         - id
                         - name
                         - type
                         - isPrivate
+                        - isMember
+                        - memberCount
+                        - topic
+                        - imageUrl
                       additionalProperties: false
                 required:
                   - channels
@@ -28565,105 +28690,6 @@ paths:
       responses:
         "200":
           description: Successful response
-  /v1/trace-events:
-    get:
-      operationId: traceevents_get
-      summary: List trace events
-      description: Return persisted trace events for a conversation.
-      tags:
-        - trace
-      parameters:
-        - name: conversationId
-          in: query
-          required: false
-          schema:
-            type: string
-          description: Conversation ID (required)
-        - name: limit
-          in: query
-          required: false
-          schema:
-            type: integer
-          description: Max events to return
-        - name: afterSequence
-          in: query
-          required: false
-          schema:
-            type: integer
-          description: Return events after this sequence number
-      responses:
-        "200":
-          description: Successful response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  events:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        eventId:
-                          type: string
-                        conversationId:
-                          type: string
-                        requestId:
-                          type: string
-                        timestampMs:
-                          type: number
-                        sequence:
-                          type: number
-                        kind:
-                          type: string
-                          enum:
-                            - request_received
-                            - request_queued
-                            - request_dequeued
-                            - llm_call_started
-                            - llm_call_finished
-                            - assistant_message
-                            - tool_started
-                            - tool_permission_requested
-                            - tool_permission_decided
-                            - tool_finished
-                            - tool_failed
-                            - generation_handoff
-                            - message_complete
-                            - generation_cancelled
-                            - request_error
-                            - tool_profiling_summary
-                        status:
-                          type: string
-                          enum:
-                            - info
-                            - success
-                            - warning
-                            - error
-                        summary:
-                          type: string
-                        attributes:
-                          type: object
-                          propertyNames:
-                            type: string
-                          additionalProperties:
-                            anyOf:
-                              - type: string
-                              - type: number
-                              - type: boolean
-                              - type: "null"
-                      required:
-                        - eventId
-                        - conversationId
-                        - timestampMs
-                        - sequence
-                        - kind
-                        - summary
-                      additionalProperties: false
-                    description: Trace event objects
-                required:
-                  - events
-                additionalProperties: false
   /v1/transfers/{transferId}/content:
     get:
       operationId: transfers_by_transferId_content_get

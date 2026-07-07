@@ -293,8 +293,15 @@ export function createToolExecutor(
       requesterChatId: turnTrust.requesterChatId,
       requesterIdentifier: turnTrust.requesterIdentifier,
       requesterDisplayName: turnTrust.requesterDisplayName,
+      channelConversationType: turnTrust.conversationType,
+      // The binding's external chat id is the canonical conversation address
+      // for every channel adapter (Slack channel, Telegram chat, …); it keys
+      // the channel tier of permission-matrix cell resolution, so a
+      // channel-scoped cell governs regardless of adapter. Internal turns
+      // ("vellum" — the fallback and control-plane channel — or no source
+      // channel at all) never have a binding, so they skip the lookup.
       channelPermissionChannelId:
-        turnTrust.sourceChannel === "slack"
+        turnTrust.sourceChannel && turnTrust.sourceChannel !== "vellum"
           ? getBindingByConversation(ctx.conversationId)?.externalChatId
           : undefined,
       onOutput,
@@ -420,7 +427,7 @@ export function createToolExecutor(
         ctx.approvedViaPromptThisTurn = true;
       }
 
-      runPostExecutionSideEffects(toolName, toolInput, result, { ctx });
+      void runPostExecutionSideEffects(toolName, toolInput, result, { ctx });
 
       return result;
     }
@@ -434,7 +441,9 @@ export function createToolExecutor(
       ctx.approvedViaPromptThisTurn = true;
     }
 
-    runPostExecutionSideEffects(executionName, executionInput, result, { ctx });
+    void runPostExecutionSideEffects(executionName, executionInput, result, {
+      ctx,
+    });
 
     return result;
   };

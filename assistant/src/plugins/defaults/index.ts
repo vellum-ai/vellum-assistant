@@ -60,6 +60,7 @@ import { resetMaxTokensContinueStoreForTests } from "./max-tokens-continue/conti
 import maxTokensContinuePostModelCall from "./max-tokens-continue/hooks/post-model-call.js";
 import maxTokensContinueStop from "./max-tokens-continue/hooks/stop.js";
 import maxTokensContinuePkg from "./max-tokens-continue/package.json" with { type: "json" };
+import memoryConversationDeleted from "./memory/hooks/conversation-deleted.js";
 import memoryInit from "./memory/hooks/init.js";
 import memoryPostCompact from "./memory/hooks/post-compact.js";
 import memoryShutdown from "./memory/hooks/shutdown.js";
@@ -149,9 +150,11 @@ export const defaultEmptyResponsePlugin: Plugin = {
  * runtime injections (the unified `<turn_context>` block, Slack chronological
  * transcript, NOW.md / PKB / memory-v2 / workspace blocks) and houses the
  * memory-v3 orchestration engine (`memory/v3/`) and its injectors. Two hooks
- * drive it: `user-prompt-submit` runs memory-graph retrieval and the initial
- * injection, and `post-compact` re-applies the injections onto the compacted
- * history after a mid-turn compaction. It contributes its personal-memory
+ * drive its turn work: `user-prompt-submit` runs memory-graph retrieval and
+ * the initial injection, and `post-compact` re-applies the injections onto
+ * the compacted history after a mid-turn compaction; a `conversation-deleted`
+ * hook fails the plugin's pending background jobs when a conversation is
+ * deleted. It contributes its personal-memory
  * runtime injectors (PKB context/reminder and the memory-v2 static block, plus
  * the two memory-v3 injectors) to the global injector registry via the
  * `injectors` field; the registry unions them with the domain plugins'
@@ -170,6 +173,7 @@ export const defaultMemoryPlugin: Plugin = {
     shutdown: memoryShutdown,
     "user-prompt-submit": memoryUserPromptSubmit,
     "post-compact": memoryPostCompact,
+    "conversation-deleted": memoryConversationDeleted,
   },
   injectors: [...memoryInjectors, memoryV3Injector, memoryV3SpotlightInjector],
 };

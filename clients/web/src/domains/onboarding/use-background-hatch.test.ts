@@ -125,4 +125,73 @@ describe("useBackgroundHatch", () => {
     // A terminal (non-5xx) hatch failure must not fall through to polling.
     expect(getAssistantMock).not.toHaveBeenCalled();
   });
+
+  test("adoptExisting skips the managed hatch and adopts the live assistant", async () => {
+    // A local-hosting onboarding provisions the assistant in the hatching screen
+    // before the research flow mounts, so the background hatch must skip the
+    // managed `hatchAssistant()` and discover the already-active assistant via
+    // getAssistant().
+    const { result } = renderHook(() =>
+      useBackgroundHatch({
+        adoptExisting: true,
+        adoptAssistantId: "ast-research",
+      }),
+    );
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    // No managed hatch when adopting…
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
+    // …the existing assistant is discovered via getAssistant, pinned to the
+    // id the hatching screen handed off…
+    expect(getAssistantMock).toHaveBeenCalledWith("ast-research");
+    // …and the assistant-scoped healthz is SKIPPED (the hatching screen already
+    // confirmed the local gateway's /readyz, and that SDK call doesn't resolve
+    // against a local gateway anyway).
+    expect(getAssistantHealthzMock).not.toHaveBeenCalled();
+    expect(result.current.assistantId).toBe("ast-research");
+  });
+
+  test("adopting with a stale id falls back to list-based discovery", async () => {
+    // The pinned id 404s (e.g. the lockfile entry was retired between the
+    // hatching screen and here) — discovery must recover via the no-arg
+    // getAssistant() fallback instead of failing the adopt.
+    getAssistantMock.mockImplementationOnce(async () => ({
+      ok: false,
+      status: 404,
+      error: {},
+    }));
+
+    const { result } = renderHook(() =>
+      useBackgroundHatch({
+        adoptExisting: true,
+        adoptAssistantId: "ast-stale",
+      }),
+    );
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(getAssistantMock.mock.calls[0]).toEqual(["ast-stale"]);
+    // The 404 fallback re-discovers without an id.
+    expect(getAssistantMock.mock.calls[1]).toEqual([]);
+    expect(result.current.assistantId).toBe("ast-research");
+  });
+
+  test("default (managed) runs hatchAssistant", async () => {
+    const { result } = renderHook(() => useBackgroundHatch());
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    // Vellum-Cloud / managed path still provisions via hatchAssistant.
+    expect(hatchAssistantMock).toHaveBeenCalledTimes(1);
+  });
 });

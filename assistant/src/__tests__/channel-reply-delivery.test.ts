@@ -435,7 +435,10 @@ describe("channel-reply-delivery", () => {
     expect(deliveryCalls).toHaveLength(0);
   });
 
-  it("treats a current-turn no_response marker as terminal instead of falling back", async () => {
+  // Silence means the turn produced no real reply text anywhere — not "the
+  // last row was a sentinel". A trailing bare <no_response/> row must not
+  // swallow the real reply written earlier in the same turn.
+  it("delivers the earlier real reply when the turn ends with a bare no_response row", async () => {
     conversationMessages.push(
       { id: "msg-current-user", role: "user", content: "current prompt" },
       {
@@ -449,7 +452,7 @@ describe("channel-reply-delivery", () => {
         content: '[{"type":"text","text":"<no_response/>"}]',
       },
     );
-    renderedHistoryContentQueue.push({
+    const silentStub = {
       text: "<no_response/>",
       textSegments: ["<no_response/>"],
       toolCalls: [],
@@ -457,8 +460,42 @@ describe("channel-reply-delivery", () => {
       contentOrder: ["text:0"],
       surfaces: [],
       thinkingSegments: [],
-    });
-    renderedHistoryContentQueue.push({
+    };
+    const answerStub = {
+      text: "current answer",
+      textSegments: ["current answer"],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    };
+    // Turn scan reads the silent row then the text row; delivery re-reads
+    // the chosen text row.
+    renderedHistoryContentQueue.push(silentStub, answerStub, answerStub);
+
+    await deliverReplyViaCallback(
+      "conv-1",
+      "chat-current",
+      "http://gateway/deliver/slack",
+      "assistant-current",
+      { sinceMessageId: "msg-current-user" },
+    );
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.text).toBe("current answer");
+  });
+
+  it("stays silent when a no_response turn has no real reply text anywhere", async () => {
+    conversationMessages.push(
+      { id: "msg-current-user", role: "user", content: "current prompt" },
+      {
+        id: "msg-current-silent",
+        role: "assistant",
+        content: '[{"type":"text","text":"<no_response/>"}]',
+      },
+    );
+    const silentStub = {
       text: "<no_response/>",
       textSegments: ["<no_response/>"],
       toolCalls: [],
@@ -466,7 +503,10 @@ describe("channel-reply-delivery", () => {
       contentOrder: ["text:0"],
       surfaces: [],
       thinkingSegments: [],
-    });
+    };
+    // Turn scan reads the silent row; delivery re-reads it as the terminal
+    // deliberate-silence target.
+    renderedHistoryContentQueue.push(silentStub, silentStub);
 
     await deliverReplyViaCallback(
       "conv-1",
@@ -477,6 +517,124 @@ describe("channel-reply-delivery", () => {
     );
 
     expect(deliveryCalls).toHaveLength(0);
+  });
+
+  it("falls through a messageId-targeted bare no_response row to the turn's real reply", async () => {
+    conversationMessages.push(
+      { id: "msg-current-user", role: "user", content: "current prompt" },
+      {
+        id: "msg-current-text",
+        role: "assistant",
+        content: '[{"type":"text","text":"current answer"}]',
+      },
+      {
+        id: "msg-current-silent",
+        role: "assistant",
+        content: '[{"type":"text","text":"<no_response/>"}]',
+      },
+    );
+    const silentStub = {
+      text: "<no_response/>",
+      textSegments: ["<no_response/>"],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    };
+    const answerStub = {
+      text: "current answer",
+      textSegments: ["current answer"],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    };
+    // messageId branch reads the targeted silent row, the turn scan reads
+    // the silent row then the text row, and delivery re-reads the text row.
+    renderedHistoryContentQueue.push(
+      silentStub,
+      silentStub,
+      answerStub,
+      answerStub,
+    );
+
+    await deliverReplyViaCallback(
+      "conv-1",
+      "chat-current",
+      "http://gateway/deliver/slack",
+      "assistant-current",
+      { messageId: "msg-current-silent", sinceMessageId: "msg-current-user" },
+    );
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.text).toBe("current answer");
+  });
+
+  // A bare-sentinel row never delivers its attachments (marker rows suppress
+  // attachment delivery), so attachments alone must not make the row count
+  // as the turn's real reply and stop the fall-through.
+  it("falls through a bare no_response row with attachments to the turn's real reply", async () => {
+    conversationMessages.push(
+      { id: "msg-current-user", role: "user", content: "current prompt" },
+      {
+        id: "msg-current-text",
+        role: "assistant",
+        content: '[{"type":"text","text":"current answer"}]',
+      },
+      {
+        id: "msg-current-silent",
+        role: "assistant",
+        content: '[{"type":"text","text":"<no_response/>"}]',
+      },
+    );
+    attachmentsByMessageId.set("msg-current-silent", [
+      {
+        id: "att-silent",
+        originalFilename: "chart.png",
+        mimeType: "image/png",
+        sizeBytes: 10,
+        kind: "generated",
+      },
+    ]);
+    const silentStub = {
+      text: "<no_response/>",
+      textSegments: ["<no_response/>"],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    };
+    const answerStub = {
+      text: "current answer",
+      textSegments: ["current answer"],
+      toolCalls: [],
+      toolCallsBeforeText: false,
+      contentOrder: ["text:0"],
+      surfaces: [],
+      thinkingSegments: [],
+    };
+    // messageId branch reads the targeted silent row, the turn scan reads
+    // the silent row then the text row, and delivery re-reads the text row.
+    renderedHistoryContentQueue.push(
+      silentStub,
+      silentStub,
+      answerStub,
+      answerStub,
+    );
+
+    await deliverReplyViaCallback(
+      "conv-1",
+      "chat-current",
+      "http://gateway/deliver/slack",
+      "assistant-current",
+      { messageId: "msg-current-silent", sinceMessageId: "msg-current-user" },
+    );
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.text).toBe("current answer");
   });
 
   it("skips already-delivered segments when startFromSegment is set", async () => {
@@ -701,6 +859,57 @@ describe("channel-reply-delivery", () => {
 
     expect(deliveryCalls).toHaveLength(1);
     expect(deliveryCalls[0].payload.text).toBe("Real response.");
+  });
+
+  it("strips a prefixed inline <no_response/> and delivers the rest of the segment", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/telegram",
+      chatId: "chat-inline-prefix",
+      textSegments: ["<no_response/>\n\nReal reply."],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.text).toBe("Real reply.");
+  });
+
+  it("strips a trailing inline <no_response/> and delivers the rest of the segment", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/telegram",
+      chatId: "chat-inline-trailing",
+      textSegments: ["Real reply.\n\n<no_response/>"],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.text).toBe("Real reply.");
+  });
+
+  it("never leaks the sentinel into delivered text, including the fallback path", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/telegram",
+      chatId: "chat-fallback-strip",
+      textSegments: [],
+      fallbackText: "Fallback reply. <no_response/>",
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(1);
+    expect(deliveryCalls[0].payload.text).toBe("Fallback reply.");
+    for (const call of deliveryCalls) {
+      expect(String(call.payload.text)).not.toContain("<no_response");
+    }
+  });
+
+  it("suppresses delivery for a case-insensitive bare sentinel", async () => {
+    await deliverRenderedReplyViaCallback({
+      callbackUrl: "http://gateway/deliver/slack",
+      chatId: "chat-silent-case",
+      textSegments: ["<NO_RESPONSE/>"],
+      interSegmentDelayMs: 0,
+    });
+
+    expect(deliveryCalls).toHaveLength(0);
   });
 
   it("passes startFromSegment through deliverReplyViaCallback options", async () => {

@@ -155,7 +155,6 @@ function makeCtx(overrides: Partial<Context> = {}): Conversation {
     preactivatedSkillIds: undefined,
     skillProjectionState: new Map(),
     skillProjectionCache: new Map() as Context["skillProjectionCache"],
-    traceEmitter: { emit: () => {} } as unknown as Context["traceEmitter"],
     profiler: {
       startRequest: () => {},
       emitSummary: () => {},

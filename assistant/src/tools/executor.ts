@@ -9,9 +9,10 @@ import { isUntrustedShellLockdownActive } from "../runtime/effective-capabilitie
 import { redactSensitiveFields } from "../security/redaction.js";
 import { getCesClient } from "../security/secure-keys.js";
 import { TokenExpiredError } from "../security/token-manager.js";
+import { type AbortReason, isAbortReason } from "../util/abort-reasons.js";
 import { PermissionDeniedError, ToolError } from "../util/errors.js";
 import { pathExists, safeStatSync } from "../util/fs.js";
-import { getLogger } from "../util/logger.js";
+import { getLogger, truncateForLog } from "../util/logger.js";
 import {
   callerOwnsWorkflowRun,
   manifestGrantsSideEffects,
@@ -468,8 +469,21 @@ export class ToolExecutor {
       }
 
       const durationMs = Date.now() - startTime;
-      const msg = err instanceof Error ? err.message : String(err);
-      const isAbort = err instanceof Error && err.name === "AbortError";
+      // Daemon-owned aborts surface as a tagged AbortReason — a plain object
+      // thrown verbatim by `AbortSignal.throwIfAborted()`, carried on
+      // `error.reason`, or stamped on a provider wrapper's `abortReason`.
+      // Recognize it before the generic stringification below, which would
+      // render it "[object Object]" and misfile the cancellation as an
+      // unexpected failure.
+      const abortReason = extractAbortReason(err);
+      const msg = abortReason
+        ? `Tool execution was cancelled (${abortReason.kind}).`
+        : err instanceof Error
+          ? err.message
+          : describeThrownValue(err);
+      const isAbort =
+        abortReason !== undefined ||
+        (err instanceof Error && err.name === "AbortError");
       const isExpected =
         isAbort ||
         err instanceof PermissionDeniedError ||
@@ -514,6 +528,48 @@ export class ToolExecutor {
       };
     }
   }
+}
+
+/**
+ * Extract the tagged {@link AbortReason} from a thrown value: the value
+ * itself, its `reason` (an `AbortError` carrying the signal's reason), or a
+ * provider wrapper's `abortReason`. Returns `undefined` for anything that is
+ * not a daemon-owned abort.
+ */
+function extractAbortReason(err: unknown): AbortReason | undefined {
+  if (isAbortReason(err)) {
+    return err;
+  }
+  const reason = (err as { reason?: unknown } | null)?.reason;
+  if (isAbortReason(reason)) {
+    return reason;
+  }
+  const abortReason = (err as { abortReason?: unknown } | null)?.abortReason;
+  if (isAbortReason(abortReason)) {
+    return abortReason;
+  }
+  return undefined;
+}
+
+/**
+ * Render a thrown non-Error value for the error result and audit trail.
+ * Objects are JSON-rendered so a thrown `{status: 429}` reads as itself
+ * rather than "[object Object]", bounded so a large payload cannot flood
+ * the audit row; cyclic or non-serializable values fall back to String().
+ */
+function describeThrownValue(err: unknown): string {
+  if (typeof err === "string") {
+    return err;
+  }
+  try {
+    const json = JSON.stringify(err);
+    if (typeof json === "string") {
+      return truncateForLog(json, 500);
+    }
+  } catch {
+    // Cyclic or otherwise non-serializable — fall through to String().
+  }
+  return String(err);
 }
 
 // Re-export from the canonical source so existing consumers of

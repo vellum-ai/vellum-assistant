@@ -249,15 +249,24 @@ const trivialHealthSchema = z.object({
 });
 
 /**
- * Strict readiness probe response. `/readyz` gates on the daemon's synchronous
- * startup latches (`isStartupComplete() && isDbReady()`), returning 503 with
- * `ready: false` until both are set, then a stable 200. `notReady` lists the
- * gates still failing (`"startup"`, `"db"`). CES is never consulted.
+ * Readiness probe response. `/readyz` answers 200 while DB migrations are
+ * running — body `{ status: "migrating", ready: false, dbMigrations }` — so
+ * orchestrators keep the pod in service while the per-route gates shield the
+ * DB, then a stable 200 `{ status: "ok", ready: true }` once migrations
+ * complete. 503 only when migrations failed. CES is never consulted.
  */
+const readyzDbMigrationsSchema = z.object({
+  ready: z.boolean(),
+  state: z.enum(["not_started", "running", "failed", "ready"]),
+  reason: z.string().optional(),
+  error: z.string().optional(),
+});
+
 const readyzSchema = z.object({
   status: z.string(),
   ready: z.boolean(),
-  notReady: z.array(z.string()),
+  reason: z.string().optional(),
+  dbMigrations: readyzDbMigrationsSchema.optional(),
 });
 
 /**
@@ -289,14 +298,15 @@ const NON_V1_ROUTES: Array<{
     path: "/readyz",
     summary: "Readiness probe",
     description:
-      "Strict readiness probe. Returns 503 with { status, ready, notReady } until " +
-      "the daemon's synchronous startup latches (isStartupComplete() && isDbReady()) " +
-      "are set, then a stable 200. notReady lists the gates still failing " +
-      '("startup", "db"). CES is informational and never gates readiness.',
+      "Readiness probe. Returns 200 while DB migrations are running (body " +
+      "{ status: 'migrating', ready: false, dbMigrations }) so orchestrators " +
+      "keep the pod in service, then a stable 200 { status: 'ok', ready: true } " +
+      "once migrations complete. Returns 503 only when migrations failed. " +
+      "CES is informational and never gates readiness.",
     responseBody: readyzSchema,
     additionalResponses: {
       "503": {
-        description: "Not ready — startup incomplete or database not ready.",
+        description: "DB migrations failed — daemon requires a restart.",
         schema: readyzSchema,
       },
     },

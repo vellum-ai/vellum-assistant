@@ -34,7 +34,6 @@
 
 import * as Sentry from "@sentry/node";
 
-import type { StatementErrorContext } from "../persistence/slow-query-log.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("sqlite-corruption-watchdog");
@@ -121,6 +120,20 @@ function reportCorruption(
   } catch {
     // Never let a Sentry failure escape into the calling query path.
   }
+}
+
+/** Context handed to {@link observeSqliteStatementError} for a failed execution. */
+export interface StatementErrorContext {
+  /** SQL preview (truncated) of the failing statement. */
+  sql: string;
+  /**
+   * The database file's basename (e.g. `"assistant.db"` / `"assistant-logs.db"`),
+   * derived from the `Database`'s own `filename`. Always set by the wrapper;
+   * optional only for direct callers (tests) that construct a context by hand.
+   */
+  database?: string;
+  /** Caller-supplied `.label()` attribution tag, when present. */
+  label?: string;
 }
 
 /**

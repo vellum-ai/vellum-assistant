@@ -83,6 +83,11 @@ export interface LiveVoiceActions {
   appendAssistantTranscript: (delta: string) => void;
   /** Reset the assistant transcript ahead of a new response. */
   clearAssistantTranscript: () => void;
+  /**
+   * Reset the user transcripts (partial + final) ahead of a new utterance, so
+   * multi-turn (hands-free) sessions key them to the current turn.
+   */
+  clearUserTranscripts: () => void;
   setInputAmplitude: (amplitude: number) => void;
   setTurnCancelledReason: (reason: string | null) => void;
   /** Transition to `failed` with a message. */
@@ -116,6 +121,7 @@ const useLiveVoiceStoreBase = create<LiveVoiceStore>()((set) => ({
   appendAssistantTranscript: (delta) =>
     set((s) => ({ assistantTranscript: s.assistantTranscript + delta })),
   clearAssistantTranscript: () => set({ assistantTranscript: "" }),
+  clearUserTranscripts: () => set({ partialTranscript: "", finalTranscript: "" }),
   setInputAmplitude: (inputAmplitude) => set({ inputAmplitude }),
   setTurnCancelledReason: (turnCancelledReason) => set({ turnCancelledReason }),
   fail: (message) => set({ state: "failed", error: message }),

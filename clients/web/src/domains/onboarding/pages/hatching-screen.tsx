@@ -199,7 +199,7 @@ export function HatchingScreen() {
 
     const pinnedVersion = readSelectedVersion();
 
-    const handleHatchReady = () => {
+    const handleHatchReady = (readyAssistantId?: string) => {
       try {
         writeSelectedVersion("");
       } catch (err) {
@@ -229,6 +229,32 @@ export function HatchingScreen() {
             void navigate(`${routes.assistant}?onboarding=1`, {
               replace: true,
             });
+            return;
+          }
+          // A local hatch feeds the research/personality flow — now THE default
+          // onboarding. The assistant is live, so the research route adopts it
+          // (its background hatch resolves the existing local assistant instead
+          // of provisioning a managed one). The legacy pre-chat funnel is
+          // retired; it only remains as a fallback for any non-local hatch that
+          // still lands here.
+          if (useLocalHatch) {
+            // Carry the hosting choice through so the research route's
+            // background hatch ADOPTS this just-hatched local assistant instead
+            // of running a managed hatch (see `adoptExisting` there), and the
+            // assistant id so it adopts exactly this one — not whatever a stale
+            // selection or leftover lockfile entry resolves to.
+            const researchParams = new URLSearchParams();
+            if (hostingParam) {
+              researchParams.set("hosting", hostingParam);
+            }
+            if (readyAssistantId) {
+              researchParams.set("assistant", readyAssistantId);
+            }
+            const researchQs = researchParams.toString();
+            void navigate(
+              `${routes.onboarding.research}${researchQs ? `?${researchQs}` : ""}`,
+              { replace: true },
+            );
             return;
           }
           void navigate(
@@ -398,7 +424,7 @@ export function HatchingScreen() {
             void persistHatchAvatar(result.assistantId);
           }
 
-          handleHatchReady();
+          handleHatchReady(result.assistantId);
         } catch {
           releaseHatchGuards();
           if (cancelled) return;

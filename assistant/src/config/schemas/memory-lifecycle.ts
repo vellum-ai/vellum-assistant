@@ -82,9 +82,9 @@ export const MemoryWorkerConfigSchema = z
   .object({
     enabled: z
       .boolean({ error: "memory.worker.enabled must be a boolean" })
-      .default(false)
+      .default(true)
       .describe(
-        "Whether the memory jobs worker runs as a separate OS process instead of the assistant's synchronous in-process runner. The assistant's worker supervisor re-reads this flag on every poll: while it is set, the in-process runner stands down (the out-of-process worker, spawned at startup when set, owns the queue); while it is unset, the in-process runner drains the queue. `assistant memory worker start`/`stop` flip the flag (and spawn/stop the worker process) to switch modes at runtime without a restart.",
+        "Whether the memory jobs worker runs as a separate OS process instead of the assistant's synchronous in-process runner. The assistant's worker supervisor re-reads this flag on every poll: while it is set (the default), the in-process runner stands down (the out-of-process worker, spawned at startup when set, owns the queue); while it is unset, the in-process runner drains the queue. `assistant memory worker start`/`stop` flip the flag (and spawn/stop the worker process) to switch modes at runtime without a restart.",
       ),
   })
   .describe("Memory jobs worker process configuration");
@@ -155,19 +155,6 @@ export const MemoryCleanupConfigSchema = z
       .default(1 * 60 * 60 * 1000)
       .describe(
         "Retention period for LLM request/response logs in milliseconds (null keeps forever, 0 prunes immediately)",
-      ),
-    traceEventRetentionDays: z
-      .number({
-        error: "memory.cleanup.traceEventRetentionDays must be a number",
-      })
-      .int("memory.cleanup.traceEventRetentionDays must be an integer")
-      .nonnegative(
-        "memory.cleanup.traceEventRetentionDays must be non-negative",
-      )
-      .max(365, "memory.cleanup.traceEventRetentionDays must be <= 365 days")
-      .default(3)
-      .describe(
-        "Number of days to retain trace events before cleanup (0 disables pruning)",
       ),
   })
   .describe("Automatic memory cleanup and garbage collection settings");

@@ -44,7 +44,6 @@ import {
   registerToolProfilingListener,
   ToolProfiler,
 } from "../events/tool-profiling-listener.js";
-import { registerToolTraceListener } from "../events/tool-trace-listener.js";
 import { PermissionPrompter } from "../permissions/prompter.js";
 import { SecretPrompter } from "../permissions/secret-prompter.js";
 import type { UserDecision } from "../permissions/types.js";
@@ -117,7 +116,7 @@ import { isToolResultBlock, undo as undoImpl } from "./conversation-history.js";
 import {
   abortConversation,
   disposeConversation,
-  reinjectImageSourcePaths,
+  reinjectAttachmentPathAnnotations,
 } from "./conversation-lifecycle.js";
 import type {
   EnqueueMessageOptions,
@@ -180,7 +179,6 @@ import type { ConversationTransportMetadata } from "./message-types/conversation
 import { isHostProxyTransport } from "./message-types/conversations.js";
 import type { ConfirmationStateChanged } from "./message-types/messages.js";
 import { conversationMetadataSyncTag } from "./message-types/sync.js";
-import { TraceEmitter } from "./trace-emitter.js";
 
 const log = getLogger("conversation");
 
@@ -263,6 +261,13 @@ export interface ConversationConstructorOptions {
    * access; non-native providers get nothing. Defaults to false.
    */
   enableNativeWebSearch?: boolean;
+  /**
+   * For subagent conversations, the id of the parent that spawned this one.
+   * Set once here (there is no setter) so it is the authoritative, non-writable
+   * source for {@link Conversation.isSubagent} and for routing child → parent
+   * notifications. Omitted for top-level conversations.
+   */
+  parentConversationId?: string;
 }
 
 export class Conversation {
@@ -356,7 +361,16 @@ export class Conversation {
    */
   currentCallSite?: LLMCallSite;
   /** @internal */ hasNoClient = false;
-  /** @internal */ isSubagent = false;
+  /**
+   * For subagent conversations, the id of the parent that spawned this one; set
+   * once at construction and never reassigned. `undefined` for top-level
+   * conversations. It is the single source of truth for {@link isSubagent} and
+   * the authoritative (non-writable) routing target for child → parent
+   * notifications — as opposed to the durable subagent record, which lives under
+   * the sandbox workspace and could be tampered with by a sandbox-tool subagent.
+   * @internal
+   */
+  readonly parentConversationId?: string;
   /** @internal */ headlessLock = false;
   /** @internal */ taskRunId?: string;
   /** @internal */ callSessionId?: string;
@@ -587,7 +601,6 @@ export class Conversation {
     clientTimezone: string | null;
     timeSinceLastMessage: string | null;
   };
-  public readonly traceEmitter: TraceEmitter;
   /** @internal */ hasSystemPromptOverride: boolean;
   /** @internal */ modelOverride: string | undefined;
   /** @internal */ readonly graphMemory: ConversationGraphMemory;
@@ -645,12 +658,12 @@ export class Conversation {
     const { maxTokens, speedOverride, cacheTtl, modelOverride } = options ?? {};
     const enableNativeWebSearch = options?.enableNativeWebSearch ?? false;
     this.conversationId = conversationId;
+    this.parentConversationId = options?.parentConversationId;
     this.systemPrompt = systemPrompt;
     this.provider = provider;
     this.workingDir = workingDir;
     this.sendToClient = sendToClient;
     this.graphMemory = new ConversationGraphMemory(conversationId);
-    this.traceEmitter = new TraceEmitter(conversationId, sendToClient);
     this.prompter = new PermissionPrompter(sendToClient);
     this.prompter.setOnStateChanged((requestId, state, source, toolUseId) => {
       // Route through emitConfirmationStateChanged so the event reaches
@@ -686,7 +699,6 @@ export class Conversation {
     this.executor = new ToolExecutor(this.prompter);
     this.profiler = new ToolProfiler();
     registerToolMetricsLoggingListener(this.eventBus);
-    registerToolTraceListener(this.eventBus, this.traceEmitter);
     registerToolProfilingListener(this.eventBus, this.profiler);
     registerToolPermissionTelemetryListener(this.eventBus);
     const auditToolLifecycleEvent = createToolAuditListener();
@@ -1044,7 +1056,7 @@ export class Conversation {
         content = [{ type: "text", text: m.content }];
       }
 
-      content = reinjectImageSourcePaths(content, role, m.metadata);
+      content = reinjectAttachmentPathAnnotations(content, role, m.metadata);
 
       // Re-inject persisted injection blocks from metadata so it survives
       // conversation reloads (eviction, restart, fork).
@@ -1361,7 +1373,6 @@ export class Conversation {
     this.sendToClient = sendToClient;
     this.hasNoClient = hasNoClient;
     this.prompter.updateSender(sendToClient);
-    this.traceEmitter.updateSender(sendToClient);
 
     // Replay last activity state so a reconnecting client sees the current phase
     // instead of being stuck on the last state it received before disconnection.
@@ -1400,8 +1411,9 @@ export class Conversation {
     this.enabledPlugins = plugins;
   }
 
-  setIsSubagent(value: boolean): void {
-    this.isSubagent = value;
+  /** True when this conversation was spawned as a subagent (has a parent). */
+  get isSubagent(): boolean {
+    return this.parentConversationId !== undefined;
   }
 
   /**

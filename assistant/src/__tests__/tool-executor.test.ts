@@ -7,6 +7,7 @@ import type {
 } from "../permissions/types.js";
 import { RiskLevel } from "../permissions/types.js";
 import type { Tool, ToolExecutionResult } from "../tools/types.js";
+import { createAbortReason } from "../util/abort-reasons.js";
 
 const mockConfig = {
   provider: "anthropic",
@@ -1349,5 +1350,77 @@ describe("computePerToolTimeoutMs ask_question budget", () => {
     // execution-timeout budget is shorter than the prompter's own wait, so
     // without the special case the wrapper trips first.
     expect(genericBudgetMs).toBeLessThan(questionResponseTimeoutSec * 1000);
+  });
+});
+
+describe("ToolExecutor thrown-value rendering", () => {
+  beforeEach(() => {
+    fakeToolResult = { content: "ok", isError: false };
+    getToolOverride = undefined;
+    getAllToolsOverride = undefined;
+    checkResultOverride = undefined;
+    checkFnOverride = undefined;
+    cachedAssessmentOverride = undefined;
+  });
+
+  function throwingTool(name: string, thrown: unknown): void {
+    getToolOverride = (n: string) =>
+      n === name
+        ? ({
+            name,
+            description: "throwing tool",
+            category: "test",
+            defaultRiskLevel: RiskLevel.Low,
+            executionTarget: "sandbox" as const,
+            input_schema: { type: "object" as const, properties: {} },
+            execute: async () => {
+              throw thrown;
+            },
+          } as Tool)
+        : undefined;
+  }
+
+  test("a tagged AbortReason renders as a cancellation, not [object Object]", async () => {
+    throwingTool("web_search", createAbortReason("user_cancel", "test"));
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute("web_search", {}, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe("Tool execution was cancelled (user_cancel).");
+    expect(result.content).not.toContain("[object Object]");
+  });
+
+  test("an AbortError carrying a tagged reason names the cancellation kind", async () => {
+    const err = Object.assign(new Error("The operation was aborted"), {
+      name: "AbortError",
+      reason: createAbortReason("preempted_by_new_message", "test"),
+    });
+    throwingTool("web_search", err);
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute("web_search", {}, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toBe(
+      "Tool execution was cancelled (preempted_by_new_message).",
+    );
+  });
+
+  test("a thrown plain object renders as JSON, not [object Object]", async () => {
+    throwingTool("web_search", { status: 429, error: "rate_limited" });
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute("web_search", {}, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain('{"status":429,"error":"rate_limited"}');
+    expect(result.content).not.toContain("[object Object]");
+  });
+
+  test("a thrown string passes through unchanged", async () => {
+    throwingTool("web_search", "boom");
+    const executor = new ToolExecutor(makePrompter());
+    const result = await executor.execute("web_search", {}, makeContext());
+
+    expect(result.isError).toBe(true);
+    expect(result.content).toContain("unexpected error: boom");
   });
 });

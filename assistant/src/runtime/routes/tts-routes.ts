@@ -1,20 +1,14 @@
 /**
  * Transport-agnostic route definitions for text-to-speech synthesis.
  *
- * POST /v1/messages/:messageId/tts?conversationId=... — synthesize message text
- * POST /v1/tts/synthesize                             — synthesize arbitrary text
- *
- * Both endpoints use the globally configured TTS provider. The message
- * endpoint is gated behind the `message-tts` feature flag; the generic
- * endpoint is always available when a provider is configured.
+ * POST /v1/tts/synthesize — synthesize arbitrary text using the globally
+ * configured TTS provider; available whenever a provider is configured.
  */
 
 import { z } from "zod";
 
 import { sanitizeForTts } from "../../calls/tts-text-sanitizer.js";
-import { isAssistantFeatureFlagEnabled } from "../../config/assistant-feature-flags.js";
 import { getConfig } from "../../config/loader.js";
-import { getMessageContent } from "../../daemon/handlers/conversation-history.js";
 import { listCatalogProvidersForDisplay } from "../../tts/provider-catalog.js";
 import {
   synthesizeText,
@@ -27,15 +21,11 @@ import { ACTOR_PRINCIPALS, LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import {
   BadGatewayError,
   BadRequestError,
-  ForbiddenError,
-  NotFoundError,
   ServiceUnavailableError,
 } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
 const log = getLogger("tts-routes");
-
-const MESSAGE_TTS_FLAG = "message-tts" as const;
 
 // ---------------------------------------------------------------------------
 // Content-type resolution from config
@@ -126,7 +116,7 @@ export function formatTtsFailureMessage(err: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
-// Response headers — shared by both routes
+// Response headers
 // ---------------------------------------------------------------------------
 
 const ttsResponseHeaders = () => ({
@@ -139,37 +129,6 @@ const ttsResponseHeaders = () => ({
 
 function handleListTtsProviders() {
   return { providers: listCatalogProvidersForDisplay() };
-}
-
-async function handleMessageTts({ pathParams, queryParams }: RouteHandlerArgs) {
-  const config = getConfig();
-
-  if (!isAssistantFeatureFlagEnabled(MESSAGE_TTS_FLAG, config)) {
-    throw new ForbiddenError("Message TTS is not enabled");
-  }
-
-  const messageId = pathParams?.messageId;
-  if (!messageId) {
-    throw new BadRequestError("messageId path parameter is required");
-  }
-
-  const conversationId = queryParams?.conversationId;
-
-  const result = getMessageContent(messageId, conversationId);
-  if (!result) {
-    throw new NotFoundError(`Message ${messageId} not found`);
-  }
-
-  if (!result.text) {
-    throw new BadRequestError("Message has no text content");
-  }
-
-  const sanitizedText = sanitizeForTts(result.text).trim();
-  if (!sanitizedText) {
-    throw new BadRequestError("Message has no speakable text content");
-  }
-
-  return doSynthesize(sanitizedText, { messageId });
 }
 
 async function handleSynthesizeTts({ body }: RouteHandlerArgs) {
@@ -260,28 +219,6 @@ export const ROUTES: RouteDefinition[] = [
       ),
     }),
     handler: handleListTtsProviders,
-  },
-  {
-    operationId: "messages_tts",
-    endpoint: "messages/:messageId/tts",
-    method: "POST",
-    policy: {
-      requiredScopes: ["chat.read"],
-      allowedPrincipalTypes: ACTOR_PRINCIPALS,
-    },
-    summary: "Synthesize message to speech",
-    description:
-      "Synthesize a message's text content to audio using the configured TTS provider.",
-    tags: ["messages"],
-    queryParams: [
-      {
-        name: "conversationId",
-        schema: { type: "string" },
-        description: "Conversation that contains the message",
-      },
-    ],
-    responseHeaders: ttsResponseHeaders,
-    handler: handleMessageTts,
   },
   {
     operationId: "tts_synthesize",

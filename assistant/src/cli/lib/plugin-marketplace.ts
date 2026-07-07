@@ -25,10 +25,7 @@
 
 import { z } from "zod";
 
-// Type-only import: keeps the dependency direction one-way at runtime
-// (install-from-github resolves sources *through* this module) while still
-// sharing the injected-`fetch` shape.
-import type { FetchLike } from "./install-from-github.js";
+import type { FetchLike } from "./fetch-like.js";
 
 /** Canonical location of the marketplace manifest. */
 const MARKETPLACE_SOURCE_OWNER = "vellum-ai";

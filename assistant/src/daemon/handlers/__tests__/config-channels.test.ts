@@ -43,6 +43,25 @@ mock.module("../../../contacts/notify-contacts-changed.js", () => ({
 mock.module("../../../ipc/gateway-client.js", () => ({
   ipcCallPersistent: async (method: string, payload: unknown) => {
     ipcCalls.push({ method, payload });
+    // Gateway session client methods (stubbed gateway responses).
+    if (method === "verification_sessions_count_recent_sends") {
+      return { count: 0 };
+    }
+    if (method === "verification_sessions_create_outbound") {
+      return {
+        sessionId: "sess",
+        secret: "code",
+        challengeHash: "hash",
+        expiresAt: Date.now() + 1000,
+        ttlSeconds: 600,
+      };
+    }
+    if (
+      method === "verification_sessions_update_delivery" ||
+      method === "verification_sessions_revoke_pending"
+    ) {
+      return { ok: true };
+    }
     if (method === "contacts_get_rich") {
       if (mockGwContactChannels == null) return { ok: true, contact: null };
       return {
@@ -92,15 +111,7 @@ mock.module("../../../ipc/gateway-client.js", () => ({
 
 mock.module("../../../runtime/channel-verification-service.js", () => ({
   getGuardianBinding: () => mockBinding,
-  revokePendingSessions: () => {},
-  createOutboundSession: () => ({
-    sessionId: "sess",
-    secret: "code",
-    expiresAt: Date.now() + 1000,
-  }),
-  countRecentSendsToDestination: () => 0,
   isGuardianBoundForChannel: async () => false,
-  updateSessionDelivery: () => {},
 }));
 
 mock.module("../../../runtime/verification-outbound-actions.js", () => ({
