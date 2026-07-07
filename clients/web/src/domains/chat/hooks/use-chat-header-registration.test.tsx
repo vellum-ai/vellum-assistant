@@ -163,6 +163,24 @@ describe("useChatHeaderRegistration top-right slot", () => {
     expect(queryByTestId("channel-source-link-pill")).toBeNull();
   });
 
+  test("mounts the pill for a non-Slack channel whose binding carries a sourceLink", () => {
+    activeConversationRef.value = {
+      conversationId: "conv-1",
+      originChannel: "telegram",
+      channelBinding: {
+        sourceChannel: "telegram",
+        externalChatId: "123456",
+        sourceLink: { webUrl: "https://t.me/c/123456/78" },
+      },
+    };
+    renderRegistration();
+
+    const { queryByTestId } = render(<>{slotRef.value}</>);
+    const pill = queryByTestId("channel-source-link-pill");
+    expect(pill).not.toBeNull();
+    expect(pill?.getAttribute("data-href")).toBe("https://t.me/c/123456/78");
+  });
+
   test("omits the channel source link pill for native conversations", () => {
     renderRegistration();
 

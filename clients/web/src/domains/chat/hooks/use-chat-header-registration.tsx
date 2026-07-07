@@ -23,6 +23,7 @@ import { useSlackConversationDisplay } from "@/domains/chat/hooks/use-slack-conv
 import {
   formatSlackConversationDisplayLabel,
 } from "@/domains/chat/utils/slack-conversation-display";
+import { getSlackLinkUrl } from "@/domains/chat/types/types";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { getChannelBindingDisplayText } from "@/domains/chat/utils/channel-conversation-display";
 import { getChannelLabel } from "@/utils/channel-presentation";
@@ -93,13 +94,17 @@ export function useChatHeaderRegistration({
     activeConversation?.channelBinding,
   ]);
 
-  // Deep link back to the conversation's source thread in the external
-  // channel. Only Slack bindings carry link data today; the pill component
-  // is channel-generic so other channels light up once their bindings do.
-  const channelSourceLinkHref =
-    channelHeaderChannelId === "slack"
-      ? slackConversationDisplay?.href ?? null
-      : null;
+  // Deep link back to the conversation's source in the external channel.
+  // Slack's display href comes first because it is richer — it folds in
+  // message-level links from the transcript — and it also covers daemons
+  // that predate the binding's channel-neutral `sourceLink`. Every other
+  // channel goes through `sourceLink`, so a channel lights up here as soon
+  // as its daemon-side binding-metadata builder emits one.
+  const channelSourceLinkHref = channelHeaderChannelId
+    ? slackConversationDisplay?.href ??
+      getSlackLinkUrl(activeConversation?.channelBinding?.sourceLink) ??
+      null
+    : null;
 
   // Header supplements — chat-specific data for the conversation header menu
   const hasPersistedMessage = useMemo(

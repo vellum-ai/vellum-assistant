@@ -67,6 +67,11 @@ export interface ConversationChannelBinding {
   username?: string;
   slackChannel?: ConversationSlackChannel;
   slackThread?: ConversationSlackThread;
+  /** Channel-neutral deep link back to the conversation's source — the
+   *  specific thread when the binding has one, otherwise the chat or
+   *  channel. Emitted per-channel by the daemon's binding-metadata builders
+   *  (currently Slack only); absent on older daemons. */
+  sourceLink?: SlackMessageLink;
 }
 
 export interface ConversationSlackChannel {
