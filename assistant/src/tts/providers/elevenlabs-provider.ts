@@ -204,13 +204,13 @@ function pcmFormatSampleRateHz(outputFormat: string): number | undefined {
  * Resolve credentials and config, build the request body, and issue the
  * ElevenLabs TTS HTTP request. Shared by `synthesize` (buffer endpoint) and
  * `synthesizeStream` (`/stream` endpoint). Throws on missing credentials and
- * non-OK responses; resolves with the OK response and the resolved output
- * format and content type.
+ * non-OK responses; resolves with the OK response and the resolved content
+ * type.
  */
 async function performTtsRequest(
   request: TtsSynthesisRequest,
   { stream }: { stream: boolean },
-): Promise<{ response: Response; outputFormat: string; contentType: string }> {
+): Promise<{ response: Response; contentType: string }> {
   const apiKey = await getSecureKeyAsync(
     credentialKey("elevenlabs", "api_key"),
   );
@@ -289,7 +289,7 @@ async function performTtsRequest(
     );
   }
 
-  return { response, outputFormat, contentType };
+  return { response, contentType };
 }
 
 /** Stream-stall timeouts, injectable for tests. */
@@ -310,10 +310,9 @@ async function performSynthesis(
     onChunk?: (chunk: Uint8Array) => void;
   } & ElevenLabsStreamTimeouts,
 ): Promise<TtsSynthesisResult> {
-  const { response, outputFormat, contentType } = await performTtsRequest(
-    request,
-    { stream: options.stream },
-  );
+  const { response, contentType } = await performTtsRequest(request, {
+    stream: options.stream,
+  });
 
   let audio: Buffer;
   if (options.stream) {
@@ -349,11 +348,7 @@ async function performSynthesis(
     "ElevenLabs TTS synthesis complete",
   );
 
-  return {
-    audio,
-    contentType,
-    sampleRateHz: pcmFormatSampleRateHz(outputFormat),
-  };
+  return { audio, contentType };
 }
 
 export function createElevenLabsProvider(

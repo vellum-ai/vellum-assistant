@@ -93,7 +93,7 @@ export async function streamLiveVoiceTtsAudio(
     sampleRateHz: requestedSampleRate,
     signal: options.signal,
   });
-  let sampleRate = providerSampleRate ?? requestedSampleRate;
+  const sampleRate = providerSampleRate ?? requestedSampleRate;
   if (sampleRate !== requestedSampleRate) {
     log.warn(
       { provider: providerId, requestedSampleRate, sampleRate },
@@ -171,24 +171,6 @@ export async function streamLiveVoiceTtsAudio(
       );
     }
     const contentType = result.contentType || chunkContentType;
-
-    // Late correction for providers that report the actual rate only on the
-    // completed result: it relabels the buffered emit below and the returned
-    // result (already-streamed frames keep their up-front label).
-    if (
-      isPositiveFiniteNumber(result.sampleRateHz) &&
-      result.sampleRateHz !== sampleRate
-    ) {
-      log.warn(
-        {
-          provider: providerId,
-          labeledSampleRate: sampleRate,
-          sampleRate: result.sampleRateHz,
-        },
-        "TTS provider reported a different output sample rate on the completed result",
-      );
-      sampleRate = result.sampleRateHz;
-    }
 
     // An abort mid-stream resolves without throwing; skip the buffered emit
     // so a truncated payload is never delivered after cancellation.

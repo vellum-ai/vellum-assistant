@@ -77,13 +77,6 @@ export interface SynthesisEmitResult {
   contentType: string;
 
   /**
-   * Provider-reported actual output sample rate in Hz, passed through from
-   * {@link TtsSynthesisResult.sampleRateHz}. Undefined when the provider
-   * does not report one (non-PCM output).
-   */
-  sampleRateHz?: number;
-
-  /**
    * `true` when emission was halted by an aborted `signal` or an
    * `isCurrent()` staleness flip — the silent-resolve path. Callers use
    * this instead of re-probing the signal after resolve.
@@ -182,7 +175,6 @@ export async function synthesizeAndEmit(
     return {
       emittedChunks,
       contentType: result.contentType,
-      sampleRateHz: result.sampleRateHz,
       stopped: shouldStop(),
     };
   }
@@ -200,7 +192,6 @@ export async function synthesizeAndEmit(
   return {
     emittedChunks,
     contentType: result.contentType,
-    sampleRateHz: result.sampleRateHz,
     stopped: shouldStop(),
   };
 }
