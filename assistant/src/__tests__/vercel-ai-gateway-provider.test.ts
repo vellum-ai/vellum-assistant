@@ -1,10 +1,42 @@
 import { describe, expect, test } from "bun:test";
 
 import type { AnthropicProvider } from "../providers/anthropic/client.js";
-import type { Message } from "../providers/types.js";
+import type { Message, SendMessageOptions } from "../providers/types.js";
 import { ContextOverflowError } from "../providers/types.js";
 import { VercelAIGatewayProvider } from "../providers/vercel-ai-gateway/client.js";
 import { ProviderError } from "../util/errors.js";
+
+/** Expose the protected `buildExtraCreateParams` hook for assertion. */
+class ProbeVercelAIGatewayProvider extends VercelAIGatewayProvider {
+  public probeExtras(options?: SendMessageOptions): Record<string, unknown> {
+    return this.buildExtraCreateParams(options);
+  }
+}
+
+/** Swap the inner OpenAI client for a stub that captures the final wire params. */
+function stubChatCompletionsClient(
+  provider: VercelAIGatewayProvider,
+  capture: (params: Record<string, unknown>) => void,
+): void {
+  (provider as unknown as { client: unknown }).client = {
+    chat: {
+      completions: {
+        create: async (params: Record<string, unknown>) => {
+          capture(params);
+          return {
+            [Symbol.asyncIterator]: async function* () {
+              yield {
+                choices: [{ delta: { content: "ok" }, finish_reason: "stop" }],
+                usage: null,
+                model: "openai/gpt-5.5",
+              };
+            },
+          };
+        },
+      },
+    },
+  };
+}
 
 const DEFAULT_BASE_URL = "https://ai-gateway.vercel.sh/v1";
 
@@ -97,6 +129,83 @@ describe("VercelAIGatewayProvider", () => {
         "anthropic/claude-opus-4.8",
       );
       expect(provider.supportsNativeWebSearch).toBe(false);
+    });
+  });
+
+  describe("buildExtraCreateParams (OpenAI-compat path)", () => {
+    test("nests effort under reasoning per Vercel's documented shape", () => {
+      const provider = new ProbeVercelAIGatewayProvider(
+        "fake-key",
+        "xai/grok-4.3",
+      );
+      const extras = provider.probeExtras({ config: { effort: "high" } });
+      expect(extras).toEqual({ reasoning: { effort: "high" } });
+      expect(extras.reasoning_effort).toBe(undefined);
+    });
+
+    test("clamps `max` to Vercel's documented xhigh ceiling", () => {
+      const provider = new ProbeVercelAIGatewayProvider(
+        "fake-key",
+        "openai/gpt-5.5",
+      );
+      const extras = provider.probeExtras({ config: { effort: "max" } });
+      expect(extras).toEqual({ reasoning: { effort: "xhigh" } });
+    });
+
+    test("enabled thinking adds enabled: true alongside effort, no summary", () => {
+      const provider = new ProbeVercelAIGatewayProvider(
+        "fake-key",
+        "xai/grok-4.3",
+      );
+      const extras = provider.probeExtras({
+        config: { thinking: { type: "adaptive" }, effort: "low" },
+      });
+      expect(extras).toEqual({
+        reasoning: { enabled: true, effort: "low" },
+      });
+    });
+
+    test("enabled thinking without effort emits reasoning.enabled only", () => {
+      const provider = new ProbeVercelAIGatewayProvider(
+        "fake-key",
+        "xai/grok-4.3",
+      );
+      const extras = provider.probeExtras({
+        config: { thinking: { enabled: true } },
+      });
+      expect(extras).toEqual({ reasoning: { enabled: true } });
+    });
+
+    test("no effort and no thinking sends no reasoning field at all", () => {
+      const provider = new ProbeVercelAIGatewayProvider(
+        "fake-key",
+        "openai/gpt-5.5",
+      );
+      expect(provider.probeExtras({ config: {} })).toEqual({});
+      expect(provider.probeExtras(undefined)).toEqual({});
+      expect(
+        provider.probeExtras({
+          config: { thinking: { type: "disabled" } },
+        }),
+      ).toEqual({});
+    });
+
+    test("final wire params carry reasoning object and no flat reasoning_effort", async () => {
+      const provider = new VercelAIGatewayProvider(
+        "fake-key",
+        "openai/gpt-5.5",
+      );
+      let captured: Record<string, unknown> | undefined;
+      stubChatCompletionsClient(provider, (params) => {
+        captured = params;
+      });
+
+      await provider.sendMessage(USER_MESSAGE, {
+        config: { effort: "high" },
+      });
+
+      expect(captured?.reasoning).toEqual({ effort: "high" });
+      expect(captured?.reasoning_effort).toBe(undefined);
     });
   });
 

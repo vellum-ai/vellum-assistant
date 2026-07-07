@@ -4,7 +4,12 @@ import {
   retagDelegateError,
   toAnthropicMessagesBaseURL,
 } from "../anthropic-gateway-shared.js";
-import { OpenAIChatCompletionsProvider } from "../openai/chat-completions-provider.js";
+import {
+  clampReasoningEffort,
+  EFFORT_TO_REASONING_EFFORT,
+  OpenAIChatCompletionsProvider,
+} from "../openai/chat-completions-provider.js";
+import { isThinkingConfigEnabled } from "../thinking-config.js";
 import type {
   Message,
   ProviderResponse,
@@ -79,6 +84,35 @@ export class VercelAIGatewayProvider extends OpenAIChatCompletionsProvider {
     } catch (error) {
       retagDelegateError(error, this.name);
     }
+  }
+
+  // Vercel's OpenAI-compat endpoint documents reasoning control as a top-level
+  // `reasoning` object ({ enabled?, effort?, max_tokens?, exclude? }) rather
+  // than the flat OpenAI `reasoning_effort` field, so nest the mapped effort
+  // under `reasoning.effort` — the base class skips its flat emission when a
+  // nested effort is present. `enabled: true` rides along when thinking is
+  // explicitly on; otherwise the field is omitted entirely so models that
+  // reject reasoning params don't 400. Anthropic models never reach this path
+  // (they go through the AnthropicProvider delegate).
+  protected override buildExtraCreateParams(
+    options?: SendMessageOptions,
+  ): Record<string, unknown> {
+    const config = options?.config as Record<string, unknown> | undefined;
+    const effort = config?.effort as string | undefined;
+    const mappedEffort = effort
+      ? EFFORT_TO_REASONING_EFFORT[effort]
+      : undefined;
+    const reasoning: Record<string, unknown> = {};
+    if (isThinkingConfigEnabled(config?.thinking)) {
+      reasoning.enabled = true;
+    }
+    if (mappedEffort) {
+      reasoning.effort = clampReasoningEffort(
+        mappedEffort,
+        this.resolveMaxReasoningEffort(this.resolveEffectiveModel(options)),
+      );
+    }
+    return Object.keys(reasoning).length > 0 ? { reasoning } : {};
   }
 
   private resolveEffectiveModel(options?: SendMessageOptions): string {
