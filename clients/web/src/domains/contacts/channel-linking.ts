@@ -45,26 +45,3 @@ export function isVerifiedContactChannel(
     (channel.status === "active" && channel.verifiedAt != null)
   );
 }
-
-/**
- * How a verified channel binding came to be, from the channel's existing
- * `verifiedVia` audit field:
- *
- *  - `guardian_linked` — the guardian manually attached the account
- *    (`verifiedVia: "manual"`, e.g. via the workspace roster picker).
- *  - `handshake` — the contact verified themselves (code challenge or
- *    invite redemption).
- *
- * Downstream ACL treats both as verified; the split is display-only audit
- * provenance. Returns null for unverified channels.
- */
-export type ChannelLinkProvenance = "guardian_linked" | "handshake";
-
-export function channelLinkProvenance(
-  channel: Pick<ContactChannelPayload, "status" | "verifiedAt" | "verifiedVia">,
-): ChannelLinkProvenance | null {
-  if (!isVerifiedContactChannel(channel)) {
-    return null;
-  }
-  return channel.verifiedVia === "manual" ? "guardian_linked" : "handshake";
-}

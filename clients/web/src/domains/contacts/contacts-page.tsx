@@ -5,8 +5,8 @@ import { Navigate, useSearchParams } from "react-router";
 import { toast } from "@vellumai/design-library/components/toast";
 
 import {
-    MobileSidebarDrawer,
-    MobileSidebarTrigger,
+  MobileSidebarDrawer,
+  MobileSidebarTrigger,
 } from "@/components/mobile-sidebar-drawer";
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
 import { ContactDetailView } from "@/domains/contacts/components/contact-detail-view";
@@ -14,29 +14,27 @@ import { ContactMergeDialog } from "@/domains/contacts/components/contact-merge-
 import { ContactsList } from "@/domains/contacts/components/contacts-list";
 import { GenerateInviteLinkDialog } from "@/domains/contacts/components/generate-invite-link-dialog";
 import { GuardianDetailView } from "@/domains/contacts/components/guardian-detail-view";
-import { channelLinkProvenance } from "@/domains/contacts/channel-linking";
 import { LinkAccountDialog } from "@/domains/contacts/components/link-account-dialog";
-import { findDuplicateCandidate } from "@/domains/contacts/duplicate-suggestion";
 import { slackRosterOptions } from "@/domains/contacts/slack-users-query";
 import {
-    deleteContact as gatewayDeleteContact,
-    upsertContact,
-    verifyContactChannel,
+  deleteContact as gatewayDeleteContact,
+  upsertContact,
+  verifyContactChannel,
 } from "@/domains/contacts/contacts-gateway";
 import {
-    isSetupChannelId,
-    type ChannelInfo,
-    type ContactChannelPayload,
-    type ContactPayload,
-    type ContactSelection,
+  isSetupChannelId,
+  type ChannelInfo,
+  type ContactChannelPayload,
+  type ContactPayload,
+  type ContactSelection,
 } from "@/domains/contacts/types";
 import {
-    channelsAvailableGetOptions,
-    contactsGetOptions,
-    contactsGetQueryKey,
-    contactsGetSetQueryData,
-    useContactchannelsByContactChannelIdPatchMutation,
-    useContactsMergePostMutation,
+  channelsAvailableGetOptions,
+  contactsGetOptions,
+  contactsGetQueryKey,
+  contactsGetSetQueryData,
+  useContactchannelsByContactChannelIdPatchMutation,
+  useContactsMergePostMutation,
 } from "@/generated/daemon/@tanstack/react-query.gen";
 import { channelsAvailableGet } from "@/generated/daemon/sdk.gen";
 import type { ChannelsAvailableGetResponse } from "@/generated/daemon/types.gen";
@@ -165,7 +163,9 @@ export function ContactsPage({
         throwOnError: false,
       });
       if (!response || response.status === 404) {
-        return { channels: DEFAULT_CHANNELS } satisfies ChannelsAvailableGetResponse;
+        return {
+          channels: DEFAULT_CHANNELS,
+        } satisfies ChannelsAvailableGetResponse;
       }
       if (!response.ok) {
         throw error ?? new Error("Failed to fetch channel availability");
@@ -199,25 +199,6 @@ export function ContactsPage({
   }, [contactsData, selectedContact]);
   const canMerge = mergeCandidates.length > 0;
 
-  // Merge-suggestion callout: dismissals are session-scoped, keyed per
-  // (contact, candidate) pair so dismissing one suggestion doesn't hide a
-  // different candidate surfaced later.
-  const [dismissedDuplicateKeys, setDismissedDuplicateKeys] = useState<
-    ReadonlySet<string>
-  >(new Set());
-  const duplicateCandidate = useMemo<ContactPayload | null>(() => {
-    if (!selectedContact || selectedContact.role === "guardian") {
-      return null;
-    }
-    const candidate = findDuplicateCandidate(selectedContact, mergeCandidates);
-    if (!candidate) {
-      return null;
-    }
-    return dismissedDuplicateKeys.has(`${selectedContact.id}:${candidate.id}`)
-      ? null
-      : candidate;
-  }, [selectedContact, mergeCandidates, dismissedDuplicateKeys]);
-
   const guardianAutoSelectedRef = useRef(!!setupChannel);
   useEffect(() => {
     if (guardianAutoSelectedRef.current) return;
@@ -243,9 +224,7 @@ export function ContactsPage({
     },
     onSuccess: (contact) => {
       contactsGetSetQueryData(queryClient, contactsPathOpts, (prev) =>
-        prev
-          ? { ...prev, contacts: [...prev.contacts, contact] }
-          : undefined,
+        prev ? { ...prev, contacts: [...prev.contacts, contact] } : undefined,
       );
       setSelection({ kind: "contact", contactId: contact.id });
     },
@@ -314,9 +293,7 @@ export function ContactsPage({
                 ...prev,
                 contacts: prev.contacts
                   .filter((c) => c.id !== mergeId)
-                  .map((c) =>
-                    c.id === mergedContact.id ? mergedContact : c,
-                  ),
+                  .map((c) => (c.id === mergedContact.id ? mergedContact : c)),
               }
             : undefined,
         );
@@ -426,24 +403,10 @@ export function ContactsPage({
     onLinked: invalidateContacts,
   });
 
-  // The header provenance line renders the @handle for guardian-linked
-  // bindings from the roster, so the fetch is enabled while such a contact
-  // is selected — not only while the picker is open.
-  const needsRosterForProvenance = useMemo(
-    () =>
-      selectedContact?.channels.some(
-        (ch) =>
-          ch.type === "slack" &&
-          channelLinkProvenance(ch) === "guardian_linked",
-      ) ?? false,
-    [selectedContact],
-  );
-
+  // Roster fetch is deferred until the picker opens.
   const slackRosterQuery = useQuery({
     ...slackRosterOptions(assistantId),
-    enabled:
-      Boolean(assistantId) &&
-      (slackLink.dialogOpen || needsRosterForProvenance),
+    enabled: Boolean(assistantId) && slackLink.dialogOpen,
     select: (data) => data.users,
   });
 
@@ -455,33 +418,6 @@ export function ContactsPage({
     },
     [slackLink],
   );
-
-  const handleDismissDuplicate = useCallback(() => {
-    if (!selectedContact || !duplicateCandidate) {
-      return;
-    }
-    const key = `${selectedContact.id}:${duplicateCandidate.id}`;
-    setDismissedDuplicateKeys((prev) => new Set(prev).add(key));
-  }, [selectedContact, duplicateCandidate]);
-
-  const handleMergeDuplicate = useCallback(() => {
-    if (!selectedContact || !duplicateCandidate || mergeMutation.isPending) {
-      return;
-    }
-    mergeMutation.mutate(
-      {
-        path: { assistant_id: assistantId },
-        body: {
-          keepId: selectedContact.id,
-          mergeId: duplicateCandidate.id,
-        },
-      },
-      // The merge-suggestion path has no dialog surfacing mergeMutation.error,
-      // so failures toast here (per-call, to avoid double-reporting when the
-      // manual merge dialog is the caller).
-      { onError: toastOnError("Failed to merge contacts") },
-    );
-  }, [selectedContact, duplicateCandidate, mergeMutation, assistantId]);
 
   // ---------------------------------------------------------------------------
   // Derived optimistic state
@@ -592,7 +528,9 @@ export function ContactsPage({
               }}
               onMerge={handleOpenMerge}
               onSetupChannel={
-                onStartSetupConversation ? handleGuardianEnableChannel : undefined
+                onStartSetupConversation
+                  ? handleGuardianEnableChannel
+                  : undefined
               }
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
@@ -609,8 +547,6 @@ export function ContactsPage({
               availableChannels={availableChannels}
               a2aEnabled={a2aChannel}
               channelProvenance={channelProvenance}
-              duplicateCandidate={duplicateCandidate}
-              rosterByChannel={{ slack: slackRosterQuery.data }}
               onSave={(patch) => {
                 updateMutation.mutate({
                   contactId: optimisticContact.id,
@@ -627,8 +563,6 @@ export function ContactsPage({
               onVerifyChannel={handleVerifyChannel}
               onRevokeChannel={handleRevokeChannel}
               onLinkAccount={handleLinkAccount}
-              onDismissDuplicate={handleDismissDuplicate}
-              onMergeDuplicate={handleMergeDuplicate}
             />
           )
         ) : (
@@ -698,7 +632,10 @@ export function ContactsPage({
 function ContactsEmptyState() {
   return (
     <div className="flex h-full items-center justify-center py-16">
-      <p className="text-body-medium-lighter" style={{ color: "var(--content-tertiary)" }}>
+      <p
+        className="text-body-medium-lighter"
+        style={{ color: "var(--content-tertiary)" }}
+      >
         Select a contact
       </p>
     </div>

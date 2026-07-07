@@ -11,8 +11,10 @@ import {
   type ChannelReadinessSnapshot,
   type SetupChannelId,
 } from "@/domains/contacts/types";
-import { memberSlackChannelsOptions, memberSlackChannelsQueryKey } from "@/domains/contacts/slack-channels-query";
-import { slackRosterQueryKey } from "@/domains/contacts/slack-users-query";
+import {
+  memberSlackChannelsOptions,
+  removeSlackWorkspaceQueries,
+} from "@/domains/contacts/slack-channels-query";
 import {
   channelsReadinessGetOptions,
   channelsReadinessGetQueryKey,
@@ -94,7 +96,8 @@ export function useAssistantChannels({
   const slackConfigQuery = useQuery({
     ...integrationsSlackChannelConfigGetOptions(pathOpts),
     enabled: slackConnected,
-    select: (data: IntegrationsSlackChannelConfigGetResponse) => data.threadMode,
+    select: (data: IntegrationsSlackChannelConfigGetResponse) =>
+      data.threadMode,
   });
 
   // Presence-only channel list for the Slack sub-tab.
@@ -123,7 +126,10 @@ export function useAssistantChannels({
 
   const disconnectMutation = useMutation({
     mutationFn: async (channelKey: SetupChannelId) => {
-      const opts = { path: { assistant_id: assistantId }, throwOnError: true as const };
+      const opts = {
+        path: { assistant_id: assistantId },
+        throwOnError: true as const,
+      };
       if (channelKey === "slack") {
         await integrationsSlackChannelConfigDelete(opts);
       } else if (channelKey === "telegram") {
@@ -135,16 +141,7 @@ export function useAssistantChannels({
     onSettled: (_data, _error, channelKey) => {
       invalidateReadiness();
       if (channelKey === "slack") {
-        // Drop the channel-list and roster caches with the credentials: a
-        // later reconnect may target a different workspace, and serving the
-        // old workspace's channels/members from cache would misreport
-        // presence (or let the link picker verify against a stale user id).
-        queryClient.removeQueries({
-          queryKey: memberSlackChannelsQueryKey(assistantId),
-        });
-        queryClient.removeQueries({
-          queryKey: slackRosterQueryKey(assistantId),
-        });
+        removeSlackWorkspaceQueries(queryClient, assistantId);
       }
     },
   });
@@ -220,7 +217,7 @@ export function useAssistantChannels({
   return {
     channels,
     pendingChannelKey: disconnectMutation.isPending
-      ? disconnectMutation.variables ?? null
+      ? (disconnectMutation.variables ?? null)
       : null,
     slackThreadMode: slackConfigQuery.data,
     slackThreadModePending: slackThreadModeMutation.isPending,
@@ -247,7 +244,10 @@ export function useAssistantChannels({
 function deriveChannelStates(
   snapshots: ChannelReadinessSnapshot[],
 ): AssistantChannelState[] {
-  const byChannel = new Map<ChannelReadinessSnapshot["channel"], ChannelReadinessSnapshot>();
+  const byChannel = new Map<
+    ChannelReadinessSnapshot["channel"],
+    ChannelReadinessSnapshot
+  >();
   for (const snap of snapshots) {
     byChannel.set(snap.channel, snap);
   }

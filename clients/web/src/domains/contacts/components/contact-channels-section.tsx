@@ -1,35 +1,33 @@
 import {
-    Bot,
-    CheckCircle,
-    Hash,
-    HelpCircle,
-    Link2,
-    Mail,
-    MessageSquare,
-    Phone,
-    Send,
+  Bot,
+  CheckCircle,
+  Hash,
+  HelpCircle,
+  Link2,
+  Mail,
+  MessageSquare,
+  Phone,
+  Send,
 } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useState } from "react";
 
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
-import { Tag } from "@vellumai/design-library/components/tag";
 
 import {
-    channelLinkProvenance,
-    isVerifiedContactChannel,
-    LINKABLE_CHANNEL_IDS,
+  isVerifiedContactChannel,
+  LINKABLE_CHANNEL_IDS,
 } from "@/domains/contacts/channel-linking";
 import {
-    ProvenancePill,
-    type CascadeProvenance,
+  ProvenancePill,
+  type CascadeProvenance,
 } from "@/domains/contacts/components/provenance-pill";
 import type { ChannelProvenanceMap } from "@/domains/contacts/hooks/use-channel-provenance";
 import {
-    isSetupChannelId,
-    type ChannelInfo,
-    type ContactChannelPayload,
+  isSetupChannelId,
+  type ChannelInfo,
+  type ContactChannelPayload,
 } from "@/domains/contacts/types";
 
 const KNOWN_CHANNEL_IDS: ReadonlySet<string> = new Set<ChannelInfo["id"]>([
@@ -328,12 +326,6 @@ function ChannelRow({
   onLinkAccount,
 }: ChannelRowProps) {
   const actionState = getChannelActionState(info, existing);
-  // Provenance badge is scoped to linkable rows (Slack-only for v1); other
-  // adapters need more investigation before getting the treatment.
-  const linkProvenance =
-    LINKABLE_CHANNEL_IDS.has(info.id) && existing
-      ? channelLinkProvenance(existing)
-      : null;
 
   return (
     <div className="flex items-center gap-3 py-4">
@@ -372,13 +364,6 @@ function ChannelRow({
           </>
         ) : actionState.kind === "verified" ? (
           <>
-            {linkProvenance === "guardian_linked" ? (
-              <Tag tone="info" leftIcon={<Link2 />}>
-                Linked by you
-              </Tag>
-            ) : linkProvenance === "handshake" ? (
-              <Tag tone="positive">Handshake</Tag>
-            ) : null}
             <span className="inline-flex items-center gap-1 h-8 px-2.5 rounded-md whitespace-nowrap select-none text-body-small-emphasised leading-none bg-[var(--content-default)] text-[var(--surface-base)]">
               <CheckCircle className="h-3 w-3" />
               Verified
@@ -406,11 +391,7 @@ function ChannelRow({
                   Link account
                 </Button>
               ) : null}
-              <Button
-                variant="outlined"
-                onClick={onSetup}
-                disabled={!onSetup}
-              >
+              <Button variant="outlined" onClick={onSetup} disabled={!onSetup}>
                 {setupLabel}
               </Button>
             </>
