@@ -125,26 +125,29 @@ export function tierOverridesFromCells(
 
 /** The row's resolved tier plus whether a persisted cell backs it. */
 export interface SlackChannelTierSettings {
-  tier: SlackCapabilityTier;
+  /**
+   * The persisted tier, or `null` when no cell exists. There is no
+   * presentation default: without a cell the runtime falls through to the
+   * owner's global Assistant Access setting, so pretending a tier is set
+   * (the old hardcoded "Full access") overclaimed whenever the global
+   * setting was stricter.
+   */
+  tier: SlackCapabilityTier | null;
   /**
    * True when a persisted cell backs the tier. A cell is an override by
    * existing: it pins the channel above the global auto-approve cascade
    * even when its tier matches the room default, so it must stay visible
-   * (badge, callout, reset). Without a cell the runtime falls through to
-   * the global setting.
+   * (badge, callout, reset).
    */
   overridden: boolean;
 }
-
-/** Presentation default for rooms with no persisted cell. */
-export const DEFAULT_CHANNEL_TIER: SlackCapabilityTier = "high";
 
 /** Resolves the row's tier from a persisted cell, if any. */
 export function resolveChannelTier(
   override: SlackCapabilityTier | undefined,
 ): SlackChannelTierSettings {
   return {
-    tier: override ?? DEFAULT_CHANNEL_TIER,
+    tier: override ?? null,
     overridden: override !== undefined,
   };
 }

@@ -407,7 +407,10 @@ function SlackChannelRow({
   const Icon = CHANNEL_KIND_ICONS[kind];
   const metaLabel = slackChannelMetaLabel(channel);
   const settings = resolveChannelTier(tierOverride);
-  const tierMeta = CAPABILITY_TIER_META[settings.tier];
+  // No cell → no tier badge: the channel follows the owner's global
+  // Assistant Access setting, which a hardcoded tier would misreport.
+  const tierMeta =
+    settings.tier !== null ? CAPABILITY_TIER_META[settings.tier] : null;
   return (
     <Collapsible.Item
       value={channel.id}
@@ -439,10 +442,11 @@ function SlackChannelRow({
               {metaLabel}
             </span>
           ) : null}
-          <Tag tone={tierMeta.tone}>
-            {tierMeta.label}
-            {settings.overridden ? " • custom" : ""}
-          </Tag>
+          {tierMeta !== null ? (
+            <Tag tone={tierMeta.tone}>{tierMeta.label} • custom</Tag>
+          ) : (
+            <Tag>Global default</Tag>
+          )}
           <ChevronDown
             aria-hidden="true"
             className="h-4 w-4 text-[var(--content-tertiary)] transition-transform group-data-[state=open]:rotate-180"
@@ -452,7 +456,6 @@ function SlackChannelRow({
       <Collapsible.Content>
         <SlackChannelOverridePanel
           channelName={channel.name}
-          kindLabel={kind}
           settings={settings}
           loading={overridesLoading}
           error={overridesError}
