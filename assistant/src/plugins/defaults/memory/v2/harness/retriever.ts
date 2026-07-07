@@ -12,6 +12,7 @@
 import type { AssistantConfig } from "../../../../../config/types.js";
 import type { RouterTurnPair } from "../router.js";
 import type { EverInjectedEntry } from "../types.js";
+import type { RetrievalCost } from "./harness-types.js";
 import type { DescentTrace } from "./trace.js";
 
 /**
@@ -32,14 +33,6 @@ export interface RetrievalInput {
   priorEverInjected: readonly EverInjectedEntry[];
   config: AssistantConfig;
   signal?: AbortSignal;
-}
-
-/** Optional cost accounting for a single retrieval. */
-export interface RetrievalCost {
-  inputTokens?: number;
-  outputTokens?: number;
-  usd?: number;
-  ms?: number;
 }
 
 /** What a retriever returns for one turn. */

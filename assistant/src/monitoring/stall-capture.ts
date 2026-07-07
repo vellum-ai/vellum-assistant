@@ -23,7 +23,7 @@ import { getLogger } from "../util/logger.js";
 import { getMonitoringDataDir } from "../util/platform.js";
 import { readDaemonHeartbeat } from "./daemon-heartbeat.js";
 import { prunePrefixedJsonFiles } from "./prune-snapshots.js";
-import type { ResourceSample } from "./resource-sampler.js";
+import type { ResourceSample } from "./resource-sample-types.js";
 
 const log = getLogger("stall-capture");
 

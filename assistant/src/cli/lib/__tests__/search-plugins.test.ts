@@ -9,9 +9,9 @@
 
 import { describe, expect, test } from "bun:test";
 
+import type { FetchLike } from "../fetch-like.js";
 import { MarketplaceFetchError } from "../plugin-marketplace.js";
 import {
-  type FetchLike,
   InvalidSearchPatternError,
   PluginCatalogUnavailableError,
   searchPlugins,

@@ -6,10 +6,8 @@
 
 import { describe, expect, test } from "bun:test";
 
-import {
-  computeSampleDeltas,
-  type ResourceSample,
-} from "../resource-sampler.js";
+import type { ResourceSample } from "../resource-sample-types.js";
+import { computeSampleDeltas } from "../resource-sampler.js";
 
 function makeSample(overrides: Partial<ResourceSample>): ResourceSample {
   return {

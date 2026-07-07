@@ -11,7 +11,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 
 import { getMonitoringDataDir } from "../../util/platform.js";
 import { getDaemonHeartbeatPath } from "../daemon-heartbeat.js";
-import type { ResourceSample } from "../resource-sampler.js";
+import type { ResourceSample } from "../resource-sample-types.js";
 import {
   createStallCaptureMonitor,
   findRecentStallCapture,

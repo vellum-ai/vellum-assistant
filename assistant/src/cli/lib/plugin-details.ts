@@ -28,9 +28,9 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { getWorkspacePluginsDir } from "../../util/platform.js";
+import type { FetchLike } from "./fetch-like.js";
 import {
   DEFAULT_PLUGIN_REF,
-  type FetchLike,
   sanitizePluginName,
 } from "./install-from-github.js";
 import { parsePluginArtifact, type PluginArtifact } from "./plugin-artifact.js";

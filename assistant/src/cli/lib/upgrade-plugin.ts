@@ -34,6 +34,7 @@ import { dirname, join } from "node:path";
 
 import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
+import type { FetchLike } from "./fetch-like.js";
 import {
   inspectPlugin,
   type PluginInspection,
@@ -43,7 +44,6 @@ import {
 } from "./inspect-plugin.js";
 import {
   DEFAULT_PLUGIN_REF,
-  type FetchLike,
   finalizeStagedInstall,
   type GitRunner,
   installPlugin,

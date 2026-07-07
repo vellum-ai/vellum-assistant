@@ -13,11 +13,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import type { FetchLike } from "../fetch-like.js";
 import {
   inspectPlugin,
   PluginInspectNotFoundError,
 } from "../inspect-plugin.js";
-import type { FetchLike } from "../install-from-github.js";
 import { computeFingerprint } from "../plugin-fingerprint.js";
 
 const SHA_A = "a".repeat(40);

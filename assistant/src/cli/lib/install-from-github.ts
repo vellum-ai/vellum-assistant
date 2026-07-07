@@ -42,6 +42,7 @@ import { promisify } from "node:util";
 import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
 import { ensureBun } from "../../util/bun-runtime.js";
 import { getWorkspacePluginsDir } from "../../util/platform.js";
+import type { FetchLike } from "./fetch-like.js";
 import {
   computeContentHash,
   computeFingerprint,
@@ -79,18 +80,6 @@ interface GitHubContentEntry {
   readonly size: number;
   readonly download_url: string | null;
 }
-
-/**
- * Minimal `fetch` shape used by this module.
- *
- * Narrower than `typeof fetch` because Bun's `fetch` carries a `preconnect`
- * static that this module does not need — pinning to the wider type would
- * force every caller to construct a fully-featured Bun fetch.
- */
-export type FetchLike = (
-  input: RequestInfo | URL,
-  init?: RequestInit,
-) => Promise<Response>;
 
 /**
  * Runs a `git` subcommand in `cwd` and resolves its stdout. Injected so tests
