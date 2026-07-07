@@ -70,12 +70,14 @@ function findSpeakableBoundary(
   charThreshold: number,
   eager: boolean,
 ): number | null {
-  // Inline-span state (backtick / `**` / `*`), accumulated over the scan. A
-  // boundary inside an open span would split the span across segments, and
-  // per-segment sanitization would leave an unbalanced marker to be spoken.
+  // Inline-span state (backtick / `**` / `*` / `_`), accumulated over the
+  // scan. A boundary inside an open span would split the span across
+  // segments, and per-segment sanitization would leave an unbalanced marker
+  // to be spoken.
   let inBacktick = false;
   let inBold = false;
   let inItalic = false;
+  let inUnderscore = false;
   let skipSpanChar = false;
 
   for (let index = 0; index < text.length; index += 1) {
@@ -87,7 +89,7 @@ function findSpeakableBoundary(
       return index + 1;
     }
 
-    const inOpenSpan = inBacktick || inBold || inItalic;
+    const inOpenSpan = inBacktick || inBold || inItalic || inUnderscore;
 
     if (
       !inOpenSpan &&
@@ -135,6 +137,22 @@ function findSpeakableBoundary(
         !isWhitespace(next)
       ) {
         inItalic = true;
+      }
+    } else if (char === "_") {
+      // Same word-boundary rule as `*`. Since `_` neighbors in identifiers
+      // like `my_var` are word chars, they never open or close a span.
+      const prev = text[index - 1];
+      const next = text[index + 1];
+      if (inUnderscore) {
+        if (prev !== undefined && !isWhitespace(prev) && !isWordChar(next)) {
+          inUnderscore = false;
+        }
+      } else if (
+        !isWordChar(prev) &&
+        next !== undefined &&
+        !isWhitespace(next)
+      ) {
+        inUnderscore = true;
       }
     }
   }

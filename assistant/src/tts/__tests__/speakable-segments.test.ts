@@ -287,6 +287,49 @@ describe("extractSpeakableSegments", () => {
       expect(remainder).toBe(" And the next sentence keeps going");
     });
 
+    test("does not split at sentence punctuation inside an open underscore span", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "This is _very important. Please listen_ now.",
+        false,
+      );
+
+      expect(segments).toEqual(["This is _very important. Please listen_ now."]);
+      expect(remainder).toBe("");
+    });
+
+    test("snake_case identifiers do not suppress sentence boundaries", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "Set my_var to 5. Then continue with the other_value here",
+        false,
+      );
+
+      expect(segments).toEqual(["Set my_var to 5."]);
+      expect(remainder).toBe(" Then continue with the other_value here");
+    });
+
+    test("whitespace-padded underscores do not suppress sentence boundaries", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "a _ b and c_ d happened. And the next sentence keeps going",
+        false,
+      );
+
+      expect(segments).toEqual(["a _ b and c_ d happened."]);
+      expect(remainder).toBe(" And the next sentence keeps going");
+    });
+
+    test("does not split at a clause boundary inside an open underscore span in eager mode", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "_underscored text that keeps going, more_ and then.",
+        false,
+        { eager: true },
+      );
+
+      expect(segments).toEqual([
+        "_underscored text that keeps going, more_ and then.",
+      ]);
+      expect(remainder).toBe("");
+    });
+
     test("does not split at a clause boundary inside an open italic span", () => {
       const { segments, remainder } = extractSpeakableSegments(
         "*italic text that keeps going, more* and then.",
