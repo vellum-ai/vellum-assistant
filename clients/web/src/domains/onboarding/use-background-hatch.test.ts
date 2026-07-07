@@ -47,8 +47,16 @@ mock.module("@/lib/sentry/capture-error", () => ({
   captureError: () => {},
 }));
 const probeLocalGatewayReadyMock = mock(async (): Promise<boolean> => true);
+// The lockfile registry the adopt fast-path resolves against. Tests seed it
+// with the entries their scenario expects; ids not present fall through to
+// list-based discovery.
+let lockfileEntries: Record<string, { assistantId: string }> = {};
+const getLockfileAssistantMock = mock(
+  (id: string): { assistantId: string } | undefined => lockfileEntries[id],
+);
 mock.module("@/lib/local-mode", () => ({
   probeLocalGatewayReady: probeLocalGatewayReadyMock,
+  getLockfileAssistant: getLockfileAssistantMock,
 }));
 mock.module("@/utils/api-errors", () => ({
   extractErrorMessage: (e: unknown, _r: unknown, fallback?: string) =>
@@ -69,10 +77,12 @@ beforeEach(() => {
     data: { id: "ast-research", status: "active", is_local: false } as never,
   };
   healthzResult = { ok: true, status: 200, data: {} as never };
+  lockfileEntries = {};
   hatchAssistantMock.mockClear();
   getAssistantMock.mockClear();
   getAssistantHealthzMock.mockClear();
   probeLocalGatewayReadyMock.mockClear();
+  getLockfileAssistantMock.mockClear();
 });
 
 describe("useBackgroundHatch", () => {
@@ -131,11 +141,14 @@ describe("useBackgroundHatch", () => {
     expect(getAssistantMock).not.toHaveBeenCalled();
   });
 
-  test("adoptExisting skips the managed hatch and adopts the live assistant", async () => {
-    // A local-hosting onboarding provisions the assistant in the hatching screen
-    // before the research flow mounts, so the background hatch must skip the
-    // managed `hatchAssistant()` and discover the already-active assistant via
-    // getAssistant().
+  test("adopting a lockfile-known id settles ready immediately, with no discovery", async () => {
+    // The hatching screen provisioned this assistant in the foreground and
+    // verified gateway readiness before handing off, so a live lockfile entry
+    // for the handed-off id is adopted as ready outright — no managed hatch,
+    // no getAssistant poll (which could wedge on the platform when the gateway
+    // token isn't observable yet), no readyz probe, no "Waking up" gate.
+    lockfileEntries["ast-research"] = { assistantId: "ast-research" };
+
     const { result } = renderHook(() =>
       useBackgroundHatch({
         adoptExisting: true,
@@ -148,15 +161,28 @@ describe("useBackgroundHatch", () => {
     });
 
     await waitFor(() => expect(result.current.ready).toBe(true));
-    // No managed hatch when adopting…
+    expect(result.current.assistantId).toBe("ast-research");
     expect(hatchAssistantMock).not.toHaveBeenCalled();
-    // …the existing assistant is discovered via getAssistant, pinned to the
-    // id the hatching screen handed off…
-    expect(getAssistantMock).toHaveBeenCalledWith("ast-research");
-    // …readiness is verified against the LOCAL gateway's /readyz (the
-    // assistant-scoped healthz SDK call doesn't resolve against a local
-    // gateway) — this also covers session-based adopts that never passed
-    // through the hatching screen's own readyz poll…
+    expect(getAssistantMock).not.toHaveBeenCalled();
+    expect(probeLocalGatewayReadyMock).not.toHaveBeenCalled();
+    expect(getAssistantHealthzMock).not.toHaveBeenCalled();
+  });
+
+  test("session-fallback adopt (no handed-off id) still discovers and probes readyz", async () => {
+    // A refresh / direct visit adopts on session evidence alone — a cached
+    // gateway token proves nothing about the gateway process still being
+    // alive, so discovery and the local readyz probe must still run.
+    const { result } = renderHook(() =>
+      useBackgroundHatch({ adoptExisting: true }),
+    );
+
+    act(() => {
+      result.current.start();
+    });
+
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    expect(hatchAssistantMock).not.toHaveBeenCalled();
+    expect(getAssistantMock).toHaveBeenCalledWith(undefined);
     expect(probeLocalGatewayReadyMock).toHaveBeenCalled();
     expect(getAssistantHealthzMock).not.toHaveBeenCalled();
     expect(result.current.assistantId).toBe("ast-research");
