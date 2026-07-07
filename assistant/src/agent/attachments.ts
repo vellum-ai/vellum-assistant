@@ -1,3 +1,4 @@
+import { parseImageDimensions } from "../context/image-dimensions.js";
 import type { ContentBlock, Message } from "../providers/types.js";
 import { optimizeImageForTransport } from "./image-optimize.js";
 
@@ -15,6 +16,69 @@ export interface MessageAttachmentInput {
    * from `filePath`, which is where the upload originally came from.
    */
   storedPath?: string;
+}
+
+/**
+ * A user attachment that has been linked to a message and is ready to be
+ * PERSISTED as a reference block (see {@link attachmentsToReferenceBlocks}).
+ * Unlike {@link MessageAttachmentInput}, `attachmentId` is the final linked
+ * attachment-row id, and `data` is present only so image pixel dimensions can
+ * be derived at persist time — it is never stored.
+ */
+export interface AttachmentReferenceInput {
+  attachmentId: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  /** Base64 payload, used only to derive image dimensions; not persisted. */
+  data?: string;
+  extractedText?: string;
+}
+
+/**
+ * Build the PERSISTED content blocks for a user message's attachments as
+ * workspace references — no inline base64. Mirrors the block shape of
+ * {@link attachmentsToContentBlocks} (image vs file) but the `source` is an
+ * `attachment_ref` addressing the workspace attachment store, carrying
+ * size/dimension hints so size-only consumers (the token estimator) need not
+ * read the file. The bytes are resolved back at the provider boundary via
+ * `resolveMediaReferences`.
+ */
+export function attachmentsToReferenceBlocks(
+  attachments: AttachmentReferenceInput[],
+): ContentBlock[] {
+  return attachments.map((attachment) => {
+    if (attachment.mimeType.toLowerCase().startsWith("image/")) {
+      const dims = attachment.data
+        ? parseImageDimensions(attachment.data, attachment.mimeType)
+        : null;
+      return {
+        type: "image",
+        source: {
+          type: "attachment_ref",
+          media_type: attachment.mimeType,
+          attachmentId: attachment.attachmentId,
+          sizeBytes: attachment.sizeBytes,
+          ...(dims ? { width: dims.width, height: dims.height } : {}),
+        },
+      } as ContentBlock;
+    }
+
+    return {
+      type: "file",
+      source: {
+        type: "attachment_ref",
+        media_type: attachment.mimeType,
+        attachmentId: attachment.attachmentId,
+        filename: attachment.filename,
+        sizeBytes: attachment.sizeBytes,
+      },
+      ...(attachment.extractedText
+        ? { extracted_text: attachment.extractedText }
+        : {}),
+      _attachmentId: attachment.attachmentId,
+    } as ContentBlock;
+  });
 }
 
 export function attachmentsToContentBlocks(

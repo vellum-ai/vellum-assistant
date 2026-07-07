@@ -64,7 +64,12 @@ export async function captionImage(
   profileKey: string,
   logger: PluginLogger,
 ): Promise<string | null> {
-  const hash = imageHash(image.source.data);
+  // Reference-source images have no inline bytes here; their attachment id is a
+  // stable cache key. The provider resolves the bytes when the block is sent.
+  const hash =
+    image.source.type === "base64"
+      ? imageHash(image.source.data)
+      : image.source.attachmentId;
   const cached = getCachedCaption(hash);
   if (cached !== undefined) {
     return cached;

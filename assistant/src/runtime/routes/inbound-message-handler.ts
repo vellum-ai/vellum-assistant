@@ -13,8 +13,8 @@ import {
 } from "@vellumai/gateway-client";
 
 import {
-  attachmentsToContentBlocks,
-  type MessageAttachmentInput,
+  type AttachmentReferenceInput,
+  attachmentsToReferenceBlocks,
 } from "../../agent/attachments.js";
 import {
   CHANNEL_IDS,
@@ -1677,7 +1677,7 @@ async function persistBackfilledSlackMessage(params: {
   const hydratedAttachments = await withSlackBotToken(
     params.account,
     async (token) => {
-      const attachments: MessageAttachmentInput[] = [];
+      const attachments: AttachmentReferenceInput[] = [];
 
       for (let i = 0; i < imageFiles.length; i++) {
         const file = imageFiles[i];
@@ -1700,7 +1700,7 @@ async function persistBackfilledSlackMessage(params: {
             );
             continue;
           }
-          attachInlineAttachmentToMessage(
+          const stored = attachInlineAttachmentToMessage(
             persisted.id,
             i,
             downloaded.filename,
@@ -1709,8 +1709,10 @@ async function persistBackfilledSlackMessage(params: {
             { normalizeImage: true },
           );
           attachments.push({
-            filename: downloaded.filename,
-            mimeType: downloaded.mimeType,
+            attachmentId: stored.id,
+            filename: stored.originalFilename,
+            mimeType: stored.mimeType,
+            sizeBytes: stored.sizeBytes,
             data: downloaded.data,
           });
         } catch (err) {
@@ -1755,13 +1757,13 @@ async function persistBackfilledSlackMessage(params: {
 
 function buildBackfilledSlackContentBlocks(
   text: string,
-  attachments: MessageAttachmentInput[],
+  attachments: AttachmentReferenceInput[],
 ): ContentBlock[] {
   const blocks: ContentBlock[] = [];
   if (text.trim().length > 0) {
     blocks.push({ type: "text", text });
   }
-  blocks.push(...attachmentsToContentBlocks(attachments));
+  blocks.push(...attachmentsToReferenceBlocks(attachments));
   return blocks;
 }
 

@@ -203,10 +203,18 @@ export function estimateUnconditionalStubTokens(
   return stubTokens;
 }
 
+function mediaSourceSizeBytes(
+  source: Extract<ContentBlock, { type: "image" | "file" }>["source"],
+): number {
+  return source.type === "base64"
+    ? Math.ceil(source.data.length / 4) * 3
+    : source.sizeBytes;
+}
+
 function imageBlockToStub(
   block: Extract<ContentBlock, { type: "image" }>,
 ): Extract<ContentBlock, { type: "text" }> {
-  const sizeBytes = Math.ceil(block.source.data.length / 4) * 3;
+  const sizeBytes = mediaSourceSizeBytes(block.source);
   return {
     type: "text",
     text: `[Image omitted from retry context: ${block.source.media_type}, ${sizeBytes} bytes]`,
@@ -216,7 +224,7 @@ function imageBlockToStub(
 function fileBlockToStub(
   block: Extract<ContentBlock, { type: "file" }>,
 ): Extract<ContentBlock, { type: "text" }> {
-  const sizeBytes = Math.ceil(block.source.data.length / 4) * 3;
+  const sizeBytes = mediaSourceSizeBytes(block.source);
   const extracted = (block.extracted_text ?? "").trim();
   const preview =
     extracted.length > MAX_MEDIA_STUB_TEXT

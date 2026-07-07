@@ -109,6 +109,7 @@ import {
   readSlackMetadata,
   writeSlackMetadata,
 } from "../messaging/providers/slack/message-metadata.js";
+import { getAttachmentContent } from "../persistence/attachments-store.js";
 import type { MessageRow } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
@@ -1010,7 +1011,15 @@ describe("triggerSlackThreadBackfillIfNeeded — gap detection and persistence",
     expect(textBlock?.text).toBe("uploaded the diagram");
     expect(textBlock?.text).not.toContain("<external_content");
     expect(imageBlock?.source.media_type).toBe("image/png");
-    expect(imageBlock?.source.data).toBe(imageBase64);
+    // The image is persisted as a workspace reference (no inline base64); it
+    // resolves back to the uploaded bytes from the attachment store.
+    expect(imageBlock?.source.type).toBe("attachment_ref");
+    const imageSource = imageBlock?.source;
+    if (imageSource?.type === "attachment_ref") {
+      expect(
+        getAttachmentContent(imageSource.attachmentId)?.toString("base64"),
+      ).toBe(imageBase64);
+    }
 
     const context = loadSlackChronologicalContext(conv.id, SLACK_CHANNEL_CAPS, {
       loader: readMessageRowsByConversation,

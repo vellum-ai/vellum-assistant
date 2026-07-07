@@ -5,6 +5,7 @@ import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
+import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PLACEHOLDER_EMPTY_TURN } from "../placeholder-sentinels.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
@@ -806,6 +807,9 @@ export class OpenAIChatCompletionsProvider implements Provider {
     messages: Message[],
     systemPrompt?: string,
   ): OpenAI.Chat.Completions.ChatCompletionMessageParam[] {
+    // Resolve persisted attachment references to inline base64 before walking
+    // the content blocks; live turns already carry base64 and pass through.
+    messages = resolveMediaReferences(messages);
     const result: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
 
     if (systemPrompt) {
@@ -959,21 +963,23 @@ export class OpenAIChatCompletionsProvider implements Provider {
         case "text":
           parts.push({ type: "text", text: block.text });
           break;
-        case "image":
-          if (!OPENAI_SUPPORTED_IMAGE_TYPES.has(block.source.media_type)) {
+        case "image": {
+          const imageSource = base64Source(block.source);
+          if (!OPENAI_SUPPORTED_IMAGE_TYPES.has(imageSource.media_type)) {
             parts.push({
               type: "text",
-              text: `[Image: ${block.source.media_type} — format not supported by this provider]`,
+              text: `[Image: ${imageSource.media_type} — format not supported by this provider]`,
             });
           } else {
             parts.push({
               type: "image_url",
               image_url: {
-                url: `data:${block.source.media_type};base64,${block.source.data}`,
+                url: `data:${imageSource.media_type};base64,${imageSource.data}`,
               },
             });
           }
           break;
+        }
         case "file":
           parts.push({
             type: "text",

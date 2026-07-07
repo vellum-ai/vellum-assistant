@@ -40,7 +40,7 @@ import { getLogger } from "../util/logger.js";
 import type { CleanResult, Conversation } from "./conversation.js";
 import {
   persistQueuedMessageBody,
-  serializePersistedUserMessageContent,
+  persistUserMessageRow,
 } from "./conversation-messaging.js";
 import type {
   QueuedMessage,
@@ -564,13 +564,15 @@ async function drainSingleMessage(
       );
       // When displayContent is provided (e.g. original text before recording
       // intent stripping), persist that to DB so users see the full message.
-      // The in-memory userMessage (sent to the LLM) still uses the stripped content.
-      const contentToPersist = serializePersistedUserMessageContent(
-        next.content,
-        next.attachments,
-        next.displayContent,
-      );
-      await addMessage(conversation.conversationId, "user", contentToPersist, {
+      // The in-memory userMessage (sent to the LLM) still uses the stripped
+      // content. Attachment media is stored as workspace references.
+      await persistUserMessageRow({
+        conversationId: conversation.conversationId,
+        content: next.content,
+        ...(next.displayContent !== undefined
+          ? { displayContent: next.displayContent }
+          : {}),
+        attachmentInputs: next.attachments ?? [],
         metadata: drainChannelMeta,
       });
       conversation.messages.push(llmUserMsg);
@@ -658,16 +660,15 @@ async function drainSingleMessage(
         sentAt: next.sentAt,
       };
       const cleanUserMsg = createUserMessage(next.content, next.attachments);
-      await addMessage(
-        conversation.conversationId,
-        "user",
-        serializePersistedUserMessageContent(
-          next.content,
-          next.attachments,
-          next.displayContent,
-        ),
-        { metadata: drainChannelMeta },
-      );
+      await persistUserMessageRow({
+        conversationId: conversation.conversationId,
+        content: next.content,
+        ...(next.displayContent !== undefined
+          ? { displayContent: next.displayContent }
+          : {}),
+        attachmentInputs: next.attachments ?? [],
+        metadata: drainChannelMeta,
+      });
       persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
 
@@ -744,16 +745,15 @@ async function drainSingleMessage(
         sentAt: next.sentAt,
       };
       const cleanUserMsg = createUserMessage(next.content, next.attachments);
-      await addMessage(
-        conversation.conversationId,
-        "user",
-        serializePersistedUserMessageContent(
-          next.content,
-          next.attachments,
-          next.displayContent,
-        ),
-        { metadata: drainChannelMeta },
-      );
+      await persistUserMessageRow({
+        conversationId: conversation.conversationId,
+        content: next.content,
+        ...(next.displayContent !== undefined
+          ? { displayContent: next.displayContent }
+          : {}),
+        attachmentInputs: next.attachments ?? [],
+        metadata: drainChannelMeta,
+      });
       persistedCleanMessage = true;
       conversation.messages.push(cleanUserMsg);
 
@@ -1521,16 +1521,13 @@ export async function processMessage(
         cleanUserMsg,
         attachments,
       );
-      const persisted = await addMessage(
-        conversation.conversationId,
-        "user",
-        serializePersistedUserMessageContent(
-          content,
-          attachments,
-          displayContent,
-        ),
-        { metadata: routerChannelMeta },
-      );
+      const persisted = await persistUserMessageRow({
+        conversationId: conversation.conversationId,
+        content,
+        ...(displayContent !== undefined ? { displayContent } : {}),
+        attachmentInputs: attachments ?? [],
+        metadata: routerChannelMeta,
+      });
       conversation.messages.push(llmUserMsg);
 
       const replyText =
@@ -1613,17 +1610,13 @@ export async function processMessage(
     // When displayContent is provided (e.g. original text before recording
     // intent stripping), persist that to DB so users see the full message.
     // The in-memory userMessage (sent to the LLM) still uses the stripped content.
-    const contentToPersist = serializePersistedUserMessageContent(
+    const persisted = await persistUserMessageRow({
+      conversationId: conversation.conversationId,
       content,
-      attachments,
-      displayContent,
-    );
-    const persisted = await addMessage(
-      conversation.conversationId,
-      "user",
-      contentToPersist,
-      { metadata: pmChannelMeta },
-    );
+      ...(displayContent !== undefined ? { displayContent } : {}),
+      attachmentInputs: attachments ?? [],
+      metadata: pmChannelMeta,
+    });
     conversation.messages.push(llmUserMsg);
 
     const assistantMsg = createAssistantMessage(slashResult.message);
@@ -1693,16 +1686,13 @@ export async function processMessage(
           : {}),
       };
       const cleanUserMsg = createUserMessage(content, attachments);
-      const persisted = await addMessage(
-        conversation.conversationId,
-        "user",
-        serializePersistedUserMessageContent(
-          content,
-          attachments,
-          displayContent,
-        ),
-        { metadata: pmChannelMeta },
-      );
+      const persisted = await persistUserMessageRow({
+        conversationId: conversation.conversationId,
+        content,
+        ...(displayContent !== undefined ? { displayContent } : {}),
+        attachmentInputs: attachments ?? [],
+        metadata: pmChannelMeta,
+      });
       persistedCompactMessage = true;
       conversation.messages.push(cleanUserMsg);
 
@@ -1770,16 +1760,13 @@ export async function processMessage(
           : {}),
       };
       const cleanUserMsg = createUserMessage(content, attachments);
-      const persisted = await addMessage(
-        conversation.conversationId,
-        "user",
-        serializePersistedUserMessageContent(
-          content,
-          attachments,
-          displayContent,
-        ),
-        { metadata: pmChannelMeta },
-      );
+      const persisted = await persistUserMessageRow({
+        conversationId: conversation.conversationId,
+        content,
+        ...(displayContent !== undefined ? { displayContent } : {}),
+        attachmentInputs: attachments ?? [],
+        metadata: pmChannelMeta,
+      });
       persistedCleanMessage = true;
       conversation.messages.push(cleanUserMsg);
 

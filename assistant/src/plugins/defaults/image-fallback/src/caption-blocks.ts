@@ -76,8 +76,12 @@ export async function captionImageBlocks(
     const image = block as ImageContent;
 
     // Persist the original to a known, content-hash-deduped location so it
-    // survives the text substitution and stays findable on disk.
-    persistImage(image.source.data, image.source.media_type);
+    // survives the text substitution and stays findable on disk. Reference
+    // sources already live durably in the attachment store, so there is
+    // nothing to persist for them.
+    if (image.source.type === "base64") {
+      persistImage(image.source.data, image.source.media_type);
+    }
 
     if (visionProfileKey != null) {
       const caption = await captionImage(image, visionProfileKey, logger);

@@ -139,9 +139,12 @@ describe("persistUnsendableImageDowngrades (downscalable host)", () => {
     };
     const nested = toolResult.contentBlocks?.[0];
     expect(nested?.type).toBe("image");
-    expect(
-      (nested as Extract<ContentBlock, { type: "image" }>).source.data,
-    ).toBe(SHRUNK_DATA);
+    const nestedSource = (nested as Extract<ContentBlock, { type: "image" }>)
+      .source;
+    expect(nestedSource.type).toBe("base64");
+    expect(nestedSource.type === "base64" ? nestedSource.data : undefined).toBe(
+      SHRUNK_DATA,
+    );
   });
 
   /** Re-running is a no-op: the downscaled payload is within limits. */

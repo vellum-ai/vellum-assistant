@@ -1402,8 +1402,12 @@ export async function handleToolResult(
   const imageBlocks = event.contentBlocks?.filter(
     (b): b is ImageContent => b.type === "image",
   );
+  // Live tool-result images carry inline base64; a reference source (no inline
+  // bytes) is skipped.
   const imageDataList = imageBlocks?.length
-    ? imageBlocks.map((b) => b.source.data)
+    ? imageBlocks
+        .map((b) => (b.source.type === "base64" ? b.source.data : undefined))
+        .filter((d): d is string => d != null)
     : undefined;
 
   // Perform state mutations before deps.onEvent() so that if onEvent throws

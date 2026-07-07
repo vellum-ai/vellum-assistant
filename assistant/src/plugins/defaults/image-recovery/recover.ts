@@ -63,6 +63,10 @@ export const UNSENDABLE_IMAGE_NOTE =
 export function oversizedImageReplacement(
   block: Extract<ContentBlock, { type: "image" }>,
 ): ContentBlock | null {
+  // Reference-source images keep no bytes in the content row (they are resolved
+  // — and transport-optimized — at the provider boundary), so there is nothing
+  // to downgrade here.
+  if (block.source.type !== "base64") return null;
   const payloadBytes = block.source.data.length;
   const dims = parseImageDimensions(block.source.data, block.source.media_type);
   const exceedsDimensionCap =

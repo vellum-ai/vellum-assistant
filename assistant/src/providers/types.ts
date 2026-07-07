@@ -9,23 +9,55 @@ export interface TextContent {
   text: string;
 }
 
+/**
+ * Base64-inline media source: the bytes travel with the block. This is the
+ * runtime shape the provider transforms consume, and the shape produced for a
+ * live (in-flight) turn.
+ */
+export interface Base64MediaSource {
+  type: "base64";
+  media_type: string;
+  data: string;
+}
+
+/**
+ * Reference media source: the bytes live in the workspace attachment store,
+ * addressed by `attachmentId`. This is the shape PERSISTED into
+ * `messages.content` — it keeps base64 blobs out of the DB row (and out of the
+ * lexical index). It is resolved back into a {@link Base64MediaSource} at the
+ * provider send boundary (see `providers/media-resolve.ts`) so the model always
+ * receives inline bytes; consumers that need raw bytes out of stored content
+ * (e.g. `extractMediaBlocks`) resolve it via `getAttachmentContent`.
+ *
+ * `sizeBytes` (and, for images, `width`/`height`) are captured at persist time
+ * so size-only consumers — chiefly the per-turn token estimator — can cost the
+ * block without reading the file back off disk.
+ */
+export interface AttachmentRefMediaSource {
+  type: "attachment_ref";
+  media_type: string;
+  /** Attachment row id; resolve to bytes via `getAttachmentContent`. */
+  attachmentId: string;
+  /** Byte length of the referenced file. */
+  sizeBytes: number;
+  /** Decoded pixel width, when the reference is an image. */
+  width?: number;
+  /** Decoded pixel height, when the reference is an image. */
+  height?: number;
+}
+
+export type MediaSource = Base64MediaSource | AttachmentRefMediaSource;
+
 export interface ImageContent {
   type: "image";
-  source: {
-    type: "base64";
-    media_type: string;
-    data: string;
-  };
+  source: MediaSource;
 }
 
 export interface FileContent {
   type: "file";
-  source: {
-    type: "base64";
-    media_type: string;
-    data: string;
-    filename: string;
-  };
+  source:
+    | (Base64MediaSource & { filename: string })
+    | (AttachmentRefMediaSource & { filename: string });
   extracted_text?: string;
   /**
    * Internal id linking this block to a row in the attachments table.

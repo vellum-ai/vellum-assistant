@@ -6,6 +6,7 @@ import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { escapeXmlAttr } from "../../util/xml.js";
+import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import { createToolProgressEmitter } from "../tool-progress-events.js";
 import type {
@@ -651,6 +652,9 @@ export class OpenAIResponsesProvider implements Provider {
 
   /** Convert a user message's content blocks to Responses input items. */
   private appendUserItems(result: unknown[], msg: Message): void {
+    // Resolve persisted attachment references to inline base64 before walking
+    // the content blocks; live turns already carry base64 and pass through.
+    msg = resolveMediaReferences([msg])[0] ?? msg;
     // Separate tool results from other blocks
     const toolResults = msg.content.filter(
       (b): b is Extract<ContentBlock, { type: "tool_result" }> =>
@@ -712,19 +716,21 @@ export class OpenAIResponsesProvider implements Provider {
         case "text":
           parts.push({ type: "input_text", text: block.text });
           break;
-        case "image":
-          if (!OPENAI_SUPPORTED_IMAGE_TYPES.has(block.source.media_type)) {
+        case "image": {
+          const imageSource = base64Source(block.source);
+          if (!OPENAI_SUPPORTED_IMAGE_TYPES.has(imageSource.media_type)) {
             parts.push({
               type: "input_text",
-              text: `[Image: ${block.source.media_type} — format not supported by this provider]`,
+              text: `[Image: ${imageSource.media_type} — format not supported by this provider]`,
             });
           } else {
             parts.push({
               type: "input_image",
-              image_url: `data:${block.source.media_type};base64,${block.source.data}`,
+              image_url: `data:${imageSource.media_type};base64,${imageSource.data}`,
             });
           }
           break;
+        }
         case "file":
           parts.push({
             type: "input_text",

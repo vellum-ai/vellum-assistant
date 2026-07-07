@@ -1,9 +1,11 @@
 import {
-  estimateGeminiAudioTokens,
+  base64ByteLength,
+  estimateGeminiAudioTokensFromBytes,
   normalizeGeminiAudioMime,
 } from "../providers/gemini/inline-media.js";
 import type {
   ContentBlock,
+  MediaSource,
   Message,
   Provider,
   ToolDefinition,
@@ -98,12 +100,22 @@ export function estimateTextTokens(text: string | undefined): number {
   return Math.ceil(text.length / CHARS_PER_TOKEN);
 }
 
-function estimateAnthropicPdfTokens(base64Data: string): number {
-  const rawBytes = Math.ceil((base64Data.length * 3) / 4);
+function estimateAnthropicPdfTokens(rawBytes: number): number {
   return Math.max(
     ANTHROPIC_PDF_MIN_TOKENS,
     Math.ceil(rawBytes * ANTHROPIC_PDF_TOKENS_PER_BYTE),
   );
+}
+
+/**
+ * Raw byte length behind a media source, whether it carries inline base64 or a
+ * workspace reference (whose `sizeBytes` hint is captured at persist time). Lets
+ * the estimator cost referenced attachments without reading them off disk.
+ */
+function mediaSourceByteLength(source: MediaSource): number {
+  return source.type === "base64"
+    ? base64ByteLength(source.data)
+    : source.sizeBytes;
 }
 
 function estimateFileDataTokens(
@@ -112,12 +124,11 @@ function estimateFileDataTokens(
 ): number {
   const providerName = options?.providerName;
 
+  const mediaType = block.source.media_type;
+
   // Anthropic sends PDFs as native document blocks and renders each page as an image
-  if (
-    providerName === "anthropic" &&
-    block.source.media_type === "application/pdf"
-  ) {
-    return estimateAnthropicPdfTokens(block.source.data);
+  if (providerName === "anthropic" && mediaType === "application/pdf") {
+    return estimateAnthropicPdfTokens(mediaSourceByteLength(block.source));
   }
 
   // Gemini hears audio natively (inline base64) but bills it at ~32 tokens/sec.
@@ -125,17 +136,22 @@ function estimateFileDataTokens(
   // would trigger spurious compaction.
   if (
     providerName === "gemini" &&
-    normalizeGeminiAudioMime(block.source.media_type) !== null
+    normalizeGeminiAudioMime(mediaType) !== null
   ) {
-    return estimateGeminiAudioTokens(block.source.data);
+    return estimateGeminiAudioTokensFromBytes(
+      mediaSourceByteLength(block.source),
+    );
   }
 
-  // Gemini sends certain file types inline as base64
+  // Gemini sends certain file types inline as base64; approximate the token
+  // cost from the (base64-inflated) payload length.
   if (
     providerName === "gemini" &&
-    GEMINI_INLINE_FILE_MIME_TYPES.has(block.source.media_type)
+    GEMINI_INLINE_FILE_MIME_TYPES.has(mediaType)
   ) {
-    return estimateTextTokens(block.source.data);
+    return Math.ceil(
+      (mediaSourceByteLength(block.source) * 4) / 3 / CHARS_PER_TOKEN,
+    );
   }
 
   return 0;
@@ -185,7 +201,14 @@ function estimateImageTokens(
   block: Extract<ContentBlock, { type: "image" }>,
   options?: TokenEstimatorOptions,
 ): number {
-  const dims = parseImageDimensions(block.source.data, block.source.media_type);
+  // A reference source carries decoded dimensions as a hint; an inline source
+  // is parsed from its base64 header.
+  const dims =
+    block.source.type === "base64"
+      ? parseImageDimensions(block.source.data, block.source.media_type)
+      : block.source.width != null && block.source.height != null
+        ? { width: block.source.width, height: block.source.height }
+        : null;
   if (dims) {
     if (options?.providerName === "gemini") {
       return estimateGeminiImageTokens(dims.width, dims.height);

@@ -36,7 +36,7 @@ import { getLogger } from "../util/logger.js";
 import type { Conversation } from "./conversation.js";
 import {
   buildSlackMetaForPersistence,
-  serializePersistedUserMessageContent,
+  persistUserMessageRow,
 } from "./conversation-messaging.js";
 import {
   formatCleanResult,
@@ -370,16 +370,15 @@ export async function processMessage(
       : serverChannelMeta;
     const cleanMsg = createUserMessage(content, attachments);
     const llmMsg = enrichMessageWithSourcePaths(cleanMsg, attachments);
-    const persisted = await addMessage(
+    const persisted = await persistUserMessageRow({
       conversationId,
-      "user",
-      serializePersistedUserMessageContent(
-        content,
-        attachments,
-        options?.displayContent,
-      ),
-      { metadata: userMetaWithSlack },
-    );
+      content,
+      ...(options?.displayContent !== undefined
+        ? { displayContent: options.displayContent }
+        : {}),
+      attachmentInputs: attachments,
+      metadata: userMetaWithSlack,
+    });
     conversation.getMessages().push(llmMsg);
 
     if (serverTurnCtx) {
@@ -463,16 +462,15 @@ export async function processMessage(
       ? { ...compactChannelMeta, slackMeta }
       : compactChannelMeta;
     const cleanMsg = createUserMessage(content, attachments);
-    const persisted = await addMessage(
+    const persisted = await persistUserMessageRow({
       conversationId,
-      "user",
-      serializePersistedUserMessageContent(
-        content,
-        attachments,
-        options?.displayContent,
-      ),
-      { metadata: compactUserMeta },
-    );
+      content,
+      ...(options?.displayContent !== undefined
+        ? { displayContent: options.displayContent }
+        : {}),
+      attachmentInputs: attachments,
+      metadata: compactUserMeta,
+    });
     conversation.getMessages().push(cleanMsg);
 
     conversation.emitActivityState("thinking", "context_compacting");
@@ -518,16 +516,15 @@ export async function processMessage(
       ? { ...cleanChannelMeta, slackMeta }
       : cleanChannelMeta;
     const cleanMsg = createUserMessage(content, attachments);
-    const persisted = await addMessage(
+    const persisted = await persistUserMessageRow({
       conversationId,
-      "user",
-      serializePersistedUserMessageContent(
-        content,
-        attachments,
-        options?.displayContent,
-      ),
-      { metadata: cleanUserMeta },
-    );
+      content,
+      ...(options?.displayContent !== undefined
+        ? { displayContent: options.displayContent }
+        : {}),
+      attachmentInputs: attachments,
+      metadata: cleanUserMeta,
+    });
     conversation.getMessages().push(cleanMsg);
 
     const result = await conversation.forceClean();

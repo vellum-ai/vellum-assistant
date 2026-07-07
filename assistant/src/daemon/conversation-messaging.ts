@@ -8,6 +8,8 @@
 import { v4 as uuid } from "uuid";
 
 import {
+  type AttachmentReferenceInput,
+  attachmentsToReferenceBlocks,
   enrichMessageWithSourcePaths,
   type MessageAttachmentInput,
 } from "../agent/attachments.js";
@@ -31,6 +33,7 @@ import {
   attachInlineAttachmentToMessage,
   attachmentExists,
   AttachmentUploadError,
+  getAttachmentById,
   getFilePathForAttachment,
   linkAttachmentToMessage,
   validateAttachmentUpload,
@@ -43,6 +46,7 @@ import {
   provenanceFromTrustContext,
   setConversationOriginChannelIfUnset,
   setConversationOriginInterfaceIfUnset,
+  updateMessageContent,
   updateMessageMetadata,
 } from "../persistence/conversation-crud.js";
 import {
@@ -216,17 +220,153 @@ export interface MessagingConversationContext {
   getTurnInterfaceContext(): TurnInterfaceContext | null;
 }
 
-export function serializePersistedUserMessageContent(
-  content: string,
-  attachments: MessageAttachmentInput[],
-  displayContent: string | undefined,
-): string {
-  return JSON.stringify(
-    createUserMessage(
-      displayContent !== undefined ? displayContent : content,
-      attachments,
-    ).content,
+/** Byte length of a base64 payload (padding-aware). */
+function base64ByteLength(base64: string): number {
+  if (!base64) return 0;
+  const padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+  return Math.max(0, Math.floor((base64.length * 3) / 4) - padding);
+}
+
+/**
+ * Serialize the text-only portion of a user message for the initial row insert.
+ * Attachment media is added afterwards as reference blocks by
+ * {@link linkUserAttachmentsAndWriteReferences}, once the attachments are
+ * linked and their final ids are known.
+ */
+function serializePersistedUserTextContent(text: string): string {
+  return JSON.stringify(createUserMessage(text, []).content);
+}
+
+/**
+ * Link a user message's attachments to the message row, then rewrite the row's
+ * `content` so each attachment is a workspace reference block
+ * ({@link attachmentsToReferenceBlocks}) instead of inline base64. Keeping
+ * base64 out of `messages.content` keeps the DB row (and the lexical index)
+ * small; the bytes are resolved back at the provider boundary.
+ *
+ * Mutates `attachmentInputs[i].storedPath` with each attachment's resolved
+ * on-disk path (used by the caller for path annotations + the
+ * `attachmentStoredPaths` metadata). When no attachment links successfully the
+ * row keeps its text-only content untouched.
+ */
+export function linkUserAttachmentsAndWriteReferences(
+  messageId: string,
+  textContent: string,
+  attachmentInputs: MessageAttachmentInput[],
+): void {
+  const refs: AttachmentReferenceInput[] = [];
+  for (let i = 0; i < attachmentInputs.length; i++) {
+    const a = attachmentInputs[i];
+    try {
+      let finalId: string | undefined;
+      // Pre-uploaded (already in the store, e.g. file-backed) attachment: link
+      // the existing row directly without re-uploading.
+      if (a.id && attachmentExists(a.id)) {
+        finalId = linkAttachmentToMessage(messageId, a.id, i);
+        a.storedPath = getFilePathForAttachment(finalId) ?? undefined;
+      } else if (a.data) {
+        const validation = validateAttachmentUpload(a.filename, a.mimeType);
+        if (!validation.ok) {
+          log.warn(
+            { filename: a.filename, error: validation.error },
+            "Skipping user attachment indexing: validation failed",
+          );
+          continue;
+        }
+        const stored = attachInlineAttachmentToMessage(
+          messageId,
+          i,
+          a.filename,
+          a.mimeType,
+          a.data,
+          { sourcePath: a.filePath, normalizeImage: true },
+        );
+        finalId = stored.id;
+        a.storedPath = stored.filePath;
+      } else {
+        continue;
+      }
+
+      if (!finalId) continue;
+      // The linked row is the source of truth for the stored mime/size/filename
+      // (upload-time normalization may have rewritten e.g. HEIC → JPEG). Read
+      // metadata only — no file hydration.
+      const row = getAttachmentById(finalId);
+      refs.push({
+        attachmentId: finalId,
+        filename: row?.originalFilename ?? a.filename,
+        mimeType: row?.mimeType ?? a.mimeType,
+        sizeBytes: row?.sizeBytes ?? base64ByteLength(a.data),
+        data: a.data || undefined,
+        extractedText: a.extractedText,
+      });
+    } catch (err) {
+      if (err instanceof AttachmentUploadError) {
+        log.warn(
+          { filename: a.filename, error: err.message },
+          "Skipping user attachment indexing",
+        );
+      } else {
+        log.error(
+          { filename: a.filename, err },
+          "Failed to index user attachment",
+        );
+      }
+    }
+  }
+
+  if (refs.length === 0) return;
+  const refContent = [
+    ...createUserMessage(textContent, []).content,
+    ...attachmentsToReferenceBlocks(refs),
+  ];
+  updateMessageContent(messageId, JSON.stringify(refContent));
+}
+
+/**
+ * Persist a user-message row whose attachment media is stored as workspace
+ * references rather than inline base64. Inserts the row with text-only content,
+ * then links each attachment and rewrites the row to carry `attachment_ref`
+ * blocks. The single choke point every user-message persist site funnels
+ * through, so no site writes base64 media into `messages.content`.
+ *
+ * `attachmentInputs` is mutated in place (each gets its resolved `storedPath`)
+ * so callers can build path annotations / `attachmentStoredPaths` metadata from
+ * it after this returns.
+ */
+export async function persistUserMessageRow(params: {
+  conversationId: string;
+  content: string;
+  displayContent?: string;
+  attachmentInputs: MessageAttachmentInput[];
+  metadata?: Record<string, unknown>;
+  clientMessageId?: string;
+  id?: string;
+}): Promise<Awaited<ReturnType<typeof addMessage>>> {
+  const text =
+    params.displayContent !== undefined
+      ? params.displayContent
+      : params.content;
+  const inserted = await addMessage(
+    params.conversationId,
+    "user",
+    serializePersistedUserTextContent(text),
+    {
+      ...(params.metadata ? { metadata: params.metadata } : {}),
+      ...(params.clientMessageId
+        ? { clientMessageId: params.clientMessageId }
+        : {}),
+      ...(params.id ? { id: params.id } : {}),
+    },
   );
+  if (!inserted.deduplicated && params.attachmentInputs.length > 0) {
+    linkUserAttachmentsAndWriteReferences(
+      inserted.id,
+      text,
+      params.attachmentInputs,
+    );
+  }
+  return inserted;
 }
 
 function extractTurnChannelContext(
@@ -566,18 +706,18 @@ export async function persistQueuedMessageBody(
     // When displayContent is provided (e.g. original text before recording
     // intent stripping), persist that to DB so users see the full message
     // after restart. The in-memory userMessage (sent to the LLM) still uses
-    // the stripped content.
-    const contentToPersist = serializePersistedUserMessageContent(
+    // the stripped content. Attachment media is stored as workspace references
+    // (not inline base64) and its bytes are resolved at the provider boundary
+    // — see persistUserMessageRow / resolveMediaReferences.
+    const persistedUserMessage = await persistUserMessageRow({
+      conversationId: ctx.conversationId,
       content,
+      ...(displayContent !== undefined ? { displayContent } : {}),
       attachmentInputs,
-      displayContent,
-    );
-    const persistedUserMessage = await addMessage(
-      ctx.conversationId,
-      "user",
-      contentToPersist,
-      { metadata: mergedMetadata, clientMessageId, id: requestId },
-    );
+      metadata: mergedMetadata,
+      ...(clientMessageId ? { clientMessageId } : {}),
+      id: requestId,
+    });
 
     if (persistedUserMessage.deduplicated) {
       return { id: persistedUserMessage.id, deduplicated: true };
@@ -606,63 +746,6 @@ export async function persistQueuedMessageBody(
 
     if (!persistedUserMessage.id) {
       throw new Error("Failed to persist user message");
-    }
-
-    // Index user attachments in the attachments table for later retrieval,
-    // capturing the resolved stored path of each linked attachment. Name
-    // collisions in the conversation's attachments/ dir get a -2/-3 suffix,
-    // so the stored path — not the original filename — is the only reliable
-    // on-disk handle for the file.
-    for (let i = 0; i < attachments.length; i++) {
-      const a = attachments[i];
-      try {
-        // If the attachment already exists in the store (e.g. file-backed
-        // attachments uploaded separately), link it directly without
-        // re-uploading. This handles the case where data is empty because
-        // the attachment content lives on disk.
-        if (a.id && attachmentExists(a.id)) {
-          const scopedAttachmentId = linkAttachmentToMessage(
-            persistedUserMessage.id,
-            a.id,
-            i,
-          );
-          attachmentInputs[i].storedPath =
-            getFilePathForAttachment(scopedAttachmentId) ?? undefined;
-          continue;
-        }
-
-        if (!a.data) continue;
-
-        const validation = validateAttachmentUpload(a.filename, a.mimeType);
-        if (!validation.ok) {
-          log.warn(
-            { filename: a.filename, error: validation.error },
-            "Skipping user attachment indexing: validation failed",
-          );
-          continue;
-        }
-        const stored = attachInlineAttachmentToMessage(
-          persistedUserMessage.id,
-          i,
-          a.filename,
-          a.mimeType,
-          a.data,
-          { sourcePath: a.filePath, normalizeImage: true },
-        );
-        attachmentInputs[i].storedPath = stored.filePath;
-      } catch (err) {
-        if (err instanceof AttachmentUploadError) {
-          log.warn(
-            { filename: a.filename, error: err.message },
-            "Skipping user attachment indexing",
-          );
-        } else {
-          log.error(
-            { filename: a.filename, err },
-            "Failed to index user attachment",
-          );
-        }
-      }
     }
 
     // Persist the resolved paths so history reloads can rebuild the same

@@ -6,6 +6,7 @@ import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
 import { extractRetryAfterMs } from "../../util/retry.js";
 import { stripOrphanedSurrogatesDeep } from "../../util/unicode.js";
+import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import {
   couldBePlaceholderSentinelPrefix,
   isPlaceholderSentinelText,
@@ -1612,7 +1613,9 @@ export class AnthropicProvider implements Provider {
    * only thing layered on top in `sendMessage`.
    */
   private buildSentMessages(messages: Message[]): Anthropic.MessageParam[] {
-    const formatted = messages
+    // Resolve persisted attachment references to inline base64 before walking
+    // the content blocks; live turns already carry base64 and pass through.
+    const formatted = resolveMediaReferences(messages)
       .map((m) => {
         // Track whether an unknown block was dropped during filtering
         let droppedUnknownBlock = false;
@@ -1820,27 +1823,29 @@ export class AnthropicProvider implements Provider {
         };
       case "redacted_thinking":
         return { type: "redacted_thinking", data: block.data };
-      case "image":
-        if (!ANTHROPIC_SUPPORTED_IMAGE_TYPES.has(block.source.media_type)) {
+      case "image": {
+        const imageSource = base64Source(block.source);
+        if (!ANTHROPIC_SUPPORTED_IMAGE_TYPES.has(imageSource.media_type)) {
           log.warn(
-            `Unsupported image MIME type for Anthropic: ${block.source.media_type}; replacing with text placeholder`,
+            `Unsupported image MIME type for Anthropic: ${imageSource.media_type}; replacing with text placeholder`,
           );
           return {
             type: "text",
-            text: `[Image: ${block.source.media_type} — format not supported by this provider]`,
+            text: `[Image: ${imageSource.media_type} — format not supported by this provider]`,
           };
         }
         return {
           type: "image",
           source: {
             type: "base64",
-            media_type: block.source
-              .media_type as Anthropic.Base64ImageSource["media_type"],
-            data: block.source.data,
+            media_type:
+              imageSource.media_type as Anthropic.Base64ImageSource["media_type"],
+            data: imageSource.data,
           },
         };
+      }
       case "file": {
-        const { media_type, data, filename } = block.source;
+        const { media_type, data, filename } = base64Source(block.source);
         if (media_type === "application/pdf") {
           // Only valid base64 document source for Anthropic
           return {
@@ -1892,13 +1897,14 @@ export class AnthropicProvider implements Provider {
           ];
           for (const cb of usableBlocks) {
             if (cb.type === "image") {
+              const cbSource = base64Source(cb.source);
               parts.push({
                 type: "image" as const,
                 source: {
                   type: "base64" as const,
-                  media_type: cb.source
-                    .media_type as Anthropic.Base64ImageSource["media_type"],
-                  data: cb.source.data,
+                  media_type:
+                    cbSource.media_type as Anthropic.Base64ImageSource["media_type"],
+                  data: cbSource.data,
                 },
               });
             } else if (cb.type === "text") {

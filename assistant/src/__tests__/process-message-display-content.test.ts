@@ -7,6 +7,8 @@ const addMessageCalls: Array<{
   metadata?: Record<string, unknown>;
 }> = [];
 
+const updateContentCalls: Array<{ messageId: string; content: string }> = [];
+
 let activeConversation: unknown;
 
 type TestSlashResolution =
@@ -30,8 +32,25 @@ mock.module("../persistence/attachments-store.js", () => ({
   getAttachmentsByIds: () => [],
   getSourcePathsForAttachments: () => new Map<string, string>(),
   attachmentExists: () => false,
-  linkAttachmentToMessage: () => {},
-  attachInlineAttachmentToMessage: () => {},
+  linkAttachmentToMessage: () => "att-1",
+  attachInlineAttachmentToMessage: (
+    _messageId: string,
+    _position: number,
+    filename: string,
+    mimeType: string,
+    data: string,
+  ) => ({
+    id: "att-1",
+    originalFilename: filename,
+    mimeType,
+    sizeBytes: Math.floor((data.length * 3) / 4),
+    kind: "document",
+    thumbnailBase64: null,
+    createdAt: 0,
+    filePath: `/tmp/${filename}`,
+  }),
+  getAttachmentById: () => null,
+  getFilePathForAttachment: () => "/tmp/attachment.pdf",
   validateAttachmentUpload: () => ({ ok: true }),
   AttachmentUploadError: class extends Error {},
 }));
@@ -58,6 +77,12 @@ mock.module("../persistence/conversation-crud.js", () => ({
   setConversationOriginChannelIfUnset: () => {},
   setConversationOriginInterfaceIfUnset: () => {},
   reserveMessage: mock(async () => ({ id: "msg-reserve" })),
+  updateMessageContent: (messageId: string, content: string) => {
+    updateContentCalls.push({ messageId, content });
+  },
+  updateMessageMetadata: () => {},
+  extractImageSourcePaths: () => undefined,
+  extractAttachmentStoredPaths: () => undefined,
 }));
 
 mock.module("../persistence/conversation-disk-view.js", () => ({
@@ -260,6 +285,7 @@ async function expectOmittedDisplayContentPersistsModelContent(
 describe("processMessage displayContent", () => {
   beforeEach(() => {
     addMessageCalls.length = 0;
+    updateContentCalls.length = 0;
     activeConversation = undefined;
     resolveSlashForTest = (content) => ({ kind: "passthrough", content });
   });
@@ -346,21 +372,30 @@ describe("processMessage displayContent", () => {
       displayContent: "",
     });
 
+    // The row is inserted with text-only content (empty here since
+    // displayContent is ""), then rewritten to carry the attachment as a
+    // workspace reference — no inline base64 in messages.content.
     expect(addMessageCalls).toHaveLength(1);
-    const persistedBlocks = JSON.parse(addMessageCalls[0]!.content);
+    expect(JSON.parse(addMessageCalls[0]!.content)).toEqual([]);
+    expect(updateContentCalls).toHaveLength(1);
+    const persistedBlocks = JSON.parse(updateContentCalls[0]!.content);
     expect(persistedBlocks).toEqual([
       {
         type: "file",
         _attachmentId: "att-1",
         source: {
-          type: "base64",
+          type: "attachment_ref",
           media_type: "application/pdf",
-          data: Buffer.from("pdf bytes").toString("base64"),
+          attachmentId: "att-1",
           filename: "attachment.pdf",
+          sizeBytes: Buffer.from("pdf bytes").length,
         },
       },
     ]);
-    expect(addMessageCalls[0]!.content).not.toContain("<external_content");
+    expect(updateContentCalls[0]!.content).not.toContain("<external_content");
+    expect(updateContentCalls[0]!.content).not.toContain(
+      Buffer.from("pdf bytes").toString("base64"),
+    );
     const inMemoryMessage = conversation.getMessages()[0]!;
     expect(inMemoryMessage.role).toBe("user");
     expect(inMemoryMessage.content[0]).toEqual({

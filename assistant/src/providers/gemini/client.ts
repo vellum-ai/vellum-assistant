@@ -9,6 +9,7 @@ import { SYSTEM_PROMPT_CACHE_BOUNDARY } from "../../prompts/cache-boundary.js";
 import { isAbortReason } from "../../util/abort-reasons.js";
 import { ProviderError } from "../../util/errors.js";
 import { getLogger } from "../../util/logger.js";
+import { base64Source, resolveMediaReferences } from "../media-resolve.js";
 import { PROVIDER_CATALOG } from "../model-catalog.js";
 import { createStreamTimeout } from "../stream-timeout.js";
 import type {
@@ -566,6 +567,9 @@ export class GeminiProvider implements Provider {
     messages: Message[],
     model: string,
   ): genai.Content[] {
+    // Resolve persisted attachment references to inline base64 before walking
+    // the content blocks; live turns already carry base64 and pass through.
+    messages = resolveMediaReferences(messages);
     const result: genai.Content[] = [];
 
     // Build a map from tool_use id → function name so tool_result blocks
@@ -616,39 +620,42 @@ export class GeminiProvider implements Provider {
         case "text":
           parts.push({ text: block.text });
           break;
-        case "image":
+        case "image": {
+          const imageSource = base64Source(block.source);
           parts.push({
             inlineData: {
-              mimeType: block.source.media_type,
-              data: block.source.data,
+              mimeType: imageSource.media_type,
+              data: imageSource.data,
             },
           });
           break;
+        }
         case "file": {
-          if (this.supportsGeminiInlineFile(block.source.media_type)) {
+          const fileSource = base64Source(block.source);
+          if (this.supportsGeminiInlineFile(fileSource.media_type)) {
             // Normalize audio MIME onto Gemini's spelling (e.g. audio/mpeg →
             // audio/mp3); PDFs pass through unchanged. Guard the 20 MB inline
             // request limit for audio so an oversize clip degrades to a text
             // note rather than 400ing the whole request.
-            const audioMime = normalizeGeminiAudioMime(block.source.media_type);
-            const rawBytes = base64ByteLength(block.source.data);
+            const audioMime = normalizeGeminiAudioMime(fileSource.media_type);
+            const rawBytes = base64ByteLength(fileSource.data);
             if (audioMime && rawBytes > GEMINI_MAX_INLINE_AUDIO_BYTES) {
               const approxMb = Math.round(rawBytes / (1024 * 1024));
               parts.push({
-                text: `[Audio file too large to send inline: ${block.source.filename} (${block.source.media_type}, ~${approxMb}MB). Gemini's inline request limit is 20MB; this file was omitted. Ask the user for a shorter clip.]`,
+                text: `[Audio file too large to send inline: ${fileSource.filename} (${fileSource.media_type}, ~${approxMb}MB). Gemini's inline request limit is 20MB; this file was omitted. Ask the user for a shorter clip.]`,
               });
             } else {
               parts.push({
                 inlineData: {
-                  mimeType: audioMime ?? block.source.media_type,
-                  data: block.source.data,
+                  mimeType: audioMime ?? fileSource.media_type,
+                  data: fileSource.data,
                 },
               });
             }
           } else {
             const fallback = block.extracted_text?.trim()
-              ? `[Attached file: ${block.source.filename} (${block.source.media_type})]\n${block.extracted_text}`
-              : `[Attached file: ${block.source.filename} (${block.source.media_type})]\nNo extracted text available.`;
+              ? `[Attached file: ${fileSource.filename} (${fileSource.media_type})]\n${block.extracted_text}`
+              : `[Attached file: ${fileSource.filename} (${fileSource.media_type})]\nNo extracted text available.`;
             parts.push({ text: fallback });
           }
           break;
@@ -685,23 +692,23 @@ export class GeminiProvider implements Provider {
             // mixing inlineData with functionResponse in the same Content entry.
             for (const cb of block.contentBlocks) {
               if (cb.type === "image") {
+                const cbSource = base64Source(cb.source);
                 toolResultMediaParts.push({
                   inlineData: {
-                    mimeType: cb.source.media_type,
-                    data: cb.source.data,
+                    mimeType: cbSource.media_type,
+                    data: cbSource.data,
                   },
                 });
               } else if (cb.type === "file") {
-                const audioMime = normalizeGeminiAudioMime(
-                  cb.source.media_type,
-                );
+                const cbSource = base64Source(cb.source);
+                const audioMime = normalizeGeminiAudioMime(cbSource.media_type);
                 if (
                   audioMime &&
-                  base64ByteLength(cb.source.data) <=
+                  base64ByteLength(cbSource.data) <=
                     GEMINI_MAX_INLINE_AUDIO_BYTES
                 ) {
                   toolResultMediaParts.push({
-                    inlineData: { mimeType: audioMime, data: cb.source.data },
+                    inlineData: { mimeType: audioMime, data: cbSource.data },
                   });
                 } else if (audioMime) {
                   // Oversize audio: note it in the functionResponse output
@@ -710,7 +717,7 @@ export class GeminiProvider implements Provider {
                   // Gemini's request-size limit).
                   outputText =
                     outputText +
-                    `\n[Audio too large to send inline: ${cb.source.filename}. Ask for a shorter clip.]`;
+                    `\n[Audio too large to send inline: ${cbSource.filename}. Ask for a shorter clip.]`;
                 }
                 // Non-inline-able file sub-blocks (m4a/opus/pdf) are skipped
                 // here; the tool's text output already conveys the file.

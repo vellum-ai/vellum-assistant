@@ -1,5 +1,6 @@
 import type { ContentBlock } from "../providers/types.js";
 import { escapeXmlAttr } from "../util/xml.js";
+import { getAttachmentContent } from "./attachments-store.js";
 
 export function extractTextFromStoredMessageContent(raw: string): string {
   try {
@@ -84,9 +85,16 @@ export function extractMediaBlocks(raw: string): Array<{
     for (let i = 0; i < parsed.length; i++) {
       const block = parsed[i] as ContentBlock;
       if (block.type === "image") {
+        // Stored image blocks carry either inline base64 or a workspace
+        // reference; resolve the reference from the attachment store.
+        const data =
+          block.source.type === "base64"
+            ? Buffer.from(block.source.data, "base64")
+            : getAttachmentContent(block.source.attachmentId);
+        if (!data) continue;
         results.push({
           type: "image" as const,
-          data: Buffer.from(block.source.data, "base64"),
+          data,
           mimeType: block.source.media_type,
           index: i,
         });
