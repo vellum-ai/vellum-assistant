@@ -1,12 +1,20 @@
 import { describe, expect, test } from "bun:test";
 
 import {
+  activationZonePx,
   commitThresholdPx,
   computeVisualOffset,
   decideDirection,
   isCommitted,
   isVerticalEscape,
 } from "@/hooks/use-edge-swipe";
+
+describe("activationZonePx", () => {
+  test("spans the left half of the viewport", () => {
+    expect(activationZonePx(390)).toBe(195);
+    expect(activationZonePx(1000)).toBe(500);
+  });
+});
 
 describe("commitThresholdPx", () => {
   test("uses the fixed px ceiling on wide viewports", () => {

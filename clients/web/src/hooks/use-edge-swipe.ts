@@ -7,8 +7,22 @@ import { isPointerCoarse } from "@/utils/pointer";
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Horizontal zone from the left edge (px) where a touch is eligible. */
-export const EDGE_ZONE_PX = 20;
+/**
+ * Width (px) of the transparent recovery strip `EdgeSwipeHitZone` lays over
+ * touch-swallowing content (e.g. a sandboxed iframe) so a left-edge touch
+ * still reaches the `document` listener. Kept narrow so the covered content
+ * stays interactive everywhere outside the strip.
+ */
+export const EDGE_SWIPE_HIT_ZONE_PX = 20;
+
+/**
+ * Fraction of the viewport width, measured from the left edge, within which a
+ * touch may arm the gesture. Spanning the left half makes the swipe forgiving
+ * rather than demanding a pixel-perfect edge touch, matching the wide
+ * activation bands common to iOS-style interactive back gestures (cf.
+ * react-navigation's `gestureResponseDistance`).
+ */
+const ACTIVATION_ZONE_VW_RATIO = 0.5;
 
 /** Minimum horizontal travel (px) to commit the swipe. */
 const COMMIT_THRESHOLD_PX = 100;
@@ -45,6 +59,14 @@ export function commitThresholdPx(viewportWidth: number): number {
     COMMIT_THRESHOLD_PX,
     viewportWidth * COMMIT_THRESHOLD_VW_RATIO,
   );
+}
+
+/**
+ * Distance from the left edge (px) within which a touch may arm the gesture,
+ * derived from the viewport width so the activation band scales with it.
+ */
+export function activationZonePx(viewportWidth: number): number {
+  return viewportWidth * ACTIVATION_ZONE_VW_RATIO;
 }
 
 /** Whether vertical travel dominates enough to treat the gesture as a scroll. */
@@ -185,7 +207,7 @@ export function useEdgeSwipe({
       if (event.touches.length !== 1) {return;}
       const touch = event.touches[0];
       if (!touch) {return;}
-      if (touch.clientX > EDGE_ZONE_PX) {return;}
+      if (touch.clientX > activationZonePx(window.innerWidth)) {return;}
 
       dragRef.current = {
         touchId: touch.identifier,
