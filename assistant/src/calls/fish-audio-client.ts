@@ -5,6 +5,15 @@ import { getLogger } from "../util/logger.js";
 
 const log = getLogger("fish-audio-client");
 
+/**
+ * Config accepted by the synthesis client. Widens the user-facing format
+ * union with `"pcm"` (raw 16-bit LE, no container), which PCM-requesting
+ * callers substitute internally — it is not part of the config schema.
+ */
+export type FishAudioSynthesisConfig = Omit<FishAudioConfig, "format"> & {
+  format: FishAudioConfig["format"] | "pcm";
+};
+
 /** Timeout waiting for the first chunk from Fish Audio (ms). */
 const FIRST_CHUNK_TIMEOUT_MS = 10_000;
 
@@ -32,7 +41,7 @@ interface SynthesizeOptions {
  */
 export async function synthesizeWithFishAudio(
   text: string,
-  config: FishAudioConfig,
+  config: FishAudioSynthesisConfig,
   options?: SynthesizeOptions,
 ): Promise<Buffer> {
   const apiKey = await getSecureKeyAsync(

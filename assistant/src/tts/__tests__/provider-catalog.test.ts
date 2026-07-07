@@ -154,14 +154,15 @@ describe("Fish Audio catalog entry", () => {
     expect(entry.capabilities.supportsStreaming).toBe(true);
   });
 
-  test("supports mp3, wav, and opus formats", () => {
+  test("supports mp3, wav, opus, and pcm formats", () => {
     expect(entry.capabilities.supportedFormats).toContain("mp3");
     expect(entry.capabilities.supportedFormats).toContain("wav");
     expect(entry.capabilities.supportedFormats).toContain("opus");
+    expect(entry.capabilities.supportedFormats).toContain("pcm");
   });
 
-  test("plays over media-stream via WAV output", () => {
-    expect(entry.mediaStreamPlayback.outputFormat).toBe("wav");
+  test("plays over media-stream via PCM output", () => {
+    expect(entry.mediaStreamPlayback.outputFormat).toBe("pcm");
   });
 
   test("requires an API key stored under 'credential/fish-audio/api_key'", () => {

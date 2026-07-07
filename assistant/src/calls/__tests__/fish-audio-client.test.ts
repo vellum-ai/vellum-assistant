@@ -70,4 +70,16 @@ describe("synthesizeWithFishAudio request body", () => {
     const body = JSON.parse(capturedBody);
     expect("sample_rate" in body).toBe(false);
   });
+
+  test("passes pcm format and sample_rate through to the request body", async () => {
+    await synthesizeWithFishAudio(
+      "hello",
+      { ...config, format: "pcm" },
+      { sampleRate: 24000 },
+    );
+
+    const body = JSON.parse(capturedBody);
+    expect(body.format).toBe("pcm");
+    expect(body.sample_rate).toBe(24000);
+  });
 });

@@ -708,6 +708,7 @@ describe("Fish Audio TTS provider adapter", () => {
       "mp3",
       "wav",
       "opus",
+      "pcm",
     ]);
   });
 
@@ -754,28 +755,73 @@ describe("Fish Audio TTS provider adapter", () => {
     );
   });
 
-  test("pcm output request maps to wav format at 8 kHz", async () => {
+  test("pcm output request maps to raw pcm format at the 16 kHz default", async () => {
     const provider = createFishAudioProvider();
-    await provider.synthesize(makeRequest({ outputFormat: "pcm" }));
+    const result = await provider.synthesize(
+      makeRequest({ outputFormat: "pcm" }),
+    );
 
     const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
-    expect((config as { format: string }).format).toBe("wav");
+    expect((config as { format: string }).format).toBe("pcm");
     expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
-      8000,
+      16000,
+    );
+    expect(result.contentType).toBe("audio/pcm");
+  });
+
+  test("pcm output request honors the sampleRateHz hint", async () => {
+    const provider = createFishAudioProvider();
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 24000 }),
+    );
+
+    const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
+    expect((config as { format: string }).format).toBe("pcm");
+    expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
+      24000,
     );
   });
 
-  test("synthesizeStream pcm output request maps to wav format at 8 kHz", async () => {
+  test("synthesizeStream pcm output request maps to raw pcm honoring the hint", async () => {
     const provider = createFishAudioProvider();
-    await provider.synthesizeStream!(
-      makeRequest({ outputFormat: "pcm" }),
+    const result = await provider.synthesizeStream!(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 24000 }),
       () => {},
     );
 
     const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
-    expect((config as { format: string }).format).toBe("wav");
+    expect((config as { format: string }).format).toBe("pcm");
     expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
-      8000,
+      24000,
+    );
+    expect(result.contentType).toBe("audio/pcm");
+  });
+
+  test("synthesizeStream pcm chunks pass through raw with no RIFF header", async () => {
+    const rawPcm = new Uint8Array([0x01, 0x00, 0x02, 0x00, 0x03, 0x00]);
+    mockSynthesizeWithFishAudio.mockImplementationOnce(
+      async (_text, _config, options) => {
+        options?.onChunk?.(rawPcm);
+        return Buffer.from(rawPcm);
+      },
+    );
+
+    const chunks: Uint8Array[] = [];
+    const provider = createFishAudioProvider();
+    await provider.synthesizeStream!(
+      makeRequest({ outputFormat: "pcm" }),
+      (chunk) => chunks.push(chunk),
+    );
+
+    const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
+    expect((config as { format: string }).format).toBe("pcm");
+    expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
+      16000,
+    );
+    // Chunks are forwarded verbatim — raw PCM, no WAV container.
+    expect(chunks).toEqual([rawPcm]);
+    expect(Buffer.from(chunks[0]!).subarray(0, 4).toString("ascii")).not.toBe(
+      "RIFF",
     );
   });
 
