@@ -144,15 +144,16 @@ export async function handleCreateToken(
       guardianPrincipalId = await ensureVellumGuardianBinding();
     } catch (err) {
       // Guardian rows lost but the DB shows prior onboarding: minting here
-      // would diverge from prior clients' tokens. Fail closed with an
-      // explicit repair-required response instead of an unhandled 500.
+      // would diverge from prior clients' tokens. Fail closed as a 401 — the
+      // status the web client treats as repairable — so callers offer the
+      // guardian re-init flow instead of dead-ending on a generic retry.
       if (err instanceof VellumGuardianMintRefusedError) {
         log.error(
           "Token create refused: guardian binding missing over evidence of prior onboarding — repair via guardian init",
         );
         return Response.json(
           { error: "guardian_repair_required" },
-          { status: 503 },
+          { status: 401 },
         );
       }
       throw err;

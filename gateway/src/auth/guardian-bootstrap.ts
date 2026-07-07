@@ -841,8 +841,9 @@ async function resolveOrCreateVellumGuardian(options: {
  * the DB carries evidence of a prior guardian, in which case it throws
  * {@link VellumGuardianMintRefusedError}. Every caller must handle that
  * refusal explicitly: the startup backfill degrades boot non-fatally
- * (post-assistant-ready), and the /auth/token + remote-web pairing routes
- * map it to a 503 repair-required response.
+ * (post-assistant-ready), /auth/token maps it to a repairable 401
+ * (`guardian_repair_required`), and the remote-web pairing route to a 503
+ * (its 401 is claimed by invalid device codes).
  *
  * Called during gateway startup to backfill existing installations.
  */

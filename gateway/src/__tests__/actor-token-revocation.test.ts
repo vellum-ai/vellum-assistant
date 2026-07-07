@@ -275,7 +275,7 @@ describe("/auth/token revocation", () => {
     expect(isActorTokenRevoked(derivedJwt, actorClaims)).toBe(true);
   });
 
-  test("fails closed with 503 when guardian rows are lost over evidence (no divergent mint)", async () => {
+  test("fails closed with a repairable 401 when guardian rows are lost over evidence (no divergent mint)", async () => {
     const { handleCreateToken } = await import("../http/routes/auth-token.js");
     const { bustGuardianIntegrityCache } =
       await import("../auth/guardian-integrity.js");
@@ -318,7 +318,8 @@ describe("/auth/token revocation", () => {
         makeLoopbackServer(),
       );
 
-      expect(res.status).toBe(503);
+      // 401 is the status clients already treat as guardian-repairable.
+      expect(res.status).toBe(401);
       expect(await res.json()).toEqual({ error: "guardian_repair_required" });
       // No divergent principal row was minted.
       expect(getGatewayDb().select().from(contacts).all()).toHaveLength(0);

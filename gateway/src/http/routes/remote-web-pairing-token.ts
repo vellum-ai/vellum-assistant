@@ -102,6 +102,9 @@ export async function handleRemoteWebPairingToken(
       // Guardian rows lost but the DB shows prior onboarding: minting here
       // would diverge from prior clients' tokens. Fail closed with an
       // explicit repair-required response instead of an unhandled 500.
+      // Stays 503 (unlike /auth/token's repairable 401): 401 here means
+      // invalid/expired device code, and the released code stays
+      // exchangeable after guardian repair.
       return jsonError(
         "GUARDIAN_REPAIR_REQUIRED",
         "gateway guardian binding is missing over evidence of prior onboarding — repair via guardian init, then retry pairing",
