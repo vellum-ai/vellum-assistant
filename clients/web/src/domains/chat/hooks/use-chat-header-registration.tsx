@@ -5,8 +5,10 @@
  *
  * Owns:
  * - `headerSupplements` computation and slot registration
- * - `topBarRightSlot` (ConversationAssetsPill + InChatPluginPill) computation and registration
- * - Slack conversation display derivation for the header label
+ * - `topBarRightSlot` (ChannelSourceLinkPill + ConversationAssetsPill +
+ *   InChatPluginPill) computation and registration
+ * - Slack conversation display derivation for the header label and the
+ *   source-thread link
  */
 
 import { useCallback, useEffect, useMemo } from "react";
@@ -24,6 +26,7 @@ import {
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { getChannelBindingDisplayText } from "@/domains/chat/utils/channel-conversation-display";
 import { getChannelLabel } from "@/utils/channel-presentation";
+import { ChannelSourceLinkPill } from "@/domains/chat/components/channel-source-link-pill";
 import { ConversationAssetsPill } from "@/domains/chat/components/conversation-assets-pill";
 import { InChatPluginPill } from "@/domains/chat/components/inchat-plugin-pill/inchat-plugin-pill";
 import { useSupportsInchatPluginEdit } from "@/lib/backwards-compat/use-supports-inchat-plugin-edit";
@@ -90,6 +93,14 @@ export function useChatHeaderRegistration({
     activeConversation?.channelBinding,
   ]);
 
+  // Deep link back to the conversation's source thread in the external
+  // channel. Only Slack bindings carry link data today; the pill component
+  // is channel-generic so other channels light up once their bindings do.
+  const channelSourceLinkHref =
+    channelHeaderChannelId === "slack"
+      ? slackConversationDisplay?.href ?? null
+      : null;
+
   // Header supplements — chat-specific data for the conversation header menu
   const hasPersistedMessage = useMemo(
     () => messages.some((m) => m.id != null),
@@ -138,6 +149,12 @@ export function useChatHeaderRegistration({
     if (!activeConversation?.conversationId || !assistantId) return null;
     return (
       <>
+        {channelSourceLinkHref ? (
+          <ChannelSourceLinkPill
+            href={channelSourceLinkHref}
+            channelId={channelHeaderChannelId}
+          />
+        ) : null}
         <ConversationAssetsPill
           assistantId={assistantId}
           conversationId={activeConversation.conversationId}
@@ -153,7 +170,7 @@ export function useChatHeaderRegistration({
         ) : null}
       </>
     );
-  }, [activeConversation?.conversationId, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument, supportsPluginPill]);
+  }, [activeConversation?.conversationId, assistantId, assetsRefreshKey, handleOpenAppFromChat, handleOpenDocument, supportsPluginPill, channelSourceLinkHref, channelHeaderChannelId]);
 
   useEffect(() => {
     setTopBarRightSlot(topBarRightContent);
