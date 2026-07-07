@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import { stripOrphanedSurrogates } from "../../../util/unicode.js";
 import type { XaiTtsSocketOptions } from "../xai-tts-socket.js";
 import { synthesizeOverXaiTtsSocket } from "../xai-tts-socket.js";
 
@@ -189,6 +190,28 @@ describe("synthesizeOverXaiTtsSocket", () => {
     await promise;
   });
 
+  test("never splits a surrogate pair across text.delta frames", async () => {
+    // Emoji (2 UTF-16 code units) straddles the 15,000-char boundary.
+    const text = "a".repeat(14_999) + "😀" + "b".repeat(500);
+    const promise = synthesizeOverXaiTtsSocket(makeOptions({ text }));
+    mockWs.simulateOpen();
+
+    const deltas = sentFrames()
+      .filter((f) => f.type === "text.delta")
+      .map((f) => f.delta!);
+    for (const delta of deltas) {
+      const last = delta.charCodeAt(delta.length - 1);
+      expect(last >= 0xd800 && last <= 0xdbff).toBe(false);
+      // Well-formed: sanitizing orphaned surrogates must be a no-op.
+      expect(stripOrphanedSurrogates(delta)).toBe(delta);
+    }
+    expect(deltas.join("")).toBe(text);
+
+    mockWs.simulateMessage(audioDeltaFrame("pcm"));
+    mockWs.simulateMessage(AUDIO_DONE_FRAME);
+    await promise;
+  });
+
   // ── Audio streaming ────────────────────────────────────────────────
 
   test("decodes audio.delta frames in order and resolves with the concatenation", async () => {
@@ -214,12 +237,47 @@ describe("synthesizeOverXaiTtsSocket", () => {
     );
     mockWs.simulateOpen();
     mockWs.simulateMessage(JSON.stringify({ type: "audio.delta", delta: "" }));
+    // Whitespace-only base64 decodes to zero bytes and must also be skipped.
+    mockWs.simulateMessage(JSON.stringify({ type: "audio.delta", delta: " " }));
     mockWs.simulateMessage(audioDeltaFrame("real"));
     mockWs.simulateMessage(AUDIO_DONE_FRAME);
 
     const audio = await promise;
     expect(received.map((c) => c.toString())).toEqual(["real"]);
     expect(audio.toString()).toBe("real");
+  });
+
+  test("decodes an audio.delta frame delivered as a binary ArrayBuffer", async () => {
+    const received: Buffer[] = [];
+    const promise = synthesizeOverXaiTtsSocket(
+      makeOptions({ onChunk: (chunk) => received.push(Buffer.from(chunk)) }),
+    );
+    mockWs.simulateOpen();
+    const encoded = new TextEncoder().encode(audioDeltaFrame("binary-chunk"));
+    mockWs.simulateMessage(
+      encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength),
+    );
+    mockWs.simulateMessage(AUDIO_DONE_FRAME);
+
+    const audio = await promise;
+    expect(received.map((c) => c.toString())).toEqual(["binary-chunk"]);
+    expect(audio.toString()).toBe("binary-chunk");
+  });
+
+  test("a throwing onChunk rejects the promise with that error and closes the socket", async () => {
+    const sinkError = new Error("sink exploded");
+    const promise = synthesizeOverXaiTtsSocket(
+      makeOptions({
+        onChunk: () => {
+          throw sinkError;
+        },
+      }),
+    );
+    mockWs.simulateOpen();
+    mockWs.simulateMessage(audioDeltaFrame("pcm"));
+
+    await expect(promise).rejects.toBe(sinkError);
+    expect(mockWs.closeCalled).toBe(true);
   });
 
   test("ignores unparseable frames and unknown frame types", async () => {
