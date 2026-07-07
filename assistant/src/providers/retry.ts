@@ -43,6 +43,7 @@ const EFFORT_SUPPORTED_PROVIDERS = new Set([
   "anthropic",
   "openai",
   "openrouter",
+  "vercel-ai-gateway",
   "fireworks",
   "together",
 ]);
@@ -58,11 +59,16 @@ const DISABLED_THINKING_USES_EFFORT_PROVIDERS = new Set([
 
 /**
  * Providers that consume the `thinking` config. Anthropic uses it directly on
- * the wire; OpenRouter either forwards it to its Anthropic-compatible path or
- * translates it into the unified `reasoning` parameter on OpenAI-compat calls;
+ * the wire; OpenRouter and the Vercel AI Gateway either forward it to their
+ * Anthropic-compatible paths or translate it for OpenAI-compat calls;
  * Gemini reads `thinking.level` to populate `thinkingConfig.thinkingLevel`.
  */
-const THINKING_AWARE_PROVIDERS = new Set(["anthropic", "openrouter", "gemini"]);
+const THINKING_AWARE_PROVIDERS = new Set([
+  "anthropic",
+  "openrouter",
+  "vercel-ai-gateway",
+  "gemini",
+]);
 
 /**
  * Providers that consume Gemini-only thinking extras (`level`,
