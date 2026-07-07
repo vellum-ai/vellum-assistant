@@ -124,7 +124,6 @@ Each module owns one feature's old/new split. Current registry:
 | `conversation-processing-state.ts` | `0.8.8` | Client-side optimistic mirror (`processingConversationIds`), cleared manually on terminal events | Trust the server `isProcessing` flag on the conversation row |
 | `llm-context-summary-view.ts` | `0.8.12` | Inline context sections from the list response | `view=summary` light list + lazy per-log detail via `GET /v1/llm-request-logs/:id/context` |
 | `vision-attachment-gate.ts` | `0.10.0-dev.202606211252.5cf8576` | Client filters images out for non-vision models | Allow any file type; the image-fallback plugin filters/captions server-side |
-| `slack-channel-list.ts` | `0.10.7` | Slack sub-tab shows only connection state + thread controls; no channels query | Presence channel list below the thread controls, fed by `GET /v1/slack/channels?memberOnly=true` |
 
 When you delete a row here, also delete its module, its test, and the now-dead
 legacy branch at the call site.

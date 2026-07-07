@@ -1,10 +1,14 @@
 import { describe, expect, test } from "bun:test";
 
-import type { SlackChannel } from "@/domains/contacts/types";
+import type { ContactPayload, SlackChannel } from "@/domains/contacts/types";
 
 import {
+  buildVerifiedSlackContactNames,
   classifySlackChannelKind,
+  countSlackChannelKinds,
   filterSlackChannels,
+  resolveSlackChannelAccess,
+  slackChannelMetaLabel,
 } from "./slack-channel-list";
 
 function makeChannel(
@@ -18,6 +22,33 @@ function makeChannel(
     topic: null,
     imageUrl: null,
     ...overrides,
+  };
+}
+
+function makeContact(
+  displayName: string,
+  channels: Partial<ContactPayload["channels"][number]>[],
+): ContactPayload {
+  return {
+    id: `contact-${displayName}`,
+    displayName,
+    role: "contact",
+    contactType: "human",
+    interactionCount: 0,
+    createdAt: 0,
+    updatedAt: 0,
+    channels: channels.map((overrides, index) => ({
+      id: `ch-${displayName}-${index}`,
+      contactId: `contact-${displayName}`,
+      type: "slack",
+      address: `U${index}`,
+      isPrimary: index === 0,
+      externalUserId: null,
+      lastSeenAt: null,
+      interactionCount: null,
+      lastInteraction: null,
+      ...overrides,
+    })),
   };
 }
 
@@ -79,5 +110,82 @@ describe("filterSlackChannels", () => {
     expect(
       filterSlackChannels(CHANNELS, "alice", "private").map((c) => c.id),
     ).toEqual(["G1"]);
+  });
+});
+
+describe("countSlackChannelKinds", () => {
+  test("counts every kind, independent of search", () => {
+    expect(countSlackChannelKinds(CHANNELS)).toEqual({
+      public: 1,
+      private: 2,
+      dm: 1,
+    });
+  });
+
+  test("empty list counts zero everywhere", () => {
+    expect(countSlackChannelKinds([])).toEqual({ public: 0, private: 0, dm: 0 });
+  });
+});
+
+describe("slackChannelMetaLabel", () => {
+  test("DMs read as direct messages", () => {
+    expect(slackChannelMetaLabel(dmAlice)).toBe("Direct message");
+  });
+
+  test("channels show a pluralized member count", () => {
+    expect(
+      slackChannelMetaLabel(makeChannel({ id: "C9", name: "x", memberCount: 24 })),
+    ).toBe("24 members");
+    expect(
+      slackChannelMetaLabel(makeChannel({ id: "C9", name: "x", memberCount: 1 })),
+    ).toBe("1 member");
+  });
+
+  test("no member count yields no label", () => {
+    expect(slackChannelMetaLabel(general)).toBeNull();
+  });
+});
+
+describe("buildVerifiedSlackContactNames", () => {
+  test("collects normalized names of contacts with a verified Slack channel", () => {
+    const contacts = [
+      makeContact("  Alice ", [{ status: "verified" }]),
+      makeContact("Bob", [{ status: "active", verifiedAt: 123 }]),
+      makeContact("Mallory", [{ status: "active" }]),
+    ];
+    expect(buildVerifiedSlackContactNames(contacts)).toEqual(
+      new Set(["alice", "bob"]),
+    );
+  });
+
+  test("ignores verified channels of other types", () => {
+    const contacts = [
+      makeContact("Carol", [{ type: "telegram", status: "verified" }]),
+    ];
+    expect(buildVerifiedSlackContactNames(contacts)).toEqual(new Set());
+  });
+});
+
+describe("resolveSlackChannelAccess", () => {
+  const verified = new Set(["alice"]);
+
+  test("public and private channels resolve full access", () => {
+    expect(resolveSlackChannelAccess(general, new Set())).toBe("full_access");
+    expect(resolveSlackChannelAccess(leadership, new Set())).toBe("full_access");
+    expect(resolveSlackChannelAccess(groupDm, new Set())).toBe("full_access");
+  });
+
+  test("DMs with verified contacts resolve full access", () => {
+    expect(resolveSlackChannelAccess(dmAlice, verified)).toBe("full_access");
+  });
+
+  test("DM name matching is case-insensitive", () => {
+    const dm = makeChannel({ id: "D2", name: "ALICE", type: "dm" });
+    expect(resolveSlackChannelAccess(dm, verified)).toBe("full_access");
+  });
+
+  test("DMs with unverified contacts resolve strict", () => {
+    const dm = makeChannel({ id: "D3", name: "Mallory", type: "dm" });
+    expect(resolveSlackChannelAccess(dm, verified)).toBe("strict");
   });
 });

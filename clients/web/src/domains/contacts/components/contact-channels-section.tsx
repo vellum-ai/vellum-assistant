@@ -48,6 +48,19 @@ export type ChannelActionState =
   | { kind: "setup" }
   | { kind: "none" };
 
+/**
+ * A contact channel counts as verified when explicitly marked so, or when
+ * active with a recorded verification timestamp.
+ */
+export function isVerifiedContactChannel(
+  channel: Pick<ContactChannelPayload, "status" | "verifiedAt">,
+): boolean {
+  return (
+    channel.status === "verified" ||
+    (channel.status === "active" && channel.verifiedAt != null)
+  );
+}
+
 export function getChannelActionState(
   info: ChannelInfo,
   existing: ContactChannelPayload | undefined,
@@ -61,9 +74,7 @@ export function getChannelActionState(
     return { kind: "setup" };
   }
 
-  const verified =
-    existing?.status === "verified" ||
-    (existing?.status === "active" && existing?.verifiedAt != null);
+  const verified = existing != null && isVerifiedContactChannel(existing);
 
   if (verified) {
     return { kind: "verified" };
