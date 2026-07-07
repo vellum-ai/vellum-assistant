@@ -337,6 +337,26 @@ export async function emitNotificationSignal<TEventName extends string>(
       };
     }
 
+    // Step 2.5a2: Access-request signals carry a decisionable canonical
+    // guardian request created before this emit, and that row suppresses
+    // re-prompts for the same sender. A suppressed or vellum-less decision
+    // would strand the card with no way to re-surface it, so always deliver
+    // at least the in-app vellum card (a free local broadcast), whatever
+    // the urgency.
+    if (
+      signal.sourceEventName === "ingress.access_request" &&
+      (!decision.shouldNotify || !decision.selectedChannels.includes("vellum"))
+    ) {
+      decision = {
+        ...decision,
+        shouldNotify: true,
+        selectedChannels: decision.selectedChannels.includes("vellum")
+          ? decision.selectedChannels
+          : ["vellum", ...decision.selectedChannels],
+        reasoningSummary: `${decision.reasoningSummary} (vellum forced: decisionable access request)`,
+      };
+    }
+
     // Step 2.5b: Enforce routing intent policy (fire-time guard)
     const preEnforcementDecision = decision;
     decision = enforceRoutingIntent(

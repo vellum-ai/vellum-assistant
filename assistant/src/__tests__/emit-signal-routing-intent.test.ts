@@ -299,3 +299,117 @@ describe("emitNotificationSignal source-active pre-gate", () => {
     expect(evaluateSignalMock).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("access-request vellum floor", () => {
+  beforeEach(() => {
+    evaluateSignalMock.mockReset();
+    enforceRoutingIntentMock.mockReset();
+    updateDecisionMock.mockReset();
+    runDeterministicChecksMock.mockReset();
+    createEventMock.mockReset();
+    updateEventDedupeKeyMock.mockReset();
+    dispatchDecisionMock.mockReset();
+    createEventMock.mockReturnValue({ id: "evt-1" });
+    runDeterministicChecksMock.mockResolvedValue({ passed: true });
+    dispatchDecisionMock.mockResolvedValue({
+      dispatched: true,
+      reason: "ok",
+      deliveryResults: [],
+    });
+  });
+
+  test("rescues a suppressed access-request decision onto the vellum channel", async () => {
+    evaluateSignalMock.mockResolvedValue({
+      shouldNotify: false,
+      selectedChannels: [],
+      reasoningSummary: "LLM suppressed",
+      renderedCopy: {},
+      dedupeKey: "dedupe-ar-1",
+      confidence: 0.9,
+      fallbackUsed: false,
+      persistedDecisionId: "dec-ar-1",
+    });
+    enforceRoutingIntentMock.mockImplementation(
+      (decision: unknown) => decision,
+    );
+
+    const result = await emitNotificationSignal({
+      sourceEventName: "ingress.access_request",
+      sourceChannel: "telegram",
+      sourceContextId: "access-req-telegram-user-1",
+      requiresConversation: true,
+      attentionHints: {
+        requiresAction: true,
+        urgency: "medium",
+        isAsyncBackground: false,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {
+        requestId: "req-1",
+        requestCode: "AB12CD",
+        sourceChannel: "telegram",
+        conversationExternalId: "chat-123",
+        actorExternalId: "user-1",
+        actorDisplayName: "User One",
+        actorUsername: null,
+        senderIdentifier: "User One",
+        guardianBindingChannel: null,
+        guardianResolutionSource: "none",
+        previousMemberStatus: null,
+        messagePreview: null,
+        trigger: "admitted",
+      },
+    });
+
+    expect(result.dispatched).toBe(true);
+    expect(dispatchDecisionMock).toHaveBeenCalledTimes(1);
+    const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+      shouldNotify: boolean;
+      selectedChannels: string[];
+      reasoningSummary: string;
+    };
+    expect(dispatched.shouldNotify).toBe(true);
+    expect(dispatched.selectedChannels).toContain("vellum");
+    expect(dispatched.reasoningSummary).toContain(
+      "vellum forced: decisionable access request",
+    );
+  });
+
+  test("does not rescue suppressed non-access-request signals", async () => {
+    evaluateSignalMock.mockResolvedValue({
+      shouldNotify: false,
+      selectedChannels: [],
+      reasoningSummary: "LLM suppressed",
+      renderedCopy: {},
+      dedupeKey: "dedupe-bg-1",
+      confidence: 0.9,
+      fallbackUsed: false,
+      persistedDecisionId: "dec-bg-1",
+    });
+    enforceRoutingIntentMock.mockImplementation(
+      (decision: unknown) => decision,
+    );
+
+    await emitNotificationSignal({
+      sourceEventName: "schedule.notify",
+      sourceChannel: "scheduler",
+      sourceContextId: "rem-2",
+      attentionHints: {
+        requiresAction: false,
+        urgency: "medium",
+        isAsyncBackground: true,
+        visibleInSourceNow: false,
+      },
+      contextPayload: {},
+    });
+
+    // Suppression handling stays inside dispatchDecision — the floor must
+    // not have rewritten the decision for a non-access-request signal.
+    const dispatched = dispatchDecisionMock.mock.calls[0][1] as {
+      shouldNotify: boolean;
+      reasoningSummary: string;
+    };
+    expect(dispatched.shouldNotify).toBe(false);
+    expect(dispatched.reasoningSummary).not.toContain("vellum forced");
+  });
+});
