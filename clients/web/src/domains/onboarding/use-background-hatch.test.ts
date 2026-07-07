@@ -46,6 +46,10 @@ mock.module("@/assistant/api", () => ({
 mock.module("@/lib/sentry/capture-error", () => ({
   captureError: () => {},
 }));
+const probeLocalGatewayReadyMock = mock(async (): Promise<boolean> => true);
+mock.module("@/lib/local-mode", () => ({
+  probeLocalGatewayReady: probeLocalGatewayReadyMock,
+}));
 mock.module("@/utils/api-errors", () => ({
   extractErrorMessage: (e: unknown, _r: unknown, fallback?: string) =>
     e &&
@@ -68,6 +72,7 @@ beforeEach(() => {
   hatchAssistantMock.mockClear();
   getAssistantMock.mockClear();
   getAssistantHealthzMock.mockClear();
+  probeLocalGatewayReadyMock.mockClear();
 });
 
 describe("useBackgroundHatch", () => {
@@ -148,9 +153,11 @@ describe("useBackgroundHatch", () => {
     // …the existing assistant is discovered via getAssistant, pinned to the
     // id the hatching screen handed off…
     expect(getAssistantMock).toHaveBeenCalledWith("ast-research");
-    // …and the assistant-scoped healthz is SKIPPED (the hatching screen already
-    // confirmed the local gateway's /readyz, and that SDK call doesn't resolve
-    // against a local gateway anyway).
+    // …readiness is verified against the LOCAL gateway's /readyz (the
+    // assistant-scoped healthz SDK call doesn't resolve against a local
+    // gateway) — this also covers session-based adopts that never passed
+    // through the hatching screen's own readyz poll…
+    expect(probeLocalGatewayReadyMock).toHaveBeenCalled();
     expect(getAssistantHealthzMock).not.toHaveBeenCalled();
     expect(result.current.assistantId).toBe("ast-research");
   });

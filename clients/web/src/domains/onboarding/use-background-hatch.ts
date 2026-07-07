@@ -11,6 +11,7 @@ import {
   resolveAssistantLifecycleState,
   shouldRecoverFromHatchFailure,
 } from "@/assistant/lifecycle";
+import { probeLocalGatewayReady } from "@/lib/local-mode";
 import { captureError } from "@/lib/sentry/capture-error";
 import { extractErrorMessage } from "@/utils/api-errors";
 
@@ -200,15 +201,27 @@ export function useBackgroundHatch(
         await sleep(POLL_INTERVAL_MS);
       }
 
-      // 3. Poll healthz until the daemon is reachable, then mark ready.
+      // 3. Poll until the assistant's runtime is reachable, then mark ready.
       //
-      // Skipped when adopting an already-hatched local assistant: the hatching
-      // screen already polled the local gateway's `/readyz` before handing off
-      // here, so it's known reachable — and the assistant-scoped
-      // `getAssistantHealthz()` SDK call doesn't resolve against a local gateway
-      // (it needs a guardian-token-authed `/v1/assistants/{id}/healthz`), so
-      // running it here would spin to the timeout on a healthy assistant.
-      if (!adoptExisting) {
+      // Adopting a local assistant checks the LOCAL gateway's `/readyz`
+      // (gateway + upstream daemon) — the assistant-scoped
+      // `getAssistantHealthz()` SDK call doesn't resolve against a local
+      // gateway (it needs a guardian-token-authed
+      // `/v1/assistants/{id}/healthz`), so it would spin to the timeout on a
+      // healthy assistant. The readyz check matters even though the hatching
+      // screen polls it before handing off: an adopt can also start from a
+      // session-based fallback (refresh / direct visit with no query string),
+      // where a cached gateway token proves nothing about the gateway process
+      // still being alive.
+      if (adoptExisting) {
+        while (!(await probeLocalGatewayReady())) {
+          if (timedOut()) {
+            settleError(TIMEOUT_ERROR);
+            return;
+          }
+          await sleep(POLL_INTERVAL_MS);
+        }
+      } else {
         while (true) {
           try {
             const health = await getAssistantHealthz(activeAssistantId);
