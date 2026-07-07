@@ -7,8 +7,8 @@
  * as soon as it is complete, so speech starts before the full response lands.
  */
 
-export const DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD = 180;
-export const EAGER_SPEAKABLE_SEGMENT_CHAR_THRESHOLD = 60;
+const DEFAULT_CHAR_THRESHOLD = 180;
+const EAGER_CHAR_THRESHOLD = 60;
 
 const SENTENCE_ENDING_PUNCTUATION = new Set([".", "!", "?"]);
 const TRAILING_SENTENCE_PUNCTUATION = new Set(['"', "'", ")", "]"]);
@@ -19,17 +19,10 @@ const EAGER_MIN_CLAUSE_PREFIX_CHARS = 24;
 
 export interface ExtractSpeakableSegmentsOptions {
   /**
-   * Max characters buffered before a segment is force-split at the last
-   * whitespace boundary. Defaults to
-   * {@link DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD}
-   * ({@link EAGER_SPEAKABLE_SEGMENT_CHAR_THRESHOLD} when `eager`).
-   */
-  charThreshold?: number;
-  /**
    * Trade segment quality for onset latency: clause punctuation (`,` `;` `:`)
    * followed by whitespace also ends a segment once at least
-   * ~24 chars precede it, and the default char threshold drops to
-   * {@link EAGER_SPEAKABLE_SEGMENT_CHAR_THRESHOLD}. Applies only until the
+   * ~24 chars precede it, and the max buffered length before a forced split
+   * drops from 180 to 60 chars. Applies only until the
    * first segment of the call is found — later segments keep full-sentence
    * rules. The caller decides when to stop passing `eager` (typically after
    * the first segment is enqueued).
@@ -47,11 +40,7 @@ export function extractSpeakableSegments(
   let remainder = text;
 
   while (remainder.length > 0) {
-    const charThreshold =
-      options?.charThreshold ??
-      (eager
-        ? EAGER_SPEAKABLE_SEGMENT_CHAR_THRESHOLD
-        : DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD);
+    const charThreshold = eager ? EAGER_CHAR_THRESHOLD : DEFAULT_CHAR_THRESHOLD;
     const boundary = findSpeakableBoundary(remainder, charThreshold, eager);
     if (boundary === null) {
       break;
@@ -94,7 +83,8 @@ function findSpeakableBoundary(
       eager &&
       EAGER_CLAUSE_PUNCTUATION.has(char) &&
       index >= EAGER_MIN_CLAUSE_PREFIX_CHARS &&
-      isWhitespace(text[index + 1] ?? "")
+      isWhitespace(text[index + 1] ?? "") &&
+      !hasOpenInlineSpan(text.slice(0, index))
     ) {
       return index + 1;
     }
@@ -111,7 +101,10 @@ function findSpeakableBoundary(
       boundary += 1;
     }
 
-    if (boundary === text.length || isWhitespace(text[boundary] ?? "")) {
+    if (
+      (boundary === text.length || isWhitespace(text[boundary] ?? "")) &&
+      !hasOpenInlineSpan(text.slice(0, index))
+    ) {
       return boundary;
     }
   }
@@ -120,8 +113,35 @@ function findSpeakableBoundary(
     return null;
   }
 
+  // Length-threshold splits are a hard cap and must flush even inside an
+  // open span — unbalanced markers there are an accepted edge.
   const preferredBoundary = findLastWhitespaceBoundary(text, charThreshold);
   return preferredBoundary ?? charThreshold;
+}
+
+/**
+ * Whether the text ends inside an open `**`, `*`, or backtick span. A
+ * boundary there would split the span across segments, and per-segment
+ * sanitization would leave an unbalanced marker to be spoken.
+ */
+function hasOpenInlineSpan(prefix: string): boolean {
+  let backticks = 0;
+  let bold = 0;
+  let italic = 0;
+  for (let index = 0; index < prefix.length; index += 1) {
+    const char = prefix[index];
+    if (char === "`") {
+      backticks += 1;
+    } else if (char === "*") {
+      if (prefix[index + 1] === "*") {
+        bold += 1;
+        index += 1;
+      } else {
+        italic += 1;
+      }
+    }
+  }
+  return backticks % 2 === 1 || bold % 2 === 1 || italic % 2 === 1;
 }
 
 function findLastWhitespaceBoundary(

@@ -1,10 +1,9 @@
 import { describe, expect, test } from "bun:test";
 
-import {
-  DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD,
-  EAGER_SPEAKABLE_SEGMENT_CHAR_THRESHOLD,
-  extractSpeakableSegments,
-} from "../speakable-segments.js";
+import { extractSpeakableSegments } from "../speakable-segments.js";
+
+const DEFAULT_CHAR_THRESHOLD = 180;
+const EAGER_CHAR_THRESHOLD = 60;
 
 describe("extractSpeakableSegments", () => {
   test("splits complete sentences and keeps the trailing fragment as remainder", () => {
@@ -76,6 +75,15 @@ describe("extractSpeakableSegments", () => {
     expect(remainder).toBe("");
   });
 
+  test("text below the 180-char threshold does not force-split", () => {
+    const text = "y".repeat(DEFAULT_CHAR_THRESHOLD - 1);
+
+    const { segments, remainder } = extractSpeakableSegments(text, false);
+
+    expect(segments).toEqual([]);
+    expect(remainder).toBe(text);
+  });
+
   test("over-threshold text splits at the last whitespace before the threshold", () => {
     const text = "steady ".repeat(40);
 
@@ -83,9 +91,7 @@ describe("extractSpeakableSegments", () => {
 
     expect(segments).toHaveLength(1);
     const segment = segments[0] ?? "";
-    expect(segment.length).toBeLessThanOrEqual(
-      DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD,
-    );
+    expect(segment.length).toBeLessThanOrEqual(DEFAULT_CHAR_THRESHOLD);
     expect(segment.endsWith("steady")).toBe(true);
     expect(remainder.startsWith("steady")).toBe(true);
     // No text is lost across the split.
@@ -93,25 +99,12 @@ describe("extractSpeakableSegments", () => {
   });
 
   test("over-threshold text without whitespace splits at the threshold exactly", () => {
-    const text = "x".repeat(DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD + 20);
+    const text = "x".repeat(DEFAULT_CHAR_THRESHOLD + 20);
 
     const { segments, remainder } = extractSpeakableSegments(text, false);
 
-    expect(segments).toEqual([
-      "x".repeat(DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD),
-    ]);
+    expect(segments).toEqual(["x".repeat(DEFAULT_CHAR_THRESHOLD)]);
     expect(remainder).toBe("x".repeat(20));
-  });
-
-  test("charThreshold option overrides the default split length", () => {
-    const text = "alpha beta gamma delta epsilon";
-
-    const { segments, remainder } = extractSpeakableSegments(text, false, {
-      charThreshold: 12,
-    });
-
-    expect(segments).toEqual(["alpha beta", "gamma delta"]);
-    expect(remainder).toBe("epsilon");
   });
 
   describe("eager mode", () => {
@@ -158,7 +151,7 @@ describe("extractSpeakableSegments", () => {
       expect(remainder).toBe(text);
     });
 
-    test("uses the lower char threshold to split without punctuation", () => {
+    test("uses the lower 60-char threshold to split without punctuation", () => {
       const text = "word ".repeat(20);
 
       const { segments } = extractSpeakableSegments(text, false, {
@@ -167,21 +160,8 @@ describe("extractSpeakableSegments", () => {
 
       expect(segments.length).toBeGreaterThan(0);
       const segment = segments[0] ?? "";
-      expect(segment.length).toBeLessThanOrEqual(
-        EAGER_SPEAKABLE_SEGMENT_CHAR_THRESHOLD,
-      );
+      expect(segment.length).toBeLessThanOrEqual(EAGER_CHAR_THRESHOLD);
       expect(segment.endsWith("word")).toBe(true);
-    });
-
-    test("charThreshold option overrides the eager default", () => {
-      const text = "word ".repeat(20);
-
-      const { segments } = extractSpeakableSegments(text, false, {
-        eager: true,
-        charThreshold: 30,
-      });
-
-      expect(segments[0]?.length).toBeLessThanOrEqual(30);
     });
 
     test("eagerness applies only to the first segment of a call", () => {
@@ -207,15 +187,71 @@ describe("extractSpeakableSegments", () => {
     });
   });
 
-  test("charThreshold defaulting matches the exported constant", () => {
-    const text = "y".repeat(DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD - 1);
+  describe("open inline spans", () => {
+    test("does not split at a clause boundary inside an open bold span", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "**bold text that keeps going, more** and then.",
+        false,
+        { eager: true },
+      );
 
-    const belowDefault = extractSpeakableSegments(text, false);
-    expect(belowDefault.segments).toEqual([]);
-
-    const explicitDefault = extractSpeakableSegments(text, false, {
-      charThreshold: DEFAULT_SPEAKABLE_SEGMENT_CHAR_THRESHOLD,
+      expect(segments).toEqual([
+        "**bold text that keeps going, more** and then.",
+      ]);
+      expect(remainder).toBe("");
     });
-    expect(explicitDefault.segments).toEqual([]);
+
+    test("does not split at a clause boundary inside an open backtick span", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "`code segment with a comma here, x` done.",
+        false,
+        { eager: true },
+      );
+
+      expect(segments).toEqual(["`code segment with a comma here, x` done."]);
+      expect(remainder).toBe("");
+    });
+
+    test("splits normally at a clause boundary after a balanced span", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "He said **wait** and more, then it continued on",
+        false,
+        { eager: true },
+      );
+
+      expect(segments).toEqual(["He said **wait** and more,"]);
+      expect(remainder).toBe(" then it continued on");
+    });
+
+    test("does not split at sentence punctuation inside an open bold span", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "**Wait. No** more.",
+        false,
+      );
+
+      expect(segments).toEqual(["**Wait. No** more."]);
+      expect(remainder).toBe("");
+    });
+
+    test("does not split at sentence punctuation inside an open italic span", () => {
+      const { segments, remainder } = extractSpeakableSegments(
+        "*hold on. yes* it is done.",
+        false,
+      );
+
+      expect(segments).toEqual(["*hold on. yes* it is done."]);
+      expect(remainder).toBe("");
+    });
+
+    test("an open span still flushes at the length-threshold hard cap", () => {
+      const text = `**${"steady ".repeat(40)}`;
+
+      const { segments } = extractSpeakableSegments(text, false);
+
+      expect(segments).toHaveLength(1);
+      expect((segments[0] ?? "").length).toBeLessThanOrEqual(
+        DEFAULT_CHAR_THRESHOLD,
+      );
+    });
   });
 });
