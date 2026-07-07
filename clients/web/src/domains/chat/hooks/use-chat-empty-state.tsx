@@ -84,9 +84,9 @@ export function useChatEmptyState({
   avatar,
   mainView,
   openedAppState,
-  isAssistantStreaming,
+  isAssistantStreaming: _isAssistantStreaming,
   isAssistantBusy,
-  activeConversationIsProcessing,
+  activeConversationIsProcessing: _activeConversationIsProcessing,
   onSelectStarter,
   onSelectSuggestion,
 }: UseChatEmptyStateParams): ChatEmptyStateResult {
