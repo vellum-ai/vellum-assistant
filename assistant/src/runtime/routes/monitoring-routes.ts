@@ -18,7 +18,7 @@ import {
   spawnMonitoringWorkerProcess,
   stopMonitoringWorkerProcess,
 } from "../../monitoring/control.js";
-import type { ResourceSample } from "../../monitoring/resource-sampler.js";
+import type { ResourceSample } from "../../monitoring/resource-sample-types.js";
 import { SampleRingBuffer } from "../../monitoring/sample-ring-buffer.js";
 import { getLogger } from "../../util/logger.js";
 import {

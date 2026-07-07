@@ -17,9 +17,9 @@
  */
 
 import { PRESERVED_ENTRIES } from "../../plugins/plugin-tree-walk.js";
+import type { FetchLike } from "./fetch-like.js";
 import {
   DEFAULT_PLUGIN_REF,
-  type FetchLike,
   type InstallMeta,
   readInstallMeta,
   sanitizePluginName,

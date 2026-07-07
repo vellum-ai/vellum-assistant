@@ -6,7 +6,7 @@
 import { requireBoundGuardian } from "../auth/require-bound-guardian.js";
 import type { HttpErrorCode } from "../http-errors.js";
 import { httpError } from "../http-errors.js";
-import type { HTTPRouteDefinition } from "../http-router.js";
+import type { HTTPRouteDefinition } from "../http-router-types.js";
 import { RouteError } from "./errors.js";
 import type { ResponseHeaderArgs, RouteDefinition } from "./types.js";
 import { RouteResponse } from "./types.js";

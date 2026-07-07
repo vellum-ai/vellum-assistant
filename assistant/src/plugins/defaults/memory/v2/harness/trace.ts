@@ -8,7 +8,7 @@
  * high-level skip is observable rather than silent.
  */
 
-import type { RetrievalCost } from "./retriever.js";
+import type { RetrievalCost } from "./harness-types.js";
 
 /** A scout lane's contribution on one pass. */
 export interface ScoutResult {
