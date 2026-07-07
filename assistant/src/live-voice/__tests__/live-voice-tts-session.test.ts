@@ -290,7 +290,67 @@ describe("LiveVoiceSession TTS", () => {
     expect(frames.find((frame) => frame.type === "error")).toMatchObject({
       type: "error",
       message: expect.stringContaining("provider unavailable"),
+      recoverable: true,
     });
+    expect(frames.at(-1)).toMatchObject({
+      type: "tts_done",
+      turnId: "live-turn-1",
+    });
+  });
+
+  test("sanitizes markdown spanning deltas before TTS while deltas stay raw", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const ttsTexts: string[] = [];
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      ttsTexts.push(options.text);
+      options.onAudioChunk(makeTtsChunk(`audio:${options.text}`));
+      return makeTtsResult(options.text);
+    });
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta("Use **bo"));
+    callbacks?.assistant_text_delta?.(makeTextDelta("ld** and `code` now. 🎉"));
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(ttsTexts).toEqual(["Use bold and code now."]);
+    expect(
+      frames.flatMap((frame) =>
+        frame.type === "assistant_text_delta" ? [frame.text] : [],
+      ),
+    ).toEqual(["Use **bo", "ld** and `code` now. 🎉"]);
+  });
+
+  test("skips synthesis entirely for segments that sanitize to nothing", async () => {
+    let callbacks: VoiceTurnCallbacks | undefined;
+    const startVoiceTurn = mock(async (options: VoiceTurnOptions) => {
+      callbacks = options.callbacks;
+      return { turnId: "bridge-turn-1", abort: mock() };
+    });
+    const streamTtsAudio = mock(async (options: LiveVoiceTtsOptions) => {
+      options.onAudioChunk(makeTtsChunk(`audio:${options.text}`));
+      return makeTtsResult(options.text);
+    });
+    const { frames, session } = createSessionHarness({
+      startVoiceTurn,
+      streamTtsAudio,
+    });
+
+    await startReleasedTurn(session);
+    callbacks?.assistant_text_delta?.(makeTextDelta("### 🎉👍"));
+    callbacks?.message_complete?.(makeMessageComplete());
+    await waitFor(() => frames.some((frame) => frame.type === "tts_done"));
+
+    expect(streamTtsAudio).not.toHaveBeenCalled();
+    expect(frames.some((frame) => frame.type === "tts_audio")).toBe(false);
     expect(frames.at(-1)).toMatchObject({
       type: "tts_done",
       turnId: "live-turn-1",

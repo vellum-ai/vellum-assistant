@@ -42,6 +42,7 @@ import {
   type TelephonySttCapability,
 } from "../providers/speech-to-text/resolve.js";
 import { normalizeSttError } from "../stt/daemon-batch-transcriber.js";
+import { DEFAULT_SPEECH_ENERGY_THRESHOLD } from "../stt/speech-energy.js";
 import type {
   StreamingTranscriber,
   SttCallContextHints,
@@ -722,8 +723,6 @@ function stopStreamingBestEffort(
  * @returns `true` if the chunk likely contains speech, `false` otherwise.
  */
 function detectSpeechActivity(raw: Buffer): boolean {
-  const SPEECH_ENERGY_THRESHOLD = 800;
-
   if (raw.length === 0) {
     return false;
   }
@@ -735,7 +734,7 @@ function detectSpeechActivity(raw: Buffer): boolean {
   }
   const avgAmplitude = totalAmplitude / raw.length;
 
-  return avgAmplitude > SPEECH_ENERGY_THRESHOLD;
+  return avgAmplitude > DEFAULT_SPEECH_ENERGY_THRESHOLD;
 }
 
 // ---------------------------------------------------------------------------
