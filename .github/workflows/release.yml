@@ -1823,10 +1823,17 @@ jobs:
   # release failed to register; on production runs the SPA ships LAST,
   # after the GitHub Release is published and the release is registered
   # with the platform.
+  #
+  # Both `if` conditions MUST use the `always() && !cancelled()` + explicit
+  # per-need result checks pattern: register-release sits downstream of the
+  # production-only `release` and `push-dockerhub-image` jobs, which are
+  # skipped on staging runs. A skipped job anywhere in the transitive needs
+  # chain makes the implicit `success()` false — so a plain `if` here would
+  # skip the deploy even though every direct need succeeded.
   deploy-web-spa-staging:
     name: Deploy Web SPA (staging)
     needs: [extract-version, ci-assistant, ci-cli, ci-gateway, ci-credential-executor, ci-web, register-release]
-    if: ${{ needs.extract-version.outputs.is_staging == 'true' }}
+    if: ${{ always() && !cancelled() && needs.extract-version.outputs.is_staging == 'true' && needs.extract-version.result == 'success' && needs.ci-assistant.result == 'success' && needs.ci-cli.result == 'success' && needs.ci-gateway.result == 'success' && needs.ci-credential-executor.result == 'success' && needs.ci-web.result == 'success' && needs.register-release.result == 'success' }}
     permissions:
       contents: read
       id-token: write
