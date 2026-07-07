@@ -18,7 +18,6 @@ import {
   type SlackCapabilityTier,
 } from "@/domains/contacts/slack-channel-overrides";
 import type { SlackChannel } from "@/domains/contacts/types";
-import type { AdmissionPolicy } from "@/lib/channel-admission-policy/types";
 
 /**
  * How a channel presents in the filter chips. Mirrors the conversation-type
@@ -151,8 +150,6 @@ export interface SlackChannelListProps {
   onTierChange?: (channelId: string, tier: SlackCapabilityTier) => void;
   /** Deletes the channel's persisted cells so the default wins again. */
   onTierReset?: (channelId: string) => void;
-  /** Slack trust floor, shown read-only in expanded rows. */
-  admissionPolicy?: AdmissionPolicy;
 }
 
 const EMPTY_PENDING_IDS: ReadonlySet<string> = new Set();
@@ -177,7 +174,6 @@ export function SlackChannelList({
   pendingChannelIds = EMPTY_PENDING_IDS,
   onTierChange,
   onTierReset,
-  admissionPolicy,
 }: SlackChannelListProps) {
   const [search, setSearch] = useState("");
   const [kindFilter, setKindFilter] = useState<SlackRoomKind | null>(null);
@@ -340,8 +336,6 @@ export function SlackChannelList({
                           onTierChange?.(channel.id, tier)
                         }
                         onReset={() => onTierReset?.(channel.id)}
-                        assistantDisplayName={assistantDisplayName}
-                        admissionPolicy={admissionPolicy}
                       />
                     )}
                     className="h-full"
@@ -361,8 +355,6 @@ export function SlackChannelList({
                       tierOverride={tierOverrides?.[channel.id]}
                       onTierChange={(tier) => onTierChange?.(channel.id, tier)}
                       onReset={() => onTierReset?.(channel.id)}
-                      assistantDisplayName={assistantDisplayName}
-                      admissionPolicy={admissionPolicy}
                     />
                   ))}
                 </div>
@@ -397,8 +389,6 @@ function SlackChannelRow({
   tierOverride,
   onTierChange,
   onReset,
-  assistantDisplayName,
-  admissionPolicy,
 }: {
   channel: SlackChannel;
   open: boolean;
@@ -409,8 +399,6 @@ function SlackChannelRow({
   tierOverride: SlackCapabilityTier | undefined;
   onTierChange: (tier: SlackCapabilityTier) => void;
   onReset: () => void;
-  assistantDisplayName: string;
-  admissionPolicy: AdmissionPolicy | undefined;
 }) {
   const kind = classifySlackChannelKind(channel);
   // Rows are rooms only ({@link roomsOnly}); a 1:1 DM row is unreachable.
@@ -470,8 +458,6 @@ function SlackChannelRow({
           <SlackChannelOverridePanel
             channelName={channel.name}
             kindLabel={kind}
-            assistantDisplayName={assistantDisplayName}
-            admissionPolicy={admissionPolicy}
             settings={settings}
             loading={overridesLoading}
             error={overridesError}

@@ -1,12 +1,14 @@
-import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
-import { AssistantChannelsList } from "@/domains/contacts/components/assistant-channels-list";
+import {
+  AssistantChannelsList,
+  type AssistantChannelsListProps,
+} from "@/domains/contacts/components/assistant-channels-list";
 import type { AssistantChannelState } from "@/domains/contacts/types";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 const CHANNELS: AssistantChannelState[] = [
   { key: "slack", status: "ready", address: "@vex" },
@@ -14,22 +16,10 @@ const CHANNELS: AssistantChannelState[] = [
   { key: "phone", status: "not_configured" },
 ];
 
-// Flag values are only authoritative once /feature-flags has hydrated;
-// pre-hydration the list renders a loading placeholder instead of
-// committing to a layout (see the hydration gate in AssistantChannelsList).
-function setTabbedLayout(enabled: boolean) {
-  useAssistantFeatureFlagStore.setState({
-    channelTrustFloors: enabled,
-    hasHydrated: true,
-  });
-}
-
-
-// The tabbed layout's Slack panel owns its own queries
-// (`SlackChannelSection`), so list renders need a QueryClient. Queries fail
-// fast (retry off, no server) and the panel shows its error state, which
-// these layout assertions don't depend on.
-function renderList(extraProps: { initialChannel?: "slack" | "telegram" | "phone" } = {}) {
+// The Slack panel owns its own queries (`SlackChannelSection`), so list
+// renders need a QueryClient. Queries fail fast (retry off, no server) and
+// the panel shows its error state, which these assertions don't depend on.
+function renderList(extraProps: Partial<AssistantChannelsListProps> = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -45,16 +35,8 @@ function renderList(extraProps: { initialChannel?: "slack" | "telegram" | "phone
   );
 }
 
-beforeEach(() => {
-  setTabbedLayout(false);
-});
-
 afterEach(() => {
   cleanup();
-  useAssistantFeatureFlagStore.setState({
-    channelTrustFloors: false,
-    hasHydrated: false,
-  });
 });
 
 describe("assistant channels surfaces", () => {
@@ -68,10 +50,9 @@ describe("assistant channels surfaces", () => {
   });
 
   test("the Contacts detail view is a plain connect/disconnect list, not the Channels-tab panel", () => {
-    // Regardless of the channel-trust-floors flag, the contact card renders
-    // one row per adapter — never the sub-tabs, trust-floor dropdown, Slack
-    // settings card, or channel list (those live in the Channels tab).
-    setTabbedLayout(true);
+    // The contact card renders one row per adapter — never the sub-tabs,
+    // trust-floor dropdown, Slack cards, or channel list (those live in the
+    // Channels tab).
     render(
       <AssistantChannelsDetail
         assistantName="Vex"
@@ -85,7 +66,7 @@ describe("assistant channels surfaces", () => {
     expect(document.body.textContent).not.toContain("Thread Behavior");
     expect(document.body.textContent).not.toContain("Share Connection Link");
 
-    // Connected Slack: handle + chip + destructive disconnect.
+    // Connected Slack: handle + chip + disconnect.
     expect(document.body.textContent).toContain("@vex");
     expect(document.body.textContent).toContain("Connected");
     expect(document.body.textContent).toContain("Disconnect");
@@ -130,17 +111,7 @@ describe("assistant channels surfaces", () => {
     expect(document.body.textContent).toContain("Telegram");
   });
 
-  test("channel-trust-floors off renders the accordion rows", () => {
-    setTabbedLayout(false);
-    renderList();
-    expect(document.body.textContent).toContain("Phone Calling");
-    // Accordion rows surface per-channel Set up buttons inline.
-    expect(document.body.textContent).toContain("Set up");
-    expect(document.querySelector('[data-slot="tabs"]')).toBeNull();
-  });
-
-  test("channel-trust-floors on renders the adapter sub-tabs", () => {
-    setTabbedLayout(true);
+  test("renders the adapter sub-tabs", () => {
     renderList();
     expect(document.querySelector('[data-slot="tabs"]')).not.toBeNull();
     expect(document.body.textContent).toContain("Phone");
@@ -150,27 +121,64 @@ describe("assistant channels surfaces", () => {
     expect(document.body.textContent).toContain("Disconnect");
   });
 
-  test("renders a loading placeholder while a false flag is unhydrated", () => {
-    useAssistantFeatureFlagStore.setState({
-      channelTrustFloors: false,
-      hasHydrated: false,
+  test("the Slack sub-tab consolidates connection state into a single card", () => {
+    renderList({
+      onDisconnect: () => {},
+      channelPolicies: { slack: "trusted_contacts" },
+      onChannelPolicyChange: () => {},
     });
-    renderList();
-    expect(document.body.textContent).toContain("Loading…");
-    expect(document.body.textContent).not.toContain("Slack");
+
+    // Card header row: @handle + Connected chip + Disconnect; card body:
+    // the Thread Behavior radios.
+    expect(document.body.textContent).toContain("@vex");
+    expect(document.body.textContent).toContain("Connected");
+    expect(document.body.textContent).toContain("Disconnect");
+    expect(document.body.textContent).toContain("Thread Behavior");
+
+    // No trust-floor dropdown even with a policy handler wired — Slack has
+    // no channel-wide floor control. And no duplicated wrapper header or
+    // "Connected as" subline.
+    expect(document.body.textContent).not.toContain("Who can message");
+    expect(document.body.textContent).not.toContain("Slack settings");
+    expect(document.body.textContent).not.toContain("Connected as");
   });
 
-  test("an unhydrated true flag (env override) renders the tabs immediately", () => {
-    useAssistantFeatureFlagStore.setState({
-      channelTrustFloors: true,
-      hasHydrated: false,
+  test("the Slack Disconnect affordance is low-weight but still confirms first", () => {
+    const disconnected: string[] = [];
+    renderList({ onDisconnect: (key) => disconnected.push(key) });
+
+    const disconnectButton = Array.from(
+      document.querySelectorAll("button"),
+    ).find((b) => b.textContent?.trim() === "Disconnect");
+    expect(disconnectButton).toBeDefined();
+    // Ghost weight, not the destructive filled variant.
+    expect(disconnectButton!.className).not.toContain("system-negative");
+
+    fireEvent.click(disconnectButton!);
+    expect(disconnected).toEqual([]);
+
+    const confirmButton = document.querySelector<HTMLButtonElement>(
+      "[data-confirm-dialog-confirm]",
+    );
+    expect(confirmButton).not.toBeNull();
+    fireEvent.click(confirmButton!);
+    expect(disconnected).toEqual(["slack"]);
+  });
+
+  test("connected Telegram keeps the trust-floor dropdown", () => {
+    renderList({
+      channels: [
+        { key: "telegram", status: "ready", address: "@vex_bot" },
+        { key: "slack", status: "ready", address: "@vex" },
+        { key: "phone", status: "not_configured" },
+      ],
+      channelPolicies: { telegram: "trusted_contacts" },
+      onChannelPolicyChange: () => {},
     });
-    renderList();
-    expect(document.querySelector('[data-slot="tabs"]')).not.toBeNull();
+    expect(document.body.textContent).toContain("Who can message Vex");
   });
 
   test("disconnected tab swaps the empty state for the manual form on request", () => {
-    setTabbedLayout(true);
     renderList();
 
     const telegramTab = Array.from(
@@ -197,7 +205,6 @@ describe("assistant channels surfaces", () => {
     // The mobile chat-drawer handoff navigates to `?setup=<channel>` to
     // continue credential entry here — it must land on the form, not the
     // empty state whose Set up button would start another conversation.
-    setTabbedLayout(true);
     renderList({ initialChannel: "telegram" });
     expect(document.body.textContent).toContain("Bot Token");
     expect(document.body.textContent).not.toContain("Telegram isn't connected");

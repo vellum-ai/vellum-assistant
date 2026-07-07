@@ -1,11 +1,9 @@
 import { ClipboardCopy, ExternalLink, Plus } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { Button, Input, Radio, RadioGroup, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
+import { Button, Input, Stepper, type StepperStep, Typography } from "@vellumai/design-library";
 import { useCopyToClipboard } from "@/hooks/use-copy-to-clipboard";
 import { buildSlackManifestUrl } from "@/utils/slack-manifest";
-
-export type SlackThreadMode = "mention_only" | "mention_then_thread";
 
 export type MutationStatus = "idle" | "pending" | "success" | "error";
 
@@ -21,22 +19,20 @@ const WIZARD_STEPS: StepperStep[] = [
 export interface SlackSetupWizardProps {
   assistantName: string;
   initialStepId?: WizardStepId;
-  connected?: boolean;
-  threadMode?: SlackThreadMode;
-  threadModePending?: boolean;
-  onThreadModeChange?: (mode: SlackThreadMode) => void;
   onSave?: (botToken: string, appToken: string) => void;
   saveStatus?: MutationStatus;
   saveError?: string | null;
 }
 
+/**
+ * Three-step guided setup for connecting a Slack app: create the app from
+ * a manifest, generate the app-level token, then install and paste the bot
+ * token. Settings for an already-connected Slack (thread behavior) live in
+ * `SlackThreadBehavior`.
+ */
 export function SlackSetupWizard({
   assistantName,
   initialStepId = "create-app",
-  connected = false,
-  threadMode,
-  threadModePending = false,
-  onThreadModeChange,
   onSave,
   saveStatus = "idle",
   saveError = null,
@@ -81,39 +77,6 @@ export function SlackSetupWizard({
       setStepId(WIZARD_STEP_IDS[next]);
     }
   }, [stepIndex]);
-
-  if (connected) {
-    return (
-      <div data-slot="slack-setup-wizard">
-        <div className="flex flex-col gap-3">
-          <Typography
-            as="span"
-            variant="body-small-emphasised"
-            className="text-[color:var(--content-secondary)]"
-          >
-            Thread Behavior
-          </Typography>
-          <RadioGroup<SlackThreadMode>
-            value={threadMode ?? "mention_then_thread"}
-            onValueChange={(next) => onThreadModeChange?.(next)}
-            disabled={threadModePending || !onThreadModeChange}
-            aria-label="Slack thread behavior"
-          >
-            <Radio<SlackThreadMode>
-              value="mention_only"
-              label="Mentions only"
-              helperText="Bot only responds when @mentioned."
-            />
-            <Radio<SlackThreadMode>
-              value="mention_then_thread"
-              label="Follow threads after first mention"
-              helperText="After an @mention in a thread, bot listens to all subsequent replies."
-            />
-          </RadioGroup>
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div data-slot="slack-setup-wizard">

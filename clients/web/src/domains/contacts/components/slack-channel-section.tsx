@@ -3,7 +3,6 @@ import { useQuery } from "@tanstack/react-query";
 import { SlackChannelList } from "@/domains/contacts/components/slack-channel-list";
 import { useChannelPermissionOverrides } from "@/domains/contacts/hooks/use-channel-permission-overrides";
 import { memberSlackChannelsOptions } from "@/domains/contacts/slack-channels-query";
-import type { AdmissionPolicy } from "@/lib/channel-admission-policy/types";
 
 export interface SlackChannelSectionProps {
   assistantId: string;
@@ -11,8 +10,6 @@ export interface SlackChannelSectionProps {
   assistantDisplayName: string;
   /** The assistant's Slack handle for the `/invite` and `/remove` hints. */
   slackHandle?: string;
-  /** Slack trust floor, shown read-only in expanded rows. */
-  admissionPolicy?: AdmissionPolicy;
 }
 
 /**
@@ -25,7 +22,6 @@ export function SlackChannelSection({
   assistantId,
   assistantDisplayName,
   slackHandle,
-  admissionPolicy,
 }: SlackChannelSectionProps) {
   const channelsQuery = useQuery({
     ...memberSlackChannelsOptions(assistantId),
@@ -51,7 +47,6 @@ export function SlackChannelSection({
       pendingChannelIds={overrides.pendingChannelIds}
       onTierChange={overrides.onTierChange}
       onTierReset={overrides.onTierReset}
-      admissionPolicy={admissionPolicy}
     />
   );
 }

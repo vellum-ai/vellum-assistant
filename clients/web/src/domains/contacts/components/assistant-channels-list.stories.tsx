@@ -2,7 +2,6 @@ import type { Decorator, Meta, StoryObj } from "@storybook/react-vite";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import { DetailCard } from "@/components/detail-card";
-import { useAssistantFeatureFlagStore } from "@/stores/assistant-feature-flag-store";
 
 import { AssistantChannelsList } from "./assistant-channels-list";
 
@@ -10,21 +9,10 @@ import { AssistantChannelsList } from "./assistant-channels-list";
  * The standalone Channels tab composition (`ChannelsPage` minus its data
  * wiring): a borderless page subtitle, then the channel sub-tabs in a card —
  * matching the sibling About Assistant tabs rather than the boxed
- * "Channels" card used inside the Contacts detail view.
- *
- * The layout is gated on the `channel-trust-floors` flag: sub-tabs when on,
- * the accordion rows when off (see the Legacy story).
+ * "Channels" card used inside the Contacts detail view. (The Channels tab
+ * itself is gated on the `channel-trust-floors` flag in the About
+ * Assistant nav.)
  */
-const withLayoutFlag = (tabbed: boolean): Decorator => {
-  return (Story) => {
-    useAssistantFeatureFlagStore.setState({
-      channelTrustFloors: tabbed,
-      hasHydrated: true,
-    });
-    return <Story />;
-  };
-};
-
 // The Slack panel owns its own queries (`SlackChannelSection`), so stories
 // need a QueryClient. Requests fail in Storybook (no daemon), so the Slack
 // tab's channel list renders its error state; the list's full visuals live
@@ -56,7 +44,6 @@ const meta: Meta<typeof AssistantChannelsList> = {
   },
   decorators: [
     withQueryClient,
-    withLayoutFlag(true),
     (Story) => (
       <div
         style={{
@@ -85,7 +72,13 @@ type Story = StoryObj<typeof AssistantChannelsList>;
 
 export const ChannelsTab: Story = {};
 
-/** Connected Slack tab with the trust-floor control, as after a `?setup=slack` deep link. */
+/**
+ * Connected Slack tab: the consolidated connection card (logo, @handle,
+ * Connected chip, low-weight Disconnect) with Thread Behavior in the body,
+ * over the channel presence list. Slack shows no trust-floor dropdown even
+ * with a policy handler wired — its floors are managed per conversation
+ * type.
+ */
 export const ChannelsTabSlackConnected: Story = {
   args: {
     initialChannel: "slack",
@@ -93,6 +86,17 @@ export const ChannelsTabSlackConnected: Story = {
     onSlackThreadModeChange: () => {},
     channelPolicies: { slack: "trusted_contacts" },
     onChannelPolicyChange: () => {},
+  },
+};
+
+/** Disconnected Slack tab: the setup wizard in the "Slack setup" card. */
+export const ChannelsTabSlackDisconnected: Story = {
+  args: {
+    channels: [
+      { key: "slack", status: "not_configured" },
+      { key: "telegram", status: "not_configured" },
+      { key: "phone", status: "not_configured" },
+    ],
   },
 };
 
@@ -127,9 +131,4 @@ export const ChannelsTabTelegramSetupHandoff: Story = {
   args: {
     initialChannel: "telegram",
   },
-};
-
-/** The accordion layout rendered while `channel-trust-floors` is off. */
-export const LegacyAccordion: Story = {
-  decorators: [withLayoutFlag(false)],
 };
