@@ -1,15 +1,19 @@
 import type { FishAudioConfig } from "../config/schemas/fish-audio.js";
 import { credentialKey } from "../security/credential-key.js";
 import { getSecureKeyAsync } from "../security/secure-keys.js";
+import { readChunkedBody } from "../tts/stream-read.js";
 import { getLogger } from "../util/logger.js";
 
 const log = getLogger("fish-audio-client");
 
-/** Timeout waiting for the first chunk from Fish Audio (ms). */
-const FIRST_CHUNK_TIMEOUT_MS = 10_000;
-
-/** Timeout waiting between consecutive chunks (ms). */
-const IDLE_TIMEOUT_MS = 5_000;
+/**
+ * Config accepted by the synthesis client. Widens the user-facing format
+ * union with `"pcm"` (raw 16-bit LE, no container), which PCM-requesting
+ * callers substitute internally — it is not part of the config schema.
+ */
+export type FishAudioSynthesisConfig = Omit<FishAudioConfig, "format"> & {
+  format: FishAudioConfig["format"] | "pcm";
+};
 
 // ---------------------------------------------------------------------------
 // Fish Audio REST API (POST /v1/tts)
@@ -32,7 +36,7 @@ interface SynthesizeOptions {
  */
 export async function synthesizeWithFishAudio(
   text: string,
-  config: FishAudioConfig,
+  config: FishAudioSynthesisConfig,
   options?: SynthesizeOptions,
 ): Promise<Buffer> {
   const apiKey = await getSecureKeyAsync(
@@ -86,47 +90,12 @@ export async function synthesizeWithFishAudio(
     throw new Error("Fish Audio API returned no body");
   }
 
-  const chunks: Uint8Array[] = [];
-  const reader = response.body.getReader();
-  let isFirstChunk = true;
+  const audio = await readChunkedBody(response.body, {
+    onChunk: options?.onChunk,
+    makeTimeoutError: (timeoutMs) =>
+      new Error(`Fish Audio read timed out after ${timeoutMs}ms`),
+  });
 
-  try {
-    while (true) {
-      const timeoutMs = isFirstChunk ? FIRST_CHUNK_TIMEOUT_MS : IDLE_TIMEOUT_MS;
-      let timerId: ReturnType<typeof setTimeout>;
-      const timeout = new Promise<never>((_, reject) => {
-        timerId = setTimeout(
-          () => reject(new Error(`Fish Audio read timed out after ${timeoutMs}ms`)),
-          timeoutMs,
-        );
-      });
-      let done: boolean;
-      let value: Uint8Array | undefined;
-      try {
-        ({ done, value } = await Promise.race([reader.read(), timeout]));
-      } finally {
-        clearTimeout(timerId!);
-      }
-      if (done) break;
-      if (value) {
-        isFirstChunk = false;
-        chunks.push(value);
-        options?.onChunk?.(value);
-      }
-    }
-  } catch (err) {
-    try { await reader.cancel(); } catch { /* Ignore cancellation errors */ }
-    throw err;
-  }
-
-  const totalLength = chunks.reduce((sum, c) => sum + c.byteLength, 0);
-  const merged = new Uint8Array(totalLength);
-  let offset = 0;
-  for (const chunk of chunks) {
-    merged.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-
-  log.debug({ bytes: totalLength }, "Fish Audio synthesis complete");
-  return Buffer.from(merged);
+  log.debug({ bytes: audio.byteLength }, "Fish Audio synthesis complete");
+  return audio;
 }

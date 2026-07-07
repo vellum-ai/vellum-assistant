@@ -15,7 +15,7 @@
  *   via `sendPlayUrl()`.
  */
 
-import { getCatalogProvider, getTtsProvider } from "../tts/provider-catalog.js";
+import { getCatalogProvider } from "../tts/provider-catalog.js";
 import {
   type AudioStoreSink,
   createAudioStoreSink,
@@ -25,7 +25,7 @@ import type { TtsProvider, TtsProviderId } from "../tts/types.js";
 import { getLogger } from "../util/logger.js";
 import type { CallTransport } from "./call-transport.js";
 import {
-  findPlayableTelephonyTtsFallback,
+  findPlayableTelephonyTtsFallbackProvider,
   resolveCallTtsProvider,
 } from "./resolve-call-tts-provider.js";
 
@@ -83,7 +83,13 @@ export async function speakSystemPrompt(
  * Synthesize text via a streaming TTS provider and send the play URL
  * to the transport.
  *
- * On synthesis failure the behavior depends on the transport:
+ * A failure after the play URL has gone out (streaming provider died
+ * mid-stream) sends only the end-of-turn signal on every transport: the
+ * caller already heard the truncated prompt, and any fallback would
+ * re-speak it in full.
+ *
+ * On synthesis failure before any audio the behavior depends on the
+ * transport:
  * - WAV-requiring transports (media-stream) retry once with a playable
  *   fallback provider — native token TTS cannot rescue the prompt there
  *   because text tokens are themselves synthesized via the same provider
@@ -109,6 +115,7 @@ async function synthesizeAndPlay(
   isFallbackRetry = false,
 ): Promise<void> {
   let sink: AudioStoreSink | null = null;
+  let playUrlSent = false;
   try {
     // When format is WAV (media-stream transport), request raw PCM from
     // the provider so the audio bytes match the store's content-type.
@@ -124,7 +131,10 @@ async function synthesizeAndPlay(
     const storeFormat = outputFormat ? "pcm" : format;
     sink = createAudioStoreSink({
       format: storeFormat,
-      onPlayUrl: (url) => relay.sendPlayUrl(url),
+      onPlayUrl: (url) => {
+        relay.sendPlayUrl(url);
+        playUrlSent = true;
+      },
     });
 
     const result = await synthesizeAndEmit({
@@ -177,17 +187,25 @@ async function synthesizeAndPlay(
         ? (err as Error & { code?: string }).code
         : undefined;
 
+    // The caller already heard the truncated prompt — any fallback would
+    // re-speak it in full (mirrors call-controller's failed-after-audio).
+    if (playUrlSent) {
+      log.warn(
+        { err, provider: provider.id, errName, errCode },
+        "System prompt TTS synthesis failed after audio started — skipping fallback to avoid re-speaking the prompt",
+      );
+      relay.sendTextToken("", true);
+      return;
+    }
+
     if (relay.requiresWavAudio) {
       // WAV-requiring transport (media-stream): native token TTS routes
       // back through the same synthesis path, so retry once with a
       // playable fallback provider before degrading to end-of-turn only.
       if (!isFallbackRetry) {
-        const fallbackId = await findPlayableTelephonyTtsFallback(
-          provider.id as TtsProviderId,
+        const fallbackProvider = await findPlayableTelephonyTtsFallbackProvider(
+          provider.id,
         );
-        const fallbackProvider = fallbackId
-          ? lookupRegisteredProvider(fallbackId)
-          : null;
         if (fallbackProvider) {
           log.warn(
             {
@@ -253,14 +271,5 @@ async function synthesizeAndPlay(
     relay.sendTextToken(text, true);
   } finally {
     sink?.finalize();
-  }
-}
-
-/** Look up a registered provider, returning null instead of throwing. */
-function lookupRegisteredProvider(id: string): TtsProvider | null {
-  try {
-    return getTtsProvider(id);
-  } catch {
-    return null;
   }
 }

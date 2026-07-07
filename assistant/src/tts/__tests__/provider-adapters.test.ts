@@ -209,10 +209,15 @@ describe("ElevenLabs TTS provider adapter", () => {
     expect(provider.id).toBe("elevenlabs");
   });
 
-  test("advertises mp3 and pcm format support without streaming", () => {
+  test("advertises mp3 and pcm format support with streaming", () => {
     const provider = createElevenLabsProvider();
-    expect(provider.capabilities.supportsStreaming).toBe(false);
+    expect(provider.capabilities.supportsStreaming).toBe(true);
     expect(provider.capabilities.supportedFormats).toEqual(["mp3", "pcm"]);
+  });
+
+  test("implements synthesizeStream", () => {
+    const provider = createElevenLabsProvider();
+    expect(typeof provider.synthesizeStream).toBe("function");
   });
 
   // -- Request mapping -----------------------------------------------------
@@ -300,6 +305,295 @@ describe("ElevenLabs TTS provider adapter", () => {
 
     const body = JSON.parse(capturedBody);
     expect(body.model_id).toBe("eleven_turbo_v2_5");
+  });
+
+  test("synthesize defaults to eleven_multilingual_v2 model", async () => {
+    const audioPayload = new Uint8Array([0x49, 0x44, 0x33]);
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesize(makeRequest());
+
+    const body = JSON.parse(capturedBody);
+    expect(body.model_id).toBe("eleven_multilingual_v2");
+  });
+
+  // -- PCM sample-rate mapping ----------------------------------------------
+
+  test("pcm output with sampleRateHz 24000 requests pcm_24000", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    const result = await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 24000 }),
+    );
+
+    expect(capturedUrl).toContain("output_format=pcm_24000");
+    expect(result.contentType).toBe("audio/pcm");
+  });
+
+  test("pcm output without sampleRateHz defaults to pcm_16000", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesize(makeRequest({ outputFormat: "pcm" }));
+
+    expect(capturedUrl).toContain("output_format=pcm_16000");
+  });
+
+  test("pcm output with unmatched sampleRateHz falls back to pcm_16000", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(audioPayload, { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 8000 }),
+    );
+
+    expect(capturedUrl).toContain("output_format=pcm_16000");
+  });
+
+  test("resolveOutputSampleRateHz reports the actual PCM rate without synthesis", () => {
+    const provider = createElevenLabsProvider();
+
+    expect(
+      provider.resolveOutputSampleRateHz!(
+        makeRequest({ outputFormat: "pcm", sampleRateHz: 24000 }),
+      ),
+    ).toBe(24000);
+    expect(
+      provider.resolveOutputSampleRateHz!(
+        makeRequest({ outputFormat: "pcm", sampleRateHz: 48000 }),
+      ),
+    ).toBe(16000);
+    expect(provider.resolveOutputSampleRateHz!(makeRequest())).toBeUndefined();
+  });
+
+  // -- Streaming -------------------------------------------------------------
+
+  function streamOf(...parts: Uint8Array[]): ReadableStream<Uint8Array> {
+    return new ReadableStream<Uint8Array>({
+      start(controller) {
+        for (const part of parts) controller.enqueue(part);
+        controller.close();
+      },
+    });
+  }
+
+  test("synthesizeStream reads chunks from the /stream endpoint and concatenates them", async () => {
+    const part1 = new Uint8Array([0x01, 0x02]);
+    const part2 = new Uint8Array([0x03]);
+    let capturedUrl = "";
+
+    globalThis.fetch = mock(async (input: RequestInfo | URL) => {
+      capturedUrl = typeof input === "string" ? input : input.toString();
+      return new Response(streamOf(part1, part2), { status: 200 });
+    }) as unknown as typeof globalThis.fetch;
+
+    const received: Uint8Array[] = [];
+    const provider = createElevenLabsProvider();
+    const result = await provider.synthesizeStream!(
+      makeRequest({ outputFormat: "pcm" }),
+      (chunk) => received.push(chunk),
+    );
+
+    expect(capturedUrl).toContain(
+      "/v1/text-to-speech/test-voice-id/stream?output_format=pcm_16000",
+    );
+    expect(received).toEqual([part1, part2]);
+    expect(result.audio).toEqual(Buffer.from([0x01, 0x02, 0x03]));
+    expect(result.contentType).toBe("audio/pcm");
+  });
+
+  test("synthesizeStream rejects after the first-chunk timeout when the stream never produces audio", async () => {
+    globalThis.fetch = mock(
+      async () =>
+        new Response(new ReadableStream<Uint8Array>({ start() {} }), {
+          status: 200,
+        }),
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider({
+      firstChunkTimeoutMs: 20,
+      idleTimeoutMs: 20,
+    });
+
+    await expect(
+      provider.synthesizeStream!(makeRequest({ outputFormat: "pcm" }), () => {}),
+    ).rejects.toMatchObject({
+      name: "ElevenLabsTtsError",
+      code: "ELEVENLABS_TTS_STREAM_TIMEOUT",
+      message: expect.stringContaining("timed out after 20ms"),
+    });
+  });
+
+  test("synthesizeStream rejects after the idle timeout when the stream stalls mid-stream", async () => {
+    globalThis.fetch = mock(
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new Uint8Array([0x01, 0x02]));
+              // Never enqueue again and never close — a mid-stream stall.
+            },
+          }),
+          { status: 200 },
+        ),
+    ) as unknown as typeof globalThis.fetch;
+
+    const received: Uint8Array[] = [];
+    const provider = createElevenLabsProvider({
+      firstChunkTimeoutMs: 1_000,
+      idleTimeoutMs: 20,
+    });
+
+    await expect(
+      provider.synthesizeStream!(makeRequest({ outputFormat: "pcm" }), (chunk) =>
+        received.push(chunk),
+      ),
+    ).rejects.toMatchObject({
+      name: "ElevenLabsTtsError",
+      code: "ELEVENLABS_TTS_STREAM_TIMEOUT",
+    });
+    expect(received).toHaveLength(1);
+  });
+
+  test("synthesizeStream defaults to eleven_flash_v2_5 model", async () => {
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(streamOf(new Uint8Array([0x01])), { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesizeStream!(makeRequest(), () => {});
+
+    const body = JSON.parse(capturedBody);
+    expect(body.model_id).toBe("eleven_flash_v2_5");
+  });
+
+  test("synthesizeStream respects configured voiceModelId over flash default", async () => {
+    mockElevenLabsConfig.voiceModelId = "eleven_turbo_v2_5";
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(streamOf(new Uint8Array([0x01])), { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+    await provider.synthesizeStream!(makeRequest(), () => {});
+
+    const body = JSON.parse(capturedBody);
+    expect(body.model_id).toBe("eleven_turbo_v2_5");
+  });
+
+  test("synthesizeStream throws ELEVENLABS_TTS_EMPTY_RESPONSE on null body", async () => {
+    globalThis.fetch = mock(
+      async () => new Response(null, { status: 200 }),
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+
+    try {
+      await provider.synthesizeStream!(makeRequest(), () => {});
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ElevenLabsTtsError);
+      expect((err as ElevenLabsTtsError).code).toBe(
+        "ELEVENLABS_TTS_EMPTY_RESPONSE",
+      );
+    }
+  });
+
+  test("synthesizeStream throws ELEVENLABS_TTS_EMPTY_RESPONSE on zero-byte stream", async () => {
+    globalThis.fetch = mock(
+      async () => new Response(streamOf(), { status: 200 }),
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createElevenLabsProvider();
+
+    try {
+      await provider.synthesizeStream!(makeRequest(), () => {});
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ElevenLabsTtsError);
+      expect((err as ElevenLabsTtsError).code).toBe(
+        "ELEVENLABS_TTS_EMPTY_RESPONSE",
+      );
+    }
+  });
+
+  test("synthesizeStream surfaces upstream error message on HTTP error", async () => {
+    mockFetchError(
+      402,
+      JSON.stringify({ detail: { message: "Quota exceeded" } }),
+    );
+
+    const provider = createElevenLabsProvider();
+
+    try {
+      await provider.synthesizeStream!(makeRequest(), () => {});
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).toBeInstanceOf(ElevenLabsTtsError);
+      expect((err as ElevenLabsTtsError).code).toBe(
+        "ELEVENLABS_TTS_HTTP_ERROR",
+      );
+      expect((err as ElevenLabsTtsError).statusCode).toBe(402);
+      expect((err as ElevenLabsTtsError).message).toBe("Quota exceeded");
+    }
+  });
+
+  test("synthesizeStream propagates AbortError unmodified", async () => {
+    globalThis.fetch = mock(async () => {
+      const abortError = new Error("The operation was aborted");
+      abortError.name = "AbortError";
+      throw abortError;
+    }) as unknown as typeof globalThis.fetch;
+
+    const controller = new AbortController();
+    const provider = createElevenLabsProvider();
+
+    try {
+      await provider.synthesizeStream!(
+        makeRequest({ signal: controller.signal }),
+        () => {},
+      );
+      throw new Error("Expected synthesizeStream to throw");
+    } catch (err) {
+      expect(err).not.toBeInstanceOf(ElevenLabsTtsError);
+      expect((err as Error).name).toBe("AbortError");
+    }
   });
 
   // -- Content type / format -----------------------------------------------
@@ -483,6 +777,7 @@ describe("Fish Audio TTS provider adapter", () => {
       "mp3",
       "wav",
       "opus",
+      "pcm",
     ]);
   });
 
@@ -529,28 +824,105 @@ describe("Fish Audio TTS provider adapter", () => {
     );
   });
 
-  test("pcm output request maps to wav format at 8 kHz", async () => {
+  test("pcm output request maps to raw pcm format at the 16 kHz default", async () => {
     const provider = createFishAudioProvider();
-    await provider.synthesize(makeRequest({ outputFormat: "pcm" }));
+    const result = await provider.synthesize(
+      makeRequest({ outputFormat: "pcm" }),
+    );
 
     const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
-    expect((config as { format: string }).format).toBe("wav");
+    expect((config as { format: string }).format).toBe("pcm");
     expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
-      8000,
+      16000,
+    );
+    expect(result.contentType).toBe("audio/pcm");
+  });
+
+  test("pcm output request honors a supported sampleRateHz hint", async () => {
+    const provider = createFishAudioProvider();
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 24000 }),
+    );
+
+    const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
+    expect((config as { format: string }).format).toBe("pcm");
+    expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
+      24000,
     );
   });
 
-  test("synthesizeStream pcm output request maps to wav format at 8 kHz", async () => {
+  test("pcm output request clamps an unsupported sampleRateHz hint to the nearest supported rate", async () => {
     const provider = createFishAudioProvider();
-    await provider.synthesizeStream!(
-      makeRequest({ outputFormat: "pcm" }),
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 48000 }),
+    );
+
+    const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
+    expect((config as { format: string }).format).toBe("pcm");
+    expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
+      44100,
+    );
+  });
+
+  test("synthesizeStream pcm output request maps to raw pcm honoring the hint", async () => {
+    const provider = createFishAudioProvider();
+    const result = await provider.synthesizeStream!(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 24000 }),
       () => {},
     );
 
     const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
-    expect((config as { format: string }).format).toBe("wav");
+    expect((config as { format: string }).format).toBe("pcm");
     expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
-      8000,
+      24000,
+    );
+    expect(result.contentType).toBe("audio/pcm");
+  });
+
+  test("resolveOutputSampleRateHz clamps unsupported pcm hints and is undefined otherwise", () => {
+    const provider = createFishAudioProvider();
+
+    expect(
+      provider.resolveOutputSampleRateHz!(
+        makeRequest({ outputFormat: "pcm", sampleRateHz: 48000 }),
+      ),
+    ).toBe(44100);
+    expect(
+      provider.resolveOutputSampleRateHz!(
+        makeRequest({ outputFormat: "pcm", sampleRateHz: 24000 }),
+      ),
+    ).toBe(24000);
+    expect(
+      provider.resolveOutputSampleRateHz!(makeRequest({ outputFormat: "pcm" })),
+    ).toBe(16000);
+    expect(provider.resolveOutputSampleRateHz!(makeRequest())).toBeUndefined();
+  });
+
+  test("synthesizeStream pcm chunks pass through raw with no RIFF header", async () => {
+    const rawPcm = new Uint8Array([0x01, 0x00, 0x02, 0x00, 0x03, 0x00]);
+    mockSynthesizeWithFishAudio.mockImplementationOnce(
+      async (_text, _config, options) => {
+        options?.onChunk?.(rawPcm);
+        return Buffer.from(rawPcm);
+      },
+    );
+
+    const chunks: Uint8Array[] = [];
+    const provider = createFishAudioProvider();
+    await provider.synthesizeStream!(
+      makeRequest({ outputFormat: "pcm" }),
+      (chunk) => chunks.push(chunk),
+    );
+
+    const [, config, options] = mockSynthesizeWithFishAudio.mock.calls[0]!;
+    expect((config as { format: string }).format).toBe("pcm");
+    expect((options as { sampleRate?: number } | undefined)?.sampleRate).toBe(
+      16000,
+    );
+    // Chunks are forwarded verbatim — raw PCM, no WAV container.
+    expect(chunks).toEqual([rawPcm]);
+    expect(Buffer.from(chunks[0]!).subarray(0, 4).toString("ascii")).not.toBe(
+      "RIFF",
     );
   });
 

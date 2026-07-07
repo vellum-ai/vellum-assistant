@@ -20,6 +20,7 @@ import type {
   StreamingTranscriber,
   SttStreamServerEvent,
 } from "../stt/types.js";
+import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import type {
   LiveVoiceAudioArchiveResult,
   LiveVoiceAudioArchiveRole,
@@ -54,9 +55,6 @@ type LiveVoiceSessionState =
   | "failed"
   | "closed";
 
-const LIVE_VOICE_TTS_SEGMENT_CHAR_THRESHOLD = 180;
-const SENTENCE_ENDING_PUNCTUATION = new Set([".", "!", "?"]);
-const TRAILING_SENTENCE_PUNCTUATION = new Set(['"', "'", ")", "]"]);
 // Cap on audio buffered while a server-VAD utterance waits for its
 // transcriber (PCM16 mono seconds; oldest chunks are dropped past the cap).
 const SERVER_VAD_PENDING_AUDIO_MAX_SECONDS = 10;
@@ -165,6 +163,9 @@ interface ActiveAssistantTurn {
   ttsAudioStarted: boolean;
   finalized: boolean;
   ttsBuffer: string;
+  // A non-empty speakable segment reached the TTS queue — gates the eager
+  // first-segment flush that trades clause quality for speech onset.
+  ttsSegmentEnqueued: boolean;
   ttsQueue: Promise<void>;
   assistantMessageId: string | null;
   assistantAudioChunks: Buffer[];
@@ -863,6 +864,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
       ttsAudioStarted: false,
       finalized: false,
       ttsBuffer: "",
+      ttsSegmentEnqueued: false,
       ttsQueue: Promise.resolve(),
       assistantMessageId: null,
       assistantAudioChunks: [],
@@ -1097,6 +1099,9 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const { segments, remainder } = extractSpeakableSegments(
       activeTurn.ttsBuffer,
       force,
+      // Eager until the first segment is enqueued: the opening clause flushes
+      // early so speech onset does not wait for a full sentence.
+      { eager: !activeTurn.ttsSegmentEnqueued },
     );
     activeTurn.ttsBuffer = remainder;
 
@@ -1116,6 +1121,7 @@ export class LiveVoiceSession implements LiveVoiceSessionContract {
     const streamTtsAudio = this.streamTtsAudio;
     if (activeTurn?.token !== token || !streamTtsAudio) return;
 
+    activeTurn.ttsSegmentEnqueued = true;
     activeTurn.ttsQueue = activeTurn.ttsQueue
       .catch(() => {})
       .then(async () => {
@@ -1596,81 +1602,6 @@ async function defaultArchiveLiveVoiceAudio(
   return input.role === "user"
     ? linkLiveVoiceUserUtteranceAudioToMessage(input)
     : linkLiveVoiceAssistantResponseAudioToMessage(input);
-}
-
-function extractSpeakableSegments(
-  text: string,
-  force: boolean,
-): { segments: string[]; remainder: string } {
-  const segments: string[] = [];
-  let remainder = text;
-
-  while (remainder.length > 0) {
-    const boundary = findSpeakableBoundary(remainder);
-    if (boundary === null) break;
-
-    const segment = remainder.slice(0, boundary).trim();
-    if (segment.length > 0) {
-      segments.push(segment);
-    }
-    remainder = remainder.slice(boundary);
-  }
-
-  if (force) {
-    const segment = remainder.trim();
-    if (segment.length > 0) {
-      segments.push(segment);
-    }
-    remainder = "";
-  }
-
-  return { segments, remainder };
-}
-
-function findSpeakableBoundary(text: string): number | null {
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index];
-    if (char === "\n") return index + 1;
-    if (!char || !SENTENCE_ENDING_PUNCTUATION.has(char)) continue;
-
-    let boundary = index + 1;
-    while (
-      boundary < text.length &&
-      TRAILING_SENTENCE_PUNCTUATION.has(text[boundary] ?? "")
-    ) {
-      boundary += 1;
-    }
-
-    if (boundary === text.length || isWhitespace(text[boundary] ?? "")) {
-      return boundary;
-    }
-  }
-
-  if (text.length < LIVE_VOICE_TTS_SEGMENT_CHAR_THRESHOLD) {
-    return null;
-  }
-
-  const preferredBoundary = findLastWhitespaceBoundary(
-    text,
-    LIVE_VOICE_TTS_SEGMENT_CHAR_THRESHOLD,
-  );
-  return preferredBoundary ?? LIVE_VOICE_TTS_SEGMENT_CHAR_THRESHOLD;
-}
-
-function findLastWhitespaceBoundary(
-  text: string,
-  maxLength: number,
-): number | null {
-  for (let index = maxLength; index > Math.floor(maxLength * 0.6); index -= 1) {
-    if (isWhitespace(text[index] ?? "")) {
-      return index + 1;
-    }
-  }
-  return null;
-}
-
-function isWhitespace(value: string): boolean {
-  return /\s/.test(value);
 }
 
 function toSeedMarks(stashed: StashedMetricsMarks): LiveVoiceTurnSeedMarks {
