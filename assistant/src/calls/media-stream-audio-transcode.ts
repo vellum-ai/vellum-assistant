@@ -26,7 +26,7 @@
  * 8000 samples/sec * 0.020 sec = 160 samples per frame.
  * Each mu-law sample is 1 byte, so each frame is 160 bytes.
  */
-const MULAW_FRAME_SIZE = 160;
+export const MULAW_FRAME_SIZE = 160;
 
 /**
  * Bias constant used in the linear-to-mu-law compression formula
