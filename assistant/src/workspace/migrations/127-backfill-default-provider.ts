@@ -4,17 +4,24 @@ import { join } from "node:path";
 import type { WorkspaceMigration } from "./types.js";
 
 // Backfill `llm.defaultProvider` for installs that never ran the hatch flow
-// (which sets it directly) from deterministic, synchronously-readable config
-// signals: a legacy `llm.default.provider`, or a personal `custom-*`
-// profile's provider.
+// (which sets it directly) from deterministic, synchronously-readable
+// signals: `IS_PLATFORM`, a legacy `llm.default.provider`, or a personal
+// `custom-*` profile's provider.
 //
-// This migration only covers those sync signals. Platform/login-dependent
-// resolution requires an async secure-vault read that a sync migration
-// cannot perform, so that step lives in the post-boot ensure pass instead
-// (workspace/default-provider-ensure.ts, which also re-applies these same
-// sync signals — see that module's header for the full split rationale).
-// When neither signal matches here, this migration writes nothing rather
-// than guessing the platform/login matrix.
+// Platform installs resolve to "vellum" before the legacy field is
+// consulted: a pre-field platform config commonly carries
+// `llm.default.provider: "anthropic"` as a schema-default echo rather than
+// a routing choice, and backfilling it would permanently pin the install to
+// a personal connection (the ensure pass never overwrites an existing
+// value). This mirrors the hatch precedence, where platform outranks the
+// BYOK provider signal.
+//
+// The remaining login-dependent fallback requires an async secure-vault
+// read that a sync migration cannot perform, so that step lives in the
+// post-boot ensure pass instead (workspace/default-provider-ensure.ts,
+// which also re-applies these same sync signals — see that module's header
+// for the full split rationale). When no signal matches here, this
+// migration writes nothing rather than guessing the login fallback.
 //
 // Frozen copy: migration modules are self-contained snapshots and must not
 // import from config modules (workspace/migrations/AGENTS.md); this list
@@ -62,7 +69,7 @@ export const backfillDefaultProviderMigration: WorkspaceMigration = {
       return;
     }
 
-    const provider = resolveProviderSignal(llm);
+    const provider = isPlatform() ? "vellum" : resolveProviderSignal(llm);
     if (provider === undefined) {
       return;
     }
@@ -75,6 +82,12 @@ export const backfillDefaultProviderMigration: WorkspaceMigration = {
     // Forward-only.
   },
 };
+
+// Frozen copy of config/env-registry.ts's IS_PLATFORM read — migration
+// modules must not import from config modules (workspace/migrations/AGENTS.md).
+function isPlatform(): boolean {
+  return process.env.IS_PLATFORM === "true" || process.env.IS_PLATFORM === "1";
+}
 
 function resolveProviderSignal(
   llm: Record<string, unknown>,

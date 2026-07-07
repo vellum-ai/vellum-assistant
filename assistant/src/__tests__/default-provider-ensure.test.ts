@@ -116,6 +116,24 @@ describe("ensureDefaultProvider", () => {
     expect(llm().defaultProvider).toEqual({ provider: "vellum" });
   });
 
+  test("IS_PLATFORM outranks a legacy provider signal", async () => {
+    process.env.IS_PLATFORM = "1";
+    writeConfig({ llm: { default: { provider: "anthropic" } } });
+
+    await ensureDefaultProvider(workspaceDir);
+
+    expect(llm().defaultProvider).toEqual({ provider: "vellum" });
+  });
+
+  test("a legacy BYOK signal outranks the login fallback off-platform", async () => {
+    proxyState.prereqs = true;
+    writeConfig({ llm: { default: { provider: "openai" } } });
+
+    await ensureDefaultProvider(workspaceDir);
+
+    expect(llm().defaultProvider).toEqual({ provider: "openai" });
+  });
+
   test("hasManagedProxyPrereqs true resolves to vellum when off-platform", async () => {
     proxyState.prereqs = true;
     writeConfig({ llm: {} });

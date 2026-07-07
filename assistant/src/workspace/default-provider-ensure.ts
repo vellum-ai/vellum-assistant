@@ -16,10 +16,10 @@ import { hasManagedProxyPrereqs } from "../providers/platform-proxy/context.js";
 //     platform overlay in daemon/lifecycle.ts. An overlay merged afterward
 //     can rewrite `llm`, so the migration alone can't guarantee the field
 //     survives.
-//   - This ensure pass re-applies the same sync signals, plus a
-//     platform/login matrix ("logged in to the platform" is
-//     `hasManagedProxyPrereqs()`, an async secure-vault read that a sync
-//     migration cannot perform). It runs unconditionally on every boot
+//   - This ensure pass re-applies the same signals (platform first, then
+//     the sync signals), plus a login fallback ("logged in to the
+//     platform" is `hasManagedProxyPrereqs()`, an async secure-vault read
+//     that a sync migration cannot perform). It runs unconditionally on every boot
 //     (not gated on whether a platform overlay was merged this run) so it
 //     also repairs hand-deleted fields and configs restored from backups
 //     that predate the field.
@@ -70,6 +70,17 @@ export async function ensureDefaultProvider(
 }
 
 async function resolveProvider(llm: Record<string, unknown>): Promise<string> {
+  // Platform outranks the legacy field (matching migration 127 and the hatch
+  // precedence): a pre-field platform config commonly carries
+  // `llm.default.provider: "anthropic"` as a schema-default echo, not a
+  // routing choice, and honoring it would pin the install to a personal
+  // connection. The login fallback below stays *below* the legacy field —
+  // an off-platform BYOK default is the user's operative choice and being
+  // logged in must not override it.
+  if (getIsPlatform()) {
+    return "vellum";
+  }
+
   const legacyProvider = readObject(llm.default)?.provider;
   if (
     typeof legacyProvider === "string" &&
@@ -91,17 +102,14 @@ async function resolveProvider(llm: Record<string, unknown>): Promise<string> {
       }
       return isDefaultProfileProvider(provider)
         ? provider
-        : await platformLoginMatrix();
+        : await loginFallback();
     }
   }
 
-  return await platformLoginMatrix();
+  return await loginFallback();
 }
 
-async function platformLoginMatrix(): Promise<string> {
-  if (getIsPlatform()) {
-    return "vellum";
-  }
+async function loginFallback(): Promise<string> {
   if (await hasManagedProxyPrereqs()) {
     return "vellum";
   }

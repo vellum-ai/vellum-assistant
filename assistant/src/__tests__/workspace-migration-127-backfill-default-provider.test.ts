@@ -36,13 +36,22 @@ function defaultProvider(): unknown {
   return (readConfig().llm as Record<string, unknown>).defaultProvider;
 }
 
+let originalIsPlatform: string | undefined;
+
 beforeEach(() => {
   freshWorkspace();
+  originalIsPlatform = process.env.IS_PLATFORM;
+  delete process.env.IS_PLATFORM;
 });
 
 afterEach(() => {
   if (existsSync(workspaceDir)) {
     rmSync(workspaceDir, { recursive: true, force: true });
+  }
+  if (originalIsPlatform === undefined) {
+    delete process.env.IS_PLATFORM;
+  } else {
+    process.env.IS_PLATFORM = originalIsPlatform;
   }
 });
 
@@ -102,6 +111,35 @@ describe("127-backfill-default-provider", () => {
     expect(
       (readConfig().llm as Record<string, unknown>).defaultProvider,
     ).toBeUndefined();
+  });
+
+  test("IS_PLATFORM outranks a legacy provider signal", () => {
+    process.env.IS_PLATFORM = "1";
+    writeConfig({ llm: { default: { provider: "anthropic" } } });
+
+    backfillDefaultProviderMigration.run(workspaceDir);
+
+    expect(defaultProvider()).toEqual({ provider: "vellum" });
+  });
+
+  test("IS_PLATFORM backfills vellum with no other signals", () => {
+    process.env.IS_PLATFORM = "true";
+    writeConfig({ llm: { profiles: {} } });
+
+    backfillDefaultProviderMigration.run(workspaceDir);
+
+    expect(defaultProvider()).toEqual({ provider: "vellum" });
+  });
+
+  test("IS_PLATFORM never overwrites an existing defaultProvider value", () => {
+    process.env.IS_PLATFORM = "1";
+    writeConfig({
+      llm: { defaultProvider: { provider: "anthropic" } },
+    });
+
+    backfillDefaultProviderMigration.run(workspaceDir);
+
+    expect(defaultProvider()).toEqual({ provider: "anthropic" });
   });
 
   test("never overwrites an existing defaultProvider value", () => {
