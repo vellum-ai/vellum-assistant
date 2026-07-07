@@ -149,6 +149,26 @@ describe("hook reload primitives", () => {
     expect(await dispatchOne(plugin)).toBe("h2");
   });
 
+  test("concurrent first reads of an owner share one load, not an empty cache", async () => {
+    const plugin = makePlugin();
+    writeFileSync(
+      join(plugin.hooksDir, `${HOOK_NAME}.ts`),
+      `export default () => "shared";\n`,
+    );
+
+    // Two reads race before the owner is loaded. The load memo must make the
+    // second await the first's import instead of seeing "loaded" and reading a
+    // half-filled cache — otherwise the second read returns zero hooks.
+    const [first, second] = await Promise.all([
+      collectUserHookEntries(HOOK_NAME, [[plugin.dir, plugin.name]]),
+      collectUserHookEntries(HOOK_NAME, [[plugin.dir, plugin.name]]),
+    ]);
+
+    expect(first).toHaveLength(1);
+    expect(second).toHaveLength(1);
+    expect(second[0]!.fn).toBe(first[0]!.fn);
+  });
+
   test("re-import after owner eviction drops hooks whose files are gone", async () => {
     const plugin = makePlugin();
     const hookPath = join(plugin.hooksDir, `${HOOK_NAME}.ts`);

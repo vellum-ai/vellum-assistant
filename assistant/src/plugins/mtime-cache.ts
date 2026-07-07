@@ -18,10 +18,9 @@
  *   The dispatch path stats that one file and otherwise runs on memory.
  * - A changed plugin is redeployed in place: the old version's `shutdown`
  *   runs, its hook/tool cache entries and module-registry entries are
- *   swept, and reactivation runs `init`; the next dispatch read re-imports
- *   the owner's hooks from the swept-clean registry. The whole directory is
- *   the reload unit so a re-imported hook can never pair with a stale cached
- *   helper.
+ *   swept, and reactivation runs `init`, which lazily re-imports the owner's
+ *   hooks from the swept-clean registry. The whole directory is the reload
+ *   unit so a re-imported hook can never pair with a stale cached helper.
  * - Plugins are never "registered" as a unit — we register their tools into
  *   the global tool registry.
  *
@@ -350,9 +349,9 @@ async function applySourceVersions(
           { plugin: activeName, dir },
           "plugin source changed — reloading",
         );
-        // Tear the old version down first: `deactivatePlugin` runs its
-        // captured `shutdown`, then `evictHooksForOwner` drops that capture
-        // along with the owner's dispatch cache and loaded mark.
+        // Tear the old version down first: `deactivatePlugin` runs the
+        // still-cached `shutdown`, then `evictHooksForOwner` drops the owner's
+        // cache entries and load memo so reactivation re-imports fresh.
         await deactivatePlugin(activeName, "reload");
         evictHooksForOwner(activeName);
         evictToolCacheEntries(activeName);
@@ -775,9 +774,9 @@ const activatedNames = new Set<string>();
 
 /**
  * Activate a single discovered plugin: register its tools into the global tool
- * registry and run its `init` hook (which also captures `shutdown` for
- * teardown). Dispatch hooks are not imported here — they load lazily on the
- * first read that needs them. Idempotent — a plugin already activated (or
+ * registry and run its `init` hook. Running `init` lazily imports the owner's
+ * hooks (warming the cache the same way a dispatch read would), so no separate
+ * pre-import step is needed. Idempotent — a plugin already activated (or
  * mid-activation) is skipped. Never throws; per-surface failures are logged and
  * the plugin still counts as activated so the shutdown teardown handles
  * whatever came up (mirrors boot semantics).
@@ -828,8 +827,8 @@ async function activatePlugin(
  * Deactivate a plugin whose directory was removed (`uninstall`) or disabled
  * (`disable`) at runtime: unregister its tools and run its `shutdown` hook with
  * the matching {@link ShutdownReason}. Must run *before* `evictPlugin` /
- * `evictHooksForOwner`, which drop the captured `shutdown` alongside the owner's
- * other hook state. Idempotent — a plugin that was never activated is a no-op.
+ * `evictHooksForOwner` clear the owner's cache, since the `shutdown` hook is
+ * read from it. Idempotent — a plugin that was never activated is a no-op.
  */
 async function deactivatePlugin(
   pluginName: string,
@@ -894,11 +893,10 @@ export async function populateCacheAtBoot(
 
   // Activate standalone workspace hooks under `<workspace>/hooks/`. These
   // carry no package.json, no tools, and no install-date ordering — just hook
-  // files. Run their `init` hook (which captures `shutdown`) so a workspace-wide
-  // `init`/`shutdown` lifecycle works the same way a plugin's does; dispatch
-  // hooks load lazily on first read. Only register for teardown when at least
-  // one hook file is actually present, so an empty/absent directory adds no
-  // shutdown work.
+  // files. Running their `init` hook lazily imports the workspace hooks, so a
+  // workspace-wide `init`/`shutdown` lifecycle works the same way a plugin's
+  // does. Only register for teardown when at least one hook file is actually
+  // present, so an empty/absent directory adds no shutdown work.
   if (hasWorkspaceHooks()) {
     await runInitHook(WORKSPACE_HOOKS_OWNER);
     activatedPlugins.push({ name: WORKSPACE_HOOKS_OWNER });
