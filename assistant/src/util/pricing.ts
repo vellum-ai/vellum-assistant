@@ -141,16 +141,22 @@ function normalizeAnthropicModelId(model: string): string {
 /**
  * Whether Anthropic's pricing rules (cache-read/write multipliers, fast-mode
  * surcharge) apply for the given provider/model. True for direct Anthropic
- * calls and for Anthropic models routed through OpenRouter — OpenRouter
- * proxies to Anthropic's Messages API, so the usage response carries the
- * same cache and speed fields and is charged at Anthropic's rates.
+ * calls and for Anthropic models routed through OpenRouter or the Vercel AI
+ * Gateway — both gateways proxy `anthropic/*` to Anthropic's Messages API, so
+ * the usage response carries the same cache and speed fields and is charged
+ * at Anthropic's rates.
  */
 export function usesAnthropicPricingRules(
   provider: string,
   model: string,
 ): boolean {
   if (provider === "anthropic") return true;
-  if (provider === "openrouter" && isAnthropicModelId(model)) return true;
+  if (
+    (provider === "openrouter" || provider === "vercel-ai-gateway") &&
+    isAnthropicModelId(model)
+  ) {
+    return true;
+  }
   return false;
 }
 

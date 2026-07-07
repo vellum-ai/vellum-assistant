@@ -899,6 +899,30 @@ describe("usesAnthropicPricingRules", () => {
     expect(usesAnthropicPricingRules("openrouter", "x-ai/grok-4")).toBe(false);
   });
 
+  test("returns true for anthropic/* on the Vercel AI Gateway", () => {
+    expect(
+      usesAnthropicPricingRules(
+        "vercel-ai-gateway",
+        "anthropic/claude-sonnet-4.6",
+      ),
+    ).toBe(true);
+  });
+
+  test("returns true for bare claude-* slug on the Vercel AI Gateway", () => {
+    expect(
+      usesAnthropicPricingRules(
+        "vercel-ai-gateway",
+        "claude-opus-4-5-20250929",
+      ),
+    ).toBe(true);
+  });
+
+  test("returns false for non-Anthropic Vercel AI Gateway models", () => {
+    expect(usesAnthropicPricingRules("vercel-ai-gateway", "x-ai/grok-4")).toBe(
+      false,
+    );
+  });
+
   test("returns false for other providers", () => {
     expect(usesAnthropicPricingRules("openai", "gpt-4o")).toBe(false);
     expect(usesAnthropicPricingRules("gemini", "gemini-2.5-pro")).toBe(false);

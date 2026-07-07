@@ -116,7 +116,10 @@ export function isNativeWebSearchCapableProvider(
   if (NATIVE_WEB_SEARCH_PROVIDER_IDS.has(providerName)) {
     return true;
   }
-  if (providerName === "openrouter" && model.startsWith("anthropic/")) {
+  if (
+    (providerName === "openrouter" || providerName === "vercel-ai-gateway") &&
+    model.startsWith("anthropic/")
+  ) {
     return true;
   }
   return false;
