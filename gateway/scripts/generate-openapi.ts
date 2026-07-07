@@ -24,6 +24,7 @@ import type { GatewayRouteDefinition } from "../src/http/routes/types.js";
 // Add new route modules here as they adopt zod-openapi schemas.
 import { ROUTES as autoApproveThresholdRoutes } from "../src/http/routes/auto-approve-thresholds-routes.js";
 import { ROUTES as channelAdmissionPolicyRoutes } from "../src/http/routes/channel-admission-policy-routes.js";
+import { ROUTES as channelPermissionOverrideRoutes } from "../src/http/routes/channel-permission-overrides-routes.js";
 import { ROUTES as contactsControlPlaneRoutes } from "../src/http/routes/contacts-control-plane-routes.js";
 import { ROUTES as featureFlagRoutes } from "../src/http/routes/feature-flags.js";
 import { ROUTES as trustRuleRoutes } from "../src/http/routes/trust-rules-routes.js";
@@ -36,6 +37,7 @@ const PKG_PATH = resolve(ROOT, "package.json");
 const ALL_ROUTES: GatewayRouteDefinition[] = [
   ...autoApproveThresholdRoutes,
   ...channelAdmissionPolicyRoutes,
+  ...channelPermissionOverrideRoutes,
   ...contactsControlPlaneRoutes,
   ...featureFlagRoutes,
   ...trustRuleRoutes,

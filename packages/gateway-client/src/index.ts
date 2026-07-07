@@ -197,6 +197,7 @@ export {
   CHANNEL_PERMISSION_SCOPE_RANK,
   CHANNEL_PERMISSION_SCOPES,
   ChannelConversationTypeSchema,
+  ChannelPermissionCellKeySchema,
   ChannelPermissionCellSchema,
   ChannelPermissionScopeSchema,
   ChannelPermissionSelectorSchema,
@@ -210,6 +211,7 @@ export {
 export type {
   ChannelConversationType,
   ChannelPermissionCell,
+  ChannelPermissionCellKey,
   ChannelPermissionCellRow,
   ChannelPermissionScope,
   ChannelPermissionSelector,
