@@ -6350,6 +6350,14 @@ paths:
                               required:
                                 - channelId
                               additionalProperties: false
+                            sourceLink:
+                              type: object
+                              properties:
+                                appUrl:
+                                  type: string
+                                webUrl:
+                                  type: string
+                              additionalProperties: false
                           required:
                             - sourceChannel
                             - externalChatId
@@ -6695,6 +6703,14 @@ paths:
                             required:
                               - channelId
                             additionalProperties: false
+                          sourceLink:
+                            type: object
+                            properties:
+                              appUrl:
+                                type: string
+                              webUrl:
+                                type: string
+                            additionalProperties: false
                         required:
                           - sourceChannel
                           - externalChatId
@@ -6901,6 +6917,14 @@ paths:
                                 additionalProperties: false
                             required:
                               - channelId
+                            additionalProperties: false
+                          sourceLink:
+                            type: object
+                            properties:
+                              appUrl:
+                                type: string
+                              webUrl:
+                                type: string
                             additionalProperties: false
                         required:
                           - sourceChannel
@@ -8053,6 +8077,14 @@ paths:
                                 additionalProperties: false
                             required:
                               - channelId
+                            additionalProperties: false
+                          sourceLink:
+                            type: object
+                            properties:
+                              appUrl:
+                                type: string
+                              webUrl:
+                                type: string
                             additionalProperties: false
                         required:
                           - sourceChannel
