@@ -20,10 +20,16 @@ import {
 import { readCredential } from "../credential-reader.js";
 import { credentialKey } from "../credential-key.js";
 import { arePlatformFeaturesEnabled } from "../feature-flag-resolver.js";
+import { reportGuardianMintRefused } from "../guardian-integrity-reporter.js";
 import { ipcCallAssistant } from "../ipc/assistant-client.js";
 import { getLogger } from "../logger.js";
 import { deleteContactIfOrphaned } from "../verification/contact-helpers.js";
 
+import {
+  bustGuardianIntegrityCache,
+  guardianIntegrityState,
+  hasEvidenceOfPriorGuardian,
+} from "./guardian-integrity.js";
 import { CURRENT_POLICY_EPOCH } from "./policy.js";
 import { mintToken } from "./token-service.js";
 
@@ -63,6 +69,24 @@ export interface GuardianBootstrapResult {
   refreshTokenExpiresAt: number;
   refreshAfter: number;
   isNew: boolean;
+  /** True when the mint overrode evidence of a prior guardian (re-pair). */
+  mintedOverPriorEvidence: boolean;
+}
+
+/**
+ * Thrown when a vellum guardian mint is refused: the gateway DB has no active
+ * vellum guardian binding but carries evidence of prior onboarding, so a mint
+ * would permanently diverge from prior clients' tokens. Recovery is the
+ * explicit /v1/guardian/init flow.
+ */
+export class VellumGuardianMintRefusedError extends Error {
+  constructor() {
+    super(
+      "refusing to mint a vellum guardian principal: the gateway DB has " +
+        "evidence of a prior guardian — re-pair via guardian init to recover",
+    );
+    this.name = "VellumGuardianMintRefusedError";
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -342,6 +366,11 @@ export function applyGuardianBindingGatewayWrites(
       })
       .run();
   }
+
+  // The guardian row just written supersedes any cached missing-guardian
+  // state. Busting here covers every binding-commit path (createGuardianBinding
+  // and the outbound phone rebind in verification/session-service.ts).
+  bustGuardianIntegrityCache();
 
   return {
     contactId,
@@ -745,10 +774,20 @@ async function fetchPlatformOwnerDisplayName(): Promise<string | null> {
  *
  * Shared by ensureVellumGuardianBinding + bootstrapGuardian. `isNew` is true
  * only on the mint path.
+ *
+ * A gateway miss with evidence of a prior guardian (guardian-integrity.ts)
+ * means the guardian rows were lost, not that this is a fresh install — a
+ * mint there would permanently diverge from prior clients' tokens. Only the
+ * explicit operator-driven guardian init may mint over evidence
+ * (`allowMintWithEvidence`); implicit paths throw
+ * {@link VellumGuardianMintRefusedError} instead.
  */
-async function resolveOrCreateVellumGuardian(): Promise<{
+async function resolveOrCreateVellumGuardian(options: {
+  allowMintWithEvidence: boolean;
+}): Promise<{
   guardianPrincipalId: string;
   isNew: boolean;
+  mintedOverPriorEvidence: boolean;
 }> {
   const gw = await findVellumGuardian();
   if (gw) {
@@ -756,7 +795,38 @@ async function resolveOrCreateVellumGuardian(): Promise<{
       { guardianPrincipalId: gw.principalId },
       "Vellum guardian binding already exists",
     );
-    return { guardianPrincipalId: gw.principalId, isNew: false };
+    return {
+      guardianPrincipalId: gw.principalId,
+      isNew: false,
+      mintedOverPriorEvidence: false,
+    };
+  }
+
+  const priorEvidence = hasEvidenceOfPriorGuardian();
+  if (priorEvidence && !options.allowMintWithEvidence) {
+    // Fires the missing-guardian reporter (error log + telemetry,
+    // rate-limited there) when the DB is truly guardian-less. The state is
+    // `ok` when a guardian contact row survives with a lost/inactive vellum
+    // binding, so the refusal reports under its own check_name either way —
+    // clients see guardian_repair_required 401s and that must never be
+    // telemetry-silent. Best-effort: the refusal itself must not depend on
+    // the integrity check.
+    let integrityState = "unavailable";
+    try {
+      integrityState = guardianIntegrityState();
+    } catch {
+      // Reported as "unavailable"; refusal proceeds regardless.
+    }
+    reportGuardianMintRefused({ integrity_state: integrityState });
+    log.error(
+      "no active vellum guardian binding but the gateway DB carries evidence of prior onboarding — refusing to mint a divergent principal; re-pair via guardian init to recover",
+    );
+    throw new VellumGuardianMintRefusedError();
+  }
+  if (priorEvidence) {
+    log.warn(
+      "minting a fresh vellum guardian principal over evidence of a prior guardian — prior clients' tokens will not match",
+    );
   }
 
   // No gateway guardian — mint a fresh principal.
@@ -770,18 +840,29 @@ async function resolveOrCreateVellumGuardian(): Promise<{
     verifiedVia: "bootstrap",
     ...(displayName ? { displayName } : {}),
   });
-  return { guardianPrincipalId, isNew: true };
+  return {
+    guardianPrincipalId,
+    isNew: true,
+    mintedOverPriorEvidence: priorEvidence,
+  };
 }
 
 /**
  * Ensure a vellum guardian binding exists, returning its principalId.
- * Resolves from the gateway DB, minting a fresh principal on a miss (see
- * resolveOrCreateVellumGuardian).
+ * Resolves from the gateway DB, minting a fresh principal on a miss — unless
+ * the DB carries evidence of a prior guardian, in which case it throws
+ * {@link VellumGuardianMintRefusedError}. Every caller must handle that
+ * refusal explicitly: the startup backfill degrades boot non-fatally
+ * (post-assistant-ready), /auth/token maps it to a repairable 401
+ * (`guardian_repair_required`), and the remote-web pairing route to a 503
+ * (its 401 is claimed by invalid device codes).
  *
  * Called during gateway startup to backfill existing installations.
  */
 export async function ensureVellumGuardianBinding(): Promise<string> {
-  const { guardianPrincipalId } = await resolveOrCreateVellumGuardian();
+  const { guardianPrincipalId } = await resolveOrCreateVellumGuardian({
+    allowMintWithEvidence: false,
+  });
   return guardianPrincipalId;
 }
 
@@ -796,8 +877,11 @@ export async function bootstrapGuardian(params: {
   platform: string;
   deviceId: string;
 }): Promise<GuardianBootstrapResult> {
-  // 1. Resolve (or mint) the guardian principal.
-  const { guardianPrincipalId, isNew } = await resolveOrCreateVellumGuardian();
+  // 1. Resolve (or mint) the guardian principal. Guardian init is the
+  //    sanctioned operator-driven recovery path, so it may mint over evidence
+  //    of a prior guardian (loud warn inside).
+  const { guardianPrincipalId, isNew, mintedOverPriorEvidence } =
+    await resolveOrCreateVellumGuardian({ allowMintWithEvidence: true });
 
   // 2. Revoke existing credentials for this device and mint a fresh pair.
   const pair = mintAndRecordDeviceBoundTokenPair({
@@ -807,7 +891,12 @@ export async function bootstrapGuardian(params: {
   });
 
   log.info(
-    { platform: params.platform, guardianPrincipalId, isNew },
+    {
+      platform: params.platform,
+      guardianPrincipalId,
+      isNew,
+      mintedOverPriorEvidence,
+    },
     "Guardian bootstrap completed",
   );
 
@@ -819,5 +908,6 @@ export async function bootstrapGuardian(params: {
     refreshTokenExpiresAt: pair.refreshTokenExpiresAt,
     refreshAfter: pair.refreshAfter,
     isNew,
+    mintedOverPriorEvidence,
   };
 }

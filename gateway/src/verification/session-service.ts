@@ -1,8 +1,7 @@
 /**
  * Gateway-native verification session service (Combo 13).
  *
- * Ports secret minting from the daemon's channel-verification-service:
- * sessions are created here, secrets are minted here, and only SHA-256
+ * Sessions are created here, secrets are minted here, and only SHA-256
  * hashes are persisted (via the gateway session store). The raw secret
  * transits back to the daemon in the create-IPC response because message
  * composition and channel delivery stay daemon-owned — mirror of how
@@ -11,11 +10,10 @@
  * Validate-and-consume lives here too (the
  * `verification_sessions_validate_consume` route): rate limiting, identity
  * binding, the status-guarded atomic consume, and the in-engine role side
- * effects (guardian phone binding / trusted-contact channel upsert) that
- * replaced the old gateway polling loop for outbound voice sessions. The
+ * effects (guardian phone binding / trusted-contact channel upsert). The
  * voice guardian binding commits in the same gateway transaction as the
- * consume, so the poller's replay job is structurally unnecessary: a binding
- * failure rolls the consume back and the code stays redeemable.
+ * consume, so a binding failure rolls the consume back and the code stays
+ * redeemable.
  */
 
 import { randomBytes, randomUUID } from "node:crypto";

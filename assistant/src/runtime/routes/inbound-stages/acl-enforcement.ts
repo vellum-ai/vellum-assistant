@@ -6,8 +6,11 @@
  * Invite code/token redemption is intercepted at gateway ingress; redeemed
  * messages never reach this stage.
  */
-import type { AdmissionPolicy, SourceMetadata } from "@vellumai/gateway-client";
-import { isTrustClass } from "@vellumai/gateway-client";
+import type {
+  AdmissionPolicy,
+  SourceMetadata,
+  TrustVerdict,
+} from "@vellumai/gateway-client";
 
 import type { VerificationSessionWire } from "../../../channels/gateway-verification-sessions.js";
 import {
@@ -17,7 +20,6 @@ import {
   resolveBootstrapToken,
 } from "../../../channels/gateway-verification-sessions.js";
 import type { ChannelId } from "../../../channels/types.js";
-import { getGuardianDelivery } from "../../../contacts/guardian-delivery-reader.js";
 import { channelStatusToMemberStatus } from "../../../contacts/member-status.js";
 import { MESSAGE_PREVIEW_MAX_LENGTH } from "../../../notifications/notification-utils.js";
 import { resolveGuardianName } from "../../../prompts/user-reference.js";
@@ -28,31 +30,25 @@ import {
   isApprovalHandshakeInProgress,
   notifyGuardianOfAccessRequest,
 } from "../../access-request-helper.js";
-import { resolveAnchoredGuardian } from "../../anchored-guardian.js";
 import { deliverChannelReply } from "../../gateway-client.js";
 import type { VerdictMember } from "../../trust-verdict-consumer.js";
-import { verdictMemberFromVerdict } from "../../trust-verdict-consumer.js";
+import {
+  verdictMemberFromVerdict,
+  verdictUsability,
+} from "../../trust-verdict-consumer.js";
 
 const log = getLogger("runtime-http");
 
 /**
  * Resolve the guardian's display name for use in requester-facing messages.
  *
- * Uses the assistant's anchored vellum principal to validate the guardian
- * binding, matching the same strategy used by `notifyGuardianOfAccessRequest`.
- * This prevents stale or cross-assistant bindings from leaking a wrong name.
- * Cosmetic copy, not an admission decision, so a null gateway list degrades
- * gracefully to the default reference.
+ * Cosmetic copy read from the gateway-stamped verdict's `guardianDisplayName`
+ * — the deny decision was already made from the same verdict, so the name
+ * needs no independent validation. An absent field (or absent verdict)
+ * degrades to the default reference.
  */
-async function resolveGuardianLabel(sourceChannel: ChannelId): Promise<string> {
-  // Cosmetic copy, not an admission decision: no local-store fallback, and a
-  // missing anchor principal degrades to the default reference.
-  const anchored = resolveAnchoredGuardian({
-    guardians: await getGuardianDelivery(),
-    sourceChannel,
-    requireAnchorPrincipal: true,
-  });
-  return resolveGuardianName(anchored?.displayName);
+function resolveGuardianLabel(verdict: TrustVerdict | undefined): string {
+  return resolveGuardianName(verdict?.guardianDisplayName);
 }
 
 /**
@@ -67,16 +63,16 @@ async function resolveGuardianLabel(sourceChannel: ChannelId): Promise<string> {
  * - Guardian notified: the standard "I'll let <guardian> know" copy.
  * - Otherwise: the plain not-approved copy.
  */
-export async function composeAccessDenialReply(params: {
-  sourceChannel: ChannelId;
+export function composeAccessDenialReply(params: {
+  verdict: TrustVerdict | undefined;
   guardianNotified: boolean;
   handshakeInProgress: boolean;
-}): Promise<string> {
+}): string {
   if (params.handshakeInProgress) {
-    return `Your access request was approved! Reply here with the 6-digit verification code to finish connecting — if you don't have it, ask ${await resolveGuardianLabel(params.sourceChannel)} for it.`;
+    return `Your access request was approved! Reply here with the 6-digit verification code to finish connecting — if you don't have it, ask ${resolveGuardianLabel(params.verdict)} for it.`;
   }
   if (params.guardianNotified) {
-    return `Hmm looks like you don't have access to talk to me. I'll let ${await resolveGuardianLabel(params.sourceChannel)} know you tried talking to me and get back to you.`;
+    return `Hmm looks like you don't have access to talk to me. I'll let ${resolveGuardianLabel(params.verdict)} know you tried talking to me and get back to you.`;
   }
   return "Sorry, you haven't been approved to message this assistant.";
 }
@@ -213,59 +209,58 @@ export async function enforceIngressAcl(
   // Slack message timestamp for permalink construction.
   const messageTs = sourceMetadata?.messageId ?? undefined;
 
-  // Absent verdict = gateway could not vouch for this actor → fail-closed deny.
-  // A PRESENT verdict with no member (stranger) still flows through the
-  // stranger lane below; only a missing verdict short-circuits here.
-  const verdict = sourceMetadata?.trustVerdict;
-  if (verdict == null) {
-    log.info(
-      { sourceChannel, externalUserId: canonicalSenderId },
-      "Ingress ACL: absent trust verdict, denying fail-closed",
-    );
+  // The shared usability predicate is the fail-closed gate: an unusable
+  // verdict soft-denies with NO stranger-lane side effects (no access-request
+  // card, no verification challenge, no canned reply) — never fail-stranger.
+  // A PRESENT memberless stranger verdict is usable and flows through the
+  // stranger lane below. The switch preserves this stage's per-reason log
+  // lines; TEXT does not fall back to local ACL reads, the sender can retry.
+  const usability = verdictUsability(sourceMetadata?.trustVerdict);
+  if (!usability.usable) {
+    switch (usability.reason) {
+      case "missing":
+        log.info(
+          { sourceChannel, externalUserId: canonicalSenderId },
+          "Ingress ACL: absent trust verdict, denying fail-closed",
+        );
+        break;
+      case "resolution failed":
+        log.warn(
+          { sourceChannel, externalUserId: canonicalSenderId },
+          "Ingress ACL: gateway trust resolution failed, denying fail-closed",
+        );
+        break;
+      case "member unresolvable":
+        log.info(
+          { sourceChannel, externalUserId: canonicalSenderId },
+          "Ingress ACL: member verdict with unresolvable ACL, denying fail-closed",
+        );
+        break;
+      case "unrecognized trust class":
+        log.warn(
+          {
+            sourceChannel,
+            externalUserId: canonicalSenderId,
+            trustClass: sourceMetadata?.trustVerdict?.trustClass,
+          },
+          "Ingress ACL: unrecognized trust class on verdict, denying fail-safe",
+        );
+        break;
+      case "guardian without member":
+        log.warn(
+          { sourceChannel, externalUserId: canonicalSenderId },
+          "Ingress ACL: guardian verdict without a member row, denying fail-safe",
+        );
+        break;
+    }
     return failClosedDeny();
   }
-
-  // Gateway attempted resolution but failed (DB error) → fail-closed deny,
-  // distinct from an absent verdict and from a real stranger. TEXT does not
-  // fall back to local ACL reads; the sender can retry.
-  if (verdict.resolutionFailed === true) {
-    log.warn(
-      { sourceChannel, externalUserId: canonicalSenderId },
-      "Ingress ACL: gateway trust resolution failed, denying fail-closed",
-    );
-    return failClosedDeny();
-  }
+  const { verdict } = usability;
 
   // Member resolved from the gateway verdict (ACL + identity only); null for a
   // stranger verdict, which falls through to the non-member deny lane.
   const resolvedMember: VerdictMember | null =
     verdictMemberFromVerdict(verdict);
-
-  // A verdict carrying member identity but no resolvable member
-  // (malformed/unknown ACL) fails closed, not treated as a stranger.
-  if (!resolvedMember && (verdict.contactId || verdict.channelId)) {
-    log.info(
-      { sourceChannel, externalUserId: canonicalSenderId },
-      "Ingress ACL: member verdict with unresolvable ACL, denying fail-closed",
-    );
-    return failClosedDeny();
-  }
-
-  // An unrecognized trust class is an unresolvable verdict (version skew,
-  // malformed payload), not a stranger. Fail safe: soft-deny with no
-  // stranger-lane side effects (no access-request card, no verification
-  // challenge, no canned reply) — never fail-stranger.
-  if (!isTrustClass(verdict.trustClass)) {
-    log.warn(
-      {
-        sourceChannel,
-        externalUserId: canonicalSenderId,
-        trustClass: verdict.trustClass,
-      },
-      "Ingress ACL: unrecognized trust class on verdict, denying fail-safe",
-    );
-    return failClosedDeny();
-  }
 
   // ── Guardian short-circuit ──
   // A verdict classified `guardian` is admitted even when its same-channel
@@ -275,18 +270,9 @@ export async function enforceIngressAcl(
   // gates below — those would misroute the guardian into the stranger lane
   // and fire an access request at the guardian themselves.
   if (verdict.trustClass === "guardian") {
-    // The gateway proves guardian identity via a same-channel member row
-    // (the active binding address, or a row belonging to the guardian
-    // contact), so every guardian verdict carries a resolvable member row.
-    // A guardian verdict WITHOUT one is contradictory — cross-channel
-    // address collisions are not identity proofs and must never confer
-    // guardian capabilities. Fail safe: soft-deny with no stranger-lane
-    // side effects.
+    // verdictUsability guarantees guardian verdicts carry a resolvable
+    // member row; narrow for TS.
     if (!resolvedMember) {
-      log.warn(
-        { sourceChannel, externalUserId: canonicalSenderId },
-        "Ingress ACL: guardian verdict without a member row, denying fail-safe",
-      );
       return failClosedDeny();
     }
 
@@ -472,7 +458,7 @@ export async function enforceIngressAcl(
               try {
                 await deliverChannelReply(dmCallbackUrl, {
                   chatId: senderUserId,
-                  text: `I don't recognize you yet! I've let ${await resolveGuardianLabel(sourceChannel)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
+                  text: `I don't recognize you yet! I've let ${resolveGuardianLabel(verdict)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
                   assistantId,
                 });
               } catch (err) {
@@ -593,8 +579,8 @@ export async function enforceIngressAcl(
           }
         }
 
-        const replyText = await composeAccessDenialReply({
-          sourceChannel,
+        const replyText = composeAccessDenialReply({
+          verdict,
           guardianNotified,
           handshakeInProgress,
         });
@@ -781,7 +767,7 @@ export async function enforceIngressAcl(
                 try {
                   await deliverChannelReply(dmCallbackUrl, {
                     chatId: senderUserId,
-                    text: `I don't recognize you yet! I've let ${await resolveGuardianLabel(sourceChannel)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
+                    text: `I don't recognize you yet! I've let ${resolveGuardianLabel(verdict)} know you're trying to reach me. They'll need to share a 6-digit verification code with you — ask them directly if you know them. Once you have the code, reply here with it.`,
                     assistantId,
                   });
                 } catch (err) {
@@ -852,8 +838,8 @@ export async function enforceIngressAcl(
             }
           }
 
-          const inactiveReplyText = await composeAccessDenialReply({
-            sourceChannel,
+          const inactiveReplyText = composeAccessDenialReply({
+            verdict,
             guardianNotified,
             handshakeInProgress,
           });

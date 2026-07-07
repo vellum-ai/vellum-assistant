@@ -58,10 +58,6 @@ import {
 import { CONTACTS_INFO_IPC_METHODS } from "./routes/contacts-info-ipc-routes.js";
 import { CONTACTS_MIRROR_IPC_METHODS } from "./routes/contacts-mirror-ipc-routes.js";
 import { type DbProxyParams, handleDbProxy } from "./routes/db-proxy.js";
-import {
-  type DbProxyTransactionParams,
-  handleDbProxyTransaction,
-} from "./routes/db-proxy-transaction.js";
 import { INVITE_IPC_METHODS } from "./routes/invite-ipc-routes.js";
 import { routeDefinitionsToIpcMethods } from "./routes/route-adapter.js";
 import { ensureSocketPathFree } from "./socket-cleanup.js";
@@ -198,16 +194,12 @@ export class AssistantIpcServer {
       this.methods.set(route.operationId, route.handler);
     }
 
-    // ⚠️  TEMPORARY — gateway→assistant DB proxies (see ipc/routes/db-proxy.ts
-    // and ipc/routes/db-proxy-transaction.ts). These are the ONLY routes
-    // defined directly here; all other routes go in ROUTES. Remove once
-    // contacts/guardian-binding logic is fully migrated to the gateway's
-    // own database.
+    // Gateway→assistant DB proxy — one-time gateway data migrations only,
+    // never runtime features (see ipc/routes/db-proxy.ts; allowlist-guarded).
+    // This is the ONLY route defined directly here; all other routes go in
+    // ROUTES.
     this.methods.set("db_proxy", (params) =>
       handleDbProxy(params as unknown as DbProxyParams),
-    );
-    this.methods.set("db_proxy_transaction", (params) =>
-      handleDbProxyTransaction(params as unknown as DbProxyTransactionParams),
     );
 
     // IPC-only invite methods (see ipc/routes/invite-ipc-routes.ts). The

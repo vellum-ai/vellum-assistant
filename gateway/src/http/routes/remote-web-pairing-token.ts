@@ -2,6 +2,7 @@ import {
   ensureVellumGuardianBinding,
   getExternalAssistantId,
   mintAndRecordBrowserTokenPair,
+  VellumGuardianMintRefusedError,
 } from "../../auth/guardian-bootstrap.js";
 import {
   claimRemoteWebPairingChallengeExchange,
@@ -94,7 +95,22 @@ export async function handleRemoteWebPairingToken(
       browserRefreshCookiePath: refreshCookiePath,
     });
   } catch (err) {
+    // Release so the approved code stays exchangeable after the failure is
+    // repaired (mint refusal) or retried (transient DB error).
     releaseRemoteWebPairingChallengeExchange(deviceCode);
+    if (err instanceof VellumGuardianMintRefusedError) {
+      // Guardian rows lost but the DB shows prior onboarding: minting here
+      // would diverge from prior clients' tokens. Fail closed with an
+      // explicit repair-required response instead of an unhandled 500.
+      // Stays 503 (unlike /auth/token's repairable 401): 401 here means
+      // invalid/expired device code, and the released code stays
+      // exchangeable after guardian repair.
+      return jsonError(
+        "GUARDIAN_REPAIR_REQUIRED",
+        "gateway guardian binding is missing over evidence of prior onboarding — repair via guardian init, then retry pairing",
+        503,
+      );
+    }
     throw err;
   }
   completeRemoteWebPairingChallengeExchange(deviceCode);

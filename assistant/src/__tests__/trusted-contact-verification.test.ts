@@ -22,20 +22,10 @@ mock.module("../util/logger.js", () => ({
     }),
 }));
 
-import type { ChannelId } from "../channels/types.js";
 import { findContactChannel } from "../contacts/contact-store.js";
-import {
-  revokeMember,
-  upsertContactChannel,
-} from "../contacts/contacts-write.js";
-import type { ChannelStatus } from "../contacts/types.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
-import {
-  __resetMemberVerdictCacheForTest,
-  setMemberVerdict,
-} from "../runtime/member-verdict-cache.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
 import { deriveGuardianForChannel } from "./helpers/derive-guardian-delivery.js";
 import { resetGatewayAclStore } from "./helpers/gateway-acl-store.js";
@@ -59,26 +49,6 @@ function resetTables(): void {
   resetGatewayAclStore();
 }
 
-// Mirror a warmed gateway verdict so the sync resolveActorTrust fallback
-// resolves the member with the given status; the local ACL columns are no
-// longer read.
-function warmMemberVerdict(
-  channelType: ChannelId,
-  address: string,
-  status: ChannelStatus = "unverified",
-): void {
-  const found = findContactChannel({ channelType, address });
-  if (!found) return;
-  setMemberVerdict(channelType, address, {
-    trustClass: "unknown",
-    canonicalSenderId: address,
-    contactId: found.contact.id,
-    channelId: found.channel.id,
-    status,
-    policy: "allow",
-  });
-}
-
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -86,7 +56,6 @@ function warmMemberVerdict(
 describe("trusted contact verification → member activation", () => {
   beforeEach(() => {
     resetTables();
-    __resetMemberVerdictCacheForTest();
   });
 
   test("successful verification creates active member with allow policy", () => {
@@ -135,96 +104,6 @@ describe("trusted contact verification → member activation", () => {
     expect(contactResult!.channel.externalChatId).toBe("requester-chat-123");
     expect(contactResult!.contact.displayName).toBe("Requester Name");
     expect(contactResult!.channel.type).toBe("telegram");
-  });
-
-  test("resolveActorTrust surfaces member displayName when sender displayName is missing", () => {
-    upsertContactChannel({
-      sourceChannel: "telegram",
-      externalUserId: "requester-user-jeff",
-      externalChatId: "requester-chat-jeff",
-      displayName: "Jeff",
-      username: "jeff_handle",
-    });
-    warmMemberVerdict("telegram", "requester-user-jeff");
-
-    const trust = resolveActorTrust({
-      assistantId: "self",
-      sourceChannel: "telegram",
-      conversationExternalId: "requester-chat-jeff",
-      actorExternalId: "requester-user-jeff",
-    });
-
-    // The local mirror persists identity only; the schema-default status places
-    // the contact in the unverified_contact tier (gateway owns elevation).
-    expect(trust.trustClass).toBe("unverified_contact");
-    expect(trust.actorMetadata.displayName).toBe("Jeff");
-    expect(trust.actorMetadata.senderDisplayName).toBeUndefined();
-    expect(trust.actorMetadata.memberDisplayName).toBe("Jeff");
-    // Contacts-first path does not carry username from the contact channel,
-    // so identifier falls back to canonicalSenderId when no actorUsername
-    // is provided.
-    expect(trust.actorMetadata.identifier).toBe("requester-user-jeff");
-  });
-
-  test("resolveActorTrust prioritizes member displayName over sender displayName", () => {
-    upsertContactChannel({
-      sourceChannel: "telegram",
-      externalUserId: "requester-user-jeff-priority",
-      externalChatId: "requester-chat-jeff-priority",
-      displayName: "Jeff",
-      username: "jeff_handle",
-    });
-    warmMemberVerdict("telegram", "requester-user-jeff-priority");
-
-    const trust = resolveActorTrust({
-      assistantId: "self",
-      sourceChannel: "telegram",
-      conversationExternalId: "requester-chat-jeff-priority",
-      actorExternalId: "requester-user-jeff-priority",
-      actorUsername: "jeffrey_telegram",
-      actorDisplayName: "Jeffrey",
-    });
-
-    expect(trust.trustClass).toBe("unverified_contact");
-    expect(trust.actorMetadata.displayName).toBe("Jeff");
-    expect(trust.actorMetadata.senderDisplayName).toBe("Jeffrey");
-    expect(trust.actorMetadata.memberDisplayName).toBe("Jeff");
-    // Contacts-first path does not carry username from the contact channel,
-    // so the sender's username takes precedence via the fallback chain.
-    expect(trust.actorMetadata.username).toBe("jeffrey_telegram");
-    expect(trust.actorMetadata.identifier).toBe("@jeffrey_telegram");
-  });
-
-  test("resolveActorTrust falls back to sender metadata when member record matches chat but not sender (group chat)", () => {
-    // Simulate a group chat: member record exists for a different user who
-    // shares the same externalChatId (e.g., Telegram group).
-    upsertContactChannel({
-      sourceChannel: "telegram",
-      externalUserId: "other-user-in-group",
-      externalChatId: "shared-group-chat",
-      displayName: "Other User",
-      username: "other_handle",
-    });
-
-    // A different sender sends a message in the same group chat
-    const trust = resolveActorTrust({
-      assistantId: "self",
-      sourceChannel: "telegram",
-      conversationExternalId: "shared-group-chat",
-      actorExternalId: "actual-sender-in-group",
-      actorUsername: "actual_sender_handle",
-      actorDisplayName: "Actual Sender",
-    });
-
-    // The member record returned by findMember matched on chatId but belongs
-    // to a different user, so member metadata should NOT be used and trust
-    // should NOT be elevated to trusted_contact.
-    expect(trust.trustClass).toBe("unknown");
-    expect(trust.actorMetadata.displayName).toBe("Actual Sender");
-    expect(trust.actorMetadata.senderDisplayName).toBe("Actual Sender");
-    expect(trust.actorMetadata.memberDisplayName).toBeUndefined();
-    expect(trust.actorMetadata.username).toBe("actual_sender_handle");
-    expect(trust.actorMetadata.identifier).toBe("@actual_sender_handle");
   });
 
   test("post-verify message is accepted (ACL check passes)", () => {
@@ -303,7 +182,7 @@ describe("trusted contact verification → member activation", () => {
     expect(otherChannel).toBeNull();
   });
 
-  test("revokeMember resolves the member identity without mutating local ACL", () => {
+  test("re-verification re-upserts the same identity row (revoke is gateway-owned)", () => {
     // Create a member identity row.
     const member = upsertContactChannel({
       sourceChannel: "telegram",
@@ -311,14 +190,10 @@ describe("trusted contact verification → member activation", () => {
       externalChatId: "chat-revoked",
       displayName: "Revoked User",
     });
+    expect(member).not.toBeNull();
 
-    // The local revoke is a pure resolver now — the gateway owns the ACL
-    // downgrade; revokeMember returns the resolved native contact/channel.
-    const revoked = revokeMember(member!.channel.id);
-    expect(revoked).not.toBeNull();
-    expect(revoked!.channel.id).toBe(member!.channel.id);
-
-    // Re-upsert on the same identity is idempotent on the identity row.
+    // The ACL downgrade lives on the gateway; the local identity row is
+    // untouched by a revoke, so re-verification re-upserts the same row.
     const session = createOutboundSession({
       channel: "telegram",
       expectedExternalUserId: "user-revoked",

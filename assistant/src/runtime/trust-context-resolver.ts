@@ -1,13 +1,13 @@
 /**
- * Shared inbound trust resolution for channel actors.
+ * Routing-state helpers plus the residual sync trust entry point.
  *
- * Provides routing-state helpers and a convenience wrapper
- * ({@link resolveTrustContext}) around {@link resolveActorTrust} that
- * converts the result to a {@link TrustContext}.
- *
- * Trust resolution itself lives in `actor-trust-resolver.ts`; the resolved
- * {@link ActorTrustContext} is converted to {@link TrustContext} via
- * {@link toTrustContext}.
+ * {@link resolveTrustContext} wraps {@link resolveActorTrust} (a sync,
+ * IO-free guardian-or-unknown view — see `actor-trust-resolver.ts`) and
+ * converts the result to a {@link TrustContext}. Its sole production caller
+ * is the vellum reset-drift re-resolution in `guardian-vellum-migration.ts`,
+ * which runs exactly when the gateway verdict came back `unknown` and so
+ * cannot consume a verdict. Verdict-stamped ingress uses
+ * `trustContextFromVerdict` in `trust-verdict-consumer.ts` instead.
  */
 import type { ChannelId } from "../channels/types.js";
 import type { TrustContext } from "../daemon/trust-context.js";

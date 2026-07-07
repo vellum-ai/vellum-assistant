@@ -1,20 +1,23 @@
 /**
- * Gateway-side per-actor trust verdict resolver.
+ * Gateway-side per-actor trust verdict resolver — the canonical `TrustClass`
+ * classifier. The daemon consumes the stamped verdict
+ * (`assistant/src/runtime/trust-verdict-consumer.ts`); its residual sync view
+ * (`actor-trust-resolver.ts`) classifies guardian-or-unknown only.
  *
  * Reads ONLY the gateway DB (ACL tables + verification session presence) to
- * produce a {@link TrustVerdict} for an inbound actor. Mirrors the daemon's
- * classification precedence (`actor-trust-resolver.ts`) and resolves channels
+ * produce a {@link TrustVerdict} for an inbound actor, resolving channels
  * by `(type,address)` COLLATE NOCASE. Read-only — no writes, no assistant DB,
  * no IPC.
  *
- * Blocked/revoked member channels classify as `unknown` (mirroring the
- * daemon), while their raw `status`/`policy` are surfaced verbatim so the
- * consumer enforces the member_blocked / member_revoked hard-deny.
+ * Blocked/revoked member channels classify as `unknown`, while their raw
+ * `status`/`policy` are surfaced verbatim so the consumer enforces the
+ * member_blocked / member_revoked hard-deny.
  */
 
 import type { TrustClass, TrustVerdict } from "@vellumai/gateway-client";
 import { and, desc, eq, sql } from "drizzle-orm";
 
+import { guardianIntegrityState } from "../auth/guardian-integrity.js";
 import { getGatewayDb } from "../db/connection.js";
 import {
   contacts as gwContacts,
@@ -96,9 +99,7 @@ export async function resolveTrustVerdict(
           status: gwContactChannels.status,
           policy: gwContactChannels.policy,
           verifiedAt: gwContactChannels.verifiedAt,
-          verifiedVia: gwContactChannels.verifiedVia,
           interactionCount: gwContactChannels.interactionCount,
-          lastInteraction: gwContactChannels.lastInteraction,
           memberDisplayName: gwContacts.displayName,
           memberRole: gwContacts.role,
           memberPrincipalId: gwContacts.principalId,
@@ -205,6 +206,26 @@ export async function resolveTrustVerdict(
 
   const verdict: TrustVerdict = { trustClass, canonicalSenderId };
 
+  // A gateway DB that has lost its guardian rows (but shows evidence of prior
+  // onboarding) misclassifies every sender as a plain stranger. Evaluate the
+  // integrity state (TTL-cached) on EVERY resolve so detection/reporting is
+  // traffic-independent — intact contact rows classify members normally and
+  // would otherwise keep the fail-loud reporter silent until a stranger
+  // messages. Only `unknown` classifications get the `resolutionFailed` stamp
+  // (consumers fail closed with no stranger-lane side effects); member
+  // admission is unchanged. Best-effort: a thrown integrity check degrades to
+  // the plain verdict rather than breaking resolution.
+  try {
+    if (
+      guardianIntegrityState() === "missing_guardian" &&
+      trustClass === "unknown"
+    ) {
+      verdict.resolutionFailed = true;
+    }
+  } catch {
+    // Plain verdict; integrity detection must never break resolution.
+  }
+
   // Session-presence stamp (channel-scoped): lets the daemon's deny branches
   // skip their verification-read IPC pair when no session exists. Best-effort
   // — an omitted stamp just falls back to those reads, so a store failure
@@ -244,9 +265,7 @@ export async function resolveTrustVerdict(
     verdict.status = memberRow.status;
     verdict.policy = memberRow.policy;
     verdict.verifiedAt = memberRow.verifiedAt;
-    verdict.verifiedVia = memberRow.verifiedVia;
     verdict.interactionCount = memberRow.interactionCount;
-    verdict.lastInteraction = memberRow.lastInteraction;
     verdict.memberDisplayName = memberRow.memberDisplayName;
   }
 

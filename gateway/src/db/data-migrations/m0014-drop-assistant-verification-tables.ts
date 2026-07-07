@@ -50,13 +50,13 @@ export async function up(): Promise<MigrationResult> {
   } catch (err) {
     log.error(
       { err },
-      "m0013: assistant verification table drop failed — will retry on next startup",
+      "m0014: assistant verification table drop failed — will retry on next startup",
     );
     return "skip";
   }
 
   log.info(
-    "m0013: dropped assistant channel_verification_sessions and channel_guardian_rate_limits",
+    "m0014: dropped assistant channel_verification_sessions and channel_guardian_rate_limits",
   );
   return "done";
 }
