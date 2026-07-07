@@ -3,43 +3,30 @@ import { describe, expect, test } from "bun:test";
 import {
   CAPABILITY_TIER_META,
   CAPABILITY_TIER_THRESHOLDS,
-  defaultChannelTier,
   resolveChannelTier,
   tierFromThreshold,
   tierOverridesFromCells,
   type ChannelTierCell,
 } from "./slack-channel-overrides";
 
-describe("defaultChannelTier", () => {
-  test("public and private channels default to full access", () => {
-    expect(defaultChannelTier("public", false)).toBe("full_access");
-    expect(defaultChannelTier("private", false)).toBe("full_access");
-  });
-
-  test("DMs default by contact trust: verified full access, unverified strict", () => {
-    expect(defaultChannelTier("dm", true)).toBe("full_access");
-    expect(defaultChannelTier("dm", false)).toBe("strict");
-  });
-});
-
 describe("resolveChannelTier", () => {
-  test("no override resolves the default with no divergence", () => {
-    expect(resolveChannelTier("public", false, undefined)).toEqual({
+  test("no override resolves the room default with no divergence", () => {
+    expect(resolveChannelTier(undefined)).toEqual({
       tier: "full_access",
       overridden: false,
     });
   });
 
   test("a diverging override flags the row as custom", () => {
-    expect(resolveChannelTier("public", false, "standard")).toEqual({
+    expect(resolveChannelTier("standard")).toEqual({
       tier: "standard",
       overridden: true,
     });
   });
 
   test("a persisted cell matching the default is not flagged", () => {
-    expect(resolveChannelTier("dm", false, "strict")).toEqual({
-      tier: "strict",
+    expect(resolveChannelTier("full_access")).toEqual({
+      tier: "full_access",
       overridden: false,
     });
   });

@@ -17,7 +17,10 @@ function makeChannel(overrides: Partial<SlackChannel> & Pick<SlackChannel, "id" 
   };
 }
 
-/** A mix of public channels, private channels, and DMs, all member-only. */
+/**
+ * A mix of public channels, private channels, group DMs, and 1:1 DMs — the
+ * list renders rooms only, so the 1:1 DM rows stay hidden.
+ */
 const MIXED_CHANNELS: SlackChannel[] = [
   makeChannel({ id: "C001", name: "general", memberCount: 42 }),
   makeChannel({ id: "C002", name: "engineering", memberCount: 18 }),
@@ -37,9 +40,6 @@ const meta: Meta<typeof SlackChannelList> = {
     assistantDisplayName: "Example Assistant",
     slackHandle: "@example-assistant",
     channels: MIXED_CHANNELS,
-    // Alice is a verified contact, so her DM resolves "Full access";
-    // Bob's DM resolves "Strict".
-    verifiedDmContactNames: new Set(["alice"]),
   },
   decorators: [
     (Story) => (

@@ -10,12 +10,25 @@ import {
   type SlackCapabilityTier,
   type SlackChannelTierSettings,
 } from "@/domains/contacts/slack-channel-overrides";
+import {
+  getPolicyDescriptions,
+  POLICY_LABELS,
+  type AdmissionPolicy,
+} from "@/lib/channel-admission-policy/types";
 
 export interface SlackChannelOverridePanelProps {
   /** Row's channel name, for accessible control labels. */
   channelName: string;
-  /** Lowercase channel-type word for the custom-capabilities callout copy. */
-  kindLabel: "public" | "private" | "DM";
+  /** Lowercase room-type word for the custom-capabilities callout copy. */
+  kindLabel: "public" | "private";
+  /** Trimmed assistant name with a "your assistant" fallback, for copy. */
+  assistantDisplayName: string;
+  /**
+   * The Slack trust floor, shown read-only so the row answers "who can
+   * reach the assistant here". Admission is a channel-type setting — the
+   * control lives in the "Who can message" dropdown, not per room.
+   */
+  admissionPolicy?: AdmissionPolicy;
   settings: SlackChannelTierSettings;
   /**
    * True until persisted overrides have loaded — the picker holds disabled
@@ -35,6 +48,8 @@ export interface SlackChannelOverridePanelProps {
 export function SlackChannelOverridePanel({
   channelName,
   kindLabel,
+  assistantDisplayName,
+  admissionPolicy,
   settings,
   loading = false,
   onTierChange,
@@ -49,6 +64,35 @@ export function SlackChannelOverridePanel({
 
   return (
     <div className="flex flex-col gap-3 px-2 pt-1 pb-4">
+      {admissionPolicy ? (
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between gap-2">
+            <Typography
+              as="span"
+              variant="body-small-emphasised"
+              className="text-[color:var(--content-secondary)]"
+            >
+              Who can reach {assistantDisplayName} here
+            </Typography>
+            <Typography
+              as="span"
+              variant="body-small-default"
+              className="text-[color:var(--content-tertiary)]"
+            >
+              {POLICY_LABELS[admissionPolicy]} — all of Slack
+            </Typography>
+          </div>
+          <Typography
+            as="p"
+            variant="body-small-default"
+            className="text-[color:var(--content-tertiary)]"
+          >
+            {getPolicyDescriptions(assistantDisplayName)[admissionPolicy]}{" "}
+            Set once for all Slack channels in “Who can message{" "}
+            {assistantDisplayName}” above.
+          </Typography>
+        </div>
+      ) : null}
       {settings.overridden ? (
         <Notice
           tone="warning"

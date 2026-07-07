@@ -1,15 +1,17 @@
 /**
  * Per-channel capabilities-tier model for the Slack channel list's
- * expandable rows. Capabilities is the only per-room knob: the tier
- * persists as channel-ID-tier cells in the gateway's
+ * expandable rows. Capabilities is the only per-room knob, and the list is
+ * rooms only (channels and group DMs): admission — who can reach the
+ * assistant — is a channel-type concern handled by the trust floors, and
+ * how the assistant interacts with an individual person is contact-list
+ * territory, so 1:1 DMs carry no room settings.
+ *
+ * Tiers persist as channel-ID-tier cells in the gateway's
  * `channel_permission_overrides` matrix (one cell per non-guardian
- * contact-type; see {@link CHANNEL_TIER_CONTACT_TYPES}). Admission — who
- * can reach the assistant — is a channel-type concern handled by the trust
- * floors and has no per-room control.
+ * contact-type; see {@link CHANNEL_TIER_CONTACT_TYPES}).
  */
 import type { TagTone } from "@vellumai/design-library/components/tag";
 
-import type { SlackChannelKind } from "@/domains/contacts/components/slack-channel-list";
 import {
   presetFromThreshold,
   type RiskThreshold,
@@ -143,29 +145,17 @@ export interface SlackChannelTierSettings {
   overridden: boolean;
 }
 
-/**
- * Channel-type-appropriate default tier: full access everywhere except DMs
- * with unverified contacts, which default to strict.
- */
-export function defaultChannelTier(
-  kind: SlackChannelKind,
-  dmVerified: boolean,
-): SlackCapabilityTier {
-  return kind === "dm" && !dmVerified ? "strict" : "full_access";
-}
+/** Every room defaults to full access; anything else is an override. */
+export const DEFAULT_CHANNEL_TIER: SlackCapabilityTier = "full_access";
 
 /**
- * Applies a persisted tier override (possibly absent) on top of the
- * channel-type default. A tier counts as overridden only when it diverges
- * from the default — a persisted cell that matches the default is not
- * flagged.
+ * Applies a persisted tier override (possibly absent) on top of the room
+ * default. A tier counts as overridden only when it diverges — a persisted
+ * cell that matches the default is not flagged.
  */
 export function resolveChannelTier(
-  kind: SlackChannelKind,
-  dmVerified: boolean,
   override: SlackCapabilityTier | undefined,
 ): SlackChannelTierSettings {
-  const defaultTier = defaultChannelTier(kind, dmVerified);
-  const tier = override ?? defaultTier;
-  return { tier, overridden: tier !== defaultTier };
+  const tier = override ?? DEFAULT_CHANNEL_TIER;
+  return { tier, overridden: tier !== DEFAULT_CHANNEL_TIER };
 }

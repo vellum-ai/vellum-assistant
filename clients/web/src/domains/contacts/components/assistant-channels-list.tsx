@@ -512,6 +512,7 @@ function ChannelPanel({
           assistantId={assistantId}
           assistantDisplayName={assistantDisplayName}
           slackHandle={channel.address}
+          admissionPolicy={policy}
         />
       ) : null}
 
