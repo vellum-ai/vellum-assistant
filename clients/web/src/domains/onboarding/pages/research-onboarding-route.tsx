@@ -21,6 +21,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
+import { isGatewayAuthMode } from "@/lib/auth/gateway-session";
 import { isLocalMode } from "@/lib/local-mode";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
@@ -35,6 +36,7 @@ import {
   buildResearchPrompt,
   type ResearchSubject,
 } from "@/domains/onboarding/research-prompt";
+import { shouldAdoptExistingAssistant } from "@/domains/onboarding/adopt-existing-assistant";
 import { useBackgroundHatch } from "@/domains/onboarding/use-background-hatch";
 import { useResearchRunner } from "@/domains/onboarding/research-runner";
 import { sendResearchCorrection } from "@/domains/onboarding/send-research-correction";
@@ -220,14 +222,17 @@ export function ResearchOnboardingRoute() {
   // called on submit and internally awaits the hatch.
   // A local-hosting onboarding (hosting=local/docker) already provisioned its
   // assistant in the hatching screen, so the background hatch ADOPTS it rather
-  // than running a managed hatch. Vellum-Cloud onboarding (no / "vellum-cloud"
-  // hosting) still runs the managed hatch. `isLocalMode()` alone can't tell
-  // these apart — it's a build-time value that's true for the whole desktop app,
-  // including its Vellum-Cloud path — so we key on the chosen hosting.
+  // than running a managed hatch; when the query string is missing, a live
+  // gateway-auth session is the same evidence (see
+  // `shouldAdoptExistingAssistant`). Vellum-Cloud onboarding runs the managed
+  // hatch.
   const [searchParams] = useSearchParams();
   const hostingParam = searchParams.get("hosting");
-  const adoptExistingAssistant =
-    isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+  const adoptExistingAssistant = shouldAdoptExistingAssistant({
+    hostingParam,
+    localMode: isLocalMode(),
+    gatewayAuthSession: isGatewayAuthMode(),
+  });
   // The hatching screen names the assistant it provisioned in the `assistant`
   // param, pinning adoption to that exact one — a stale selection or leftover
   // lockfile entries from previous sessions can't answer for it.
