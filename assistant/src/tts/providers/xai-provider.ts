@@ -1,9 +1,11 @@
 /**
  * xAI TTS provider adapter.
  *
- * Wraps the xAI REST text-to-speech API (`/v1/tts`) behind the uniform
- * {@link TtsProvider} interface. Reads the API key from the secure credential
- * store under `credential/xai/api_key` and the model configuration from the
+ * Wraps the xAI text-to-speech API behind the uniform {@link TtsProvider}
+ * interface: the REST endpoint (`/v1/tts`) for batch synthesis and the
+ * WebSocket endpoint (`wss://api.x.ai/v1/tts`) for chunk streaming. Reads
+ * the API key from the secure credential store under
+ * `credential/xai/api_key` and the model configuration from the
  * `services.tts.providers.xai` config section.
  */
 
@@ -14,12 +16,14 @@ import { getSecureKeyAsync } from "../../security/secure-keys.js";
 import { getLogger } from "../../util/logger.js";
 import { resolvePcmOutputSampleRateHz } from "../pcm-sample-rates.js";
 import type { TtsProviderDefinition } from "../provider-definition.js";
+import type { StreamReadTimeouts } from "../stream-read.js";
 import type {
   TtsProvider,
   TtsProviderCapabilities,
   TtsSynthesisRequest,
   TtsSynthesisResult,
 } from "../types.js";
+import { synthesizeOverXaiTtsSocket } from "./xai-tts-socket.js";
 
 const log = getLogger("tts:xai");
 
@@ -31,7 +35,9 @@ export type XaiTtsErrorCode =
   | "XAI_TTS_NO_API_KEY"
   | "XAI_TTS_HTTP_ERROR"
   | "XAI_TTS_EMPTY_RESPONSE"
-  | "XAI_TTS_REQUEST_FAILED";
+  | "XAI_TTS_REQUEST_FAILED"
+  | "XAI_TTS_STREAM_TIMEOUT"
+  | "XAI_TTS_STREAM_FAILED";
 
 export class XaiTtsError extends Error {
   readonly code: XaiTtsErrorCode;
@@ -50,6 +56,8 @@ export class XaiTtsError extends Error {
 // ---------------------------------------------------------------------------
 
 const XAI_API_BASE = "https://api.x.ai";
+
+const XAI_WS_BASE = "wss://api.x.ai/v1/tts";
 
 /**
  * Sample rates xAI TTS accepts (both REST and WS). Per
@@ -141,10 +149,47 @@ function resolveVoiceId(
   return request.voiceId?.trim() || config.voiceId || "eve";
 }
 
-export function createXaiProvider(): TtsProvider {
+/** Resolve the xAI API key, throwing `XAI_TTS_NO_API_KEY` when unset. */
+async function requireApiKey(): Promise<string> {
+  const apiKey = await getSecureKeyAsync(credentialKey("xai", "api_key"));
+  if (!apiKey) {
+    throw new XaiTtsError(
+      "XAI_TTS_NO_API_KEY",
+      "xAI API key not configured. " +
+        "Add it via: assistant credentials set --service xai --field api_key <key>",
+    );
+  }
+  return apiKey;
+}
+
+/**
+ * Build the WebSocket synthesis URL. Mirrors the REST `output_format`
+ * payload (via {@link resolveOutputParams}) so both transports request
+ * identical audio.
+ */
+function buildStreamUrl(
+  request: TtsSynthesisRequest,
+  config: TtsXaiProviderConfig,
+  outputParams: XaiOutputParams,
+): string {
+  const params = new URLSearchParams({
+    language: config.language,
+    voice: resolveVoiceId(request, config),
+    codec: outputParams.codec,
+    sample_rate: String(outputParams.sample_rate),
+  });
+  if (outputParams.bit_rate != null) {
+    params.set("bit_rate", String(outputParams.bit_rate));
+  }
+  return `${XAI_WS_BASE}?${params.toString()}`;
+}
+
+export function createXaiProvider(
+  streamTimeouts: StreamReadTimeouts & { connectTimeoutMs?: number } = {},
+): TtsProvider {
   const capabilities: TtsProviderCapabilities = {
-    supportsStreaming: false,
-    supportedFormats: ["mp3", "wav"],
+    supportsStreaming: true,
+    supportedFormats: ["mp3", "wav", "pcm"],
   };
 
   return {
@@ -155,14 +200,7 @@ export function createXaiProvider(): TtsProvider {
     async synthesize(
       request: TtsSynthesisRequest,
     ): Promise<TtsSynthesisResult> {
-      const apiKey = await getSecureKeyAsync(credentialKey("xai", "api_key"));
-      if (!apiKey) {
-        throw new XaiTtsError(
-          "XAI_TTS_NO_API_KEY",
-          "xAI API key not configured. " +
-            "Add it via: assistant credentials set --service xai --field api_key <key>",
-        );
-      }
+      const apiKey = await requireApiKey();
 
       const config = getConfig().services.tts.providers.xai;
       const output = resolveOutputParams(request, config);
@@ -238,6 +276,60 @@ export function createXaiProvider(): TtsProvider {
         contentType,
       };
     },
+
+    async synthesizeStream(
+      request: TtsSynthesisRequest,
+      onChunk: (chunk: Uint8Array) => void,
+    ): Promise<TtsSynthesisResult> {
+      const apiKey = await requireApiKey();
+
+      const config = getConfig().services.tts.providers.xai;
+      const output = resolveOutputParams(request, config);
+      const url = buildStreamUrl(request, config, output);
+
+      log.info(
+        {
+          codec: output.codec,
+          sampleRate: output.sample_rate,
+          textLength: request.text.length,
+        },
+        "Starting xAI streaming TTS synthesis",
+      );
+
+      const audio = await synthesizeOverXaiTtsSocket({
+        url,
+        apiKey,
+        text: request.text,
+        onChunk,
+        signal: request.signal,
+        ...streamTimeouts,
+        makeTimeoutError: (timeoutMs) =>
+          new XaiTtsError(
+            "XAI_TTS_STREAM_TIMEOUT",
+            `xAI streaming TTS timed out after ${timeoutMs}ms`,
+          ),
+        makeStreamError: (detail) =>
+          new XaiTtsError(
+            "XAI_TTS_STREAM_FAILED",
+            `xAI streaming TTS failed: ${detail}`,
+          ),
+        makeEmptyError: () =>
+          new XaiTtsError(
+            "XAI_TTS_EMPTY_RESPONSE",
+            "xAI streaming TTS returned no audio",
+          ),
+      });
+
+      log.debug(
+        { bytes: audio.byteLength },
+        "xAI streaming TTS synthesis complete",
+      );
+
+      return {
+        audio,
+        contentType: FORMAT_CONTENT_TYPE[output.contentTypeKey] ?? "audio/mpeg",
+      };
+    },
   };
 }
 
@@ -265,8 +357,8 @@ export const xaiTtsProviderDefinition: TtsProviderDefinition = {
   callMode: "synthesized-play",
   allowNativeFallback: false,
   capabilities: {
-    supportsStreaming: false,
-    supportedFormats: ["mp3", "wav"],
+    supportsStreaming: true,
+    supportedFormats: ["mp3", "wav", "pcm"],
   },
   // The adapter honours the PCM hint via the `pcm` codec.
   mediaStreamPlayback: { outputFormat: "pcm" },
