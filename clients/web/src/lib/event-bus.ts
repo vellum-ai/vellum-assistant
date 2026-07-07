@@ -133,25 +133,11 @@ export interface BusEventMap {
    * conversation. Domain consumers (chat composer, conversation
    * router) subscribe here to take action.
    *
-   * Publishers per event:
-   *   - `deeplink.send`: Electron host only —
-   *     `vellum://send?message=…` URLs parsed into discriminated
-   *     payloads in `clients/macos/src/main/deep-links.ts` and
-   *     re-published by
-   *     `runtime/event-sources/electron-deep-links.ts`.
-   *   - `deeplink.openThread`: Electron `vellum://thread/<id>` URLs
-   *     (same path as above); notification taps carrying a
-   *     conversation id on every platform via
-   *     `hooks/use-notification-tap-navigation.ts` (Capacitor local
-   *     notifications, Electron notification actions, browser
-   *     `Notification.onclick`); and APNs remote-push taps on
-   *     Capacitor iOS via `runtime/push-registration.ts`.
-   *   - `deeplink.unknown`: parser fallbacks — foreign schemes,
-   *     malformed URLs, unrecognized hosts — from the Electron path
-   *     and from Capacitor iOS `App.appUrlOpen` URLs no handler
-   *     claims (`runtime/event-sources/capacitor-deep-links.ts`).
-   *     Consumers typically log and drop these; useful as a
-   *     no-action signal so the bridge surface is exhaustive.
+   * Publishers: Electron deep links, the notification tap handler,
+   * push-registration, and Capacitor `appUrlOpen` — see
+   * docs/EVENT_BUS.md for the per-event table. `deeplink.unknown` is a
+   * no-action signal (consumers log and drop it) so the bridge surface
+   * stays exhaustive.
    */
   "deeplink.send": { message: string };
   "deeplink.openThread": { threadId: string };

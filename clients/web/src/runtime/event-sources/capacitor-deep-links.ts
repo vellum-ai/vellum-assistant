@@ -10,13 +10,9 @@ import {
  *
  * OAuth-complete URLs (`vellum-assistant://oauth-complete?…`) dispatch
  * the `OAUTH_COMPLETE_DEEP_LINK_EVENT` window CustomEvent that
- * `useOAuthCompleteDeepLinkListener` already consumes, making OAuth
- * completion event-driven instead of relying only on the
- * `browserFinished` poll fallback in `runtime/browser.ts` (which stays
- * in place as a safety net). Any other URL publishes
- * `deeplink.unknown { url }` on the bus (query/fragment stripped) —
- * future URL kinds (conversation universal links, quick actions)
- * branch here.
+ * `useOAuthCompleteDeepLinkListener` already consumes; any other URL
+ * publishes `deeplink.unknown { url }` on the bus (query/fragment
+ * stripped).
  *
  * Off Capacitor iOS the function is a no-op — Electron deep links flow
  * through `publishElectronDeepLinksSource` instead.

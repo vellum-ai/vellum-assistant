@@ -359,16 +359,13 @@ export class NotificationBroadcaster {
       }
 
       // For the vellum and platform channels, merge the conversationId into
-      // deep-link metadata so clients can navigate directly to the conversation
-      // (macOS reads it from notification_intent; the platform relays it to
-      // iOS inside the APNs payload as deep_link). Prefer the channel's own
-      // paired conversation (interactive opt-in flows); the platform channel
-      // is a push_only relay that pairs no conversation of its own, so it
-      // prefers the vellum pairing from this broadcast. Otherwise fall back
-      // to the originating conversation referenced by `sourceContextId` when it
-      // resolves to a real row. Sentinel context ids (job IDs, call session IDs,
-      // access-req-* strings) leave the deep link without a conversation, and
-      // the client opens the app to its default landing.
+      // deep-link metadata so notification taps can navigate to the
+      // conversation. Prefer the channel's own pairing; platform (push_only,
+      // pairs nothing) takes this broadcast's vellum pairing; otherwise fall
+      // back to sourceContextId when it resolves to a real row. Sentinel
+      // context ids (job IDs, call session IDs, access-req-* strings) leave
+      // the deep link without a conversation, and the client opens the app to
+      // its default landing.
       let deepLinkTarget = decision.deepLinkTarget;
       if (channel === "vellum" || channel === "platform") {
         const deepLinkPairing =

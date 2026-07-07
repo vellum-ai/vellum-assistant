@@ -23,11 +23,9 @@
  *   - {@link unregisterFromRemotePush} — call from the logout path BEFORE the
  *     session cookie is cleared (see `stores/auth-store.ts`) so the platform
  *     delete is authenticated. Removes the token for the bound assistant.
- *   - Tap routing — alongside the token listeners, a
- *     `pushNotificationActionPerformed` listener publishes
- *     `deeplink.openThread` on the event bus when a tapped notification
- *     carries a conversation id, so `useGlobalDeepLinkConsumer` (mounted in
- *     `RootLayout`) navigates to the conversation.
+ *   - Tap routing — a `pushNotificationActionPerformed` listener publishes
+ *     `deeplink.openThread` when the tapped notification carries a
+ *     conversation id.
  *
  * iOS-only and best-effort: no-ops on Electron, desktop browsers, and Android
  * (no native Capacitor Android shell ships today); registration/delete failures
@@ -190,18 +188,10 @@ async function upsertToken(token: string, assistantId: string): Promise<void> {
 }
 
 /**
- * Extract the conversation id a tapped push notification routes to.
- *
- * APNs custom keys arrive as `notification.data`. The intended contract is
- * daemon → platform → client: the daemon's `platform` channel sends
- * `deep_link_metadata` with the dispatch, the platform forwards it into the
- * APNs payload as `deep_link`, and this reads `data.deep_link.conversationId`.
- * Producers that embed routing directly in `context_payload` put
- * `conversationId` at the top level, so that is the fallback. Pushes whose
- * payload carries no routing keys (a hop of the contract not yet deployed)
- * gracefully yield `undefined` — the tap foregrounds the app without
- * navigating. Returns `undefined` for absent or malformed shapes; never
- * throws.
+ * Conversation id a tapped push routes to: `data.deep_link.conversationId`
+ * (daemon `deep_link_metadata`, relayed by the platform into the APNs
+ * payload), falling back to a top-level `conversationId`. Undefined for
+ * absent/malformed shapes — the tap then just foregrounds the app.
  */
 export function extractPushConversationId(data: unknown): string | undefined {
   if (typeof data !== "object" || data === null) {
@@ -246,9 +236,6 @@ async function ensureListeners(): Promise<void> {
     await PushNotifications.addListener(
       "pushNotificationActionPerformed",
       (action) => {
-        // A payload without routing keys is a graceful no-op: the tap
-        // foregrounds the app without navigating (see
-        // extractPushConversationId for the deep-link contract).
         const conversationId = extractPushConversationId(
           action.notification.data,
         );

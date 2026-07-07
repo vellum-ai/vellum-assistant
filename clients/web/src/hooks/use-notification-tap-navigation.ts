@@ -8,14 +8,9 @@ import { setNotificationTapHandler } from "@/runtime/notifications";
  * Routes notification taps to the originating conversation. Mounted at
  * `RootLayout` so a tap arriving on any authenticated route navigates.
  *
- * The handler publishes `deeplink.openThread` on the event bus rather
- * than navigating directly — `useGlobalDeepLinkConsumer` (also mounted
- * at `RootLayout`) turns that into `ensureMainWindowVisible()` +
- * `navigate(routes.conversation(threadId))`, so notification taps get
- * identical behavior to `vellum://thread/...` deep links. One wiring
- * covers all three tap paths in `runtime/notifications.ts`: Capacitor
- * `localNotificationActionPerformed`, Electron notification actions,
- * and browser `Notification.onclick`.
+ * Publishes `deeplink.openThread` rather than navigating directly so
+ * taps share the `vellum://thread/...` deep-link path; one wiring
+ * covers all three tap paths in `runtime/notifications.ts`.
  *
  * No effect cleanup: `setNotificationTapHandler` swaps the handler
  * reference in place and registers the platform listeners only once

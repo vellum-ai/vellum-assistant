@@ -19,12 +19,7 @@ import { routes } from "@/utils/routes";
  * Responsibilities:
  *
  * - `deeplink.openThread` → `ensureMainWindowVisible()` +
- *   `navigateToConversation()` — the same shared path as an in-app
- *   conversation switch (viewer reset, subagent/workflow store resets,
- *   active-conversation sync, navigation). If the thread is already the
- *   active conversation, the subagent/workflow resets are skipped — the
- *   id doesn't change, so the re-seed effects wouldn't re-run and live
- *   cards would vanish — but the viewer reset and URL sync still apply.
+ *   `navigateToConversation()`
  * - `deeplink.send` → `ensureMainWindowVisible()` + navigate to
  *   `/assistant` + park the message in `usePendingDeepLinkStore`
  *   for `ChatPage`'s composer-domain hook to consume on mount.
@@ -51,6 +46,7 @@ export function useGlobalDeepLinkConsumer(): void {
 
   useBusSubscription("deeplink.openThread", ({ threadId }) => {
     void ensureMainWindowVisible();
+    // Same thread: skip store resets — the id doesn't change, so re-seed effects wouldn't re-run and live cards would vanish.
     if (threadId === useConversationStore.getState().activeConversationId) {
       useViewerStore.getState().setMainView("chat");
       navigateRef.current(routes.conversation(threadId));
