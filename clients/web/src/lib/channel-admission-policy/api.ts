@@ -30,6 +30,16 @@ import {
 
 export { ApiError };
 
+/**
+ * TanStack Query key for the channel admission-floor list. Every hook that
+ * reads the floors (`useChannelTrustFloors`, `useChannelProvenance`) must
+ * build its key here so they all share one cache entry and invalidations
+ * reach every reader.
+ */
+export function channelAdmissionPolicyQueryKey(assistantId: string) {
+  return ["channel-admission-policy", assistantId] as const;
+}
+
 function isAdmissionPolicy(value: unknown): value is AdmissionPolicy {
   return (
     typeof value === "string" &&

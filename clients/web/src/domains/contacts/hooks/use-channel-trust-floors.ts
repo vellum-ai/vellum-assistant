@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { AssistantChannelState } from "@/domains/contacts/types";
 import { isSetupChannelId } from "@/domains/contacts/types";
 import {
+  channelAdmissionPolicyQueryKey,
   fetchChannelPolicies,
   setChannelPolicy,
 } from "@/lib/channel-admission-policy/api";
@@ -38,7 +39,7 @@ export function useChannelTrustFloors(assistantId: string): ChannelTrustFloors {
   const enabled = useAssistantFeatureFlagStore.use.channelTrustFloors();
 
   const queryKey = useMemo(
-    () => ["channel-admission-policy", assistantId] as const,
+    () => channelAdmissionPolicyQueryKey(assistantId),
     [assistantId],
   );
 
