@@ -155,4 +155,3 @@ export default {
 ```
 
 Types come from [`@vellumai/plugin-api`](https://github.com/vellum-ai/vellum-assistant/tree/main/assistant/src/plugin-api), the only supported contract.
-
