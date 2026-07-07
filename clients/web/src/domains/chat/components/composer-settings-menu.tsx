@@ -500,7 +500,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
                   icon={preset.icon}
                   label={isDefault ? `${preset.label} (default)` : preset.label}
                   active={isActive}
-                  className="[&>span:first-child]:gap-[11px]"
+                  className="max-md:[&>span:first-child]:gap-[11px]"
                   trailingAction={
                     isActive ? (
                       <Check className="h-4 w-4 text-[var(--system-positive-strong)]" />
@@ -525,7 +525,7 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
                   icon={Sparkles}
                   label={profilePickerLabel(entry)}
                   active={isActive}
-                  className="[&>span:first-child]:gap-[11px]"
+                  className="max-md:[&>span:first-child]:gap-[11px]"
                   trailingAction={
                     isActive ? (
                       <Check className="h-4 w-4 text-[var(--system-positive-strong)]" />
