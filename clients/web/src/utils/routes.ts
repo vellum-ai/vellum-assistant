@@ -132,7 +132,14 @@ export const routes = {
   },
   identity: r("/assistant/identity"),
   plugins: r("/assistant/plugins"),
-  skills: r("/assistant/skills"),
+  /**
+   * Skills surface — the list plus a dedicated per-skill detail page.
+   * `detail` deep-links a single skill (`/assistant/skills/:skillId`).
+   */
+  skills: {
+    root: r("/assistant/skills"),
+    detail: (skillId: string) => dyn(r("/assistant/skills"), skillId),
+  },
   workspace: r("/assistant/workspace"),
   library: {
     root: r("/assistant/library"),
@@ -199,7 +206,7 @@ export const routes = {
 const ABOUT_ASSISTANT_PATHS: readonly string[] = [
   routes.identity,
   routes.plugins,
-  routes.skills,
+  routes.skills.root,
   routes.workspace,
   routes.contacts.root,
   routes.channels,
