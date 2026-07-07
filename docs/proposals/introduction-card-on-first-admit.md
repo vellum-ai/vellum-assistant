@@ -21,13 +21,17 @@ Message processing is unaffected: the nudge is fire-and-forget and never blocks,
 gates, or delays the turn. The sender receives nothing extra — they were
 admitted and get the assistant's normal reply.
 
-**Once-ever semantics.** The nudge fires at most once per
-(assistant, channel, actor): it is suppressed when **any** prior
-`access_request` exists for that actor in any state (pending, approved, denied,
-expired). This is deliberately stricter than the deny-path card, which may
-re-prompt after expiry — a denied sender still can't get in, so re-prompting has
-value; an admitted sender loses nothing if the guardian ignores the card, so
-re-prompting on every message is noise.
+**Once-per-conversation semantics.** The nudge fires at most once per
+(assistant, channel, actor, conversation): any prior `access_request` whose
+`requesterChatId` matches the conversation suppresses it, in every state
+(pending, approved, denied, expired) — an admitted sender loses nothing if the
+guardian ignores the card, so re-prompting in the same conversation is noise. A
+prior request from a *different* conversation does not suppress: someone who
+posted in a channel and later DMs the assistant is new context worth one more
+nudge. Two guards keep this from double-carding an actor: the actor-level
+pending-dedupe (a live card from any conversation absorbs the nudge) and the
+actor-level terminal-deny suppression (a guardian's explicit deny silences all
+conversations) both still apply.
 
 **Copy.** The card must not say "requesting access" — the sender is already in.
 Framing: *"<name> reached you on <channel> and was admitted under your
@@ -69,24 +73,24 @@ feature-flag registry entry and platform Terraform companion PR.
 
 - Extend `AccessRequestParams` with `trigger?: "denied" | "admitted"`
   (default `"denied"`, so all existing call sites are untouched).
-- Persist the trigger on the canonical request so redeliveries and the
-  conversational engine render the same framing. Preferred: a nullable
-  `trigger` column on `canonical_guardian_requests`
-  (`assistant/src/persistence/schema/guardian.ts`) with a DB migration
-  (fresh numeric prefix, registered individually in
-  `assistant/src/persistence/steps.ts`). Alternative without a migration:
-  fold it into the `requesterSignals` JSON — rejected as a default because it
-  conflates platform identity facts with request provenance, but acceptable if
-  we want to avoid a migration in the first cut.
-- For `trigger: "admitted"`: `attentionHints.urgency: "normal"` (deny-path
-  stays `"high"`), `questionText` variant, and skip nothing else — the
-  existing pending-dedup, terminal-denial suppression, and handshake-window
-  suppression apply verbatim (`access-request-helper.ts:231-289`).
-- Add a once-ever lookup, e.g. `hasAnyAccessRequestForActor({
-  canonicalAssistantId, sourceChannel, actorExternalId })` — same
-  assistant-scoped `conversationId` keying as the existing queries
-  (`accessRequestConversationId`), `kind: "access_request"`, **no status
-  filter**.
+- Persist the trigger in the notification `contextPayload` (and thus the
+  stored notification event). Every render surface — the Surface card, the
+  Slack Block Kit card, the copy-composer fallback — resolves copy from the
+  payload via `resolveApprovalCardData(sourceEventName, contextPayload)`, and
+  the decision resolvers don't branch on the trigger (outcomes are identical),
+  so no `canonical_guardian_requests` column or DB migration is needed. The
+  `questionText` stored on the canonical request also carries the admitted
+  framing for any row-level reads.
+- For `trigger: "admitted"`: `attentionHints.urgency: "medium"` (deny-path
+  stays `"high"`; the hints vocabulary is `low|medium|high|critical`),
+  `questionText` variant, and skip nothing else — the existing pending-dedup,
+  terminal-denial suppression, and handshake-window suppression apply verbatim
+  (`access-request-helper.ts:231-289`).
+- Add `maybeNotifyGuardianOfAdmittedContact(params)`: the once-per-conversation
+  lookup (same assistant-scoped `conversationId` keying via
+  `accessRequestConversationId`, `kind: "access_request"`, **no status
+  filter**, matched on `requesterChatId`) followed by
+  `notifyGuardianOfAccessRequest({ ...params, trigger: "admitted" })`.
 
 ### 2. Hook the admitted branch in the inbound pipeline
 
@@ -152,7 +156,8 @@ Two things to verify with tests rather than change:
 | Guardian previously chose Leave unverified (terminal denied record) | Suppressed — no nudge, admission continues per floor |
 | `strangers` floor, non-Slack channel, actor with no contact record | Nudge fires; Trust/Leave-unverified create the record |
 | Exempt channels (`a2a`, `platform`), callbacks, flag off, guardian, trusted contact | No nudge |
-| Card expires undecided; sender messages again | No re-nudge (once-ever) |
+| Card expires undecided; sender messages again in the same conversation | No re-nudge (once per conversation) |
+| Card expires undecided; sender starts a new conversation (e.g. DMs after a channel post) | One more nudge for the new conversation |
 
 ### 6. Tests
 
@@ -174,14 +179,15 @@ investigation doc's §5 status and add a note to the `any_contact` row of the
 floor table in `gateway/CLAUDE.md` ("admitted unverified senders trigger a
 one-time introduction card").
 
-## Open questions for review
+## Decided parameters
 
-1. **Cross-channel scope of once-ever** — recommended per-channel (matches the
-   existing assistant+channel+actor `conversationId` keying); a cross-channel
-   guard would need a new query shape.
-2. **Attention hints** — recommended `requiresAction: true` (a classification
-   decision is genuinely wanted) with `urgency: "normal"`; if push volume is a
-   concern, drop to `requiresAction: false` for the admitted mode.
-3. **Include `unknown`-class admits** (`strangers` floor) or only
-   `unverified_contact`? Recommended: both — guardian awareness is the point,
-   and `strangers` is the floor with the least other signal.
+1. **Suppression scope** — per conversation, not cross-conversation: a sender
+   who nudged from a channel still nudges once more when they DM. Actor-level
+   pending-dedupe and terminal-deny still bound the total to one live card and
+   zero after an explicit deny.
+2. **Attention hints** — `requiresAction: true` (a classification decision is
+   genuinely wanted) with `urgency: "medium"`: they're admitted, not blocked,
+   so the card needs an eventual response, not an urgent one.
+3. **`unknown`-class admits nudge too** (the `strangers` floor) — that is the
+   case with the least other signal and the most reason to prompt trust
+   assignment.

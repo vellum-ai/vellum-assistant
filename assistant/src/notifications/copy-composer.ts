@@ -151,7 +151,7 @@ const TEMPLATES: Partial<Record<NotificationSourceEventName, CopyTemplate>> = {
   },
 
   "ingress.access_request": (payload) => ({
-    title: "Access Request",
+    title: payload.trigger === "admitted" ? "New Contact" : "Access Request",
     body: buildAccessRequestContractText(payload),
     seedContentBlocks: buildAccessRequestSeedContentBlocks(payload),
   }),

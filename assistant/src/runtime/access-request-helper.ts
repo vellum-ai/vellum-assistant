@@ -36,6 +36,16 @@ const log = getLogger("access-request-helper");
 // Types
 // ---------------------------------------------------------------------------
 
+/**
+ * What prompted the introduction card. `denied` — the sender was refused
+ * (ACL or admission floor) and the guardian decides whether to let them in.
+ * `admitted` — the sender cleared the admission floor without ever being
+ * classified, and the guardian is nudged to set their trust level while the
+ * conversation proceeds. Copy branches on this; decision semantics and the
+ * offered actions are identical.
+ */
+export type AccessRequestTrigger = "denied" | "admitted";
+
 export interface AccessRequestParams {
   canonicalAssistantId: string;
   sourceChannel: ChannelId;
@@ -54,6 +64,8 @@ export interface AccessRequestParams {
   isRestricted?: boolean;
   /** Slack message timestamp for permalink construction. */
   messageTs?: string;
+  /** Defaults to `denied` — see {@link AccessRequestTrigger}. */
+  trigger?: AccessRequestTrigger;
 }
 
 export type AccessRequestResult =
@@ -63,6 +75,7 @@ export type AccessRequestResult =
       reason:
         | "no_sender_id"
         | "already_denied"
+        | "already_introduced"
         | "approval_pending_verification";
     };
 
@@ -186,6 +199,7 @@ export async function notifyGuardianOfAccessRequest(
     isRestricted,
     messageTs,
   } = params;
+  const trigger: AccessRequestTrigger = params.trigger ?? "denied";
 
   if (!actorExternalId) {
     return { notified: false, reason: "no_sender_id" };
@@ -302,7 +316,10 @@ export async function notifyGuardianOfAccessRequest(
     guardianExternalUserId: guardianExternalUserId ?? undefined,
     guardianPrincipalId: guardianPrincipalId ?? undefined,
     toolName: "ingress_access_request",
-    questionText: `${senderIdentifier} is requesting access to the assistant`,
+    questionText:
+      trigger === "admitted"
+        ? `${senderIdentifier} messaged the assistant and was admitted — set their trust level`
+        : `${senderIdentifier} is requesting access to the assistant`,
     requesterSignals: serializeRequesterSignals({
       isBot,
       isStranger,
@@ -336,7 +353,9 @@ export async function notifyGuardianOfAccessRequest(
     ...(sameChannelOnly ? { routingIntent: "single_channel" as const } : {}),
     attentionHints: {
       requiresAction: true,
-      urgency: "high",
+      // An admitted sender is already conversing — the guardian should
+      // classify them eventually, but nothing is blocked on the decision.
+      urgency: trigger === "admitted" ? "medium" : "high",
       isAsyncBackground: false,
       visibleInSourceNow: false,
     },
@@ -357,6 +376,7 @@ export async function notifyGuardianOfAccessRequest(
       ...(isStranger !== undefined ? { isStranger } : {}),
       ...(isRestricted !== undefined ? { isRestricted } : {}),
       ...(messageTs ? { messageTs } : {}),
+      ...(trigger === "admitted" ? { trigger } : {}),
     },
     dedupeKey: `access-request:${canonicalRequest.id}`,
     onConversationCreated: (info) => {
@@ -405,9 +425,62 @@ export async function notifyGuardianOfAccessRequest(
       actorExternalId,
       senderIdentifier,
       guardianBindingChannel,
+      trigger,
     },
     "Guardian notified of access request",
   );
 
   return { notified: true, created: true, requestId: canonicalRequest.id };
+}
+
+/**
+ * Introduction nudge for a floor-admitted sender (see
+ * docs/proposals/introduction-card-on-first-admit.md): fires the standard
+ * introduction card so the guardian can classify a sender who cleared the
+ * admission floor without ever being reviewed. The conversation proceeds
+ * regardless of whether — or how — the guardian decides.
+ *
+ * At most one nudge per (assistant, channel, actor, conversation): any prior
+ * access request whose `requesterChatId` matches this conversation suppresses
+ * it, in every terminal state — an admitted sender loses nothing when the
+ * guardian ignores the card, so re-prompting in the same conversation is
+ * noise. A prior request from a *different* conversation does not suppress
+ * (a channel poster who later DMs the assistant is new context worth one more
+ * nudge); the actor-level pending-dedupe, terminal-deny, and handshake-window
+ * suppressions inside {@link notifyGuardianOfAccessRequest} still apply, so
+ * two live cards are never minted for the same actor.
+ */
+export async function maybeNotifyGuardianOfAdmittedContact(
+  params: Omit<AccessRequestParams, "trigger">,
+): Promise<AccessRequestResult> {
+  if (!params.actorExternalId) {
+    return { notified: false, reason: "no_sender_id" };
+  }
+
+  const conversationId = accessRequestConversationId(
+    params.canonicalAssistantId,
+    params.sourceChannel,
+    params.actorExternalId,
+  );
+  const alreadyIntroducedHere = listCanonicalGuardianRequests({
+    kind: "access_request",
+    requesterExternalUserId: params.actorExternalId,
+    sourceChannel: params.sourceChannel,
+    conversationId,
+  }).some(
+    (request) => request.requesterChatId === params.conversationExternalId,
+  );
+  if (alreadyIntroducedHere) {
+    log.debug(
+      {
+        sourceChannel: params.sourceChannel,
+        actorExternalId: params.actorExternalId,
+        conversationExternalId: params.conversationExternalId,
+      },
+      "Suppressing admitted-contact introduction nudge — prior request exists for this conversation",
+    );
+    return { notified: false, reason: "already_introduced" };
+  }
+
+  return notifyGuardianOfAccessRequest({ ...params, trigger: "admitted" });
 }

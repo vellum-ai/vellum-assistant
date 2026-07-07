@@ -151,9 +151,11 @@ function resolveAccessRequestCard(
 
   return {
     surfaceIdPrefix: ACCESS_REQUEST_SURFACE_PREFIX,
-    cardTitle: "Access Request",
+    cardTitle: view.admitted ? "New Contact" : "Access Request",
     primaryLine: view.displayName,
-    subtitle: "Requesting access to the assistant",
+    subtitle: view.admitted
+      ? "Messaged your assistant — set their trust level"
+      : "Requesting access to the assistant",
     body,
     metadata,
     requestId: view.requestId,

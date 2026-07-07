@@ -50,6 +50,12 @@ export const AccessRequestPayloadSchema = z.object({
   isStranger: optBool,
   isRestricted: optBool,
   messageTs: optStr,
+  /**
+   * `"admitted"` marks an introduction nudge for a sender who cleared the
+   * admission floor (see access-request-helper `AccessRequestTrigger`);
+   * absent/other means the deny-path access request.
+   */
+  trigger: optStr,
 });
 
 export type ParsedAccessRequestPayload = z.infer<
@@ -60,6 +66,11 @@ export function parseAccessRequestPayload(
   payload: Record<string, unknown>,
 ): ParsedAccessRequestPayload {
   return AccessRequestPayloadSchema.parse(payload);
+}
+
+/** Whether the payload is an admitted-mode introduction nudge. */
+export function isAdmittedIntroduction(p: ParsedAccessRequestPayload): boolean {
+  return p.trigger === "admitted";
 }
 
 // ── Warnings ────────────────────────────────────────────────────────────────
@@ -184,7 +195,9 @@ function buildIdentityLineFromParsed(p: ParsedAccessRequestPayload): string {
     parts.push(`via ${p.sourceChannel}`);
   }
 
-  return `${parts.join(" ")} is requesting access to the assistant.`;
+  return isAdmittedIntroduction(p)
+    ? `${parts.join(" ")} messaged the assistant and was admitted under the channel's access setting — decide how much to trust them.`
+    : `${parts.join(" ")} is requesting access to the assistant.`;
 }
 
 export function buildAccessRequestIdentityLine(
@@ -411,6 +424,8 @@ export interface AccessRequestCardView {
   warnings: string[];
   guardianResolutionSource: string | undefined;
   requestId: string | undefined;
+  /** Admitted-mode introduction nudge (sender cleared the admission floor). */
+  admitted: boolean;
 }
 
 /**
@@ -465,5 +480,6 @@ export function buildAccessRequestCardView(
     warnings: buildAccessRequestWarnings(p),
     guardianResolutionSource: nonEmpty(p.guardianResolutionSource),
     requestId: nonEmpty(p.requestId),
+    admitted: isAdmittedIntroduction(p),
   };
 }

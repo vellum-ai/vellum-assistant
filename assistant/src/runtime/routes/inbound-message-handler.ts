@@ -10,6 +10,7 @@ import {
   ADMISSION_POLICY_DEFAULT,
   type AdmissionPolicy,
   isAdmissionPolicy,
+  isAdmissionPolicyExemptChannel,
 } from "@vellumai/gateway-client";
 
 import {
@@ -95,6 +96,7 @@ import { getLogger } from "../../util/logger.js";
 import { truncate } from "../../util/truncate.js";
 import {
   isApprovalHandshakeInProgress,
+  maybeNotifyGuardianOfAdmittedContact,
   notifyGuardianOfAccessRequest,
 } from "../access-request-helper.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../assistant-scope.js";
@@ -908,6 +910,55 @@ export async function handleChannelInbound({
       reason: admissionResult.reason,
       ...(!replyDelivered && { replyText }),
     };
+  }
+
+  // ── Introduction nudge on first admit ──
+  // A sender the guardian has never classified can clear a permissive floor
+  // (`any_contact`, `strangers`) and start conversing with no guardian
+  // touchpoint — the introduction card otherwise fires only on deny. Nudge
+  // the guardian informationally so trust assignment does not depend on a
+  // denial; fire-and-forget, the turn proceeds regardless. See
+  // docs/proposals/introduction-card-on-first-admit.md. Exempt channels
+  // (`a2a`, `platform`) are outside the human-trust model, and a validated
+  // bootstrap session is already mid-verification.
+  if (
+    channelTrustFloorsEnabled &&
+    !result.duplicate &&
+    !isCallbackInteraction &&
+    aclResult.validatedBootstrapSession == null &&
+    !isAdmissionPolicyExemptChannel(sourceChannel) &&
+    (trustCtx.trustClass === "unverified_contact" ||
+      trustCtx.trustClass === "unknown")
+  ) {
+    const admittedSenderId = canonicalSenderId ?? rawSenderId;
+    if (admittedSenderId) {
+      void maybeNotifyGuardianOfAdmittedContact({
+        canonicalAssistantId,
+        sourceChannel,
+        conversationExternalId,
+        actorExternalId: admittedSenderId,
+        actorDisplayName: body.actorDisplayName,
+        actorUsername: body.actorUsername,
+        messagePreview: truncate(trimmedContent, MESSAGE_PREVIEW_MAX_LENGTH),
+        ...(typeof sourceMetadata?.isBot === "boolean"
+          ? { isBot: sourceMetadata.isBot }
+          : {}),
+        ...(typeof sourceMetadata?.isStranger === "boolean"
+          ? { isStranger: sourceMetadata.isStranger }
+          : {}),
+        ...(typeof sourceMetadata?.isRestricted === "boolean"
+          ? { isRestricted: sourceMetadata.isRestricted }
+          : {}),
+        ...(typeof sourceMetadata?.messageId === "string"
+          ? { messageTs: sourceMetadata.messageId }
+          : {}),
+      }).catch((err) => {
+        log.warn(
+          { err, sourceChannel, conversationExternalId },
+          "Failed to send introduction nudge for admitted contact",
+        );
+      });
+    }
   }
 
   const diskPressureDecision = classifyDiskPressureTurnPolicy(

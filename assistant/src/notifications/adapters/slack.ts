@@ -105,7 +105,9 @@ function buildAccessRequestBody(view: AccessRequestCardView): string {
     const trimmed = truncate(view.messagePreview, 200 - 6);
     return `> _"${trimmed}"_`;
   }
-  return "Requesting access to the assistant";
+  return view.admitted
+    ? "Messaged your assistant — set their trust level"
+    : "Requesting access to the assistant";
 }
 
 /** Source-channel context block with Slack permalink when available. */
@@ -182,7 +184,10 @@ function buildAccessRequestCardBlocks(
 
   const card: CardBlock = {
     type: "card",
-    title: { type: "mrkdwn", text: "Access Request" },
+    title: {
+      type: "mrkdwn",
+      text: view.admitted ? "New Contact" : "Access Request",
+    },
     subtitle: { type: "mrkdwn", text: subtitle },
     body: { type: "mrkdwn", text: body },
     actions: buildCardActions(approval),
