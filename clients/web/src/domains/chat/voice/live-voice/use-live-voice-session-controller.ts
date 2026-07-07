@@ -50,7 +50,14 @@ export function useLiveVoiceSessionController(
     useLiveVoiceStore
       .getState()
       .setStarter((assistantId, conversationId) =>
-        void start(assistantId, conversationId ?? undefined),
+        // Hands-free (server-side turn detection) is the only mode the voice
+        // button starts — it keeps one socket open across turns so the
+        // assistant's TTS drains instead of the session tearing down each
+        // turn. Manual single-turn survives only as the version-skew fallback
+        // when the daemon's `ready` doesn't echo `server_vad`.
+        void start(assistantId, conversationId ?? undefined, {
+          handsFree: true,
+        }),
       );
     return () => {
       useLiveVoiceStore.getState().setStarter(null);
