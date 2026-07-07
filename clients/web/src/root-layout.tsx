@@ -304,6 +304,20 @@ export function RootLayout() {
   // the banner and a route header both reserving it (a doubled gap).
   const appShellOwnsTopInset =
     !electron && !isPopout && !suppressStatusBanner;
+  // The notch inset and the keyboard scroll compensation are independent top
+  // offsets: the status bar is always present regardless of the keyboard, so
+  // when the shell owns the inset it must be reserved in both states and
+  // stacked on top of the keyboard offset when the keyboard is open.
+  const topSafeAreaInset =
+    "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))";
+  const shellPaddingTop =
+    keyboardOffsetTop > 0
+      ? appShellOwnsTopInset
+        ? `calc(${keyboardOffsetTop}px + ${topSafeAreaInset})`
+        : `${keyboardOffsetTop}px`
+      : appShellOwnsTopInset
+        ? topSafeAreaInset
+        : undefined;
 
   return (
     <div
@@ -315,12 +329,7 @@ export function RootLayout() {
           keyboardOpen && visibleViewport
             ? `${visibleViewport.height + keyboardOffsetTop}px`
             : "100dvh",
-        paddingTop:
-          keyboardOffsetTop > 0
-            ? `${keyboardOffsetTop}px`
-            : appShellOwnsTopInset
-              ? "var(--safe-area-inset-top, env(safe-area-inset-top, 0px))"
-              : undefined,
+        paddingTop: shellPaddingTop,
         paddingBottom: keyboardOpen
           ? "0px"
           : "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
