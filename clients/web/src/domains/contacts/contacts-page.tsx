@@ -462,9 +462,10 @@ export function ContactsPage({
           selection.contactId === deletingContactId) ? (
           <AssistantChannelsDetail
             assistantName={assistantName}
-            onGenerateInviteLink={a2aChannel ? inviteDialog.open : undefined}
-            initialChannel={setupChannel}
-            {...channelsController}
+            channels={channelsController.channels}
+            pendingChannelKey={channelsController.pendingChannelKey}
+            onConnect={channelsController.onSetup}
+            onDisconnect={channelsController.onDisconnect}
           />
         ) : optimisticContact ? (
           optimisticContact.role === "guardian" ? (

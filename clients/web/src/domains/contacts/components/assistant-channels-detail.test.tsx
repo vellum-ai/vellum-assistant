@@ -45,6 +45,62 @@ describe("assistant channels surfaces", () => {
     expect(document.body.textContent).toContain("Slack");
   });
 
+  test("the Contacts detail view is a plain connect/disconnect list, not the Channels-tab panel", () => {
+    // Regardless of the channel-trust-floors flag, the contact card renders
+    // one row per adapter — never the sub-tabs, trust-floor dropdown, Slack
+    // settings card, or channel list (those live in the Channels tab).
+    setTabbedLayout(true);
+    render(
+      <AssistantChannelsDetail
+        assistantName="Vex"
+        channels={CHANNELS}
+        onConnect={() => {}}
+        onDisconnect={() => {}}
+      />,
+    );
+    expect(document.querySelector('[data-slot="tabs"]')).toBeNull();
+    expect(document.body.textContent).not.toContain("Who can message");
+    expect(document.body.textContent).not.toContain("Thread Behavior");
+    expect(document.body.textContent).not.toContain("Share Connection Link");
+
+    // Connected Slack: handle + chip + destructive disconnect.
+    expect(document.body.textContent).toContain("@vex");
+    expect(document.body.textContent).toContain("Connected");
+    expect(document.body.textContent).toContain("Disconnect");
+
+    // Disconnected Telegram/Phone: a Connect affordance, no credential forms.
+    const connectButtons = Array.from(
+      document.querySelectorAll("button"),
+    ).filter((b) => b.textContent?.trim() === "Connect");
+    expect(connectButtons).toHaveLength(2);
+    expect(document.body.textContent).not.toContain("Bot Token");
+  });
+
+  test("disconnecting from the contact card asks for confirmation first", () => {
+    const disconnected: string[] = [];
+    render(
+      <AssistantChannelsDetail
+        assistantName="Vex"
+        channels={CHANNELS}
+        onDisconnect={(key) => disconnected.push(key)}
+      />,
+    );
+
+    const disconnectButton = Array.from(
+      document.querySelectorAll("button"),
+    ).find((b) => b.textContent?.trim() === "Disconnect");
+    expect(disconnectButton).toBeDefined();
+    fireEvent.click(disconnectButton!);
+    expect(disconnected).toEqual([]);
+
+    const confirmButton = document.querySelector<HTMLButtonElement>(
+      "[data-confirm-dialog-confirm]",
+    );
+    expect(confirmButton).not.toBeNull();
+    fireEvent.click(confirmButton!);
+    expect(disconnected).toEqual(["slack"]);
+  });
+
   test("the bare channel list (standalone Channels tab) has no identity card", () => {
     render(<AssistantChannelsList assistantName="Vex" channels={CHANNELS} />);
     expect(document.body.textContent).not.toContain("Vex (Your Assistant)");
