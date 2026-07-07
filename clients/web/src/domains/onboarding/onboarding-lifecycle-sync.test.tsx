@@ -223,6 +223,9 @@ mock.module("@/lib/local-mode", () => ({
   primeLocalGatewayConnection: async () => {},
   primeLocalGatewayConnectionWithRepair: async () => {},
   getLocalGatewayUrl: () => localGatewayUrlValue,
+  // Mirrors the real derivation against the mocked local-mode state.
+  isLocalHatchHosting: (hostingParam: string | null) =>
+    isLocalModeValue && hostingParam !== null && hostingParam !== "vellum-cloud",
 }));
 
 mock.module("@/runtime/local-mode-host", () => ({

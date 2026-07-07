@@ -7,17 +7,16 @@
  *   - MeetingCreatedStep   a brief "Check-in scheduled…" confirmation
  *   - LookingYouUpStep     a loading carousel ("looking you up")
  *   - ResearchResultsStep  the editable "Alright, this is what I got:" claims
- *   - SuggestionsStep      tappable suggestions that open a new chat
+ *   - LetsChatReadyStep    the plugins-ready terminal step ("Let's chat")
  *
- * Foreground only (the toned backdrop sits behind). The claims + suggestions
- * are the REAL research output — the route fires the research turn against the
- * hatched assistant (see `research-runner.ts`) and threads the parsed
- * `{ claims, suggestions }` in here. Each step falls back to a graceful
- * loading / empty presentation while the turn is still streaming.
+ * Foreground only (the toned backdrop sits behind). The claims are the REAL
+ * research output — the route fires the research turn against the hatched
+ * assistant (see `research-runner.ts`) and threads the parsed claims in here.
+ * Each step falls back to a graceful loading / empty presentation while the
+ * turn is still streaming.
  */
 
 import {
-  Fragment,
   useEffect,
   useLayoutEffect,
   useRef,
@@ -29,23 +28,18 @@ import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { AnimatedAvatar } from "@/components/avatar/animated-avatar";
 import { OnboardingTopBar } from "@/domains/onboarding/components/onboarding-top-bar";
 import { useOnboardingAvatarPoolStore } from "@/domains/onboarding/onboarding-avatar-pool-store";
-import {
-  toneForBg,
-  useOnboardingTone,
-  type OnboardingTone,
-} from "@/domains/onboarding/onboarding-tone";
+import { toneForBg } from "@/domains/onboarding/onboarding-tone";
 import { useBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
 import {
   pluginDisplayName,
   type ResearchFact,
-  type ResearchSuggestion,
 } from "@/utils/research-facts";
 
 // Once the calendar step blends the background to black, every step from there
 // on sits on a constant dark surface — so their text/UI must be a constant
 // light tone, NOT one derived from the chosen avatar color (a light avatar like
 // yellow would otherwise render dark text, invisible on black). The avatar color
-// is still used where it's intentional (e.g. the plugin pills).
+// is still used where it's intentional (e.g. the flying heading avatar).
 const DARK_TONE = toneForBg("#17191C");
 
 function useViewportSize() {
@@ -517,62 +511,8 @@ export function ResearchResultsStep({
 }
 
 // ---------------------------------------------------------------------------
-// Suggestions
+// Heading-avatar flight (shared by the terminal step)
 // ---------------------------------------------------------------------------
-
-/**
- * Generic fallbacks shown only if the research turn produced no suggestions
- * (failure / sparse subject) so the step is never empty once it's done loading.
- * Each pairs the assistant-voiced card text with the user-voiced prompt sent on
- * click.
- */
-const FALLBACK_SUGGESTIONS: ResearchSuggestion[] = [
-  {
-    suggestion: "I'll pull together a quick brief on what's new in your field",
-    prompt: "Give me a quick brief on what's new in my field right now.",
-  },
-  {
-    suggestion: "I'll send a weekly briefing on news in your space",
-    prompt: "Set up a weekly briefing on news in my space.",
-  },
-  {
-    suggestion: "I'll help you get on top of your week",
-    prompt: "Help me get on top of my week.",
-  },
-  {
-    suggestion: "I'll draft something from a few rough notes",
-    prompt: "Draft something from a few rough notes I'll give you.",
-  },
-];
-
-/** A plugin name rendered as a pill tinted with the chosen avatar's color. */
-function PluginPill({ label, tone }: { label: string; tone: OnboardingTone }) {
-  return (
-    <span
-      className="inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-[3px] text-[12px] font-medium align-middle"
-      style={{ backgroundColor: tone.bg, color: tone.fg }}
-    >
-      {label}
-    </span>
-  );
-}
-
-/** Interleave plugin pills with readable connectors: "A", "A and B", "A, B, and C". */
-function joinPills(labels: string[], tone: OnboardingTone) {
-  return labels.map((label, i) => {
-    let connector = "";
-    if (i > 0) {
-      const isLast = i === labels.length - 1;
-      connector = isLast ? (labels.length === 2 ? " and " : ", and ") : ", ";
-    }
-    return (
-      <Fragment key={label}>
-        {connector}
-        <PluginPill label={label} tone={tone} />
-      </Fragment>
-    );
-  });
-}
 
 /** Avatar box size — the same at the heading and where it lands by the note. */
 const HEADING_AVATAR = 64;
@@ -581,57 +521,11 @@ const NOTE_AVATAR = HEADING_AVATAR;
 type Anchor = { x: number; y: number };
 
 /**
- * The "already set up …" confirmation line. No avatar of its own — it just
- * reserves a small landing slot (`slotRef`) for the single avatar that flies
- * down from the heading — and names the installed plugins as avatar-tinted
- * pills.
- */
-function PluginSetupNote({
-  pluginLabels,
-  tone,
-  pillTone,
-  reduce,
-  slotRef,
-  revealed,
-}: {
-  pluginLabels: string[];
-  /** Surface tone for the line's text (constant light on the dark surface). */
-  tone: OnboardingTone;
-  /** Avatar tone for the pills (their fill + contrast text). */
-  pillTone: OnboardingTone;
-  reduce: boolean | null;
-  slotRef: React.RefObject<HTMLDivElement | null>;
-  /** True once the avatar has landed — the text only appears then. */
-  revealed: boolean;
-}) {
-  const plural = pluginLabels.length > 1;
-  return (
-    <div className="mt-12 flex items-center gap-3">
-      <div
-        ref={slotRef}
-        className="shrink-0"
-        style={{ width: NOTE_AVATAR, height: NOTE_AVATAR }}
-      />
-      <motion.p
-        className="text-[14px]"
-        style={{ color: tone.fg }}
-        initial={false}
-        animate={{ opacity: revealed ? 1 : 0, x: revealed ? 0 : -6 }}
-        transition={reduce ? { duration: 0 } : { duration: 0.35 }}
-      >
-        Already set up the {joinPills(pluginLabels, pillTone)} plugin{plural ? "s" : ""}{" "}
-        to help with your work
-      </motion.p>
-    </div>
-  );
-}
-
-/**
  * The chosen avatar as a single overlay that rests over the heading and — once
  * the plugin note is present and the layout has settled — flies down along a
  * curved arc to the note's landing slot and stays there (shrinking from the
  * heading size to the note size). Positions are measured from the slots so the
- * flight tracks the real layout as suggestions stream in.
+ * flight tracks the real layout as content reflows.
  */
 function FlyingHeadingAvatar({
   head,
@@ -681,205 +575,19 @@ function FlyingHeadingAvatar({
   );
 }
 
-export function SuggestionsStep({
-  suggestions,
-  loading,
-  installedPlugins = [],
-  onSuggestionClick,
-  onSkip,
-  onBack,
-  onForward,
-}: {
-  /** Parsed research suggestions (streams in; may be empty while running). */
-  suggestions: ResearchSuggestion[];
-  /** True while the research turn is still streaming. */
-  loading: boolean;
-  /**
-   * Capabilities installed for the assistant this run (from the model's
-   * persona-level `plugins` picks, already catalog-gated). Surfaced as a small
-   * confirmation note; empty when none were set up.
-   */
-  installedPlugins?: string[];
-  /** Opens the chat on the clicked suggestion (sends its user-voiced prompt). */
-  onSuggestionClick: (suggestion: ResearchSuggestion) => void;
-  /** Skips the suggestions and drops the user straight into a blank chat. */
-  onSkip: () => void;
-  onBack: () => void;
-  /** Redo into the next step — only set when the user has stepped back. */
-  onForward?: () => void;
-}) {
-  // Constant dark surface for the UI; the avatar tone is only for the pills.
-  const tone = DARK_TONE;
-  const avatarTone = useOnboardingTone();
-  const reduce = useReducedMotion();
-  // Show real suggestions as they arrive; only fall back once the turn settles
-  // with nothing, so we never flash generic prompts over an in-flight result.
-  const items =
-    suggestions.length > 0
-      ? suggestions
-      : loading
-        ? []
-        : FALLBACK_SUGGESTIONS;
-
-  const pluginLabels = installedPlugins
-    .map(pluginDisplayName)
-    .filter((label) => label.length > 0);
-  const hasNote = pluginLabels.length > 0;
-
-  // A single avatar starts over the heading slot and flies down to the note's
-  // landing slot. We measure both slot centers (relative to the column) so the
-  // flight follows the real layout as suggestions stream in and reflow.
-  const columnRef = useRef<HTMLDivElement>(null);
-  const headSlotRef = useRef<HTMLDivElement>(null);
-  const noteSlotRef = useRef<HTMLDivElement>(null);
-  const [anchors, setAnchors] = useState<{ head: Anchor; note?: Anchor } | null>(
-    null,
-  );
-  const [flown, setFlown] = useState(false);
-  const [landed, setLanded] = useState(false);
-
-  useLayoutEffect(() => {
-    const measure = () => {
-      const col = columnRef.current;
-      const head = headSlotRef.current;
-      if (!col || !head) return;
-      const c = col.getBoundingClientRect();
-      const center = (r: DOMRect): Anchor => ({
-        x: r.left - c.left + r.width / 2,
-        y: r.top - c.top + r.height / 2,
-      });
-      const note = noteSlotRef.current;
-      setAnchors({
-        head: center(head.getBoundingClientRect()),
-        note: note ? center(note.getBoundingClientRect()) : undefined,
-      });
-    };
-    measure();
-    window.addEventListener("resize", measure);
-    return () => window.removeEventListener("resize", measure);
-    // Intentionally not re-measuring on `flown`: the head anchor must stay at
-    // its pre-collapse position so the flight starts from where the avatar sat.
-  }, [items.length, hasNote]);
-
-  // Fly down the moment we have the data: as soon as the note slot is measured.
-  const noteY = anchors?.note?.y;
-  useEffect(() => {
-    if (!hasNote || noteY === undefined || flown) return;
-    setFlown(true);
-  }, [hasNote, noteY, flown]);
-
-  return (
-    <div className="absolute inset-0 z-10" style={{ color: tone.fg }}>
-      <OnboardingTopBar onBack={onBack} onNext={onForward} />
-
-      <div
-        ref={columnRef}
-        className="absolute left-1/2 top-[14%] sm:top-[26%] z-10 flex w-full max-w-xl -translate-x-1/2 flex-col px-6"
-      >
-        <div className="flex items-center">
-          {/*
-            Empty slot the flying avatar rests over. Once the avatar departs
-            (`flown`), it collapses its width + right margin so the title slides
-            smoothly to left-aligned.
-          */}
-          <motion.div
-            ref={headSlotRef}
-            className="shrink-0"
-            style={{ height: HEADING_AVATAR }}
-            initial={false}
-            animate={
-              flown
-                ? { width: 0, marginRight: 0 }
-                : { width: HEADING_AVATAR, marginRight: 12 }
-            }
-            transition={reduce ? { duration: 0 } : { duration: 0.5, ease: "easeInOut" }}
-          />
-          <h1 className="text-[2.2rem] leading-none" style={{ fontFamily: "var(--font-serif)" }}>
-            Here&rsquo;s what we could do first
-          </h1>
-        </div>
-        <p className="mb-7 mt-2 text-[15px]" style={{ color: tone.fgMuted }}>
-          {items.length > 0 ? (
-            <>
-              Pick one to jump in — or start your own thing.{" "}
-              <button
-                type="button"
-                onClick={onSkip}
-                className="cursor-pointer underline underline-offset-2 transition-opacity hover:opacity-80"
-                style={{ color: tone.fg }}
-              >
-                Skip to Chat
-              </button>
-            </>
-          ) : (
-            "Putting together a few ideas…"
-          )}
-        </p>
-
-        <div className="flex flex-col gap-3">
-          {items.map((s, i) => (
-            <motion.button
-              key={`${i}-${s.suggestion}`}
-              type="button"
-              onClick={() => onSuggestionClick(s)}
-              initial={reduce ? false : { opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={
-                reduce ? { duration: 0 } : { duration: 0.3, delay: i * 0.06 }
-              }
-              className="cursor-pointer rounded-2xl px-5 py-4 text-left text-[15px] transition-transform duration-150 hover:scale-[1.01] active:scale-[0.99]"
-              style={{
-                backgroundColor: tone.isLight
-                  ? "rgba(0,0,0,0.06)"
-                  : "rgba(255,255,255,0.1)",
-              }}
-            >
-              <span>{s.suggestion}</span>
-            </motion.button>
-          ))}
-        </div>
-
-        {hasNote && (
-          <PluginSetupNote
-            pluginLabels={pluginLabels}
-            tone={tone}
-            pillTone={avatarTone}
-            reduce={reduce}
-            slotRef={noteSlotRef}
-            revealed={landed}
-          />
-        )}
-
-        {anchors && (
-          <FlyingHeadingAvatar
-            head={anchors.head}
-            note={anchors.note}
-            flyToNote={flown && hasNote && anchors.note !== undefined}
-            reduce={reduce}
-            onLanded={() => setLanded(true)}
-          />
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Let's chat (plugins-ready terminal step)
 // ---------------------------------------------------------------------------
 
 /**
- * Terminal step for the personality-onboarding flow (replaces SuggestionsStep
- * when that flag is on). The suggestions idea is retired: instead this confirms
- * the capabilities already set up for the assistant — chosen from the user's
- * role, hobby, and what the web research surfaced — and offers a single "Let's
- * chat" button. Clicking primes a fresh chat with a hidden kickoff message so
- * the assistant opens by proactively greeting the user in the persona they just
- * configured.
+ * Terminal step of the research-onboarding flow. Confirms the capabilities
+ * already set up for the assistant — chosen from the user's role, hobby, and
+ * what the web research surfaced — and offers a single "Let's chat" button.
+ * Clicking primes a fresh chat with a hidden kickoff message so the assistant
+ * opens by proactively greeting the user in the persona they just configured.
  *
- * Reuses SuggestionsStep's plugin choreography: one avatar rests over the
- * heading and flies down to land beside the "already set up …" note once the
- * installed plugins are known.
+ * One avatar rests over the heading and flies down to land beside the
+ * "already set up …" note once the installed plugins are known.
  */
 export function LetsChatReadyStep({
   installedPlugins = [],

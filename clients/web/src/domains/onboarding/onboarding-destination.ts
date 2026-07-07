@@ -4,8 +4,8 @@ import { routes } from "@/utils/routes";
  * Decide where the standard onboarding flow goes after the user accepts
  * consent on the privacy screen.
  *
- * The research/personality flow is now THE onboarding, but HOW the assistant is
- * provisioned differs by hosting:
+ * Every non-native user onboards through the research/personality flow, but
+ * HOW the assistant is provisioned differs by hosting:
  *
  * - **Platform / Vellum-Cloud** → straight to `/assistant/onboarding/research`,
  *   which runs its own managed background hatch and walks the user to chat.

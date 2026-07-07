@@ -19,7 +19,7 @@ import {
     writeSelectedVersion,
 } from "@/domains/onboarding/prefs";
 import { applyPendingProviderKey } from "@/domains/onboarding/provider-key";
-import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant } from "@/lib/local-mode";
+import { getLocalGatewayUrl, getPlatformRuntimeUrl, isLocalHatchHosting, isLocalMode, loadLockfile, primeLocalGatewayConnection, saveLockfileAssistant } from "@/lib/local-mode";
 import { clearGatewayToken } from "@/lib/auth/gateway-session";
 import { resolveNavigation } from "@/lib/navigation/navigation-resolver";
 import { buildNavigationState } from "@/lib/navigation/build-state";
@@ -115,7 +115,7 @@ export function HatchingScreen() {
   const hostingParam = searchParams.get("hosting");
   const failParam = searchParams.get("fail");
   const electron = isElectron();
-  const useLocalHatch = isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+  const useLocalHatch = isLocalHatchHosting(hostingParam);
   const sessionStatus = useAuthStore.use.sessionStatus();
   // Local hatches drive `sessionStatus` themselves (`connectLocalAssistant`
   // below flips it mid-handoff), so they gate on settled-ness to keep that flip
@@ -231,12 +231,11 @@ export function HatchingScreen() {
             });
             return;
           }
-          // A local hatch feeds the research/personality flow — now THE default
+          // A local hatch feeds the research/personality flow — the default
           // onboarding. The assistant is live, so the research route adopts it
           // (its background hatch resolves the existing local assistant instead
-          // of provisioning a managed one). The legacy pre-chat funnel is
-          // retired; it only remains as a fallback for any non-local hatch that
-          // still lands here.
+          // of provisioning a managed one). The pre-chat funnel below is only a
+          // fallback for any non-local hatch that still lands here.
           if (useLocalHatch) {
             // Carry the hosting choice through so the research route's
             // background hatch ADOPTS this just-hatched local assistant instead

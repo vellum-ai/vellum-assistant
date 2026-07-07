@@ -241,9 +241,9 @@ export interface StartResearchOptions {
   onConversationCreated?: (conversationId: string) => void;
   /**
    * Whether to ask the model for clickable `suggestions`. Off for the "Let's
-   * chat" final step (personality-onboarding flag), which installs the picked
-   * plugins and primes a chat instead of surfacing suggestion cards. Defaults to
-   * true so the legacy suggestions flow is unchanged.
+   * chat" final step, which installs the picked plugins and primes a chat
+   * instead of surfacing suggestion cards. Defaults to true for callers (e.g.
+   * the research mock harness) that render suggestion cards.
    */
   includeSuggestions?: boolean;
 }

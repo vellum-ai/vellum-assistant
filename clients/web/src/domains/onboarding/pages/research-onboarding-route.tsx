@@ -21,7 +21,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 
 import { lifecycleService } from "@/assistant/lifecycle-service";
-import { isLocalMode } from "@/lib/local-mode";
+import { isLocalHatchHosting } from "@/lib/local-mode";
 import { useAuthStore } from "@/stores/auth-store";
 import { routes } from "@/utils/routes";
 import { preloadBundledAvatarComponents } from "@/utils/use-bundled-avatar-components";
@@ -74,7 +74,6 @@ import {
   LookingYouUpStep,
   FinishingUpStep,
   ResearchResultsStep,
-  SuggestionsStep,
   LetsChatReadyStep,
 } from "@/domains/onboarding/screens/research-result-steps";
 import { OnboardingTonedBackdrop } from "@/domains/onboarding/components/onboarding-toned-backdrop";
@@ -113,11 +112,6 @@ export function ResearchOnboardingRoute() {
     useOnboardingFocusStore.use.setPendingAvatarTraits();
   const requestSidebarCollapse =
     useOnboardingFocusStore.use.requestSidebarCollapse();
-  // Research/personality onboarding is now THE onboarding — it fully replaces
-  // the legacy pre-chat funnel and is no longer flag-gated, so the route always
-  // renders and the "Create my personality" step is always shown.
-  const personalityEnabled = true;
-
   // Sub-steps share this route: details form → avatar/name picker →
   // introduction → pitch (the "different" step, which carousels its lines to
   // the payoff) → integration → "let's chat tomorrow". The toned steps share a
@@ -221,13 +215,10 @@ export function ResearchOnboardingRoute() {
   // A local-hosting onboarding (hosting=local/docker) already provisioned its
   // assistant in the hatching screen, so the background hatch ADOPTS it rather
   // than running a managed hatch. Vellum-Cloud onboarding (no / "vellum-cloud"
-  // hosting) still runs the managed hatch. `isLocalMode()` alone can't tell
-  // these apart — it's a build-time value that's true for the whole desktop app,
-  // including its Vellum-Cloud path — so we key on the chosen hosting.
+  // hosting) runs the managed hatch (see `isLocalHatchHosting`).
   const [searchParams] = useSearchParams();
   const hostingParam = searchParams.get("hosting");
-  const adoptExistingAssistant =
-    isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud";
+  const adoptExistingAssistant = isLocalHatchHosting(hostingParam);
   // The hatching screen names the assistant it provisioned in the `assistant`
   // param, pinning adoption to that exact one — a stale selection or leftover
   // lockfile entries from previous sessions can't answer for it.
@@ -270,8 +261,8 @@ export function ResearchOnboardingRoute() {
 
   // Landing on the form means a fresh run — clear any stale focus state left
   // behind by an abandoned previous attempt so the form itself never renders
-  // chrome-less — and kick off the background hatch (idempotent). This is now
-  // the default onboarding, so the hatch fires unconditionally on mount.
+  // chrome-less — and kick off the background hatch (idempotent) on mount:
+  // every non-native user onboards through this route, so there is no gate.
   useEffect(() => {
     exitFocus();
     setPendingAvatarTraits(null);
@@ -378,7 +369,7 @@ export function ResearchOnboardingRoute() {
         ? { resumeConversationId: researchConversationId }
         : {}),
       onConversationCreated: setResearchConversationId,
-      includeSuggestions: !personalityEnabled,
+      includeSuggestions: false,
     });
   }, [
     restored,
@@ -387,7 +378,6 @@ export function ResearchOnboardingRoute() {
     research.status,
     startResearch,
     awaitHatchReady,
-    personalityEnabled,
   ]);
 
   // If we're sitting on the results step when the research turn resolves empty
@@ -520,9 +510,9 @@ export function ResearchOnboardingRoute() {
       subject: researchSubjectFrom(values),
       conversationTitle: researchTitleFor(values),
       onConversationCreated: setResearchConversationId,
-      // The "Let's chat" final step replaces suggestions when personality
-      // onboarding is on, so don't ask the model to generate any.
-      includeSuggestions: !personalityEnabled,
+      // The "Let's chat" final step replaces suggestions, so don't ask the
+      // model to generate any.
+      includeSuggestions: false,
     });
     goForwardTo("face");
   }
@@ -617,9 +607,7 @@ export function ResearchOnboardingRoute() {
         />
         {step === "different" && (
           <PitchStep
-            onContinue={() =>
-              goForwardTo(personalityEnabled ? "personality" : "integration")
-            }
+            onContinue={() => goForwardTo("personality")}
             onBack={() => goBackTo("intro")}
             onForward={onForward}
           />
@@ -661,9 +649,7 @@ export function ResearchOnboardingRoute() {
           <IntegrationStep
             onClaim={() => goForwardTo("letschat")}
             onBumpEyes={() => setEyesBump((n) => n + 1)}
-            onBack={() =>
-              goBackTo(personalityEnabled ? "personality" : "different")
-            }
+            onBack={() => goBackTo("personality")}
             onForward={onForward}
           />
         )}
@@ -741,13 +727,13 @@ export function ResearchOnboardingRoute() {
             onForward={onForward}
           />
         )}
-        {step === "suggestions" && personalityEnabled && (
+        {step === "suggestions" && (
           <LetsChatReadyStep
             installedPlugins={research.installedPlugins}
             pluginCatalog={research.pluginCatalog}
             onStart={async () => {
               // Terminal step: the handoff leaves via enterAssistant, not
-              // goForwardTo, so emit the completion here (mirrors SuggestionsStep).
+              // goForwardTo, so emit the completion here.
               emitResearchOnboardingStepCompleted(
                 RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
                 { userId, outcome: "completed" },
@@ -763,46 +749,6 @@ export function ResearchOnboardingRoute() {
                 return;
               }
               await finishAndEnterChat();
-            }}
-            onBack={() => goBackTo(noClaims ? "looking" : "results")}
-            onForward={onForward}
-          />
-        )}
-        {step === "suggestions" && !personalityEnabled && (
-          <SuggestionsStep
-            suggestions={research.suggestions}
-            loading={researchLoading}
-            installedPlugins={research.installedPlugins}
-            onSuggestionClick={async (suggestion) => {
-              // Terminal step: the handoff leaves via enterAssistant, not
-              // goForwardTo, so emit the suggestions completion here (mirrors the
-              // pre-chat funnel emitting on its final step before completeFlow).
-              emitResearchOnboardingStepCompleted(
-                RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
-                { userId, outcome: "completed" },
-              );
-              // Wait out any background capability installs so the new chat can
-              // discover their skills (else it silently degrades to a generic
-              // prompt). Usually instant — installs kicked off while the user
-              // reviewed the results. Also wait for any removal correction to
-              // persist so rejected claims can't leak into this first chat.
-              await Promise.all([
-                research.awaitPluginInstalls(),
-                researchCorrectionRef.current,
-              ]);
-              enterAssistant(formValues, faceValues, suggestion.prompt);
-            }}
-            onSkip={async () => {
-              // "Skip to Chat" — record the suggestions step as skipped.
-              emitResearchOnboardingStepCompleted(
-                RESEARCH_ONBOARDING_FUNNEL_STEPS.suggestions,
-                { userId, outcome: "skipped" },
-              );
-              await Promise.all([
-                research.awaitPluginInstalls(),
-                researchCorrectionRef.current,
-              ]);
-              enterAssistant(formValues, faceValues, undefined, { skip: true });
             }}
             onBack={() => goBackTo(noClaims ? "looking" : "results")}
             onForward={onForward}

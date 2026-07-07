@@ -371,14 +371,6 @@
       "defaultEnabled": false
     },
     {
-      "id": "personality-onboarding",
-      "scope": "client",
-      "key": "personality-onboarding",
-      "label": "Personality onboarding step (spike)",
-      "description": "Spike: show the \"Create my personality\" trait-slider step in the research-onboarding flow (between the pitch and the integration step). On continue it applies the sliders to the assistant's persona on a throwaway side conversation. When off, the step is skipped entirely. Off by default; enable locally via the feature-flags panel.",
-      "defaultEnabled": false
-    },
-    {
       "id": "channel-trust-floors",
       "scope": "assistant",
       "key": "channel-trust-floors",

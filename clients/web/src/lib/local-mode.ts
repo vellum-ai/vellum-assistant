@@ -128,6 +128,22 @@ export function isLocalMode(): boolean {
   return !PLATFORM_MODE_TRUTHY.has(raw.toLowerCase());
 }
 
+/**
+ * Whether an onboarding run with this `?hosting` choice provisions its
+ * assistant via the FOREGROUND local hatch (hosting=local/docker in a
+ * local-mode build) rather than the managed platform hatch. Keyed on the
+ * chosen hosting, not just `isLocalMode()`: that is a build-time value, true
+ * for the whole desktop app — including its Vellum-Cloud path, which needs
+ * the managed hatch. The single source of truth for the privacy screen's
+ * routing, the hatching screen's hatch kind, and the research route's
+ * adopt-vs-hatch decision.
+ */
+export function isLocalHatchHosting(hostingParam: string | null): boolean {
+  return (
+    isLocalMode() && hostingParam !== null && hostingParam !== "vellum-cloud"
+  );
+}
+
 export function isPlatformDisabled(): boolean {
   const config = getInjectedConfig();
   if (config?.disablePlatform != null) return !!config.disablePlatform;
