@@ -13,7 +13,7 @@ import type { TtsSynthesisRequest } from "./types.js";
 export const DEFAULT_PCM_SAMPLE_RATE_HZ = 16_000;
 
 /** Nearest supported PCM sample rate to `hintHz`; ties prefer the higher rate. */
-export function nearestSupportedPcmSampleRateHz(
+function nearestSupportedPcmSampleRateHz(
   hintHz: number,
   supportedRatesHz: readonly number[],
 ): number {
