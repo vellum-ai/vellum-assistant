@@ -31,6 +31,7 @@ import { useRuleEditorBridge } from "@/domains/chat/hooks/use-rule-editor-bridge
 import { useChatBannerSlots } from "@/domains/chat/hooks/use-chat-banner-slots";
 import { QuoteReplyBubble } from "@/domains/chat/components/quote-reply-bubble";
 import { TextSelectionPopover } from "@/domains/chat/components/text-selection-popover";
+import { useNativeQuoteReply } from "@/domains/chat/hooks/use-native-quote-reply";
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 
@@ -406,6 +407,7 @@ export function ChatMainPanel({
     const el = transcriptRef.current?.getScrollElement() ?? null;
     transcriptContainerRef.current = el;
   });
+  useNativeQuoteReply(transcriptContainerRef);
 
   // Clear staged quotes and dismiss the reply bubble when the active
   // conversation changes to prevent quotes from one conversation leaking

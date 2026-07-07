@@ -12,6 +12,8 @@ import { type RefObject, useCallback, useEffect, useRef, useState } from "react"
 import { Button, Popover } from "@vellumai/design-library";
 
 import { useQuoteReplyStore } from "@/domains/chat/quote-reply-store";
+import { resolveAssistantSelection } from "@/domains/chat/resolve-assistant-selection";
+import { isNativePlatform } from "@/runtime/native-auth";
 import { isPointerCoarse } from "@/utils/pointer";
 
 const COARSE_SELECTION_SETTLE_MS = 120;
@@ -50,52 +52,21 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
   }, []);
 
   const updatePopoverFromSelection = useCallback(() => {
+    // Inside the Capacitor iOS shell the OS text-selection edit menu hosts
+    // the "Reply" action natively (see `useNativeQuoteReply`), so the web
+    // floating chip stays suppressed to avoid a competing affordance.
+    if (isNativePlatform()) {
+      return;
+    }
     const coarsePointer = isPointerCoarse();
     requestAnimationFrame(() => {
-      const selection = window.getSelection();
-      if (!selection || selection.isCollapsed || !selection.rangeCount) {
+      const resolved = resolveAssistantSelection(containerRef.current);
+      if (!resolved) {
         setPopover(null);
         return;
       }
 
-      const text = selection.toString().trim();
-      if (!text) {
-        setPopover(null);
-        return;
-      }
-
-      // Walk up from the selection anchor to find the message wrapper.
-      const anchorNode = selection.anchorNode;
-      if (!anchorNode) {
-        setPopover(null);
-        return;
-      }
-
-      const messageEl = findMessageElement(anchorNode);
-      if (!messageEl) {
-        setPopover(null);
-        return;
-      }
-      const container = containerRef.current;
-      if (!container || !container.contains(messageEl)) {
-        setPopover(null);
-        return;
-      }
-
-      const role = messageEl.getAttribute("data-message-role");
-      if (role !== "assistant") {
-        setPopover(null);
-        return;
-      }
-
-      const messageId = messageEl.getAttribute("data-message-id");
-      if (!messageId) {
-        setPopover(null);
-        return;
-      }
-
-      const range = selection.getRangeAt(0);
-      const rect = range.getBoundingClientRect();
+      const { text, messageId, rect } = resolved;
       const placement = getSelectionPopoverPlacement(rect, coarsePointer);
 
       setPopover({
@@ -241,24 +212,6 @@ export function TextSelectionPopover({ containerRef }: TextSelectionPopoverProps
       </Popover.Content>
     </Popover.Root>
   );
-}
-
-/**
- * Walk from a DOM node upward to find the closest element with
- * `data-message-id` — the transcript row wrapper.
- */
-function findMessageElement(node: Node): HTMLElement | null {
-  let current: Node | null = node;
-  while (current) {
-    if (
-      current instanceof HTMLElement &&
-      current.hasAttribute("data-message-id")
-    ) {
-      return current;
-    }
-    current = current.parentNode;
-  }
-  return null;
 }
 
 function getSelectionPopoverPlacement(

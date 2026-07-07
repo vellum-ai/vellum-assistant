@@ -30,14 +30,79 @@ import WebKit
 /// `capacitor-plugin-safe-area` and writes them to `--safe-area-inset-*`
 /// CSS custom properties.
 ///
+/// 4. Injects a "Reply" item into the WKWebView text-selection edit menu
+///    (iOS 16+) so highlighting assistant message text offers quote-and-reply
+///    natively, mirroring the web floating chip. The item is gated to
+///    assistant-message selections via a `canReply` flag the web layer pushes
+///    through the `vellumTextSelection` script-message handler on every
+///    `selectionchange`; tapping it calls back into the web bridge
+///    (`window.__vellumQuoteReplyFromSelection`) which opens the reply bubble.
+///    See `clients/web/src/domains/chat/hooks/use-native-quote-reply.ts`.
+///
 /// `Main.storyboard`'s single scene uses this class instead of the stock
 /// `CAPBridgeViewController`.
 class MyViewController: CAPBridgeViewController {
+    /// Name of the script-message handler the web layer posts selection
+    /// context to. Must match `NATIVE_SELECTION_HANDLER` on the web side.
+    private static let textSelectionHandlerName = "vellumTextSelection"
+
+    /// Identifier for the injected "Reply" edit-menu command.
+    private static let quoteReplyMenuIdentifier = UIMenu.Identifier(
+        "ai.vellum.assistant.quoteReply"
+    )
+
+    /// Whether the current web selection is inside an assistant message and
+    /// therefore eligible for quote-and-reply. Kept in sync by the web layer
+    /// via the `vellumTextSelection` handler. Toggling it rebuilds the edit
+    /// menu so the "Reply" item appears/disappears with the selection.
+    private var canQuoteReply = false {
+        didSet {
+            guard canQuoteReply != oldValue else { return }
+            if #available(iOS 16.0, *) {
+                UIMenuSystem.main.setNeedsRebuild()
+            }
+        }
+    }
+
     override open func capacitorDidLoad() {
         bridge?.registerPluginInstance(NativeAuthPlugin())
         bridge?.registerPluginInstance(NativeBiometricPlugin())
         installInputZoomPreventionUserScript()
         installViewportZoomLockUserScript()
+        installTextSelectionHandler()
+    }
+
+    // MARK: - Quote-and-reply edit menu
+
+    /// Register the script-message handler the web layer posts `{ canReply }`
+    /// to. A weak proxy breaks the retain cycle that a direct `add(self:)`
+    /// would create (contentController strongly retains its handlers).
+    private func installTextSelectionHandler() {
+        guard let contentController = webView?.configuration.userContentController
+        else { return }
+        contentController.add(
+            WeakScriptMessageHandler(self),
+            name: Self.textSelectionHandlerName
+        )
+    }
+
+    override open func buildMenu(with builder: UIMenuBuilder) {
+        super.buildMenu(with: builder)
+        guard #available(iOS 16.0, *), canQuoteReply else { return }
+        let replyAction = UIAction(title: "Reply") { [weak self] _ in
+            self?.webView?.evaluateJavaScript(
+                "window.__vellumQuoteReplyFromSelection && window.__vellumQuoteReplyFromSelection()"
+            )
+        }
+        let replyMenu = UIMenu(
+            title: "",
+            identifier: Self.quoteReplyMenuIdentifier,
+            options: .displayInline,
+            children: [replyAction]
+        )
+        // Insert before the standard Cut/Copy/Paste group so "Reply" is the
+        // leading item, matching the reference selection-menu placement.
+        builder.insertSibling(replyMenu, beforeMenu: .standardEdit)
     }
 
     // MARK: - Rotation zoom reset
@@ -102,5 +167,39 @@ class MyViewController: CAPBridgeViewController {
             forMainFrameOnly: true
         )
         contentController.addUserScript(script)
+    }
+}
+
+// MARK: - WKScriptMessageHandler
+
+extension MyViewController: WKScriptMessageHandler {
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        guard message.name == Self.textSelectionHandlerName,
+              let body = message.body as? [String: Any],
+              let canReply = body["canReply"] as? Bool
+        else { return }
+        canQuoteReply = canReply
+    }
+}
+
+/// Weakly forwards `WKScriptMessageHandler` callbacks so a view controller can
+/// register itself as a message handler without the retain cycle that
+/// `WKUserContentController`'s strong reference to its handlers would otherwise
+/// create.
+private final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    private weak var delegate: WKScriptMessageHandler?
+
+    init(_ delegate: WKScriptMessageHandler) {
+        self.delegate = delegate
+    }
+
+    func userContentController(
+        _ userContentController: WKUserContentController,
+        didReceive message: WKScriptMessage
+    ) {
+        delegate?.userContentController(userContentController, didReceive: message)
     }
 }
