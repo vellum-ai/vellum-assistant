@@ -14,9 +14,15 @@ import { useState } from "react";
 import { Button } from "@vellumai/design-library/components/button";
 import { ConfirmDialog } from "@vellumai/design-library/components/confirm-dialog";
 
-import type {
-    ChannelInfo,
-    ContactChannelPayload,
+import {
+    ProvenancePill,
+    type CascadeProvenance,
+} from "@/domains/contacts/components/provenance-pill";
+import type { ChannelProvenanceMap } from "@/domains/contacts/hooks/use-channel-provenance";
+import {
+    isSetupChannelId,
+    type ChannelInfo,
+    type ContactChannelPayload,
 } from "@/domains/contacts/types";
 
 const KNOWN_CHANNEL_IDS: ReadonlySet<string> = new Set<ChannelInfo["id"]>([
@@ -115,6 +121,12 @@ interface ContactChannelsSectionProps {
   contactChannels: ContactChannelPayload[];
   availableChannels?: ChannelInfo[];
   a2aEnabled?: boolean;
+  /**
+   * Cascade provenance per setup channel. When provided, channel rows the
+   * contact is present on show a pill naming the layer their effective
+   * access comes from. Absent when the `channelTrustFloors` flag is off.
+   */
+  channelProvenance?: ChannelProvenanceMap;
   setupLabel?: string;
   verifyLoading?: boolean;
   verifySubject?: "self" | "contact";
@@ -154,6 +166,7 @@ export function ContactChannelsSection({
   contactChannels,
   availableChannels,
   a2aEnabled,
+  channelProvenance,
   setupLabel = "Invite",
   verifyLoading,
   verifySubject = "self",
@@ -207,6 +220,11 @@ export function ContactChannelsSection({
               <ChannelRow
                 info={info}
                 existing={existing}
+                provenance={
+                  existing && isSetupChannelId(info.id)
+                    ? channelProvenance?.[info.id]
+                    : undefined
+                }
                 setupLabel={setupLabel}
                 verifyLoading={verifyLoading}
                 onSetup={
@@ -271,6 +289,7 @@ export function ContactChannelsSection({
 interface ChannelRowProps {
   info: ChannelInfo;
   existing: ContactChannelPayload | undefined;
+  provenance?: CascadeProvenance;
   setupLabel: string;
   verifyLoading?: boolean;
   onSetup?: () => void;
@@ -281,6 +300,7 @@ interface ChannelRowProps {
 function ChannelRow({
   info,
   existing,
+  provenance,
   setupLabel,
   verifyLoading,
   onSetup,
@@ -311,6 +331,7 @@ function ChannelRow({
         </span>
       ) : null}
       <div className="ml-auto flex shrink-0 items-center gap-2">
+        {provenance ? <ProvenancePill provenance={provenance} /> : null}
         {actionState.kind === "connected" ? (
           <>
             <span className="inline-flex items-center gap-1 h-8 px-2.5 rounded-md whitespace-nowrap select-none text-body-small-emphasised leading-none bg-[var(--content-default)] text-[var(--surface-base)]">

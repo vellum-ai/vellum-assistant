@@ -14,6 +14,7 @@ import {
   assistantChannelAdmissionPolicyList,
   assistantChannelAdmissionPolicySet,
 } from "@/generated/gateway/sdk.gen";
+import type { AssistantChannelAdmissionPolicyListResponse } from "@/generated/gateway/types.gen";
 import {
   ApiError,
   assertHasResponse,
@@ -42,11 +43,34 @@ export function isInternalChannel(channelType: string): boolean {
 }
 
 /**
- * List every client-controllable channel's admission floor.
- *
- * Channels in {@link INTERNAL_CHANNELS} and {@link isHiddenChannel} are
- * filtered out before returning, so callers can render the result directly
- * without re-filtering.
+ * Shape the raw admission-floor list response into client policy views:
+ * channels in {@link INTERNAL_CHANNELS} and {@link isHiddenChannel} are
+ * dropped, and unknown policy strings coerce to the default. Shared by
+ * {@link fetchChannelPolicies} and by the TanStack `select` in the hooks
+ * that spread the generated `assistantChannelAdmissionPolicyListOptions`
+ * (`useChannelTrustFloors`, `useChannelProvenance`), so every reader keys
+ * off the generated query key and one raw cache entry.
+ */
+export function toChannelPolicyViews(
+  data: AssistantChannelAdmissionPolicyListResponse | undefined,
+): ChannelPolicyView[] {
+  const policies = data?.policies ?? [];
+  return policies
+    .filter(
+      (p) =>
+        !isInternalChannel(p.channelType) && !isHiddenChannel(p.channelType),
+    )
+    .map((p) => ({
+      ...p,
+      policy: isAdmissionPolicy(p.policy) ? p.policy : "trusted_contacts",
+    }));
+}
+
+/**
+ * List every client-controllable channel's admission floor. Imperative
+ * accessor for non-query call sites; React hooks should spread the generated
+ * `assistantChannelAdmissionPolicyListOptions` with
+ * `select: toChannelPolicyViews` instead.
  */
 export async function fetchChannelPolicies(
   assistantId: string,
@@ -62,16 +86,7 @@ export async function fetchChannelPolicies(
       extractErrorMessage(error, response, "Failed to load channel policies."),
     );
   }
-  const policies = data?.policies ?? [];
-  return policies
-    .filter(
-      (p) =>
-        !isInternalChannel(p.channelType) && !isHiddenChannel(p.channelType),
-    )
-    .map((p) => ({
-      ...p,
-      policy: isAdmissionPolicy(p.policy) ? p.policy : "trusted_contacts",
-    }));
+  return toChannelPolicyViews(data);
 }
 
 export async function setChannelPolicy(
