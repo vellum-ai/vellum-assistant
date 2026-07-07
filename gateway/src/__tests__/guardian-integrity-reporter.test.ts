@@ -5,19 +5,14 @@
  *    `gateway_guardian_missing` check name and the caller's detail.
  *  - Subsequent reports inside the hourly window are dropped (rate limit).
  *  - Relay failures never throw out of the caller.
+ *
+ * Logging is observed through the reporter's test-only `log` override —
+ * bun's mock.module is process-global and would leak into other test files.
  */
-import { beforeEach, afterEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, afterEach, describe, expect, test } from "bun:test";
 
 const errorLogs: unknown[] = [];
 const warnLogs: unknown[] = [];
-mock.module("../logger.js", () => ({
-  getLogger: () => ({
-    error: (...args: unknown[]) => errorLogs.push(args),
-    warn: (...args: unknown[]) => warnLogs.push(args),
-    info: () => {},
-    debug: () => {},
-  }),
-}));
 
 await import("./test-preload.js");
 const {
@@ -45,6 +40,14 @@ beforeEach(() => {
     },
     mintToken: () => "svc-token",
     baseUrl: "http://127.0.0.1:7821",
+    log: {
+      error: (detail, msg) => {
+        errorLogs.push([detail, msg]);
+      },
+      warn: (detail, msg) => {
+        warnLogs.push([detail, msg]);
+      },
+    },
   });
 });
 

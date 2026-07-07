@@ -22,10 +22,16 @@ export const GUARDIAN_MISSING_CHECK_NAME = "gateway_guardian_missing";
 const ROUTE_PATH = "/v1/internal/telemetry/watchdog";
 const REPORT_INTERVAL_MS = 60 * 60 * 1000;
 
+type ReporterLog = {
+  error: (detail: Record<string, unknown>, msg: string) => void;
+  warn: (detail: Record<string, unknown>, msg: string) => void;
+};
+
 type ReporterOverrides = {
   fetchImpl?: typeof fetchImpl;
   mintToken?: () => string;
   baseUrl?: string;
+  log?: ReporterLog;
 };
 
 let overrides: ReporterOverrides = {};
@@ -45,14 +51,17 @@ export function reportMissingGuardian(detail: Record<string, unknown>): void {
   }
   lastReportAt = now;
 
-  log.error(
+  reporterLog().error(
     detail,
     "gateway DB has no guardian rows but evidence of prior onboarding — " +
       "trust verdicts will fail closed until the guardian is re-seeded",
   );
 
   pendingRelay = relayToDaemon(detail).catch((err) => {
-    log.warn({ err }, "guardian-missing telemetry relay failed (non-fatal)");
+    reporterLog().warn(
+      { err },
+      "guardian-missing telemetry relay failed (non-fatal)",
+    );
   });
 }
 
@@ -65,14 +74,21 @@ async function relayToDaemon(detail: Record<string, unknown>): Promise<void> {
     mintToken: overrides.mintToken,
   });
   if (!resp.ok) {
-    log.warn(
+    reporterLog().warn(
       { status: resp.status },
       "guardian-missing telemetry relay rejected (non-fatal)",
     );
   }
 }
 
-/** Test-only: inject fetch/token/baseUrl so tests never touch the network. */
+function reporterLog(): ReporterLog {
+  return overrides.log ?? log;
+}
+
+/**
+ * Test-only: inject fetch/token/baseUrl/log so tests never touch the network
+ * or the process logger.
+ */
 export function setGuardianIntegrityReporterOverridesForTesting(
   next: ReporterOverrides,
 ): void {

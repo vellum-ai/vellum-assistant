@@ -10,14 +10,12 @@
  *  - A thrown integrity check degrades to the plain unknown verdict — no
  *    crash, no stamp.
  *
- * The fail-loud reporter is mocked so no relay leaves the test process.
+ * The fail-loud reporter is silenced through its test-only overrides so no
+ * relay or log leaves the test process (bun's mock.module is process-global
+ * and would leak into other test files).
  */
-import { beforeEach, afterEach, describe, expect, mock, test } from "bun:test";
+import { beforeEach, afterEach, describe, expect, test } from "bun:test";
 import { sql } from "drizzle-orm";
-
-mock.module("../guardian-integrity-reporter.js", () => ({
-  reportMissingGuardian: () => {},
-}));
 
 await import("./test-preload.js");
 const { initGatewayDb, resetGatewayDb, getGatewayDb } = await import(
@@ -32,6 +30,10 @@ const {
 const { seedActorToken, seedContact } = await import(
   "./helpers/contact-fixtures.js"
 );
+const {
+  resetGuardianIntegrityReporterForTesting,
+  setGuardianIntegrityReporterOverridesForTesting,
+} = await import("../guardian-integrity-reporter.js");
 const { bustGuardianIntegrityCache } = await import(
   "../auth/guardian-integrity.js"
 );
@@ -77,10 +79,18 @@ beforeEach(async () => {
   getGatewayDb().delete(actorTokenRecords).run();
   getGatewayDb().delete(actorRefreshTokenRecords).run();
   bustGuardianIntegrityCache();
+  resetGuardianIntegrityReporterForTesting();
+  setGuardianIntegrityReporterOverridesForTesting({
+    fetchImpl: async () => new Response("{}"),
+    mintToken: () => "svc-token",
+    baseUrl: "http://127.0.0.1:7821",
+    log: { error: () => {}, warn: () => {} },
+  });
 });
 
 afterEach(() => {
   resetGatewayDb();
+  resetGuardianIntegrityReporterForTesting();
 });
 
 describe("missing-guardian state (evidence, zero guardian rows)", () => {

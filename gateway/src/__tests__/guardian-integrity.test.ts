@@ -7,17 +7,12 @@
  *  - Guardian row present → "ok" regardless of evidence.
  *  - State is TTL-cached; bustGuardianIntegrityCache() forces a recompute.
  *
- * The reporter module is mocked — its logging/relay behavior has its own
- * tests (guardian-integrity-reporter.test.ts).
+ * The reporter is silenced and observed through its test-only overrides
+ * (bun's mock.module is process-global and would leak into other test
+ * files); its logging/relay behavior has its own tests
+ * (guardian-integrity-reporter.test.ts).
  */
-import { beforeEach, afterEach, describe, expect, mock, test } from "bun:test";
-
-const reportCalls: Record<string, unknown>[] = [];
-mock.module("../guardian-integrity-reporter.js", () => ({
-  reportMissingGuardian: (detail: Record<string, unknown>) => {
-    reportCalls.push(detail);
-  },
-}));
+import { beforeEach, afterEach, describe, expect, test } from "bun:test";
 
 await import("./test-preload.js");
 const { initGatewayDb, resetGatewayDb, getGatewayDb } = await import(
@@ -33,10 +28,18 @@ const { seedActorToken, seedContact } = await import(
   "./helpers/contact-fixtures.js"
 );
 const {
+  resetGuardianIntegrityReporterForTesting,
+  setGuardianIntegrityReporterOverridesForTesting,
+} = await import("../guardian-integrity-reporter.js");
+const {
   bustGuardianIntegrityCache,
   guardianIntegrityState,
   hasEvidenceOfPriorGuardian,
 } = await import("../auth/guardian-integrity.js");
+
+// The reporter's first-report error log carries the detail payload; capture
+// it as the "reported" signal.
+const reportCalls: Record<string, unknown>[] = [];
 
 function insertRefreshToken(): void {
   const now = Date.now();
@@ -68,10 +71,23 @@ beforeEach(async () => {
   getGatewayDb().delete(actorRefreshTokenRecords).run();
   bustGuardianIntegrityCache();
   reportCalls.length = 0;
+  resetGuardianIntegrityReporterForTesting();
+  setGuardianIntegrityReporterOverridesForTesting({
+    fetchImpl: async () => new Response("{}"),
+    mintToken: () => "svc-token",
+    baseUrl: "http://127.0.0.1:7821",
+    log: {
+      error: (detail) => {
+        reportCalls.push(detail);
+      },
+      warn: () => {},
+    },
+  });
 });
 
 afterEach(() => {
   resetGatewayDb();
+  resetGuardianIntegrityReporterForTesting();
 });
 
 describe("hasEvidenceOfPriorGuardian", () => {
