@@ -63,8 +63,8 @@ const DEEPGRAM_API_BASE = "https://api.deepgram.com";
 
 /**
  * Sample rate for PCM requests that carry no `sampleRateHz` hint. The
- * media-stream transcoder assumes headerless PCM is 16 kHz (the
- * ElevenLabs/Deepgram/xAI convention) and downsamples to 8 kHz telephony.
+ * media-stream transcoder assumes headerless PCM is 16 kHz (the shared
+ * no-hint default across TTS providers) and downsamples to 8 kHz telephony.
  */
 const DEFAULT_PCM_SAMPLE_RATE_HZ = 16_000;
 
