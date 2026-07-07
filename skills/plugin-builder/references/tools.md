@@ -78,6 +78,28 @@ The result is what the model sees back:
 | `yieldToUser`   | `boolean?`        | When true, the loop returns control to the user after this result instead of making another model call. |
 | `contentBlocks` | `ContentBlock[]?` | Rich content blocks (for example images) to include alongside the text result.                          |
 
+## Persisting data from a tool
+
+`ToolContext` does **not** include `pluginStorageDir`. That field is only passed to the `init` hook (`InitContext`). A tool that reads `ctx.pluginStorageDir` inside `execute` crashes at call time with `The "paths[0]" property must be of type string, got undefined`, and if the read is wrapped in a broad `try/catch`, the crash silently degrades into an empty result, which is worse.
+
+A tool that needs durable storage should derive the directory from `workingDir`, which matches where the host provisions plugin storage (`<workspaceDir>/plugins-data/<plugin-name>/`):
+
+```ts
+execute: async (input, ctx) => {
+  const fs = await import("node:fs/promises");
+  const path = await import("node:path");
+  const storageDir =
+    (ctx as { pluginStorageDir?: string }).pluginStorageDir ??
+    path.join(ctx.workingDir ?? process.cwd(), "plugins-data", "my-plugin-name");
+  await fs.mkdir(storageDir, { recursive: true });
+  // read/write files under storageDir
+},
+```
+
+The optional-field spread keeps the tool forward-compatible: if a future host version starts injecting `pluginStorageDir` into `ToolContext`, the tool picks it up automatically.
+
+**Hot-reload caveat.** Bun caches `import()` by resolved file path and does not bust on content changes, so an edit to an *existing* tool file is only picked up after a daemon restart. Added and removed tool files are picked up live (discovery is by directory listing). When iterating on a tool's implementation, restart the daemon (or rename the file) to see the change.
+
 ## Resolution order
 
 All tools (built-in, plugin, workspace, and MCP) land in one shared catalog. When the model calls a tool, the runtime looks it up by name. When two sources register the same name, the higher-precedence source wins:
