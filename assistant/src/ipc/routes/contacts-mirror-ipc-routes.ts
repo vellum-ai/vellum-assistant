@@ -13,7 +13,11 @@
 
 import { z } from "zod";
 
-import { deleteContact, upsertContact } from "../../contacts/contact-store.js";
+import {
+  deleteContact,
+  mergeContactMirror,
+  upsertContact,
+} from "../../contacts/contact-store.js";
 import { upsertContactChannel } from "../../contacts/contacts-write.js";
 import { getDb } from "../../persistence/db-connection.js";
 import type { RouteHandlerArgs } from "../../runtime/routes/types.js";
@@ -144,6 +148,35 @@ function applyDeleteContact(
   deleteContact(params.contactId);
 }
 
+const MergeContactParamsSchema = z.object({
+  keepContactId: z.string().min(1),
+  mergeContactId: z.string().min(1),
+  // Survivor identity for the dual-write-gap INSERT (survivor row missing from
+  // the mirror); ignored when the survivor exists — the merge never clobbers
+  // an existing display name or user_file.
+  keepDisplayName: z.string().min(1),
+  // Gateway-resolved user_file slug for that same INSERT (principal-sibling
+  // reuse needs the gateway DB, so the daemon can't resolve it here).
+  resolvedUserFile: z.string().min(1).optional(),
+});
+
+/**
+ * Atomically mirror a gateway contact merge: concat donor notes onto the
+ * survivor, reparent donor channels by (type, address NOCASE), delete the
+ * donor — one daemon-DB transaction, so the mirror is never left partially
+ * merged. A donor already gone is a no-op success (idempotent gateway retry).
+ */
+export function handleContactsMirrorMergeContact({
+  body = {},
+}: RouteHandlerArgs) {
+  const params = MergeContactParamsSchema.parse(body);
+  if (params.keepContactId === params.mergeContactId) {
+    throw new Error("keepContactId and mergeContactId must differ");
+  }
+  mergeContactMirror(params);
+  return { ok: true };
+}
+
 /**
  * A single identity-mirror operation, tagged by `op`. Each variant reuses the
  * exact zod schema (and applier) of the corresponding single-row method, so the
@@ -198,5 +231,6 @@ export const CONTACTS_MIRROR_IPC_METHODS: Record<
   contacts_mirror_upsert_channel: handleContactsMirrorUpsertChannel,
   contacts_mirror_upsert_contact: handleContactsMirrorUpsertContact,
   contacts_mirror_delete_contact: handleContactsMirrorDeleteContact,
+  contacts_mirror_merge_contact: handleContactsMirrorMergeContact,
   contacts_mirror_apply: handleContactsMirrorApply,
 };
