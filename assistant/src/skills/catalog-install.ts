@@ -16,7 +16,6 @@ import { gunzipSync } from "node:zlib";
 
 import { getPlatformBaseUrl } from "../config/env.js";
 import { loadSkillCatalog } from "../config/skills.js";
-import { deleteSkillCapabilityNode } from "../plugins/defaults/memory/graph/capability-seed.js";
 import { getLogger } from "../util/logger.js";
 import { getWorkspaceSkillsDir } from "../util/platform.js";
 import { computeSkillHash, writeInstallMeta } from "./install-meta.js";
@@ -323,19 +322,6 @@ async function fetchAndExtractSkill(
   if (!foundSkillMd) {
     throw new Error(`SKILL.md not found in archive for "${skillId}"`);
   }
-}
-
-// ─── Install / uninstall ─────────────────────────────────────────────────────
-
-export function uninstallSkillLocally(skillId: string): void {
-  const skillDir = join(getWorkspaceSkillsDir(), skillId);
-
-  if (!existsSync(skillDir)) {
-    throw new Error(`Skill "${skillId}" is not installed.`);
-  }
-
-  rmSync(skillDir, { recursive: true, force: true });
-  deleteSkillCapabilityNode(skillId);
 }
 
 function assertInstalledSkillDiscoverable(
