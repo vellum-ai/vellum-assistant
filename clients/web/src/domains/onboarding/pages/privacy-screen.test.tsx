@@ -44,7 +44,12 @@ mock.module("@/runtime/is-electron", () => ({ isElectron: () => true }));
 let nativePlatform = false;
 let researchFlag = false;
 let localMode = false;
-mock.module("@/lib/local-mode", () => ({ isLocalMode: () => localMode }));
+mock.module("@/lib/local-mode", () => ({
+  isLocalMode: () => localMode,
+  // Mirrors the real derivation, against the mocked local-mode state.
+  isLocalHatchHosting: (hostingParam: string | null) =>
+    localMode && hostingParam !== null && hostingParam !== "vellum-cloud",
+}));
 mock.module("@/runtime/native-auth", () => ({
   useIsNativePlatform: () => nativePlatform,
 }));
@@ -130,7 +135,7 @@ describe("PrivacyScreen — Start navigation", () => {
     expect(emitFunnelStepCompletedMock).not.toHaveBeenCalled();
   });
 
-  test("web persists consent and advances to the research flow (now the default), preserving hosting", () => {
+  test("web persists consent and advances to the research flow, preserving hosting", () => {
     nativePlatform = false;
     searchParamsValue = new URLSearchParams("hosting=managed");
     render(<PrivacyScreen />);
