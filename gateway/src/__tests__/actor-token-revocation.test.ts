@@ -274,6 +274,64 @@ describe("/auth/token revocation", () => {
     expect(isActorTokenRevoked(sourceJwt, actorClaims)).toBe(true);
     expect(isActorTokenRevoked(derivedJwt, actorClaims)).toBe(true);
   });
+
+  test("fails closed with a repairable 401 when guardian rows are lost over evidence (no divergent mint)", async () => {
+    const { handleCreateToken } = await import("../http/routes/auth-token.js");
+    const { bustGuardianIntegrityCache } =
+      await import("../auth/guardian-integrity.js");
+    const {
+      resetGuardianIntegrityReporterForTesting,
+      setGuardianIntegrityReporterOverridesForTesting,
+    } = await import("../guardian-integrity-reporter.js");
+    const { contacts } = await import("../db/schema.js");
+
+    // Unrecorded (compatibility) source token: the handler falls back to
+    // ensureVellumGuardianBinding. A residual actor-token row for another
+    // device is evidence of prior onboarding with no guardian contact row,
+    // so the fallback mint must refuse rather than diverge.
+    insertTokenRecord("residual-evidence-token", "active");
+    const jwt = mintToken({
+      aud: "vellum-gateway",
+      sub: ACTOR_SUB,
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 3600,
+    });
+
+    bustGuardianIntegrityCache();
+    setGuardianIntegrityReporterOverridesForTesting({
+      fetchImpl: async () => new Response("{}"),
+      mintToken: () => "svc-token",
+      baseUrl: "http://127.0.0.1:7821",
+      log: { error: () => {}, warn: () => {} },
+    });
+
+    try {
+      const res = await handleCreateToken(
+        new Request("http://127.0.0.1:7830/auth/token", {
+          method: "POST",
+          headers: {
+            authorization: `Bearer ${jwt}`,
+            origin: "http://localhost:3000",
+          },
+        }),
+        makeLoopbackServer(),
+      );
+
+      // 401 is the status clients already treat as guardian-repairable.
+      expect(res.status).toBe(401);
+      expect(await res.json()).toEqual({ error: "guardian_repair_required" });
+      // No divergent principal row was minted.
+      expect(getGatewayDb().select().from(contacts).all()).toHaveLength(0);
+      // No token minted or recorded beyond the seeded evidence row.
+      expect(
+        getGatewayDb().select().from(actorTokenRecords).all(),
+      ).toHaveLength(1);
+    } finally {
+      resetGuardianIntegrityReporterForTesting();
+      bustGuardianIntegrityCache();
+    }
+  });
 });
 
 describe("m0004 token-hash index migration", () => {

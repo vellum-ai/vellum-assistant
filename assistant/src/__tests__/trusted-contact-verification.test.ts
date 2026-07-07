@@ -23,10 +23,7 @@ mock.module("../util/logger.js", () => ({
 }));
 
 import { findContactChannel } from "../contacts/contact-store.js";
-import {
-  revokeMember,
-  upsertContactChannel,
-} from "../contacts/contacts-write.js";
+import { upsertContactChannel } from "../contacts/contacts-write.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { createGuardianBinding } from "./helpers/create-guardian-binding.js";
@@ -185,7 +182,7 @@ describe("trusted contact verification → member activation", () => {
     expect(otherChannel).toBeNull();
   });
 
-  test("revokeMember resolves the member identity without mutating local ACL", () => {
+  test("re-verification re-upserts the same identity row (revoke is gateway-owned)", () => {
     // Create a member identity row.
     const member = upsertContactChannel({
       sourceChannel: "telegram",
@@ -193,14 +190,10 @@ describe("trusted contact verification → member activation", () => {
       externalChatId: "chat-revoked",
       displayName: "Revoked User",
     });
+    expect(member).not.toBeNull();
 
-    // The local revoke is a pure resolver now — the gateway owns the ACL
-    // downgrade; revokeMember returns the resolved native contact/channel.
-    const revoked = revokeMember(member!.channel.id);
-    expect(revoked).not.toBeNull();
-    expect(revoked!.channel.id).toBe(member!.channel.id);
-
-    // Re-upsert on the same identity is idempotent on the identity row.
+    // The ACL downgrade lives on the gateway; the local identity row is
+    // untouched by a revoke, so re-verification re-upserts the same row.
     const session = createOutboundSession({
       channel: "telegram",
       expectedExternalUserId: "user-revoked",

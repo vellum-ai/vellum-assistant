@@ -4,33 +4,22 @@ import { join, sep } from "node:path";
 
 /**
  * db_proxy surface guard: the assistant-DB proxy (`assistant-db-proxy.ts` +
- * the daemon-side `db-proxy` route) is a temporary raw-SQL bridge, slated for
- * removal once its last callers get typed ops. This source scan
- * fails if any gateway file OUTSIDE the allowlist imports the proxy or names
- * the raw-SQL bridge method (`db_proxy`), so the surface can only shrink,
- * never grow.
- *
- * The proxy currently serves two groups (the allowlist below):
- *   1. The contact dual-write cluster (`contact-store.ts`,
- *      `dualWriteContactToAssistantDb`) — pending its typed replacement; the
- *      merge mirror is already the typed `contacts_mirror_merge_contact` op.
- *   2. Data migrations — one-time backfills that legitimately touch the
- *      assistant DB broadly.
+ * the daemon-side `db-proxy` route) is a data-migrations-only bridge.
+ * Gateway one-time migrations (m0002/m0010/m0014 et al.) need raw read/drop
+ * access to the assistant DB on first boot of upgraded installs; no runtime
+ * feature may use this surface. This source scan fails if any gateway file
+ * OUTSIDE the proxy module and `db/data-migrations/` imports the proxy or
+ * names the raw-SQL bridge method (`db_proxy`).
  */
 
-// Relative to GATEWAY_SRC (POSIX-separated). Every entry is a sanctioned
-// db_proxy caller; new callers must NOT be added — drain them instead.
+// Relative to GATEWAY_SRC (POSIX-separated). New entries must NOT be added.
 const ALLOWLIST = new Set<string>([
   // The proxy definition itself (calls ipcCallAssistant("db_proxy")).
   "db/assistant-db-proxy.ts",
-
-  // contact-store.ts is drained: its merge + upsert mirrors are typed ops
-  // (`contacts_mirror_merge_contact` / `contacts_mirror_upsert_full`). The
-  // migrations-only banner rewrite lands in the follow-up PR.
 ]);
 
-// Data migrations run one-time backfills through the same proxy and touch
-// contacts/channels/invites broadly. Allowed wholesale by directory prefix.
+// One-time data migrations legitimately touch the assistant DB broadly.
+// Allowed wholesale by directory prefix.
 const ALLOWED_DIR_PREFIX = "db/data-migrations/";
 
 const GATEWAY_SRC = join(import.meta.dirname!, "..");

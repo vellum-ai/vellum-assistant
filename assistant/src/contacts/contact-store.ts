@@ -14,7 +14,6 @@ import type {
   AssistantContactMetadata,
   Contact,
   ContactChannel,
-  ContactRole,
   ContactType,
   ContactWithChannels,
 } from "./types.js";
@@ -94,9 +93,6 @@ function parseContact(row: typeof contacts.$inferSelect): Contact {
     id: row.id,
     displayName: row.displayName,
     notes: row.notes,
-    // gateway-owned; the serve layer stamps the real role from the gateway
-    // guardian id set.
-    role: "contact",
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     contactType: row.contactType,
@@ -159,9 +155,6 @@ export function getContact(id: string): ContactWithChannels | null {
   return withChannels(parseContact(row));
 }
 
-/** @deprecated Use {@link getContact} directly. */
-export const getContactInternal = getContact;
-
 /** INFO-only contact fields, joined locally by contact ID. */
 export interface ContactInfo {
   notes: string | null;
@@ -200,7 +193,6 @@ export function upsertContact(params: {
   id?: string;
   displayName: string;
   notes?: string | null;
-  role?: ContactRole;
   contactType?: ContactType;
   userFile?: string | null;
   /** userFile to seed ONLY when inserting a new contact; ignored on update so
@@ -260,7 +252,7 @@ export function upsertContact(params: {
       }
 
       notifyContactsChanged();
-      return { ...getContactInternal(contactId)!, created: false };
+      return { ...getContact(contactId)!, created: false };
     }
   }
 
@@ -287,7 +279,7 @@ export function upsertContact(params: {
 
         syncChannels(contactId, canonicalChannels, now);
         notifyContactsChanged();
-        return { ...getContactInternal(contactId)!, created: false };
+        return { ...getContact(contactId)!, created: false };
       }
     }
   }
@@ -322,7 +314,7 @@ export function upsertContact(params: {
   }
 
   notifyContactsChanged();
-  return { ...getContactInternal(contactId)!, created: true };
+  return { ...getContact(contactId)!, created: true };
 }
 
 /**
@@ -337,8 +329,9 @@ export function deleteContact(id: string): void {
 
 /**
  * Add new channels to a contact without removing existing ones.
- * When a channel already exists (same type+address), updates access/verification
- * fields if provided. Skips channels owned by a different contact.
+ * When a channel already exists (same type+address), refreshes its identity
+ * fields (address casing, isPrimary, externalChatId) if provided. Skips
+ * channels owned by a different contact unless reassignment is requested.
  */
 function syncChannels(
   contactId: string,
@@ -512,7 +505,7 @@ export function searchContacts(params: {
     const results: ContactWithChannels[] = [];
     for (const id of contactIds) {
       if (results.length >= limit) break;
-      const contact = getContactInternal(id);
+      const contact = getContact(id);
       if (
         contact &&
         (!params.contactType || contact.contactType === params.contactType) &&
@@ -541,7 +534,7 @@ export function searchContacts(params: {
     const results: ContactWithChannels[] = [];
     for (const id of contactIds) {
       if (results.length >= limit) break;
-      const contact = getContactInternal(id);
+      const contact = getContact(id);
       if (
         contact &&
         (!params.contactType || contact.contactType === params.contactType)
@@ -588,7 +581,7 @@ export function searchContacts(params: {
     const results: ContactWithChannels[] = [];
     for (const id of contactIds) {
       if (results.length >= limit) break;
-      const contact = getContactInternal(id);
+      const contact = getContact(id);
       if (contact) {
         results.push(contact);
       }
@@ -697,7 +690,7 @@ export function mergeContacts(
   });
 
   notifyContactsChanged();
-  return getContactInternal(keepId)!;
+  return getContact(keepId)!;
 }
 
 /**
@@ -960,7 +953,7 @@ export function findContactByAddress(
     .get();
 
   if (!channel) return null;
-  return getContactInternal(channel.contactId);
+  return getContact(channel.contactId);
 }
 
 /**
@@ -986,7 +979,7 @@ function findContactByChannelExternalChatId(
     .orderBy(desc(contactChannels.updatedAt), desc(contactChannels.createdAt))
     .get();
   if (!channel) return null;
-  return getContactInternal(channel.contactId);
+  return getContact(channel.contactId);
 }
 
 /**
@@ -1032,20 +1025,18 @@ export function findContactChannel(params: {
 }
 
 /**
- * Heal a guardian channel's identity address when the JWT principal no longer
- * matches the stored guardian binding after a DB reset. The principalId ACL
- * column is gateway-owned and no longer written here; only the channel identity
- * address is repaired.
+ * Repair a channel's identity address, e.g. when a guardian JWT principal no
+ * longer matches the stored channel address after a DB reset. Identity-only:
+ * the principalId ACL column is gateway-owned.
  *
  * Returns false if the update would violate the unique (type, address)
- * constraint on contact_channels — e.g. when the incoming principal already
+ * constraint on contact_channels — e.g. when the incoming address already
  * exists on another channel record (a revoked former guardian entry).
- * In that case the heal is skipped and trust stays `unknown`.
+ * In that case the repair is skipped and trust stays `unknown`.
  */
-export function updateContactPrincipalAndChannel(
-  _contactId: string,
+export function repairChannelAddress(
   channelId: string,
-  newPrincipalId: string,
+  newAddress: string,
 ): boolean {
   const db = getDb();
   const now = Date.now();
@@ -1058,7 +1049,7 @@ export function updateContactPrincipalAndChannel(
   if (!channel) return false;
 
   // Guard: check if another channel row holds this canonical identity.
-  const conflicting = findConflictingChannel(db, channel.type, newPrincipalId);
+  const conflicting = findConflictingChannel(db, channel.type, newAddress);
 
   if (conflicting && conflicting.id !== channelId) {
     return false;
@@ -1066,7 +1057,7 @@ export function updateContactPrincipalAndChannel(
 
   db.update(contactChannels)
     .set({
-      address: newPrincipalId,
+      address: newAddress,
       updatedAt: now,
     })
     .where(eq(contactChannels.id, channelId))

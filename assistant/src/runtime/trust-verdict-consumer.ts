@@ -249,7 +249,6 @@ function memberRecordFromVerdict(
     id: member.contactId,
     displayName: member.displayName ?? "",
     notes: null,
-    role,
     createdAt: 0,
     updatedAt: 0,
     contactType: "human",

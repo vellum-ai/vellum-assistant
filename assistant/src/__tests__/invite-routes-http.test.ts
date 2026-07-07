@@ -119,7 +119,7 @@ await initializeDb();
 
 /** Create a throwaway contact and return its ID, for use as the invite's contactId. */
 function createTargetContact(displayName = "Test Contact"): string {
-  return upsertContact({ displayName, role: "contact" }).id;
+  return upsertContact({ displayName }).id;
 }
 
 function resetTables() {

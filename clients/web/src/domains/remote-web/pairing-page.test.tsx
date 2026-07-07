@@ -26,6 +26,16 @@ const createRemoteWebPairingChallengeMock = mock(
   }),
 );
 
+class MockRemoteWebPairingError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+  constructor(status: number, message: string, code: string | null = null) {
+    super(message);
+    this.status = status;
+    this.code = code;
+  }
+}
+
 mock.module("@/lib/auth/remote-gateway-session", () => ({
   activateRemoteGatewaySession: () => {},
   createRemoteWebPairingChallenge: createRemoteWebPairingChallengeMock,
@@ -37,13 +47,7 @@ mock.module("@/lib/auth/remote-gateway-session", () => ({
       userCode: url.searchParams.get("userCode"),
     };
   },
-  RemoteWebPairingError: class RemoteWebPairingError extends Error {
-    readonly status: number;
-    constructor(status: number, message: string) {
-      super(message);
-      this.status = status;
-    }
-  },
+  RemoteWebPairingError: MockRemoteWebPairingError,
 }));
 
 const { RemoteWebPairingPage } =
@@ -132,5 +136,51 @@ describe("RemoteWebPairingPage", () => {
         "created-device",
       );
     });
+  });
+
+  test("surfaces guardian-repair guidance on a repair-required exchange failure", async () => {
+    remoteGatewayMode = true;
+    exchangeRemoteWebPairingTokenMock.mockImplementationOnce(async () => {
+      throw new MockRemoteWebPairingError(
+        503,
+        "Pairing token exchange failed: 503",
+        "GUARDIAN_REPAIR_REQUIRED",
+      );
+    });
+
+    render(
+      <MemoryRouter
+        initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+      >
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Pairing failed")).not.toBeNull();
+    expect(screen.getByText(/trust database needs repair/)).not.toBeNull();
+    expect(screen.getByText(/retry this same pairing link/)).not.toBeNull();
+    expect(screen.queryByText(/starting a new pairing/)).toBeNull();
+  });
+
+  test("keeps new-pairing guidance for other exchange failures", async () => {
+    remoteGatewayMode = true;
+    exchangeRemoteWebPairingTokenMock.mockImplementationOnce(async () => {
+      throw new MockRemoteWebPairingError(
+        503,
+        "Pairing token exchange failed: 503",
+      );
+    });
+
+    render(
+      <MemoryRouter
+        initialEntries={["/assistant/pair?deviceCode=device-1&userCode=ABCD"]}
+      >
+        <RemoteWebPairingPage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Pairing failed")).not.toBeNull();
+    expect(screen.getByText(/Try starting a new pairing/)).not.toBeNull();
+    expect(screen.queryByText(/trust database needs repair/)).toBeNull();
   });
 });

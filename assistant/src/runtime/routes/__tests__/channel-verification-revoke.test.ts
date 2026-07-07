@@ -103,17 +103,6 @@ mock.module("../../../contacts/guardian-delivery-reader.js", () => ({
   }),
 }));
 
-// Guard: the contact-channel ACL write moves to the gateway relay and must
-// never run locally.
-const localAclWrite = mock(() => {
-  throw new Error("local ACL write must not happen on relayed revoke");
-});
-const actualContactsWrite = await import("../../../contacts/contacts-write.js");
-mock.module("../../../contacts/contacts-write.js", () => ({
-  ...actualContactsWrite,
-  revokeMember: localAclWrite,
-}));
-
 // Contact-change notification — fired explicitly on relay success so open
 // client views stop showing the channel as active after the gateway
 // dual-writes it to "revoked".
@@ -157,7 +146,6 @@ describe("verification revoke relay", () => {
     ipcCallPersistentMock.mockClear();
     cancelOutboundMock.mockClear();
     revokePendingSessionsMock.mockClear();
-    localAclWrite.mockClear();
     notifyContactsChangedMock.mockClear();
   });
 
@@ -180,9 +168,6 @@ describe("verification revoke relay", () => {
     // Session teardown stays assistant-side.
     expect(cancelOutboundMock).toHaveBeenCalledTimes(1);
     expect(revokePendingSessionsMock).toHaveBeenCalledTimes(1);
-
-    // The contact-channel ACL write does not fall back to the assistant.
-    expect(localAclWrite).not.toHaveBeenCalled();
 
     // Invalidation emitted explicitly on relay success.
     expect(notifyContactsChangedMock).toHaveBeenCalledTimes(1);
@@ -259,7 +244,6 @@ describe("verification revoke relay", () => {
     // Session teardown ran before the relay rejected.
     expect(cancelOutboundMock).toHaveBeenCalledTimes(1);
     expect(revokePendingSessionsMock).toHaveBeenCalledTimes(1);
-    expect(localAclWrite).not.toHaveBeenCalled();
   });
 
   test("no binding present: tears down sessions and skips the relay", async () => {
