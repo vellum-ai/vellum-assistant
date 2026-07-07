@@ -233,7 +233,7 @@ const OPERATIONAL_STATUS_TITLES: Record<AssistantOperationalState, string> = {
   resizing_machine: "Assistant machine is resizing",
   resizing_storage: "Assistant storage is resizing",
   maintenance_mode: "Assistant is in maintenance mode",
-  crash_loop: "Assistant is crash looping",
+  crash_loop: "Assistant is crashed",
   unreachable: "Assistant is unreachable",
   not_found: "Assistant was not found",
   retiring: "Assistant is retiring",

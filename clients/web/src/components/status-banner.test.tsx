@@ -385,7 +385,7 @@ describe("StatusBanner", () => {
 
   test("renders operational error states with error tone and Doctor action for platform assistants", () => {
     for (const [state, title] of [
-      ["crash_loop", "Assistant is crash looping"],
+      ["crash_loop", "Assistant is crashed"],
       ["unreachable", "Assistant is unreachable"],
       ["not_found", "Assistant was not found"],
     ] as const) {
@@ -543,7 +543,7 @@ describe("StatusBanner", () => {
 
     const html = renderToStaticMarkup(<StatusBanner />);
 
-    expect(html).toContain("Assistant is crash looping");
+    expect(html).toContain("Assistant is crashed");
     expect(html).not.toContain("Go to Doctor");
   });
 
@@ -558,7 +558,7 @@ describe("StatusBanner", () => {
     const html = renderToStaticMarkup(<StatusBanner />);
 
     expect(requestedOperationalStatusAssistantId).toBe("assistant-operation");
-    expect(html).toContain("Assistant is crash looping");
+    expect(html).toContain("Assistant is crashed");
     expect(html).not.toContain("Go to Doctor");
   });
 
@@ -868,7 +868,7 @@ describe("StatusBanner", () => {
 
       expect(html).toContain("offline");
       expect(html).toContain('data-tone="error"');
-      expect(html).not.toContain("crash looping");
+      expect(html).not.toContain("Assistant is crashed");
     });
   });
 
@@ -892,7 +892,7 @@ describe("StatusBanner", () => {
 
       expect(html).toContain("offline");
       expect(html).toContain('data-tone="error"');
-      expect(html).not.toContain("crash looping");
+      expect(html).not.toContain("Assistant is crashed");
     });
 
     test("renders backend-unreachable banner before operational status", () => {
@@ -909,7 +909,7 @@ describe("StatusBanner", () => {
       expect(html).toContain("Retry now");
       expect(html).toContain('data-tone="error"');
       expect(html).toContain("lucide-cloud-off");
-      expect(html).not.toContain("crash looping");
+      expect(html).not.toContain("Assistant is crashed");
     });
 
     test("does not render backend-unreachable connectivity state outside Electron", () => {
