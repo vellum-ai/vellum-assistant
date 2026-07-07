@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useParams } from "react-router";
 
 import { DeployDialogs } from "@/components/deploy-dialogs";
+import { EdgeSwipeHitZone } from "@/components/edge-swipe-hit-zone";
 import { toast } from "@vellumai/design-library";
 
 import { useActiveAssistantId } from "@/assistant/use-active-assistant-id";
@@ -148,7 +149,11 @@ export function LibraryDetailPage() {
 
   return (
     <>
-      <div ref={swipeContainerRef} className="flex min-h-0 flex-1 flex-col">
+      <div
+        ref={swipeContainerRef}
+        className="relative flex min-h-0 flex-1 flex-col"
+      >
+        <EdgeSwipeHitZone enabled={isMobile} />
         <AppViewerContainer
           appId={app.appId}
           appName={app.name}

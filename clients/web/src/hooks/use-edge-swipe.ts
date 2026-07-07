@@ -8,7 +8,7 @@ import { isPointerCoarse } from "@/utils/pointer";
 // ---------------------------------------------------------------------------
 
 /** Horizontal zone from the left edge (px) where a touch is eligible. */
-const EDGE_ZONE_PX = 20;
+export const EDGE_ZONE_PX = 20;
 
 /** Minimum horizontal travel (px) to commit the swipe. */
 const COMMIT_THRESHOLD_PX = 100;
