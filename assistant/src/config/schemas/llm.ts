@@ -34,11 +34,8 @@ export const LLMProvider = z
   .meta({ id: "LLMProvider" });
 type LLMProvider = z.infer<typeof LLMProvider>;
 
-/**
- * Provider enum for `llm.defaultProvider` — restricted to
- * `DEFAULT_PROFILE_PROVIDERS` (the providers that can serve the code-defined
- * default profile catalog), which is a strict subset of `LLMProvider`.
- */
+// Deliberately narrower than `LLMProvider`: only providers that can serve
+// the code-defined default profile catalog.
 const DefaultProviderEnum = z.enum(DEFAULT_PROFILE_PROVIDERS);
 
 // ---------------------------------------------------------------------------
@@ -480,16 +477,14 @@ type LLMCallSiteConfig = z.infer<typeof LLMCallSiteConfig>;
 // ---------------------------------------------------------------------------
 
 /**
- * Pins which provider backs the workspace's "default" inference identity.
- * `connectionName` optionally pins a specific `provider_connections` row;
- * when absent, the resolving convention lives in
- * `resolveDefaultConnectionName` (`../default-provider.js`).
+ * Pins which provider backs the workspace's default inference identity.
+ * When `connectionName` is absent, `resolveDefaultConnectionName`
+ * (`../default-provider.js`) supplies the convention.
  *
- * Deliberately has no cross-field validation here: schema validation is
+ * No connection-existence validation on purpose: schema validation is
  * pure/sync and cannot see the sqlite `provider_connections` table, so a
- * `connectionName` that doesn't (yet) exist is allowed by design — a dangling
- * reference is surfaced as an explainable resolution error at read time, not
- * rejected at write time.
+ * dangling `connectionName` is allowed here and surfaced as an explainable
+ * resolution error at read time.
  */
 export const DefaultProviderSchema = z.object({
   provider: DefaultProviderEnum,
@@ -498,25 +493,14 @@ export const DefaultProviderSchema = z.object({
 export type DefaultProviderConfig = z.infer<typeof DefaultProviderSchema>;
 
 /**
- * `DefaultProviderSchema` wrapped so an invalid value drops the whole
- * `defaultProvider` object (to `undefined`) instead of failing the parse.
- *
- * Why atomic drop: the config loader's recovery pass deletes the exact key at
- * each issue path and re-parses. With a plain nested object schema, an
- * invalid `provider` alongside a valid `connectionName` would recover to
- * `{ connectionName: ... }` — which fails the re-parse (missing `provider`)
- * and escalates a one-field typo into a full config-defaults fallback.
- *
- * Why `.catch` rather than a `z.unknown().transform(...)` wrapper: schema
- * introspection (`getSchemaAtPath` / `z.toJSONSchema` with `io: "input"`)
- * unwraps `optional`/`catch` via `innerType` and pipes via their input side,
- * so this form keeps the object shape and provider enum discoverable at
- * `llm.defaultProvider(.provider)`, while a transform on `z.unknown()` hides
- * them. The catch value must stay static (`undefined`, not a callback):
- * `z.toJSONSchema` rejects dynamic catch values.
- *
- * Writes are unaffected: `setDefaultProvider` validates against the strict
- * `DefaultProviderSchema` and still rejects invalid input loudly.
+ * The `.catch(undefined)` drops an invalid value atomically at parse time.
+ * Without it, the loader's recovery pass (which deletes the exact key at each
+ * issue path) could strand a fragment like `{ connectionName }` that fails
+ * the re-parse and escalates a one-field typo into a full config-defaults
+ * fallback. A `z.unknown().transform(...)` wrapper would also fix that, but
+ * hides the object shape from `getSchemaAtPath` / `z.toJSONSchema`; the catch
+ * value must be static because `z.toJSONSchema` rejects callbacks.
+ * Writes stay loud: `setDefaultProvider` parses the strict schema directly.
  */
 const DefaultProviderField = DefaultProviderSchema.optional().catch(undefined);
 
@@ -543,8 +527,6 @@ export const LLMSchema = z
     // under Models & Services). It is excluded from the chat-profile pickers so
     // it can't be selected as the assistant's chat model.
     advisorProfile: z.string().min(1).optional(),
-    // See `DefaultProviderSchema` above for the field contract; absent means
-    // no default provider is pinned.
     defaultProvider: DefaultProviderField,
     // TTL bounds for inference profile sessions. `defaultTtlSeconds` is read by
     // the CLI to apply when `--ttl` is omitted; the daemon handler itself only

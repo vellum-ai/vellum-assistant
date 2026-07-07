@@ -29,10 +29,9 @@ export const OS_BETA_PROFILE_KEY = "os-beta";
  * an underlying provider per profile); the rest are BYOK columns whose
  * models resolve per provider via `resolveModelIntent`.
  *
- * Lives in this import-free module (rather than `default-profile-catalog.ts`,
- * which re-exports it) so `schemas/llm.ts` can validate `llm.defaultProvider`
- * against it without a circular import — the catalog already imports types
- * from `schemas/llm.ts`.
+ * Lives in this import-free module rather than `default-profile-catalog.ts`
+ * so `schemas/llm.ts` can import it without a circular dependency (the
+ * catalog imports types from `schemas/llm.ts`).
  */
 export const DEFAULT_PROFILE_PROVIDERS = [
   "anthropic",

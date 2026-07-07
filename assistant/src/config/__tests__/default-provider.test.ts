@@ -85,9 +85,8 @@ describe("LLMSchema.defaultProvider", () => {
     });
   });
 
-  // Writes go through the strict `DefaultProviderSchema`, which rejects
-  // invalid values loudly (the `.catch` on the field only applies when
-  // reading persisted config).
+  // The strict write-side schema; the `.catch` only applies when reading
+  // persisted config.
   test("rejects an unknown provider", () => {
     expect(() =>
       DefaultProviderSchema.parse({ provider: "not-a-provider" }),
@@ -114,12 +113,8 @@ describe("LLMSchema.defaultProvider", () => {
     expect(parsed.defaultProvider).toBeUndefined();
   });
 
-  // The loader's recovery pass deletes the exact key at each issue path and
-  // re-parses, so a nested failure (invalid `provider` next to a valid
-  // `connectionName`) would strand a `{ connectionName }` fragment that
-  // fails the re-parse and escalates to a full config-defaults fallback.
-  // The field's `.catch` avoids that entirely: an invalid value drops the
-  // whole object at parse time and the surrounding config is untouched.
+  // Guards the loader-recovery hazard described at `DefaultProviderField`:
+  // a nested failure must never strand a `{ connectionName }` fragment.
   test("an invalid defaultProvider is dropped atomically", () => {
     const result = LLMSchema.safeParse({
       profiles: { "my-profile": {} },
@@ -143,9 +138,8 @@ describe("LLMSchema.defaultProvider", () => {
     expect(result.data.defaultProvider).toBeUndefined();
   });
 
-  // The config-schema API resolves dotted paths via `getSchemaAtPath` and
-  // emits JSON Schema with `io: "input"`; both must see through the field's
-  // wrappers to the object shape so clients can discover and validate it.
+  // The config-schema API must see through the field's wrappers to the
+  // object shape (the introspection hazard described at `DefaultProviderField`).
   test("schema introspection reaches the object shape and provider enum", () => {
     const atField = getSchemaAtPath(LLMSchema, "defaultProvider");
     expect(atField).not.toBeNull();
