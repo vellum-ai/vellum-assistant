@@ -9652,6 +9652,34 @@ paths:
                   type: array
                   items:
                     type: string
+                allowedDomains:
+                  description: Domains the credential may be sent to
+                  type: array
+                  items:
+                    type: string
+                injectionTemplates:
+                  description: How the credential is injected into requests
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      hostPattern:
+                        type: string
+                        minLength: 1
+                      injectionType:
+                        type: string
+                        enum:
+                          - header
+                          - query
+                      headerName:
+                        type: string
+                      valuePrefix:
+                        type: string
+                      queryParamName:
+                        type: string
+                    required:
+                      - hostPattern
+                      - injectionType
               required:
                 - service
                 - field

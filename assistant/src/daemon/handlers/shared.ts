@@ -16,6 +16,7 @@ import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../../runtime/auth/types.js";
 import * as pendingInteractions from "../../runtime/pending-interactions.js";
 import { unwrapExternalContentForDisplay } from "../../security/untrusted-content.js";
+import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import { getLogger } from "../../util/logger.js";
 import { joinWithSpacing } from "../../util/text-spacing.js";
 import { estimateBase64Bytes } from "../assistant-attachments.js";
@@ -736,36 +737,45 @@ export function renderHistoryContent(
   };
 }
 
-/**
- * Send a `secret_request` to the client and wait for the response, outside of a
- * conversation context (e.g. from IPC routes like credentials/prompt).
- *
- * Lifecycle state (resolver, timer) is registered in pendingInteractions — the
- * same tracker the in-conversation SecretPrompter uses — so `POST /v1/secret`
- * resolves the prompt generically. When a `conversationId` is supplied (the CLI
- * `credentials prompt` command forwards `__CONVERSATION_ID`), the broadcast is
- * scoped to that conversation so clients deliver it; otherwise it is
- * conversation-less. When that conversation's channel cannot render dynamic UI
- * (e.g. slack, telegram), resolves immediately with `unsupported_channel` —
- * carrying a one-time collection link when the gateway can mint one — instead
- * of broadcasting a request that can only time out.
- */
-/**
- * Fallback for channels without secure input: mint a one-time collection link
- * via the gateway (flag-gated there) and return it on the result so the
- * caller can relay it. When minting is unavailable (flag off, no public
- * ingress URL, gateway unreachable) the plain `unsupported_channel` failure
- * stands.
- */
-async function mintCollectionLinkFallback(params: {
+/** Parameters shared by the standalone secret prompt and its link fallback. */
+interface StandaloneSecretParams {
   service: string;
   field: string;
   label: string;
-}): Promise<SecretPromptResult> {
+  description?: string;
+  placeholder?: string;
+  purpose?: string;
+  allowedTools?: string[];
+  allowedDomains?: string[];
+  injectionTemplates?: CredentialInjectionTemplate[];
+  conversationId?: string;
+}
+
+/**
+ * Fallback for channels without secure input: mint a one-time collection link
+ * via the gateway (flag-gated there) and return it on the result so the
+ * caller can relay it. The credential policy travels on the gateway row
+ * (`policyJson`) and is applied together with the value at redemption —
+ * nothing is stored or mutated until the recipient submits. When minting is
+ * unavailable (flag off, no public ingress URL, gateway unreachable) the
+ * plain `unsupported_channel` failure stands.
+ */
+async function mintCollectionLinkFallback(
+  params: StandaloneSecretParams,
+): Promise<SecretPromptResult> {
+  const policy = {
+    usageDescription: params.purpose,
+    allowedTools: params.allowedTools,
+    allowedDomains: params.allowedDomains,
+    injectionTemplates: params.injectionTemplates,
+  };
+  const hasPolicy = Object.values(policy).some((v) => v !== undefined);
+
   const result = (await gatewayIpcCall("create_credential_request", {
     service: params.service,
     field: params.field,
     label: params.label,
+    ...(hasPolicy ? { policyJson: JSON.stringify(policy) } : {}),
   })) as
     | { ok: true; url: string; expiresAt: number }
     | { ok: false; error: string }
@@ -787,17 +797,23 @@ async function mintCollectionLinkFallback(params: {
   return { value: null, delivery: "store", error: "unsupported_channel" };
 }
 
-export function requestSecretStandalone(params: {
-  service: string;
-  field: string;
-  label: string;
-  description?: string;
-  placeholder?: string;
-  purpose?: string;
-  allowedTools?: string[];
-  allowedDomains?: string[];
-  conversationId?: string;
-}): Promise<SecretPromptResult> {
+/**
+ * Send a `secret_request` to the client and wait for the response, outside of a
+ * conversation context (e.g. from IPC routes like credentials/prompt).
+ *
+ * Lifecycle state (resolver, timer) is registered in pendingInteractions — the
+ * same tracker the in-conversation SecretPrompter uses — so `POST /v1/secret`
+ * resolves the prompt generically. When a `conversationId` is supplied (the CLI
+ * `credentials prompt` command forwards `__CONVERSATION_ID`), the broadcast is
+ * scoped to that conversation so clients deliver it; otherwise it is
+ * conversation-less. When that conversation's channel cannot render dynamic UI
+ * (e.g. slack, telegram), resolves immediately with `unsupported_channel` —
+ * carrying a one-time collection link when the gateway can mint one — instead
+ * of broadcasting a request that can only time out.
+ */
+export function requestSecretStandalone(
+  params: StandaloneSecretParams,
+): Promise<SecretPromptResult> {
   const conversation = findConversation(params.conversationId);
   if (conversation && !conversationSupportsDynamicUi(conversation)) {
     return mintCollectionLinkFallback(params);

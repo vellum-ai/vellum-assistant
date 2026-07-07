@@ -13,10 +13,7 @@ import {
   persistPromptedCredential,
 } from "../../credential-execution/prompted-credential.js";
 import { requestSecretStandalone } from "../../daemon/handlers/shared.js";
-import {
-  assertMetadataWritable,
-  upsertCredentialMetadata,
-} from "../../tools/credentials/metadata-store.js";
+import { assertMetadataWritable } from "../../tools/credentials/metadata-store.js";
 import { LOCAL_PRINCIPALS } from "../auth/route-policy.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -24,7 +21,7 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // Schema
 // ---------------------------------------------------------------------------
 
-const InjectionTemplateSchema = z.object({
+export const InjectionTemplateSchema = z.object({
   hostPattern: z.string().min(1),
   injectionType: z.enum(["header", "query"]),
   headerName: z.string().optional(),
@@ -89,6 +86,7 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
     purpose: validated.usageDescription,
     allowedTools: validated.allowedTools,
     allowedDomains: validated.allowedDomains,
+    injectionTemplates: validated.injectionTemplates,
     conversationId: validated.conversationId,
   });
 
@@ -96,19 +94,12 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
     if (result.error === "unsupported_channel") {
       if (result.collectionUrl) {
         // The channel cannot render the secure prompt, but a one-time
-        // collection link was minted instead. Attach the policy metadata now —
-        // the gateway submit stores the value via credentials_set, which
-        // leaves these metadata fields untouched.
-        try {
-          upsertCredentialMetadata(validated.service, validated.field, {
-            allowedTools: validated.allowedTools,
-            allowedDomains: validated.allowedDomains,
-            usageDescription: validated.usageDescription,
-            injectionTemplates: validated.injectionTemplates,
-          });
-        } catch {
-          // Best-effort: the submit path still stores the value without it.
-        }
+        // collection link was minted instead. Nothing is stored or mutated
+        // yet — the policy travels on the gateway row and is applied together
+        // with the value at redemption, so an existing credential's policy is
+        // never rewritten by an unredeemed link. `ok` stays false: the
+        // stored-success contract (CLI exit 0) means "the value is in the
+        // vault", which has not happened.
         const expiresInMinutes = result.collectionExpiresAt
           ? Math.max(
               1,
@@ -116,13 +107,13 @@ async function handleCredentialPrompt({ body = {} }: RouteHandlerArgs) {
             )
           : null;
         return {
-          ok: true,
+          ok: false,
           pending: true,
           collectionUrl: result.collectionUrl,
           expiresAt: result.collectionExpiresAt,
           service: validated.service,
           field: validated.field,
-          message: `This channel does not support secure input. Share this one-time link with the user to collect the credential securely (single-use${expiresInMinutes ? `, expires in ${expiresInMinutes} minutes` : ""}): ${result.collectionUrl}`,
+          message: `This channel does not support secure input. The credential has NOT been stored yet. Share this one-time link with the user to collect it securely (single-use${expiresInMinutes ? `, expires in ${expiresInMinutes} minutes` : ""}): ${result.collectionUrl}`,
         };
       }
       return {

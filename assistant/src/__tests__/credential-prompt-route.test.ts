@@ -460,16 +460,19 @@ describe("credentials/prompt route", () => {
   test("returns a pending collection link for unsupported channels when minted", async () => {
     /**
      * When the channel cannot render the secure prompt but the gateway minted
-     * a one-time collection link, the route reports a pending success carrying
-     * the link (the model relays it in-channel) and attaches the policy
-     * metadata immediately — the gateway submit stores the value later.
+     * a one-time collection link, the route reports a PENDING non-success
+     * (nothing is stored yet — `ok` must stay false so the CLI's exit-0 =
+     * stored contract holds) carrying the link for the model to relay. The
+     * policy is NOT applied at mint time: it travels through the prompt
+     * params onto the gateway row and is applied at redemption, so an
+     * unredeemed link never mutates an existing credential's metadata.
      */
     // GIVEN the prompt short-circuited with a minted collection link
     secretResult = {
       value: null,
       delivery: "store",
       error: "unsupported_channel",
-      collectionUrl: "https://x.test/assistant/credentials/enter?token=tok",
+      collectionUrl: "https://x.test/assistant/credentials/enter#token=tok",
       collectionExpiresAt: Date.now() + 30 * 60_000,
     };
 
@@ -481,26 +484,30 @@ describe("credentials/prompt route", () => {
         label: "Stripe API Key",
         usageDescription: "Needed for billing lookups",
         allowedTools: ["make_authenticated_request"],
+        injectionTemplates: [
+          { hostPattern: "api.stripe.com", injectionType: "header" },
+        ],
       },
     })) as PromptResponse & { pending?: boolean; collectionUrl?: string };
 
-    // THEN it is a pending success carrying the link
-    expect(result.ok).toBe(true);
+    // THEN it is a pending non-success carrying the link
+    expect(result.ok).toBe(false);
     expect(result.pending).toBe(true);
+    expect(result.cancelled).toBeUndefined();
     expect(result.collectionUrl).toBe(
-      "https://x.test/assistant/credentials/enter?token=tok",
+      "https://x.test/assistant/credentials/enter#token=tok",
     );
+    expect(result.message).toContain("NOT been stored");
     expect(result.message).toContain(
-      "https://x.test/assistant/credentials/enter?token=tok",
+      "https://x.test/assistant/credentials/enter#token=tok",
     );
 
-    // AND the policy metadata is attached up front
-    expect(capturedMetadata?.usageDescription).toBe(
-      "Needed for billing lookups",
-    );
-    expect(capturedMetadata?.allowedTools).toEqual([
-      "make_authenticated_request",
+    // AND the policy travels to the prompt (for the gateway row), but no
+    // metadata is upserted at mint time
+    expect(capturedSecretParams?.injectionTemplates).toEqual([
+      { hostPattern: "api.stripe.com", injectionType: "header" },
     ]);
+    expect(capturedMetadata).toBeUndefined();
 
     // AND nothing was written to secure storage yet
     expect(secureKeyWrites).toEqual([]);

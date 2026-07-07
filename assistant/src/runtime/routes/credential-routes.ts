@@ -45,7 +45,9 @@ import {
   listCredentialMetadata,
   upsertCredentialMetadata,
 } from "../../tools/credentials/metadata-store.js";
+import type { CredentialInjectionTemplate } from "../../tools/credentials/policy-types.js";
 import { ACTOR_PRINCIPALS } from "../auth/route-policy.js";
+import { InjectionTemplateSchema } from "./credential-prompt-routes.js";
 import { BadRequestError, InternalError } from "./errors.js";
 import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 
@@ -54,8 +56,12 @@ import type { RouteDefinition, RouteHandlerArgs } from "./types.js";
 // ---------------------------------------------------------------------------
 
 function scrubSecret(secret: string | undefined): string {
-  if (secret == null || secret.length === 0) return "(not set)";
-  if (secret.length <= 4) return "****";
+  if (secret == null || secret.length === 0) {
+    return "(not set)";
+  }
+  if (secret.length <= 4) {
+    return "****";
+  }
   return "****" + secret.slice(-4);
 }
 
@@ -204,7 +210,9 @@ async function handleCredentialsList({ body }: RouteHandlerArgs) {
   const allConnections = safeListConnections();
   const connectionsByProvider = new Map<string, OAuthConnectionRow>();
   for (const conn of allConnections) {
-    if (conn.status !== "active") continue;
+    if (conn.status !== "active") {
+      continue;
+    }
     const existing = connectionsByProvider.get(conn.provider);
     if (!existing || conn.createdAt > existing.createdAt) {
       connectionsByProvider.set(conn.provider, conn);
@@ -314,13 +322,24 @@ async function handleCredentialsSet({ body }: RouteHandlerArgs) {
     throw new BadRequestError("Request body is required");
   }
 
-  const { service, field, value, label, description, allowedTools } = body as {
+  const {
+    service,
+    field,
+    value,
+    label,
+    description,
+    allowedTools,
+    allowedDomains,
+    injectionTemplates,
+  } = body as {
     service?: string;
     field?: string;
     value?: string;
     label?: string;
     description?: string;
     allowedTools?: string[];
+    allowedDomains?: string[];
+    injectionTemplates?: CredentialInjectionTemplate[];
   };
 
   if (!service || typeof service !== "string") {
@@ -347,6 +366,8 @@ async function handleCredentialsSet({ body }: RouteHandlerArgs) {
     alias: label,
     usageDescription: description,
     allowedTools,
+    allowedDomains,
+    injectionTemplates,
   });
   await syncManualTokenConnection(service);
 
@@ -533,6 +554,14 @@ export const ROUTES: RouteDefinition[] = [
         .array(z.string())
         .optional()
         .describe("Tool names that may use this credential"),
+      allowedDomains: z
+        .array(z.string())
+        .optional()
+        .describe("Domains the credential may be sent to"),
+      injectionTemplates: z
+        .array(InjectionTemplateSchema)
+        .optional()
+        .describe("How the credential is injected into requests"),
     }),
     responseBody: z.object({
       credentialId: z.string(),

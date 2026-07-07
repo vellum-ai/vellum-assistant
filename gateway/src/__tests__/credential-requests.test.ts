@@ -236,6 +236,53 @@ describe("credential-request submit", () => {
     expect(retry.status).toBe(200);
   });
 
+  test("applies the mint-time policy together with the value", async () => {
+    /**
+     * The credential policy captured at mint time travels on the row
+     * (policyJson) and is forwarded to credentials_set at redemption — never
+     * before — so an unredeemed link cannot mutate an existing credential's
+     * metadata.
+     */
+    const token = generateInviteToken();
+    new CredentialRequestStore().create({
+      id: crypto.randomUUID(),
+      tokenHash: hashInviteToken(token),
+      purpose: "standalone",
+      service: "stripe",
+      field: "api_key",
+      label: "Stripe API Key",
+      policyJson: JSON.stringify({
+        usageDescription: "Billing lookups",
+        allowedTools: ["make_authenticated_request"],
+        allowedDomains: ["api.stripe.com"],
+        injectionTemplates: [
+          { hostPattern: "api.stripe.com", injectionType: "header" },
+        ],
+      }),
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const res = await handleCredentialRequestSubmit(
+      postJson({ token, value: "sekret" }),
+    );
+    expect(res.status).toBe(200);
+    expect(ipcCalls).toHaveLength(1);
+    expect(ipcCalls[0]!.params).toEqual({
+      body: {
+        service: "stripe",
+        field: "api_key",
+        value: "sekret",
+        label: "Stripe API Key",
+        description: "Billing lookups",
+        allowedTools: ["make_authenticated_request"],
+        allowedDomains: ["api.stripe.com"],
+        injectionTemplates: [
+          { hostPattern: "api.stripe.com", injectionType: "header" },
+        ],
+      },
+    });
+  });
+
   test.todo(
     "resolves the pending prompt for prompt-bound requests (assistant link fallback)",
     () => {},

@@ -149,6 +149,45 @@ describe("requestSecretStandalone channel gate", () => {
     ]);
   });
 
+  test("carries the credential policy onto the gateway row at mint time", async () => {
+    // GIVEN a non-dynamic-UI conversation and a prompt carrying policy
+    registeredConversation = {
+      channelCapabilities: { supportsDynamicUi: false },
+    };
+    gatewayMintResult = {
+      ok: true,
+      token: "tok",
+      url: "https://x.test/assistant/credentials/enter#token=tok",
+      expiresAt: 1234,
+    };
+
+    // WHEN the standalone prompt carries policy fields
+    await requestSecretStandalone({
+      service: "stripe",
+      field: "api_key",
+      label: "Stripe API Key",
+      purpose: "Billing lookups",
+      allowedTools: ["make_authenticated_request"],
+      allowedDomains: ["api.stripe.com"],
+      injectionTemplates: [
+        { hostPattern: "api.stripe.com", injectionType: "header" },
+      ],
+      conversationId: "conv-1",
+    });
+
+    // THEN the mint call carries the policy as JSON for the gateway row
+    expect(gatewayMintCalls).toHaveLength(1);
+    const params = gatewayMintCalls[0]!.params as { policyJson?: string };
+    expect(JSON.parse(params.policyJson ?? "{}")).toEqual({
+      usageDescription: "Billing lookups",
+      allowedTools: ["make_authenticated_request"],
+      allowedDomains: ["api.stripe.com"],
+      injectionTemplates: [
+        { hostPattern: "api.stripe.com", injectionType: "header" },
+      ],
+    });
+  });
+
   test("falls back to a plain unsupported_channel when minting is refused", async () => {
     // GIVEN the gateway refuses to mint (flag off / no public URL)
     registeredConversation = {

@@ -47,6 +47,44 @@ function jsonError(code: string, message: string, status: number): Response {
   );
 }
 
+const PolicyJsonSchema = z.object({
+  usageDescription: z.string().optional(),
+  allowedTools: z.array(z.string()).optional(),
+  allowedDomains: z.array(z.string()).optional(),
+  // Opaque passthrough — the daemon's credentials_set validates the shape.
+  injectionTemplates: z.array(z.unknown()).optional(),
+});
+
+/**
+ * Parse the mint-time policy stored on the row into `credentials_set` body
+ * fields (`usageDescription` maps to that route's `description`). Malformed
+ * policy is dropped — the value still stores without it.
+ */
+function parsePolicy(policyJson: string | null): Record<string, unknown> {
+  if (!policyJson) {
+    return {};
+  }
+  try {
+    const parsed = PolicyJsonSchema.parse(JSON.parse(policyJson));
+    return {
+      ...(parsed.usageDescription !== undefined
+        ? { description: parsed.usageDescription }
+        : {}),
+      ...(parsed.allowedTools !== undefined
+        ? { allowedTools: parsed.allowedTools }
+        : {}),
+      ...(parsed.allowedDomains !== undefined
+        ? { allowedDomains: parsed.allowedDomains }
+        : {}),
+      ...(parsed.injectionTemplates !== undefined
+        ? { injectionTemplates: parsed.injectionTemplates }
+        : {}),
+    };
+  } catch {
+    return {};
+  }
+}
+
 function lookupToken(token: string): TokenLookup {
   const store = new CredentialRequestStore();
   const row = store.findByTokenHash(hashInviteToken(token));
@@ -175,6 +213,10 @@ export async function handleCredentialRequestSubmit(
         field: lookup.row.field,
         value: body.data.value,
         label: lookup.row.label ?? undefined,
+        // The credential policy captured at mint time is applied together
+        // with the value, so an unredeemed link never mutates an existing
+        // credential's metadata.
+        ...parsePolicy(lookup.row.policyJson),
       },
     });
   } catch (err) {
