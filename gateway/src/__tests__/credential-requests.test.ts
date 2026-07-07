@@ -106,8 +106,10 @@ describe("credential-request mint (IPC)", () => {
     );
 
     if (!result.ok) throw new Error(`mint failed: ${result.error}`);
+    // Fragment, not query: browsers never send fragments over HTTP, so the
+    // token cannot land in access logs or Referer headers.
     expect(result.url).toBe(
-      `https://assistant.example.com/assistant/credentials/enter?token=${encodeURIComponent(result.token)}`,
+      `https://assistant.example.com/assistant/credentials/enter#token=${encodeURIComponent(result.token)}`,
     );
 
     const row = new CredentialRequestStore().findByTokenHash(

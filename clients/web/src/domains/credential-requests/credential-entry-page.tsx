@@ -19,8 +19,10 @@ import {
  * may have no Vellum session at all, so — like the remote-web pairing page —
  * this page must not import anything that assumes auth state (no assistant
  * stores, no gateway session helpers beyond the path-prefix util). The
- * single-use token from `?token=` is held in memory, stripped from the URL
- * immediately, and sent only in POST bodies.
+ * single-use token travels in the URL FRAGMENT (`#token=`) so the browser
+ * never sends it over HTTP (no access logs, no Referer); it is held in
+ * memory, stripped from the URL immediately, and sent only in POST bodies.
+ * A `?token=` query param is accepted as a fallback for hand-assembled URLs.
  */
 
 type Phase =
@@ -80,7 +82,16 @@ function StatusCard({
 
 export function CredentialEntryPage() {
   // The token is captured once, before it is stripped from the URL below.
+  // Minted links carry it in the fragment (never sent over HTTP); the query
+  // param remains as a fallback.
   const [token] = useState<string | null>(() => {
+    const hashParams = new URLSearchParams(
+      window.location.hash.replace(/^#/, ""),
+    );
+    const fromHash = hashParams.get("token")?.trim();
+    if (fromHash) {
+      return fromHash;
+    }
     const params = new URLSearchParams(window.location.search);
     return params.get("token")?.trim() || null;
   });
@@ -94,14 +105,18 @@ export function CredentialEntryPage() {
   // can't leak via a copied URL, browser history sync, or a screenshot.
   useEffect(() => {
     const url = new URL(window.location.href);
-    if (!url.searchParams.has("token")) {
+    const hashParams = new URLSearchParams(url.hash.replace(/^#/, ""));
+    const hasHashToken = hashParams.has("token");
+    if (!hasHashToken && !url.searchParams.has("token")) {
       return;
     }
     url.searchParams.delete("token");
+    hashParams.delete("token");
+    const hash = hashParams.toString();
     window.history.replaceState(
       window.history.state,
       "",
-      `${url.pathname}${url.search}${url.hash}`,
+      `${url.pathname}${url.search}${hash ? `#${hash}` : ""}`,
     );
   }, []);
 
@@ -137,13 +152,14 @@ export function CredentialEntryPage() {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const trimmed = value.trim();
-    if (!token || phase.kind !== "form" || !trimmed || submitting) {
+    // The value is submitted verbatim — some secrets legitimately carry
+    // leading/trailing whitespace; trimming only rejects empty input.
+    if (!token || phase.kind !== "form" || !value.trim() || submitting) {
       return;
     }
     setSubmitting(true);
     setSubmitError(null);
-    const result = await submitCredentialRequest(token, trimmed).catch(
+    const result = await submitCredentialRequest(token, value).catch(
       () => ({ status: "error" }) as const,
     );
     setSubmitting(false);

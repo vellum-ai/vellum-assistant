@@ -167,15 +167,19 @@ function CredentialsPageInner() {
   const handleSave = () => {
     const trimmedService = service.trim();
     const trimmedField = field.trim();
-    const trimmedValue = value.trim();
-    if (!trimmedService || !trimmedField || !trimmedValue) {return;}
+    // The secret value is stored verbatim — some secrets legitimately carry
+    // leading/trailing whitespace, and the CLI set path stores them unchanged.
+    // Trimming is used only to reject effectively-empty input.
+    if (!trimmedService || !trimmedField || !value.trim()) {
+      return;
+    }
     setMutation.mutate(
       {
         path: { assistant_id: assistantId },
         body: {
           service: trimmedService,
           field: trimmedField,
-          value: trimmedValue,
+          value,
           label: label.trim() || undefined,
         },
       },
@@ -258,9 +262,9 @@ function CredentialsPageInner() {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-body-small-default leading-relaxed text-[var(--content-tertiary)]">
-        Credentials are stored encrypted on your assistant and are never sent
-        to Vellum. Values are write-only — they can be replaced or deleted, but
-        not viewed here.
+        Credentials are stored encrypted in your assistant&apos;s credential
+        vault. Values are write-only — they can be replaced or deleted, but not
+        viewed here.
       </p>
 
       {credentials.length > 0 ? (
