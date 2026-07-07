@@ -21,6 +21,7 @@ function msg(overrides: Partial<DoctorMessage> & Pick<DoctorMessage, "kind">): D
     content: "",
     metadata: null,
     sequence: 0,
+    source_event_id: null,
     occurred_at: "2026-01-01T00:00:00Z",
     ...overrides,
   };
@@ -347,7 +348,7 @@ describe("Doctor source event ID helpers", () => {
   test("returns the latest replayable ID from persisted history", () => {
     const messages = [
       { source_event_id: "1-0" },
-      { source_event_id: undefined },
+      { source_event_id: null },
       { source_event_id: "2-0" },
       { source_event_id: "legacy-event" },
     ];

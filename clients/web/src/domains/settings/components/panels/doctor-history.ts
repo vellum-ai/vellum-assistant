@@ -42,10 +42,6 @@ export type ChatEntry =
   | (ChatEntryBase & { kind: "error" })
   | (ChatEntryBase & { kind: "status" });
 
-export type DoctorMessageWithSourceEventId = DoctorMessage & {
-  source_event_id?: string | null;
-};
-
 /** Distributive omit that preserves the discriminated union structure. */
 export type NewChatEntry =
   | { kind: "user"; content: string }
@@ -78,7 +74,7 @@ export function isReplayableDoctorSourceEventId(
 }
 
 export function replayableDoctorSourceEventIds(
-  messages: readonly Pick<DoctorMessageWithSourceEventId, "source_event_id">[],
+  messages: readonly Pick<DoctorMessage, "source_event_id">[],
 ): string[] {
   return messages
     .map((message) => message.source_event_id)
@@ -86,7 +82,7 @@ export function replayableDoctorSourceEventIds(
 }
 
 export function latestReplayableDoctorSourceEventId(
-  messages: readonly Pick<DoctorMessageWithSourceEventId, "source_event_id">[],
+  messages: readonly Pick<DoctorMessage, "source_event_id">[],
 ): string | null {
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const sourceEventId = messages[index]?.source_event_id;
