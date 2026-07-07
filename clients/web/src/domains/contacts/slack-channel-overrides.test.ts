@@ -13,6 +13,7 @@ describe("resolveChannelTier", () => {
   test("no override resolves the room default with no divergence", () => {
     expect(resolveChannelTier(undefined)).toEqual({
       tier: "full_access",
+      explicit: false,
       overridden: false,
     });
   });
@@ -20,6 +21,7 @@ describe("resolveChannelTier", () => {
   test("a diverging override flags the row as custom", () => {
     expect(resolveChannelTier("standard")).toEqual({
       tier: "standard",
+      explicit: true,
       overridden: true,
     });
   });
@@ -27,6 +29,7 @@ describe("resolveChannelTier", () => {
   test("a persisted cell matching the default is not flagged", () => {
     expect(resolveChannelTier("full_access")).toEqual({
       tier: "full_access",
+      explicit: true,
       overridden: false,
     });
   });

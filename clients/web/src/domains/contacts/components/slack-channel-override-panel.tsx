@@ -103,7 +103,12 @@ export function SlackChannelOverridePanel({
           title="Custom capabilities."
           className="border-dashed"
           actions={
-            <Button type="button" variant="outlined" onClick={onReset}>
+            <Button
+              type="button"
+              variant="outlined"
+              onClick={onReset}
+              disabled={unavailable}
+            >
               Reset to default
             </Button>
           }
@@ -158,7 +163,18 @@ export function SlackChannelOverridePanel({
         variant="body-small-default"
         className="text-[color:var(--content-tertiary)]"
       >
-        {tierMeta.label} — {tierMeta.sublabel}. {tierMeta.description}
+        {settings.explicit ? (
+          <>
+            {tierMeta.label} — {tierMeta.sublabel}. {tierMeta.description}
+          </>
+        ) : (
+          // Without a persisted cell the runtime falls through to the
+          // global auto-approve setting; the tier copy would overclaim.
+          <>
+            No channel override — this channel follows your global
+            auto-approve setting. Pick a tier to set one.
+          </>
+        )}
       </Typography>
     </div>
   );

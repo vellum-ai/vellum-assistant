@@ -142,9 +142,16 @@ export function tierOverridesFromCells(
   return overrides;
 }
 
-/** The row's resolved tier plus whether it diverges from the default. */
+/** The row's resolved tier plus how it was determined. */
 export interface SlackChannelTierSettings {
   tier: SlackCapabilityTier;
+  /**
+   * True when a persisted cell backs the tier. Without a cell the runtime
+   * falls through to the global auto-approve setting — the tier is what the
+   * room defaults to, not an active channel override.
+   */
+  explicit: boolean;
+  /** True when the tier diverges from the room default. */
   overridden: boolean;
 }
 
@@ -160,5 +167,9 @@ export function resolveChannelTier(
   override: SlackCapabilityTier | undefined,
 ): SlackChannelTierSettings {
   const tier = override ?? DEFAULT_CHANNEL_TIER;
-  return { tier, overridden: tier !== DEFAULT_CHANNEL_TIER };
+  return {
+    tier,
+    explicit: override !== undefined,
+    overridden: tier !== DEFAULT_CHANNEL_TIER,
+  };
 }
