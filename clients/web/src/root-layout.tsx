@@ -47,6 +47,7 @@ import { useElectronIdentitySync } from "@/hooks/use-electron-identity-sync";
 import { useElectronStatusSync } from "@/hooks/use-electron-status-sync";
 import { useElectronFeatureFlagBridge } from "@/runtime/electron-feature-flags";
 import { isElectron } from "@/runtime/is-electron";
+import { isPopoutWindow } from "@/runtime/popout-window";
 import { GlobalPushToTalkBridge } from "@/domains/chat/voice/global-push-to-talk-bridge";
 import { TimezoneSync } from "@/components/timezone-sync";
 import { StatusBanner } from "@/components/status-banner";
@@ -288,7 +289,7 @@ export function RootLayout() {
   const keyboardOffsetTop =
     keyboardOpen && visibleViewport ? visibleViewport.offsetTop : 0;
   const electron = isElectron();
-  const isPopout = location.search.includes("popout=1");
+  const isPopout = isPopoutWindow(location.search);
   const suppressStatusBanner = shouldSuppressRootStatusBanner(
     location.pathname,
     location.search,

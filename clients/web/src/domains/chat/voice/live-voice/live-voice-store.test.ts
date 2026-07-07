@@ -9,6 +9,7 @@ import { beforeEach, describe, expect, mock, test } from "bun:test";
 
 import { makeControlsSpies } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
 import {
+  dismissLiveVoiceFailure,
   endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   isLiveVoiceMicLive,
@@ -209,6 +210,30 @@ describe("endLiveVoiceSession / releaseLiveVoiceTurn", () => {
       endLiveVoiceSession();
       releaseLiveVoiceTurn();
     }).not.toThrow();
+  });
+});
+
+describe("dismissLiveVoiceFailure", () => {
+  test("resets a failed session back to idle and clears the error", () => {
+    useLiveVoiceStore.getState().setSessionContext("assistant-1", "conv-1");
+    useLiveVoiceStore.getState().fail("boom");
+
+    dismissLiveVoiceFailure();
+
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
+    expect(useLiveVoiceStore.getState().error).toBeNull();
+    expect(useLiveVoiceStore.getState().assistantId).toBeNull();
+    expect(useLiveVoiceStore.getState().conversationId).toBeNull();
+  });
+
+  test("preserves the mount-scoped starter, like any reset", () => {
+    const starter = mock(() => {});
+    useLiveVoiceStore.getState().setStarter(starter);
+    useLiveVoiceStore.getState().fail("boom");
+
+    dismissLiveVoiceFailure();
+
+    expect(useLiveVoiceStore.getState().starter).toBe(starter);
   });
 });
 
