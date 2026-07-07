@@ -430,10 +430,9 @@ export async function notifyGuardianOfAccessRequest(
 }
 
 /**
- * Introduction nudge for a floor-admitted sender (see
- * docs/proposals/introduction-card-on-first-admit.md): fires the standard
- * introduction card so the guardian can classify a sender who cleared the
- * admission floor without ever being reviewed. The conversation proceeds
+ * Introduction nudge for a floor-admitted sender (LUM-2742): fires the
+ * standard introduction card so the guardian can classify a sender who
+ * cleared the admission floor without ever being reviewed. The conversation proceeds
  * regardless of whether — or how — the guardian decides.
  *
  * At most one nudge per (assistant, channel, actor, conversation): any prior

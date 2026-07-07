@@ -2,7 +2,6 @@
  * Introduction nudge on first admit: a floor-admitted sender the guardian has
  * never classified gets an introduction card (informationally — the turn
  * proceeds), at most once per (assistant, channel, actor, conversation).
- * See docs/proposals/introduction-card-on-first-admit.md.
  */
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 

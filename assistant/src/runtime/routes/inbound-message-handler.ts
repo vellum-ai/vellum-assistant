@@ -917,8 +917,8 @@ export async function handleChannelInbound({
   // (`any_contact`, `strangers`) and start conversing with no guardian
   // touchpoint — the introduction card otherwise fires only on deny. Nudge
   // the guardian informationally so trust assignment does not depend on a
-  // denial; fire-and-forget, the turn proceeds regardless. See
-  // docs/proposals/introduction-card-on-first-admit.md. Exempt channels
+  // denial; fire-and-forget, the turn proceeds regardless (LUM-2742).
+  // Exempt channels
   // (`a2a`, `platform`) are outside the human-trust model, and a validated
   // bootstrap session is already mid-verification.
   if (
