@@ -244,6 +244,14 @@ export function ResearchOnboardingRoute() {
   // minted — otherwise the greeting could land in the old, unshaped voice.
   // Resolves immediately when personality was never applied (never rejects).
   const personalityAppliedRef = useRef<Promise<void>>(Promise.resolve());
+  // The assistant name the last-fired rewrite was told to keep. A step-back to
+  // the face picker can change the name AFTER the personality step locked, so
+  // the lock alone can't decide whether the rewrite is current — compare the
+  // name too and re-fire when it changed (see the step's onContinue).
+  const appliedAssistantNameRef = useRef<string | undefined>(undefined);
+  // Monotonic id of the latest rewrite chain: an earlier rewrite's finally
+  // must not clear the pending flag while a re-fired one is still running.
+  const personalityRunSeqRef = useRef(0);
   // Mirrors the ref as render state so the looking-you-up loading stage can hold
   // its "ready" reveal until the personality rewrite settles too — the carousel
   // keeps cycling while this is true, same as an unsettled research turn.
@@ -641,15 +649,36 @@ export function ResearchOnboardingRoute() {
               // looking-you-up loader holds until it settles and the chat handoff
               // awaits it, guaranteeing the persona is reshaped before the first
               // real chat. Best-effort; it never rejects. A continue while
-              // already locked just advances.
-              if (!personalityLocked) {
+              // already locked just advances — UNLESS a step-back to the face
+              // picker changed the assistant name since the rewrite was fired,
+              // in which case it must re-fire or the stale rewrite would bake
+              // the old name into the identity files.
+              const chosenName = faceValues?.name?.trim() || undefined;
+              if (
+                !personalityLocked ||
+                appliedAssistantNameRef.current !== chosenName
+              ) {
                 setPersonalityPending(true);
-                personalityAppliedRef.current = applyPersonality({
-                  awaitAssistantId: awaitHatchReady,
-                  values: personalityValues,
-                  userName: formValues?.firstName?.trim() || undefined,
-                  assistantName: faceValues?.name?.trim() || undefined,
-                }).finally(() => setPersonalityPending(false));
+                appliedAssistantNameRef.current = chosenName;
+                const runId = ++personalityRunSeqRef.current;
+                // Chain the rewrite behind any earlier one (they never reject)
+                // so a re-fire can't interleave with a still-running first pass
+                // — unserialised, the stale-name rewrite could land last and
+                // clobber the re-fired one.
+                personalityAppliedRef.current = personalityAppliedRef.current
+                  .then(() =>
+                    applyPersonality({
+                      awaitAssistantId: awaitHatchReady,
+                      values: personalityValues,
+                      userName: formValues?.firstName?.trim() || undefined,
+                      assistantName: chosenName,
+                    }),
+                  )
+                  .finally(() => {
+                    if (personalityRunSeqRef.current === runId) {
+                      setPersonalityPending(false);
+                    }
+                  });
                 setPersonalityLocked(true);
               }
               goForwardTo("integration");
