@@ -1653,6 +1653,67 @@ describe("xAI TTS provider adapter", () => {
     expect(result.contentType).toBe("audio/pcm");
   });
 
+  test("pcm sampleRateHz hint is sent when xAI supports the rate", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01, 0x02]);
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createXaiProvider();
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 22_050 }),
+    );
+
+    const body = JSON.parse(capturedBody);
+    expect(body.output_format).toEqual({
+      codec: "pcm",
+      sample_rate: 22050,
+    });
+  });
+
+  test("unsupported pcm sampleRateHz hints clamp to the nearest xAI rate", async () => {
+    const audioPayload = new Uint8Array([0x00, 0x01, 0x02]);
+    let capturedBody = "";
+
+    globalThis.fetch = mock(
+      async (_input: RequestInfo | URL, init?: RequestInit) => {
+        capturedBody = init?.body as string;
+        return new Response(audioPayload, { status: 200 });
+      },
+    ) as unknown as typeof globalThis.fetch;
+
+    const provider = createXaiProvider();
+
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 11_025 }),
+    );
+    expect(JSON.parse(capturedBody).output_format.sample_rate).toBe(8000);
+
+    await provider.synthesize(
+      makeRequest({ outputFormat: "pcm", sampleRateHz: 96_000 }),
+    );
+    expect(JSON.parse(capturedBody).output_format.sample_rate).toBe(48000);
+  });
+
+  test("resolveOutputSampleRateHz reports the clamped pcm rate and is undefined otherwise", () => {
+    const provider = createXaiProvider();
+
+    expect(
+      provider.resolveOutputSampleRateHz!(
+        makeRequest({ outputFormat: "pcm", sampleRateHz: 96_000 }),
+      ),
+    ).toBe(48000);
+    expect(
+      provider.resolveOutputSampleRateHz!(makeRequest({ outputFormat: "pcm" })),
+    ).toBe(16000);
+    expect(provider.resolveOutputSampleRateHz!(makeRequest())).toBeUndefined();
+  });
+
   // -- Content type / format -----------------------------------------------
 
   test("returns audio/mpeg content type for mp3 format", async () => {
