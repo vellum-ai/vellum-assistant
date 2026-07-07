@@ -90,6 +90,36 @@ assistant plugins install owner/repo --name my-plugin
 
 A URL install bypasses the marketplace entirely: the tree is cloned verbatim (no adapter stub is overlaid) and the source is **untrusted**. The CLI prints a yellow warning naming the source. See `references/distribution.md` for the full details.
 
+## Write the README
+
+The README is the storefront. It is the first thing a user sees on the GitHub repo and the marketplace listing. Every marketplace plugin should follow the same structure so users can scan and compare. A plugin with no README will not pass review.
+
+### Required sections, in order
+
+**1. Centered header.** Plugin name, one-line tagline, version/license/made-for-Vellum badges, and section navigation links. If you have a hero image, center it above the title.
+
+**2. One-paragraph intro.** Two sentences max. The first names what the assistant can already do. The second names what this plugin adds. No marketing language. The reader should understand the gap in five seconds.
+
+**3. What you get.** Bullet list of capabilities. Each bullet: bolded name plus one sentence. This is the feature list users scan to decide if the plugin is worth installing.
+
+**4. Scheduled jobs** (only if the plugin has automated behavior). Lead with a one-line warning that the plugin acts on its own. Then a table: when it fires, what happens. End with a "what it will never do on its own" line. Skip entirely if the plugin has no automated behavior.
+
+**5. Requirements.** Hard dependencies only: integrations, credentials, API keys. Label each as a hard requirement. Skip if the plugin has none.
+
+**6. Install.** The install command on one line, followed by a one-sentence description of what happens on first use.
+
+**7. Surfaces.** Table of every tool, hook, and skill the plugin ships. One row per surface, name plus what it does.
+
+**8. Usage.** Four to six example prompts a user would type to trigger the plugin. Plain language, quoted.
+
+**9. Example** (if you have a screenshot or sample output). If the plugin produces visible output, include a screenshot or sample. Skip if not applicable.
+
+**10. License.** One line. MIT is the standard for marketplace plugins.
+
+### Example
+
+See the [travel-planner README](https://github.com/AnitaKirkovska/travel-planner#readme) for a complete reference implementation of this format.
+
 ## Verify before shipping
 
 1. Plugin directory copied into `plugins/<name>/`, `assistant plugins list` shows status `ok` (not `error`, not `skipped`).
@@ -111,6 +141,7 @@ Once merged, users install by name: `assistant plugins install my-plugin`. The n
 - Directory matches the loader convention (`hooks/`, `tools/`, `skills/`, optional `src/`).
 - `package.json` declares `name`, `version`, and a real `peerDependencies["@vellumai/plugin-api"]` range.
 - Each surface has been exercised locally with a working example.
+- A `README.md` follows the standard format (header, intro, what you get, scheduled jobs if applicable, requirements, install, surfaces, usage, license).
 - A `marketplace.json` entry exists with a full SHA in `source.ref`, and the Vellum team's review is in flight.
 
 ## Reference files
