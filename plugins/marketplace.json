@@ -172,6 +172,18 @@
       "category": "hobby",
       "homepage": "https://github.com/vellum-ai/astrology-horoscope",
       "license": "MIT"
+    },
+    {
+      "name": "polyglot",
+      "source": {
+        "source": "github",
+        "repo": "vellum-ai/polyglot",
+        "ref": "a792cc6b8334e661d969f2966930941e77ce2a65"
+      },
+      "description": "Ambient language acquisition through your assistant. Three graduated modes (practice, ambient, immersive) weave a target language into your real conversations, with SM-2 spaced repetition, error-pattern tracking, and CEFR level history.",
+      "category": "education",
+      "homepage": "https://github.com/vellum-ai/polyglot",
+      "license": "MIT"
     }
   ]
 }
