@@ -459,9 +459,8 @@ export function useStreamEventHandler(
         case "interaction_resolved":
           handleInteractionResolved(event);
           break;
-        // Diagnostic timeline events. The logs domain fetches these from
-        // the daemon's trace-events endpoint on demand; the chat stream
-        // handler ignores them.
+        // Diagnostic timeline events. No web UI consumes them; the chat
+        // stream handler ignores them.
         case "trace_event":
           break;
         // Transient, best-effort progress signals from lifecycle hooks

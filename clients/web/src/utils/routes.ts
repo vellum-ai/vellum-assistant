@@ -77,7 +77,6 @@ export const routes = {
     `${dyn(r("/assistant/conversations"), conversationId)}/inspect`,
   logs: {
     root: r("/assistant/logs"),
-    trace: r("/assistant/logs/trace"),
     usage: LOGS_USAGE_PATH,
     usageForSchedule: (scheduleId: string) => {
       const params = new URLSearchParams({
