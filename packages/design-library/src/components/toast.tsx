@@ -216,12 +216,28 @@ const toast = Object.assign(
 function Toaster() {
   return (
     <div data-slot="toaster">
+      {/* Sonner's ≤600px media query drops the translateX centering and
+          anchors toasts at `left: 0; right: 0` inside an offset container,
+          and it reads `mobileOffset` (not `offset`) there. Zero the side
+          offsets so the container spans the viewport, and let the auto
+          margins center the fixed-width toast; the maxWidth clamp keeps
+          16px gutters on screens narrower than the toast. */}
       <SonnerToaster
         position="bottom-center"
         offset="24px"
+        mobileOffset={{
+          left: 0,
+          right: 0,
+          bottom:
+            "calc(24px + var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px)))",
+        }}
         toastOptions={{
           unstyled: true,
-          style: { width: "356px" },
+          style: {
+            width: "356px",
+            maxWidth: "calc(100vw - 32px)",
+            marginInline: "auto",
+          },
         }}
       />
     </div>
