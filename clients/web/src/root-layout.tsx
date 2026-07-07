@@ -4,9 +4,13 @@ import { Outlet, useLocation, useNavigate } from "react-router";
 import { LazyBoundary } from "@/components/lazy-boundary";
 import { useAppTheme } from "@/hooks/use-app-theme";
 import { useEventBusInit } from "@/hooks/use-event-bus-init";
+import { useOpenUrlDirectives } from "@/hooks/use-open-url-directives";
 import { useGlobalDeepLinkConsumer } from "@/hooks/use-global-deep-link-consumer";
 import { useIsMobile } from "@/hooks/use-is-mobile";
-import { useVisibleViewport } from "@/hooks/use-visible-viewport";
+import {
+  useVisibleViewport,
+  KEYBOARD_OPEN_THRESHOLD_PX,
+} from "@/hooks/use-visible-viewport";
 import { useAssistantLifecycle } from "@/assistant/use-lifecycle";
 import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useChannelSetupCloseNotify } from "@/domains/chat/hooks/use-channel-setup-close-notify";
@@ -28,6 +32,7 @@ import { useAssistantResourceSync } from "@/hooks/use-assistant-resource-sync";
 import { useDocumentEditorSync } from "@/hooks/use-document-editor-sync";
 import { useBookmarksSync } from "@/hooks/use-bookmarks-sync";
 import { useNotificationIntentSync } from "@/hooks/use-notification-intent-sync";
+import { useNotificationTapNavigation } from "@/hooks/use-notification-tap-navigation";
 import { usePushRegistration } from "@/hooks/use-push-registration";
 import { useSoundEffects } from "@/hooks/use-sound-effects";
 import { useOnboardingWindowSize } from "@/hooks/use-onboarding-window-size";
@@ -62,13 +67,6 @@ const ShareFeedbackModal = lazy(() =>
     default: m.ShareFeedbackModal,
   })),
 );
-
-/**
- * Threshold (in px) below which a `innerHeight − visualViewport.height` delta
- * is treated as the soft keyboard opening. Below this we assume incidental
- * drift from browser chrome / pinch-zoom and leave the layout alone.
- */
-const KEYBOARD_OPEN_THRESHOLD_PX = 100;
 
 /**
  * App-level layout route. Owns three cross-route concerns:
@@ -138,6 +136,7 @@ export function RootLayout() {
   useFeatureFlagBusSync(assistantId, isAssistantActive);
   useNotificationIntentSync(assistantId);
   usePushRegistration(assistantId);
+  useNotificationTapNavigation();
   useSoundEffects(assistantId, isAssistantActive);
   useDocumentEditorSync();
   useBookmarksSync();
@@ -169,6 +168,10 @@ export function RootLayout() {
   // `useDeepLinkConsumer` because it owns `setInput`; the two
   // hand off via `pending-deep-link-store`.
   useGlobalDeepLinkConsumer();
+  // Conversationless `open_url` directives (CLI OAuth hand-offs). Mounted
+  // here so the browser opens even when no chat stream consumer exists —
+  // Settings/Logs routes, or a draft conversation that isn't persisted yet.
+  useOpenUrlDirectives();
 
   const [feedbackOpen, setFeedbackOpen] = useState(false);
   // Id of the assistant a tray "Retire <assistant>…" command targets. The tray
@@ -304,7 +307,8 @@ export function RootLayout() {
           keyboardOpen && visibleViewport
             ? `${visibleViewport.height + keyboardOffsetTop}px`
             : "100dvh",
-        paddingTop: keyboardOffsetTop > 0 ? `${keyboardOffsetTop}px` : undefined,
+        paddingTop:
+          keyboardOffsetTop > 0 ? `${keyboardOffsetTop}px` : undefined,
         paddingBottom: keyboardOpen
           ? "0px"
           : "var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))",
@@ -321,7 +325,10 @@ export function RootLayout() {
       {!electron && !isPopout && !suppressStatusBanner ? (
         <StatusBanner placement="web" reserveTopSafeArea />
       ) : null}
-      <div className="flex min-w-0 flex-col overflow-hidden w-full" style={{ flex: "1 1 0%", minHeight: 0 }}>
+      <div
+        className="flex min-w-0 flex-col overflow-hidden w-full"
+        style={{ flex: "1 1 0%", minHeight: 0 }}
+      >
         <Outlet />
       </div>
 

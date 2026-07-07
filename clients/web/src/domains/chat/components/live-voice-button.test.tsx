@@ -30,7 +30,13 @@ mock.module("@/stores/assistant-feature-flag-store", () => ({
   },
 }));
 
-const startSpy = mock(async (_assistantId: string, _conversationId?: string) => {});
+const startSpy = mock(
+  async (
+    _assistantId: string,
+    _conversationId?: string,
+    _options?: { handsFree?: boolean },
+  ) => {},
+);
 const stopSpy = mock(async () => {});
 let mockState: LiveVoiceSessionState = "idle";
 let mockInputAmplitude = 0;
@@ -90,7 +96,7 @@ describe("LiveVoiceButton", () => {
     expect(button.getAttribute("aria-pressed")).toBe("false");
   });
 
-  test("starts a session on click when idle", () => {
+  test("starts a hands-free session on click when idle", () => {
     // GIVEN an idle, flag-enabled button with a conversation
     mockVoiceMode = true;
     mockState = "idle";
@@ -101,9 +107,10 @@ describe("LiveVoiceButton", () => {
     // WHEN the user clicks it
     fireEvent.click(getByLabelText("Start voice mode"));
 
-    // THEN it starts a live-voice session for the assistant + conversation
+    // THEN it starts a hands-free live-voice session for the assistant +
+    // conversation (manual mode survives only as the version-skew fallback)
     expect(startSpy).toHaveBeenCalledTimes(1);
-    expect(startSpy).toHaveBeenCalledWith("a1", "c1");
+    expect(startSpy).toHaveBeenCalledWith("a1", "c1", { handsFree: true });
     expect(stopSpy).not.toHaveBeenCalled();
   });
 

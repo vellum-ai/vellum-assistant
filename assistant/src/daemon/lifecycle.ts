@@ -21,7 +21,7 @@ import { seedOAuthProviders } from "../oauth/seed-providers.js";
 import { clearStaleProcessingFlags } from "../persistence/conversation-crud.js";
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
-import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-runtime-manager.js";
+import { startEmbeddingRuntimeManager } from "../persistence/embeddings/embedding-backend.js";
 import { maybeEnqueueLexicalBackfillOnUpgrade } from "../persistence/job-handlers/message-lexical-backfill.js";
 import { startConsentRefresh } from "../platform/consent-cache.js";
 import { syncWorkspaceIdentityToPlatform } from "../platform/sync-identity.js";
@@ -32,7 +32,10 @@ import {
   initAuthSigningKey,
   resolveSigningKey,
 } from "../runtime/auth/token-service.js";
-import { startRuntimeHttpServer } from "../runtime/http-server.js";
+import {
+  startRuntimeHttpServer,
+  startRuntimeHttpServerBackgroundSweeps,
+} from "../runtime/http-server.js";
 import { warmLocalGuardianPrincipalCache } from "../runtime/local-actor-identity.js";
 import { recoverInterruptedImport } from "../runtime/migrations/vbundle-streaming-importer.js";
 import { publishConfigChanged } from "../runtime/sync/resource-sync-events.js";
@@ -62,12 +65,13 @@ import { startAppSourceWatcher } from "./app-source-watcher.js";
 import { startConfigWatcher } from "./config-watcher.js";
 import { startConversationEvictor } from "./conversation-evictor.js";
 import { writePid } from "./daemon-control.js";
-import { setDbReady, setStartupComplete } from "./daemon-readiness.js";
 import {
-  evaluateDiskPressureNow,
-  startDiskPressureGuard,
-  stopDiskPressureGuard,
-} from "./disk-pressure-guard.js";
+  setDbMigrating,
+  setDbMigrationFailed,
+  setDbReady,
+  setStartupComplete,
+} from "./daemon-readiness.js";
+import { startDiskPressureGuardForLifecycle } from "./disk-pressure-guard-lifecycle.js";
 import { startEventLoopWatchdog } from "./event-loop-watchdog.js";
 import { initializePlugins } from "./external-plugins-bootstrap.js";
 import { backfillSlackInjectionTemplates } from "./handlers/config-slack-channel.js";
@@ -83,57 +87,9 @@ import { installShutdownHandlers } from "./shutdown-handlers.js";
 import { broadcastDaemonStatus } from "./status.js";
 
 const log = getLogger("lifecycle");
-let diskPressureStartupSampleTimer: ReturnType<typeof setTimeout> | null = null;
 
 function loadDotEnv(): void {
   dotenvConfig({ path: getDotEnvPath(), quiet: true });
-}
-
-function runDeferredDiskPressureStartupSample(): void {
-  diskPressureStartupSampleTimer = null;
-  try {
-    const status = evaluateDiskPressureNow();
-    if (status.error) {
-      log.warn(
-        { error: status.error },
-        "Disk pressure guard sample failed during startup — continuing unlocked",
-      );
-    }
-  } catch (err) {
-    log.warn(
-      { err },
-      "Disk pressure guard failed during startup — continuing unlocked",
-    );
-  }
-}
-
-export function startDiskPressureGuardForLifecycle(): void {
-  try {
-    const startedStatus = startDiskPressureGuard();
-    if (!startedStatus.enabled) {
-      return;
-    }
-    if (!diskPressureStartupSampleTimer) {
-      diskPressureStartupSampleTimer = setTimeout(
-        runDeferredDiskPressureStartupSample,
-        0,
-      );
-      (diskPressureStartupSampleTimer as { unref?: () => void }).unref?.();
-    }
-  } catch (err) {
-    log.warn(
-      { err },
-      "Disk pressure guard failed during startup — continuing unlocked",
-    );
-  }
-}
-
-export function stopDiskPressureGuardForLifecycle(): void {
-  if (diskPressureStartupSampleTimer) {
-    clearTimeout(diskPressureStartupSampleTimer);
-    diskPressureStartupSampleTimer = null;
-  }
-  stopDiskPressureGuard();
 }
 
 // Entry point for the daemon process itself
@@ -196,6 +152,8 @@ export async function runDaemon(): Promise<void> {
   const signingKey = resolveSigningKey();
   initAuthSigningKey(signingKey);
 
+  setDbMigrating();
+
   // Start the runtime HTTP server early so /healthz answers ASAP. A bind
   // failure is non-fatal — the daemon falls back to IPC-only operation.
   await startRuntimeHttpServer();
@@ -244,18 +202,15 @@ export async function runDaemon(): Promise<void> {
   // opens but one or more migrations failed (initializeDb resolves with
   // migrationsOk:false rather than throwing, per the daemon-never-blocks
   // philosophy). In both cases DB-dependent features won't work, but the
-  // HTTP server and config-based subsystems still start so the process
-  // remains reachable for diagnostics. The trivial /healthz and detailed
-  // /v1/health(z) endpoints still answer 200, but setDbReady(true) runs only
-  // when migrations all applied, so the readiness latch stays unset and
-  // /readyz reports not-ready (503) for the rest of the process lifetime.
-  // That 503 is intentional: a DB-broken daemon should fail readiness so it
-  // is not routed user traffic.
+  // HTTP server and config-based subsystems still start so the process remains
+  // reachable for diagnostics. The trivial /healthz probe stays green while
+  // detailed health reports the migration state, and /readyz fails only when
+  // migrations fail.
   //
   // The local `dbReady` and the module-level readiness latch intentionally
   // diverge on the migration-failure path: `dbReady` stays true to allow the
-  // downstream best-effort seeding / workspace migrations, while the latch
-  // stays unset to keep /readyz 503.
+  // downstream best-effort seeding / workspace migrations, while readiness
+  // records the failed migration state so /readyz returns 503.
   let dbReady = false;
   try {
     const { migrationsOk } = await initializeDb();
@@ -264,11 +219,24 @@ export async function runDaemon(): Promise<void> {
       setDbReady(true);
       log.info("Daemon startup: DB initialized");
     } else {
+      setDbMigrationFailed();
       log.error(
-        "Daemon startup: DB opened but one or more migrations failed — /readyz will remain unready (degraded mode)",
+        "Daemon startup: DB opened but one or more migrations failed — /readyz will remain unready",
       );
     }
+    // Migrations have settled (successfully or in the failed degraded mode),
+    // so start the HTTP server's ORM-touching background sweeps. The server
+    // binds earlier, before migrations run, so these are deferred to here to
+    // avoid racing async migrations into a missing table. They run in degraded
+    // mode too: the DB is open, and guardian approval/action expiry is
+    // security-relevant maintenance on tables that predate whatever migration
+    // failed. The retry sweep skips its cycles while readiness is unready (see
+    // startBackgroundSweeps) so refused replays can't burn dead-letter budget.
+    startRuntimeHttpServerBackgroundSweeps();
   } catch (err) {
+    // Sweeps intentionally NOT started on this path: initializeDb() threw, so
+    // the DB never opened and every sweep cycle would just error against it.
+    setDbMigrationFailed(err);
     log.error(
       { err },
       "DB initialization failed — continuing startup in degraded mode",
@@ -699,7 +667,7 @@ export async function runDaemon(): Promise<void> {
   // failure never affects startup.
   installAssistantSymlink();
 
-  startEmbeddingRuntimeManager();
+  void startEmbeddingRuntimeManager();
 
   startWorkspaceHeartbeatService();
 

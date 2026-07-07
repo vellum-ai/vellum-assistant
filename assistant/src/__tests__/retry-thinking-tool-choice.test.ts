@@ -79,6 +79,8 @@ describe("retry normalization: thinking + forced tool_choice", () => {
         model: "claude-opus-4-7",
         thinking: { enabled: true, streamThinking: true },
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
     await provider.sendMessage([userMessage], {
@@ -103,6 +105,8 @@ describe("retry normalization: thinking + forced tool_choice", () => {
         model: "claude-opus-4-7",
         thinking: { enabled: true },
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
     await provider.sendMessage([userMessage], {
@@ -121,6 +125,8 @@ describe("retry normalization: thinking + forced tool_choice", () => {
         model: "claude-opus-4-7",
         thinking: { enabled: true },
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
     await provider.sendMessage([userMessage], {
@@ -139,6 +145,8 @@ describe("retry normalization: thinking + forced tool_choice", () => {
         model: "claude-opus-4-7",
         thinking: { enabled: true },
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
     await provider.sendMessage([userMessage], {
@@ -183,6 +191,8 @@ describe("retry normalization: thinking + forced tool_choice", () => {
         model: "claude-opus-4-7",
         thinking: { enabled: false },
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("anthropic");
     await provider.sendMessage([userMessage], {
@@ -201,6 +211,8 @@ describe("retry normalization: thinking + forced tool_choice", () => {
         model: "anthropic/claude-opus-4.7",
         thinking: { enabled: true },
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("openrouter");
     await provider.sendMessage([userMessage], {
@@ -219,6 +231,8 @@ describe("retry normalization: thinking + forced tool_choice", () => {
         model: "x-ai/grok-3-mini",
         thinking: { enabled: true },
       },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
     });
     const { provider, lastConfig } = makePipeline("openrouter");
     await provider.sendMessage([userMessage], {

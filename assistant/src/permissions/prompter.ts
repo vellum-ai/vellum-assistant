@@ -4,7 +4,7 @@ import { getConfig } from "../config/loader.js";
 import type { ServerMessage } from "../daemon/message-protocol.js";
 import * as pendingInteractions from "../runtime/pending-interactions.js";
 import { redactSensitiveFields } from "../security/redaction.js";
-import type { ExecutionTarget } from "../tools/types.js";
+import type { ExecutionTarget } from "../tools/tool-types.js";
 import { AssistantError, ErrorCode } from "../util/errors.js";
 import { getLogger } from "../util/logger.js";
 import type { AllowlistOption, ScopeOption, UserDecision } from "./types.js";

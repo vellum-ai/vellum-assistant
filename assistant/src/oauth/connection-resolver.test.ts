@@ -80,6 +80,7 @@ import { BYOOAuthConnection } from "./byo-connection.js";
 import {
   resolveEffectiveBaseUrl,
   resolveOAuthConnection,
+  resolveOAuthConnectionWithMeta,
 } from "./connection-resolver.js";
 import { PlatformOAuthConnection } from "./platform-connection.js";
 
@@ -459,6 +460,119 @@ describe("resolveOAuthConnection scope-awareness", () => {
     });
     expect(result).toBeInstanceOf(BYOOAuthConnection);
     expect(result.id).toBe("full");
+  });
+});
+
+describe("resolveOAuthConnectionWithMeta multi-account visibility", () => {
+  function clientReturning(results: unknown[]) {
+    return {
+      ...makeMockClient(),
+      fetch: mock(
+        async () => new Response(JSON.stringify({ results }), { status: 200 }),
+      ),
+    };
+  }
+
+  beforeEach(() => {
+    setupDefaults();
+  });
+
+  test("managed: multiple connections + no account surfaces ambiguity and the selected label", async () => {
+    mockProvider!.managedServiceConfigKey = "google-oauth";
+    mockPlatformClient = clientReturning([
+      { id: "conn-personal", account_label: "user@example.com" },
+      { id: "conn-work", account_label: "work@example.com" },
+    ]);
+
+    const { connection, ambiguous, allAccounts } =
+      await resolveOAuthConnectionWithMeta("google");
+
+    expect(ambiguous).toBe(true);
+    expect(allAccounts).toEqual(["user@example.com", "work@example.com"]);
+    // The most-recently-created connection (first) serves the request.
+    expect(connection.accountInfo).toBe("user@example.com");
+  });
+
+  test("managed: account passed disambiguates and clears the warning", async () => {
+    mockProvider!.managedServiceConfigKey = "google-oauth";
+    mockPlatformClient = clientReturning([
+      { id: "conn-work", account_label: "work@example.com" },
+    ]);
+
+    const { ambiguous } = await resolveOAuthConnectionWithMeta("google", {
+      account: "work@example.com",
+    });
+
+    expect(ambiguous).toBe(false);
+  });
+
+  test("managed: single connection is never ambiguous", async () => {
+    mockProvider!.managedServiceConfigKey = "google-oauth";
+    mockPlatformClient = clientReturning([
+      { id: "conn-only", account_label: "user@example.com" },
+    ]);
+
+    const { ambiguous, allAccounts } =
+      await resolveOAuthConnectionWithMeta("google");
+
+    expect(ambiguous).toBe(false);
+    expect(allAccounts).toEqual(["user@example.com"]);
+  });
+
+  test("BYO: multiple connections + no account surfaces ambiguity and the selected label", async () => {
+    mockConnections = [
+      {
+        id: "conn-personal",
+        provider: "google",
+        accountInfo: "user@example.com",
+        grantedScopes: JSON.stringify([]),
+        status: "active",
+      },
+      {
+        id: "conn-work",
+        provider: "google",
+        accountInfo: "work@example.com",
+        grantedScopes: JSON.stringify([]),
+        status: "active",
+      },
+    ];
+
+    const { connection, ambiguous, allAccounts } =
+      await resolveOAuthConnectionWithMeta("google");
+
+    expect(ambiguous).toBe(true);
+    expect(allAccounts).toEqual(["user@example.com", "work@example.com"]);
+    expect(connection).toBeInstanceOf(BYOOAuthConnection);
+    expect(connection.id).toBe("conn-personal");
+    expect(connection.accountInfo).toBe("user@example.com");
+  });
+
+  test("BYO: account passed disambiguates and clears the warning", async () => {
+    mockConnections = [
+      {
+        id: "conn-work",
+        provider: "google",
+        accountInfo: "work@example.com",
+        grantedScopes: JSON.stringify([]),
+        status: "active",
+      },
+    ];
+
+    const { ambiguous, connection } = await resolveOAuthConnectionWithMeta(
+      "google",
+      { account: "work@example.com" },
+    );
+
+    expect(ambiguous).toBe(false);
+    expect(connection.id).toBe("conn-work");
+  });
+
+  test("BYO: single connection is never ambiguous", async () => {
+    const { ambiguous, allAccounts } =
+      await resolveOAuthConnectionWithMeta("google");
+
+    expect(ambiguous).toBe(false);
+    expect(allAccounts).toEqual(["user@example.com"]);
   });
 });
 

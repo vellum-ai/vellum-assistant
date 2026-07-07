@@ -200,6 +200,47 @@ export function pushSseEvent(
 }
 
 /**
+ * Sentinel `clientId` stamped on entries ingested from the daemon's
+ * `/events/tail` endpoint rather than received on a live SSE connection.
+ */
+export const EVENTS_TAIL_CLIENT_ID = "events-tail";
+
+/**
+ * Ingest server-replayed envelopes (a `/events/tail` response) into the
+ * ring, so the resync replay ({@link getSseEnvelopesSince}) can bridge a
+ * snapshot anchor whose following events were never delivered on the live
+ * connection (a delivery gap the daemon's ring still covers). Entries the
+ * ring already holds (by `seq`) are skipped; the downstream fold is
+ * seq-idempotent regardless, this just keeps the ring free of duplicates.
+ *
+ * Entries are appended without re-sorting: {@link getSseEnvelopesSince}
+ * sorts its result and scans the whole ring for its contiguity check, so
+ * buffer order is not load-bearing.
+ */
+export function ingestReplayedEnvelopes(
+  envelopes: AssistantEventEnvelope[],
+): void {
+  if (envelopes.length === 0) return;
+  const retained = new Set<number>();
+  for (const e of events) {
+    if (typeof e.seq === "number") retained.add(e.seq);
+  }
+  for (const envelope of envelopes) {
+    if (typeof envelope.seq === "number" && retained.has(envelope.seq)) {
+      continue;
+    }
+    events.push({
+      clientId: EVENTS_TAIL_CLIENT_ID,
+      receivedAt: new Date().toISOString(),
+      ...envelope,
+    });
+  }
+  while (events.length > MAX_EVENTS) {
+    events.shift();
+  }
+}
+
+/**
  * Return a snapshot of all stream clients — live and recently-ended —
  * in registration order. Ended connections retain their final
  * `dataFrames`/`keepalives` counters and an `endReason`, so a reconnect

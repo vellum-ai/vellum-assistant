@@ -22,7 +22,8 @@
  * sibling plugin libraries.
  */
 
-import { type FetchLike, sanitizePluginName } from "./install-from-github.js";
+import type { FetchLike } from "./fetch-like.js";
+import { sanitizePluginName } from "./install-from-github.js";
 import {
   fetchMarketplaceEntries,
   MARKETPLACE_MANIFEST_LOCATION,

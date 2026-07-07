@@ -28,9 +28,6 @@ import {
 function makeContext(): SurfaceConversationContext {
   return {
     conversationId: "session-1",
-    traceEmitter: {
-      emit: () => {},
-    },
     sendToClient: () => {},
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<

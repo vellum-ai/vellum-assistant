@@ -2297,56 +2297,6 @@ describe("Conversation usage requestId correlation", () => {
 });
 
 // ---------------------------------------------------------------------------
-// Terminal trace events on rejection/failure paths
-// ---------------------------------------------------------------------------
-
-describe("Terminal trace events on rejection/failure", () => {
-  beforeEach(() => {
-    pendingRuns = [];
-  });
-
-  test("queued persist failure emits request_error trace", async () => {
-    const traceEvents: ServerMessage[] = [];
-    const conversation = makeConversation((msg) => {
-      if ("type" in msg && msg.type === "trace_event") traceEvents.push(msg);
-    });
-    await conversation.loadFromDb();
-
-    // Start first message
-    const p1 = conversation.processMessage({
-      content: "msg-1",
-      attachments: [],
-      requestId: "req-1",
-    });
-    await waitForPendingRun(1);
-
-    // Enqueue empty content (will fail persistUserMessage)
-    conversation.enqueueMessage({ content: "", requestId: "req-bad" });
-    // Enqueue valid message so drain continues
-    conversation.enqueueMessage({ content: "msg-3", requestId: "req-3" });
-
-    // Complete first — triggers drain, empty msg fails persist
-    await resolveRun(0);
-    await p1;
-    await waitForPendingRun(2);
-
-    // Should have a request_error trace for the failed persist
-    const errorTrace = traceEvents.find(
-      (e) =>
-        "kind" in e &&
-        e.kind === "request_error" &&
-        "requestId" in e &&
-        e.requestId === "req-bad",
-    );
-    expect(errorTrace).toBeDefined();
-
-    // Cleanup
-    await resolveRun(1);
-    await new Promise((r) => setTimeout(r, 10));
-  });
-});
-
-// ---------------------------------------------------------------------------
 // Host attachment approval tests
 // ---------------------------------------------------------------------------
 

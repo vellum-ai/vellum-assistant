@@ -1,10 +1,5 @@
-import {
-  getHttpUrl,
-  getSameOriginRoutePath,
-  openOAuthUrlInPopup,
-} from "@/domains/chat/utils/oauth-popup-links";
+import { dispatchOpenUrl } from "@/domains/chat/utils/oauth-popup-links";
 import { getSettingsRouteForClientTab } from "@/utils/settings-navigation";
-import { openUrl } from "@/runtime/browser";
 import { isSetupChannelId } from "@/types/channel-types";
 import { recordDiagnostic } from "@/lib/diagnostics";
 import { submitSurfaceAction } from "@/domains/chat/api/surfaces";
@@ -22,38 +17,26 @@ export function handleOpenUrl(
   event: OpenUrlEvent,
   ctx: StreamHandlerContext,
 ): void {
-  const sameOriginRoutePath = getSameOriginRoutePath(event.url);
-  if (sameOriginRoutePath) {
-    ctx.router.push(sameOriginRoutePath);
-    return;
-  }
+  const outcome = dispatchOpenUrl(event.url, {
+    isNative: ctx.isNative,
+    push: ctx.router.push,
+  });
 
-  if (openOAuthUrlInPopup(event.url)) {
-    return;
-  }
-
-  const url = getHttpUrl(event.url);
-  if (!url) {
+  if (outcome.kind === "invalid") {
     ctx.setError({
       message: "This link cannot be opened from the web app.",
     });
     return;
   }
 
-  if (ctx.isNative) {
-    void openUrl(url);
-    return;
-  }
-
-  const popup = window.open(url, "_blank");
-  if (popup === null) {
-    ctx.setError({
-      message: "Popup blocked. Please allow popups for Vellum and try again.",
+  if (outcome.kind === "blocked") {
+    // The notice's action button re-opens from a real click.
+    ctx.setNotice({
+      message:
+        "Your browser blocked a page the assistant tried to open. Use the button to open it.",
+      actionUrl: outcome.url,
     });
-    return;
   }
-
-  popup.focus();
 }
 
 export function handleNavigateSettings(

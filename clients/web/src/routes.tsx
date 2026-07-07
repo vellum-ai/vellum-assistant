@@ -265,6 +265,7 @@ export const routeTree = [
                 { path: "voice", lazy: { Component: () => import("@/domains/settings/pages/voice-page").then((m) => m.VoicePage) } },
                 { path: "devices", lazy: { Component: () => import("@/domains/settings/pages/devices-page").then((m) => m.DevicesPage) } },
                 { path: "privacy", lazy: { Component: () => import("@/domains/settings/pages/privacy-page").then((m) => m.PrivacyPage) } },
+                { path: "security", lazy: { Component: () => import("@/domains/settings/security/security-page").then((m) => m.SecurityPage) } },
                 { path: "archive", lazy: { Component: () => import("@/domains/settings/pages/archive-page").then((m) => m.ArchivePage) } },
                 { path: "bookmarks", lazy: { Component: () => import("@/domains/settings/pages/bookmarks-page").then((m) => m.BookmarksPage) } },
                 { path: "billing", lazy: { Component: () => import("@/domains/settings/billing/billing-page").then((m) => m.BillingPage) } },
@@ -288,7 +289,6 @@ export const routeTree = [
               lazy: { Component: () => import("@/domains/logs/logs-layout").then((m) => m.LogsLayout) },
               children: [
                 { index: true, lazy: { Component: () => import("@/domains/logs/pages/usage-page").then((m) => m.UsagePage) } },
-                { path: "trace", lazy: { Component: () => import("@/domains/logs/pages/trace-page").then((m) => m.TracePage) } },
                 { path: "usage", lazy: { Component: () => import("@/domains/logs/pages/usage-page").then((m) => m.UsagePage) } },
                 { path: "system-events", lazy: { Component: () => import("@/domains/logs/pages/system-events-page").then((m) => m.SystemEventsPage) } },
                 { path: "emails", lazy: { Component: () => import("@/domains/logs/pages/emails-page").then((m) => m.EmailsPage) } },
@@ -349,6 +349,7 @@ export const routeTree = [
                     { path: "skills", lazy: { Component: () => import("@/domains/intelligence/skills-page").then((m) => m.SkillsPage) } },
                     { path: "workspace", lazy: { Component: () => import("@/domains/workspace/workspace-page").then((m) => m.WorkspacePage) } },
                     { path: "contacts", lazy: { Component: () => import("@/contacts-page-route").then((m) => m.ContactsPageRoute) } },
+                    { path: "channels", lazy: { Component: () => import("@/channels-page-route").then((m) => m.ChannelsPageRoute) } },
                   ],
                 },
                 { path: "library", lazy: { Component: () => import("@/domains/library/library-page").then((m) => m.LibraryPage) } },

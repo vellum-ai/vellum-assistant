@@ -4,44 +4,22 @@ import { join, sep } from "node:path";
 
 /**
  * db_proxy surface guard: the assistant-DB proxy (`assistant-db-proxy.ts` +
- * the daemon-side `db-proxy` route) is a temporary raw-SQL bridge, slated for
- * removal with the verification-session source-of-truth move. This source scan
- * fails if any gateway file OUTSIDE the allowlist imports the proxy or names
- * either raw-SQL bridge method (`db_proxy` / `db_proxy_transaction`), so the
- * surface can only shrink, never grow.
- *
- * The proxy currently serves three groups (the allowlist below):
- *   1. Verification-session + rate-limit state — dies with the session-SoT move.
- *   2. The contact-merge identity-mirror cluster (`contact-store.ts`) — a
- *      notes-only survivor UPDATE and a resolved-slug dual-write INSERT that no
- *      existing typed mirror op expresses; pending a merge-shaped op.
- *   3. Data migrations — one-time backfills that legitimately touch the
- *      assistant DB broadly.
+ * the daemon-side `db-proxy` route) is a data-migrations-only bridge.
+ * Gateway one-time migrations (m0002/m0010/m0014 et al.) need raw read/drop
+ * access to the assistant DB on first boot of upgraded installs; no runtime
+ * feature may use this surface. This source scan fails if any gateway file
+ * OUTSIDE the proxy module and `db/data-migrations/` imports the proxy or
+ * names the raw-SQL bridge method (`db_proxy`).
  */
 
-// Relative to GATEWAY_SRC (POSIX-separated). Every entry is a sanctioned
-// db_proxy caller; new callers must NOT be added — drain them instead.
+// Relative to GATEWAY_SRC (POSIX-separated). New entries must NOT be added.
 const ALLOWLIST = new Set<string>([
   // The proxy definition itself (calls ipcCallAssistant("db_proxy")).
   "db/assistant-db-proxy.ts",
-
-  // Verification-session + rate-limit group. Retired with the session-SoT move.
-  "verification/session-helpers.ts",
-  "verification/rate-limit-helpers.ts",
-  "verification/outbound-voice-verification-sync.ts",
-  "voice/verification.ts",
-  // Residual raw-SQL (type,address) lookup in the verification intercept flow;
-  // identity/info reads and mirror writes are already typed IPC.
-  "verification/contact-helpers.ts",
-
-  // Contact-merge identity-mirror cluster. Pending a merge-shaped op: a
-  // notes-only survivor UPDATE (must not overwrite the survivor's display
-  // name) and a resolved user_file slug seeded on the dual-write-gap INSERT.
-  "db/contact-store.ts",
 ]);
 
-// Data migrations run one-time backfills through the same proxy and touch
-// contacts/channels/invites broadly. Allowed wholesale by directory prefix.
+// One-time data migrations legitimately touch the assistant DB broadly.
+// Allowed wholesale by directory prefix.
 const ALLOWED_DIR_PREFIX = "db/data-migrations/";
 
 const GATEWAY_SRC = join(import.meta.dirname!, "..");
@@ -68,15 +46,15 @@ function relPosix(file: string): string {
 // A static/dynamic import of the proxy module, or a direct db_proxy IPC call.
 const IMPORTS_PROXY =
   /(?:from|import)\s*\(?\s*["'`][^"'`]*assistant-db-proxy(?:\.js)?["'`]/;
-// Matches either raw-SQL bridge method (`db_proxy` / `db_proxy_transaction`) by
-// the quoted method name itself — single, double, OR backtick quotes —
-// independent of the callee identifier, so aliasing `ipcCallAssistant`, stashing
-// it in a local, or a template-literal method string cannot slip a new raw-SQL
-// caller past the guard. The method-name string only appears at these call sites
-// (verified: no bare-mention false positives in the scanned tree). A regex scan
-// cannot catch a fully dynamic name (e.g. "db_" + "proxy"); that residual is
+// Matches the raw-SQL bridge method (`db_proxy`) by the quoted method name
+// itself — single, double, OR backtick quotes — independent of the callee
+// identifier, so aliasing `ipcCallAssistant`, stashing it in a local, or a
+// template-literal method string cannot slip a new raw-SQL caller past the
+// guard. The method-name string only appears at these call sites (verified:
+// no bare-mention false positives in the scanned tree). A regex scan cannot
+// catch a fully dynamic name (e.g. "db_" + "proxy"); that residual is
 // accepted — the surface can still only shrink, never grow, for realistic code.
-const CALLS_DB_PROXY = /["'`]db_proxy(?:_transaction)?["'`]/;
+const CALLS_DB_PROXY = /["'`]db_proxy["'`]/;
 
 // Strip `//` line and `/* */` block comments so a doc-comment mention of the
 // method name (markdown code spans use backticks) can't trip the matcher — only
@@ -122,16 +100,12 @@ describe("db_proxy caller allowlist guard", () => {
     expect(usesDbProxy(`await ipcCallAssistant("db_proxy", { sql });`)).toBe(
       true,
     );
-    // The transaction variant of the same raw-SQL bridge is also caught.
-    expect(
-      usesDbProxy(`await ipcCallAssistant("db_proxy_transaction", { steps });`),
-    ).toBe(true);
     // Aliased / indirected callees are caught via the method-name string.
     expect(
       usesDbProxy(`import { ipcCallAssistant as call } from "x";\ncall("db_proxy", { sql });`),
     ).toBe(true);
     expect(
-      usesDbProxy(`const M = "db_proxy_transaction";\nawait send(M, { steps });`),
+      usesDbProxy(`const M = "db_proxy";\nawait send(M, { sql });`),
     ).toBe(true);
     // Template-literal method strings (backtick-quoted) are caught too.
     expect(usesDbProxy("await ipcCallAssistant(`db_proxy`, { sql });")).toBe(

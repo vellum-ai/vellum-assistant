@@ -104,6 +104,14 @@ export interface TtsSynthesisRequest {
    * actual format of the returned audio.
    */
   outputFormat?: "pcm";
+
+  /**
+   * Optional preferred output sample rate in Hz, meaningful with
+   * `outputFormat: "pcm"`. Providers pick the nearest rate they support;
+   * callers must not assume the hint was honoured exactly and should rely
+   * on provider-documented behavior (see each provider's format mapping).
+   */
+  sampleRateHz?: number;
 }
 
 /** Output of a completed TTS synthesis call. */
@@ -188,6 +196,19 @@ export interface TtsProvider {
 
   /** Static capability advertisement. */
   readonly capabilities: TtsProviderCapabilities;
+
+  /**
+   * Actual PCM output sample rate in Hz that synthesizing `request` will
+   * produce, when deterministically known before synthesis begins.
+   *
+   * This up-front probe is the single source of truth for the actual output
+   * rate — {@link TtsSynthesisResult} carries no rate. Streaming callers that
+   * label emitted chunks with a rate use this so the first chunk — delivered
+   * before the final result resolves — carries the provider's true output
+   * rate rather than the request's `sampleRateHz` hint. Returns `undefined`
+   * for non-PCM output or when the rate is not known up-front.
+   */
+  resolveOutputSampleRateHz?(request: TtsSynthesisRequest): number | undefined;
 
   /**
    * Synthesize text and return the complete audio buffer.

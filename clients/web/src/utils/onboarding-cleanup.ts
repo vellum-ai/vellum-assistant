@@ -257,6 +257,9 @@ export function saveConsent(opts: {
   store.setShareDiagnostics(opts.shareDiagnostics);
   store.setAnalyticsConsentCurrent(true);
   store.setDiagnosticsConsentCurrent(true);
+  // An explicit user acceptance is authoritative hydration — route guards may
+  // trust the flags without waiting for a session sync.
+  store.setConsentHydrated(true);
   // Version is current by construction here, so the gate equals the preference.
   setDiagnosticsReportingGate(opts.shareDiagnostics);
 

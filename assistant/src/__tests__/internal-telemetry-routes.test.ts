@@ -18,6 +18,23 @@ mock.module("../platform/consent-cache.js", () => ({
   getCachedShareAnalytics: () => shareAnalytics,
 }));
 
+// The watchdog relay must go through the direct (unbuffered) emit; capture the
+// forwarded arguments instead of POSTing to the platform.
+const emitCalls: {
+  checkName: string;
+  detail: Record<string, unknown> | null;
+  value: number | null;
+}[] = [];
+mock.module("../telemetry/watchdog-direct-emit.js", () => ({
+  emitWatchdogEventDirect: async (
+    checkName: string,
+    detail: Record<string, unknown> | null,
+    value: number | null = null,
+  ) => {
+    emitCalls.push({ checkName, detail, value });
+  },
+}));
+
 import { getDb } from "../persistence/db-connection.js";
 import { initializeDb } from "../persistence/db-init.js";
 import { authFallbackEvents } from "../persistence/schema/index.js";
@@ -97,5 +114,60 @@ describe("internal-telemetry-routes: auth-fallback", () => {
       }),
     ).toThrow(RouteError);
     expect(queryUnreportedAuthFallbackEvents(0, undefined, 100).length).toBe(0);
+  });
+});
+
+describe("internal-telemetry-routes: watchdog relay", () => {
+  const watchdogRoute = ROUTES.find(
+    (r) => r.operationId === "internal_telemetry_watchdog",
+  );
+
+  function callWatchdog(body: unknown) {
+    if (!watchdogRoute) {
+      throw new Error("route not found");
+    }
+    return watchdogRoute.handler({ body } as RouteHandlerArgs);
+  }
+
+  beforeEach(() => {
+    emitCalls.length = 0;
+  });
+
+  test("route is locked to service-token callers (GATEWAY_PRINCIPALS + internal.write)", () => {
+    expect(watchdogRoute).toBeDefined();
+    expect(watchdogRoute?.endpoint).toBe("internal/telemetry/watchdog");
+    expect(watchdogRoute?.method).toBe("POST");
+    expect(watchdogRoute?.policy?.allowedPrincipalTypes).toEqual(
+      GATEWAY_PRINCIPALS,
+    );
+    expect(watchdogRoute?.policy?.requiredScopes).toEqual(["internal.write"]);
+  });
+
+  test("valid event is forwarded to the direct emit", async () => {
+    const result = await callWatchdog({
+      check_name: "gateway_guardian_missing",
+      detail: { has_contacts: true, has_actor_tokens: false },
+    });
+    expect(result).toEqual({ ok: true });
+    expect(emitCalls).toEqual([
+      {
+        checkName: "gateway_guardian_missing",
+        detail: { has_contacts: true, has_actor_tokens: false },
+        value: null,
+      },
+    ]);
+  });
+
+  test("detail and value are optional", async () => {
+    await callWatchdog({ check_name: "some_check" });
+    expect(emitCalls).toEqual([
+      { checkName: "some_check", detail: null, value: null },
+    ]);
+  });
+
+  test("rejects a malformed body without emitting", async () => {
+    await expect(callWatchdog({})).rejects.toThrow(RouteError);
+    await expect(callWatchdog({ check_name: "" })).rejects.toThrow(RouteError);
+    expect(emitCalls.length).toBe(0);
   });
 });

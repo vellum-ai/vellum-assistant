@@ -284,7 +284,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-23T21:50:11.000Z"
+      "updatedAt": "2026-07-07T04:41:23.000Z"
     },
     {
       "id": "google-calendar",
@@ -296,11 +296,16 @@
         "vellum": {
           "category": "calendar",
           "display-name": "Google Calendar",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "activation-hints": [
+            "check my availability this week",
+            "find open time slots / when am I free",
+            "cross-calendar free/busy across my connected accounts"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-07T04:41:13.000Z"
     },
     {
       "id": "guardian-verify-setup",
@@ -612,11 +617,16 @@
         "vellum": {
           "category": "calendar",
           "display-name": "Outlook Calendar",
-          "user-invocable": "true"
+          "user-invocable": "true",
+          "activation-hints": [
+            "check my availability this week",
+            "find open time slots / when am I free",
+            "cross-calendar free/busy across my connected accounts"
+          ]
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-07T04:41:13.000Z"
     },
     {
       "id": "plugin-builder",
@@ -643,7 +653,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-07-06T17:36:51.000Z"
+      "updatedAt": "2026-07-07T12:59:27.000Z"
     },
     {
       "id": "public-ingress",
@@ -936,7 +946,7 @@
         }
       },
       "compatibility": "Designed for Vellum personal assistants",
-      "updatedAt": "2026-06-03T03:10:07.000Z"
+      "updatedAt": "2026-07-07T19:43:50.000Z"
     },
     {
       "id": "vellum-conversation-management",

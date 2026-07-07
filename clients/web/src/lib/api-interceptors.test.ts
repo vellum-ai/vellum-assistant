@@ -293,16 +293,15 @@ describe("api-interceptors / self-hosted rewriting", () => {
   });
 
   test("rewrites daemon/gateway-owned segments reached via the platform client", async () => {
-    // config / permissions / trust-rules are daemon- or gateway-owned and
-    // are called through the platform client via raw `client.*` requests
-    // (e.g. the background `TimezoneSync` PATCH to `config`). In local /
-    // self-hosted mode they must route to the gateway like conversations
-    // rather than fall through to the dead platform proxy and flood the
-    // console with 502s. (contacts / contact-channels / artifacts are NOT
-    // listed — their assistant-scoped routes aren't served by the gateway
-    // or daemon, so forwarding them would only 404.)
+    // config is daemon-owned and still called through the platform client
+    // via raw `client.*` requests (the background `TimezoneSync` PATCH).
+    // In local / self-hosted mode it must route to the gateway like
+    // conversations rather than fall through to the dead platform proxy
+    // and flood the console with 502s. (artifacts is NOT listed — its
+    // assistant-scoped routes aren't served by the gateway or daemon, so
+    // forwarding it would only 404.)
     setSelfHostedConnection({ url: INGRESS, token: ACTOR_TOKEN });
-    for (const segment of ["config", "permissions", "trust-rules"]) {
+    for (const segment of ["config"]) {
       const path = `/v1/assistants/${SELF_HOSTED_ID}/${segment}/`;
       const input = new Request(`https://platform.test${path}`, {
         method: "POST",

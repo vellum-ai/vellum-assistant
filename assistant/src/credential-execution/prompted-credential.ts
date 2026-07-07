@@ -18,7 +18,7 @@ import {
   type SlackChannelConfigResult,
 } from "../daemon/handlers/config-slack-channel.js";
 import { syncManualTokenConnection } from "../oauth/manual-token-connection.js";
-import type { SecretDelivery } from "../permissions/secret-prompter.js";
+import type { SecretDelivery } from "../permissions/secret-prompt-types.js";
 import { credentialKey } from "../security/credential-key.js";
 import { setSecureKeyAsync } from "../security/secure-keys.js";
 import { credentialBroker } from "../tools/credentials/broker.js";

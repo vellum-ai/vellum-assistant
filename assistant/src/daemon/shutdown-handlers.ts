@@ -36,8 +36,8 @@ import { stopConversationEvictor } from "./conversation-evictor.js";
 import { stopConversations } from "./conversation-store.js";
 import { cleanupPidFile, cleanupPidFileIfOwner } from "./daemon-control.js";
 import { isStartupComplete } from "./daemon-readiness.js";
+import { stopDiskPressureGuardForLifecycle } from "./disk-pressure-guard-lifecycle.js";
 import { stopEventLoopWatchdog } from "./event-loop-watchdog.js";
-import { stopDiskPressureGuardForLifecycle } from "./lifecycle.js";
 import { stopOrphanReaper } from "./orphan-reaper.js";
 
 const log = getLogger("lifecycle");

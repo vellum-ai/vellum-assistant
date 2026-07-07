@@ -20,8 +20,14 @@ type ExistingRow = {
   channelStatus: string;
 };
 
+// Assistant-mirror rows served by the typed identity lookup; the daemon
+// handler returns the most-recently-updated match, modeled here as rows[0].
 let queryRows: ExistingRow[] = [];
-const queryCalls: { sql: string; params: unknown[] }[] = [];
+// Typed identity-lookup selectors, recorded per test.
+const lookupCalls: { type?: string; address?: string; channelId?: string }[] =
+  [];
+// When true, lookupContactChannelIdentity throws (unreachable daemon).
+let lookupThrow = false;
 // Typed identity-mirror IPC calls (contacts_mirror_*), recorded per test.
 const mirrorCalls: { method: string; body: Record<string, unknown> }[] = [];
 // When true, ipcCallAssistant throws for any mirror method (models an
@@ -122,10 +128,28 @@ const TEST_SOCKET_PATH = join(
   `vellum-upsert-contact-channel-test-${process.pid}.sock`,
 );
 
-mock.module("../db/assistant-db-proxy.js", () => ({
-  assistantDbQuery: async (sql: string, params: unknown[]) => {
-    queryCalls.push({ sql, params });
-    return queryRows;
+mock.module("../ipc/contacts-info-client.js", () => ({
+  lookupContactChannelIdentity: async (selector: {
+    type?: string;
+    address?: string;
+    channelId?: string;
+  }) => {
+    lookupCalls.push(selector);
+    if (lookupThrow) throw new Error("identity lookup IPC failed");
+    const row = queryRows[0];
+    if (!row) return null;
+    return {
+      id: row.channelId,
+      contactId: row.contactId,
+      type: selector.type ?? "phone",
+      address: selector.address ?? "",
+      externalChatId: null,
+      displayName: null,
+    };
+  },
+  // Not exercised here (deleteContactIfOrphaned only).
+  probeContactMirror: async () => {
+    throw new Error("probeContactMirror not stubbed for this suite");
   },
 }));
 
@@ -178,7 +202,8 @@ const { upsertContactChannel, upsertVerifiedContactChannel } =
 
 beforeEach(() => {
   queryRows = [];
-  queryCalls.length = 0;
+  lookupCalls.length = 0;
+  lookupThrow = false;
   mirrorCalls.length = 0;
   mirrorThrow = false;
   gwUpdates.length = 0;
@@ -1039,6 +1064,59 @@ describe("upsertVerifiedContactChannel — mirror reparent tracks gateway repare
   });
 });
 
+describe("identity lookup failure posture", () => {
+  test("soft mode: a thrown identity lookup proceeds gateway-only via the create path", async () => {
+    queryRows = [
+      { channelId: "ch-hidden", contactId: "co-hidden", channelStatus: "active" },
+    ];
+    lookupThrow = true;
+    gwSelectStatus = null;
+
+    const result = await upsertVerifiedContactChannel({
+      sourceChannel: "phone",
+      externalUserId: "+15550002323",
+      externalChatId: "+15550002323",
+      softMirrorFailures: true,
+    });
+
+    // The failed lookup is swallowed; the create path runs gateway-first (a
+    // fresh parent contact is inserted) and the result reflects the gateway.
+    expect(result).toEqual({ verified: true });
+    expect(gwInserts.some((i) => i.values.role === "contact")).toBe(true);
+    expect(mirrorUpserts()).toHaveLength(1);
+  });
+
+  test("hard mode (default): a thrown identity lookup propagates", async () => {
+    lookupThrow = true;
+
+    await expect(
+      upsertVerifiedContactChannel({
+        sourceChannel: "phone",
+        externalUserId: "+15550002424",
+        externalChatId: "+15550002424",
+      }),
+    ).rejects.toThrow("identity lookup IPC failed");
+    // Nothing was written on either store.
+    expect(mirrorUpserts()).toHaveLength(0);
+    expect(gwUpdates).toHaveLength(0);
+    expect(gwInserts).toHaveLength(0);
+  });
+
+  test("upsertContactChannel: a thrown identity lookup propagates (no soft mode)", async () => {
+    lookupThrow = true;
+
+    await expect(
+      upsertContactChannel({
+        sourceChannel: "slack",
+        externalUserId: "ULOOKUPFAIL",
+        externalChatId: "DLOOKUPFAIL",
+      }),
+    ).rejects.toThrow("identity lookup IPC failed");
+    expect(mirrorUpserts()).toHaveLength(0);
+    expect(gwInserts).toHaveLength(0);
+  });
+});
+
 describe("upsertContactChannel — channel address casing", () => {
   test("preserves original Slack address casing", async () => {
     queryRows = [];
@@ -1054,8 +1132,9 @@ describe("upsertContactChannel — channel address casing", () => {
     // address preserves original casing
     expect(upsert!.body.address).toBe("U123EXAMPLE");
 
-    expect(queryCalls[0]!.sql).toContain("cc.address = ? COLLATE NOCASE");
-    expect(queryCalls[0]!.params).toEqual(["slack", "U123EXAMPLE"]);
+    // The typed identity lookup receives the original casing; the daemon
+    // handler owns the NOCASE match.
+    expect(lookupCalls[0]).toEqual({ type: "slack", address: "U123EXAMPLE" });
   });
 });
 

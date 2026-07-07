@@ -254,4 +254,57 @@ describe("enrichMessageWithSourcePaths", () => {
     const annotation = enriched.content[3] as { type: "text"; text: string };
     expect(annotation.text).toBe("[Attached image source: /path/to/a.jpg]");
   });
+
+  test("annotates non-image attachments that have storedPath", () => {
+    const attachments = [
+      {
+        filename: "report.pdf",
+        mimeType: "application/pdf",
+        data: "pdfdata",
+        filePath: "/staging/123-report.pdf",
+        storedPath: "/conv/attachments/report-2.pdf",
+      },
+    ];
+    const original = createUserMessage("review my edits", attachments);
+    const enriched = enrichMessageWithSourcePaths(original, attachments);
+
+    expect(enriched).not.toBe(original);
+    // text + file = 2 blocks; enriched adds 1 annotation = 3
+    expect(enriched.content).toHaveLength(3);
+    const annotation = enriched.content[2] as { type: "text"; text: string };
+    expect(annotation.type).toBe("text");
+    expect(annotation.text).toBe(
+      '[Attachment "report.pdf" is stored at: /conv/attachments/report-2.pdf]',
+    );
+  });
+
+  test("emits image source lines before stored path lines in one block", () => {
+    const attachments = [
+      {
+        filename: "data.csv",
+        mimeType: "text/csv",
+        data: "csvdata",
+        storedPath: "/conv/attachments/data-2.csv",
+      },
+      {
+        filename: "photo.jpg",
+        mimeType: "image/jpeg",
+        data: "img",
+        filePath: "/Users/me/Desktop/photo.jpg",
+        storedPath: "/conv/attachments/photo.jpg",
+      },
+    ];
+    const original = createUserMessage("compare", attachments);
+    const enriched = enrichMessageWithSourcePaths(original, attachments);
+
+    const annotation = enriched.content.at(-1) as {
+      type: "text";
+      text: string;
+    };
+    expect(annotation.text).toBe(
+      "[Attached image source: /Users/me/Desktop/photo.jpg]\n" +
+        '[Attachment "data.csv" is stored at: /conv/attachments/data-2.csv]\n' +
+        '[Attachment "photo.jpg" is stored at: /conv/attachments/photo.jpg]',
+    );
+  });
 });

@@ -15,8 +15,11 @@ import {
   buildManagedBaseUrl,
   resolveManagedProxyContext,
 } from "../platform-proxy/context.js";
-import type { Auth, ResolvedAuth } from "./auth.js";
-import { PROVIDERS_REQUIRING_BASE_URL_AND_MODELS } from "./connections.js";
+import {
+  type Auth,
+  PROVIDERS_REQUIRING_BASE_URL_AND_MODELS,
+  type ResolvedAuth,
+} from "./auth.js";
 
 const log = getLogger("resolve-auth");
 

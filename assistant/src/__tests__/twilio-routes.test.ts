@@ -112,23 +112,30 @@ let admissionPolicyReads = 0;
 mock.module("../calls/channel-admission-reader.js", () => ({
   getChannelAdmissionPolicy: async () => {
     admissionPolicyReads++;
-    return mockAdmissionPolicy;
+    return { ok: true as const, policy: mockAdmissionPolicy };
   },
 }));
 
 let mockInboundVerdict: unknown = null;
 let lastInboundVerdictArgs: Record<string, unknown> | null = null;
 mock.module("../calls/inbound-trust-reader.js", () => ({
-  getInboundTrustVerdict: async (args: Record<string, unknown>) => {
-    lastInboundVerdictArgs = args;
-    return mockInboundVerdict;
-  },
   getPhoneCallerVerdict: async (otherPartyNumber: string | undefined) => {
     lastInboundVerdictArgs = {
       channelType: "phone",
       actorExternalId: otherPartyNumber || undefined,
     };
     return mockInboundVerdict;
+  },
+  readPhoneCallerTrust: async (otherPartyNumber: string | undefined) => {
+    lastInboundVerdictArgs = {
+      channelType: "phone",
+      actorExternalId: otherPartyNumber || undefined,
+    };
+    return {
+      ok: true as const,
+      verdict: mockInboundVerdict,
+      admissionPolicy: mockAdmissionPolicy,
+    };
   },
 }));
 

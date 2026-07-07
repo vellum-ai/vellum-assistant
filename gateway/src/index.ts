@@ -113,7 +113,6 @@ import {
   createBackupSnapshotHandler,
 } from "./backup/backup-routes.js";
 import { startBackupWorker } from "./backup/backup-worker.js";
-import { stopOutboundVoiceVerificationSync } from "./verification/outbound-voice-verification-sync.js";
 import { createWorkspaceCommitProxyHandler } from "./http/routes/workspace-commit-proxy.js";
 import { createBrainGraphProxyHandler } from "./http/routes/brain-graph-proxy.js";
 import { createLogExportHandler } from "./http/routes/log-export.js";
@@ -137,6 +136,11 @@ import {
   createChannelAdmissionPolicySetHandler,
   createChannelAdmissionPolicyDeleteHandler,
 } from "./http/routes/channel-admission-policy.js";
+import {
+  createChannelPermissionOverridesListHandler,
+  createChannelPermissionOverrideSetHandler,
+  createChannelPermissionOverrideDeleteHandler,
+} from "./http/routes/channel-permission-overrides.js";
 import { getLogger, initLogger } from "./logger.js";
 import { getPlatformBaseUrl } from "./platform-url.js";
 import {
@@ -185,6 +189,7 @@ import {
 import { GatewayIpcServer } from "./ipc/server.js";
 import { contactRoutes } from "./ipc/contact-handlers.js";
 import { inviteRoutes } from "./ipc/invite-handlers.js";
+import { verificationSessionRoutes } from "./ipc/verification-session-handlers.js";
 import { featureFlagRoutes } from "./ipc/feature-flag-handlers.js";
 import { admissionPolicyRoutes } from "./ipc/admission-policy-handlers.js";
 import { channelPermissionRoutes } from "./ipc/channel-permission-handlers.js";
@@ -545,6 +550,12 @@ async function main() {
     createChannelAdmissionPolicySetHandler();
   const handleChannelAdmissionPolicyDelete =
     createChannelAdmissionPolicyDeleteHandler();
+  const handleChannelPermissionOverridesList =
+    createChannelPermissionOverridesListHandler();
+  const handleChannelPermissionOverrideSet =
+    createChannelPermissionOverrideSetHandler();
+  const handleChannelPermissionOverrideDelete =
+    createChannelPermissionOverrideDeleteHandler();
 
   const handleAgentCard = createAgentCardHandler(configFileCache);
 
@@ -757,6 +768,13 @@ async function main() {
       handler: (req) => handleContactPromptSubmit(req),
     },
     {
+      // Assistant-scoped variant for clients using the auto-prefix.
+      path: /^\/v1\/assistants\/[^/]+\/contacts\/prompt\/submit\/?$/,
+      method: "POST",
+      auth: "edge",
+      handler: (req) => handleContactPromptSubmit(req),
+    },
+    {
       path: "/v1/contacts",
       method: "GET",
       auth: "edge",
@@ -764,6 +782,13 @@ async function main() {
     },
     {
       path: "/v1/contacts",
+      method: "POST",
+      auth: "edge",
+      handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
+    },
+    {
+      // Assistant-scoped variant for clients using the auto-prefix.
+      path: /^\/v1\/assistants\/[^/]+\/contacts\/?$/,
       method: "POST",
       auth: "edge",
       handler: (req) => contactsControlPlaneProxy.handleUpsertContact(req),
@@ -783,6 +808,14 @@ async function main() {
     },
     {
       path: /^\/v1\/contact-channels\/([^/]+)\/verify$/,
+      method: "POST",
+      auth: "edge-guardian",
+      handler: (req, params) =>
+        contactsControlPlaneProxy.handleVerifyContactChannel(req, params[0]),
+    },
+    {
+      // Assistant-scoped variant for clients using the auto-prefix.
+      path: /^\/v1\/assistants\/[^/]+\/contact-channels\/([^/]+)\/verify\/?$/,
       method: "POST",
       auth: "edge-guardian",
       handler: (req, params) =>
@@ -1578,6 +1611,59 @@ async function main() {
         handleChannelAdmissionPolicyDelete(req, params[0]),
     },
 
+    // ── Channel permission overrides (matrix cells) — flat routes ──
+    // HTTP mirror of the channel-permission IPC surface so configuration
+    // clients can read/write cascade cells. Gateway-owned storage; same
+    // platform-proxy path shape as channel-admission-policy above. The
+    // delete is a POST verb path because cells are keyed by a composite
+    // (selector × contact-type), not a row id.
+    {
+      path: /^\/v1\/channel-permission-overrides\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelPermissionOverridesList(req),
+    },
+    {
+      path: /^\/v1\/channel-permission-overrides\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleChannelPermissionOverrideSet(req),
+    },
+    {
+      path: /^\/v1\/channel-permission-overrides\/delete\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleChannelPermissionOverrideDelete(req),
+    },
+
+    // ── Channel permission overrides — assistant-scoped variants ──
+    // Matrix cells are gateway-global, so the assistant id is matched and
+    // discarded — same precedent as channel-admission-policy above.
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-permission-overrides\/?$/,
+      method: "GET",
+      auth: "edge-scoped",
+      scope: "settings.read",
+      handler: (req) => handleChannelPermissionOverridesList(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-permission-overrides\/?$/,
+      method: "PUT",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleChannelPermissionOverrideSet(req),
+    },
+    {
+      path: /^\/v1\/assistants\/[^/]+\/channel-permission-overrides\/delete\/?$/,
+      method: "POST",
+      auth: "edge-scoped",
+      scope: "settings.write",
+      handler: (req) => handleChannelPermissionOverrideDelete(req),
+    },
+
     // ── Trust rules v3 — assistant-scoped variants ──
     // Mirror the flat /v1/trust-rules routes for clients that use
     // GatewayHTTPClient's auto-prefix (Swift TrustRuleClient and
@@ -1791,6 +1877,66 @@ async function main() {
       return Response.json({ status: "ok" });
     }
 
+    if (url.pathname === "/readyz") {
+      if (draining) {
+        return Response.json({ status: "draining" }, { status: 503 });
+      }
+      // Check that the upstream assistant is also reachable so callers
+      // know the full stack is ready, not just the gateway process.
+      //
+      // The assistant's readiness body (`ready`, `dbMigrations`) is forwarded
+      // so programmatic callers — the upgrade/hatch CLI waits in particular —
+      // can distinguish "still migrating" (200, ready:false) from "ready" and
+      // detect terminally failed migrations.
+      //
+      // Status-code contract while the gateway's own post-assistant-ready
+      // work is incomplete (every non-probe route 503s "starting"):
+      // - Assistant still migrating (ready:false body): 200. Migrations can
+      //   take minutes and the orchestrator must keep the pod in service —
+      //   the forwarded ready:false body already keeps body-aware CLI waits
+      //   waiting.
+      // - Assistant ready, gateway backfills still running: 503 "starting".
+      //   This window is seconds long, and reporting ready here would let
+      //   the orchestrator route traffic — and CLI waits declare the stack
+      //   ready — while every route still 503s (upgrade would commit early;
+      //   hatch would burn its guardian-lease budget against the closed
+      //   gate).
+      try {
+        const upstream = await fetch(
+          `${config.assistantRuntimeBaseUrl}/readyz`,
+          { signal: AbortSignal.timeout(3000) },
+        );
+        const upstreamBody = (await upstream
+          .json()
+          .catch(() => null)) as Record<string, unknown> | null;
+        if (!upstream.ok) {
+          return Response.json(
+            {
+              ...(upstreamBody ?? {}),
+              status: "upstream_unhealthy",
+              upstream: upstream.status,
+            },
+            { status: 503 },
+          );
+        }
+        if (!postAssistantReadyComplete) {
+          if (upstreamBody?.ready === false) {
+            return Response.json(upstreamBody);
+          }
+          return Response.json(
+            { ...(upstreamBody ?? {}), status: "starting", ready: false },
+            { status: 503 },
+          );
+        }
+        return Response.json(upstreamBody ?? { status: "ok" });
+      } catch {
+        return Response.json(
+          { status: "upstream_unreachable" },
+          { status: 503 },
+        );
+      }
+    }
+
     if (!postAssistantReadyComplete) {
       return Response.json({ status: "starting" }, { status: 503 });
     }
@@ -1812,32 +1958,6 @@ async function main() {
 
     if (url.pathname === "/schema") {
       return Response.json(buildSchema());
-    }
-
-    if (url.pathname === "/readyz") {
-      if (draining) {
-        return Response.json({ status: "draining" }, { status: 503 });
-      }
-      // Check that the upstream assistant is also reachable so callers
-      // know the full stack is ready, not just the gateway process.
-      try {
-        const upstream = await fetch(
-          `${config.assistantRuntimeBaseUrl}/readyz`,
-          { signal: AbortSignal.timeout(3000) },
-        );
-        if (!upstream.ok) {
-          return Response.json(
-            { status: "upstream_unhealthy", upstream: upstream.status },
-            { status: 503 },
-          );
-        }
-      } catch {
-        return Response.json(
-          { status: "upstream_unreachable" },
-          { status: 503 },
-        );
-      }
-      return Response.json({ status: "ok" });
     }
 
     // Per-request IP resolver — scoped to this request so it remains
@@ -1944,7 +2064,10 @@ async function main() {
   log.info({ port: server.port }, "Gateway HTTP server listening");
 
   // Complete post-assistant-ready startup work after binding /healthz.
-  // All non-health routes stay closed until this finishes.
+  // All non-health routes stay closed until this returns. When the assistant
+  // is not migration-ready within the bounded wait, this still returns (so
+  // traffic opens) while the deferred tasks keep retrying in the background —
+  // see post-assistant-ready.ts.
   try {
     await runPostAssistantReady();
     postAssistantReadyComplete = true;
@@ -2512,6 +2635,7 @@ async function main() {
     ...featureFlagRoutes,
     ...contactRoutes,
     ...inviteRoutes,
+    ...verificationSessionRoutes,
     ...slackThreadRoutes,
     ...thresholdRoutes,
     ...admissionPolicyRoutes,
@@ -2602,7 +2726,6 @@ async function main() {
     const shutdownTasks: Promise<void>[] = [];
     sleepWakeDetector.stop();
     backupWorkerHandle.stop();
-    stopOutboundVoiceVerificationSync();
     credentialWatcher.stop();
     configFileWatcher.stop();
     avatarSyncWatcher.stop();

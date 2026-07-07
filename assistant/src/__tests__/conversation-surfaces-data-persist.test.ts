@@ -56,7 +56,6 @@ import type {
 function makeContext(sent: ServerMessage[] = []): SurfaceConversationContext {
   return {
     conversationId: "conv-persist-1",
-    traceEmitter: { emit: () => {} },
     sendToClient: (msg) => sent.push(msg),
     pendingSurfaceActions: new Map<string, { surfaceType: SurfaceType }>(),
     lastSurfaceAction: new Map<

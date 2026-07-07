@@ -151,7 +151,6 @@ export function createA2AInvite(params: {
   const contact = upsertContact({
     displayName: "Pending A2A invite",
     contactType: "assistant",
-    role: "contact",
   });
 
   // 4. Create the invite
@@ -211,7 +210,6 @@ export function completeA2AInvite(params: {
     id: invite.contactId,
     displayName: params.acceptor.displayName,
     contactType: "assistant",
-    role: "contact",
     channels: [
       {
         type: "a2a",
@@ -273,7 +271,6 @@ export function redeemA2AInvite(params: {
   const contact = upsertContact({
     displayName: params.sender.displayName,
     contactType: "assistant",
-    role: "contact",
     channels: [
       {
         type: "a2a",

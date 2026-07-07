@@ -71,9 +71,16 @@ mock.module("../runtime/channel-verification-service.js", () => ({
     }
     return null;
   },
-  createOutboundSession: () => ({
-    conversationId: "test-session",
+}));
+
+// Gateway session client — the resolver mints verification sessions here.
+mock.module("../channels/gateway-verification-sessions.js", () => ({
+  createOutboundSession: async () => ({
+    sessionId: "test-session",
     secret: "123456",
+    challengeHash: "hash",
+    expiresAt: Date.now() + 600_000,
+    ttlSeconds: 600,
   }),
 }));
 

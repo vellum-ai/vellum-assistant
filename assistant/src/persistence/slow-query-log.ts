@@ -167,20 +167,6 @@ export function reportSlowQuery(event: SlowQueryEvent): void {
   log.warn(event, "Slow SQLite query blocked the event loop");
 }
 
-/** Context handed to {@link observeSqliteStatementError} for a failed execution. */
-export interface StatementErrorContext {
-  /** SQL preview (first {@link SQL_PREVIEW_MAX} chars) of the failing statement. */
-  sql: string;
-  /**
-   * The database file's basename (e.g. `"assistant.db"` / `"assistant-logs.db"`),
-   * derived from the `Database`'s own `filename`. Always set by the wrapper;
-   * optional only for direct callers (tests) that construct a context by hand.
-   */
-  database?: string;
-  /** Caller-supplied `.label()` attribution tag, when present. */
-  label?: string;
-}
-
 /** Injectable seams so the wrapper is unit-testable with a fake clock/sink. */
 export interface SlowQueryWatcherOptions {
   thresholdMs?: number;

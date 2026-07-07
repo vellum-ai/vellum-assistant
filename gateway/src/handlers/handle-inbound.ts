@@ -199,9 +199,14 @@ export async function handleInbound(
   // (non-authenticating channel, or a payload with no result) and is a no-op.
   if (options?.senderAuthenticated === false && trustVerdict) {
     const priorClass = trustVerdict.trustClass;
+    const priorResolutionFailed = trustVerdict.resolutionFailed === true;
     trustVerdict = makeUnauthenticatedSenderVerdict(
       trustVerdict.canonicalSenderId,
     );
+    // A resolver/integrity failure survives the downgrade: could-not-vouch
+    // outranks stranger, so consumers keep failing closed with no
+    // stranger-lane side effects.
+    if (priorResolutionFailed) trustVerdict.resolutionFailed = true;
     if (priorClass !== "unknown") {
       log.warn(
         {

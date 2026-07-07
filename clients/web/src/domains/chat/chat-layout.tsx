@@ -12,7 +12,7 @@ import { useAssistantLifecycleStore } from "@/assistant/lifecycle-store";
 import { useResolvedAssistantsStore } from "@/stores/resolved-assistants-store";
 import { MOBILE_MEDIA_QUERY, useIsMobile } from "@/hooks/use-is-mobile";
 import { getLocalBool, getLocalNumber, setLocalBool, setLocalNumber } from "@/utils/local-settings";
-import { routes } from "@/utils/routes";
+import { isAboutAssistantPath, routes } from "@/utils/routes";
 
 import { useChatLayoutSlotsStore } from "@/components/layout/chat-layout-slots-store";
 import { useElectronDockSync } from "@/domains/chat/hooks/use-electron-dock-sync";
@@ -21,7 +21,12 @@ import {
     useOpenAppFromChat,
 } from "@/domains/chat/hooks/use-open-app-from-chat";
 import { useHomeUnreadBadge } from "@/hooks/use-home-unread-badge";
+import {
+    DRAWER_SLIDE_MS,
+    useEdgeSwipeDrawer,
+} from "@/hooks/use-edge-swipe-drawer";
 import { useCommandPaletteStore } from "@/stores/command-palette-store";
+import { useEdgeSwipeArbiterStore } from "@/stores/edge-swipe-arbiter-store";
 
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import { useAttentionTracking } from "@/domains/chat/hooks/use-attention-tracking";
@@ -242,11 +247,7 @@ export function ChatLayout() {
     location.pathname === routes.home ||
     location.pathname === routes.schedules.root ||
     location.pathname.startsWith(`${routes.schedules.root}/`);
-  const isIdentityActive =
-    location.pathname === routes.identity ||
-    location.pathname === routes.skills ||
-    location.pathname === routes.workspace ||
-    location.pathname.startsWith(routes.contacts.root);
+  const isIdentityActive = isAboutAssistantPath(location.pathname);
 
   // --- Sidebar collapsed / drawer state ---
   const [collapsed, setCollapsed] = useState<boolean>(readPersistedCollapsed);
@@ -263,13 +264,20 @@ export function ChatLayout() {
 
   const isMobile = useIsMobile();
   const [drawerOpen, setDrawerOpen] = useState<boolean>(false);
+  // True while a left-edge swipe is dragging the drawer in from off-screen but
+  // has not yet committed open; keeps the panel mounted so its transform can
+  // track the finger before `drawerOpen` flips.
+  const [drawerDragging, setDrawerDragging] = useState<boolean>(false);
 
   useEffect(() => {
-    if (!isMobile) setDrawerOpen(false);
+    if (!isMobile) {
+      setDrawerOpen(false);
+      setDrawerDragging(false);
+    }
   }, [isMobile]);
 
   useEffect(() => {
-    if (!sidebarCollapseRequested) return;
+    if (!sidebarCollapseRequested) {return;}
     // One-shot: research-onboarding asked us to open with the side panel
     // collapsed across the whole web experience (not just desktop). Collapse
     // the desktop sidebar — `setCollapsed(true)` flows through the persistence
@@ -310,6 +318,22 @@ export function ChatLayout() {
   const drawerRef = useChatLayoutDrawer({
     visible: drawerVisible,
     onClose: closeDrawer,
+  });
+
+  // Swipe-to-open-menu: track the drawer in from the left edge, committing open
+  // past threshold. Suppressed whenever a back-swipe owner is active (a pushed
+  // page under this layout) so a single left-edge swipe resolves to exactly one
+  // action — back-navigation on detail pages, open-menu at the stack root.
+  const backSwipeOwnerCount = useEdgeSwipeArbiterStore.use.backOwnerCount();
+  useEdgeSwipeDrawer({
+    panelRef: drawerRef,
+    enabled: isMobile && !drawerOpen && backSwipeOwnerCount === 0,
+    onDragStart: () => setDrawerDragging(true),
+    onOpen: () => {
+      setDrawerOpen(true);
+      setDrawerDragging(false);
+    },
+    onSettle: () => setDrawerDragging(false),
   });
 
   const activeConversationId = useConversationStore.use.activeConversationId();
@@ -442,27 +466,27 @@ export function ChatLayout() {
     commandPalette: () => {
       void openCommandPaletteWindow()
         .then((opened) => {
-          if (!opened) useCommandPaletteStore.getState().toggle();
+          if (!opened) {useCommandPaletteStore.getState().toggle();}
         })
         .catch(() => {
           useCommandPaletteStore.getState().toggle();
         });
     },
     previousConversation: () => {
-      if (!activeConversationId || conversations.length === 0) return;
+      if (!activeConversationId || conversations.length === 0) {return;}
       const idx = conversations.findIndex(
         (c) => c.conversationId === activeConversationId,
       );
       const prev = conversations[idx - 1];
-      if (prev) handleSelectConversation(prev.conversationId);
+      if (prev) {handleSelectConversation(prev.conversationId);}
     },
     nextConversation: () => {
-      if (!activeConversationId || conversations.length === 0) return;
+      if (!activeConversationId || conversations.length === 0) {return;}
       const idx = conversations.findIndex(
         (c) => c.conversationId === activeConversationId,
       );
       const next = conversations[idx + 1];
-      if (next) handleSelectConversation(next.conversationId);
+      if (next) {handleSelectConversation(next.conversationId);}
     },
     openConversation: (command) => {
       if (command.kind === "openConversation") {
@@ -538,7 +562,7 @@ export function ChatLayout() {
         location.pathname,
         activeConversationId,
       );
-      if (dest) void navigate(dest);
+      if (dest) {void navigate(dest);}
       await openAppFromChat(appId);
     },
     [location.pathname, navigate, activeConversationId, openAppFromChat],
@@ -648,11 +672,15 @@ export function ChatLayout() {
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
           <Outlet  />
-          {drawerVisible ? (
+          {drawerVisible || drawerDragging ? (
             <div
               ref={drawerRef}
               className="fixed inset-0"
-              style={{ zIndex: 40 }}
+              style={{
+                zIndex: 40,
+                transform: drawerOpen ? "translateX(0)" : "translateX(-100%)",
+                transition: `transform ${DRAWER_SLIDE_MS}ms ease-out`,
+              }}
               role="dialog"
               aria-modal="true"
               aria-label="Navigation"

@@ -71,7 +71,6 @@ import type { ActivationMomentParam } from "../telemetry/activation-funnel.js";
 import type { UsageActor } from "../usage/actors.js";
 import { getLogger } from "../util/logger.js";
 import { timeAgo } from "../util/time.js";
-import { truncate } from "../util/truncate.js";
 import { getWorkspaceGitService } from "../workspace/git-service.js";
 import { commitTurnChanges } from "../workspace/turn-commit.js";
 import { ABORT_WATCHDOG_MS } from "./abort-watchdog.js";
@@ -606,15 +605,6 @@ export async function runAgentLoopImpl(
       ctx.emitActivityState("idle", "error_terminal", {
         anchor: "global",
         requestId: reqId,
-      });
-      ctx.traceEmitter.emit("request_error", message, {
-        requestId: reqId,
-        status: "error",
-        attributes: {
-          errorCategory: DISK_PRESSURE_ERROR_CATEGORY,
-          errorCode: DISK_PRESSURE_ERROR_CODE,
-          diskPressureReason: diskPressureDecision.reason,
-        },
       });
       onEvent({
         type: "error",
@@ -1377,14 +1367,6 @@ export async function runAgentLoopImpl(
         anchor: "global",
         requestId: reqId,
       });
-      ctx.traceEmitter.emit(
-        "generation_cancelled",
-        "Generation cancelled by user",
-        {
-          requestId: reqId,
-          status: "warning",
-        },
-      );
       onEvent({
         type: "generation_cancelled",
         conversationId: ctx.conversationId,
@@ -1419,29 +1401,12 @@ export async function runAgentLoopImpl(
           anchor: "global",
           requestId: reqId,
         });
-        ctx.traceEmitter.emit(
-          "generation_cancelled",
-          "Generation cancelled by user",
-          {
-            requestId: reqId,
-            status: "warning",
-          },
-        );
         onEvent({
           type: "generation_cancelled",
           conversationId: ctx.conversationId,
         });
         publishLoopMessagesChanged();
       } else if (yieldedForHandoff) {
-        ctx.traceEmitter.emit(
-          "generation_handoff",
-          "Handing off to next queued message",
-          {
-            requestId: reqId,
-            status: "info",
-            attributes: { queuedCount: ctx.getQueueDepth() },
-          },
-        );
         onEvent({
           type: "generation_handoff",
           conversationId: ctx.conversationId,
@@ -1463,14 +1428,6 @@ export async function runAgentLoopImpl(
           anchor: "global",
           requestId: reqId,
         });
-        ctx.traceEmitter.emit(
-          "message_complete",
-          "Message processing complete",
-          {
-            requestId: reqId,
-            status: "success",
-          },
-        );
         onEvent({
           type: "message_complete",
           conversationId: ctx.conversationId,
@@ -1510,14 +1467,6 @@ export async function runAgentLoopImpl(
         requestId: reqId,
       });
       rlog.info("Generation cancelled by user");
-      ctx.traceEmitter.emit(
-        "generation_cancelled",
-        "Generation cancelled by user",
-        {
-          requestId: reqId,
-          status: "warning",
-        },
-      );
       onEvent({
         type: "generation_cancelled",
         conversationId: ctx.conversationId,
@@ -1528,20 +1477,8 @@ export async function runAgentLoopImpl(
         anchor: "global",
         requestId: reqId,
       });
-      const message = err instanceof Error ? err.message : String(err);
-      const errorClass = err instanceof Error ? err.constructor.name : "Error";
       rlog.error({ err }, "Conversation processing error");
       const classified = classifyConversationError(err, errorCtx);
-      ctx.traceEmitter.emit("request_error", truncate(message, 200, ""), {
-        requestId: reqId,
-        status: "error",
-        attributes: {
-          errorClass,
-          message: truncate(message, 500, ""),
-          errorCategory: classified.errorCategory,
-          errorCode: classified.code,
-        },
-      });
       onEvent({
         type: "error",
         conversationId: ctx.conversationId,
@@ -1586,7 +1523,7 @@ export async function runAgentLoopImpl(
       void writeRelationshipState().catch(() => {});
     }
 
-    ctx.profiler.emitSummary(ctx.traceEmitter, reqId);
+    ctx.profiler.emitSummary(reqId);
 
     // Tear down this turn's per-turn state. Abort reliably drives the loop to
     // this `finally` within a bounded time — cooperative signal propagation

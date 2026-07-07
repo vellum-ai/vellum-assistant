@@ -81,7 +81,15 @@ describe("getModelProfiles", () => {
     const keys = getModelProfiles().map((p) => p.key);
     // THEN profileOrder keys come first (deduped, existing-only), then the rest
     // alphabetically.
-    expect(keys).toEqual(["balanced", "cost-optimized", "alpha", "zeta"]);
+    // The catalog default not shadowed by the workspace ("quality-optimized")
+    // joins the alphabetical tail.
+    expect(keys).toEqual([
+      "balanced",
+      "cost-optimized",
+      "alpha",
+      "quality-optimized",
+      "zeta",
+    ]);
   });
 
   test("includes mix profiles and flags them via isMix", () => {
@@ -108,6 +116,9 @@ describe("getModelProfiles", () => {
       ["alpha", false],
       ["beta", false],
       ["blend", true],
+      ["balanced", false],
+      ["cost-optimized", false],
+      ["quality-optimized", false],
     ]);
   });
 
@@ -154,6 +165,9 @@ describe("getModelProfiles", () => {
     expect(flags).toEqual([
       ["alpha", false],
       ["beta", true],
+      ["balanced", false],
+      ["cost-optimized", false],
+      ["quality-optimized", false],
     ]);
   });
 
@@ -195,6 +209,9 @@ describe("getModelProfiles", () => {
     expect(flags).toEqual([
       ["alpha", false],
       ["beta", true],
+      ["balanced", false],
+      ["cost-optimized", false],
+      ["quality-optimized", false],
     ]);
   });
 
@@ -221,11 +238,15 @@ describe("getModelProfiles", () => {
     expect(byKey.bare).toBeNull();
   });
 
-  test("returns an empty list when the workspace defines no profiles", () => {
+  test("lists only the code-catalog defaults when the workspace defines no profiles", () => {
     // GIVEN a workspace with no profiles defined.
     writeFixtureConfig({ llm: { profiles: {}, profileOrder: [] } });
     // WHEN the profiles are listed.
-    // THEN the result is empty.
-    expect(getModelProfiles()).toEqual([]);
+    // THEN the always-available catalog defaults are the whole listing.
+    expect(
+      getModelProfiles()
+        .map((p) => p.key)
+        .sort(),
+    ).toEqual(["balanced", "cost-optimized", "quality-optimized"]);
   });
 });

@@ -56,6 +56,7 @@ import {
   isProviderConnected,
   listActiveConnectionsByProvider,
   listConnections,
+  migrateProviderBaseUrl,
   registerProvider,
   seedProviders,
   updateConnection,
@@ -581,6 +582,84 @@ describe("provider operations", () => {
       const outlook = getProvider("outlook");
       expect(outlook).toBeDefined();
       expect(outlook!.revokeUrl).toBeNull();
+    });
+
+    test("seedOAuthProviders seeds google with a host-only base URL", () => {
+      seedOAuthProviders();
+      const google = getProvider("google");
+      expect(google!.baseUrl).toBe("https://www.googleapis.com");
+    });
+
+    test("seedOAuthProviders advances a stale gmail-scoped google base URL to the host-only default", () => {
+      // Simulate a pre-existing install seeded with the old mailbox-scoped base
+      // URL, then preserved by seedProviders' COALESCE on subsequent startups.
+      seedProviders([
+        {
+          provider: "google",
+          authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+          tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+          baseUrl: "https://gmail.googleapis.com/gmail/v1/users/me",
+          defaultScopes: [],
+        },
+      ]);
+      expect(getProvider("google")!.baseUrl).toBe(
+        "https://gmail.googleapis.com/gmail/v1/users/me",
+      );
+
+      seedOAuthProviders();
+
+      expect(getProvider("google")!.baseUrl).toBe("https://www.googleapis.com");
+    });
+
+    test("seedOAuthProviders leaves a user-customized google base URL untouched", () => {
+      seedProviders([
+        {
+          provider: "google",
+          authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+          tokenExchangeUrl: "https://oauth2.googleapis.com/token",
+          baseUrl: "https://proxy.internal.example/google",
+          defaultScopes: [],
+        },
+      ]);
+
+      seedOAuthProviders();
+
+      expect(getProvider("google")!.baseUrl).toBe(
+        "https://proxy.internal.example/google",
+      );
+    });
+
+    test("migrateProviderBaseUrl only rewrites rows holding the stale value", () => {
+      seedProviders([
+        {
+          provider: "test-provider",
+          authorizeUrl: "https://example.com/authorize",
+          tokenExchangeUrl: "https://example.com/token",
+          baseUrl: "https://old.example.com",
+          defaultScopes: [],
+        },
+      ]);
+
+      const changed = migrateProviderBaseUrl({
+        provider: "test-provider",
+        staleBaseUrl: "https://old.example.com",
+        nextBaseUrl: "https://new.example.com",
+      });
+      expect(changed).toBe(1);
+      expect(getProvider("test-provider")!.baseUrl).toBe(
+        "https://new.example.com",
+      );
+
+      // Idempotent: a second run matches nothing.
+      const changedAgain = migrateProviderBaseUrl({
+        provider: "test-provider",
+        staleBaseUrl: "https://old.example.com",
+        nextBaseUrl: "https://new.example.com",
+      });
+      expect(changedAgain).toBe(0);
+      expect(getProvider("test-provider")!.baseUrl).toBe(
+        "https://new.example.com",
+      );
     });
 
     test("applies client_secret_post default when tokenEndpointAuthMethod is omitted from seed", () => {

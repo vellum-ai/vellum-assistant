@@ -990,7 +990,7 @@ async function executeTavilySearchHelper(
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
-          "X-Client-Source": "vellum-assistant",
+          "X-Client-Name": "vellum-assistant",
         },
         body: JSON.stringify(body),
       });

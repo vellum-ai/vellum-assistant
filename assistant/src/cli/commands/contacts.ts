@@ -522,6 +522,10 @@ Examples:
       // invites
       // -----------------------------------------------------------------------
 
+      // Invite subcommands dispatch daemon route operationIds that mirror the
+      // gateway wire names in INVITES_IPC_METHODS (@vellumai/gateway-client) —
+      // kept as literals because `ipc`-tagged CLI commands may not import
+      // contract modules (cli/no-daemon-internals).
       const invites = contacts
         .command("invites")
         .description("Manage contact invites");

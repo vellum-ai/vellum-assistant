@@ -55,7 +55,7 @@ class FakeConversation {
   }
   conversationType = "background";
   updateClient() {}
-  setIsSubagent() {}
+
   setTrustContext() {}
   setAuthContext() {}
   getAuthContext() {

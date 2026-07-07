@@ -59,7 +59,6 @@ function createMockContext(
           supportsDynamicUi: overrides.supportsDynamicUi ?? true,
         }
       : undefined,
-    traceEmitter: { emit: () => {} },
     sendToClient: (msg: ServerMessage) => sentMessages.push(msg),
     pendingSurfaceActions: new Map(),
     lastSurfaceAction: new Map(),

@@ -10,7 +10,7 @@ import { ConfirmationDecisionSchema } from "../../api/responses/conversation-mes
 import { getConfig } from "../../config/loader.js";
 import type { LLMCallSite, Speed } from "../../config/schemas/llm.js";
 import { ipcCall as gatewayIpcCall } from "../../ipc/gateway-client.js";
-import type { SecretPromptResult } from "../../permissions/secret-prompter.js";
+import type { SecretPromptResult } from "../../permissions/secret-prompt-types.js";
 import { isPlaceholderSentinelText } from "../../providers/placeholder-sentinels.js";
 import { broadcastMessage } from "../../runtime/assistant-event-hub.js";
 import type { AuthContext } from "../../runtime/auth/types.js";

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 
+import type { ExternalConversationBinding } from "../../persistence/external-conversation-store.js";
 import type {
   WorkflowJournalEntry,
   WorkflowRun,
@@ -86,15 +87,27 @@ function setup(opts: {
   threshold?: "none" | "low" | "medium" | "high";
   /** Journal entries returned by getJournal, keyed by run id. */
   journal?: Record<string, WorkflowJournalEntry[]>;
+  /** externalChatId returned by the binding lookup (Slack channel id). */
+  bindingExternalChatId?: string;
 }): {
   aborted: string[];
   resumed: string[];
   listCalls: Array<{ limit?: number; status?: string }>;
+  thresholdCalls: Array<{
+    conversationId?: string;
+    executionContext?: string;
+    cellQuery?: unknown;
+  }>;
 } {
   const runs = opts.runs ?? [];
   const aborted: string[] = [];
   const resumed: string[] = [];
   const listCalls: Array<{ limit?: number; status?: string }> = [];
+  const thresholdCalls: Array<{
+    conversationId?: string;
+    executionContext?: string;
+    cellQuery?: unknown;
+  }> = [];
   const manager: FakeManager = {
     list: (o) => {
       listCalls.push({ limit: o?.limit, status: o?.status });
@@ -117,10 +130,24 @@ function setup(opts: {
   __setWorkflowRoutesDeps({
     getManager: () => manager,
     listWorkflows: () => opts.saved ?? [],
-    getAutoApproveThreshold: async () => opts.threshold ?? "none",
+    getAutoApproveThreshold: async (
+      conversationId,
+      executionContext,
+      cellQuery,
+    ) => {
+      thresholdCalls.push({ conversationId, executionContext, cellQuery });
+      return opts.threshold ?? "none";
+    },
+    getBindingByConversation: (conversationId: string) =>
+      opts.bindingExternalChatId
+        ? ({
+            conversationId,
+            externalChatId: opts.bindingExternalChatId,
+          } as ExternalConversationBinding)
+        : null,
     getJournal: (runId) => opts.journal?.[runId] ?? [],
   });
-  return { aborted, resumed, listCalls };
+  return { aborted, resumed, listCalls, thresholdCalls };
 }
 
 afterEach(() => {
@@ -240,6 +267,91 @@ describe("workflow routes (happy paths)", () => {
     })) as { ok: boolean; runId: string };
     expect(result).toEqual({ ok: true, runId: "run-1" });
     expect(resumed).toEqual(["run-1"]);
+  });
+
+  test("resumeWorkflowRun consent gate consults the channel-permission cell for channel-originated runs", async () => {
+    // The run's persisted trust snapshot carries its originating channel
+    // coordinates; the gate must thread them into the threshold read so a
+    // strict channel cell governs the no-prompt resume instead of a
+    // possibly-looser global. The coordinates mirror what live tool calls
+    // use: adapter = sourceChannel, contact-type = trustClass, channel ID
+    // from the conversation binding.
+    const { thresholdCalls } = setup({
+      threshold: "high",
+      bindingExternalChatId: "C123",
+      runs: [
+        makeRun({
+          id: "run-1",
+          status: "interrupted",
+          conversationId: "conv-1",
+          trust: { sourceChannel: "slack", trustClass: "trusted_contact" },
+          capabilities: { tools: ["bash"], hostFunctions: [], persona: false },
+        }),
+      ],
+    });
+    await route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } });
+
+    expect(thresholdCalls).toEqual([
+      {
+        conversationId: "conv-1",
+        executionContext: "conversation",
+        cellQuery: {
+          adapter: "slack",
+          channelType: undefined,
+          channelExternalId: "C123",
+          contactType: "trusted_contact",
+        },
+      },
+    ]);
+  });
+
+  test("resumeWorkflowRun consent gate carries the channel ID for non-Slack adapters too", async () => {
+    // The binding's external chat id is the canonical conversation address
+    // for every channel adapter, so a Telegram-originated run threads its
+    // chat id into the gate the same way a Slack run does — a strict
+    // channel-scoped Telegram cell must govern the no-prompt resume.
+    const { thresholdCalls } = setup({
+      threshold: "high",
+      bindingExternalChatId: "-1001234500000",
+      runs: [
+        makeRun({
+          id: "run-1",
+          status: "interrupted",
+          conversationId: "conv-1",
+          trust: { sourceChannel: "telegram", trustClass: "trusted_contact" },
+          capabilities: { tools: ["bash"], hostFunctions: [], persona: false },
+        }),
+      ],
+    });
+    await route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } });
+
+    expect(thresholdCalls[0].cellQuery).toEqual({
+      adapter: "telegram",
+      channelType: undefined,
+      channelExternalId: "-1001234500000",
+      contactType: "trusted_contact",
+    });
+  });
+
+  test("resumeWorkflowRun consent gate builds no cell query without channel coordinates", async () => {
+    // Desktop/internal runs (no trust snapshot, or no source channel) have
+    // no channel coordinates — the threshold read must fall through to the
+    // conversation override / global cascade exactly as before.
+    const { thresholdCalls } = setup({
+      threshold: "high",
+      runs: [
+        makeRun({
+          id: "run-1",
+          status: "interrupted",
+          trust: null,
+          capabilities: { tools: ["bash"], hostFunctions: [], persona: false },
+        }),
+      ],
+    });
+    await route("resumeWorkflowRun").handler({ pathParams: { id: "run-1" } });
+
+    expect(thresholdCalls).toHaveLength(1);
+    expect(thresholdCalls[0].cellQuery).toBeUndefined();
   });
 
   test("resumeWorkflowRun rejects a run stored in the older RESOLVED shape", async () => {

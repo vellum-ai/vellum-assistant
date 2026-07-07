@@ -141,7 +141,7 @@ export function getBootstrapSocketPath(): string {
 }
 
 // ---------------------------------------------------------------------------
-// Local-mode standalone socket (temporary — CES_STANDALONE)
+// Local-mode CES socket
 // ---------------------------------------------------------------------------
 
 /** Default local-mode CES socket filename (under the local data root). */
@@ -150,10 +150,9 @@ const LOCAL_SOCKET_NAME = "ces.sock";
 /**
  * Return the path to the local-mode CES Unix socket.
  *
- * Used when local CES runs as a standalone sibling (`CES_STANDALONE=1`, the
- * CLI-launched opt-in) rather than as the assistant's stdio
- * child. The socket lives under the CES-private local data root, whose
- * directory permissions are the access boundary.
+ * Used when local CES runs as a CLI-launched sibling process. The socket
+ * lives under the CES-private local data root, whose directory permissions
+ * are the access boundary.
  *
  * Priority:
  * 1. `CES_LOCAL_SOCKET` env var (full file path override; the CLI sets this

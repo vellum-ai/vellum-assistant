@@ -92,10 +92,41 @@ export function isInviteCodeRedemptionEnabled(channelType: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// IPC methods
+// ---------------------------------------------------------------------------
+
+/**
+ * Gateway IPC method names for the invite lifecycle. Keys match the daemon
+ * client's wrapper names; values are the wire method strings. The daemon's
+ * relay routes deliberately reuse the same strings as their HTTP/CLI
+ * operationIds (unlike sessions, where the daemon surface owns distinct
+ * `channel_verification_sessions_*` names).
+ *
+ * Deliberately NOT here: `invites_compose_presentation` and
+ * `invites_trigger_call` are daemon-SERVED invite routes the gateway calls
+ * (reverse direction), not gateway invite methods.
+ */
+export const INVITES_IPC_METHODS = {
+  list: "invites_list",
+  create: "invites_create",
+  revoke: "invites_revoke",
+  redeem: "invites_redeem",
+  getActiveVoiceInvite: "get_active_voice_invite",
+  redeemVoiceInvite: "redeem_voice_invite",
+} as const;
+
+export type InvitesIpcMethod =
+  (typeof INVITES_IPC_METHODS)[keyof typeof INVITES_IPC_METHODS];
+
+// ---------------------------------------------------------------------------
 // Redemption outcome
 // ---------------------------------------------------------------------------
 
 const INVITE_REDEMPTION_RESULT_VALUES = ["redeemed", "already_member"] as const;
+
+export const InviteRedemptionResultSchema = z.enum(
+  INVITE_REDEMPTION_RESULT_VALUES,
+);
 
 export type InviteRedemptionResult =
   (typeof INVITE_REDEMPTION_RESULT_VALUES)[number];
@@ -131,9 +162,9 @@ export type InviteRedemptionOutcome = z.infer<
 // The schemas below define the gateway-native invite redemption IPC surface.
 // Schema-to-method mapping:
 //
-// - `RedeemInviteByCodeRequestSchema` / `RedeemInviteByTokenRequestSchema` —
-//   request shapes for the gateway redemption engine (code and link-token
-//   redemption).
+// - `RedeemInviteByCodeRequest` (plain type) /
+//   `RedeemInviteByTokenRequestSchema` — request shapes for the gateway
+//   redemption engine (code and link-token redemption).
 // - `RedeemVoiceInviteRequestSchema` — gateway IPC `redeem_voice_invite`.
 // - `GetActiveVoiceInviteRequestSchema` — gateway IPC
 //   `get_active_voice_invite`.
@@ -146,20 +177,17 @@ export type InviteRedemptionOutcome = z.infer<
 /**
  * Gateway redemption-engine request for code redemption (6-digit code).
  * Not an `invites_redeem` wire shape: bare-code redemption only happens via
- * the gateway inbound intercept, which supplies the sender identity itself.
+ * the gateway inbound intercept, which supplies the sender identity itself —
+ * a plain type, never schema-parsed off a wire.
  */
-export const RedeemInviteByCodeRequestSchema = z.object({
-  code: z.string().min(1),
-  sourceChannel: z.string().trim().min(1),
-  externalUserId: z.string().optional(),
-  externalChatId: z.string().optional(),
-  displayName: z.string().optional(),
-  username: z.string().optional(),
-});
-
-export type RedeemInviteByCodeRequest = z.infer<
-  typeof RedeemInviteByCodeRequestSchema
->;
+export interface RedeemInviteByCodeRequest {
+  code: string;
+  sourceChannel: string;
+  externalUserId?: string;
+  externalChatId?: string;
+  displayName?: string;
+  username?: string;
+}
 
 /**
  * Gateway redemption-engine request for token redemption. `token` is the raw
@@ -214,3 +242,105 @@ export const ActiveVoiceInviteSchema = z.object({
 });
 
 export type ActiveVoiceInvite = z.infer<typeof ActiveVoiceInviteSchema>;
+
+// ---------------------------------------------------------------------------
+// IPC response schemas
+// ---------------------------------------------------------------------------
+
+/**
+ * Sanitized gateway invite payload as carried on the daemon ↔ gateway wire
+ * (list/revoke rows, the one-time create payload, and the token-redeem row).
+ * Only the stable identity/lifecycle fields are pinned; everything else
+ * passes through — the create payload carries conditional one-time plaintext
+ * secrets and the daemon layers presentation fields on afterwards, so the
+ * wire shape is deliberately open. Never carries `inviteCodeHash` /
+ * `tokenHash` / `voiceCodeHash` (see the gateway's sanitizeInviteRow).
+ */
+export const InviteWireSchema = z
+  .object({
+    id: z.string(),
+    sourceChannel: z.string(),
+    status: z.string(),
+  })
+  .passthrough();
+
+export type InviteWire = z.infer<typeof InviteWireSchema>;
+
+/** Response for gateway IPC `invites_list`. */
+export const ListInvitesIpcResponseSchema = z.object({
+  invites: z.array(InviteWireSchema),
+});
+
+export type ListInvitesIpcResponse = z.infer<
+  typeof ListInvitesIpcResponseSchema
+>;
+
+/**
+ * Response for gateway IPC `invites_create` — the one-time minted payload.
+ * `rawToken` (link invites only) is never fetchable again.
+ */
+export const CreateInviteIpcResponseSchema = z.object({
+  invite: InviteWireSchema,
+  rawToken: z.string().optional(),
+});
+
+export type CreateInviteIpcResponse = z.infer<
+  typeof CreateInviteIpcResponseSchema
+>;
+
+/** Response for gateway IPC `invites_revoke` (idempotent; sanitized row). */
+export const RevokeInviteIpcResponseSchema = z.object({
+  invite: InviteWireSchema,
+});
+
+export type RevokeInviteIpcResponse = z.infer<
+  typeof RevokeInviteIpcResponseSchema
+>;
+
+/**
+ * Success response for the `invites_redeem` voice branch. Failures throw a
+ * 400 typed error with the engine reason, so only success travels here.
+ */
+export const RedeemInviteVoiceIpcResponseSchema = z.object({
+  ok: z.literal(true),
+  type: InviteRedemptionResultSchema,
+  memberId: z.string(),
+  inviteId: z.string().optional(),
+});
+
+export type RedeemInviteVoiceIpcResponse = z.infer<
+  typeof RedeemInviteVoiceIpcResponseSchema
+>;
+
+/** Success response for the `invites_redeem` token branch. */
+export const RedeemInviteTokenIpcResponseSchema = z.object({
+  ok: z.literal(true),
+  invite: InviteWireSchema,
+  type: InviteRedemptionResultSchema,
+});
+
+export type RedeemInviteTokenIpcResponse = z.infer<
+  typeof RedeemInviteTokenIpcResponseSchema
+>;
+
+/** Response for gateway IPC `get_active_voice_invite`. */
+export const GetActiveVoiceInviteIpcResponseSchema = z.object({
+  invite: ActiveVoiceInviteSchema.nullable(),
+});
+
+export type GetActiveVoiceInviteIpcResponse = z.infer<
+  typeof GetActiveVoiceInviteIpcResponseSchema
+>;
+
+/**
+ * Response for gateway IPC `redeem_voice_invite`. The single generic failure
+ * reason never leaks which check refused.
+ */
+export const RedeemVoiceInviteIpcResponseSchema = z.discriminatedUnion("ok", [
+  z.object({ ok: z.literal(true), outcome: InviteRedemptionOutcomeSchema }),
+  z.object({ ok: z.literal(false), reason: z.literal("invalid_or_expired") }),
+]);
+
+export type RedeemVoiceInviteIpcResponse = z.infer<
+  typeof RedeemVoiceInviteIpcResponseSchema
+>;

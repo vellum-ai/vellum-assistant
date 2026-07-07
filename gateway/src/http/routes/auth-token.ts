@@ -6,7 +6,11 @@ import {
   actorTokenRecordHash,
   isActorTokenRevoked,
 } from "../../auth/actor-token-revocation.js";
-import { ensureVellumGuardianBinding } from "../../auth/guardian-bootstrap.js";
+import {
+  ensureVellumGuardianBinding,
+  VellumGuardianMintRefusedError,
+} from "../../auth/guardian-bootstrap.js";
+import { guardianIntegrityState } from "../../auth/guardian-integrity.js";
 import { CURRENT_POLICY_EPOCH } from "../../auth/policy.js";
 import { mintToken, verifyToken } from "../../auth/token-service.js";
 import { getGatewayDb } from "../../db/connection.js";
@@ -49,6 +53,23 @@ function findSourceActorTokenRecord(
       "Source actor-token lookup failed — minting unrecorded compatibility token",
     );
     return null;
+  }
+}
+
+function guardianRepairRequiredResponse(): Response {
+  return Response.json({ error: "guardian_repair_required" }, { status: 401 });
+}
+
+/** Best-effort: a thrown integrity check must never block a healthy refresh. */
+function guardianKnownMissing(): boolean {
+  try {
+    return guardianIntegrityState() === "missing_guardian";
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : String(err) },
+      "Guardian integrity check threw — proceeding with token refresh",
+    );
+    return false;
   }
 }
 
@@ -135,8 +156,35 @@ export async function handleCreateToken(
   }
 
   const sourceRecord = findSourceActorTokenRecord(bearerToken);
-  const guardianPrincipalId =
-    sourceRecord?.guardianPrincipalId ?? (await ensureVellumGuardianBinding());
+  let guardianPrincipalId = sourceRecord?.guardianPrincipalId;
+  if (guardianPrincipalId) {
+    // Recorded refresh skips the guardian-binding bootstrap, so check
+    // integrity explicitly: a DB that lost its guardian rows would otherwise
+    // keep re-minting tokens that every trust verdict denies, and the client
+    // would never see the repair flow.
+    if (guardianKnownMissing()) {
+      log.error(
+        "Token refresh refused: guardian rows missing over evidence of prior onboarding — repair via guardian init",
+      );
+      return guardianRepairRequiredResponse();
+    }
+  } else {
+    try {
+      guardianPrincipalId = await ensureVellumGuardianBinding();
+    } catch (err) {
+      // Guardian rows lost but the DB shows prior onboarding: minting here
+      // would diverge from prior clients' tokens. Fail closed as a 401 — the
+      // status the web client treats as repairable — so callers offer the
+      // guardian re-init flow instead of dead-ending on a generic retry.
+      if (err instanceof VellumGuardianMintRefusedError) {
+        log.error(
+          "Token create refused: guardian binding missing over evidence of prior onboarding — repair via guardian init",
+        );
+        return guardianRepairRequiredResponse();
+      }
+      throw err;
+    }
+  }
 
   const token = mintToken({
     aud: "vellum-gateway",

@@ -37,11 +37,3 @@ export const Step3InstallAndConnect: Story = {
     },
   },
 };
-
-export const ConnectedThreadBehavior: Story = {
-  args: {
-    connected: true,
-    threadMode: "mention_then_thread",
-    onThreadModeChange: () => {},
-  },
-};

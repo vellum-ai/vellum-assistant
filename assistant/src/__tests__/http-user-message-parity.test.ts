@@ -304,13 +304,18 @@ function makeConversation(overrides: Record<string, unknown> = {}) {
 }
 
 // ── Helper: create an HTTP request to POST /v1/messages ────────────────────
-function makeRequest(content: string, extra: Record<string, unknown> = {}) {
+function makeRequest(
+  content: string,
+  extra: Record<string, unknown> = {},
+  headers: Record<string, string> = {},
+) {
   return new Request("http://localhost/v1/messages", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       "x-vellum-actor-principal-id": "test-user",
       "x-vellum-principal-type": "actor",
+      ...headers,
     },
     body: JSON.stringify({
       conversationKey: "parity-test-key",
@@ -332,6 +337,7 @@ async function sendMessage(
       conversationId: string,
       opts?: Record<string, unknown>,
     ) => void;
+    headers?: Record<string, string>;
   } = {},
 ) {
   return callHandler(
@@ -349,7 +355,7 @@ async function sendMessage(
           resolveAttachments: () => [],
         },
       }),
-    makeRequest(content, extra),
+    makeRequest(content, extra, options.headers ?? {}),
     undefined,
     202,
   );
@@ -523,6 +529,152 @@ describe("HTTP POST /v1/messages clientTimezone transport metadata", () => {
     });
     expect(persistUserMessage).toHaveBeenCalledTimes(1);
     expect(runAgentLoop).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ============================================================================
+// CLIENT METADATA — sanitized x-vellum-* headers persisted under
+// metadata.client for turn analytics
+// ============================================================================
+describe("HTTP POST /v1/messages client metadata headers", () => {
+  beforeEach(() => {
+    routeGuardianReplyMock.mockClear();
+    listPendingByDestinationMock.mockClear();
+    listCanonicalMock.mockClear();
+    addMessageMock.mockClear();
+  });
+
+  const clientMetadataHeaders = {
+    "x-vellum-browser-family": "safari",
+    "x-vellum-browser-version": "17",
+    "x-vellum-client-os": "ios",
+    "x-vellum-interface-version": "1.2.3",
+  };
+
+  test("persists client metadata on immediate user messages", async () => {
+    const persistUserMessage = mock(
+      async (_options: { metadata?: Record<string, unknown> }) => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
+      }),
+    );
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+
+    const res = await sendMessage(
+      "hello",
+      conversation,
+      {},
+      {
+        headers: clientMetadataHeaders,
+      },
+    );
+
+    expect(res.status).toBe(202);
+    expect(persistUserMessage).toHaveBeenCalledTimes(1);
+    const persistCall = persistUserMessage.mock.calls[0];
+    expect(persistCall).toBeDefined();
+    const [persistOptions] = persistCall as unknown as [
+      { metadata?: Record<string, unknown> },
+    ];
+    expect(persistOptions.metadata).toEqual({
+      client: {
+        browser_family: "safari",
+        browser_version: "17",
+        os: "ios",
+        interface_version: "1.2.3",
+      },
+    });
+  });
+
+  test("persists client metadata on queued user messages", async () => {
+    const enqueueMessage = mock(
+      (_options: { metadata?: Record<string, unknown> }) => ({
+        queued: true,
+        requestId: "queued-id",
+      }),
+    );
+    const conversation = makeConversation({
+      isProcessing: () => true,
+      enqueueMessage,
+    });
+
+    const res = await sendMessage(
+      "hello",
+      conversation,
+      {},
+      {
+        headers: clientMetadataHeaders,
+      },
+    );
+
+    expect(res.status).toBe(202);
+    expect(enqueueMessage).toHaveBeenCalledTimes(1);
+    const enqueueCall = enqueueMessage.mock.calls[0];
+    expect(enqueueCall).toBeDefined();
+    const [enqueueOptions] = enqueueCall as unknown as [
+      { metadata?: Record<string, unknown> },
+    ];
+    expect(enqueueOptions.metadata).toMatchObject({
+      client: {
+        browser_family: "safari",
+        browser_version: "17",
+        os: "ios",
+        interface_version: "1.2.3",
+      },
+    });
+  });
+
+  test("malformed header values are dropped, valid ones kept", async () => {
+    const persistUserMessage = mock(
+      async (_options: { metadata?: Record<string, unknown> }) => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
+      }),
+    );
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+
+    const res = await sendMessage(
+      "hello",
+      conversation,
+      {},
+      {
+        headers: {
+          // Uppercase + space + disallowed chars → normalized or dropped.
+          "x-vellum-browser-family": "  SAFARI  ",
+          "x-vellum-browser-version": "not allowed!",
+          "x-vellum-client-os": "a".repeat(65),
+        },
+      },
+    );
+
+    expect(res.status).toBe(202);
+    const [persistOptions] = persistUserMessage.mock.calls[0] as unknown as [
+      { metadata?: Record<string, unknown> },
+    ];
+    expect(persistOptions.metadata).toEqual({
+      client: { browser_family: "safari" },
+    });
+  });
+
+  test("no client metadata headers → metadata unchanged", async () => {
+    const persistUserMessage = mock(
+      async (_options: { metadata?: Record<string, unknown> }) => ({
+        id: "persisted-msg-id",
+        deduplicated: false,
+      }),
+    );
+    const runAgentLoop = mock(async () => undefined);
+    const conversation = makeConversation({ persistUserMessage, runAgentLoop });
+
+    const res = await sendMessage("hello", conversation);
+
+    expect(res.status).toBe(202);
+    const [persistOptions] = persistUserMessage.mock.calls[0] as unknown as [
+      { metadata?: Record<string, unknown> },
+    ];
+    expect(persistOptions.metadata).toBeUndefined();
   });
 });
 

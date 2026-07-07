@@ -27,7 +27,6 @@ import {
   pruneOldConversationsJob,
   pruneOldLlmRequestLogsJob,
   pruneOldToolInvocationsJob,
-  pruneOldTraceEventsJob,
 } from "../../../persistence/job-handlers/cleanup.js";
 import {
   deleteMessageLexicalJob,
@@ -69,9 +68,6 @@ export function registerMemoryPluginJobHandlers(): void {
   );
   registerJobHandler("prune_old_llm_request_logs", (job, config) =>
     pruneOldLlmRequestLogsJob(job, config),
-  );
-  registerJobHandler("prune_old_trace_events", (job, config) =>
-    pruneOldTraceEventsJob(job, config),
   );
   registerJobHandler("prune_old_tool_invocations", (job, config) =>
     pruneOldToolInvocationsJob(job, config),

@@ -468,9 +468,6 @@ function makeCtx(
     skillProjectionCache:
       new Map() as unknown as Conversation["skillProjectionCache"],
 
-    traceEmitter: {
-      emit: () => {},
-    } as unknown as Conversation["traceEmitter"],
     profiler: {
       startRequest: () => {},
       emitSummary: () => {},

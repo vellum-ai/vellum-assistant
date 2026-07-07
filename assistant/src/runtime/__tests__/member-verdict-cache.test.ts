@@ -50,13 +50,7 @@ describe("member-verdict-cache", () => {
     expect(getCachedMemberAcl("phone", PHONE)).toEqual({
       status: "active",
       policy: "allow",
-      role: "contact",
     });
-  });
-
-  test("guardian trustClass derives the guardian role", () => {
-    setMemberVerdict("phone", PHONE, memberVerdict({ trustClass: "guardian" }));
-    expect(getCachedMemberAcl("phone", PHONE)?.role).toBe("guardian");
   });
 
   test("read canonicalizes the actor id like the write", () => {

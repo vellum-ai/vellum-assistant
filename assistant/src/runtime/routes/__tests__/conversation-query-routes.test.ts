@@ -65,6 +65,7 @@ import {
   llmRequestLogs,
   memoryV2ActivationLogs,
   messages,
+  providerConnections,
 } from "../../../persistence/schema/index.js";
 import {
   backfillMemoryV2ActivationMessageId,
@@ -825,6 +826,16 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
   });
 
   test("auto-derives provider_connection when omitted from body (Any active)", async () => {
+    // Start from a clean connection slate — provider_connections persists
+    // across tests in this file, so a leaked openai-personal would otherwise
+    // win the derivation.
+    getDb().delete(providerConnections).run();
+    // The single Vellum-managed connection serves managed-routable providers.
+    createConnection(getDb(), {
+      name: "vellum",
+      provider: "vellum",
+      auth: { type: "platform" },
+    });
     // Seed an existing binding so the test starts from a non-empty state.
     (
       rawConfigFixture.llm as {
@@ -851,9 +862,38 @@ describe("PUT /v1/config/llm/profiles/:name", () => {
       }
     ).profiles.custom;
 
-    // The canonical "openai-managed" connection exists in the test DB;
-    // the route auto-derives it when the UI omits provider_connection.
-    expect(savedProfile.provider_connection).toBe("openai-managed");
+    // No personal openai connection exists, so the route auto-derives the
+    // single Vellum-managed connection for this managed-routable provider.
+    expect(savedProfile.provider_connection).toBe("vellum");
+  });
+
+  test("Any active derivation skips orphaned legacy *-managed rows", async () => {
+    getDb().delete(providerConnections).run();
+    // Upgraded workspaces may still carry a legacy openai-managed row (hidden
+    // from the list route, deleted by a follow-up migration). It must not be
+    // auto-picked — the derivation should bind to `vellum` instead.
+    createConnection(getDb(), {
+      name: "openai-managed",
+      provider: "openai",
+      auth: { type: "platform" },
+    });
+    createConnection(getDb(), {
+      name: "vellum",
+      provider: "vellum",
+      auth: { type: "platform" },
+    });
+
+    await replaceProfileRoute.handler({
+      pathParams: { name: "custom" },
+      body: { provider: "openai", model: "gpt-5.5" },
+    });
+
+    const savedProfile = (
+      savedRawConfig?.llm as {
+        profiles: Record<string, Record<string, unknown>>;
+      }
+    ).profiles.custom;
+    expect(savedProfile.provider_connection).toBe("vellum");
   });
 
   test("auto-derives provider_connection for BYOK provider (Any active)", async () => {

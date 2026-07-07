@@ -1,5 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 
+import { subscribeCapacitorListener } from "@/runtime/capacitor-listener";
 import { isElectron } from "@/runtime/is-electron";
 
 /**
@@ -42,20 +43,8 @@ export const openUrl = async (url: string): Promise<void> => {
  * Usage:
  *   useEffect(() => openUrlFinishedListener(() => { refetch(); onClose(); }), []);
  */
-export const openUrlFinishedListener = (
-  callback: () => void,
-): (() => void) => {
-  if (!Capacitor.isNativePlatform()) return () => {};
-
-  let handle: { remove: () => void } | null = null;
-
-  void import("@capacitor/browser").then(({ Browser }) => {
-    void Browser.addListener("browserFinished", callback).then((h) => {
-      handle = h;
-    });
+export const openUrlFinishedListener = (callback: () => void): (() => void) =>
+  subscribeCapacitorListener("capacitor_browser_finished", async () => {
+    const { Browser } = await import("@capacitor/browser");
+    return Browser.addListener("browserFinished", callback);
   });
-
-  return () => {
-    handle?.remove();
-  };
-};

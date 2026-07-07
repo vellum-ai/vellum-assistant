@@ -15,18 +15,13 @@
 
 import { randomInt } from "node:crypto";
 
-import { getGuardianDeliveryFresh } from "../contacts/guardian-delivery-reader.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import type { addMessage as addMessageFn } from "../persistence/conversation-crud.js";
 import { notifyGuardianOfAccessRequest as notifyGuardianOfAccessRequestImpl } from "../runtime/access-request-helper.js";
-import {
-  resolveActorTrust,
-  toTrustContext,
-} from "../runtime/actor-trust-resolver.js";
+import { toTrustContext } from "../runtime/actor-trust-resolver.js";
 import {
   trustContextFromVerdict,
-  verdictHasMemberIdentity,
-  verdictMemberUnresolvable,
+  verdictUsability,
 } from "../runtime/trust-verdict-consumer.js";
 import {
   composeVerificationVoice,
@@ -133,10 +128,9 @@ export interface CallSetupFlowDeps {
   /** Gateway-native invite claim. Defaults to call-verification's. */
   attemptInviteCodeRedemption?: typeof attemptInviteCodeRedemptionImpl;
   /**
-   * Re-resolve caller trust after a successful mid-setup activation
-   * (verdict-first with local fallback). Defaults to
-   * {@link resolveMidCallTrustContext}; errors fail soft to the
-   * setup-time trust.
+   * Re-resolve caller trust after a successful mid-setup activation from the
+   * gateway verdict. Defaults to {@link resolveMidCallTrustContext}; errors
+   * (including an unavailable verdict) fail soft to the setup-time trust.
    */
   resolveMidCallTrustContext?(
     assistantId: string,
@@ -271,56 +265,26 @@ function requireDeps<K extends keyof CallSetupFlowDeps>(
 }
 
 /**
- * Re-resolve caller trust after a mid-setup verification/activation. Prefers
- * the gateway verdict (authoritative right after the gateway updated the
- * binding); falls back to local resolution on a missing/failed/unusable
- * verdict so a blip never drops the call. Mirrors the setup path's
- * verdict-first-with-fallback condition.
+ * Re-resolve caller trust after a mid-setup verification/activation from the
+ * gateway verdict (authoritative right after the gateway updated the
+ * binding). Throws on a missing/failed/member-unresolvable verdict — the
+ * caller keeps the setup-time trust, which can only under-privilege relative
+ * to a fresh grant.
  */
 export async function resolveMidCallTrustContext(
-  assistantId: string,
+  _assistantId: string,
   fromNumber: string,
 ): Promise<TrustContext> {
-  const verdict = await getPhoneCallerVerdict(fromNumber);
-
-  // Only a MEMBERLESS unknown verdict is treated as a stale gateway view and
-  // falls back to local: the caller was just activated, and invite redemption
-  // writes the channel assistant-side, so the gateway may not see the member
-  // yet — local resolution has it. A MEMBERFUL unknown verdict (blocked/revoked
-  // member, carrying contactId/channelId) is honored so its deny ACL is
-  // enforced; falling back could lose the gateway's member status if local
-  // state is stale.
-  const memberlessUnknown =
-    verdict?.trustClass === "unknown" && !verdictHasMemberIdentity(verdict);
-  const usable =
-    verdict &&
-    !verdict.resolutionFailed &&
-    !verdictMemberUnresolvable(verdict) &&
-    !memberlessUnknown;
-
-  if (usable) {
-    return trustContextFromVerdict(verdict, {
-      sourceChannel: "phone",
-      conversationExternalId: fromNumber,
-    });
+  const usability = verdictUsability(await getPhoneCallerVerdict(fromNumber));
+  if (!usability.usable) {
+    throw new Error(
+      `Mid-call trust verdict unavailable (${usability.reason})`,
+    );
   }
-
-  // Warm the phone-channel guardian-delivery cache before the SYNC
-  // resolveActorTrust fallback, which reads the IO-free per-channel snapshot
-  // that daemon startup leaves cold for `phone`. Read fresh: gateway-side
-  // binding writes don't invalidate the daemon cache, so a stale empty
-  // snapshot would otherwise survive the TTL and misclassify the guardian.
-  await getGuardianDeliveryFresh({ channelTypes: ["phone"] });
-
-  return toTrustContext(
-    resolveActorTrust({
-      assistantId,
-      sourceChannel: "phone",
-      conversationExternalId: fromNumber,
-      actorExternalId: fromNumber,
-    }),
-    fromNumber,
-  );
+  return trustContextFromVerdict(usability.verdict, {
+    sourceChannel: "phone",
+    conversationExternalId: fromNumber,
+  });
 }
 
 /**
@@ -826,7 +790,6 @@ export class CallSetupFlow {
     const fromNumber = this.verificationFromNumber;
 
     const result = await vdeps.attemptVerificationCode({
-      verificationAssistantId: assistantId,
       verificationFromNumber: fromNumber,
       enteredCode,
       isOutbound,

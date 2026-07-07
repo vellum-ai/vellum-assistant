@@ -1,16 +1,16 @@
 import { getLLMCallSiteLabel } from "../config/llm-callsite-catalog.js";
-import type {
-  GroupByDimension,
-  UsageBucketOptions,
-  UsageDayBucket,
-  UsageTimeRange,
-} from "./llm-usage-store.js";
 import {
   bucketEventsByDay,
   bucketEventsByHour,
   compareUsageBuckets,
   type UsageEventBucketRow,
 } from "./usage-buckets.js";
+import type {
+  GroupByDimension,
+  UsageBucketOptions,
+  UsageDayBucket,
+  UsageTimeRange,
+} from "./usage-types.js";
 
 export interface UsageSeriesGroupValue {
   group: string;

@@ -15,14 +15,20 @@ import { readFileSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
+import { format } from "prettier";
 import { createDocument } from "zod-openapi";
 
 import type { GatewayRouteDefinition } from "../src/http/routes/types.js";
 
 // Import ROUTES from each route module that declares schemas.
 // Add new route modules here as they adopt zod-openapi schemas.
+import { ROUTES as autoApproveThresholdRoutes } from "../src/http/routes/auto-approve-thresholds-routes.js";
+import { ROUTES as channelAdmissionPolicyRoutes } from "../src/http/routes/channel-admission-policy-routes.js";
+import { ROUTES as channelPermissionOverrideRoutes } from "../src/http/routes/channel-permission-overrides-routes.js";
+import { ROUTES as contactsControlPlaneRoutes } from "../src/http/routes/contacts-control-plane-routes.js";
 import { ROUTES as credentialRequestRoutes } from "../src/http/routes/credential-requests.js";
 import { ROUTES as featureFlagRoutes } from "../src/http/routes/feature-flags.js";
+import { ROUTES as trustRuleRoutes } from "../src/http/routes/trust-rules-routes.js";
 
 const ROOT = resolve(import.meta.dir, "..");
 const OUTPUT_PATH = resolve(ROOT, "openapi.json");
@@ -30,8 +36,13 @@ const PKG_PATH = resolve(ROOT, "package.json");
 
 // Collect all route definitions
 const ALL_ROUTES: GatewayRouteDefinition[] = [
+  ...autoApproveThresholdRoutes,
+  ...channelAdmissionPolicyRoutes,
+  ...channelPermissionOverrideRoutes,
+  ...contactsControlPlaneRoutes,
   ...credentialRequestRoutes,
   ...featureFlagRoutes,
+  ...trustRuleRoutes,
 ];
 
 // ---------------------------------------------------------------------------
@@ -56,6 +67,17 @@ function buildSpec(version: string) {
         });
       }
     }
+    if (route.queryParameters) {
+      for (const param of route.queryParameters) {
+        parameters.push({
+          name: param.name,
+          in: "query",
+          required: false,
+          schema: { type: "string" },
+          ...(param.description ? { description: param.description } : {}),
+        });
+      }
+    }
 
     const operation: Record<string, unknown> = {
       operationId: route.operationId,
@@ -75,9 +97,10 @@ function buildSpec(version: string) {
       };
     }
 
+    const status = route.responseStatus ?? "200";
     if (route.responseBody) {
       operation.responses = {
-        "200": {
+        [status]: {
           description: "Successful response",
           content: {
             "application/json": { schema: route.responseBody },
@@ -86,7 +109,7 @@ function buildSpec(version: string) {
       };
     } else {
       operation.responses = {
-        "200": { description: "Successful response" },
+        [status]: { description: "Successful response" },
       };
     }
 
@@ -118,7 +141,9 @@ async function main() {
   };
 
   const spec = buildSpec(pkg.version);
-  const output = JSON.stringify(spec, null, 2) + "\n";
+  // Format with prettier so the committed file satisfies the repo's
+  // pre-commit prettier check and `--check` byte-compares consistently.
+  const output = await format(JSON.stringify(spec), { parser: "json" });
 
   if (isCheck) {
     let existing: string;

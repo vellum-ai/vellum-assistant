@@ -1,16 +1,13 @@
 /**
- * Cold-cache guardian voice/phone regression.
+ * Cold-cache guardian classification regression.
  *
  * The sync trust resolver (`resolveActorTrust`) reads the IO-free guardian-
  * delivery cache snapshot (`peekCachedGuardianDelivery`) keyed per channel
- * filter. On a cold process only `vellum` is warmed at daemon startup, so for
- * `phone` the snapshot is empty until some read warms that exact channel key.
- * The voice setup path therefore awaits
- * `getGuardianDeliveryFresh({ channelTypes: ["phone"] })` BEFORE the sync
- * resolve so an inbound guardian call classifies as `guardian` rather than
- * misclassifying during a gateway verdict blip. It reads FRESH because gateway-
- * side binding writes don't invalidate the daemon cache: a stale empty snapshot
- * from an earlier setup would otherwise survive the TTL.
+ * filter. On a cold process only `vellum` is warmed at daemon startup, so
+ * other channel keys stay empty until some async read warms that exact key —
+ * a cold snapshot classifies `unknown`, and gateway-side binding writes don't
+ * invalidate the daemon cache, so only `getGuardianDeliveryFresh` bypasses a
+ * stale empty snapshot before the TTL.
  *
  * This test drives the REAL guardian-delivery reader cache (mocking only the
  * gateway `ipcCall`) so the cold→warm transition is exercised end to end.
@@ -45,12 +42,6 @@ mock.module("../ipc/gateway-client.js", () => ({
   },
 }));
 
-// Member lookup is irrelevant to guardian classification (address match on the
-// cached delivery decides it); return null so the member path is a no-op.
-mock.module("../contacts/contact-store.js", () => ({
-  findContactByAddress: () => null,
-}));
-
 import {
   __resetGuardianDeliveryCacheForTest,
   getGuardianDelivery,
@@ -59,7 +50,7 @@ import {
 } from "../contacts/guardian-delivery-reader.js";
 import { resolveActorTrust } from "../runtime/actor-trust-resolver.js";
 
-describe("voice path warms the phone guardian cache before sync trust", () => {
+describe("guardian-delivery cache cold→warm transition for sync trust", () => {
   beforeEach(() => {
     __resetGuardianDeliveryCacheForTest();
     ipcCalls = [];
@@ -81,7 +72,7 @@ describe("voice path warms the phone guardian cache before sync trust", () => {
     });
     expect(cold.trustClass).toBe("unknown");
 
-    // The voice setup path warms the phone-specific key via the fresh reader.
+    // A fresh read warms the phone-specific key.
     await getGuardianDeliveryFresh({ channelTypes: ["phone"] });
     expect(
       ipcCalls.some(

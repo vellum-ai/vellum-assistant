@@ -18,12 +18,18 @@ initSigningKey(Buffer.from("test-signing-key-at-least-32-bytes-long-xx"));
 
 const { initGatewayDb, resetGatewayDb, getGatewayDb } =
   await import("../db/connection.js");
-const { actorTokenRecords } = await import("../db/schema.js");
+const { actorTokenRecords, contacts } = await import("../db/schema.js");
 const { hashToken } = await import("../auth/guardian-bootstrap.js");
 const { isActorTokenRevoked, actorTokenRecordHash } =
   await import("../auth/actor-token-revocation.js");
 const { createRuntimeProxyHandler } =
   await import("../http/routes/runtime-proxy.js");
+const { bustGuardianIntegrityCache } =
+  await import("../auth/guardian-integrity.js");
+const {
+  resetGuardianIntegrityReporterForTesting,
+  setGuardianIntegrityReporterOverridesForTesting,
+} = await import("../guardian-integrity-reporter.js");
 
 const ACTOR_SUB = "actor:self:guardian-001";
 const actorClaims = { sub: ACTOR_SUB } as TokenClaims;
@@ -49,16 +55,43 @@ function insertTokenRecord(rawToken: string, status: "active" | "revoked") {
     .run();
 }
 
+function insertGuardianContact() {
+  const now = Date.now();
+  getGatewayDb()
+    .insert(contacts)
+    .values({
+      id: "contact-guardian",
+      displayName: "guardian",
+      role: "guardian",
+      principalId: "guardian-001",
+      createdAt: now,
+      updatedAt: now,
+    })
+    .run();
+}
+
 beforeEach(async () => {
   testRoot = mkdtempSync(join(tmpdir(), "revocation-test-"));
   const securityDir = join(testRoot, "protected");
   mkdirSync(securityDir, { recursive: true });
   process.env.GATEWAY_SECURITY_DIR = securityDir;
   await initGatewayDb();
+  // The integrity state is module-cached across tests; token rows seeded here
+  // are integrity evidence, so keep the reporter silenced and the cache cold.
+  bustGuardianIntegrityCache();
+  resetGuardianIntegrityReporterForTesting();
+  setGuardianIntegrityReporterOverridesForTesting({
+    fetchImpl: async () => new Response("{}"),
+    mintToken: () => "svc-token",
+    baseUrl: "http://127.0.0.1:7821",
+    log: { error: () => {}, warn: () => {} },
+  });
 });
 
 afterEach(() => {
   resetGatewayDb();
+  resetGuardianIntegrityReporterForTesting();
+  bustGuardianIntegrityCache();
   delete process.env.GATEWAY_SECURITY_DIR;
   try {
     rmSync(testRoot, { recursive: true, force: true });
@@ -246,6 +279,7 @@ describe("/auth/token revocation", () => {
       ttlSeconds: 3600,
     });
     insertTokenRecord(sourceJwt, "active");
+    insertGuardianContact();
 
     const res = await handleCreateToken(
       new Request("http://127.0.0.1:7830/auth/token", {
@@ -273,6 +307,121 @@ describe("/auth/token revocation", () => {
 
     expect(isActorTokenRevoked(sourceJwt, actorClaims)).toBe(true);
     expect(isActorTokenRevoked(derivedJwt, actorClaims)).toBe(true);
+  });
+
+  test("fails closed with a repairable 401 when guardian rows are lost over evidence (no divergent mint)", async () => {
+    const { handleCreateToken } = await import("../http/routes/auth-token.js");
+
+    // Unrecorded (compatibility) source token: the handler falls back to
+    // ensureVellumGuardianBinding. A residual actor-token row for another
+    // device is evidence of prior onboarding with no guardian contact row,
+    // so the fallback mint must refuse rather than diverge.
+    insertTokenRecord("residual-evidence-token", "active");
+    const jwt = mintToken({
+      aud: "vellum-gateway",
+      sub: ACTOR_SUB,
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 3600,
+    });
+
+    const res = await handleCreateToken(
+      new Request("http://127.0.0.1:7830/auth/token", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${jwt}`,
+          origin: "http://localhost:3000",
+        },
+      }),
+      makeLoopbackServer(),
+    );
+
+    // 401 is the status clients already treat as guardian-repairable.
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "guardian_repair_required" });
+    // No divergent principal row was minted.
+    expect(getGatewayDb().select().from(contacts).all()).toHaveLength(0);
+    // No token minted or recorded beyond the seeded evidence row.
+    expect(getGatewayDb().select().from(actorTokenRecords).all()).toHaveLength(
+      1,
+    );
+  });
+});
+
+describe("/auth/token recorded-refresh guardian integrity gate", () => {
+  function makeLoopbackServer() {
+    return {
+      requestIP: () => ({ address: "127.0.0.1", family: "IPv4", port: 5000 }),
+    } as unknown as import("bun").Server<unknown>;
+  }
+
+  function mintRecordedSourceJwt(): string {
+    const jwt = mintToken({
+      aud: "vellum-gateway",
+      sub: ACTOR_SUB,
+      scope_profile: "actor_client_v1",
+      policy_epoch: CURRENT_POLICY_EPOCH,
+      ttlSeconds: 3600,
+    });
+    insertTokenRecord(jwt, "active");
+    return jwt;
+  }
+
+  async function refresh(sourceJwt: string): Promise<Response> {
+    const { handleCreateToken } = await import("../http/routes/auth-token.js");
+    return handleCreateToken(
+      new Request("http://127.0.0.1:7830/auth/token", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${sourceJwt}`,
+          origin: "http://localhost:3000",
+        },
+      }),
+      makeLoopbackServer(),
+    );
+  }
+
+  test("refuses a recorded-token refresh with the repairable 401 when guardian rows are missing", async () => {
+    // The recorded source token is itself evidence of prior onboarding; with
+    // zero guardian contact rows the refresh must engage repair, not re-mint.
+    const sourceJwt = mintRecordedSourceJwt();
+
+    const res = await refresh(sourceJwt);
+
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({ error: "guardian_repair_required" });
+    // No derived token was minted or recorded.
+    expect(getGatewayDb().select().from(actorTokenRecords).all()).toHaveLength(
+      1,
+    );
+  });
+
+  test("refreshes normally once the guardian is re-seeded and the cache busted", async () => {
+    const sourceJwt = mintRecordedSourceJwt();
+
+    expect((await refresh(sourceJwt)).status).toBe(401);
+
+    insertGuardianContact();
+    bustGuardianIntegrityCache();
+
+    const res = await refresh(sourceJwt);
+    expect(res.status).toBe(200);
+    const { token } = (await res.json()) as { token: string };
+    expect(token).toBeTruthy();
+  });
+
+  test("a thrown integrity check does not block a healthy recorded refresh", async () => {
+    const sourceJwt = mintRecordedSourceJwt();
+
+    // Make guardianIntegrityState() throw while the token lookup and derived
+    // record insert (actor_token_records) keep working.
+    (
+      getGatewayDb() as unknown as { $client: import("bun:sqlite").Database }
+    ).$client.exec("DROP TABLE contacts");
+    bustGuardianIntegrityCache();
+
+    const res = await refresh(sourceJwt);
+    expect(res.status).toBe(200);
   });
 });
 
