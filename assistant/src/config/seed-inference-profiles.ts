@@ -166,26 +166,17 @@ export function seedInferenceProfiles(
     }
   }
 
-  // 3. Default provider — hatch only, never overwritten once set. Precedence
-  //    mirrors the profile decisions above: platform mode, then an explicit
-  //    managed-connection selection, then the entered BYOK provider key, and
-  //    finally an anthropic fallback so the field is always populated — even
-  //    dangling, so a later flow can prompt the user for a key explainably.
+  // 3. Default provider — hatch only, never overwritten once set. Always
+  //    populated — even dangling, so later resolution can prompt the user
+  //    for a key explainably rather than hitting an unset branch.
   if (options.isHatch && readObject(llm.defaultProvider) === null) {
-    if (isPlatform) {
-      llm.defaultProvider = { provider: "vellum" };
-    } else if (hatchSelectedManagedConnection !== undefined) {
-      llm.defaultProvider = { provider: "vellum" };
-    } else if (
-      usableHatchProvider &&
-      (DEFAULT_PROFILE_PROVIDERS as readonly string[]).includes(
+    llm.defaultProvider = {
+      provider: resolveHatchDefaultProvider(
+        isPlatform,
+        hatchSelectedManagedConnection !== undefined,
         usableHatchProvider,
-      )
-    ) {
-      llm.defaultProvider = { provider: usableHatchProvider };
-    } else {
-      llm.defaultProvider = { provider: "anthropic" };
-    }
+      ),
+    };
   }
 
   pruneNonDispatchableProfiles(llm, profiles);
@@ -285,6 +276,25 @@ export function readObject(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function resolveHatchDefaultProvider(
+  isPlatform: boolean,
+  selectedManagedConnection: boolean,
+  hatchProvider: string | undefined,
+): string {
+  // Platform mode and an explicit managed-connection selection both route
+  // through vellum.
+  if (isPlatform || selectedManagedConnection) {
+    return "vellum";
+  }
+  if (
+    hatchProvider !== undefined &&
+    (DEFAULT_PROFILE_PROVIDERS as readonly string[]).includes(hatchProvider)
+  ) {
+    return hatchProvider;
+  }
+  return "anthropic";
 }
 
 function pruneNonDispatchableProfiles(
