@@ -291,7 +291,7 @@ describe("handleListSlackChannels", () => {
     });
   });
 
-  test("memberOnly=true keeps DMs and group DMs despite missing is_member", async () => {
+  test("memberOnly=true keeps group DMs but excludes 1:1 DMs (person-scoped)", async () => {
     configureToken();
 
     listConversationsResult = {
@@ -303,31 +303,49 @@ describe("handleListSlackChannels", () => {
       ],
     };
 
-    userInfoResults.set("U1", {
-      ok: true,
-      user: {
-        id: "U1",
-        name: "alice",
-        profile: { display_name: "Alice Smith" },
-      },
-    });
-
     const result = (await handleListSlackChannels({
       queryParams: { memberOnly: "true" },
     })) as { channels: Array<Record<string, unknown>> };
 
-    expect(result.channels.map((c) => c.id)).toEqual(["G1", "D1"]);
-    expect(result.channels.every((c) => c.isMember === true)).toBe(true);
-    expect(result.channels[1]).toEqual({
-      id: "D1",
-      name: "Alice Smith",
-      type: "dm",
+    expect(result.channels.map((c) => c.id)).toEqual(["G1"]);
+    expect(result.channels[0]).toEqual({
+      id: "G1",
+      name: "group-chat",
+      type: "group",
       isPrivate: true,
       isMember: true,
       memberCount: null,
       topic: null,
       imageUrl: null,
     });
+  });
+
+  test("drops Slackbot and deleted-user IMs from the share picker path", async () => {
+    configureToken();
+
+    listConversationsResult = {
+      ok: true,
+      channels: [
+        { id: "D1", is_im: true, user: "USLACKBOT", is_private: true },
+        {
+          id: "D2",
+          is_im: true,
+          user: "U2",
+          is_private: true,
+          is_user_deleted: true,
+        },
+        { id: "D3", is_im: true, user: "U3", is_private: true },
+      ],
+    };
+    userInfoResults.set("U3", {
+      ok: true,
+      user: { id: "U3", name: "carol", profile: { display_name: "Carol" } },
+    });
+
+    const all = (await handleListSlackChannels({})) as {
+      channels: Array<Record<string, unknown>>;
+    };
+    expect(all.channels.map((c) => c.id)).toEqual(["D3"]);
   });
 
   test("omitting memberOnly returns all conversations", async () => {

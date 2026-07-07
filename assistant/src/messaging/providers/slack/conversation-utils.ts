@@ -31,10 +31,13 @@ export function isPrivateConversation(
 }
 
 /**
- * Whether the connected identity is in this conversation. Slack omits
- * `is_member` on IM/MPIM rows, but `conversations.list` only returns
- * IMs/MPIMs the authenticated identity participates in, so those count
- * as member conversations.
+ * Whether the connected identity can access this conversation. Slack omits
+ * `is_member` on IM/MPIM rows; `conversations.list` only returns IMs/MPIMs
+ * the authenticated identity can post to, so those count as member
+ * conversations. Note this is access, not presence: Slack materializes IM
+ * rows without any conversation happening (Slackbot, a user opening the
+ * bot's DM tab) — surfaces that mean "an actual DM exists" must add their
+ * own history check (see the slack channels route's memberOnly path).
  */
 export function isMemberConversation(conv: SlackConversation): boolean {
   return conv.is_member === true || !!conv.is_im || !!conv.is_mpim;
