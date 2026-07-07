@@ -246,6 +246,48 @@ describe("retry normalization: thinking + forced tool_choice", () => {
     expect(lastConfig()?.thinking).toEqual({ type: "adaptive" });
   });
 
+  test("strips thinking for vercel-ai-gateway with anthropic model and forced tool_choice", async () => {
+    setLlmConfig({
+      default: {
+        provider: "vercel-ai-gateway",
+        model: "anthropic/claude-opus-4.6",
+        thinking: { enabled: true },
+      },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
+    });
+    const { provider, lastConfig } = makePipeline("vercel-ai-gateway");
+    await provider.sendMessage([userMessage], {
+      config: {
+        callSite: "memoryExtraction",
+        tool_choice: { type: "tool", name: "extract_graph_diff" },
+      },
+    });
+    expect(lastConfig()?.thinking).toBeUndefined();
+  });
+
+  test("preserves thinking for vercel-ai-gateway with non-anthropic model and forced tool_choice", async () => {
+    setLlmConfig({
+      default: {
+        provider: "vercel-ai-gateway",
+        model: "xai/grok-4.3",
+        thinking: { enabled: true },
+      },
+      // Disable the catalog default so resolution lands on llm.default.
+      profiles: { "cost-optimized": { source: "managed", status: "disabled" } },
+    });
+    const { provider, lastConfig } = makePipeline("vercel-ai-gateway");
+    await provider.sendMessage([userMessage], {
+      config: {
+        callSite: "memoryExtraction",
+        tool_choice: { type: "tool", name: "extract_graph_diff" },
+      },
+    });
+    // Non-Anthropic gateway models don't share Anthropic's wire constraint —
+    // the guard must not strip thinking for them
+    expect(lastConfig()?.thinking).toEqual({ type: "adaptive" });
+  });
+
   test("does not strip thinking for non-thinking-aware providers", async () => {
     // For non-thinking-aware providers, thinking is already stripped by the
     // earlier provider check — this test ensures the tool_choice check

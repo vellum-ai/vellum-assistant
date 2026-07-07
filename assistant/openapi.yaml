@@ -13914,7 +13914,7 @@ paths:
             type: string
           description:
             "Filter by provider. One of: anthropic, openai, gemini, ollama, fireworks, together, openrouter,
-            openai-compatible, minimax, atlascloud, vellum"
+            vercel-ai-gateway, openai-compatible, minimax, atlascloud, vellum"
       responses:
         "200":
           description: Successful response
@@ -31292,6 +31292,7 @@ components:
         - ollama
         - fireworks
         - openrouter
+        - vercel-ai-gateway
         - openai-compatible
         - minimax
         - atlascloud
@@ -31668,6 +31669,7 @@ components:
         - fireworks
         - together
         - openrouter
+        - vercel-ai-gateway
         - openai-compatible
         - minimax
         - atlascloud
