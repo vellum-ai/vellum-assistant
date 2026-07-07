@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render } from "@testing-library/react";
+import { MemoryRouter } from "react-router";
 
 import { AssistantChannelsDetail } from "@/domains/contacts/components/assistant-channels-detail";
 import {
@@ -19,19 +20,22 @@ const CHANNELS: AssistantChannelState[] = [
 // The Slack panel owns its own queries (`SlackChannelSection`), so list
 // renders need a QueryClient. Queries fail fast (retry off, no server) and
 // the panel shows its error state, which these assertions don't depend on.
+// The router wrapper is for the tier legend's settings link.
 function renderList(extraProps: Partial<AssistantChannelsListProps> = {}) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   return render(
-    <QueryClientProvider client={queryClient}>
-      <AssistantChannelsList
-        assistantId="assistant-1"
-        assistantName="Vex"
-        channels={CHANNELS}
-        {...extraProps}
-      />
-    </QueryClientProvider>,
+    <MemoryRouter>
+      <QueryClientProvider client={queryClient}>
+        <AssistantChannelsList
+          assistantId="assistant-1"
+          assistantName="Vex"
+          channels={CHANNELS}
+          {...extraProps}
+        />
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 

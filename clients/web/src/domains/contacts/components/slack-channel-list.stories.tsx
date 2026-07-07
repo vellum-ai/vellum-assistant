@@ -40,10 +40,23 @@ const meta: Meta<typeof SlackChannelList> = {
     assistantDisplayName: "Example Assistant",
     slackHandle: "@example-assistant",
     channels: MIXED_CHANNELS,
+    // Gateway-resolved fall-through (no broader-scope cells → the owner's
+    // global interactive threshold, Conservative here).
+    defaultTier: "low",
   },
   decorators: [
+    // Mirrors the Slack sub-tab's card column (flex flex-col gap-4 in
+    // assistant-channels-list.tsx), which owns inter-card spacing.
     (Story) => (
-      <div style={{ maxWidth: 720, margin: "2rem auto" }}>
+      <div
+        style={{
+          maxWidth: 720,
+          margin: "2rem auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 16,
+        }}
+      >
         <Story />
       </div>
     ),

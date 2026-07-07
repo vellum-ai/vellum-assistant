@@ -14,9 +14,13 @@ import {
 export interface SlackChannelOverridePanelProps {
   /** Row's channel name, for accessible control labels. */
   channelName: string;
-  /** Lowercase room-type word for the custom-access callout copy. */
-  kindLabel: "public" | "private";
   settings: SlackChannelTierSettings;
+  /**
+   * The resolved default for this channel's type when no cell is
+   * persisted — shown selected in the picker with "default" status.
+   * `null` while unknown; the picker then renders unset.
+   */
+  defaultTier: SlackCapabilityTier | null;
   /**
    * True until persisted overrides have loaded — the picker holds disabled
    * so a stored tier can't be misread (and overwritten) as the default.
@@ -31,15 +35,17 @@ export interface SlackChannelOverridePanelProps {
 /**
  * Expanded-row settings for one Slack channel: the Assistant Access tier
  * (the only per-room knob — reach is baked into the channel type, with no
- * per-room control), with a custom-access callout + reset when the tier
- * diverges from the channel-type default. Per-tier descriptions live in
- * the list's one-time legend ({@link SlackChannelTierLegend}), not here.
- * Persists as channel-ID cells via the gateway SDK.
+ * per-room control), with a custom-access callout + reset when a persisted
+ * cell overrides the owner's global setting. Rooms with no cell show an
+ * unset picker — pretending a tier is set would misreport the global
+ * fall-through. Per-tier descriptions live in the list's one-time legend
+ * ({@link SlackChannelTierLegend}), not here. Persists as channel-ID cells
+ * via the gateway SDK.
  */
 export function SlackChannelOverridePanel({
   channelName,
-  kindLabel,
   settings,
+  defaultTier,
   loading = false,
   error = false,
   onTierChange,
@@ -71,7 +77,7 @@ export function SlackChannelOverridePanel({
             </Button>
           }
         >
-          This channel isn’t using the {kindLabel} default.
+          This channel isn’t following your global Assistant Access setting.
         </Notice>
       ) : null}
       <div className="flex items-center justify-between gap-2">
@@ -112,7 +118,7 @@ export function SlackChannelOverridePanel({
       </div>
       <SegmentControl<SlackCapabilityTier>
         items={tierItems}
-        value={settings.tier}
+        value={settings.tier ?? defaultTier}
         onChange={onTierChange}
         ariaLabel={`Assistant Access in ${channelName}`}
       />
