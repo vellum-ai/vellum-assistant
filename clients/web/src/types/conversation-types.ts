@@ -10,7 +10,7 @@
  */
 
 import type { GroupsGetResponse } from "@/generated/daemon/types.gen";
-import type { SlackMessageLink } from "@/utils/slack-message-link";
+import type { ExternalSourceLink } from "@/utils/external-source-link";
 
 export interface Conversation {
   conversationId: string;
@@ -71,19 +71,19 @@ export interface ConversationChannelBinding {
    *  specific thread when the binding has one, otherwise the chat or
    *  channel. Emitted per-channel by the daemon's binding-metadata builders
    *  (currently Slack only); absent on older daemons. */
-  sourceLink?: SlackMessageLink;
+  sourceLink?: ExternalSourceLink;
 }
 
 export interface ConversationSlackChannel {
   channelId?: string;
   name?: string;
-  link?: SlackMessageLink;
+  link?: ExternalSourceLink;
 }
 
 export interface ConversationSlackThread {
   channelId: string;
   threadTs: string;
-  link?: SlackMessageLink;
+  link?: ExternalSourceLink;
 }
 
 export type ConversationGroup = GroupsGetResponse["groups"][number];

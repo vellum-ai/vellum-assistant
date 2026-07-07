@@ -23,7 +23,7 @@ import { useSlackConversationDisplay } from "@/domains/chat/hooks/use-slack-conv
 import {
   formatSlackConversationDisplayLabel,
 } from "@/domains/chat/utils/slack-conversation-display";
-import { getSlackLinkUrl } from "@/domains/chat/types/types";
+import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import { isChannelConversation } from "@/domains/chat/utils/conversation-channel";
 import { getChannelBindingDisplayText } from "@/domains/chat/utils/channel-conversation-display";
 import { getChannelLabel } from "@/utils/channel-presentation";
@@ -102,7 +102,7 @@ export function useChatHeaderRegistration({
   // as its daemon-side binding-metadata builder emits one.
   const channelSourceLinkHref = channelHeaderChannelId
     ? slackConversationDisplay?.href ??
-      getSlackLinkUrl(activeConversation?.channelBinding?.sourceLink) ??
+      getExternalLinkUrl(activeConversation?.channelBinding?.sourceLink) ??
       null
     : null;
 

@@ -37,7 +37,7 @@ import { parseInlineSurfaces } from "@/domains/chat/utils/parse-inline-surfaces"
 import { stopAcpRun } from "@/domains/chat/utils/acp-run-actions";
 import { stopBackgroundTask } from "@/domains/chat/utils/background-task-actions";
 import { captureError } from "@/lib/sentry/capture-error";
-import { getSlackLinkUrl } from "@/domains/chat/types/types";
+import { getExternalLinkUrl } from "@/domains/chat/types/types";
 import { wireSurfaceToDisplay } from "@/domains/chat/utils/map-runtime-message";
 import { isPointerCoarse } from "@/utils/pointer";
 import { useSubagentStore } from "@/domains/chat/subagent-store";
@@ -144,7 +144,7 @@ export function TranscriptMessageBody({
 
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const [revealed, setRevealed] = useState(false);
-  const slackMessageUrl = getSlackLinkUrl(message.slackMessage?.messageLink);
+  const slackMessageUrl = getExternalLinkUrl(message.slackMessage?.messageLink);
 
   useEffect(() => {
     if (!revealed) return;

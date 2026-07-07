@@ -3,9 +3,9 @@ import type {
   ConversationChannelBinding,
 } from "@/types/conversation-types";
 import {
-  getSlackLinkUrl,
+  getExternalLinkUrl,
   type DisplayMessage,
-  type SlackMessageLink,
+  type ExternalSourceLink,
 } from "@/domains/chat/types/types";
 
 export type SlackDisplayConversation = Pick<
@@ -98,13 +98,13 @@ function getSlackConversationLink(
   messageChannel: SlackMessageChannel | undefined,
   channelId: string | undefined,
 ): string | undefined {
-  const threadLink = getSlackLinkUrl(channelBinding.slackThread?.link);
+  const threadLink = getExternalLinkUrl(channelBinding.slackThread?.link);
   if (threadLink) return threadLink;
 
-  const messageThreadLink = getSlackLinkUrl(messageChannel?.threadLink);
+  const messageThreadLink = getExternalLinkUrl(messageChannel?.threadLink);
   if (messageThreadLink) return messageThreadLink;
 
-  const messageLink = getSlackLinkUrl(messageChannel?.messageLink);
+  const messageLink = getExternalLinkUrl(messageChannel?.messageLink);
   if (messageLink) return messageLink;
 
   return getSlackChannelLink(channelBinding.slackChannel, undefined, channelId);
@@ -112,17 +112,17 @@ function getSlackConversationLink(
 
 function getSlackChannelLink(
   slackChannel: ConversationChannelBinding["slackChannel"],
-  messageLink?: SlackMessageLink,
+  messageLink?: ExternalSourceLink,
   channelId?: string,
 ): string | undefined {
   if (slackChannel?.link) {
-    return getSlackLinkUrl(slackChannel.link);
+    return getExternalLinkUrl(slackChannel.link);
   }
   return getSlackChannelLinkFromMessageLink(messageLink, channelId);
 }
 
 function getSlackChannelLinkFromMessageLink(
-  messageLink: SlackMessageLink | undefined,
+  messageLink: ExternalSourceLink | undefined,
   channelId: string | undefined,
 ): string | undefined {
   if (!messageLink || !channelId) return undefined;
