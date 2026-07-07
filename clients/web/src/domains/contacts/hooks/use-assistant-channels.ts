@@ -10,6 +10,7 @@ import {
   type ChannelReadinessSnapshot,
   type SetupChannelId,
 } from "@/domains/contacts/types";
+import { memberSlackChannelsOptions, memberSlackChannelsQueryKey } from "@/domains/contacts/slack-channels-query";
 import {
   channelsReadinessGetOptions,
   channelsReadinessGetQueryKey,
@@ -24,6 +25,7 @@ import {
 } from "@/generated/daemon/sdk.gen";
 import type { IntegrationsSlackChannelConfigGetResponse } from "@/generated/daemon/types.gen";
 import { useSaveSlackConfig } from "@/hooks/use-save-slack-config";
+import { useSupportsSlackChannelList } from "@/lib/backwards-compat/slack-channel-list";
 import { useSaveTelegramConfig } from "@/hooks/use-save-telegram-config";
 import { useSaveTwilioCredentials } from "@/hooks/use-save-twilio-credentials";
 
@@ -93,6 +95,16 @@ export function useAssistantChannels({
     select: (data: IntegrationsSlackChannelConfigGetResponse) => data.threadMode,
   });
 
+  // Presence-only channel list for the Slack sub-tab.
+  // Version-gated: older assistants don't serve GET /v1/slack/channels,
+  // so the query stays off and the list stays hidden against them.
+  const supportsSlackChannelList = useSupportsSlackChannelList();
+  const slackChannelsQuery = useQuery({
+    ...memberSlackChannelsOptions(assistantId),
+    enabled: slackConnected && supportsSlackChannelList,
+    select: (data) => data.channels,
+  });
+
   // Per-channel trust floors (admission policy), shown inline on each connected
   // channel when the `channelTrustFloors` flag is on.
   const channelTrustFloors = useChannelTrustFloors(assistantId);
@@ -113,7 +125,17 @@ export function useAssistantChannels({
         await integrationsTwilioCredentialsDelete(opts);
       }
     },
-    onSettled: () => invalidateReadiness(),
+    onSettled: (_data, _error, channelKey) => {
+      invalidateReadiness();
+      if (channelKey === "slack") {
+        // Drop the channel-list cache with the credentials: a later
+        // reconnect may target a different workspace, and serving the old
+        // workspace's channels from cache would misreport presence.
+        queryClient.removeQueries({
+          queryKey: memberSlackChannelsQueryKey(assistantId),
+        });
+      }
+    },
   });
 
   // Credential saves reuse the app-wide hooks (also used by the chat-side
@@ -191,6 +213,10 @@ export function useAssistantChannels({
       : null,
     slackThreadMode: slackConfigQuery.data,
     slackThreadModePending: slackThreadModeMutation.isPending,
+    slackChannels: slackChannelsQuery.data,
+    slackChannelsLoading: slackChannelsQuery.isPending,
+    slackChannelsError: slackChannelsQuery.isError,
+    slackChannelsSupported: supportsSlackChannelList,
     channelPolicies: channelTrustFloors.policies,
     policySavingKey: channelTrustFloors.savingKey,
     policiesLoading: channelTrustFloors.isLoading,

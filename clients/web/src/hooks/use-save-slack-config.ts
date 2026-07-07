@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useMemo } from "react";
 
+import { memberSlackChannelsQueryKey } from "@/domains/contacts/slack-channels-query";
 import { channelsReadinessGetQueryKey } from "@/generated/daemon/@tanstack/react-query.gen";
 import { integrationsSlackChannelConfigPost } from "@/generated/daemon/sdk.gen";
 
@@ -11,7 +12,9 @@ interface UseSaveSlackConfigOptions {
 
 /**
  * Shared mutation for saving Slack channel credentials (bot token + app token).
- * Invalidates channel readiness on settle so all consumers see fresh state.
+ * Invalidates channel readiness on settle so all consumers see fresh state,
+ * and drops the cached Slack channel list — new credentials may point at a
+ * different workspace, whose channels the old cache would misreport.
  */
 export function useSaveSlackConfig({
   assistantId,
@@ -46,6 +49,9 @@ export function useSaveSlackConfig({
     onSuccess,
     onSettled: () => {
       queryClient.invalidateQueries({ queryKey: readinessQueryKey });
+      queryClient.removeQueries({
+        queryKey: memberSlackChannelsQueryKey(assistantId),
+      });
     },
   });
 }

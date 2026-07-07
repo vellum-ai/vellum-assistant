@@ -13,8 +13,9 @@ import { Typography } from "@vellumai/design-library/components/typography";
 import { EmptyState } from "@/components/empty-state";
 import { assistantDisplayName as toAssistantDisplayName } from "@/domains/contacts/assistant-display-name";
 import { SlackChannelCard } from "@/domains/contacts/components/slack-channel-card";
+import { SlackChannelList } from "@/domains/contacts/components/slack-channel-list";
 import { SlackSetupWizard, type SlackThreadMode, type MutationStatus } from "@/components/slack-setup-wizard";
-import type { AssistantChannelState, SetupChannelId } from "@/domains/contacts/types";
+import type { AssistantChannelState, SetupChannelId, SlackChannel } from "@/domains/contacts/types";
 import {
   ADMISSION_POLICY_DEFAULT,
   ADMISSION_POLICY_VALUES,
@@ -67,6 +68,16 @@ export interface AssistantChannelsListProps {
   pendingChannelKey?: ChannelKey | null;
   slackThreadMode?: SlackThreadMode;
   slackThreadModePending?: boolean;
+  /** Member-only Slack channel list for the Slack sub-tab's presence list. */
+  slackChannels?: SlackChannel[];
+  slackChannelsLoading?: boolean;
+  slackChannelsError?: boolean;
+  /**
+   * Whether the connected assistant serves the channel-list endpoint
+   * (backwards-compat gate). `false` hides the list entirely — the
+   * pre-feature Slack sub-tab layout.
+   */
+  slackChannelsSupported?: boolean;
   /**
    * Per-channel admission floor, keyed by channel. Omit (or pass no
    * `onChannelPolicyChange`) to hide the trust-floor control entirely — used
@@ -140,6 +151,10 @@ export function AssistantChannelsList({
   pendingChannelKey = null,
   slackThreadMode,
   slackThreadModePending = false,
+  slackChannels,
+  slackChannelsLoading = false,
+  slackChannelsError = false,
+  slackChannelsSupported = true,
   channelPolicies,
   policySavingKey = null,
   policiesLoading = false,
@@ -249,6 +264,10 @@ export function AssistantChannelsList({
                 slackThreadMode={slackThreadMode}
                 slackThreadModePending={slackThreadModePending}
                 onSlackThreadModeChange={onSlackThreadModeChange}
+                slackChannels={slackChannels}
+                slackChannelsLoading={slackChannelsLoading}
+                slackChannelsError={slackChannelsError}
+                slackChannelsSupported={slackChannelsSupported}
                 onSaveTwilioCredentials={onSaveTwilioCredentials}
                 policy={channelPolicies?.[channel.key]}
                 policySaving={policySavingKey === channel.key}
@@ -376,6 +395,10 @@ interface ChannelPanelProps {
   slackThreadMode?: SlackThreadMode;
   slackThreadModePending?: boolean;
   onSlackThreadModeChange?: (mode: SlackThreadMode) => void;
+  slackChannels?: SlackChannel[];
+  slackChannelsLoading?: boolean;
+  slackChannelsError?: boolean;
+  slackChannelsSupported?: boolean;
   onSaveTwilioCredentials?: (accountSid: string, authToken: string) => Promise<void>;
   policy?: AdmissionPolicy;
   policySaving?: boolean;
@@ -399,6 +422,10 @@ function ChannelPanel({
   slackThreadMode,
   slackThreadModePending = false,
   onSlackThreadModeChange,
+  slackChannels,
+  slackChannelsLoading = false,
+  slackChannelsError = false,
+  slackChannelsSupported = true,
   onSaveTwilioCredentials,
   policy,
   policySaving = false,
@@ -498,6 +525,16 @@ function ChannelPanel({
             onThreadModeChange={onSlackThreadModeChange}
           />
         </SlackChannelCard>
+      ) : null}
+
+      {channel.key === "slack" && connected && slackChannelsSupported ? (
+        <SlackChannelList
+          assistantDisplayName={assistantDisplayName}
+          slackHandle={channel.address}
+          channels={slackChannels}
+          loading={slackChannelsLoading}
+          error={slackChannelsError}
+        />
       ) : null}
 
       {channel.key === "phone" && showCredentialForm ? (
