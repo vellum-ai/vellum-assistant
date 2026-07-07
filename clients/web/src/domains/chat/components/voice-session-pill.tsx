@@ -18,7 +18,7 @@
  * 44px min-height with 32px controls, so the pill must never stretch it.
  */
 
-import { ArrowUp, Mic, Square, X } from "lucide-react";
+import { ArrowUp, Mic, Square, TriangleAlert, X } from "lucide-react";
 
 import { Button, Typography, cn } from "@vellumai/design-library";
 
@@ -43,6 +43,8 @@ export interface VoiceSessionPillProps {
    * Stop the in-flight assistant response without ending the session. The
    * ■ control is hidden when absent — hosts must only wire this once a
    * turn-scoped interrupt exists; the ✕ (`onEnd`) is the destructive control.
+   * Dormant until the turn-scoped interrupt lands (engine plan, JARVIS-1240):
+   * no host passes it yet, deliberately.
    */
   onStop?: () => void;
   /** End the voice session. */
@@ -146,6 +148,53 @@ export function VoiceSessionPill({
         tooltip="Send now"
         onClick={onSend}
       />
+    </div>
+  );
+}
+
+export interface VoiceSessionErrorChipProps {
+  /** Failure message from the live-voice store (`error` when `failed`). */
+  message: string;
+  /** Dismiss the failure (host resets the store back to idle). */
+  onDismiss: () => void;
+}
+
+/**
+ * Compact failed-session chip rendered in the pill's slot when a session
+ * fails while no composer (and thus no composer failure `Notice`) is on
+ * screen — Home, Library, the inspector, the fullscreen app viewer. Same
+ * height budget as the pill (`h-8`, title-bar safe), error tone tokens per
+ * the design-library `Notice` error treatment.
+ */
+export function VoiceSessionErrorChip({
+  message,
+  onDismiss,
+}: VoiceSessionErrorChipProps) {
+  return (
+    <div
+      role="alert"
+      className="flex h-8 max-w-80 items-center gap-2 rounded-full border border-[color-mix(in_srgb,var(--system-negative-strong)_25%,transparent)] bg-[var(--system-negative-weak)] py-1 pl-3 pr-1.5 [-webkit-app-region:no-drag]"
+    >
+      <TriangleAlert
+        aria-hidden
+        className="size-3.5 shrink-0 text-[color:var(--system-negative-strong)]"
+      />
+      <Typography
+        as="p"
+        variant="label-medium-default"
+        className="truncate text-[var(--content-default)]"
+        title={message}
+      >
+        {message}
+      </Typography>
+      <button
+        type="button"
+        onClick={onDismiss}
+        aria-label="Dismiss"
+        className="shrink-0 cursor-pointer rounded-full p-0.5 text-[color:var(--content-secondary)] opacity-70 transition-opacity hover:opacity-100"
+      >
+        <X aria-hidden className="size-3.5" strokeWidth={2} />
+      </button>
     </div>
   );
 }

@@ -56,6 +56,10 @@ mock.module("@/stores/assistant-feature-flag-store", () => ({
 }));
 
 import {
+  makeControlsSpies,
+  seedLiveVoiceSession as seedLiveVoiceStore,
+} from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
+import {
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -63,26 +67,24 @@ import {
 const liveStarterSpy = mock(
   (_assistantId: string, _conversationId: string | null) => {},
 );
-const liveControls = {
-  stop: mock(() => {}),
-  release: mock(() => {}),
-  interrupt: mock(() => {}),
-};
+const liveControls = makeControlsSpies();
 
 /**
- * Seed the real live-voice store with an active session. `conversationId`
- * defaults to the id `renderVoiceComposer` binds, so the rendered composer
- * owns the session; pass another id to simulate a session owned by a
- * different thread, or `null` for a draft-started session.
+ * Seed the real live-voice store with an active session (shared helper bound
+ * to this file's ids/spies). `conversationId` defaults to the id
+ * `renderVoiceComposer` binds, so the rendered composer owns the session;
+ * pass another id to simulate a session owned by a different thread, or
+ * `null` for a draft-started session.
  */
 function seedLiveVoiceSession(
   state: LiveVoiceSessionState,
   conversationId: string | null = "conv_test",
 ) {
-  const store = useLiveVoiceStore.getState();
-  store.setSessionContext("asst_test", conversationId);
-  store.setControls(liveControls);
-  store.setState(state);
+  seedLiveVoiceStore(state, {
+    assistantId: "asst_test",
+    conversationId,
+    controls: liveControls,
+  });
 }
 
 // The real `VoiceInputButton` self-suppresses (returns null) unless the test

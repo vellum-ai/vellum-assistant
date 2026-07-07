@@ -26,6 +26,10 @@ import type { Conversation } from "@/types/conversation-types";
 import { routes } from "@/utils/routes";
 
 import {
+  makeControlsSpies,
+  seedLiveVoiceSession,
+} from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
+import {
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -78,21 +82,18 @@ const { VoiceSessionPillHost } = await import(
   "@/domains/chat/components/voice-session-pill-host"
 );
 
-const controls = {
-  stop: mock(() => {}),
-  release: mock(() => {}),
-  interrupt: mock(() => {}),
-};
+const controls = makeControlsSpies();
 
 /** Put the live-voice store into an active session owned by `conversationId`. */
 function startSession(
   state: LiveVoiceSessionState = "listening",
   conversationId: string | null = OWNING_CONVERSATION_ID,
 ) {
-  const store = useLiveVoiceStore.getState();
-  store.setSessionContext(ASSISTANT_ID, conversationId);
-  store.setControls(controls);
-  store.setState(state);
+  seedLiveVoiceSession(state, {
+    assistantId: ASSISTANT_ID,
+    conversationId,
+    controls,
+  });
 }
 
 beforeEach(() => {
@@ -229,11 +230,95 @@ describe("VoiceSessionPillHost — visibility", () => {
     expect(pill()).not.toBeNull();
   });
 
-  test("renders nothing after the session fails", () => {
+  test("failure on a composer route renders nothing — the composer's Notice owns the error there", () => {
+    // beforeEach: viewing OTHER_CONVERSATION_ID's chat route, where a
+    // voice-enabled composer renders its own failure Notice. The host must
+    // not double-surface the error next to it.
     startSession("listening");
     useLiveVoiceStore.getState().fail("boom");
     const { container } = render(<VoiceSessionPillHost />);
     expect(container.firstChild).toBeNull();
+  });
+});
+
+describe("VoiceSessionPillHost — failure surface", () => {
+  const errorChip = () => screen.queryByRole("alert");
+
+  test("failure while on a composer-less route shows the dismissible error chip", () => {
+    startSession("listening");
+    mockPathname = routes.home;
+    useLiveVoiceStore.getState().fail("Microphone capture could not start.");
+    render(<VoiceSessionPillHost />);
+    expect(errorChip()).not.toBeNull();
+    expect(
+      screen.getByText("Microphone capture could not start."),
+    ).toBeTruthy();
+    // The pill and the chip never both render: the failed session is inactive.
+    expect(pill()).toBeNull();
+  });
+
+  test("failure over the desktop fullscreen app viewer shows the error chip", () => {
+    startSession("listening");
+    useConversationStore
+      .getState()
+      .setActiveConversationId(OWNING_CONVERSATION_ID);
+    mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
+    mockMainView = "app";
+    useLiveVoiceStore.getState().fail("Connection lost.");
+    render(<VoiceSessionPillHost />);
+    expect(errorChip()).not.toBeNull();
+  });
+
+  test("dismissing the chip resets the store to idle, mirroring the composer Notice", () => {
+    startSession("listening");
+    mockPathname = routes.home;
+    useLiveVoiceStore.getState().fail("boom");
+    render(<VoiceSessionPillHost />);
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss" }));
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
+    expect(useLiveVoiceStore.getState().error).toBeNull();
+    expect(errorChip()).toBeNull();
+  });
+
+  test("no chip without an error message", () => {
+    mockPathname = routes.home;
+    useLiveVoiceStore.getState().setState("failed");
+    const { container } = render(<VoiceSessionPillHost />);
+    expect(container.firstChild).toBeNull();
+  });
+});
+
+describe("VoiceSessionPillHost — standalone variant (headerless pop-outs)", () => {
+  test("renders nothing when no session is active", () => {
+    const { container } = render(<VoiceSessionPillHost variant="standalone" />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  test("floats the pill for a session owned by another conversation", () => {
+    startSession("listening");
+    render(<VoiceSessionPillHost variant="standalone" />);
+    expect(pill()).not.toBeNull();
+    // Wired to the same controls as the header placement.
+    fireEvent.click(screen.getByRole("button", { name: "End voice session" }));
+    expect(controls.stop).toHaveBeenCalledTimes(1);
+  });
+
+  test("stays hidden while the on-screen composer owns the session", () => {
+    startSession("listening");
+    useConversationStore
+      .getState()
+      .setActiveConversationId(OWNING_CONVERSATION_ID);
+    mockPathname = routes.conversation(OWNING_CONVERSATION_ID);
+    const { container } = render(<VoiceSessionPillHost variant="standalone" />);
+    expect(container.firstChild).toBeNull();
+  });
+
+  test("floats the error chip for a failure on a composer-less route", () => {
+    startSession("listening");
+    mockPathname = routes.home;
+    useLiveVoiceStore.getState().fail("boom");
+    render(<VoiceSessionPillHost variant="standalone" />);
+    expect(screen.queryByRole("alert")).not.toBeNull();
   });
 });
 
