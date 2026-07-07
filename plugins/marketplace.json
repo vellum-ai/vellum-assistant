@@ -166,13 +166,13 @@
       "source": {
         "source": "github",
         "repo": "AnitaKirkovska/amex-perk-reminder",
-        "ref": "43dbcb59bd30c1939291a6d4ecbe7fbe68a97e5b"
+        "ref": "ed6e30fe539ee4a20ea0131cc07165009a93ab7a"
       },
       "description": "Never lose an Amex Platinum credit again. Tracks all 12 credits ($3,084/yr) on the 2026 benefit calendar, logs what you've used, and sends status-aware reminders on Slack, Telegram, or email that escalate before a window closes and stay silent when you're covered.",
       "category": "lifestyle",
       "homepage": "https://github.com/AnitaKirkovska/amex-perk-reminder",
       "license": "MIT",
-      "ref": "43dbcb59bd30c1939291a6d4ecbe7fbe68a97e5b"
+      "ref": "ed6e30fe539ee4a20ea0131cc07165009a93ab7a"
     }
   ]
 }
