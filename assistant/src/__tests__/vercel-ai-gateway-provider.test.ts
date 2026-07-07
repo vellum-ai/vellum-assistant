@@ -95,6 +95,34 @@ describe("VercelAIGatewayProvider", () => {
     });
   });
 
+  describe("supportsNativeWebSearch", () => {
+    test("true when enabled and the default model is anthropic/*", () => {
+      const provider = new VercelAIGatewayProvider(
+        "fake-key",
+        "anthropic/claude-opus-4.8",
+        { useNativeWebSearch: true },
+      );
+      expect(provider.supportsNativeWebSearch).toBe(true);
+    });
+
+    test("false for a non-anthropic model even when enabled", () => {
+      const provider = new VercelAIGatewayProvider(
+        "fake-key",
+        "openai/gpt-5.5",
+        { useNativeWebSearch: true },
+      );
+      expect(provider.supportsNativeWebSearch).toBe(false);
+    });
+
+    test("false when disabled, even for an anthropic model", () => {
+      const provider = new VercelAIGatewayProvider(
+        "fake-key",
+        "anthropic/claude-opus-4.8",
+      );
+      expect(provider.supportsNativeWebSearch).toBe(false);
+    });
+  });
+
   describe("delegate error re-tagging", () => {
     test("rethrows a delegate ProviderError tagged with vercel-ai-gateway", async () => {
       const provider = new VercelAIGatewayProvider(

@@ -73,9 +73,10 @@ export class VercelAIGatewayProvider extends OpenAIChatCompletionsProvider {
     return isAnthropicModel(this.defaultModel) ? "anthropic" : this.name;
   }
 
-  /** See {@link Provider.supportsNativeWebSearch}. Set per model at construction. */
+  // Native web search is only wired through the Anthropic Messages delegate;
+  // the OpenAI-compat path has no native search tool mapping.
   get supportsNativeWebSearch(): boolean {
-    return this.useNativeWebSearch;
+    return this.useNativeWebSearch && isAnthropicModel(this.defaultModel);
   }
 
   override async sendMessage(
