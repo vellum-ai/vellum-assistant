@@ -281,13 +281,9 @@ export class MediaStreamCallSession {
       // handleStart resolves the admission floor asynchronously; the
       // setupRouting guard set synchronously at its top ensures inbound
       // frames forwarded below are ignored until routing completes.
-      this.setupSettled = this.handleStart(parseResult.event).catch((err) => {
-        log.error(
-          { err, callSessionId: this.callSessionId },
-          "Media-stream setup routing failed",
-        );
-        this.setupRouting = false;
-      });
+      this.setupSettled = this.handleStart(parseResult.event).catch((err) =>
+        this.handleSetupFailure(err),
+      );
     }
 
     // Always forward to the STT session (it handles all event types).
@@ -578,6 +574,61 @@ export class MediaStreamCallSession {
     );
     this.setupRouting = false;
     return true;
+  }
+
+  /**
+   * Fail-loud teardown when setup routing rejects (outbound unusable-verdict
+   * abort, gateway pending-session/invite read throw). Without this the call
+   * stays connected with no flow or controller — a live silent line whose
+   * transcripts are dropped. Mirrors the abnormal-close teardown: mark the
+   * session failed, notify the initiating conversation, end the stream, and
+   * finalize.
+   */
+  private handleSetupFailure(err: unknown): void {
+    log.error(
+      { err, callSessionId: this.callSessionId },
+      "Media-stream setup routing failed — ending call",
+    );
+    this.setupRouting = false;
+
+    // Transport already closed mid-setup: handleTransportClosed ran teardown.
+    if (this.disposed) {
+      return;
+    }
+
+    const flow = this.setupFlow;
+    this.setupFlow = null;
+    flow?.dispose("teardown");
+
+    const session = getCallSession(this.callSessionId);
+    if (session && !isTerminalState(session.status)) {
+      const detail = err instanceof Error ? err.message : String(err);
+      updateCallSession(this.callSessionId, {
+        status: "failed",
+        endedAt: Date.now(),
+        lastError: `Call setup failed: ${detail}`,
+      });
+      recordCallEvent(this.callSessionId, "call_failed", {
+        reason: "setup_routing_failed",
+        transport: "media-stream",
+      });
+      if (session.initiatedFromConversationId) {
+        postPointerMessageSafe(
+          session.initiatedFromConversationId,
+          "failed",
+          session.toNumber,
+          { reason: "call setup failed" },
+        );
+      }
+    }
+
+    // The terminal status set above makes handleTransportClosed exit early
+    // on the socket close, so finalize + revoke grants inline (exactly-once
+    // guarded by the flow's own finalization).
+    this.output.endSession("setup-failed");
+    if (!flow?.hasFinalized()) {
+      this.runFinalizationAndGrantCleanup(session);
+    }
   }
 
   /**
