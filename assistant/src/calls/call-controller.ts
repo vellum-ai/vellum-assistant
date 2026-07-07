@@ -20,6 +20,7 @@ import type { TrustContext } from "../daemon/trust-context.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
 import { getCatalogProvider } from "../tts/provider-catalog.js";
+import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import {
   type AudioStoreSink,
   createAudioStoreSink,
@@ -639,10 +640,10 @@ export class CallController {
   ): Promise<string> {
     // Resolve the active TTS provider through the global abstraction.
     // The catalog's callMode determines the call path: synthesized-play
-    // providers buffer text, synthesize via provider API, and stream
-    // audio chunks to Twilio via play-URL. Native-twilio providers
-    // stream text tokens through the transport, which re-synthesizes
-    // them via daemon TTS on media-stream.
+    // providers synthesize each speakable segment via the provider API as
+    // the LLM streams, playing audio chunks to Twilio via play-URL.
+    // Native-twilio providers stream text tokens through the transport,
+    // which re-synthesizes them via daemon TTS on media-stream.
     //
     // When the transport requires WAV (media-stream), request WAV so
     // the audio store entry and any downstream fetch/transcode receives
@@ -658,16 +659,61 @@ export class CallController {
     let ttsBuffer = "";
     let fullResponseText = "";
 
-    // When using the synthesized path, we accumulate all text and synthesize
-    // the complete response at the end of the turn (better prosody).
-    let synthesizedTextBuffer = "";
+    // Synthesized path: text is split at speakable boundaries as it streams
+    // and each segment is synthesized while the LLM keeps generating. The
+    // chain serializes segments so play URLs reach the transport in order
+    // (transport FIFO gives gapless playback).
+    const synthProvider = useSynthesizedPath ? provider : null;
+    let pendingSynthText = "";
+    let synthesisChain: Promise<void> = Promise.resolve();
+    // After a segment falls back to native tokens, the rest of the turn
+    // stays on the native route so text is never spoken out of order.
+    let synthesisFellBack = false;
+    // Non-recoverable failure (allowNativeFallback: false providers):
+    // remaining segments are skipped and the error rethrows after the
+    // chain drains so the outer handler speaks the generic recovery copy.
+    let synthesisFailure: { err: unknown } | undefined;
+
+    const enqueueSynthesisSegments = (
+      ttsProvider: TtsProvider,
+      segments: string[],
+    ): void => {
+      for (const segment of segments) {
+        synthesisChain = synthesisChain.then(async () => {
+          if (!this.isCurrentRun(runVersion) || synthesisFailure) return;
+          if (synthesisFellBack) {
+            if (!this.transport.requiresWavAudio) {
+              this.beginSpeakingOnAudioStart(runVersion);
+              this.transport.sendTextToken(segment, false);
+            }
+            return;
+          }
+          try {
+            synthesisFellBack = await this.synthesizeAndStreamAudio(
+              ttsProvider,
+              segment,
+              runVersion,
+              audioFormat,
+            );
+          } catch (err) {
+            synthesisFailure = { err };
+          }
+        });
+      }
+    };
 
     /** Emit a chunk of safe text to the appropriate TTS backend. */
     const emitSafeChunk = (safeText: string): void => {
       const cleaned = sanitizeForTts(safeText);
       if (cleaned.length === 0) return;
-      if (useSynthesizedPath) {
-        synthesizedTextBuffer += cleaned;
+      if (synthProvider) {
+        pendingSynthText += cleaned;
+        const { segments, remainder } = extractSpeakableSegments(
+          pendingSynthText,
+          false,
+        );
+        pendingSynthText = remainder;
+        enqueueSynthesisSegments(synthProvider, segments);
       } else {
         this.beginSpeakingOnAudioStart(runVersion);
         this.transport.sendTextToken(cleaned, false);
@@ -781,24 +827,19 @@ export class CallController {
       emitSafeChunk(ttsBuffer);
     }
 
-    // Synthesized-play path: when the active provider supports streaming,
-    // synthesize the complete response text via the provider's streaming
-    // API. The full text gives the provider better context for prosody
-    // and intonation. Audio streams back via chunked transfer encoding
-    // and is forwarded to Twilio as it arrives.
-    const sanitizedSynthText = sanitizeForTts(synthesizedTextBuffer.trim());
-    if (useSynthesizedPath && provider && sanitizedSynthText.length > 0) {
-      if (!this.isCurrentRun(runVersion)) return fullResponseText;
-      // Do NOT flip to `speaking` here — provider synthesis latency (or the
-      // no-audio fallback window) would still be silent. The transition happens
-      // inside synthesizeAndStreamAudio when the play URL / first audio chunk
-      // (or native fallback token) is actually emitted.
-      await this.synthesizeAndStreamAudio(
-        provider,
-        sanitizedSynthText,
-        runVersion,
-        audioFormat,
-      );
+    // Synthesized path: force-extract whatever never reached a speakable
+    // boundary, then drain the chain so every segment's audio (or its
+    // native fallback) is enqueued before the end-of-turn signal. The
+    // `speaking` flip happens inside synthesizeAndStreamAudio when the
+    // play URL / first audio chunk (or native fallback token) is actually
+    // emitted — never here, where provider latency would still be silent.
+    if (synthProvider) {
+      const { segments } = extractSpeakableSegments(pendingSynthText, true);
+      enqueueSynthesisSegments(synthProvider, segments);
+      await synthesisChain;
+      if (synthesisFailure) {
+        throw synthesisFailure.err;
+      }
     }
 
     // Synthesized playback (and its native fallback) can await provider
@@ -827,13 +868,19 @@ export class CallController {
   /**
    * Synthesize text via a streaming TTS provider and forward audio chunks
    * to Twilio through the audio store / play-URL mechanism.
+   *
+   * @returns `true` when provider synthesis failed and the text took the
+   *   native-token fallback route — callers keep subsequent segments on
+   *   the same route so text is never spoken out of order. `false` on
+   *   success or abort. Rethrows when the provider's catalog entry has
+   *   `allowNativeFallback: false`.
    */
   private async synthesizeAndStreamAudio(
     provider: TtsProvider,
     text: string,
     runVersion: number,
     format: "mp3" | "wav" | "opus" = "mp3",
-  ): Promise<void> {
+  ): Promise<boolean> {
     let sink: AudioStoreSink | null = null;
     let playUrlSent = false;
     const abortController = new AbortController();
@@ -883,6 +930,7 @@ export class CallController {
           { provider: provider.id },
           "TTS synthesis aborted (barge-in)",
         );
+        return false;
       } else {
         // Extract error class and code for diagnosable log entries.
         const errName = err instanceof Error ? err.name : String(err);
@@ -925,11 +973,13 @@ export class CallController {
           this.beginSpeakingOnAudioStart(runVersion);
           this.transport.sendTextToken(text, false);
         }
+        return true;
       }
     } finally {
       this.activeSynthesisAbort = null;
       sink?.finalize();
     }
+    return false;
   }
 
   /**
