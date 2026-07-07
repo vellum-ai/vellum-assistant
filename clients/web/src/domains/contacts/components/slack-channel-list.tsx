@@ -9,19 +9,22 @@ import { Tag } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 import { VirtualList } from "@vellumai/design-library/components/virtual-list";
 
+import type { TagTone } from "@vellumai/design-library/components/tag";
+
 import { EmptyState } from "@/components/empty-state";
 import { isVerifiedContactChannel } from "@/domains/contacts/components/contact-channels-section";
 import type { ContactPayload, SlackChannel } from "@/domains/contacts/types";
 import {
-  RESOLVED_ROOM_ACCESS_LABELS,
-  RESOLVED_ROOM_ACCESS_TONES,
-  type ResolvedRoomAccess,
-} from "@/lib/channel-admission-policy/resolved-access";
+  presetFromThreshold,
+  type RiskThreshold,
+} from "@/utils/threshold-presets";
 
 /**
- * How a channel presents in the filter chips. Mutually exclusive: DMs are
- * 1:1 conversations, everything else splits on `isPrivate` (group DMs and
- * legacy private groups count as private).
+ * How a channel presents in the filter chips. Mirrors the conversation-type
+ * axis of the channel-permission matrix (`ChannelConversationType` in
+ * `packages/gateway-client/src/channel-permission-contract.ts`). Mutually
+ * exclusive: DMs are 1:1 conversations, everything else splits on
+ * `isPrivate` (group DMs and legacy private groups count as private).
  */
 export type SlackChannelKind = "public" | "private" | "dm";
 
@@ -108,23 +111,32 @@ export function buildVerifiedSlackContactNames(
 }
 
 /**
- * The Slack adapter's room-access derivation: public/private channels and
- * group DMs admit at full trust; 1:1 DMs admit at full trust only when the
- * peer is a verified contact, and are strict otherwise. Derived from channel
- * type + contact trust class; per-channel overrides
- * (`channel_permission_overrides`) are not consulted.
+ * The Slack adapter's per-row resolved auto-approve threshold, rendered via
+ * the shared threshold presets ("high" → Full access, "none" → Strict).
+ * Derived from channel type + contact trust class: public/private channels
+ * and group DMs resolve "high"; 1:1 DMs resolve "high" only when the peer is
+ * a verified contact. Resolved matrix cells (`channel_permission_overrides`)
+ * are not consulted.
  */
-export function resolveSlackChannelAccess(
+export function resolveSlackChannelThreshold(
   channel: SlackChannel,
   verifiedDmContactNames: ReadonlySet<string>,
-): ResolvedRoomAccess {
+): RiskThreshold {
   if (classifySlackChannelKind(channel) !== "dm") {
-    return "full_access";
+    return "high";
   }
   return verifiedDmContactNames.has(normalizeSlackDmName(channel.name))
-    ? "full_access"
-    : "strict";
+    ? "high"
+    : "none";
 }
+
+/** Badge tone per resolved threshold: permissive reads green, locked-down red. */
+const THRESHOLD_TAG_TONES: Record<RiskThreshold, TagTone> = {
+  none: "negative",
+  low: "warning",
+  medium: "warning",
+  high: "positive",
+};
 
 const CHANNEL_KIND_FILTERS: {
   value: SlackChannelKind | null;
@@ -351,7 +363,7 @@ function SlackChannelRow({
 }) {
   const kind = classifySlackChannelKind(channel);
   const Icon = CHANNEL_KIND_ICONS[kind];
-  const access = resolveSlackChannelAccess(channel, verifiedDmContactNames);
+  const threshold = resolveSlackChannelThreshold(channel, verifiedDmContactNames);
   const metaLabel = slackChannelMetaLabel(channel);
   return (
     <ListRow
@@ -364,8 +376,8 @@ function SlackChannelRow({
               {metaLabel}
             </span>
           ) : null}
-          <Tag tone={RESOLVED_ROOM_ACCESS_TONES[access]}>
-            {RESOLVED_ROOM_ACCESS_LABELS[access]}
+          <Tag tone={THRESHOLD_TAG_TONES[threshold]}>
+            {presetFromThreshold(threshold).label}
           </Tag>
         </>
       }

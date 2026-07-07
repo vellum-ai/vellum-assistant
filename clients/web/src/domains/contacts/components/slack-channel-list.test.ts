@@ -2,12 +2,14 @@ import { describe, expect, test } from "bun:test";
 
 import type { ContactPayload, SlackChannel } from "@/domains/contacts/types";
 
+import { presetFromThreshold } from "@/utils/threshold-presets";
+
 import {
   buildVerifiedSlackContactNames,
   classifySlackChannelKind,
   countSlackChannelKinds,
   filterSlackChannels,
-  resolveSlackChannelAccess,
+  resolveSlackChannelThreshold,
   slackChannelMetaLabel,
 } from "./slack-channel-list";
 
@@ -166,26 +168,31 @@ describe("buildVerifiedSlackContactNames", () => {
   });
 });
 
-describe("resolveSlackChannelAccess", () => {
+describe("resolveSlackChannelThreshold", () => {
   const verified = new Set(["alice"]);
 
-  test("public and private channels resolve full access", () => {
-    expect(resolveSlackChannelAccess(general, new Set())).toBe("full_access");
-    expect(resolveSlackChannelAccess(leadership, new Set())).toBe("full_access");
-    expect(resolveSlackChannelAccess(groupDm, new Set())).toBe("full_access");
+  test("public and private channels resolve the Full access threshold", () => {
+    expect(resolveSlackChannelThreshold(general, new Set())).toBe("high");
+    expect(resolveSlackChannelThreshold(leadership, new Set())).toBe("high");
+    expect(resolveSlackChannelThreshold(groupDm, new Set())).toBe("high");
   });
 
-  test("DMs with verified contacts resolve full access", () => {
-    expect(resolveSlackChannelAccess(dmAlice, verified)).toBe("full_access");
+  test("DMs with verified contacts resolve the Full access threshold", () => {
+    expect(resolveSlackChannelThreshold(dmAlice, verified)).toBe("high");
   });
 
   test("DM name matching is case-insensitive", () => {
     const dm = makeChannel({ id: "D2", name: "ALICE", type: "dm" });
-    expect(resolveSlackChannelAccess(dm, verified)).toBe("full_access");
+    expect(resolveSlackChannelThreshold(dm, verified)).toBe("high");
   });
 
-  test("DMs with unverified contacts resolve strict", () => {
+  test("DMs with unverified contacts resolve the Strict threshold", () => {
     const dm = makeChannel({ id: "D3", name: "Mallory", type: "dm" });
-    expect(resolveSlackChannelAccess(dm, verified)).toBe("strict");
+    expect(resolveSlackChannelThreshold(dm, verified)).toBe("none");
+  });
+
+  test("resolved thresholds present via the shared preset labels", () => {
+    expect(presetFromThreshold("high").label).toBe("Full access");
+    expect(presetFromThreshold("none").label).toBe("Strict");
   });
 });
