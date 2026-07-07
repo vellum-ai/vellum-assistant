@@ -29,11 +29,14 @@
  *
  * - `clearAudio()` — Clears any queued outbound audio (barge-in),
  *   flushes the internal playback queue, and aborts in-flight synthesis.
+ *   Also exposed to the call controller as `cancelPendingSpeech()` so an
+ *   aborted turn's queued speech never plays over the next turn.
  */
 
 import type { ServerWebSocket } from "bun";
 
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
+import { synthesizeAndEmit } from "../tts/synthesis-stream.js";
 import { getLogger } from "../util/logger.js";
 import type { CallTransport } from "./call-transport.js";
 import {
@@ -47,6 +50,7 @@ import type {
   MediaStreamSendMarkCommand,
   MediaStreamSendMediaCommand,
 } from "./media-stream-protocol.js";
+import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
 
 const log = getLogger("media-stream-output");
 
@@ -209,6 +213,16 @@ export class MediaStreamOutput implements CallTransport {
    */
   discardPendingText(): void {
     this.textBuffer = "";
+  }
+
+  /**
+   * Cancel queued and in-flight speech playback, including audio Twilio
+   * has already buffered. The call controller invokes this when it
+   * aborts an in-flight turn so speech the aborted turn queued for
+   * synthesis never plays over the next turn.
+   */
+  cancelPendingSpeech(): void {
+    this.clearAudio();
   }
 
   /**
@@ -489,8 +503,6 @@ export class MediaStreamOutput implements CallTransport {
     this.activePlaybackAbort = abortController;
 
     try {
-      const { resolveCallTtsProvider } =
-        await import("./resolve-call-tts-provider.js");
       // Request WAV so audioBufferToFrames gets PCM it can transcode
       // to mu-law. Compressed formats (mp3, opus) would be sent as raw
       // bytes and produce garbled audio.
@@ -509,7 +521,6 @@ export class MediaStreamOutput implements CallTransport {
         return;
       }
 
-      const { synthesizeAndEmit } = await import("../tts/synthesis-stream.js");
       const isCurrent = (): boolean =>
         version === this.playbackVersion && !this.isClosed();
 

@@ -29,10 +29,6 @@ mock.module("../calls/resolve-call-tts-provider.js", () => ({
   })),
 }));
 
-// Pre-load the module processSynthesizeItem imports dynamically, so the
-// first synthesize item doesn't pay module-load latency mid-test.
-await import("../tts/synthesis-stream.js");
-
 import {
   mulawToPcm16,
   pcm16ToMulaw,
@@ -98,14 +94,9 @@ async function drain(until?: () => boolean): Promise<void> {
   }
 }
 
-/** True when a sent message with the given event type exists. */
-function hasEvent(sent: string[], event: string): boolean {
-  return sent.some((s) => JSON.parse(s).event === event);
-}
-
-/** Number of mark messages among the sent messages. */
-function countMarks(sent: string[]): number {
-  return sent.filter((s) => JSON.parse(s).event === "mark").length;
+/** Number of sent messages with the given event type. */
+function countEvents(sent: string[], event: string): number {
+  return sent.filter((s) => JSON.parse(s).event === event).length;
 }
 
 /** Generate a minimal valid WAV buffer with PCM data. */
@@ -166,11 +157,6 @@ function concatMulawPayloads(sent: string[]): Buffer {
       .filter((s) => JSON.parse(s).event === "media")
       .map((s) => Buffer.from(JSON.parse(s).media.payload, "base64")),
   );
-}
-
-/** Number of media frames among the sent messages. */
-function countMediaFrames(sent: string[]): number {
-  return sent.filter((s) => JSON.parse(s).event === "media").length;
 }
 
 /** Encode samples as a raw PCM16 LE buffer. */
@@ -266,7 +252,7 @@ describe("MediaStreamOutput", () => {
       output.sendTextToken("hello ", false);
       output.sendTextToken("world", true);
 
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
 
       // Should have sent media frames (from synthesis) and a mark
       const events = sent.map((s) => JSON.parse(s).event);
@@ -283,7 +269,7 @@ describe("MediaStreamOutput", () => {
       const output = makeOutput(ws, "stream-1");
       output.sendTextToken("", true);
 
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
 
       // Should send only a mark, no media frames
       expect(sent).toHaveLength(1);
@@ -495,7 +481,7 @@ describe("MediaStreamOutput", () => {
       output.sendTextToken("hello world", true);
       output.clearBufferedAudio();
 
-      await drain(() => hasEvent(sent, "media"));
+      await drain(() => countEvents(sent, "media") > 0);
 
       // Unlike clearAudio, the in-flight synthesis is not aborted:
       // its frames go out once ready.
@@ -539,6 +525,62 @@ describe("MediaStreamOutput", () => {
     });
   });
 
+  describe("cancelPendingSpeech — turn abort", () => {
+    test("queued-but-unplayed synthesis never produces frames; the next turn plays normally", async () => {
+      const wav = makeWavBuffer(sineSamples(400, 440, 8000));
+      // Slow synthesis so the abort lands while the first segment is
+      // in flight and the second is still queued.
+      mockSynthesize.mockImplementation(
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () => resolve({ audio: wav, contentType: "audio/wav" }),
+              200,
+            ),
+          ),
+      );
+
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "MZ-stream-1");
+
+      // Aborted turn: first segment in flight, second still queued.
+      output.sendTextToken("Sentence one. Sentence two.", true);
+      await drain(() => mockSynthesize.mock.calls.length === 1);
+      expect(output.getPlaybackQueueLength()).toBeGreaterThan(0);
+
+      output.cancelPendingSpeech();
+
+      // Twilio's buffered audio was flushed too.
+      expect(countEvents(sent, "clear")).toBe(1);
+
+      // Next turn: fast synthesis so its audio goes out.
+      mockSynthesize.mockResolvedValue({
+        audio: wav,
+        contentType: "audio/wav",
+      });
+      output.sendTextToken("Next turn reply.", true);
+      await drain(() => countEvents(sent, "mark") > 0);
+
+      // The aborted turn's queued segment never synthesized, its
+      // in-flight segment produced no frames, and the next turn's
+      // audio is the only audio sent.
+      const synthesizedTexts = mockSynthesize.mock.calls.map(
+        (c) => (c[0] as { text: string }).text,
+      );
+      expect(synthesizedTexts).toEqual(["Sentence one.", "Next turn reply."]);
+      expect(countEvents(sent, "media")).toBeGreaterThan(0);
+      expect(totalMulawBytes(sent)).toBe(400);
+    });
+
+    test("does not send when closed", () => {
+      const { ws, sent } = createMockWs();
+      const output = makeOutput(ws, "MZ-stream-1");
+      output.endSession();
+      output.cancelPendingSpeech();
+      expect(sent).toHaveLength(0);
+    });
+  });
+
   describe("audio-start signal", () => {
     function makePlayableWav(): Buffer {
       const samples = Array.from({ length: 400 }, (_, i) =>
@@ -566,7 +608,7 @@ describe("MediaStreamOutput", () => {
       });
 
       output.sendTextToken("hello world", true);
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
 
       const mediaMessages = sent.filter((s) => JSON.parse(s).event === "media");
       expect(mediaMessages.length).toBeGreaterThan(1);
@@ -588,18 +630,18 @@ describe("MediaStreamOutput", () => {
       output.setAudioStartCallback(() => fired++);
 
       output.sendTextToken("first", true);
-      await drain(() => countMarks(sent) >= 1);
+      await drain(() => countEvents(sent, "mark") >= 1);
       expect(fired).toBe(1);
 
       // Second item without re-arming — signal already consumed.
       output.sendTextToken("second", true);
-      await drain(() => countMarks(sent) >= 2);
+      await drain(() => countEvents(sent, "mark") >= 2);
       expect(fired).toBe(1);
 
       // Re-armed — fires again for the next item.
       output.setAudioStartCallback(() => fired++);
       output.sendTextToken("third", true);
-      await drain(() => countMarks(sent) >= 3);
+      await drain(() => countEvents(sent, "mark") >= 3);
       expect(fired).toBe(2);
     });
 
@@ -637,7 +679,7 @@ describe("MediaStreamOutput", () => {
       output.setAudioStartCallback(() => fired++);
 
       output.sendTextToken("", true);
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
       expect(fired).toBe(0);
     });
   });
@@ -659,7 +701,7 @@ describe("MediaStreamOutput", () => {
       output.sendTextToken("hello ", false);
       output.clearAudio();
       output.sendTextToken("world", true);
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
 
       expect(mockSynthesize).toHaveBeenCalledTimes(1);
       expect(mockSynthesize.mock.calls[0][0].text).toBe("hello world");
@@ -672,7 +714,7 @@ describe("MediaStreamOutput", () => {
       output.sendTextToken("stale partial response", false);
       output.discardPendingText();
       output.sendTextToken("", true);
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
 
       expect(mockSynthesize).not.toHaveBeenCalled();
       // Only the end-of-turn mark goes out.
@@ -751,7 +793,7 @@ describe("MediaStreamOutput", () => {
       const output = makeOutput(ws, "stream-1");
       output.sendTextToken("test synthesis", true);
 
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
 
       // Should have sent at least one media frame and an end-of-turn mark
       const mediaMessages = sent.filter((s) => JSON.parse(s).event === "media");
@@ -801,7 +843,7 @@ describe("MediaStreamOutput", () => {
       const output = makeOutput(ws, "stream-1");
       output.sendTextToken("test", true);
 
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
 
       // The audioBufferToFrames magic-byte detection should detect mp3
       // sync bytes when format is "wav" and return silence (no media
@@ -834,7 +876,7 @@ describe("MediaStreamOutput", () => {
       const output = makeOutput(ws, "stream-1");
       output.sendTextToken("test", true);
 
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
 
       // processSynthesizeItem derives actualFormat from content-type:
       // "audio/pcm" -> "pcm". audioBufferToFrames handles raw PCM by
@@ -869,7 +911,7 @@ describe("MediaStreamOutput", () => {
       const output = makeOutput(ws, "stream-1");
       output.sendTextToken("test", true);
 
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
 
       // processSynthesizeItem detects "audio/x-raw" -> "pcm" format.
       // audioBufferToFrames converts raw PCM to mu-law frames.
@@ -897,7 +939,7 @@ describe("MediaStreamOutput", () => {
       const { ws, sent } = createMockWs();
       const output = makeOutput(ws, "stream-1");
       output.sendTextToken("test", true);
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
       return sent;
     }
 
@@ -977,16 +1019,16 @@ describe("MediaStreamOutput", () => {
       const output = makeOutput(ws, "stream-1");
 
       output.sendTextToken("First sentence. Sec", false);
-      await drain(() => countMediaFrames(sent) > 0);
+      await drain(() => countEvents(sent, "media") > 0);
 
       // The completed first sentence synthesizes (and its frames go out)
       // while the turn is still streaming.
       expect(mockSynthesize).toHaveBeenCalledTimes(1);
       expect(mockSynthesize.mock.calls[0][0].text).toBe("First sentence.");
-      expect(countMediaFrames(sent)).toBeGreaterThan(0);
+      expect(countEvents(sent, "media")).toBeGreaterThan(0);
 
       output.sendTextToken("ond sentence.", true);
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
 
       expect(mockSynthesize).toHaveBeenCalledTimes(2);
       expect(mockSynthesize.mock.calls[1][0].text).toBe("Second sentence.");
@@ -1002,7 +1044,7 @@ describe("MediaStreamOutput", () => {
       const { ws, sent } = createMockWs();
       const output = makeOutput(ws, "stream-1");
       output.sendTextToken("One. Two.", true);
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
 
       expect(mockSynthesize).toHaveBeenCalledTimes(2);
       const events = sent.map((s) => JSON.parse(s).event);
@@ -1046,18 +1088,18 @@ describe("MediaStreamOutput", () => {
       const { ws, sent } = createMockWs();
       const output = makeOutput(ws, "stream-1");
       output.sendTextToken("Hello there.", true);
-      await drain(() => countMediaFrames(sent) >= 2);
+      await drain(() => countEvents(sent, "media") >= 2);
 
       // First chunk's frames went out while the stream is still open,
       // and the end-of-turn mark has not been sent yet.
-      const framesBefore = countMediaFrames(sent);
+      const framesBefore = countEvents(sent, "media");
       expect(framesBefore).toBe(2);
       expect(sent.some((s) => JSON.parse(s).event === "mark")).toBe(false);
 
       releaseStream();
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
 
-      expect(countMediaFrames(sent)).toBe(4);
+      expect(countEvents(sent, "media")).toBe(4);
       expect(sent.some((s) => JSON.parse(s).event === "mark")).toBe(true);
     });
 
@@ -1087,7 +1129,7 @@ describe("MediaStreamOutput", () => {
       const { ws, sent } = createMockWs();
       const output = makeOutput(ws, "stream-1");
       output.sendTextToken("Test.", true);
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
 
       // The concatenated mu-law output must be byte-identical to a
       // whole-buffer transcode: no dropped or torn samples at chunk seams.
@@ -1124,16 +1166,16 @@ describe("MediaStreamOutput", () => {
       const { ws, sent } = createMockWs();
       const output = makeOutput(ws, "stream-1");
       output.sendTextToken("Hello there.", true);
-      await drain(() => countMediaFrames(sent) > 0);
+      await drain(() => countEvents(sent, "media") > 0);
 
-      const framesBefore = countMediaFrames(sent);
+      const framesBefore = countEvents(sent, "media");
       expect(framesBefore).toBeGreaterThan(0);
 
       output.clearAudio();
       releaseStream();
       await drain();
 
-      expect(countMediaFrames(sent)).toBe(framesBefore);
+      expect(countEvents(sent, "media")).toBe(framesBefore);
     });
 
     test("streaming provider without PCM support falls back to the whole-buffer path", async () => {
@@ -1151,7 +1193,7 @@ describe("MediaStreamOutput", () => {
         ) {
           onChunk(wav.subarray(0, half));
           await new Promise((resolve) => setTimeout(resolve, 5));
-          midStreamFrames = countMediaFrames(sentRef.sent);
+          midStreamFrames = countEvents(sentRef.sent, "media");
           onChunk(wav.subarray(half));
           return { audio: wav, contentType: "audio/wav" };
         },
@@ -1161,7 +1203,7 @@ describe("MediaStreamOutput", () => {
       sentRef.sent = sent;
       const output = makeOutput(ws, "stream-1");
       output.sendTextToken("Hello.", true);
-      await drain(() => hasEvent(sent, "mark"));
+      await drain(() => countEvents(sent, "mark") > 0);
 
       // Nothing streamed mid-flight; the whole accumulated WAV is
       // transcoded once at the end.

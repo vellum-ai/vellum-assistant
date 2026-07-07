@@ -19,7 +19,7 @@ import type { ServerMessage } from "../daemon/message-protocol.js";
 import type { TrustContext } from "../daemon/trust-context.js";
 import { DAEMON_INTERNAL_ASSISTANT_ID } from "../runtime/assistant-scope.js";
 import { computeToolApprovalDigest } from "../security/tool-approval-digest.js";
-import { getCatalogProvider } from "../tts/provider-catalog.js";
+import { getCatalogProvider, getTtsProvider } from "../tts/provider-catalog.js";
 import { extractSpeakableSegments } from "../tts/speakable-segments.js";
 import {
   type AudioStoreSink,
@@ -56,7 +56,10 @@ import type { CallTransport } from "./call-transport.js";
 import { finalizeCall } from "./finalize-call.js";
 import { sendGuardianExpiryNotices } from "./guardian-action-sweep.js";
 import { dispatchGuardianQuestion } from "./guardian-dispatch.js";
-import { resolveCallTtsProvider } from "./resolve-call-tts-provider.js";
+import {
+  findPlayableTelephonyTtsFallback,
+  resolveCallTtsProvider,
+} from "./resolve-call-tts-provider.js";
 import type { PromptSpeakerContext } from "./speaker-identification.js";
 import { sanitizeForTts } from "./tts-text-sanitizer.js";
 import {
@@ -75,6 +78,15 @@ import {
 } from "./voice-session-bridge.js";
 
 const log = getLogger("call-controller");
+
+/** Look up a registered provider, returning null instead of throwing. */
+function lookupRegisteredTtsProvider(id: string): TtsProvider | null {
+  try {
+    return getTtsProvider(id);
+  } catch {
+    return null;
+  }
+}
 
 type ControllerState = "idle" | "processing" | "speaking";
 
@@ -517,10 +529,12 @@ export class CallController {
       this.activeSynthesisAbort.abort();
       this.activeSynthesisAbort = null;
     }
-    // Drop the aborted turn's unsent buffered text on transports that
-    // accumulate tokens (media-stream), so it cannot leak into the next
-    // turn's synthesis.
+    // Drop the aborted turn's unsent buffered text and cancel its queued /
+    // in-flight speech on transports that hold either (media-stream), so
+    // the aborted turn neither leaks text into the next turn's synthesis
+    // nor plays stale audio over it.
     this.transport.discardPendingText?.();
+    this.transport.cancelPendingSpeech?.();
   }
 
   private formatCallerUtterance(
@@ -666,13 +680,60 @@ export class CallController {
     const synthProvider = useSynthesizedPath ? provider : null;
     let pendingSynthText = "";
     let synthesisChain: Promise<void> = Promise.resolve();
-    // After a segment falls back to native tokens, the rest of the turn
-    // stays on the native route so text is never spoken out of order.
+    // After a segment fails, the rest of the turn stays off the primary
+    // provider so text is never spoken out of order: non-WAV transports
+    // send native tokens; WAV-requiring transports (media-stream) retry
+    // through a playable fallback provider.
     let synthesisFellBack = false;
+    // Fallback provider for WAV-requiring transports, resolved once per
+    // turn. `undefined` = not yet resolved; `null` = none available (or
+    // the fallback failed too) — affected segments are skipped.
+    let wavFallbackProvider: TtsProvider | null | undefined;
     // Non-recoverable failure (allowNativeFallback: false providers):
     // remaining segments are skipped and the error rethrows after the
     // chain drains so the outer handler speaks the generic recovery copy.
     let synthesisFailure: { err: unknown } | undefined;
+
+    // WAV-requiring transports re-synthesize native tokens through the
+    // same failing provider path, so a failed segment (and the rest of
+    // the turn) is spoken through a playable fallback provider instead.
+    const speakSegmentViaWavFallback = async (
+      failedProviderId: string,
+      segment: string,
+    ): Promise<void> => {
+      if (wavFallbackProvider === undefined) {
+        const fallbackId =
+          await findPlayableTelephonyTtsFallback(failedProviderId);
+        wavFallbackProvider = fallbackId
+          ? lookupRegisteredTtsProvider(fallbackId)
+          : null;
+        if (wavFallbackProvider) {
+          log.warn(
+            {
+              provider: failedProviderId,
+              fallbackProvider: wavFallbackProvider.id,
+            },
+            "Speaking remaining TTS segments via fallback provider",
+          );
+        } else {
+          log.error(
+            { provider: failedProviderId },
+            "No playable fallback TTS provider — skipping failed segments",
+          );
+        }
+      }
+      if (!wavFallbackProvider || !this.isCurrentRun(runVersion)) return;
+      const fallbackFailed = await this.synthesizeAndStreamAudio(
+        wavFallbackProvider,
+        segment,
+        runVersion,
+        audioFormat,
+      );
+      if (fallbackFailed) {
+        // The fallback provider is failing too — stop retrying.
+        wavFallbackProvider = null;
+      }
+    };
 
     const enqueueSynthesisSegments = (
       ttsProvider: TtsProvider,
@@ -681,20 +742,27 @@ export class CallController {
       for (const segment of segments) {
         synthesisChain = synthesisChain.then(async () => {
           if (!this.isCurrentRun(runVersion) || synthesisFailure) return;
-          if (synthesisFellBack) {
-            if (!this.transport.requiresWavAudio) {
-              this.beginSpeakingOnAudioStart(runVersion);
-              this.transport.sendTextToken(segment, false);
-            }
-            return;
-          }
           try {
-            synthesisFellBack = await this.synthesizeAndStreamAudio(
-              ttsProvider,
-              segment,
-              runVersion,
-              audioFormat,
-            );
+            if (!synthesisFellBack) {
+              synthesisFellBack = await this.synthesizeAndStreamAudio(
+                ttsProvider,
+                segment,
+                runVersion,
+                audioFormat,
+              );
+              if (!synthesisFellBack || !this.transport.requiresWavAudio) {
+                // Success, abort, or the failed segment's text already
+                // went out as native tokens inside synthesizeAndStreamAudio.
+                return;
+              }
+            } else if (!this.transport.requiresWavAudio) {
+              // Native route. Segments are trimmed, so restore the
+              // inter-segment separator.
+              this.beginSpeakingOnAudioStart(runVersion);
+              this.transport.sendTextToken(`${segment} `, false);
+              return;
+            }
+            await speakSegmentViaWavFallback(ttsProvider.id, segment);
           } catch (err) {
             synthesisFailure = { err };
           }
@@ -875,10 +943,14 @@ export class CallController {
    * Synthesize text via a streaming TTS provider and forward audio chunks
    * to Twilio through the audio store / play-URL mechanism.
    *
-   * @returns `true` when provider synthesis failed and the text took the
-   *   native-token fallback route — callers keep subsequent segments on
-   *   the same route so text is never spoken out of order. `false` on
-   *   success or abort. Rethrows when the provider's catalog entry has
+   * @returns `true` when provider synthesis failed on a provider whose
+   *   catalog entry allows fallback. On transports that accept text
+   *   tokens the failed text has already been sent natively (unless its
+   *   play URL was already delivered); on WAV-requiring transports
+   *   nothing was sent — the caller owns the fallback-provider retry.
+   *   Callers keep subsequent segments off the failed provider so text
+   *   is never spoken out of order. `false` on success or abort.
+   *   Rethrows when the provider's catalog entry has
    *   `allowNativeFallback: false`.
    */
   private async synthesizeAndStreamAudio(
@@ -977,7 +1049,9 @@ export class CallController {
           this.isCurrentRun(runVersion)
         ) {
           this.beginSpeakingOnAudioStart(runVersion);
-          this.transport.sendTextToken(text, false);
+          // Trailing space restores the inter-segment separator lost when
+          // the segment was trimmed at extraction.
+          this.transport.sendTextToken(`${text} `, false);
         }
         return true;
       }
