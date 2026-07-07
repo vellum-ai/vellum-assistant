@@ -12,9 +12,9 @@ import { z } from "zod";
 
 import { getEffectiveProfiles } from "../../config/default-profile-catalog.js";
 import {
-  getDefaultProvider,
+  getDefaultProviderFromConfig,
   resolveDefaultConnectionName,
-} from "../../config/default-provider.js";
+} from "../../config/default-provider-resolution.js";
 import { getIsPlatform } from "../../config/env-registry.js";
 import { getConfigReadOnly } from "../../config/loader.js";
 import { getDb } from "../../persistence/db-connection.js";
@@ -366,7 +366,7 @@ function handleDeleteConnection({ pathParams = {} }: RouteHandlerArgs) {
   // (protected above), so unrelated same-provider rows stay deletable. Legacy
   // managed rows are excluded from the count for the same reason the list
   // route hides them — they aren't user-manageable connections.
-  const dp = getDefaultProvider(config);
+  const dp = getDefaultProviderFromConfig(config);
   if (dp) {
     if (name === resolveDefaultConnectionName(dp)) {
       throw new ConflictError(
