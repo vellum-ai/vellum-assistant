@@ -484,10 +484,11 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
           <BottomSheet.Header className="sr-only">
             <BottomSheet.Title>Conversation settings</BottomSheet.Title>
           </BottomSheet.Header>
-          {/* `pt-0` because the Header is sr-only. `overflow-hidden` —
-              the panel content is short enough that scrolling is not needed
-              and should not be permitted (Figma review: node 6599-6728). */}
-          <BottomSheet.Body className="overflow-hidden pt-0">
+          {/* `pt-0` because the Header is sr-only. Keep Body's default
+              overflow-y-auto: the uncapped profile list can exceed the sheet's
+              50dvh cap, so a profile-rich user must be able to scroll to the
+              lower rows (short lists show no scrollbar, matching the Figma). */}
+          <BottomSheet.Body className="pt-0">
             <SectionLabel>Assistant Access</SectionLabel>
             {THRESHOLD_PRESETS.map((preset) => {
               const isActive = preset.id === activePreset.id;
