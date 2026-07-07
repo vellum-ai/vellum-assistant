@@ -229,13 +229,11 @@ export function SlackChannelList({
   );
 
   return (
-    <Card.Root>
-      <Card.Body>
-        <div className="flex flex-col gap-3">
+    <>
+      <Card.Root>
+        <Card.Header>
           <div className="flex flex-col gap-1">
-            <Typography as="h3" variant="title-small">
-              Where {assistantDisplayName} is present
-            </Typography>
+            Where {assistantDisplayName} is present
             <Typography
               as="p"
               variant="body-small-default"
@@ -244,6 +242,8 @@ export function SlackChannelList({
               {inviteHint}
             </Typography>
           </div>
+        </Card.Header>
+        <Card.Body className="flex flex-col gap-3">
           {loading ? (
             <Typography
               as="span"
@@ -310,7 +310,6 @@ export function SlackChannelList({
                   {multiOpen ? "Collapse all" : "Expand all"}
                 </Button>
               </div>
-              <SlackChannelTierLegend assistantName={assistantDisplayName} />
               {visibleChannels.length === 0 ? (
                 <Typography
                   as="span"
@@ -370,23 +369,28 @@ export function SlackChannelList({
                   )}
                 </Collapsible.Root>
               )}
-              <Typography
-                as="p"
-                variant="body-small-default"
-                className="text-[color:var(--content-tertiary)]"
-              >
-                Only showing channels {assistantDisplayName} is in. To remove{" "}
-                {assistantDisplayName} from a channel, use{" "}
-                <code className="text-[color:var(--content-secondary)]">
-                  /remove {handle}
-                </code>{" "}
-                in that Slack channel.
-              </Typography>
             </>
           )}
-        </div>
-      </Card.Body>
-    </Card.Root>
+        </Card.Body>
+        {!loading && !error && allChannels.length > 0 ? (
+          <Card.Footer>
+            <Typography
+              as="p"
+              variant="body-small-default"
+              className="text-[color:var(--content-tertiary)]"
+            >
+              Only showing channels {assistantDisplayName} is in. To remove{" "}
+              {assistantDisplayName} from a channel, use{" "}
+              <code className="text-[color:var(--content-secondary)]">
+                /remove {handle}
+              </code>{" "}
+              in that Slack channel.
+            </Typography>
+          </Card.Footer>
+        ) : null}
+      </Card.Root>
+      <SlackChannelTierLegend assistantName={assistantDisplayName} />
+    </>
   );
 }
 

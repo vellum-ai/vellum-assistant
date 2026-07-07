@@ -126,11 +126,17 @@ export function tierOverridesFromCells(
 
 /**
  * The default tier for a cell-less channel of the given type: the winning
- * broader-scope cell, walking the matrix cascade exactly like the gateway
- * (`channel_type` > `adapter` > `workspace`), with the trusted_contact cell
- * as representative. Returns `null` when no broader cell exists — the
- * owner's global interactive threshold applies then, which the caller
- * supplies from its thresholds query.
+ * broader-scope cell, walking the same cascade as the runtime resolver —
+ * `ChannelPermissionStore.resolve()` in
+ * `gateway/src/db/channel-permission-store.ts` (channel → channel_type →
+ * adapter → workspace) — minus the channel level, which is the override
+ * itself. The gateway intentionally serves resolve over IPC only
+ * ("a runtime-evaluator concern"), so configuration clients mirror the
+ * walk over the cells list they already fetch; keep the two in step.
+ * The trusted_contact cell is the representative (same rule as the write
+ * fan-out). Returns `null` when no broader cell exists — the owner's
+ * global interactive threshold applies then, which the caller supplies
+ * from its thresholds query.
  */
 export function defaultTierFromCells(
   cells: ChannelTierCell[],

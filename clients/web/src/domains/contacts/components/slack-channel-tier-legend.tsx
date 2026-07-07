@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 
+import { Card } from "@vellumai/design-library/components/card";
 import type { TagTone } from "@vellumai/design-library/components/tag";
 import { Typography } from "@vellumai/design-library/components/typography";
 
@@ -86,23 +87,17 @@ export interface SlackChannelTierLegendProps {
 }
 
 /**
- * One-time Assistant Access legend above the channel rows: every tier with
- * its behavior description, so the expanded rows don't repeat the same
+ * One-time Assistant Access legend card beside the channel list: every tier
+ * with its behavior description, so the expanded rows don't repeat the same
  * paragraph per channel.
  */
 export function SlackChannelTierLegend({
   assistantName,
 }: SlackChannelTierLegendProps) {
   return (
-    <div className="flex flex-col gap-3">
-      <Typography
-        as="h4"
-        variant="label-small-default"
-        className="uppercase tracking-wider text-[color:var(--content-tertiary)]"
-      >
-        Assistant Access levels
-      </Typography>
-      <div className="grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
+    <Card.Root>
+      <Card.Header>Assistant Access levels</Card.Header>
+      <Card.Body className="grid gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
         {CAPABILITY_TIER_VALUES.map((tier) => {
           const meta = CAPABILITY_TIER_META[tier];
           return (
@@ -127,7 +122,7 @@ export function SlackChannelTierLegend({
             </div>
           );
         })}
-      </div>
-    </div>
+      </Card.Body>
+    </Card.Root>
   );
 }

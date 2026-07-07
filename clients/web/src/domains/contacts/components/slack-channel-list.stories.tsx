@@ -45,8 +45,17 @@ const meta: Meta<typeof SlackChannelList> = {
     defaultTiers: { public: "low", private: "low" },
   },
   decorators: [
+    // Mirrors the Channels page's card column (flex flex-col gap-6).
     (Story) => (
-      <div style={{ maxWidth: 720, margin: "2rem auto" }}>
+      <div
+        style={{
+          maxWidth: 720,
+          margin: "2rem auto",
+          display: "flex",
+          flexDirection: "column",
+          gap: 24,
+        }}
+      >
         <Story />
       </div>
     ),
