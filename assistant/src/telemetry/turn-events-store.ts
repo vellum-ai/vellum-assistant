@@ -66,6 +66,26 @@ export interface TurnEvent {
    * wire format.
    */
   clientMetadata: string | null;
+  /**
+   * Abnormal turn outcome stamped onto `messages.metadata.turnOutcome` at
+   * turn end: `"batched"` (coalesced into a later turn's shared response),
+   * `"failed"` (loop ended in a non-cancellation error), or `"cancelled"`
+   * (user stop / barge-in). Null when the turn replied normally, when the
+   * row predates outcome stamping, or when the process died mid-turn
+   * before a stamp could land.
+   */
+  outcome: string | null;
+  /**
+   * For `"batched"` turns: `messages.id` of the batch-final turn whose
+   * window carries the shared response. Null otherwise.
+   */
+  batchedInto: string | null;
+  /**
+   * For `"failed"` turns: the stable classified error code
+   * (`classifyConversationError(...).code`). Null otherwise or when the
+   * failure had no classification.
+   */
+  failureCode: string | null;
 }
 
 /**
@@ -143,6 +163,22 @@ export function queryUnreportedTurnEvents(
       clientMetadata: sql<
         string | null
       >`json_extract(${messages.metadata}, '$.client')`.as("client_metadata"),
+      // Turn-outcome stamps written at turn end (`stampTurnOutcome`).
+      // `json_extract` returns SQL NULL when the path is absent — rows
+      // predating outcome stamping and normally-replied turns project null.
+      outcome: sql<
+        string | null
+      >`json_extract(${messages.metadata}, '$.turnOutcome')`.as("outcome"),
+      batchedInto: sql<
+        string | null
+      >`json_extract(${messages.metadata}, '$.turnBatchedInto')`.as(
+        "batched_into",
+      ),
+      failureCode: sql<
+        string | null
+      >`json_extract(${messages.metadata}, '$.turnFailureCode')`.as(
+        "failure_code",
+      ),
     })
     .from(messages)
     .innerJoin(conversations, eq(messages.conversationId, conversations.id))

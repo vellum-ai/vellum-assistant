@@ -45,6 +45,9 @@ const mockQueryUnreportedTurnEvents = mock(
       interfaceId: string | null;
       channelId: string | null;
       clientMetadata: string | null;
+      outcome?: string | null;
+      batchedInto?: string | null;
+      failureCode?: string | null;
     }[],
 );
 
@@ -1253,7 +1256,16 @@ describe("UsageTelemetryReporter", () => {
   // Trace completeness barrier — don't emit partial traces mid-turn
   // -------------------------------------------------------------------------
 
-  function turnEvent(id: string, createdAt: number, conversationId: string) {
+  function turnEvent(
+    id: string,
+    createdAt: number,
+    conversationId: string,
+    overrides: {
+      outcome?: string | null;
+      batchedInto?: string | null;
+      failureCode?: string | null;
+    } = {},
+  ) {
     return {
       id,
       createdAt,
@@ -1263,6 +1275,7 @@ describe("UsageTelemetryReporter", () => {
       interfaceId: "macos",
       channelId: "vellum",
       clientMetadata: null,
+      ...overrides,
     };
   }
 
@@ -1415,18 +1428,17 @@ describe("UsageTelemetryReporter", () => {
     );
   });
 
-  test("with tracing disabled, an in-progress turn is NOT deferred (reporting timing unchanged)", async () => {
-    // The completeness barrier is trace-eligible-only. With trace collection
-    // off, turn telemetry / turn_raw behavior is unchanged: the turn ships
-    // immediately and `isTurnSettled` is never consulted.
+  test("with tracing disabled, an in-progress turn is still deferred (outcome stamps must ship with the event)", async () => {
+    // The completeness barrier applies to every turn event, not just
+    // trace-eligible ones: the `outcome` stamp is written while the
+    // conversation is still processing, and the watermark advances on ship,
+    // so an in-flight turn reported early would be frozen without its stamp.
     mockGetCachedShareDiagnostics.mockReturnValue(false);
     mockQueryUnreportedUsageEvents.mockReturnValue([]);
     const checkpoints = useStatefulCheckpoints();
     mockQueryUnreportedTurnEvents.mockReturnValue([
       turnEvent("evt-inflight", 1700000050000, "conv-1"),
     ]);
-    // Even though the turn would be "in-flight", the gate is off so this is
-    // never consulted.
     mockIsTurnSettled.mockReturnValue(false);
     mockFetch.mockImplementation(() =>
       Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
@@ -1435,19 +1447,114 @@ describe("UsageTelemetryReporter", () => {
     const reporter = new UsageTelemetryReporter();
     await reporter.flush();
 
-    expect(mockIsTurnSettled).not.toHaveBeenCalled();
-    // The turn ships immediately, trace-free.
+    expect(mockIsTurnSettled).toHaveBeenCalled();
+    // Nothing ships and the watermark holds, so the turn is retried complete.
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(checkpoints.get("telemetry:turns:last_reported_at")).toBeUndefined();
+  });
+
+  test("with tracing disabled, a settled turn ships trace-free and advances the watermark", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    const checkpoints = useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-settled", 1700000050000, "conv-1"),
+    ]);
+    mockIsTurnSettled.mockReturnValue(true);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
     expect(mockFetch).toHaveBeenCalledTimes(1);
     const body = JSON.parse(
       (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
     );
     expect(body.events.length).toBe(1);
-    expect(body.events[0].daemon_event_id).toBe("evt-inflight");
+    expect(body.events[0].daemon_event_id).toBe("evt-settled");
     expect("trace" in body.events[0]).toBe(false);
     // Watermark advances as usual.
     expect(checkpoints.get("telemetry:turns:last_reported_at")).toBe(
       String(1700000050000),
     );
+  });
+
+  test("outcome stamps ride the turn event: batched carries batched_into, failed carries failure_code", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-batched-head", 1700000010000, "conv-1", {
+        outcome: "batched",
+        batchedInto: "evt-batch-final",
+      }),
+      turnEvent("evt-batch-final", 1700000011000, "conv-1"),
+      turnEvent("evt-failed", 1700000012000, "conv-2", {
+        outcome: "failed",
+        failureCode: "PROVIDER_RATE_LIMIT",
+      }),
+      turnEvent("evt-cancelled", 1700000013000, "conv-3", {
+        outcome: "cancelled",
+      }),
+    ]);
+    mockIsTurnSettled.mockReturnValue(true);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":4}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    const byId = Object.fromEntries(
+      body.events.map((e: { daemon_event_id: string }) => [
+        e.daemon_event_id,
+        e,
+      ]),
+    );
+    expect(byId["evt-batched-head"].outcome).toBe("batched");
+    expect(byId["evt-batched-head"].batched_into).toBe("evt-batch-final");
+    expect("failure_code" in byId["evt-batched-head"]).toBe(false);
+    // The batch-final turn replied normally: no outcome keys at all.
+    expect("outcome" in byId["evt-batch-final"]).toBe(false);
+    expect("batched_into" in byId["evt-batch-final"]).toBe(false);
+    expect(byId["evt-failed"].outcome).toBe("failed");
+    expect(byId["evt-failed"].failure_code).toBe("PROVIDER_RATE_LIMIT");
+    expect("batched_into" in byId["evt-failed"]).toBe(false);
+    expect(byId["evt-cancelled"].outcome).toBe("cancelled");
+    expect("failure_code" in byId["evt-cancelled"]).toBe(false);
+  });
+
+  test("an unrecognized outcome value in metadata is dropped from the wire", async () => {
+    mockGetCachedShareDiagnostics.mockReturnValue(false);
+    mockQueryUnreportedUsageEvents.mockReturnValue([]);
+    useStatefulCheckpoints();
+    mockQueryUnreportedTurnEvents.mockReturnValue([
+      turnEvent("evt-garbage", 1700000010000, "conv-1", {
+        outcome: "exploded",
+        batchedInto: "evt-other",
+        failureCode: "BOOM",
+      }),
+    ]);
+    mockIsTurnSettled.mockReturnValue(true);
+    mockFetch.mockImplementation(() =>
+      Promise.resolve(new Response('{"accepted":1}', { status: 200 })),
+    );
+
+    const reporter = new UsageTelemetryReporter();
+    await reporter.flush();
+
+    const body = JSON.parse(
+      (mockFetch.mock.calls[0] as [string, RequestInit])[1].body as string,
+    );
+    expect("outcome" in body.events[0]).toBe(false);
+    expect("batched_into" in body.events[0]).toBe(false);
+    expect("failure_code" in body.events[0]).toBe(false);
   });
 
   test("llm_usage events carry conversation_id, conversation_type, and turn_index", async () => {
