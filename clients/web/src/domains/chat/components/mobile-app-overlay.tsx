@@ -1,5 +1,6 @@
 import { AppViewerContainer } from "@/components/app-viewer-container";
 import { useMobileOverlayViewportStyle } from "@/hooks/use-mobile-overlay-viewport-style";
+import { cn } from "@/utils/misc";
 import type { OpenedAppState } from "@/stores/viewer-store";
 
 interface MobileAppOverlayProps {
@@ -59,11 +60,24 @@ export function MobileAppOverlay({
 
   return (
     <div
-      className="fixed inset-x-0 z-30 transition-transform duration-300 ease-out"
+      className={cn(
+        "fixed inset-x-0 z-30 transition-transform duration-300 ease-out",
+        // Figma review (node 6629-6730): the minimized strip overlays the
+        // chat, so it needs a top-directional shadow to read as a layer
+        // above it rather than blending in.
+        isAppMinimized && "shadow-[0_-4px_16px_rgba(0,0,0,0.15)]",
+      )}
       style={{
         ...shellStyle,
+        // Minimized: slide down until only the nav bar peeks above the bottom
+        // edge. The bar is 64px tall on mobile (`py-3` 24px + 40px
+        // `touch-mobile:` buttons), and both safe-area insets must be
+        // subtracted — the top inset because the shell's `paddingTop` shifts
+        // the content down, the bottom inset so the strip clears the iOS home
+        // indicator instead of hiding under it. Figma review (node 6629-6730):
+        // "moves it too far down, should be higher".
         transform: isAppMinimized
-          ? "translateY(calc(100% - var(--app-strip-h, 56px) - var(--safe-area-inset-top, env(safe-area-inset-top, 0px))))"
+          ? "translateY(calc(100% - var(--app-strip-h, 64px) - var(--safe-area-inset-top, env(safe-area-inset-top, 0px)) - var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px))))"
           : "translateY(0)",
       }}
     >

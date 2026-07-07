@@ -25,7 +25,11 @@ export function ScrollToLatestButton({
       onClick={onClick}
       ariaLabel="Go to newest message"
       size="regular"
-      className="text-[var(--content-emphasised)]"
+      // `max-md:shadow-lg` — Figma review (node 6629-6729): the pill needs a
+      // stronger shadow on mobile to lift off the busy chat background. The
+      // shared ChatPill chrome keeps `shadow-md` on desktop and for the other
+      // pill consumers.
+      className="text-[var(--content-emphasised)] max-md:shadow-lg"
     >
       {isStreaming && (
         <span

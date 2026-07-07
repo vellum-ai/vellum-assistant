@@ -290,6 +290,7 @@ export function ChatMainPanel({
   // -------------------------------------------------------------------------
   const mainView = useViewerStore.use.mainView();
   const openedAppState = useViewerStore.use.openedAppState();
+  const isAppMinimized = useViewerStore.use.isAppMinimized();
 
   // Conversation count (for nudges — TanStack Query deduped)
   const { conversations } = useConversationListQuery(assistantId, true);
@@ -1017,9 +1018,20 @@ export function ChatMainPanel({
   const isSidePanel = mainView === "app-editing" && !!openedAppState && !!editingConversationId;
   const variant = isSidePanel ? "side-panel" : "main";
 
+  // Mobile-only: while the app overlay is minimized to its bottom strip, the
+  // strip covers the bottom of the chat. Reserve its height so the composer
+  // sits above it — Figma review (node 6629-6730). The strip peeks
+  // `--app-strip-h` above the safe area, and the chat shell already pads for
+  // the safe area itself, so only the strip height needs reserving.
+  const appStripBottomInset =
+    isMobile && isAppMinimized && openedAppState
+      ? "var(--app-strip-h, 64px)"
+      : undefined;
+
   const chatBody = (
     <ChatBody
       variant={variant}
+      bottomInset={appStripBottomInset}
       scrollAreaProps={{
         ...chatBodyScrollAreaPropsBase,
         showMaintenanceRecoveryCard: isSidePanel ? false : isInMaintenanceWithNoMessages,

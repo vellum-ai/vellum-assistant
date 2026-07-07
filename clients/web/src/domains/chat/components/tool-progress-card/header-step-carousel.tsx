@@ -218,9 +218,13 @@ export function HeaderStepCarousel({
         {hasInfo ? (
           <>
             {hasTitle ? (
+              // `max-md:text-[17px]` — Figma review (node 6629-6729): the
+              // pipe divider reads too small next to the labels on mobile.
+              // Bumping the glyph's font size grows it there; desktop and
+              // electron keep the inherited size.
               <span
                 aria-hidden="true"
-                className="shrink-0 text-[var(--border-element)]"
+                className="shrink-0 text-[var(--border-element)] max-md:text-[17px] max-md:leading-none"
               >
                 |
               </span>
