@@ -92,7 +92,8 @@ export interface LiveVoiceSessionControls {
    * Stop in-flight assistant playback without the user having to speak. V1
    * behavior: same path as barge-in interrupt, which ends the session (a later
    * engine revision makes it turn-scoped). No-op unless the session is
-   * `speaking`.
+   * `speaking`. Dormant until the turn-scoped interrupt lands (engine plan,
+   * JARVIS-1240) — deliberately kept registered, but no surface wires it yet.
    */
   interrupt: () => void;
 }
@@ -302,6 +303,28 @@ export const useLiveVoiceStore = createSelectors(useLiveVoiceStoreBase);
  */
 export function getLiveVoiceInputAmplitude(): number {
   return useLiveVoiceStore.getState().inputAmplitude;
+}
+
+/**
+ * End the active live-voice session through the store-registered
+ * {@link LiveVoiceSessionControls}. No-op when no session (or no controls)
+ * exists. Module-level so every surface with an "end session" affordance (the
+ * composer's voice bar, the title-bar pill) shares one stable identity and
+ * reads `controls` via `getState()` in the callback — subscribing to
+ * `controls` just to call it would re-render on register/clear (see
+ * STATE_MANAGEMENT.md).
+ */
+export function endLiveVoiceSession(): void {
+  useLiveVoiceStore.getState().controls?.stop();
+}
+
+/**
+ * Manually release the current push-to-talk turn ("send now") through the
+ * store-registered controls. No-op when no session is `listening`. See
+ * {@link endLiveVoiceSession} for why this is module-level.
+ */
+export function releaseLiveVoiceTurn(): void {
+  useLiveVoiceStore.getState().controls?.release();
 }
 
 /**

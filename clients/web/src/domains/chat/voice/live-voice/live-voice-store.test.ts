@@ -7,19 +7,17 @@
 
 import { beforeEach, describe, expect, mock, test } from "bun:test";
 
+import { makeControlsSpies } from "@/domains/chat/voice/live-voice/live-voice-fakes.test-helper";
 import {
+  endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   isLiveVoiceMicLive,
   isLiveVoiceSessionActive,
   isLiveVoiceSessionOwnedBy,
+  releaseLiveVoiceTurn,
   useLiveVoiceStore,
-  type LiveVoiceSessionControls,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
-
-function makeControls(): LiveVoiceSessionControls {
-  return { stop: mock(() => {}), release: mock(() => {}), interrupt: mock(() => {}) };
-}
 
 beforeEach(() => {
   useLiveVoiceStore.getState().reset();
@@ -172,21 +170,45 @@ describe("useLiveVoiceStore — session controls", () => {
   });
 
   test("setControls registers the owning controller's controls", () => {
-    const controls = makeControls();
+    const controls = makeControlsSpies();
     useLiveVoiceStore.getState().setControls(controls);
     expect(useLiveVoiceStore.getState().controls).toBe(controls);
   });
 
   test("setControls(null) deregisters controls", () => {
-    useLiveVoiceStore.getState().setControls(makeControls());
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
     useLiveVoiceStore.getState().setControls(null);
     expect(useLiveVoiceStore.getState().controls).toBeNull();
   });
 
   test("reset clears registered controls", () => {
-    useLiveVoiceStore.getState().setControls(makeControls());
+    useLiveVoiceStore.getState().setControls(makeControlsSpies());
     useLiveVoiceStore.getState().reset();
     expect(useLiveVoiceStore.getState().controls).toBeNull();
+  });
+});
+
+describe("endLiveVoiceSession / releaseLiveVoiceTurn", () => {
+  test("route to the registered controls (and only the matching verb)", () => {
+    const controls = makeControlsSpies();
+    useLiveVoiceStore.getState().setControls(controls);
+
+    endLiveVoiceSession();
+    expect(controls.stop).toHaveBeenCalledTimes(1);
+    expect(controls.release).not.toHaveBeenCalled();
+
+    releaseLiveVoiceTurn();
+    expect(controls.release).toHaveBeenCalledTimes(1);
+    expect(controls.stop).toHaveBeenCalledTimes(1);
+    expect(controls.interrupt).not.toHaveBeenCalled();
+  });
+
+  test("no-op when no controls are registered", () => {
+    expect(useLiveVoiceStore.getState().controls).toBeNull();
+    expect(() => {
+      endLiveVoiceSession();
+      releaseLiveVoiceTurn();
+    }).not.toThrow();
   });
 });
 

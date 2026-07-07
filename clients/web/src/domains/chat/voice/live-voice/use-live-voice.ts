@@ -64,6 +64,7 @@ import {
   type TtsAudioChunk,
 } from "@/domains/chat/voice/live-voice/tts-playback";
 import {
+  isLiveVoiceSessionActive,
   useLiveVoiceStore,
   type LiveVoiceSessionState,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -105,12 +106,6 @@ export interface UseLiveVoiceResult {
   start: (assistantId: string, conversationId?: string) => Promise<void>;
   /** End the session and release the mic, socket, and audio context. */
   stop: () => Promise<void>;
-  /**
-   * Manually release push-to-talk (the "send now" button) — force-ends the
-   * current user turn exactly like the automatic silence release. No-op unless
-   * the session is `listening`.
-   */
-  release: () => void;
 }
 
 /** Injectable factories so tests can supply mock primitives. */
@@ -208,6 +203,13 @@ export function useLiveVoice(
 
   const sessionRef = useRef<SessionContext | null>(null);
 
+  // Monotonic count of `start()` calls for this hook instance. `stop()`
+  // captures it before its awaits and skips its trailing store reset when a
+  // newer session started in the meantime — the per-session `generation`
+  // can't cover this because `stop()` nulls `sessionRef` synchronously, so
+  // the racing session is a different context object entirely.
+  const startGenerationRef = useRef(0);
+
   // Keep the factories in a ref so start()/stop() stay stable across renders
   // even if callers pass inline option objects. The ref is updated in an effect
   // (not during render) to satisfy the react-compiler "no refs during render"
@@ -249,6 +251,7 @@ export function useLiveVoice(
       useLiveVoiceStore.getState().reset();
       return;
     }
+    const startGeneration = startGenerationRef.current;
     sessionRef.current = null;
     session.generation += 1;
     useLiveVoiceStore.getState().setState("ending");
@@ -258,6 +261,10 @@ export function useLiveVoice(
     // Release the AudioContext, not just the scheduled sources (see teardown).
     await session.player.dispose();
     await session.capture.shutdown();
+    // A start() that raced the awaits owns the store now (e.g. a second ✕
+    // click resets `ending` → idle mid-await, unblocking start()); wiping it
+    // here would leave that session's mic hot behind idle UI.
+    if (startGenerationRef.current !== startGeneration) return;
     useLiveVoiceStore.getState().reset();
   }, []);
 
@@ -285,11 +292,14 @@ export function useLiveVoice(
 
   const start = useCallback(
     async (assistantId: string, conversationId?: string) => {
-      const current = sessionRef.current;
-      // A live session (anything but idle/failed) blocks a new start.
-      const phase = useLiveVoiceStore.getState().state;
-      if (current && phase !== "idle" && phase !== "failed") return;
-      if (current) teardown();
+      // A live session (anything but idle/failed) blocks a new start. Keyed
+      // on the store phase alone — NOT on `sessionRef` — because during
+      // `ending` stop() has already nulled the ref while its async teardown
+      // is still in flight; a start() admitted in that window would be wiped
+      // by stop()'s trailing reset (hot mic behind idle UI).
+      if (isLiveVoiceSessionActive(useLiveVoiceStore.getState().state)) return;
+      if (sessionRef.current) teardown();
+      startGenerationRef.current += 1;
 
       const store = useLiveVoiceStore.getState();
       store.reset();
@@ -433,7 +443,6 @@ export function useLiveVoice(
     error,
     start,
     stop,
-    release,
   };
 }
 
@@ -536,11 +545,6 @@ function releasePushToTalk(session: SessionContext): void {
   s.setInputAmplitude(0);
 }
 
-/**
- * Resume listening for the next utterance: re-open the forwarding gate, clear
- * the per-utterance counters/flags, and move to `listening`. The mic is already
- * running (continuous capture), so there is nothing to restart here.
- */
 /**
  * Barge-in: stop playback and interrupt the server once per response, then end
  * the session (→ idle). The interrupted session is terminal on the runtime — it

@@ -34,8 +34,10 @@ import {
 } from "@/domains/chat/components/voice-input-button";
 import { type TurnPhase, useTurnStore } from "@/domains/chat/turn-store";
 import {
+    endLiveVoiceSession,
     getLiveVoiceInputAmplitude,
     isLiveVoiceSessionActive,
+    releaseLiveVoiceTurn,
     useIsLiveVoiceSessionOwnedBy,
     useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
@@ -272,20 +274,16 @@ export function ChatComposer({
   const showLiveVoiceTranscript = isLiveVoiceActive && hasLiveVoiceTranscript;
   // Session verbs go through the store seams registered by the layout-owned
   // controller: `starter` (registered for the controller's whole mount) to
-  // start, per-session `controls` to stop/release. Read via `getState()` in
-  // handlers per STATE_MANAGEMENT.md — no subscription needed.
+  // start, per-session `controls` to stop/release — the latter via the shared
+  // module-level `endLiveVoiceSession`/`releaseLiveVoiceTurn` helpers, which
+  // read the store with `getState()` per STATE_MANAGEMENT.md (no subscription
+  // needed for callback-only reads).
   const handleLiveVoiceStart = useCallback(() => {
     if (!assistantId) {
       return;
     }
     useLiveVoiceStore.getState().starter?.(assistantId, conversationId ?? null);
   }, [assistantId, conversationId]);
-  const handleLiveVoiceEnd = useCallback(() => {
-    useLiveVoiceStore.getState().controls?.stop();
-  }, []);
-  const handleLiveVoiceSend = useCallback(() => {
-    useLiveVoiceStore.getState().controls?.release();
-  }, []);
   // Dismissing the failure notice resets the store back to idle — `failed` is
   // terminal for the session, so this only clears the surfaced error.
   const dismissLiveVoiceError = useCallback(() => {
@@ -667,8 +665,8 @@ export function ChatComposer({
               <VoiceComposerBar
                 state={liveVoiceState}
                 getAmplitude={getLiveVoiceInputAmplitude}
-                onEnd={handleLiveVoiceEnd}
-                onSend={handleLiveVoiceSend}
+                onEnd={endLiveVoiceSession}
+                onSend={releaseLiveVoiceTurn}
               />
             ) : (
               <div className="flex items-center justify-between px-2 pb-2">

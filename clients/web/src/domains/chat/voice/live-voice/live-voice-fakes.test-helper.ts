@@ -7,11 +7,20 @@
  * assert state-machine transitions, barge-in, automatic ptt_release, and
  * teardown.
  *
+ * Also exports the store-seeding helpers (`makeControlsSpies`,
+ * `seedLiveVoiceSession`) shared by the surface tests that drive the real
+ * `useLiveVoiceStore` directly (`chat-composer.test.tsx`,
+ * `voice-session-pill-host.test.tsx`, `live-voice-store.test.ts`).
+ *
  * Shared by `use-live-voice.test.ts` and
- * `use-live-voice-session-controller.test.tsx`. Type-only imports keep the
- * generated-SDK import graph out of test files (the real client's
- * `connection.ts` is mocked separately by each test).
+ * `use-live-voice-session-controller.test.tsx`. Imports from the primitives
+ * stay type-only to keep the generated-SDK import graph out of test files
+ * (the real client's `connection.ts` is mocked separately by each test); the
+ * store is a value import, but it is self-contained zustand with no heavy
+ * dependencies.
  */
+
+import { mock } from "bun:test";
 
 import type {
   LiveVoiceClientEventMap,
@@ -21,6 +30,11 @@ import type {
   LiveVoiceAudioCaptureOptions,
   LiveVoiceCaptureResult,
 } from "@/domains/chat/voice/live-voice/pcm-capture";
+import {
+  useLiveVoiceStore,
+  type LiveVoiceSessionControls,
+  type LiveVoiceSessionState,
+} from "@/domains/chat/voice/live-voice/live-voice-store";
 
 export class FakeClient {
   connectArgs: { assistantId: string; conversationId?: string } | null = null;
@@ -162,4 +176,35 @@ export class FakePlayer {
 export function pcmChunk(ms: number): ArrayBuffer {
   const samples = Math.round((16000 * ms) / 1000);
   return new Int16Array(samples).buffer;
+}
+
+/** Spy implementations of the store-registered session controls. */
+export function makeControlsSpies() {
+  return {
+    stop: mock(() => {}),
+    release: mock(() => {}),
+    interrupt: mock(() => {}),
+  } satisfies LiveVoiceSessionControls;
+}
+
+/**
+ * Seed the real `useLiveVoiceStore` with a session, mirroring the writes the
+ * controller performs on `start()` (context → controls → state). Pass
+ * `conversationId: null` for a draft-started session; omit `controls` to
+ * leave none registered.
+ */
+export function seedLiveVoiceSession(
+  state: LiveVoiceSessionState,
+  options: {
+    assistantId: string;
+    conversationId: string | null;
+    controls?: LiveVoiceSessionControls;
+  },
+): void {
+  const store = useLiveVoiceStore.getState();
+  store.setSessionContext(options.assistantId, options.conversationId);
+  if (options.controls) {
+    store.setControls(options.controls);
+  }
+  store.setState(state);
 }

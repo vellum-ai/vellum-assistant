@@ -661,6 +661,10 @@ export function ChatLayout() {
       {isMobile ? (
         <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden">
           <Outlet  />
+          {/* A popout narrowed below the mobile breakpoint lands in this
+              branch — still headerless, so it still needs the floating
+              session surface (see the desktop popout branch below). */}
+          {isPopout ? <VoiceSessionPillHost variant="standalone" /> : null}
           {drawerVisible ? (
             <div
               ref={drawerRef}
@@ -696,8 +700,15 @@ export function ChatLayout() {
           ) : null}
         </main>
       ) : isPopout ? (
-        <main className="flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4">
+        <main className="relative flex min-w-0 flex-1 min-h-0 flex-col overflow-hidden p-4">
           <Outlet />
+          {/* Pop-outs render no header, but they DO support in-window
+              conversation switching (Cmd+Up/Down) — so a live session started
+              here can lose its owning composer exactly like in the main
+              window. The standalone variant floats the pill (or the failed
+              chip) over the top-right corner; it renders nothing while the
+              on-screen composer owns the session. */}
+          <VoiceSessionPillHost variant="standalone" />
         </main>
       ) : (
         <div className="flex min-w-0 flex-1 gap-4 p-4 min-h-0 overflow-hidden flex-col md:flex-row">

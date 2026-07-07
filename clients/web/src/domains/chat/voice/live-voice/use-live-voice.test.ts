@@ -456,33 +456,6 @@ describe("session context and controls", () => {
     expect(store.startedConversationId).toBeNull();
   });
 
-  test("release() while listening sends ptt_release and moves to transcribing", async () => {
-    const h = renderController();
-    await startListening(h);
-
-    act(() => {
-      h.view.result.current.release();
-    });
-
-    expect(h.client.pttReleaseCount).toBe(1);
-    expect(h.view.result.current.state).toBe("transcribing");
-  });
-
-  test("release() outside listening is a no-op", async () => {
-    const h = renderController();
-    await act(async () => {
-      await h.view.result.current.start("assistant-1", "conv-1");
-    });
-    expect(h.view.result.current.state).toBe("connecting");
-
-    act(() => {
-      h.view.result.current.release();
-    });
-
-    expect(h.client.pttReleaseCount).toBe(0);
-    expect(h.view.result.current.state).toBe("connecting");
-  });
-
   test("store controls.release drives the manual ptt release", async () => {
     const h = renderController();
     await startListening(h);
@@ -493,6 +466,21 @@ describe("session context and controls", () => {
 
     expect(h.client.pttReleaseCount).toBe(1);
     expect(h.view.result.current.state).toBe("transcribing");
+  });
+
+  test("store controls.release outside listening is a no-op", async () => {
+    const h = renderController();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+    });
+    expect(h.view.result.current.state).toBe("connecting");
+
+    act(() => {
+      useLiveVoiceStore.getState().controls?.release();
+    });
+
+    expect(h.client.pttReleaseCount).toBe(0);
+    expect(h.view.result.current.state).toBe("connecting");
   });
 
   test("store controls.interrupt stops playback while speaking and is a no-op otherwise", async () => {
@@ -620,7 +608,7 @@ describe("observeAudioState", () => {
     // Low-frequency session state still flows: releasing push-to-talk moves
     // the returned state to `transcribing` (a re-render).
     act(() => {
-      h.view.result.current.release();
+      useLiveVoiceStore.getState().controls?.release();
     });
     expect(h.view.result.current.state).toBe("transcribing");
     expect(h.getRenderCount()).toBeGreaterThan(rendersBefore);
@@ -675,5 +663,145 @@ describe("teardown", () => {
       await h.view.result.current.stop();
     });
     expect(h.view.result.current.state).toBe("idle");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stop()/start() races
+// ---------------------------------------------------------------------------
+
+describe("stop/start races", () => {
+  /**
+   * Like `renderController`, but tracks every created primitive so a test can
+   * observe a second session, and lets a test hold the first player's
+   * `dispose()` open to pause `stop()` mid-teardown.
+   */
+  function renderRacingController() {
+    const clients: FakeClient[] = [];
+    const players: FakePlayer[] = [];
+
+    const view = renderHook(() =>
+      useLiveVoice({
+        createClient: () => {
+          const client = new FakeClient();
+          clients.push(client);
+          return client as unknown as LiveVoiceChannelClient;
+        },
+        createPlayer: () => {
+          const player = new FakePlayer();
+          players.push(player);
+          return player as unknown as LiveVoiceAudioPlayer;
+        },
+        createCapture: (options) =>
+          new FakeCapture(options) as unknown as LiveVoiceAudioCapture,
+      }),
+    );
+
+    return { view, clients, players };
+  }
+
+  /** Replace `player.dispose` with one that resolves only on command. */
+  function holdDisposeOpen(player: FakePlayer): () => void {
+    let releaseDispose!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      releaseDispose = resolve;
+    });
+    player.dispose = async () => {
+      player.stop();
+      await gate;
+    };
+    return releaseDispose;
+  }
+
+  test("start() during `ending` is a no-op (no second session behind stop()'s teardown)", async () => {
+    const h = renderRacingController();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+      h.clients[0]!.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId: "conv-1",
+      });
+      await Promise.resolve();
+    });
+    expect(h.view.result.current.state).toBe("listening");
+
+    const releaseDispose = holdDisposeOpen(h.players[0]!);
+    let stopPromise!: Promise<void>;
+    act(() => {
+      stopPromise = h.view.result.current.stop();
+    });
+    expect(useLiveVoiceStore.getState().state).toBe("ending");
+
+    // A starter call in the ending window must not open a new session: the
+    // old stop()'s trailing reset would wipe it (hot mic behind idle UI).
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-2");
+    });
+    expect(h.clients).toHaveLength(1);
+    expect(useLiveVoiceStore.getState().state).toBe("ending");
+
+    await act(async () => {
+      releaseDispose();
+      await stopPromise;
+    });
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
+  });
+
+  test("stop()'s late reset does not clobber a session started after a double-stop", async () => {
+    const h = renderRacingController();
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-1");
+      h.clients[0]!.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s1",
+        conversationId: "conv-1",
+      });
+      await Promise.resolve();
+    });
+
+    // First stop is paused mid-await; a second stop (no session ref left)
+    // resets the store to idle immediately — which unblocks start().
+    const releaseDispose = holdDisposeOpen(h.players[0]!);
+    let firstStop!: Promise<void>;
+    act(() => {
+      firstStop = h.view.result.current.stop();
+    });
+    await act(async () => {
+      await h.view.result.current.stop();
+    });
+    expect(useLiveVoiceStore.getState().state).toBe("idle");
+
+    // A new session starts while the first stop() is still awaiting teardown.
+    await act(async () => {
+      await h.view.result.current.start("assistant-1", "conv-2");
+    });
+    expect(h.clients).toHaveLength(2);
+    expect(useLiveVoiceStore.getState().state).toBe("connecting");
+
+    // The first stop() finally finishes — its trailing reset must yield to
+    // the newer session instead of wiping its store state.
+    await act(async () => {
+      releaseDispose();
+      await firstStop;
+    });
+    expect(useLiveVoiceStore.getState().state).toBe("connecting");
+    expect(useLiveVoiceStore.getState().conversationId).toBe("conv-2");
+    expect(useLiveVoiceStore.getState().controls).not.toBeNull();
+    expect(h.clients[1]!.closed).toBe(false);
+
+    // The surviving session still works end-to-end: `ready` moves it along.
+    await act(async () => {
+      h.clients[1]!.emit("ready", {
+        type: "ready",
+        seq: 1,
+        sessionId: "s2",
+        conversationId: "conv-2",
+      });
+      await Promise.resolve();
+    });
+    expect(useLiveVoiceStore.getState().state).toBe("listening");
   });
 });

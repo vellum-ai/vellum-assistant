@@ -5,7 +5,11 @@
  * `topBarRightSlot` content rather than registered through
  * `useChatLayoutSlotsStore`, because slot registration is owned by per-route
  * hooks that unmount on navigation, which is exactly when the pill must
- * persist.
+ * persist. Electron pop-out thread windows render no header at all, so
+ * `ChatLayout` mounts a second host there with `variant="standalone"`, which
+ * floats the same surface over the window's top-right corner — a session
+ * carried to another conversation via in-window switching (Cmd+Up/Down) must
+ * still have a visible control.
  *
  * Visibility is the exact complement of the composer's voice bar so that for
  * any active session exactly one of the two surfaces renders: the pill shows
@@ -20,15 +24,27 @@
  *   deliberately persists across route changes (see `chat-layout.tsx`), so
  *   the id comparison alone can't detect this,
  * - the desktop fullscreen app viewer covers the thread (`mainView === "app"`;
- *   on mobile that view keeps the composer mounted under a portal overlay
- *   that covers the header too, so the composer stays the owning surface).
- *   `app-editing` (split view) and the right-drawer detail panels keep the
- *   composer visible, so they don't count.
+ *   on mobile that view keeps the composer — the owning surface — mounted,
+ *   but under the `MobileAppOverlay` portal, which covers the composer AND
+ *   the header, so neither surface is actually visible while the overlay is
+ *   expanded. Accepted limitation: the mic stays hot with no on-screen
+ *   control until the overlay closes or minimizes, at which point the
+ *   composer's voice bar is the control again). `app-editing` (split view)
+ *   and the right-drawer detail panels keep the composer visible, so they
+ *   don't count.
  *
  * A session not yet attached to a conversation (started from a draft, before
  * the server's `ready` frame) still shows the pill when the user is away from
  * the owning composer — a live mic must always have a visible control — just
  * without a thread name or navigation target.
+ *
+ * A `failed` session unmounts the pill (no longer active), but the failure
+ * must not vanish silently: when no composer is on screen to render its
+ * failure `Notice` (see `chat-composer.tsx`), this host renders a dismissible
+ * `VoiceSessionErrorChip` in the same slot instead. On composer routes the
+ * chip stays hidden — the composer's Notice owns the error there — so the
+ * two error surfaces never double-render. Dismissing the chip resets the
+ * store to idle, mirroring the composer Notice's dismiss.
  *
  * The ■ "stop response" control is deliberately not wired: V1's `interrupt()`
  * ends the whole session, contradicting the control's "without ending the
@@ -38,28 +54,47 @@
 
 import { useCallback } from "react";
 import { useLocation, useNavigate } from "react-router";
+import type { ReactNode } from "react";
 
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { navigateToConversation } from "@/utils/conversation-navigation";
 import { isConversationChatPath } from "@/utils/routes";
 
-import { VoiceSessionPill } from "@/domains/chat/components/voice-session-pill";
+import {
+  VoiceSessionErrorChip,
+  VoiceSessionPill,
+} from "@/domains/chat/components/voice-session-pill";
 import { useActiveConversation } from "@/domains/chat/hooks/use-active-conversation";
 import {
   LIVE_VOICE_STATE_LABELS,
+  endLiveVoiceSession,
   getLiveVoiceInputAmplitude,
   isLiveVoiceSessionActive,
+  releaseLiveVoiceTurn,
   useIsLiveVoiceSessionOwnedBy,
   useLiveVoiceStore,
 } from "@/domains/chat/voice/live-voice/live-voice-store";
 import { useConversationStore } from "@/stores/conversation-store";
 import { useViewerStore } from "@/stores/viewer-store";
 
-export function VoiceSessionPillHost() {
+export interface VoiceSessionPillHostProps {
+  /**
+   * Placement variant. `"header"` (default) renders the bare surface for
+   * composition into the header's right slot. `"standalone"` floats it over
+   * the window's top-right corner with its own chrome, for windows without a
+   * header (Electron pop-out thread windows). Renders nothing either way when
+   * there is neither an active session to control nor a failure to surface.
+   */
+  variant?: "header" | "standalone";
+}
+
+export function VoiceSessionPillHost({
+  variant = "header",
+}: VoiceSessionPillHostProps) {
   const state = useLiveVoiceStore.use.state();
+  const error = useLiveVoiceStore.use.error();
   const sessionAssistantId = useLiveVoiceStore.use.assistantId();
   const sessionConversationId = useLiveVoiceStore.use.conversationId();
-  const controls = useLiveVoiceStore.use.controls();
 
   const activeConversationId = useConversationStore.use.activeConversationId();
   const mainView = useViewerStore.use.mainView();
@@ -83,6 +118,9 @@ export function VoiceSessionPillHost() {
     useIsLiveVoiceSessionOwnedBy(activeConversationId);
   const visible =
     sessionActive && !(composerOnScreen && activeComposerOwnsSession);
+  // Failure surface: exact complement of the composer's failure Notice, which
+  // any on-screen voice-enabled composer renders regardless of ownership.
+  const showFailure = state === "failed" && error !== null && !composerOnScreen;
 
   // Resolves the owning row from whichever list cache holds it, fetching the
   // single row when absent. Enabled only while the pill is shown so hidden
@@ -99,24 +137,54 @@ export function VoiceSessionPillHost() {
     }
   }, [navigate, sessionConversationId]);
 
-  const handleEnd = useCallback(() => controls?.stop(), [controls]);
-  const handleSend = useCallback(() => controls?.release(), [controls]);
+  // Mirrors the composer Notice's dismiss: `failed` is terminal for the
+  // session, so resetting only clears the surfaced error.
+  const handleDismissError = useCallback(() => {
+    useLiveVoiceStore.getState().reset();
+  }, []);
 
-  if (!visible) {
+  let content: ReactNode = null;
+  if (showFailure) {
+    content = (
+      <VoiceSessionErrorChip message={error} onDismiss={handleDismissError} />
+    );
+  } else if (visible) {
+    content = (
+      <VoiceSessionPill
+        primaryLabel={LIVE_VOICE_STATE_LABELS[state]}
+        secondaryLabel={
+          owningConversation ? (owningConversation.title ?? "Untitled") : undefined
+        }
+        state={state}
+        getAmplitude={getLiveVoiceInputAmplitude}
+        onEnd={endLiveVoiceSession}
+        onSend={releaseLiveVoiceTurn}
+        onNavigate={sessionConversationId ? handleNavigate : undefined}
+      />
+    );
+  }
+
+  if (content === null) {
     return null;
   }
 
-  return (
-    <VoiceSessionPill
-      primaryLabel={LIVE_VOICE_STATE_LABELS[state]}
-      secondaryLabel={
-        owningConversation ? (owningConversation.title ?? "Untitled") : undefined
-      }
-      state={state}
-      getAmplitude={getLiveVoiceInputAmplitude}
-      onEnd={handleEnd}
-      onSend={handleSend}
-      onNavigate={sessionConversationId ? handleNavigate : undefined}
-    />
-  );
+  if (variant === "standalone") {
+    // Floats over the pop-out's content (which owns its own scrolling), so an
+    // absolute corner anchor never disturbs layout. The pill needs chrome of
+    // its own here — in the header the surrounding title bar provides it —
+    // while the error chip already carries a filled background.
+    return (
+      <div className="absolute right-4 top-4 z-30">
+        {showFailure ? (
+          content
+        ) : (
+          <div className="rounded-full border border-[var(--border-base)] bg-[var(--surface-lift)] py-1 pl-4 pr-1.5 shadow-md">
+            {content}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return content;
 }
