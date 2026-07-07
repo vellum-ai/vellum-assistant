@@ -39,7 +39,9 @@ export function SidebarShell({
   const isMenuRoute = pathname === menuRoute;
   const isMobile = useIsMobile();
 
-  // Edge-swipe back gesture for mobile subpages.
+  // Edge-swipe back gesture for the mobile two-page flow. It mirrors the
+  // header back arrow: from a sub-page it returns to the menu root, and from
+  // the menu root it exits to `backHref` (the surface that opened this shell).
   const swipeContainerRef = useRef<HTMLDivElement | null>(null);
   const mobileBackHref = isMenuRoute ? backHref : menuRoute;
   const handleSwipeBack = useCallback(() => {
@@ -48,7 +50,7 @@ export function SidebarShell({
   useEdgeSwipeBack({
     containerRef: swipeContainerRef,
     onBack: handleSwipeBack,
-    enabled: isMobile && !isMenuRoute,
+    enabled: isMobile,
     navKey: pathname,
   });
 
