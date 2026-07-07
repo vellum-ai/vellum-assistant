@@ -460,8 +460,9 @@ export async function runDaemon(): Promise<void> {
   }
 
   // Runs on every boot (unlike the repair above, not gated on hadOverlay) so
-  // it also covers hand-deleted fields and pre-M5 configs restored from
-  // backup. See workspace/default-provider-ensure.ts for the full rationale.
+  // it also covers hand-deleted fields and configs restored from backups
+  // that predate the field. See workspace/default-provider-ensure.ts for the
+  // full rationale.
   try {
     await ensureDefaultProvider(getWorkspaceDir());
     log.info("Default provider ensure pass complete");

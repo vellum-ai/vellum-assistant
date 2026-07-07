@@ -21,8 +21,8 @@ import { hasManagedProxyPrereqs } from "../providers/platform-proxy/context.js";
 //     `hasManagedProxyPrereqs()`, an async secure-vault read that a sync
 //     migration cannot perform). It runs unconditionally on every boot
 //     (not gated on whether a platform overlay was merged this run) so it
-//     also repairs hand-deleted fields and pre-M5 configs restored from
-//     backup.
+//     also repairs hand-deleted fields and configs restored from backups
+//     that predate the field.
 //
 // Idempotent: never overwrites an existing `llm.defaultProvider` value, and
 // never writes `connectionName` — convention resolution
