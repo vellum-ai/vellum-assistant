@@ -410,6 +410,19 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
     [orderedProfileEntries, profileActiveKey],
   );
 
+  // Label for the currently-active profile, shown inline on the composer
+  // trigger so a power user can see which profile a conversation runs on
+  // without opening the menu.
+  const activeProfileLabel = useMemo(() => {
+    if (!profileActiveKey) {
+      return null;
+    }
+    const entry = orderedProfileEntries.find(
+      (e) => e.name === profileActiveKey,
+    );
+    return entry ? profilePickerLabel(entry) : null;
+  }, [orderedProfileEntries, profileActiveKey]);
+
   // Quick-add is owned by the top-level ProfileQuickAddProvider (chat must not
   // import settings directly — see local/no-cross-domain-imports). The provider
   // renders the ProfileEditorModal in create mode, persists the new profile,
@@ -464,13 +477,45 @@ export function ComposerSettingsMenu({ assistantId, conversationId }: Props) {
   // Render
   // ---------------------------------------------------------------------------
 
+  // Access-level segment: gate on a settled fetch (or an active override) so the
+  // trigger never flashes the `THRESHOLD_PRESETS[1]` fallback before the real
+  // value loads.
+  const AccessIcon = activePreset.icon;
+  const showAccess = globalThresholdsQuery.isSuccess || serverIsOverride;
+  const hasTriggerContent = !!activeProfileLabel || showAccess;
+
+  // Each segment highlights independently on hover to signal it opens the menu;
+  // the whole button is the trigger.
+  const segmentClass =
+    "flex items-center gap-1.5 rounded-md px-1.5 py-1 transition-colors hover:bg-[var(--surface-active)] hover:text-[var(--content-default)]";
+
   const trigger = (
-    <Button
-      variant="ghost"
-      iconOnly={<SlidersHorizontal className="h-[18px] w-[18px]" />}
+    <button
+      type="button"
       aria-label="Conversation settings"
-      className="[--vbtn-fg:var(--content-secondary)] data-[state=open]:[--vbtn-fg:var(--content-default)]"
-    />
+      className="flex h-7 items-center gap-0.5 rounded-md text-body-small-default text-[var(--content-secondary)] data-[state=open]:text-[var(--content-default)]"
+    >
+      {hasTriggerContent ? (
+        <>
+          {activeProfileLabel ? (
+            <span className={segmentClass}>
+              <Sparkles className="h-3.5 w-3.5 shrink-0" />
+              <span className="max-w-[10rem] truncate">
+                {activeProfileLabel}
+              </span>
+            </span>
+          ) : null}
+          {showAccess ? (
+            <span className={segmentClass}>
+              <AccessIcon className="h-3.5 w-3.5 shrink-0" />
+              {activePreset.label}
+            </span>
+          ) : null}
+        </>
+      ) : (
+        <SlidersHorizontal className="mx-1 h-[18px] w-[18px]" />
+      )}
+    </button>
   );
 
   if (isMobile) {

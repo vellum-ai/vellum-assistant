@@ -597,8 +597,8 @@ export function ChatComposer({
             )}
             <div className="flex items-center justify-between px-2 pb-2">
               <div className="flex items-center gap-1">
-                {thresholdPickerSlot}
                 {contextWindowIndicatorSlot}
+                {thresholdPickerSlot}
               </div>
               <div className="flex items-center gap-1">
                 {canStopGenerating ? (
