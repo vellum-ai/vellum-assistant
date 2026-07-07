@@ -15,6 +15,7 @@ import {
   recordBillingSuccess,
 } from "./embedding-billing-breaker.js";
 import { GeminiEmbeddingBackend } from "./embedding-gemini.js";
+import { registerLocalEmbeddingRetryHook } from "./embedding-local-retry.js";
 import { OllamaEmbeddingBackend } from "./embedding-ollama.js";
 import { OpenAIEmbeddingBackend } from "./embedding-openai.js";
 import {
@@ -226,6 +227,11 @@ export function resetLocalEmbeddingFailureState(): void {
     }
   }
 }
+
+// Wire the reset into the retry leaf so the embedding runtime manager can
+// clear sticky failure state after a background runtime download without
+// importing this module (which would form an import cycle).
+registerLocalEmbeddingRetryHook(resetLocalEmbeddingFailureState);
 
 function cacheKey(provider: string, model: string, extras?: string[]): string {
   if (extras && extras.length > 0) {

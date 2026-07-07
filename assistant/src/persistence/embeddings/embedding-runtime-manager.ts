@@ -29,6 +29,7 @@ import { ensureBun, findBun } from "../../util/bun-runtime.js";
 import { getLogger } from "../../util/logger.js";
 import { getEmbeddingModelsDir } from "../../util/platform.js";
 import { PromiseGuard } from "../../util/promise-guard.js";
+import { requestLocalEmbeddingRetry } from "./embedding-local-retry.js";
 
 const log = getLogger("embedding-runtime-manager");
 
@@ -590,9 +591,9 @@ export function startEmbeddingRuntimeManager(): void {
       await runtimeManager.ensureInstalled();
       // Reset the sticky local-backend failure flag so auto mode retries
       // local embeddings without evicting a worker that may already be live.
-      const { resetLocalEmbeddingFailureState } =
-        await import("./embedding-backend.js");
-      resetLocalEmbeddingFailureState();
+      // Routed through the retry leaf to avoid importing the backend directly
+      // (which would form an import cycle).
+      requestLocalEmbeddingRetry();
       log.info("Embedding runtime download complete");
     } catch (err) {
       log.warn(
